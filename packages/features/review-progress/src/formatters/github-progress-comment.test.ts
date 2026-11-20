@@ -244,6 +244,41 @@ describe("formatGithubProgressComment", () => {
     expect(comment).not.toContain("**Phase:** Complete");
   });
 
+  it("counts only the needed parts of a covered review the summary calls incomplete", () => {
+    const snapshot = computeProgressSnapshot({
+      generation: 1,
+      phase: "assembling",
+      terminal: "none",
+      updatedAt: "2026-08-12T17:00:00Z",
+      slots: [
+        { slotId: "first-1", required: true, state: "exhausted" },
+        { slotId: "second-1", required: true, state: "accepted" },
+        { slotId: "second-2", required: true, state: "accepted" },
+        { slotId: "third-1", required: true, state: "cancelled" },
+      ],
+    });
+    const comment = formatGithubProgressComment({
+      ...snapshot,
+      phase: "terminal",
+      terminal: "complete_with_gaps",
+      requiredCoverageComplete: true,
+    });
+    expect(comment).toContain("**Phase:** Review incomplete");
+    expect(comment).toContain("Progress: 2 of 2 parts reviewed (100%)");
+    expect(comment).toContain("Parts not needed: 1");
+    expect(comment).not.toContain("could not be finished:");
+    expect(comment).not.toContain("50%");
+
+    // Without the server's coverage fact the same counts are real gaps.
+    const partial = formatGithubProgressComment({
+      ...snapshot,
+      phase: "terminal",
+      terminal: "complete_with_gaps",
+    });
+    expect(partial).toContain("Progress: 2 of 4 parts reviewed (50%)");
+    expect(partial).toContain("Parts that could not be finished: 1");
+  });
+
   it("does not call a Complete review with a failed optional part unfinished", () => {
     // Production shape (social-monitor#782): one required part reviewed every
     // file, an optional part exhausted its retries.

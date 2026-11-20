@@ -22,7 +22,9 @@ export function parseSnapshot(value: unknown): ProgressSnapshot {
     !validCounts(counts) ||
     !validTerminalCounts(value.terminal, counts) ||
     !validCoverage(fileCoverage) ||
-    !validOptionalSourceIdentity(value.sourceIdentity)
+    !validOptionalSourceIdentity(value.sourceIdentity) ||
+    (value.requiredCoverageComplete !== undefined &&
+      (value.requiredCoverageComplete !== true || value.phase !== "terminal"))
   )
     throw new Error("review_progress_snapshot_invalid");
   return value as unknown as ProgressSnapshot;

@@ -17,19 +17,38 @@ function settledAttempt(outcome: "succeeded" | "failed_no_effect") {
 
 /** The finalized artifact whose projection the summary was rendered from. */
 function publishedArtifact(
-  coverage: "complete" | "partial",
+  summary: "complete" | "incomplete",
   overrides: { generation?: bigint } = {},
 ) {
   return {
     generation: overrides.generation ?? 7n,
     reviewedHeadSha: "a".repeat(40),
-    projectionEnvelope: { coverage: { state: coverage } },
+    coverageState: "completed",
+    projectionEnvelope: {
+      coverage: { state: summary === "complete" ? "complete" : "partial" },
+      publishing: {
+        summary: {
+          body: `<!-- reviewrouter:review-status:${summary} -->\nReview ${summary}`,
+        },
+      },
+    },
   };
 }
 
-/** One completed execution whose publication succeeded, with all parts done. */
+/** One completed execution whose publication succeeded. */
 function settledCompletedReview(
   artifact: ReturnType<typeof publishedArtifact>,
+  counts: Readonly<{
+    requiredTotal: number;
+    requiredCompleted: number;
+    requiredExhausted: number;
+    requiredCancelled: number;
+  }> = {
+    requiredTotal: 2,
+    requiredCompleted: 2,
+    requiredExhausted: 0,
+    requiredCancelled: 0,
+  },
 ) {
   const progressUpdate = vi.fn(async () => ({}));
   const publicationUpdate = vi.fn(async () => ({}));
@@ -63,16 +82,7 @@ function settledCompletedReview(
             headSha: "a".repeat(40),
             planHash: "b".repeat(64),
             terminalOutcome: null,
-            snapshotJson: {
-              schemaVersion: 1,
-              phase: "assembling",
-              counts: {
-                requiredTotal: 2,
-                requiredCompleted: 2,
-                requiredExhausted: 0,
-                requiredCancelled: 0,
-              },
-            },
+            snapshotJson: { schemaVersion: 1, phase: "assembling", counts },
           }),
           update: progressUpdate,
         },
@@ -91,32 +101,66 @@ function settledCompletedReview(
   return { store, progressUpdate, publicationUpdate };
 }
 
-describe("Progress terminal outcome follows the published review", () => {
+describe("Progress terminal outcome follows the published summary", () => {
   it.each([
-    { coverage: "complete" as const, terminal: "complete" },
-    // Every part finished, but the Action could not verify native spans and
-    // its summary says "Review incomplete".
-    { coverage: "partial" as const, terminal: "complete_with_gaps" },
-  ])(
-    "promotes a completed execution with $coverage coverage to $terminal",
-    async ({ coverage, terminal }) => {
-      const review = settledCompletedReview(publishedArtifact(coverage));
-      await expect(
-        review.store.promoteSettledExecutions({
-          executionIds: ["execution-1"],
-          now,
-        }),
-      ).resolves.toBe(1);
-      expect(review.progressUpdate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            terminalOutcome: terminal,
-            snapshotJson: expect.objectContaining({ terminal }),
+    {
+      name: "a complete review",
+      summary: "complete" as const,
+      terminal: "complete",
+      counts: undefined,
+    },
+    {
+      // Every part finished, but native spans could not be verified.
+      name: "unverified spans with every part finished",
+      summary: "incomplete" as const,
+      terminal: "complete_with_gaps",
+      counts: undefined,
+    },
+    {
+      // Ordered fallback: the second reviewer was not needed.
+      name: "an ordered fallback whose summary is complete",
+      summary: "complete" as const,
+      terminal: "complete",
+      counts: {
+        requiredTotal: 2,
+        requiredCompleted: 1,
+        requiredExhausted: 0,
+        requiredCancelled: 1,
+      },
+    },
+    {
+      // Quota skip covered by another reviewer, but spans were unverified.
+      name: "a quota skip whose summary is incomplete",
+      summary: "incomplete" as const,
+      terminal: "complete_with_gaps",
+      counts: {
+        requiredTotal: 2,
+        requiredCompleted: 1,
+        requiredExhausted: 1,
+        requiredCancelled: 0,
+      },
+    },
+  ])("promotes $name to $terminal", async ({ summary, terminal, counts }) => {
+    const review = settledCompletedReview(publishedArtifact(summary), counts);
+    await expect(
+      review.store.promoteSettledExecutions({
+        executionIds: ["execution-1"],
+        now,
+      }),
+    ).resolves.toBe(1);
+    expect(review.progressUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          terminalOutcome: terminal,
+          snapshotJson: expect.objectContaining({
+            terminal,
+            // The server covered every required part either way.
+            requiredCoverageComplete: true,
           }),
         }),
-      );
-    },
-  );
+      }),
+    );
+  });
 
   it("waits while the finalized artifact belongs to another generation", async () => {
     const review = settledCompletedReview(
@@ -1310,9 +1354,6 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
               state: "completed",
             }),
           },
-          finalizedReviewProjectionArtifactV2: {
-            findUnique: async () => publishedArtifact("complete"),
-          },
           reviewCompletionProcess: {
             findUnique: async () => ({ publicationAttemptId: "attempt-1" }),
           },
@@ -1448,9 +1489,6 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
               state: "partial",
             }),
           },
-          finalizedReviewProjectionArtifactV2: {
-            findUnique: async () => publishedArtifact("complete"),
-          },
           reviewCompletionProcess: {
             findUnique: async () => ({ publicationAttemptId: "attempt-1" }),
           },
@@ -1520,9 +1558,6 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
               executionId: "execution-1",
               state: "completed",
             }),
-          },
-          finalizedReviewProjectionArtifactV2: {
-            findUnique: async () => publishedArtifact("complete"),
           },
           reviewCompletionProcess: {
             findUnique: async () => ({ publicationAttemptId: "attempt-1" }),

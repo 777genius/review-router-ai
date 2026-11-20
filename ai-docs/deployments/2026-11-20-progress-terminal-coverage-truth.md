@@ -8,10 +8,10 @@
   verified, so the Action claimed partial coverage, while every required part
   finished and the server execution completed.
 - Affected target: worker (terminal promotion and the comment formatter). The
-  API now reads the Action's coverage claim through the same shared predicate;
-  its behavior is unchanged. Web, Gateway, native and the public Action are
-  unchanged.
-- Implementation PR: the PR that adds this file.
+  API and the review snapshot source read the Action's coverage claim through
+  one shared predicate; their behavior is unchanged. Web, Gateway, native and
+  the public Action are unchanged.
+- Implementation PR: [PR #943](https://github.com/777genius/review-router-ai/pull/943).
 - Implementation reference: the squash commit of that PR on `main`.
 - Dependencies: none. No migration, configuration or feature flag.
 - Last updated: 2026-11-20.
@@ -28,23 +28,28 @@ observed to be absent. Use the [status contract](README.md#status-contract).
 
 ## What changes at runtime
 
-- One reading of "the published review is complete":
-  `projectionClaimsCompleteCoverage` in `packages/features/review-executions`
-  reads the Action projection's `coverage.state`, the claim the Action's
-  summary renders "Review incomplete" from. The API's coverage exceptions and
-  the worker's terminal promotion both use it.
-- Terminal promotion reads that claim from the finalized artifact of the same
-  generation and head. A completed execution ends as `complete` only when the
-  claim is complete, otherwise `complete_with_gaps`; a partial execution stays
-  `complete_with_gaps`, and an ordered fallback or quota skip that the Action
-  reports complete stays Complete.
-- `complete_with_gaps` now shows as "**Phase:** Review incomplete" with the
-  line "Some of the review could not be finished or verified. The review
-  summary explains why." "Parts that could not be finished" still appears there
-  when parts did not finish, and never on Complete.
-- The shared count rule `settledOutcomeCountsValid` accepts Review incomplete
+- One verdict for "is the published review incomplete":
+  `publishedSummaryIncomplete` in the review-publishing domain, next to the
+  renderer that builds the summary. The summary is the server's partial
+  summary when server coverage is partial, otherwise the Action's own body,
+  whose status marker `<!-- reviewrouter:review-status:incomplete -->` carries
+  the Action's verdict (unverified native spans, unverified previous findings,
+  all providers failed, partial coverage).
+- Terminal promotion reads that verdict from the finalized artifact of the
+  same generation and head, only for a completed execution whose publication
+  succeeded. Complete only when the summary is complete, otherwise
+  `complete_with_gaps`; a partial execution stays `complete_with_gaps`.
+- `complete_with_gaps` shows as "**Phase:** Review incomplete" with "Some of
+  the review could not be finished or verified. The review summary explains
+  why." When the server covered every required part (the terminal snapshot
+  carries `requiredCoverageComplete`), the comment counts only the parts the
+  review needed, like Complete, so an ordered fallback or quota skip never
+  shows "1 of 2 (50%)". "Parts that could not be finished" appears only when
+  required coverage really has a gap.
+- One shared count rule, `settledOutcomeCountsValid`, accepts Review incomplete
   with every required part finished; both outcomes need every required part
-  settled.
+  settled. `projectionClaimsCompleteCoverage` replaces two inline readings of
+  the Action's coverage claim (API coverage exceptions, review snapshot source).
 - The final review publication is unchanged: the server's own coverage verdict
   (`deriveCoverageState`) and everything it drives stay as they were.
 
@@ -66,7 +71,11 @@ environment below.
 ## Retry and rollback
 
 No data is migrated. Rolling back the image restores the old mapping and
-wording; progress already promoted keeps its stored outcome.
+wording; progress already promoted keeps its stored outcome. An older worker
+rejects a Review incomplete snapshot with every part finished and suppresses
+it, so a row promoted by the new worker but not yet published stays at
+"Assembling results" after a rollback. Prefer the kill switch while writes
+are on.
 
 ## Related links
 

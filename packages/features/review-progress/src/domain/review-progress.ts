@@ -95,6 +95,12 @@ export type ProgressSnapshot = {
   readonly fileCoverage: FileCoverage;
   /** Non-secret GitHub Actions identity used to causally bind hosted progress. */
   readonly sourceIdentity?: ProgressSourceIdentity | undefined;
+  /**
+   * Set on a terminal snapshot when the server covered every required part,
+   * also when the published summary still says the review is incomplete. The
+   * comment then counts only the parts the review needed.
+   */
+  readonly requiredCoverageComplete?: true | undefined;
 };
 
 export type ComputeProgressSnapshotInput = {

@@ -8,26 +8,26 @@ const now = new Date("2026-08-12T12:00:00.000Z");
 
 describe("Review progress terminal policy", () => {
   it("preserves explicit settlement precedence", () => {
-    expect(executionStateTerminal("completed", "succeeded", true)).toBe(
+    expect(executionStateTerminal("completed", "succeeded", "complete")).toBe(
       "complete",
     );
-    expect(executionStateTerminal("partial", "succeeded", true)).toBe(
+    expect(executionStateTerminal("partial", "succeeded", "complete")).toBe(
       "complete_with_gaps",
     );
-    expect(executionStateTerminal("completed", "failed", true)).toBe("failed");
-    expect(executionStateTerminal("completed", "superseded", false)).toBe(
+    expect(executionStateTerminal("completed", "failed", "complete")).toBe("failed");
+    expect(executionStateTerminal("completed", "superseded", "incomplete")).toBe(
       "superseded",
     );
-    expect(executionStateTerminal("running", "succeeded", true)).toBeNull();
+    expect(executionStateTerminal("running", "succeeded", "complete")).toBeNull();
   });
 
   it("ends incomplete whenever the published review is incomplete", () => {
     // Unverified native spans: every part finished, the summary says incomplete.
-    expect(executionStateTerminal("completed", "succeeded", false)).toBe(
+    expect(executionStateTerminal("completed", "succeeded", "incomplete")).toBe(
       "complete_with_gaps",
     );
     // Exhausted required parts: the execution itself is partial.
-    expect(executionStateTerminal("partial", "succeeded", false)).toBe(
+    expect(executionStateTerminal("partial", "succeeded", "incomplete")).toBe(
       "complete_with_gaps",
     );
   });
@@ -126,7 +126,7 @@ describe("Review progress terminal policy", () => {
     }
   });
 
-  it("rejects a partial outcome without any required gap", () => {
+  it("rejects an incomplete outcome with unsettled required parts", () => {
     expect(() =>
       terminalSnapshot(
         {

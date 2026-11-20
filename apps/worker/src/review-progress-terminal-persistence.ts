@@ -7,7 +7,10 @@ import {
   Prisma,
   type PrismaClient,
 } from "@prisma/client";
-import { projectionClaimsCompleteCoverage } from "@reviewrouter/features-review-executions";
+import {
+  publishedSummaryIncomplete,
+  ReviewPublicationProjectionCoverage,
+} from "@reviewrouter/features-review-publishing/v2";
 import {
   executionStateTerminal,
   terminalSnapshot,
@@ -115,21 +118,22 @@ async function durableSettledPublicationOutcome(
 }
 
 /**
- * Read the coverage claim of the projection that was published, the same
- * claim that makes its summary say "Review incomplete". Null when the
+ * The verdict of the summary that was published for this generation: the same
+ * "Review incomplete" or not that the pull request shows. Null when the
  * finalized artifact does not belong to this progress generation.
  */
-async function publishedProjectionComplete(
+async function publishedSummaryVerdict(
   transaction: Prisma.TransactionClient,
   executionId: string,
   progress: { readonly generation: bigint; readonly headSha: string },
-): Promise<boolean | null> {
+): Promise<"complete" | "incomplete" | null> {
   const artifact =
     await transaction.finalizedReviewProjectionArtifactV2.findUnique({
       where: { executionId },
       select: {
         generation: true,
         reviewedHeadSha: true,
+        coverageState: true,
         projectionEnvelope: true,
       },
     });
@@ -139,7 +143,28 @@ async function publishedProjectionComplete(
     artifact.reviewedHeadSha !== progress.headSha
   )
     return null;
-  return projectionClaimsCompleteCoverage(artifact.projectionEnvelope);
+  return publishedSummaryIncomplete({
+    coverage:
+      artifact.coverageState === "partial"
+        ? ReviewPublicationProjectionCoverage.Partial
+        : ReviewPublicationProjectionCoverage.Completed,
+    sourceSummaryBody: sourceSummaryBody(artifact.projectionEnvelope),
+  })
+    ? "incomplete"
+    : "complete";
+}
+
+function sourceSummaryBody(envelope: Prisma.JsonValue): string {
+  const publishing = isJsonObject(envelope) ? envelope.publishing : null;
+  const summary = isJsonObject(publishing) ? publishing.summary : null;
+  const body = isJsonObject(summary) ? summary.body : null;
+  return typeof body === "string" ? body : "";
+}
+
+function isJsonObject(
+  value: Prisma.JsonValue | undefined,
+): value is Prisma.JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** Promote only a fully settled current attempt that still owns progress. */
@@ -161,16 +186,21 @@ async function promoteSettledExecution(
     promotable.progress,
   );
   if (!publicationOutcome) return false;
-  const producerCoverageComplete = await publishedProjectionComplete(
-    transaction,
-    executionId,
-    promotable.progress,
-  );
-  if (producerCoverageComplete === null) return false;
+  // Only a completed, published review can still end either way; every other
+  // outcome is decided without reading the projection.
+  const summaryVerdict =
+    publicationOutcome === "succeeded" && execution.state === "completed"
+      ? await publishedSummaryVerdict(
+          transaction,
+          executionId,
+          promotable.progress,
+        )
+      : "complete";
+  if (summaryVerdict === null) return false;
   const terminalOutcome = executionStateTerminal(
     execution.state,
     publicationOutcome,
-    producerCoverageComplete,
+    summaryVerdict,
   );
   if (!terminalOutcome) return false;
   await persistTerminalPromotion(transaction, {
@@ -181,6 +211,9 @@ async function promoteSettledExecution(
       promotable.progress.snapshotJson,
       terminalOutcome,
       now,
+      // Every required part was covered on the server, also when the summary
+      // says incomplete; the comment then counts only the parts it needed.
+      { requiredCoverageComplete: execution.state === "completed" },
     ),
     terminalOutcome,
     now,

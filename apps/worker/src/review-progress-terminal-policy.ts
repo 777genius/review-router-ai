@@ -9,20 +9,19 @@ export type TerminalOutcome =
 
 /**
  * The terminal outcome of a settled review. A completed execution is Complete
- * only when its published review is complete too: the Action's projection can
- * still claim incomplete coverage with every required part finished (for
- * example unverified native spans), and its summary then says "Review
- * incomplete".
+ * only when its published summary is complete too: the Action can say "Review
+ * incomplete" with every required part finished (for example unverified
+ * native spans), and the progress comment must say the same.
  */
 export function executionStateTerminal(
   value: string | undefined,
   publicationOutcome: "succeeded" | "failed" | "superseded",
-  producerCoverageComplete: boolean,
+  summaryVerdict: "complete" | "incomplete",
 ): TerminalOutcome | null {
   if (publicationOutcome === "failed") return "failed";
   if (publicationOutcome === "superseded") return "superseded";
   if (value === "completed")
-    return producerCoverageComplete ? "complete" : "complete_with_gaps";
+    return summaryVerdict === "complete" ? "complete" : "complete_with_gaps";
   if (value === "partial") return "complete_with_gaps";
   if (value === "failed") return "failed";
   if (value === "superseded") return "superseded";
@@ -33,6 +32,7 @@ export function terminalSnapshot(
   value: Prisma.JsonValue,
   terminal: TerminalOutcome,
   now: Date,
+  facts: Readonly<{ requiredCoverageComplete?: boolean }> = {},
 ): Prisma.InputJsonObject {
   if (
     !isRecord(value) ||
@@ -46,6 +46,9 @@ export function terminalSnapshot(
     ...value,
     phase: "terminal",
     terminal,
+    ...(facts.requiredCoverageComplete === true
+      ? { requiredCoverageComplete: true }
+      : {}),
     updatedAt: now.toISOString(),
   } as Prisma.InputJsonObject;
 }

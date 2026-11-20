@@ -665,10 +665,9 @@ export function reviewExecutionIsTerminal(
 }
 
 /**
- * Whether the Action's projection envelope claims complete coverage. The
- * Action marks its published summary "Review incomplete" whenever it does not,
- * also with every required part finished (for example unverified native
- * spans), so this is the one reading of the published review's completeness.
+ * Whether the Action's projection envelope claims complete coverage. This is
+ * the producer's coverage claim that can narrow the server's verdict; what the
+ * published summary says is `publishedSummaryIncomplete` in review publishing.
  */
 export function projectionClaimsCompleteCoverage(envelope: unknown): boolean {
   if (typeof envelope !== "object" || envelope === null) return false;
