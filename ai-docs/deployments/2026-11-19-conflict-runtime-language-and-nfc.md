@@ -23,14 +23,14 @@
     a symlink or submodule under a decomposed name is now refused with
     `conflict_diff_file_type_unsupported` like any other.
 - Dependencies: none. No migration, configuration or feature flag.
-- Last updated: 2026-11-19 (merged, rides in the next bundled rollout).
+- Last updated: 2026-11-20 (shipped in Action 242).
 
 ## Environment status
 
-| Target                    | Status    | Actual version | Evidence                      |
-| ------------------------- | --------- | -------------- | ----------------------------- |
-| Public Action `main`      | `pending` | Not verified   | Reaches it through the sync   |
-| Public Action release/tag | `pending` | Not verified   | Needs the next Action release |
+| Target                    | Status      | Actual version                                 | Evidence                                                                               |
+| ------------------------- | ----------- | ---------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Public Action `main`      | `installed` | `cea507a8` (#402)                              | Bundle `55a3288f…` in `main`                                                           |
+| Public Action release/tag | `installed` | `v1.0.242` = `v1` = `workflow-v1` = `cea507a8` | No conflict review observed yet; [bundled rollout 2](2026-11-20-bundle2-action-242.md) |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -56,6 +56,6 @@ release.
 
 ## Execution log
 
-| Time (UTC)   | Environment        | Operator   | Actual version / image | Step and observed result | Evidence | Next action                                        |
-| ------------ | ------------------ | ---------- | ---------------------- | ------------------------ | -------- | -------------------------------------------------- |
-| Not executed | public Action main | Unassigned | Not verified           | Merged, not synced       | PR #931  | Check the sync run, then ship in the next release. |
+| Time (UTC)                | Environment   | Operator    | Actual version / image  | Step and observed result                                                                                      | Evidence                                              | Next action                                                 |
+| ------------------------- | ------------- | ----------- | ----------------------- | ------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------- |
+| 2026-11-20 02:06 to 03:53 | public Action | operator D3 | `v1.0.242` = `cea507a8` | Bundle carried by review-router#402 (the sync had not run), released, `workflow-v1` promoted after the canary | [bundled rollout 2](2026-11-20-bundle2-action-242.md) | Check a conflict review with a non-English review language. |
