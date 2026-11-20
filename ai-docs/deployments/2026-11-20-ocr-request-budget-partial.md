@@ -19,13 +19,13 @@
 
 ## Environment status
 
-| Target                     | Status    | Actual version | Evidence                                      |
-| -------------------------- | --------- | -------------- | --------------------------------------------- |
-| Public Action `main`       | `pending` | Not verified   | Merge of review-router#407                    |
-| Public Action release/tag  | `pending` | Not verified   | Next bundled Action release                   |
-| RR `main` (progress line)  | `pending` | Not verified   | Merge of review-router-ai#952                 |
-| RR staging worker image    | `pending` | Not verified   | Next bundled image                            |
-| RR production worker image | `pending` | Not verified   | Next bundled image                            |
+| Target                     | Status    | Actual version | Evidence                      |
+| -------------------------- | --------- | -------------- | ----------------------------- |
+| Public Action `main`       | `pending` | Not verified   | Merge of review-router#407    |
+| Public Action release/tag  | `pending` | Not verified   | Next bundled Action release   |
+| RR `main` (progress line)  | `pending` | Not verified   | Merge of review-router-ai#952 |
+| RR staging worker image    | `pending` | Not verified   | Next bundled image            |
+| RR production worker image | `pending` | Not verified   | Next bundled image            |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -35,7 +35,7 @@ observed to be absent. Use the [status contract](README.md#status-contract).
 - When a model-dispatch claim is refused for the request allowance
   (`model_dispatch_budget_exhausted`, local bound or control-plane 409), the
   transport records `{code: model_dispatch_budget_exhausted, effect:
-  not_dispatched}` instead of an unknown effect. Inference stays fenced exactly
+not_dispatched}` instead of an unknown effect. Inference stays fenced exactly
   as before: no further request leaves the runner, later claims get the same
   typed refusal, and nothing is released or retried.
 - Model attribution of the requests that completed is kept, so OCR acceptance
@@ -86,8 +86,10 @@ After the release, read-only: a run log line `Managed OCR acceptance` with
 model_dispatch_budget_exhausted; effect: not_dispatched` line; the `finding_discovery` slot is `satisfied` (not
 `exhausted`); the summary scope line shows `N/M` with `M > N` and the
 request-allowance notice; the progress comment ends "Review incomplete"
-without a "Files fully reviewed" line once the RR image is deployed. The execution state alone proves
-nothing: lost runs before the change also ended `partial`. Only large pull
+without a "Files fully reviewed" line once the RR image is deployed. Such a
+run's execution ends `completed` (the slot is `satisfied`, so RR coverage is
+`completed`) while the progress terminal is "Review incomplete"; `partial`
+still means the old loss. Only large pull
 requests reach the allowance, so this may take a while to observe. For the
 image part: an incomplete review with accepted parts has no "Files fully
 reviewed" line, a lost one still shows "0 of N".
@@ -101,7 +103,10 @@ partial reviews and comments stay as they are.
 
 ## Execution log
 
-| Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result | Evidence | Next action                            |
-| ------------ | -------------------- | ---------- | ---------------------- | ------------------------ | -------- | -------------------------------------- |
-| Not executed | public Action `main` | Unassigned | Not verified           | Not merged yet.          | None     | Merge, then ship with the next bundle. |
-| Not executed | RR worker image      | Unassigned | Not verified           | Not merged yet.          | None     | Merge, then ship with the next bundle. |
+| Time (UTC)   | Environment                | Operator   | Actual version / image | Step and observed result | Evidence | Next action                            |
+| ------------ | -------------------------- | ---------- | ---------------------- | ------------------------ | -------- | -------------------------------------- |
+| Not executed | public Action `main`       | Unassigned | Not verified           | Not merged yet.          | None     | Merge, then ship with the next bundle. |
+| Not executed | public Action release      | Unassigned | Not verified           | Not released.            | None     | Next bundled Action release.           |
+| Not executed | RR `main`                  | Unassigned | Not verified           | Not merged yet.          | None     | Merge review-router-ai#952.            |
+| Not executed | RR staging worker image    | Unassigned | Not verified           | Not deployed.            | None     | Next bundled image.                    |
+| Not executed | RR production worker image | Unassigned | Not verified           | Not deployed.            | None     | Next bundled image.                    |

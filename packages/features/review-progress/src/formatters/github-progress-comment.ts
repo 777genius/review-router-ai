@@ -79,9 +79,9 @@ export function formatGithubProgressComment(
       ? [
           // Counts follow accepted parts. An incomplete review can accept a
           // part that stopped early (plan 87), so only the summary knows which
-          // files were really reviewed; never claim them here. Zero covered
-          // files (nothing accepted) is still a true count.
-          ...(incomplete && snapshot.fileCoverage.covered > 0
+          // files were really reviewed; never claim them here. With no part
+          // accepted, "0 of N" is still a true count.
+          ...(incomplete && counts.requiredCompleted > 0
             ? []
             : [
                 `Files fully reviewed: ${snapshot.fileCoverage.covered} of ${snapshot.fileCoverage.total}`,

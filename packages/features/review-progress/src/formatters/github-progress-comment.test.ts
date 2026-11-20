@@ -250,31 +250,47 @@ describe("formatGithubProgressComment", () => {
     // which files were really reviewed.
     expect(comment).not.toContain("Files fully reviewed");
     expect(comment).toContain("Files not assigned to any part: 0");
-    // A lost review accepted nothing, and "0 of N" stays true.
-    const lost = formatGithubProgressComment(
-      computeProgressSnapshot({
-        generation: 1,
-        phase: "terminal",
-        terminal: "complete_with_gaps",
-        updatedAt: "2026-08-12T17:00:00Z",
-        slots: [{ slotId: "one", required: true, state: "exhausted" }],
-        assignmentManifest: {
-          paths: [
-            {
-              pathId: "opaque",
-              disposition: "reviewable",
-              requiredCoveringSlotIds: ["one"],
-            },
-          ],
-        },
-      }),
-    );
-    expect(lost).toContain("Files fully reviewed: 0 of 1");
     expect(comment).toContain("**Phase:** Review incomplete");
     expect(comment).toContain("could not be finished or verified");
     expect(comment).toContain("Progress: 2 of 2 parts reviewed (100%)");
     expect(comment).not.toContain("Parts that could not be finished");
     expect(comment).not.toContain("**Phase:** Complete");
+  });
+
+  it("keeps a true 0 of N on a lost review and hides the count once a part was accepted", () => {
+    const manifest = {
+      paths: [
+        {
+          pathId: "opaque",
+          disposition: "reviewable" as const,
+          requiredCoveringSlotIds: ["first-1", "second-1"],
+        },
+      ],
+    };
+    const terminal = (states: ("accepted" | "exhausted")[]) =>
+      formatGithubProgressComment(
+        computeProgressSnapshot({
+          generation: 1,
+          phase: "terminal",
+          terminal: "complete_with_gaps",
+          updatedAt: "2026-08-12T17:00:00Z",
+          slots: [
+            { slotId: "first-1", required: true, state: states[0]! },
+            { slotId: "second-1", required: true, state: states[1]! },
+          ],
+          assignmentManifest: manifest,
+        }),
+      );
+    // Nothing accepted: the count is true.
+    expect(terminal(["exhausted", "exhausted"])).toContain(
+      "Files fully reviewed: 0 of 1",
+    );
+    // An ordered fallback where the second reviewer covered the file: the
+    // per-file count says 0 because the first reviewer did not finish, so it
+    // is hidden rather than shown wrong.
+    expect(terminal(["exhausted", "accepted"])).not.toContain(
+      "Files fully reviewed",
+    );
   });
 
   it("counts only the needed parts of a covered review the summary calls incomplete", () => {
