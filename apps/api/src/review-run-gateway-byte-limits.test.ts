@@ -1091,7 +1091,7 @@ it.each([403, 503])(
 );
 
 it.each([403, 503])(
-  "companion logs only closed refusal fields for HTTP %s without retrying",
+  "companion returns and logs the closed Gateway cause for HTTP %s without retrying",
   async (httpStatus) => {
     const state = companionReservation();
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -1109,7 +1109,8 @@ it.each([403, 503])(
           companionContext,
         ),
       ).rejects.toMatchObject({
-        code: "companion_request_failed",
+        // The Gateway's closed refusal code, not a generic relay code.
+        code: "forbidden",
         statusCode: 502,
         effect: "effect_unknown",
         requestRef: "stored-companion-native-ref",
@@ -1121,6 +1122,7 @@ it.each([403, 503])(
           {
             event: "review_run_companion_gateway_request_failed",
             stage: "sdk_request",
+            relayCode: "forbidden",
             sdkCode: "safe_error",
             effect: "not_dispatched",
             diagnosticCode: "forbidden",
@@ -1177,7 +1179,7 @@ it("companion distinguishes local authority refusal before the SDK POST", async 
         companionContext,
       ),
     ).rejects.toMatchObject({
-      code: "companion_request_failed",
+      code: "authorization_denied",
       statusCode: 502,
       effect: "effect_unknown",
       requestRef: "stored-companion-native-ref",
@@ -1189,6 +1191,7 @@ it("companion distinguishes local authority refusal before the SDK POST", async 
         event: "review_run_companion_gateway_request_failed",
         stage: "local_authority",
         requestRef: "stored-companion-native-ref",
+        relayCode: "authorization_denied",
       },
     ]);
     expect(f.intents).toHaveLength(1);
@@ -1226,7 +1229,7 @@ it("companion settles its refusal even when the diagnostic sink throws", async (
         companionContext,
       ),
     ).rejects.toMatchObject({
-      code: "companion_request_failed",
+      code: "forbidden",
       statusCode: 502,
       effect: "effect_unknown",
     });

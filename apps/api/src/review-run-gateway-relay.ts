@@ -148,6 +148,7 @@ function emitRequestFailureDiagnostic(
   kind: "companion" | "ordinary",
   stage: GatewayRequestStage,
   requestRef: string,
+  relayCode?: string,
 ) {
   try {
     const sdkError = error instanceof GatewayError ? error : undefined;
@@ -174,6 +175,7 @@ function emitRequestFailureDiagnostic(
             : "review_run_gateway_request_failed",
         stage,
         requestRef,
+        ...(relayCode === undefined ? {} : { relayCode }),
         ...(sdkCode === undefined ? {} : { sdkCode }),
         ...(effect.success ? { effect: effect.data } : {}),
         ...(diagnosticCode.success
@@ -1100,11 +1102,15 @@ export function createReviewRunGatewayRelay(input: {
         },
       };
     } catch (error) {
+      // The refusal keeps its closed cause (Gateway code, local authority
+      // refusal, provider quota); status and effect stay those of this path.
+      const cause = safeFailure(error);
       emitRequestFailureDiagnostic(
         error,
         "companion",
         requestStage,
         requestRef,
+        cause.code,
       );
       if (upstream?.kind === "stream") await upstream.cancel().catch(() => {});
       // Only a positively local native no-dispatch proof settles unpaid.
@@ -1123,16 +1129,15 @@ export function createReviewRunGatewayRelay(input: {
         }
       } else await unknown();
       dispose();
-      const providerQuota = gatewayProviderQuota(error);
       throw new RelayFailure(
-        providerQuota ? "provider_quota_exhausted" : "companion_request_failed",
+        cause.code,
         502,
         failureEffect,
         requestRef,
         undefined,
         undefined,
         undefined,
-        providerQuota,
+        cause.providerQuota,
       );
     }
   }
