@@ -103,4 +103,3 @@ export function normalizeHeaders(
       .map(([key, header]) => [key.toLowerCase(), String(header)]),
   );
 }
-
