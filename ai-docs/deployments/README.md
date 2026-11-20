@@ -31,6 +31,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+Private material prune past an unverifiable dossier: [the private-material retention step fails only the investigation whose dossier cannot be verified and keeps pruning the rest of the batch](2026-11-20-private-material-prune-isolation.md), [PR #939](https://github.com/777genius/review-router-ai/pull/939) - worker-only ordinary rollout, `pending`; rides in the next bundled rollout, not deployed. No migration or configuration. 883 expired private-material rows that no code path can prune wait for an owner retention decision written in the record.
+
 No manual refresh in provider setup: [the reviewer roster, the setup dialog and the public model catalogs read their data again by themselves and show one status line with Try again only after a failure; the "Refresh accounts" buttons are gone](2026-11-20-no-manual-refresh-provider-setup.md), [PR #937](https://github.com/777genius/review-router-ai/pull/937) - Web-only ordinary rollout, bundled with the next Web release; staging and production `pending`. No migration, configuration, Gateway or native change.
 
 Oversized pull request explained on the PR: [when hosted admission refuses a review over the changed-line ceiling, the pull request gets one ReviewRouter comment with the real numbers and where the limit lives; the refusal itself is unchanged](2026-11-20-oversize-review-notice.md), [PR #938](https://github.com/777genius/review-router-ai/pull/938) - API-only ordinary rollout; merged, rides in the next bundled rollout, NOT deployed, `pending`. No migration, configuration, Web, worker, Gateway, native or public Action change.
