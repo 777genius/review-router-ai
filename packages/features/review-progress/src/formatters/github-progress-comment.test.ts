@@ -235,8 +235,21 @@ describe("formatGithubProgressComment", () => {
           { slotId: "one", required: true, state: "accepted" },
           { slotId: "two", required: true, state: "accepted" },
         ],
+        assignmentManifest: {
+          paths: [
+            {
+              pathId: "opaque",
+              disposition: "reviewable",
+              requiredCoveringSlotIds: ["one"],
+            },
+          ],
+        },
       }),
     );
+    // An accepted part can be a partial engine run: only the summary knows
+    // which files were really reviewed.
+    expect(comment).not.toContain("Files fully reviewed");
+    expect(comment).toContain("Files not assigned to any part: 0");
     expect(comment).toContain("**Phase:** Review incomplete");
     expect(comment).toContain("could not be finished or verified");
     expect(comment).toContain("Progress: 2 of 2 parts reviewed (100%)");
