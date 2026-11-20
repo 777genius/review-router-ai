@@ -169,7 +169,7 @@ describe("bounded managed atomic workflow cutover", () => {
   });
 });
 
-it("constructs an explicit four-body transaction with complete fenced evidence checks", () => {
+function createCutoverFixture() {
   const role = {
     superuser: false,
     bypassRls: false,
@@ -231,63 +231,9 @@ it("constructs an explicit four-body transaction with complete fenced evidence c
     gate,
     binding,
   };
-  const sql = renderManagedWorkflowCutoverTransaction(input);
-  expect(sql).not.toContain("000098_certified_fork_effect_archive");
-  expect(sql).toContain("(SELECT count(*) FROM public._prisma_migrations)<>96");
-  expect(sql.match(/^BEGIN ISOLATION/gmu)).toHaveLength(1);
-  expect(sql).not.toMatch(/^COMMIT\s*;/mu);
-  expect(sql.match(/^INSERT INTO public\._prisma_migrations/gmu)).toHaveLength(
-    4,
-  );
-  expect(sql.indexOf("pg_try_advisory_xact_lock(72707369")).toBeLessThan(
-    sql.indexOf("cutover_baseline_changed"),
-  );
-  expect(sql).toContain("FOR SHARE");
-  expect(sql).toContain("pg_stat_activity");
-  expect(sql).toContain("has_any_column_privilege");
-  expect(sql).toContain("c.relacl IS NULL");
-  expect(sql).toContain("s.seqmax=9223372036854775807");
-  expect(sql).toContain("p.prosrc=");
-  expect(sql).toContain("$[0 to 91]");
-  expect(sql).toContain("GRANTED BY reviewrouter RESTRICT");
-  expect(sql).not.toContain("DROP TRIGGER reviewrouter_managed_retained");
-  expect(sql).not.toContain("ALTER SCHEMA public OWNER");
-  expect(() =>
-    renderManagedWorkflowCutoverTransaction({
-      ...input,
-      gate: { ...gate, gateStatus: "active" },
-    }),
-  ).toThrow("closed_gate");
-  expect(() =>
-    renderManagedWorkflowCutoverTransaction({
-      ...input,
-      baselineCatalog: { ...baselineCatalog, facts: [] },
-    }),
-  ).toThrow("authority");
-  expect(() =>
-    renderManagedWorkflowCutoverTransaction({
-      ...input,
-      defaultAcl: {
-        version: 1,
-        rows: [
-          {
-            oid: "1",
-            owner: "postgres",
-            schema: "*",
-            objectType: "r",
-            entries: [
-              {
-                grantee: "PUBLIC",
-                grantor: "postgres",
-                privilege: "SELECT",
-                grantable: false,
-              },
-            ],
-          },
-        ],
-      },
-    }),
-  ).toThrow("default_acl_policy");
+  // Preserve the construction input before binding the reconciliation transition.
+  const transactionInput = structuredClone(input);
+
   const unsigned = {
     schemaVersion: 1,
     commitSha: phase.sourceCommit,
@@ -365,6 +311,82 @@ it("constructs an explicit four-body transaction with complete fenced evidence c
     baselineCatalog,
     rollbackConfirmed: true,
   };
+  return {
+    input: transactionInput,
+    gate,
+    baselineCatalog,
+    binding,
+    permit,
+    observation,
+    transition,
+    terminal,
+    evidence,
+  };
+}
+
+it("constructs an explicit four-body transaction with complete fenced evidence checks", () => {
+  const { input, gate, baselineCatalog } = createCutoverFixture();
+  const sql = renderManagedWorkflowCutoverTransaction(input);
+  expect(sql).not.toContain("000098_certified_fork_effect_archive");
+  expect(sql).toContain("(SELECT count(*) FROM public._prisma_migrations)<>96");
+  expect(sql.match(/^BEGIN ISOLATION/gmu)).toHaveLength(1);
+  expect(sql).not.toMatch(/^COMMIT\s*;/mu);
+  expect(sql.match(/^INSERT INTO public\._prisma_migrations/gmu)).toHaveLength(
+    4,
+  );
+  expect(sql.indexOf("pg_try_advisory_xact_lock(72707369")).toBeLessThan(
+    sql.indexOf("cutover_baseline_changed"),
+  );
+  expect(sql).toContain("FOR SHARE");
+  expect(sql).toContain("pg_stat_activity");
+  expect(sql).toContain("has_any_column_privilege");
+  expect(sql).toContain("c.relacl IS NULL");
+  expect(sql).toContain("s.seqmax=9223372036854775807");
+  expect(sql).toContain("p.prosrc=");
+  expect(sql).toContain("$[0 to 91]");
+  expect(sql).toContain("GRANTED BY reviewrouter RESTRICT");
+  expect(sql).not.toContain("DROP TRIGGER reviewrouter_managed_retained");
+  expect(sql).not.toContain("ALTER SCHEMA public OWNER");
+  expect(() =>
+    renderManagedWorkflowCutoverTransaction({
+      ...input,
+      gate: { ...gate, gateStatus: "active" },
+    }),
+  ).toThrow("closed_gate");
+  expect(() =>
+    renderManagedWorkflowCutoverTransaction({
+      ...input,
+      baselineCatalog: { ...baselineCatalog, facts: [] },
+    }),
+  ).toThrow("authority");
+  expect(() =>
+    renderManagedWorkflowCutoverTransaction({
+      ...input,
+      defaultAcl: {
+        version: 1,
+        rows: [
+          {
+            oid: "1",
+            owner: "postgres",
+            schema: "*",
+            objectType: "r",
+            entries: [
+              {
+                grantee: "PUBLIC",
+                grantor: "postgres",
+                privilege: "SELECT",
+                grantable: false,
+              },
+            ],
+          },
+        ],
+      },
+    }),
+  ).toThrow("default_acl_policy");
+});
+
+it("recognizes committed and uncommitted cutover candidates", () => {
+  const { evidence } = createCutoverFixture();
   expect(reconcileRenderManagedWorkflowCutover(evidence)).toMatchObject({
     status: "committed-candidate",
     replay: false,
@@ -372,120 +394,122 @@ it("constructs an explicit four-body transaction with complete fenced evidence c
   expect(
     reconcileRenderManagedWorkflowCutover({ ...evidence, ledger: pre }),
   ).toMatchObject({ status: "uncommitted-candidate", replay: false });
-  // Each row mutates both sides together, so equality alone cannot reject it.
-  const digestInvalid = [
-    "",
-    "sha256:abc",
-    "a".repeat(64),
-    `sha256:${"A".repeat(64)}`,
-    1,
-    false,
-    {},
-    [],
-  ];
-  const pairedFacts = [
+});
+
+// Each row mutates both sides together, so equality alone cannot reject it.
+const digestInvalid = [
+  "",
+  "sha256:abc",
+  "a".repeat(64),
+  `sha256:${"A".repeat(64)}`,
+  1,
+  false,
+  {},
+  [],
+];
+const pairedFacts = [
+  [
+    "permit.epoch",
+    "observation.permitEpoch",
     [
-      "permit.epoch",
-      "observation.permitEpoch",
-      [
-        0,
-        -1,
-        1.5,
-        NaN,
-        Infinity,
-        -Infinity,
-        Number.MAX_SAFE_INTEGER + 1,
-        "1",
-        true,
-        {},
-        [],
-      ],
+      0,
+      -1,
+      1.5,
+      NaN,
+      Infinity,
+      -Infinity,
+      Number.MAX_SAFE_INTEGER + 1,
+      "1",
+      true,
+      {},
+      [],
     ],
-    ["permit.nonce", "observation.permitNonce", ["", 1, true, {}, []]],
+  ],
+  ["permit.nonce", "observation.permitNonce", ["", 1, true, {}, []]],
+  [
+    "permit.eligibilityCutoff",
+    "observation.eligibilityCutoff",
     [
-      "permit.eligibilityCutoff",
-      "observation.eligibilityCutoff",
-      [
-        "",
-        "invalid",
-        0,
-        true,
-        {},
-        [],
-        "2026-09-06",
-        "2026-09-06T00:00:00Z",
-        "2026-02-30T00:00:00.000Z",
-        "2026-09-06T00:00:00.000+00:00",
-      ],
+      "",
+      "invalid",
+      0,
+      true,
+      {},
+      [],
+      "2026-09-06",
+      "2026-09-06T00:00:00Z",
+      "2026-02-30T00:00:00.000Z",
+      "2026-09-06T00:00:00.000+00:00",
     ],
-    [
-      "permit.sourceLegacyAmbiguity.inventorySha256",
-      "observation.sourceLegacyAmbiguitySha256",
-      digestInvalid,
-    ],
-    [
-      "permit.targetSystemIdentifier",
-      "observation.targetSystemIdentifier",
-      ["", "0", "-1", "1.5", "01", "1".repeat(21), 1, true, {}, []],
-    ],
-    [
-      "permit.targetRecoveryWitnessSha256",
-      "observation.targetRecoveryWitnessSha256",
-      digestInvalid,
-    ],
-    [
-      "transition.transitionSha256",
-      "observation.transitionSha256",
-      digestInvalid,
-    ],
-    [
-      "transition.migrationArtifactDigest",
-      "observation.migrationArtifactDigest",
-      digestInvalid,
-    ],
-    [
-      "transition.migrationBundleSha256",
-      "observation.migrationBundleSha256",
-      digestInvalid,
-    ],
-    [
-      "transition.preManifestIdentity",
-      "observation.preManifestIdentity",
-      digestInvalid,
-    ],
-    [
-      "transition.postManifestIdentity",
-      "observation.postManifestIdentity",
-      digestInvalid,
-    ],
-    [
-      "transition.postCatalogDigest",
-      "observation.postCatalogDigest",
-      digestInvalid,
-    ],
-    [
-      "permit.rolloutId",
-      "binding.operationId",
-      ["", "invalid", 1, true, {}, []],
-    ],
-    [
-      "permit.expectedPreviousReceiptSha256",
-      "binding.predecessorReceiptSha256",
-      digestInvalid,
-    ],
-    ["permit.transitionSha256", "transition.transitionSha256", digestInvalid],
-  ] as const;
-  const omitted = Symbol("omitted");
-  const setFact = (input: object, path: string, value: unknown) => {
-    const keys = path.split(".");
-    let record = input as Record<string, unknown>;
-    for (const key of keys.slice(0, -1))
-      record = record[key] as Record<string, unknown>;
-    const key = keys.at(-1)!;
-    if (value === omitted) delete record[key];
-    else record[key] = value;
-  };
-  for (const [left, right, malformed] of pairedFacts) {
+  ],
+  [
+    "permit.sourceLegacyAmbiguity.inventorySha256",
+    "observation.sourceLegacyAmbiguitySha256",
+    digestInvalid,
+  ],
+  [
+    "permit.targetSystemIdentifier",
+    "observation.targetSystemIdentifier",
+    ["", "0", "-1", "1.5", "01", "1".repeat(21), 1, true, {}, []],
+  ],
+  [
+    "permit.targetRecoveryWitnessSha256",
+    "observation.targetRecoveryWitnessSha256",
+    digestInvalid,
+  ],
+  [
+    "transition.transitionSha256",
+    "observation.transitionSha256",
+    digestInvalid,
+  ],
+  [
+    "transition.migrationArtifactDigest",
+    "observation.migrationArtifactDigest",
+    digestInvalid,
+  ],
+  [
+    "transition.migrationBundleSha256",
+    "observation.migrationBundleSha256",
+    digestInvalid,
+  ],
+  [
+    "transition.preManifestIdentity",
+    "observation.preManifestIdentity",
+    digestInvalid,
+  ],
+  [
+    "transition.postManifestIdentity",
+    "observation.postManifestIdentity",
+    digestInvalid,
+  ],
+  [
+    "transition.postCatalogDigest",
+    "observation.postCatalogDigest",
+    digestInvalid,
+  ],
+  ["permit.rolloutId", "binding.operationId", ["", "invalid", 1, true, {}, []]],
+  [
+    "permit.expectedPreviousReceiptSha256",
+    "binding.predecessorReceiptSha256",
+    digestInvalid,
+  ],
+  ["permit.transitionSha256", "transition.transitionSha256", digestInvalid],
+] as const;
+const omitted = Symbol("omitted");
+const setFact = (input: object, path: string, value: unknown) => {
+  const keys = path.split(".");
+  let record = input as Record<string, unknown>;
+  for (const key of keys.slice(0, -1))
+    record = record[key] as Record<string, unknown>;
+  const key = keys.at(-1)!;
+  if (value === omitted) delete record[key];
+  else record[key] = value;
+};
+
+it.each(pairedFacts)(
+  "rejects malformed paired facts %s / %s",
+  (left, right, malformed) => {
+    const { evidence } = createCutoverFixture();
     for (const value of [omitted, undefined, null, ...malformed]) {
       for (const paths of [[left], [right], [left, right]]) {
         const incomplete = structuredClone(evidence);
@@ -496,7 +520,11 @@ it("constructs an explicit four-body transaction with complete fenced evidence c
         ).toEqual({ status: "hold-closed", replay: false });
       }
     }
-  }
+  },
+);
+
+it("rejects missing or malformed reconciliation containers", () => {
+  const { evidence } = createCutoverFixture();
   for (const path of [
     "permit",
     "observation",
@@ -520,6 +548,10 @@ it("constructs an explicit four-body transaction with complete fenced evidence c
       });
     }
   }
+});
+
+it("accepts boundary facts and opaque reconciliation nonces", () => {
+  const { evidence } = createCutoverFixture();
   // Boundary values and opaque non-UUID nonces remain valid comparisons.
   for (const [left, right, values] of [
     ["permit.epoch", "observation.permitEpoch", [1, Number.MAX_SAFE_INTEGER]],
@@ -550,6 +582,18 @@ it("constructs an explicit four-body transaction with complete fenced evidence c
       });
     }
   }
+});
+
+it("holds foreign or incomplete cutover evidence closed", () => {
+  const {
+    evidence,
+    binding,
+    observation,
+    permit,
+    transition,
+    terminal,
+    baselineCatalog,
+  } = createCutoverFixture();
   for (const change of [
     { original92: undefined },
     { durableBinding: undefined },
