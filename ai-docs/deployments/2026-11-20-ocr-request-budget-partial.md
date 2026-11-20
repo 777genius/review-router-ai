@@ -12,20 +12,20 @@
   Gateway, native and the database are unchanged.
 - Implementation: [review-router#407](https://github.com/777genius/review-router/pull/407). Analysis:
   [plan 87](../architecture/87-nvidia-large-pr-stability.md).
-- Implementation reference: the squash commit of that PR on the public Action
-  `main`; this is not proof that it is released.
+- Implementation reference: `44f9b9ab2bcce84d597d73610efa5d48cfa4d208` on the
+  public Action `main`; this is not proof that it is released.
 - Dependencies: none. No migration, configuration or feature flag.
 - Last updated: 2026-11-20.
 
 ## Environment status
 
-| Target                     | Status    | Actual version | Evidence                      |
-| -------------------------- | --------- | -------------- | ----------------------------- |
-| Public Action `main`       | `pending` | Not verified   | Merge of review-router#407    |
-| Public Action release/tag  | `pending` | Not verified   | Next bundled Action release   |
-| RR `main` (progress line)  | `pending` | Not verified   | Merge of review-router-ai#952 |
-| RR staging worker image    | `pending` | Not verified   | Next bundled image            |
-| RR production worker image | `pending` | Not verified   | Next bundled image            |
+| Target                     | Status      | Actual version | Evidence                                                                         |
+| -------------------------- | ----------- | -------------- | -------------------------------------------------------------------------------- |
+| Public Action `main`       | `installed` | `44f9b9ab`     | review-router#407 merged (squash); CI `build` green on the final head `7a942861` |
+| Public Action release/tag  | `pending`   | Not verified   | Next bundled Action release                                                      |
+| RR `main` (progress line)  | `pending`   | Not verified   | Merge of review-router-ai#952                                                    |
+| RR staging worker image    | `pending`   | Not verified   | Next bundled image                                                               |
+| RR production worker image | `pending`   | Not verified   | Next bundled image                                                               |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -103,10 +103,10 @@ partial reviews and comments stay as they are.
 
 ## Execution log
 
-| Time (UTC)   | Environment                | Operator   | Actual version / image | Step and observed result | Evidence | Next action                            |
-| ------------ | -------------------------- | ---------- | ---------------------- | ------------------------ | -------- | -------------------------------------- |
-| Not executed | public Action `main`       | Unassigned | Not verified           | Not merged yet.          | None     | Merge, then ship with the next bundle. |
-| Not executed | public Action release      | Unassigned | Not verified           | Not released.            | None     | Next bundled Action release.           |
-| Not executed | RR `main`                  | Unassigned | Not verified           | Not merged yet.          | None     | Merge review-router-ai#952.            |
-| Not executed | RR staging worker image    | Unassigned | Not verified           | Not deployed.            | None     | Next bundled image.                    |
-| Not executed | RR production worker image | Unassigned | Not verified           | Not deployed.            | None     | Next bundled image.                    |
+| Time (UTC)       | Environment                | Operator   | Actual version / image | Step and observed result  | Evidence          | Next action                                |
+| ---------------- | -------------------------- | ---------- | ---------------------- | ------------------------- | ----------------- | ------------------------------------------ |
+| 2026-11-20 23:07 | public Action `main`       | N          | `44f9b9ab`             | #407 merged, not released | review-router#407 | Ship with the next bundled Action release. |
+| Not executed     | public Action release      | Unassigned | Not verified           | Not released.             | None              | Next bundled Action release.               |
+| Not executed     | RR `main`                  | Unassigned | Not verified           | Not merged yet.           | None              | Merge review-router-ai#952.                |
+| Not executed     | RR staging worker image    | Unassigned | Not verified           | Not deployed.             | None              | Next bundled image.                        |
+| Not executed     | RR production worker image | Unassigned | Not verified           | Not deployed.             | None              | Next bundled image.                        |
