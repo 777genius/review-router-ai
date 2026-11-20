@@ -246,8 +246,12 @@ describe("Review progress snapshot policy", () => {
     };
     expect(parseSnapshot(partial)).toBe(partial);
 
-    const falsePartial = { ...complete, terminal: "complete_with_gaps" };
-    expect(() => parseSnapshot(falsePartial)).toThrow(
+    // A review can end incomplete with every part finished (unverified native
+    // spans); the summary's coverage verdict decides, not the part counts.
+    const unverified = { ...complete, terminal: "complete_with_gaps" };
+    expect(parseSnapshot(unverified)).toBe(unverified);
+    const unsettled = { ...incomplete, terminal: "complete_with_gaps" };
+    expect(() => parseSnapshot(unsettled)).toThrow(
       "review_progress_snapshot_invalid",
     );
   });
