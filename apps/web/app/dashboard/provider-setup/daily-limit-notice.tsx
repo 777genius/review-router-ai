@@ -17,8 +17,9 @@ export function DailyLimitNotice({
     <div role="note" className="grid gap-2">
       <p className="text-sm leading-6 text-amber-100/85">
         This model has a daily request limit. When it is used up, reviews stop
-        until the limit resets the next day. Add a second reviewer and use
-        Fallback in order so reviews keep running.
+        until the limit resets the next day. Add a second reviewer with a paid
+        model or another provider, and use Fallback in order so reviews keep
+        running.
       </p>
       <Button
         type="button"

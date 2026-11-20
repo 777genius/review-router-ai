@@ -17,8 +17,9 @@ export function hasDailyRequestLimit(reviewer: RosterReviewerModel): boolean {
 /**
  * A run skips a reviewer stopped by its quota only when another reviewer
  * finished (plan 69), so a roster whose only reviewer has a daily limit stops
- * reviewing until the limit resets. A second reviewer, in either mode, keeps
- * reviews running.
+ * reviewing until the limit resets. The notice asks for a paid model or
+ * another provider, because OpenRouter counts every `:free` request of an
+ * account against one limit; any second reviewer hides it (owner rule).
  */
 export function soleReviewerHasDailyLimit(
   reviewers: readonly RosterReviewerModel[],

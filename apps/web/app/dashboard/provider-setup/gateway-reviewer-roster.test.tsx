@@ -717,19 +717,47 @@ describe("daily request limit notice", () => {
     await waitFor(() => expect(saveProviderRoster).toHaveBeenCalledTimes(1));
   });
 
-  it("opens a new reviewer from the notice and then hides it", () => {
+  it("opens a new reviewer from the notice, keeps the keyboard there and hides the notice", async () => {
     render(<GatewayReviewerRoster {...openRouterProps([free])} />);
     fireEvent.click(
       screen.getByRole("button", { name: "Add a second reviewer" }),
     );
     expect(screen.getByText(/2\. Choose a model/)).toBeTruthy();
-    expect(
-      screen.getByRole("combobox", { name: "Account for reviewer 2" }),
-    ).toBeTruthy();
+    const account = screen.getByRole("combobox", {
+      name: "Account for reviewer 2",
+    });
+    await waitFor(() => expect(document.activeElement).toBe(account));
     expect(screen.queryByRole("note")).toBeNull();
     expect(
       screen.getByRole("combobox", { name: /How reviewers work together/ }),
     ).toBeTruthy();
+  });
+
+  it("shows for a repository inheriting a sole free default before its account loads", () => {
+    const props = openRouterProps([free]);
+    render(
+      <GatewayReviewerRoster
+        {...props}
+        target={repositoryTarget}
+        gatewayAccounts={{ status: "unavailable" }}
+        view={{
+          ...props.view,
+          profiles: props.view.profiles.map((profile) => ({
+            ...profile,
+            providerId: "openrouter" as const,
+          })),
+          repositories: [
+            {
+              ...props.view.repositories[0]!,
+              source: "workspace",
+              selection: null,
+              selections: [],
+            },
+          ],
+        }}
+      />,
+    );
+    expect(screen.getByRole("note").textContent).toMatch(notice);
   });
 
   it.each([

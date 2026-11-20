@@ -22,7 +22,8 @@ const openRouter = apiKeyStorageProfiles.find(
 
 // A workspace whose only default reviewer is an OpenRouter :free model stops
 // reviewing once the model's daily limit is used up. The roster says so once
-// and offers its own Add reviewer; nothing is saved here.
+// and offers its own Add reviewer. The test connects an account and makes its
+// model the workspace default; the roster after Add reviewer is not saved.
 test("Daily limit notice advises a second reviewer for a sole free OpenRouter model", async ({
   page,
   context,

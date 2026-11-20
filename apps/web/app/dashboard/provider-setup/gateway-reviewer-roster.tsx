@@ -24,7 +24,11 @@ import {
   reviewerNames,
   type ProviderSetupView,
 } from "../../../src/features/provider-setup/provider-setup-model";
-import { soleReviewerHasDailyLimit } from "../../../src/features/provider-setup/daily-request-limit";
+import { accountProviderIdentity } from "../../../src/features/provider-setup/provider-identity";
+import {
+  hasDailyRequestLimit,
+  soleReviewerHasDailyLimit,
+} from "../../../src/features/provider-setup/domain/daily-request-limit";
 import { useGatewayModelAccounts } from "../gateway-model-account-options";
 import { GatewayModelCatalogStatus } from "../gateway-model-catalog-status";
 import {
@@ -228,12 +232,16 @@ export function GatewayReviewerRoster({
   };
   const source = observed.sources.find((row) => row.key === "gateway_binding");
   const blocked = pending || !mutationsEnabled || readUnavailable;
+  const accountOf = (row: Row) =>
+    accounts.find((candidate) => candidate.binding?.id === row.bindingId);
+  // The connection's provider, or a saved reviewer's own while accounts load.
+  const providerOf = (row: Row) =>
+    accountProviderIdentity(options.profileFor(accountOf(row))) ??
+    observed.profiles.find((candidate) => candidate.id === row.profileId)
+      ?.providerId;
   const settingsFor = (row: Row) => {
     if (row.savedSettings || row.editedSettings) return row.settings;
-    const account = accounts.find(
-      (candidate) => candidate.binding?.id === row.bindingId,
-    );
-    const profile = options.profileFor(account);
+    const profile = options.profileFor(accountOf(row));
     return {
       ...defaultProviderSelectionSettings({
         authMode: "codex_account_gateway",
@@ -268,9 +276,7 @@ export function GatewayReviewerRoster({
     rows.length > 0 &&
     !duplicate &&
     rows.every((row) => {
-      const account = accounts.find(
-        (candidate) => candidate.binding?.id === row.bindingId,
-      );
+      const account = accountOf(row);
       const profile = options.profileFor(account);
       const existing = row.profileId
         ? observed.profiles.find((candidate) => candidate.id === row.profileId)
@@ -335,11 +341,24 @@ export function GatewayReviewerRoster({
       },
     ]);
     setEditing(id);
+    // The daily limit notice that may have been clicked unmounts: keep the
+    // keyboard on the new reviewer's first choice.
+    requestAnimationFrame(() =>
+      document
+        .getElementById(`${id}-settings`)
+        ?.querySelector<HTMLElement>('[role="combobox"]')
+        ?.focus(),
+    );
   };
   const fallback = mode === "fallback";
   // How several reviewers work together means nothing for one reviewer: its
   // mode stays as saved and the server fits the limits to the count.
   const several = rows.length > 1;
+  // One message about a daily limit: the roster notice for a sole reviewer,
+  // otherwise a short line on each limited row.
+  const soleDailyLimit = soleReviewerHasDailyLimit(
+    rows.map((row) => ({ provider: providerOf(row), model: row.model })),
+  );
   const inherited = repository?.source === "workspace";
   const ownRoster = repository?.source === "repository";
   const workspaceDefaults = workspaceDefaultSelections(observed);
@@ -473,9 +492,7 @@ export function GatewayReviewerRoster({
       ) : (
         <ol className="divide-y divide-cyan-200/10 border-y border-cyan-200/10">
           {rows.map((row, index) => {
-            const account = accounts.find(
-              (candidate) => candidate.binding?.id === row.bindingId,
-            );
+            const account = accountOf(row);
             const profile = options.profileFor(account);
             const existing = observed.profiles.find(
               (candidate) => candidate.id === row.profileId,
@@ -518,7 +535,13 @@ export function GatewayReviewerRoster({
                       profile={profile}
                       accounts={options}
                       settings={settingsFor(row)}
-                      showDailyLimit={several}
+                      dailyLimit={
+                        !soleDailyLimit &&
+                        hasDailyRequestLimit({
+                          provider: providerOf(row),
+                          model: row.model,
+                        })
+                      }
                     />
                   </div>
                   <div className="flex items-center gap-2">
@@ -710,16 +733,7 @@ export function GatewayReviewerRoster({
           })}
         </ol>
       )}
-      {soleReviewerHasDailyLimit(
-        rows.map((row) => ({
-          provider: options.profileFor(
-            accounts.find(
-              (candidate) => candidate.binding?.id === row.bindingId,
-            ),
-          )?.connection?.provider,
-          model: row.model,
-        })),
-      ) ? (
+      {soleDailyLimit ? (
         <DailyLimitNotice onAddReviewer={addReviewer} disabled={blocked} />
       ) : null}
       <div className="flex flex-wrap gap-3">
