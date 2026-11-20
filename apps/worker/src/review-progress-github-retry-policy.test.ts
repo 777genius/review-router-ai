@@ -117,13 +117,12 @@ describe("Review progress GitHub retry policy", () => {
       expect(actual.getTime()).toBe(now.getTime() + 60_000);
     }
     const httpDate = "Wed, 12 Aug 2026 12:00:30 GMT";
-    expect(
-      retryBoundary(
-        { "retry-after": httpDate },
-        now,
-        "server_unavailable",
-      ).getTime(),
-    ).toBe(now.getTime() + 30_000);
+    const httpRetryAt = retryBoundary(
+      { "retry-after": httpDate },
+      now,
+      "server_unavailable",
+    );
+    expect(httpRetryAt.getTime()).toBe(now.getTime() + 30_000);
   });
 
   it("treats blank Retry-After as absent while retaining an explicit zero", () => {
@@ -204,10 +203,7 @@ describe("Review progress GitHub retry policy", () => {
   it("never schedules jitter earlier than the retry boundary", () => {
     const low = jitterAfter(now, () => -1).getTime();
     const high = jitterAfter(now, () => 2).getTime();
-    const fallback = fallbackRetryAt(
-      () => now,
-      () => 0,
-    ).getTime();
+    const fallback = fallbackRetryAt(() => now, () => 0).getTime();
     expect(low).toBe(now.getTime() + 250);
     expect(high).toBe(now.getTime() + 1_000);
     expect(fallback).toBe(now.getTime() + 1_250);
