@@ -253,12 +253,7 @@ export class ReviewProgressGitHubGateway {
     } catch (error) {
       const classified = this.classify(error, "ambiguous_mutation");
       if (classified.kind === "revoked_app") throw classified;
-      throw new ReviewProgressGitHubError(
-        classified.kind,
-        classified.message,
-        { ...classified.metadata, mutationMayHaveLanded: true },
-        { cause: classified },
-      );
+      throw unconfirmedMutation(classified);
     }
     return {
       commentId: canonicalId,
