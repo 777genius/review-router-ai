@@ -19,10 +19,13 @@
 
 ## Environment status
 
-| Target                    | Status    | Actual version | Evidence                       |
-| ------------------------- | --------- | -------------- | ------------------------------ |
-| Public Action `main`      | `pending` | Not verified   | Merge of review-router#407     |
-| Public Action release/tag | `pending` | Not verified   | Next bundled Action release    |
+| Target                     | Status    | Actual version | Evidence                                      |
+| -------------------------- | --------- | -------------- | --------------------------------------------- |
+| Public Action `main`       | `pending` | Not verified   | Merge of review-router#407                    |
+| Public Action release/tag  | `pending` | Not verified   | Next bundled Action release                   |
+| RR `main` (progress line)  | `pending` | Not verified   | Merge of review-router-ai#952                 |
+| RR staging worker image    | `pending` | Not verified   | Next bundled image                            |
+| RR production worker image | `pending` | Not verified   | Next bundled image                            |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -52,14 +55,16 @@ observed to be absent. Use the [status contract](README.md#status-contract).
   finished") and the scope line counts only the finished ones (single
   reviewer and roster lanes). A run restored in a new process after
   acceptance still counts the slot's files, as before.
-- The RR progress comment no longer prints "Files fully reviewed: N of N"
-  when the review ended incomplete; it counts files by accepted part and
-  cannot know which part stopped early. The summary keeps the real count.
+- The RR progress comment no longer prints "Files fully reviewed: X of N"
+  when the review ended incomplete with accepted parts; it counts files by
+  accepted part and cannot know which part stopped early. The summary keeps
+  the real count. A lost review (nothing accepted) still shows "0 of N".
 - A response body that names `output_truncated` or
   `model_dispatch_budget_exhausted` is treated as an unknown effect: only a
   stop the runtime observed itself keeps the finished work.
-- Codex and other transport consumers only see the more precise fact; their
-  fences are unchanged.
+- Model attribution now survives a known stop for every transport user, Codex
+  included. In practice Codex cannot use it: its next turn is refused once
+  inference is fenced. Fences are unchanged for all consumers.
 
 ## Applicability and rollout
 
@@ -74,24 +79,26 @@ observed to be absent. Use the [status contract](README.md#status-contract).
 ## Verification and completion
 
 After the release, read-only: a run log line `Managed OCR acceptance` with
-`acceptedPartial: true` after `Gateway result: model_dispatch_budget_exhausted;
-effect: not_dispatched`; the `finding_discovery` slot is `satisfied` (not
+`acceptedPartial: true`, logged before the closing `Gateway result:
+model_dispatch_budget_exhausted; effect: not_dispatched` line; the `finding_discovery` slot is `satisfied` (not
 `exhausted`); the summary scope line shows `N/M` with `M > N` and the
 request-allowance notice; the progress comment ends "Review incomplete"
-without a "Files fully reviewed" line. The execution state alone proves
+without a "Files fully reviewed" line once the RR image is deployed. The execution state alone proves
 nothing: lost runs before the change also ended `partial`. Only large pull
 requests reach the allowance, so this may take a while to observe. For the
-image part: any incomplete review's progress comment has no "Files fully
-reviewed" line.
+image part: an incomplete review with accepted parts has no "Files fully
+reviewed" line, a lost one still shows "0 of N".
 
 ## Retry and rollback
 
 The bundle is a build artifact: rebuild with `npm run build` and commit.
 Reverting the commit restores the old behaviour after the next Action release.
-Already published partial reviews stay as they are.
+The progress line rolls back with the previous RR image. Already published
+partial reviews and comments stay as they are.
 
 ## Execution log
 
 | Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result | Evidence | Next action                            |
 | ------------ | -------------------- | ---------- | ---------------------- | ------------------------ | -------- | -------------------------------------- |
 | Not executed | public Action `main` | Unassigned | Not verified           | Not merged yet.          | None     | Merge, then ship with the next bundle. |
+| Not executed | RR worker image      | Unassigned | Not verified           | Not merged yet.          | None     | Merge, then ship with the next bundle. |

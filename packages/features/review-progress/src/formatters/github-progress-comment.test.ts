@@ -250,6 +250,26 @@ describe("formatGithubProgressComment", () => {
     // which files were really reviewed.
     expect(comment).not.toContain("Files fully reviewed");
     expect(comment).toContain("Files not assigned to any part: 0");
+    // A lost review accepted nothing, and "0 of N" stays true.
+    const lost = formatGithubProgressComment(
+      computeProgressSnapshot({
+        generation: 1,
+        phase: "terminal",
+        terminal: "complete_with_gaps",
+        updatedAt: "2026-08-12T17:00:00Z",
+        slots: [{ slotId: "one", required: true, state: "exhausted" }],
+        assignmentManifest: {
+          paths: [
+            {
+              pathId: "opaque",
+              disposition: "reviewable",
+              requiredCoveringSlotIds: ["one"],
+            },
+          ],
+        },
+      }),
+    );
+    expect(lost).toContain("Files fully reviewed: 0 of 1");
     expect(comment).toContain("**Phase:** Review incomplete");
     expect(comment).toContain("could not be finished or verified");
     expect(comment).toContain("Progress: 2 of 2 parts reviewed (100%)");
