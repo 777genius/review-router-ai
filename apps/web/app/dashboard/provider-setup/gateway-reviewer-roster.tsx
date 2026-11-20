@@ -615,7 +615,7 @@ export function GatewayReviewerRoster({
                       placeholder="Choose an account"
                       hint={
                         accounts.length === 0 && !options.loading
-                          ? "Connect and activate an account in Accounts first."
+                          ? "Connect and activate an account in Connections first."
                           : undefined
                       }
                       disabled={blocked}

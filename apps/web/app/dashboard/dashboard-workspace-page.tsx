@@ -147,10 +147,7 @@ import {
 import { getGitHubAppInstallUrl } from "../../src/server/github-app-install-url";
 import { buildPendingOrganizationInstallRequest } from "../../src/server/dashboard-app-install-request";
 import { safeGitHubDashboardLink } from "../../src/server/safe-dashboard-link";
-import {
-  buildRepositorySearchText,
-  tokenizeRepositorySearch,
-} from "../../src/server/repository-search";
+import { buildRepositorySearchText } from "../../src/server/repository-search";
 import {
   compareRepositorySetupRows,
   isRepositoryAvailableForSetup,
@@ -158,6 +155,7 @@ import {
   repositoryMatchesSetupFilter,
   showsFirstRunGuide,
   summarizeRepositorySetup,
+  tokenizeRepositorySearch,
   type RepositorySetupFilter,
   type RepositorySetupSummary,
 } from "../../src/features/repository-setup/repository-setup-state";

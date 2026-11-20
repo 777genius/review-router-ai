@@ -57,6 +57,7 @@ import {
 import { dashboardSectionHref } from "./dashboard-section";
 import { ChooseForReviewsLink } from "./choose-for-reviews-link";
 import { useCurrentGatewayModelAccountsCache } from "./gateway-model-account-options";
+import { rereadQueries } from "./reread-queries";
 import { readOwnAccessSummaries } from "../../src/features/account-gateway/personal-accounts";
 import type {
   OwnAccountGrant,
@@ -85,35 +86,22 @@ export async function refreshPersonalAccountViews(
   client: QueryClient,
   scope: string,
 ) {
-  const queries = client
-    .getQueryCache()
-    .getAll()
-    .filter(
-      (query) =>
-        (query.queryKey[0] === "personal-accounts" &&
-          query.queryKey[1] === scope &&
-          ["sources", "grants", "organizations", "access-summaries"].includes(
-            String(query.queryKey[2]),
-          )) ||
-        (["accounts-overview", "account-options", "account-option"].includes(
-          String(query.queryKey[0]),
-        ) &&
-          typeof query.queryKey[1] === "string" &&
-          query.queryKey[1].startsWith(`${scope}:workspace:`)) ||
-        // Connection management pages of the owner and of the workspace in the
-        // same list: a detach or attach changes the actions their rows offer.
-        (query.queryKey[0] === "gateway-accounts" &&
-          query.queryKey[2] === "page"),
-    );
-  await Promise.all(
-    queries.map((query) =>
-      client.cancelQueries({ queryKey: query.queryKey, exact: true }),
-    ),
-  );
-  await Promise.all(
-    queries.map((query) =>
-      client.invalidateQueries({ queryKey: query.queryKey, exact: true }),
-    ),
+  await rereadQueries(
+    client,
+    (key) =>
+      (key[0] === "personal-accounts" &&
+        key[1] === scope &&
+        ["sources", "grants", "organizations", "access-summaries"].includes(
+          String(key[2]),
+        )) ||
+      (["accounts-overview", "account-options", "account-option"].includes(
+        String(key[0]),
+      ) &&
+        typeof key[1] === "string" &&
+        key[1].startsWith(`${scope}:workspace:`)) ||
+      // Connection management pages of the owner and of the workspace in the
+      // same list: a detach or attach changes the actions their rows offer.
+      (key[0] === "gateway-accounts" && key[2] === "page"),
   );
 }
 

@@ -157,6 +157,10 @@ test("provider usage overview keeps complete period totals, charts, models and r
       workspace: FIXTURES.workspaces.orgAlpha,
       purpose: "review",
     });
+    // `next dev` compiles the route on its first read: about 1 s on an idle
+    // host, 2-6 s on two cores, over 10 s on a busy CI runner. That read gets
+    // the navigation timeout, which covers the same compile for pages.
+    let compiled = false;
     const api = async (
       extra: Record<string, string> = {},
       expectedScope: {
@@ -166,7 +170,9 @@ test("provider usage overview keeps complete period totals, charts, models and r
     ) => {
       const response = await context.request.get(
         `/api/dashboard/provider-usage?${new URLSearchParams({ ...Object.fromEntries(query), ...extra })}`,
+        compiled ? undefined : { timeout: 30_000 },
       );
+      compiled = true;
       expect(response.status()).toBe(200);
       expect(response.headers()["cache-control"]).toBe("private, no-store");
       const payload = await response.json();
@@ -1149,7 +1155,9 @@ test("provider usage renders native lag and partial producer coverage truthfully
       usageKpi(usage, "Known tokens").filter({ hasText: /^42\b/ }),
     ).toBeVisible();
     await expect(
-      usage.getByRole("link", { name: "Account limits are shown in Accounts" }),
+      usage.getByRole("link", {
+        name: "Account limits are shown in Connections",
+      }),
     ).toBeVisible();
     await expect(usage.getByLabel("Usage source coverage")).toContainText(
       "reported observations only; transport completeness varies",

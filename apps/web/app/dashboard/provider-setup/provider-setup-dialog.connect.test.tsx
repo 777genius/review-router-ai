@@ -30,7 +30,11 @@ import {
   readPersonalGatewayOperation,
   submitPersonalGatewayKey,
 } from "../personal-account-actions";
-import { ProviderSetupDialog } from "./provider-setup-dialog";
+import { useInlineGatewayConnect } from "./gateway-credential-section";
+import {
+  ProviderSetupDialog,
+  type ProviderSetupDialogProps,
+} from "./provider-setup-dialog";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
@@ -209,7 +213,10 @@ afterEach(() => {
   cleanup();
 });
 
-function renderAddProvider(personalConnect = true) {
+function renderAddProvider(
+  personalConnect = true,
+  dialog: Partial<ProviderSetupDialogProps> = {},
+) {
   const api: GatewayModelAccountsApi = {
     list: vi.fn(async () =>
       listFails ? { status: "unavailable" as const } : page(workspaceAccounts),
@@ -251,6 +258,7 @@ function renderAddProvider(personalConnect = true) {
             modelOptions={[]}
             gatewayAccounts={page(workspaceAccounts)}
             agentProfileOptions={[]}
+            {...dialog}
           />
         </PersonalConnectProvider>
       </GatewayModelAccountsProvider>
@@ -272,6 +280,52 @@ function enterKey(form: HTMLElement) {
   fireEvent.click(
     within(form).getByRole("button", { name: "Connect account" }),
   );
+}
+
+/** Chooses Codex and starts a device-code sign-in that keeps waiting. */
+async function startWaitingCodexSignIn() {
+  vi.mocked(beginPersonalGatewayOAuth).mockImplementation(
+    async (_context, intent) => ({
+      status: "ok",
+      value: {
+        operation: {
+          nonce: intent.nonce,
+          state: "pending",
+          oauthMethod: "device_code",
+          cleanup: "unresolved",
+        },
+        deviceAuthorization: {
+          userCode: "WXYZ-1234",
+          verificationURL: "https://auth.openai.com/codex/device",
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          intervalSeconds: 60,
+        },
+      },
+    }),
+  );
+  vi.mocked(readPersonalGatewayOperation).mockImplementation(
+    async (_context, nonce) => ({
+      status: "ok",
+      value: {
+        nonce,
+        state: "pending",
+        oauthMethod: "device_code",
+        cleanup: "unresolved",
+      },
+    }),
+  );
+  fireEvent.click(await screen.findByRole("combobox", { name: /^Provider\b/ }));
+  const option = await screen.findByRole("option", { name: /^Codex/ });
+  fireEvent.mouseMove(option);
+  fireEvent.click(option);
+  const form = await screen.findByRole("region", { name: "Connect Codex" });
+  const start = await within(form).findByRole("button", {
+    name: "Sign in to Codex",
+  });
+  await waitFor(() => expect(start).toHaveProperty("disabled", false));
+  fireEvent.click(start);
+  await within(form).findByText("WXYZ-1234");
+  return form;
 }
 
 describe("adding a provider and connecting its account in one dialog", () => {
@@ -432,7 +486,7 @@ describe("adding a provider and connecting its account in one dialog", () => {
     enterKey(form);
 
     await within(form).findByText("Waiting for completion");
-    await screen.findByText(/Accounts could not be loaded/);
+    await screen.findByText("Could not load the account list.");
     expect(
       screen.getByRole("region", { name: "Connect NVIDIA Build" }),
     ).toBeTruthy();
@@ -588,50 +642,8 @@ describe("adding a provider and connecting its account in one dialog", () => {
   }, 15_000);
 
   it("lets the user leave a waiting sign-in and start over", async () => {
-    vi.mocked(beginPersonalGatewayOAuth).mockImplementation(
-      async (_context, intent) => ({
-        status: "ok",
-        value: {
-          operation: {
-            nonce: intent.nonce,
-            state: "pending",
-            oauthMethod: "device_code",
-            cleanup: "unresolved",
-          },
-          deviceAuthorization: {
-            userCode: "WXYZ-1234",
-            verificationURL: "https://auth.openai.com/codex/device",
-            expiresAt: new Date(Date.now() + 60_000).toISOString(),
-            intervalSeconds: 60,
-          },
-        },
-      }),
-    );
-    vi.mocked(readPersonalGatewayOperation).mockImplementation(
-      async (_context, nonce) => ({
-        status: "ok",
-        value: {
-          nonce,
-          state: "pending",
-          oauthMethod: "device_code",
-          cleanup: "unresolved",
-        },
-      }),
-    );
     renderAddProvider();
-    fireEvent.click(
-      await screen.findByRole("combobox", { name: /^Provider\b/ }),
-    );
-    const option = await screen.findByRole("option", { name: /^Codex/ });
-    fireEvent.mouseMove(option);
-    fireEvent.click(option);
-    const form = await screen.findByRole("region", { name: "Connect Codex" });
-    const start = await within(form).findByRole("button", {
-      name: "Sign in to Codex",
-    });
-    await waitFor(() => expect(start).toHaveProperty("disabled", false));
-    fireEvent.click(start);
-    await within(form).findByText("WXYZ-1234");
+    const form = await startWaitingCodexSignIn();
 
     fireEvent.click(
       within(form).getByRole("button", { name: "Cancel sign-in" }),
@@ -648,5 +660,80 @@ describe("adding a provider and connecting its account in one dialog", () => {
           "[]",
       ),
     ).toHaveLength(1);
+  });
+
+  it("keeps the dialog's other views closed while a sign-in waits", async () => {
+    view = {
+      ...view,
+      target: "repositories",
+      repositories: [
+        {
+          id: "repo_1",
+          fullName: "acme/api",
+          source: "none",
+          selection: null,
+          useDefault: { allowed: true },
+        },
+      ],
+    };
+    renderAddProvider(true, {
+      mode: "choose",
+      target: {
+        kind: "repository",
+        repository: {
+          id: "repo_1",
+          fullName: "acme/api",
+          visibility: "private",
+          canManageCredentials: true,
+          effective: {
+            authMode: "openrouter_api_key",
+            credentialKind: "user_ci_secret",
+          },
+          secretGuidance: null,
+          organizationLogin: null,
+          organizationSecretPolicy: null,
+          rotatingEnabled: false,
+        },
+      },
+    });
+    const form = await startWaitingCodexSignIn();
+
+    // Each of them would replace the form and lose the device code.
+    const views = () =>
+      ["Configure connected-account reviewers", "1. Provider", "2. Add secret"]
+        .map((name) => screen.getByRole("button", { name }))
+        .map((button) => (button as HTMLButtonElement).disabled);
+    expect(views()).toEqual([true, true, true]);
+    fireEvent.click(
+      within(form).getByRole("button", { name: "Cancel sign-in" }),
+    );
+    await within(form).findByRole("button", { name: "Sign in to Codex" });
+    expect(views()).toEqual([false, false, false]);
+  });
+
+  it("keeps an open form when a reread of the dialog's lists fails", () => {
+    const place = { scope, workspaceId: "workspace_1", workspaceName: "Acme" };
+    function Form(props: { available: boolean; readFailed: boolean }) {
+      const inline = useInlineGatewayConnect({
+        ...props,
+        empty: props.available,
+        onConnected: () => {},
+      });
+      return <p>{inline.show ? "Form shown" : "Form gone"}</p>;
+    }
+    const view = (available: boolean, readFailed: boolean) => (
+      <PersonalConnectProvider place={place}>
+        <Form available={available} readFailed={readFailed} />
+      </PersonalConnectProvider>
+    );
+    const { rerender } = render(view(true, false));
+    expect(screen.getByText("Form shown")).toBeTruthy();
+    // A failed reread leaves no list to say the provider can connect here,
+    // yet a key typed into the form and not sent yet stays.
+    rerender(view(false, true));
+    expect(screen.getByText("Form shown")).toBeTruthy();
+    // A read that rules the provider out here closes it.
+    rerender(view(false, false));
+    expect(screen.getByText("Form gone")).toBeTruthy();
   });
 });

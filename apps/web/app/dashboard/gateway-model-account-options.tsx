@@ -14,6 +14,7 @@ import {
   useInfiniteQuery,
   useQueries,
 } from "@tanstack/react-query";
+import { rereadQueries } from "./reread-queries";
 import type {
   AccountProfileView,
   AccountsPage,
@@ -68,34 +69,15 @@ export function useCurrentGatewayModelAccountsCache() {
         ? {
             client: context.client,
             async refresh() {
-              const queries = context.client
-                .getQueryCache()
-                .getAll()
-                .filter(
-                  (query) =>
-                    (query.queryKey[0] === "account-options" ||
-                      query.queryKey[0] === "account-option" ||
-                      query.queryKey[0] === "accounts-overview") &&
-                    typeof query.queryKey[1] === "string" &&
-                    query.queryKey[1].startsWith(
-                      `${context.scope.split(":workspace:")[0]}:workspace:`,
-                    ),
-                );
-              await Promise.all(
-                queries.map((query) =>
-                  context.client.cancelQueries({
-                    queryKey: query.queryKey,
-                    exact: true,
-                  }),
-                ),
-              );
-              await Promise.all(
-                queries.map((query) =>
-                  context.client.invalidateQueries({
-                    queryKey: query.queryKey,
-                    exact: true,
-                  }),
-                ),
+              const viewer = `${context.scope.split(":workspace:")[0]}:workspace:`;
+              await rereadQueries(
+                context.client,
+                (key) =>
+                  (key[0] === "account-options" ||
+                    key[0] === "account-option" ||
+                    key[0] === "accounts-overview") &&
+                  typeof key[1] === "string" &&
+                  key[1].startsWith(viewer),
               );
             },
           }
@@ -213,8 +195,11 @@ export function useGatewayModelAccounts(
             context?.scope ?? "disabled",
             bindingId,
           ] as const,
-          // A failed read is a result, so it keeps its cooldown instead of
-          // being retried on every mount, and the account stays visible.
+          // A failed read is a result, not an error, so it is not retried on
+          // every mount. Without an earlier read it is unavailable and waits
+          // the failure cooldown. After one the account stays visible without
+          // its models, on the schedule of `accountReadSchedule`: the cooldown
+          // for a required list (NVIDIA), the ordinary staleness otherwise.
           queryFn: async ({ queryKey }): Promise<AccountDetail> => {
             const failed = () =>
               failedAccountRead(client.getQueryData(queryKey), bindingId);

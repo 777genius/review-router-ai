@@ -1,7 +1,5 @@
 "use client";
 
-import { workflowSetupOutcomePresentation } from "./dashboard-copy";
-
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button, LinkButton } from "@reviewrouter/ui";
@@ -20,9 +18,11 @@ import {
   repositorySetupProgressSummary,
   repositoryWorkflowUpdateCopy,
   repositoryWorkflowVerificationCopy,
+  workflowSetupOutcomePresentation,
 } from "./dashboard-copy";
 import {
   providerSetupConfirmedEventName,
+  refreshAfterSetupEvent,
   setupPullRequestMergedEvent,
   setupPullRequestMergedEventName,
   type ProviderSetupConfirmedEventDetail,
@@ -183,7 +183,7 @@ export function RepositorySetupProgressPanel({
       if (detail.authMode !== undefined) {
         optimisticProviderAuthModesRef.current.add(detail.authMode);
       }
-      router.refresh();
+      refreshAfterSetupEvent(router);
       if (
         !providerSetupConfirmationsComplete(
           optimisticProviderAuthModesRef.current,
