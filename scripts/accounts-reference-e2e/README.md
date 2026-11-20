@@ -60,6 +60,20 @@ approves only the locked `esbuild@0.28.2` and `sharp@0.34.5` lifecycle scripts;
 these permissions do not extend to the application workspace. Do not pass
 `--ignore-workspace`: pnpm would also ignore this local build policy.
 
+`check` invokes the repository's `compiler-cli.ts --native` entrypoint with
+the pinned TypeScript 7.0.2 compiler and this directory's strict `tsconfig.json`.
+The root postinstall prepares its isolated `scripts/local-checks/native`
+installation. When installing root dependencies with `--ignore-scripts`, run
+`pnpm compiler:prepare` from the repository root before the harness check.
+Both Skills browser CI jobs perform the equivalent isolated installation
+explicitly in their typecheck step, then invoke the native entrypoint against
+the same harness project.
+
+The existing TypeScript 6.0.3 dependency remains available to Next's separate
+compiler API profile. A native harness check qualifies this harness's source;
+it does not qualify Next's compiler API or migrate the wider repository's
+compiler routes. See the [compiler profiles](../local-checks/compiler-README.md).
+
 Run from the repository root:
 
 ```bash
@@ -73,8 +87,9 @@ pnpm --dir scripts/accounts-reference-e2e run check
 pnpm --dir scripts/accounts-reference-e2e exec playwright test -c playwright.config.ts --list
 ```
 
-These commands install only inside `scripts/accounts-reference-e2e/` and cache
-only inside the repository-owned `tmp/`. They do not update the root lockfile.
+The harness install uses its own workspace and frozen lockfile; the root
+postinstall also prepares the isolated native compiler. Browser caches stay
+inside the repository-owned `tmp/`. These commands do not update lockfiles.
 
 ## Local isolated run
 
