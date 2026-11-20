@@ -91,7 +91,7 @@ function validateDeployKeyInstallConfiguration() {
         "@prisma/engines@7.8.0",
         "esbuild@0.28.1",
         "prisma@7.8.0",
-        "@vioxen/subscription-runtime@https://codeload.github.com/777genius/ar/tar.gz/83a7329f4383b05ac5c39356b79f82f029182d42",
+        "@vioxen/subscription-runtime@https://codeload.github.com/777genius/ar/tar.gz/c7543bc716411a5f899a790a735d09ed2530f779",
       ]);
       if (!match || !reviewedBuilds.has(match[1]))
         throw new Error("pnpm-workspace executable configuration denied");

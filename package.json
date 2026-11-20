@@ -116,9 +116,10 @@
     "release-witness:start": "pnpm --filter @reviewrouter/api release-witness:start",
     "worker:start": "node --conditions=production apps/worker/dist/worker.js",
     "runtime:smoke": "node scripts/run-with-env.mjs node scripts/check-production-runtime.mjs",
+    "action:build:typecheck": "node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.action-build.json",
     "action:build": "node scripts/build-codex-rotating-action.mjs && node scripts/build-conflict-runtime.ts",
-    "action:artifact:check": "node scripts/check-codex-rotating-action-artifact.mjs && node scripts/build-conflict-runtime.ts --check",
-    "action:artifact:check:smoke": "REVIEWROUTER_CODEX_ROTATING_ACTION_REQUIRE_BINARY=0 node scripts/check-codex-rotating-action-artifact.mjs && node scripts/build-conflict-runtime.ts --check",
+    "action:artifact:check": "pnpm action:build:typecheck && node scripts/check-codex-rotating-action-artifact.mjs && node scripts/build-conflict-runtime.ts --check",
+    "action:artifact:check:smoke": "pnpm action:build:typecheck && REVIEWROUTER_CODEX_ROTATING_ACTION_REQUIRE_BINARY=0 node scripts/check-codex-rotating-action-artifact.mjs && node scripts/build-conflict-runtime.ts --check",
     "action:sync-public-runtime": "node scripts/sync-public-action-runtime.mjs",
     "subscription-runtime:contract": "node scripts/check-external-subscription-runtime.mjs",
     "subscription-runtime:redaction-canary": "node scripts/check-external-subscription-runtime.mjs",
@@ -192,10 +193,11 @@
     "@get-modular/assembly": "0.7.0"
   },
   "optionalDependencies": {
-    "@777genius/subscription-runtime": "git+https://github.com/777genius/ar.git#83a7329f4383b05ac5c39356b79f82f029182d42"
+    "@777genius/subscription-runtime": "git+https://github.com/777genius/ar.git#c7543bc716411a5f899a790a735d09ed2530f779"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "acorn": "8.16.0",
     "@prisma/adapter-pg": "7.8.0",
     "@tailwindcss/postcss": "4.2.4",
     "@testing-library/react": "^16.3.2",

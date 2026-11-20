@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildCodexRotatingAction } from "./lib/codex-rotating-action-build.mjs";
+import { buildCodexRotatingAction } from "./lib/codex-rotating-action-build.ts";
 
 const root = process.cwd();
 const actionYmlPath = join(root, "action.yml");

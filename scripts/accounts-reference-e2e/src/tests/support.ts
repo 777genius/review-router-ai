@@ -1,4 +1,4 @@
-import type { BrowserContext, Locator, Page } from "@playwright/test";
+import type { BrowserContext, Locator, Page, Response } from "@playwright/test";
 import { expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -111,28 +111,34 @@ async function navigateAccounts(
   workspace: string,
   navigate: () => Promise<unknown>,
 ): Promise<void> {
-  // This inventory GET starts after its streamed client subtree hydrates.
-  const personalHydrated = workspace.startsWith("rr-e2e-personal-")
-    ? page.waitForResponse((response) => {
-        const url = new URL(response.url());
-        return (
-          url.pathname === "/api/dashboard/accounts/access" &&
-          url.searchParams.get("view") === "summaries" &&
-          response.request().method() === "GET"
-        );
-      })
-    : null;
-  await navigate();
-  // The Connections section region is the page's top anchor and marks the
-  // current account-management content as rendered.
-  await expect(
-    page.getByRole("region", { name: "Connections", exact: true }),
-  ).toBeVisible();
-  await expect(page.locator("html")).toHaveAttribute(
-    "data-dashboard-layout-ready",
-    "true",
-  );
-  if (personalHydrated) await personalHydrated;
+  // Capture fast replies during navigation, but start the readiness deadline
+  // only after the new page is rendered. Navigation has its own bounded wait.
+  let personalHydrated = !workspace.startsWith("rr-e2e-personal-");
+  const observeInventory = (response: Response) => {
+    const url = new URL(response.url());
+    if (
+      url.pathname === "/api/dashboard/accounts/access" &&
+      url.searchParams.get("view") === "summaries" &&
+      response.request().method() === "GET"
+    )
+      personalHydrated = true;
+  };
+  if (!personalHydrated) page.on("response", observeInventory);
+  try {
+    await navigate();
+    // The Connections section region is the page's top anchor and marks the
+    // current account-management content as rendered.
+    await expect(
+      page.getByRole("region", { name: "Connections", exact: true }),
+    ).toBeVisible();
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-dashboard-layout-ready",
+      "true",
+    );
+    await expect.poll(() => personalHydrated).toBe(true);
+  } finally {
+    page.off("response", observeInventory);
+  }
 }
 
 export function sourceRow(page: Page, label: string, scope?: Locator): Locator {

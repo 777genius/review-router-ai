@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
-import { build } from "esbuild";
-import ts from "typescript";
+import { parse } from "acorn";
+import { build, type OnResolveArgs } from "esbuild";
 
 const thirdPartyNotices = await readFile(
   new URL("../codex-rotating-action-third-party-licenses.txt", import.meta.url),
@@ -11,7 +11,7 @@ const thirdPartyNotices = await readFile(
 export async function buildCodexRotatingAction({
   root = process.cwd(),
   outfile = join(root, "action-dist/index.cjs"),
-} = {}) {
+}: { root?: string; outfile?: string } = {}): Promise<void> {
   await build({
     absWorkingDir: root,
     entryPoints: [
@@ -29,8 +29,7 @@ export async function buildCodexRotatingAction({
         name: "logical-yaml-paths",
         setup(actionBuild) {
           let yamlRoot = "";
-          /** @param {import("esbuild").OnResolveArgs} args */
-          const resolveYaml = async (args) => {
+          const resolveYaml = async (args: OnResolveArgs) => {
             if (args.pluginData === "physical-yaml-resolution") return;
             const resolved = await actionBuild.resolve(args.path, {
               resolveDir: args.resolveDir,
@@ -76,11 +75,16 @@ export async function buildCodexRotatingAction({
           );
           actionBuild.onLoad(
             { filter: /.*/, namespace: "yaml" },
-            async (args) => ({
-              contents: await readFile(args.pluginData, "utf8"),
-              loader: "js",
-              resolveDir: dirname(args.pluginData),
-            }),
+            async (args) => {
+              const physicalPath: unknown = args.pluginData;
+              if (typeof physicalPath !== "string")
+                throw new Error("Action YAML physical path is missing");
+              return {
+                contents: await readFile(physicalPath, "utf8"),
+                loader: "js",
+                resolveDir: dirname(physicalPath),
+              };
+            },
           );
         },
       },
@@ -89,7 +93,7 @@ export async function buildCodexRotatingAction({
         // while excluding machine-specific pnpm install paths from CJS labels.
         name: "logical-pinned-dependency-paths",
         setup(actionBuild) {
-          const resolveDependency = async (args) => {
+          const resolveDependency = async (args: OnResolveArgs) => {
             if (args.pluginData === "physical-pinned-resolution") return;
             const resolved = await actionBuild.resolve(args.path, {
               resolveDir: args.resolveDir,
@@ -117,11 +121,16 @@ export async function buildCodexRotatingAction({
           );
           actionBuild.onLoad(
             { filter: /.*/, namespace: "pinned-dependency" },
-            async (args) => ({
-              contents: await readFile(args.pluginData, "utf8"),
-              loader: args.pluginData.endsWith(".json") ? "json" : "js",
-              resolveDir: dirname(args.pluginData),
-            }),
+            async (args) => {
+              const physicalPath: unknown = args.pluginData;
+              if (typeof physicalPath !== "string")
+                throw new Error("Action dependency physical path is missing");
+              return {
+                contents: await readFile(physicalPath, "utf8"),
+                loader: physicalPath.endsWith(".json") ? "json" : "js",
+                resolveDir: dirname(physicalPath),
+              };
+            },
           );
         },
       },
@@ -140,43 +149,44 @@ export async function buildCodexRotatingAction({
   }
 }
 
-export function normalizeDependencyWrapperLabels(bundle) {
-  const source = ts.createSourceFile(
-    "action.cjs",
-    bundle,
-    ts.ScriptTarget.Latest,
-    false,
-    ts.ScriptKind.JS,
-  );
-  const edits = [];
+export function normalizeDependencyWrapperLabels(bundle: string): string {
+  const source = parse(bundle, {
+    ecmaVersion: "latest",
+    sourceType: "script",
+    allowHashBang: true,
+  });
+  const edits: { start: number; end: number; label: string }[] = [];
   // Only top-level esbuild wrapper descriptors contain diagnostic keys.
   // Physical module resolution and source string values remain untouched.
-  for (const statement of source.statements) {
-    if (!ts.isVariableStatement(statement)) continue;
-    for (const declaration of statement.declarationList.declarations) {
-      const initializer = declaration.initializer;
+  for (const statement of source.body) {
+    if (statement.type !== "VariableDeclaration") continue;
+    for (const declaration of statement.declarations) {
+      const initializer = declaration.init;
       if (
         !initializer ||
-        !ts.isCallExpression(initializer) ||
-        !ts.isIdentifier(initializer.expression) ||
-        !/^__(?:commonJS|esm)$/.test(initializer.expression.text)
+        initializer.type !== "CallExpression" ||
+        initializer.callee.type !== "Identifier" ||
+        !/^__(?:commonJS|esm)$/.test(initializer.callee.name)
       )
         continue;
       const descriptor = initializer.arguments[0];
-      if (!descriptor || !ts.isObjectLiteralExpression(descriptor)) continue;
+      if (!descriptor || descriptor.type !== "ObjectExpression") continue;
       for (const property of descriptor.properties) {
         if (
-          !ts.isMethodDeclaration(property) ||
-          !ts.isStringLiteral(property.name)
+          property.type !== "Property" ||
+          !property.method ||
+          property.computed ||
+          property.key.type !== "Literal" ||
+          typeof property.key.value !== "string"
         )
           continue;
-        const label = property.name.text;
+        const label = property.key.value;
         if (!/^(?:node_modules\/|pinned-dependency:)/.test(label)) continue;
         const offset = label.lastIndexOf("node_modules/");
         if (offset <= 0) continue;
         edits.push({
-          start: property.name.getStart(source),
-          end: property.name.end,
+          start: property.key.start,
+          end: property.key.end,
           label: label.slice(offset),
         });
       }

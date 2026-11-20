@@ -121,6 +121,9 @@ class RelayFailure extends Error {
     readonly failureScope?: "reviewer" | "allocation" | "run",
     readonly concurrencyGroupId?: string,
     readonly providerQuota?: ProviderQuota,
+    /** Closed cause behind a generic code, reported next to it so callers
+     * that act on `code` keep their behaviour. */
+    readonly failureCause?: string,
   ) {
     super(code);
   }
@@ -148,6 +151,7 @@ function emitRequestFailureDiagnostic(
   kind: "companion" | "ordinary",
   stage: GatewayRequestStage,
   requestRef: string,
+  relayCode?: string,
 ) {
   try {
     const sdkError = error instanceof GatewayError ? error : undefined;
@@ -174,6 +178,7 @@ function emitRequestFailureDiagnostic(
             : "review_run_gateway_request_failed",
         stage,
         requestRef,
+        ...(relayCode === undefined ? {} : { relayCode }),
         ...(sdkCode === undefined ? {} : { sdkCode }),
         ...(effect.success ? { effect: effect.data } : {}),
         ...(diagnosticCode.success
@@ -1100,11 +1105,16 @@ export function createReviewRunGatewayRelay(input: {
         },
       };
     } catch (error) {
+      // Report the closed cause (Gateway code, local refusal, otherwise
+      // relay_unknown) next to the unchanged generic code: callers classify,
+      // retry and scope on `code`, so it must stay what it was.
+      const cause = safeFailure(error);
       emitRequestFailureDiagnostic(
         error,
         "companion",
         requestStage,
         requestRef,
+        cause.code,
       );
       if (upstream?.kind === "stream") await upstream.cancel().catch(() => {});
       // Only a positively local native no-dispatch proof settles unpaid.
@@ -1124,8 +1134,11 @@ export function createReviewRunGatewayRelay(input: {
       } else await unknown();
       dispose();
       const providerQuota = gatewayProviderQuota(error);
+      const code = providerQuota
+        ? "provider_quota_exhausted"
+        : "companion_request_failed";
       throw new RelayFailure(
-        providerQuota ? "provider_quota_exhausted" : "companion_request_failed",
+        code,
         502,
         failureEffect,
         requestRef,
@@ -1133,6 +1146,7 @@ export function createReviewRunGatewayRelay(input: {
         undefined,
         undefined,
         providerQuota,
+        cause.code === code ? undefined : cause.code,
       );
     }
   }
@@ -1740,6 +1754,7 @@ export function createReviewRunGatewayRelay(input: {
           allocationFailure ? "allocation" : "reviewer",
           lane.reviewer.concurrencyGroupId,
           providerQuota,
+          failure.failureCause,
         );
       }
     } catch (error) {
@@ -2193,6 +2208,9 @@ export async function registerReviewRunGatewayRelayRoutes(
                 ...(failure.dispatch ? { dispatch: failure.dispatch } : {}),
                 ...(failure.providerQuota
                   ? { providerQuota: failure.providerQuota }
+                  : {}),
+                ...(failure.failureCause
+                  ? { cause: failure.failureCause }
                   : {}),
               },
             });

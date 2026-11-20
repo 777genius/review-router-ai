@@ -946,10 +946,57 @@ describeWithDatabase.sequential(
       });
       expect(progressComments(fixture)).toHaveLength(1);
       const body = progressComments(fixture)[0]?.body ?? "";
-      expect(body).toContain("**Phase:** Complete with gaps");
+      expect(body).toContain("**Phase:** Review incomplete");
       expect(body).toContain("Progress: 3 of 4 parts reviewed (75%)");
       expect(body).toContain("Parts that could not be finished: 1");
       expect(body).not.toContain("reviewed (100%)");
+    }, 60_000);
+
+    it("ends the progress comment incomplete when the published review is incomplete with every part finished", async () => {
+      // Production shape: native spans could not be verified, so the Action
+      // claims partial coverage and its summary says "Review incomplete",
+      // while every required part finished and the execution completed.
+      const fixture = requiredHarness(harness);
+      const flow = await fixture.createCommittedFlow({
+        slotCount: 2,
+        eligibleFileCount: 4,
+        attachSlotCount: 0,
+      });
+      await fixture.setProgressFixture({
+        executionId: flow.executionId,
+        completed: 2,
+      });
+      const finalized = await fixture.finalize(flow, { allowPartial: true });
+      expect(finalized.result.status).toBe(
+        ReviewExecutionMutationResultStatus.Applied,
+      );
+      await fixture.processFinalizedOutbox();
+      await fixture.runWorkerUntilSettled();
+      await expect(
+        fixture.prisma.reviewExecutionV2.findUniqueOrThrow({
+          where: { executionId: flow.executionId },
+          select: { state: true },
+        }),
+      ).resolves.toEqual({ state: "completed" });
+      await fixture.makeProgressDue();
+      await expect(fixture.publishProgress()).resolves.toMatchObject({
+        published: 1,
+      });
+      await fixture.sweepProgressPromotion();
+      await expect(
+        fixture.prisma.reviewExecutionProgressV1.findUniqueOrThrow({
+          where: { executionId: flow.executionId },
+          select: { terminalOutcome: true },
+        }),
+      ).resolves.toEqual({ terminalOutcome: "complete_with_gaps" });
+      await fixture.makeProgressDue();
+      await expect(fixture.publishProgress()).resolves.toMatchObject({
+        published: 1,
+      });
+      const body = progressComments(fixture)[0]?.body ?? "";
+      expect(body).toContain("**Phase:** Review incomplete");
+      expect(body).toContain("Progress: 2 of 2 parts reviewed (100%)");
+      expect(body).not.toContain("Parts that could not be finished");
     }, 60_000);
 
     it("finalizes exhausted work without regressing durable progress", async () => {

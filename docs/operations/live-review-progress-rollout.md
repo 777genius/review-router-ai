@@ -68,7 +68,7 @@ then "Started" and "Last update".
    same applies when writes come back after the kill switch.
 3. Run one review on a disposable PR. Expect one comment with the
    `<!-- review-router-live-progress -->` marker, updated in place, that ends
-   in Complete or Complete with gaps.
+   in Complete or Review incomplete (the same verdict as the review summary).
 4. Watch `lastErrorCode` and `failureCount` on `ReviewProgressPublicationV1`
    and the worker log line `ReviewRouter worker phases failed` for
    `review_v2.progress_*` phases.

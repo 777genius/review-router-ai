@@ -14,7 +14,7 @@
 - Canonical contract and parallel plans: `agent-teams-ai/account-gateway`,
   `docs/reference/native-account-contracts.md` and
   `docs/reference/native-account-integration-plan.md`.
-- Last updated: `2026-11-19`.
+- Last updated: `2026-11-20`.
 
 ## Environment status
 
@@ -64,6 +64,39 @@ imports, a new operations engine and production activation are outside scope.
    versions and evidence for each environment before marking it deployed.
 
 No rollout, activation or live-provider call has been performed by this task.
+
+## Qualification tooling maintenance
+
+The consumer now pins the merged runtime compiler maintenance revision
+`c7543bc716411a5f899a790a735d09ed2530f779` from
+[runtime PR #85](https://github.com/777genius/ar/pull/85). It preserves the frozen
+runtime implementation and every existing consumer dependency resolution while
+building the owner source with TypeScript 7.0.2. Both installed peer contexts
+receive the same exact-source build through the existing preparation script.
+
+The Action bundle normalizer uses Acorn to inspect the generated JavaScript.
+Its maintained implementation is now TypeScript and receives a strict native
+TypeScript 7.0.2 check in the existing Action artifact gate. The unchanged legacy
+build/check entrypoints retain their `.mjs` format for this localized import
+correction; they are not claimed to be part of the new strict project. The wider
+repository's legacy compiler migration is outside this bounded maintenance.
+
+The generated Action remains byte-identical except for the runtime source SHA
+in the third-party notice. Its SHA-256 is
+`2bb673a9739690edb734929a2a49483df3e1c316707f973dde4843425e4af02b`.
+Public Action publication and production rollout remain separate, unperformed
+operations.
+
+The subscription browser readiness listener records early inventory responses
+before navigation and starts the existing bounded readiness assertion after the
+new page is rendered. Original navigation, assertion and test deadlines, seven
+selected scenarios and zero retries/skips remain unchanged. The three-head paired
+test now checks the accepted App-owned sticky summary contract: one stable
+comment ID, a current revision marker and idempotent replay.
+
+Current-source CI, the complete browser receipt and the joined six-profile
+RR → Gateway → Sub2API review flow still precede final qualification. Local
+tooling checks do not establish those runtime outcomes.
 
 ## Verification and completion
 

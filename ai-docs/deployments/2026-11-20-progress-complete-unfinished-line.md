@@ -15,10 +15,10 @@
 
 ## Environment status
 
-| Target     | Status    | Actual image | Evidence                                                    |
-| ---------- | --------- | ------------ | ----------------------------------------------------------- |
-| Staging    | `pending` | Not verified | Ordinary worker rollout                                     |
-| Production | `pending` | Not verified | Rides in the next bundled worker rollout; not deployed yet. |
+| Target     | Status     | Actual image                         | Evidence                                                                                                                                                |
+| ---------- | ---------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Staging    | `pending`  | Not verified                         | Ordinary worker rollout                                                                                                                                 |
+| Production | `deployed` | `d2f42908`, image `sha256:3da99827…` | Canary PR 143 (2026-11-20 03:43 and 03:50 UTC): both Complete versions without the line. See the [bundled rollout 2](2026-11-20-bundle2-action-242.md). |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -66,6 +66,7 @@ No data is migrated. Rolling back the image restores the old line.
 
 ## Execution log
 
-| Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result | Evidence | Next action                              |
-| ------------ | -------------------- | ---------- | ---------------------- | ------------------------ | -------- | ---------------------------------------- |
-| Not executed | staging / production | Unassigned | Not verified           | Not deployed             | This PR  | Ship in the next bundled worker rollout. |
+| Time (UTC)                | Environment | Operator    | Actual version / image               | Step and observed result                                          | Evidence                                              | Next action                                       |
+| ------------------------- | ----------- | ----------- | ------------------------------------ | ----------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------- |
+| 2026-11-20 03:30 to 03:54 | production  | operator D3 | `d2f42908`, image `sha256:3da99827…` | Deployed; canary Complete comments carry no unfinished-parts line | [bundled rollout 2](2026-11-20-bundle2-action-242.md) | A Complete-with-gaps comment is not observed yet. |
+| Not executed              | staging     | Unassigned  | Not verified                         | Not deployed                                                      | This PR                                               | Next staging rollout.                             |

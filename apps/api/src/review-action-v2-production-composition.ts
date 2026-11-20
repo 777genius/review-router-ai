@@ -156,6 +156,7 @@ import {
   ReviewWorkSlotState,
   ReviewInvocationLeasePurpose,
   ReviewTaskKind as ExecutionTaskKind,
+  projectionClaimsCompleteCoverage,
   type CurrentReviewRevisionPort,
   type ReviewExecution,
   type ReviewExecutionAuthorizationFactsPort,
@@ -2706,9 +2707,7 @@ class ProductionFinalizationFactsAdapter implements ReviewActionV2FinalizationFa
     input: Parameters<ReviewActionV2FinalizationFactsPort["resolve"]>[0],
     envelope: Record<string, unknown>,
   ) {
-    const producerCoverageComplete =
-      (envelope.coverage as { readonly state?: unknown } | null)?.state ===
-      "complete";
+    const producerCoverageComplete = projectionClaimsCompleteCoverage(envelope);
     const snapshot = parseReviewRunRuntimeSnapshot(
       input.authorization.runtimeSnapshotCanonicalJson,
     );
