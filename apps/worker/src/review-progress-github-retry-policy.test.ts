@@ -117,9 +117,13 @@ describe("Review progress GitHub retry policy", () => {
       expect(actual.getTime()).toBe(now.getTime() + 60_000);
     }
     const httpDate = "Wed, 12 Aug 2026 12:00:30 GMT";
-    expect(retryBoundary({ "retry-after": httpDate }, now, "server_unavailable").getTime()).toBe(
-      now.getTime() + 30_000,
-    );
+    expect(
+      retryBoundary(
+        { "retry-after": httpDate },
+        now,
+        "server_unavailable",
+      ).getTime(),
+    ).toBe(now.getTime() + 30_000);
   });
 
   it("treats blank Retry-After as absent while retaining an explicit zero", () => {
@@ -136,7 +140,11 @@ describe("Review progress GitHub retry policy", () => {
   it("ignores oversized retry headers while preserving usable boundaries", () => {
     const oversized = "10000000000000";
     const nearDateLimit = "8639999999999.5";
-    const fallback = retryBoundary({ "retry-after": oversized }, now, "server_unavailable");
+    const fallback = retryBoundary(
+      { "retry-after": oversized },
+      now,
+      "server_unavailable",
+    );
     const reset = retryBoundary(
       { "retry-after": oversized, "x-ratelimit-reset": "1786536060" },
       now,
