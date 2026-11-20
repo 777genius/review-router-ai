@@ -503,8 +503,7 @@ describe("ReviewProgressGitHubGateway", () => {
       ],
     });
     let firstPageReads = 0;
-    const route =
-      "GET /repos/{owner}/{repo}/issues/{issue_number}/comments";
+    const route = "GET /repos/{owner}/{repo}/issues/{issue_number}/comments";
     const request: ReviewProgressGitHubRequester = async (path, parameters) => {
       const response = await fixture.request(path, parameters);
       if (path === route && parameters?.page === 1) {
