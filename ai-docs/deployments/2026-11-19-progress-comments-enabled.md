@@ -32,13 +32,16 @@
 | production database            | `deployed` | no migration; 1144 progress rows expired              | 2026-11-20 00:07 | Guarded expiry below.       |
 | Gateway, native, Action        | unchanged  | Gateway 115, native 102, `workflow-v1` = 241          | -                | Not part of this release.   |
 
-The Web task records are `installed`: their strings are served, but the
-signed-in dialog and usage checks need the owner's session.
+Covered task records: `deployed` for the default-on comment, the one summary
+per pull request, the investigation recovery and the #821 refactor; `installed`
+for the terminal promotion retry (one historical row not drained), the oversize
+notice (not observed yet) and the three Web records (strings served, signed-in
+checks need the owner's session).
 
 ## Pre-checks (exact commit)
 
-- `git diff 4765de28..9ee93eb1`: no migration, `schema.prisma`, SQL, package or
-  lockfile change.
+- `git diff 061f04bc..9ee93eb1` (the running release to the target): no
+  migration, `schema.prisma`, SQL, package, lockfile or Dockerfile change.
 - Hetzner build host, clean `pnpm install --frozen-lockfile` of the archive of
   `9ee93eb1`: `pnpm typecheck` exit 0; Vitest for `apps/worker/src`,
   `apps/web/app`, `apps/web/src`, `apps/api/src/review*`, conflict-runtime,
@@ -109,7 +112,11 @@ Stale rows excluded by recency so they do not block forever (owner items below).
    `lastErrorCode = 'review_progress_backlog_expired'`, no GitHub call. Three
    rows stayed pending (the three open executions above); after the swap the
    publisher closed them as `review_progress_stale_head` without writing. A
-   rollback-only dry run of the same SQL ran first.
+   rollback-only dry run of the same SQL ran first. The expiry ran 11 s before
+   the old worker stopped, not inside the stop/start gap the
+   [default-on task](2026-11-19-progress-comments-default-on.md) describes; with
+   no live work and writes still off in the old worker, nothing could reopen or
+   publish a row in those seconds.
 5. **Swap** 00:07:52 to 00:08:25: `fleet-overlay apply` of the planned
    controller, started detached on the host (`setsid nohup`) because the
    operator's ssh link kept dropping; same tool and spec as `release.sh swap
@@ -123,17 +130,19 @@ Stale rows excluded by recency so they do not block forever (owner items below).
 
 ## Acceptance evidence (UTC)
 
-| Check                                    | Result     | Evidence                                                                                                                                                                                                                                                                                                                                      |
-| ---------------------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| worker and API 15 minutes after the swap | **PASS**   | 00:23: zero restarts, no error, fatal or `phases failed` line; API `forbidden` lines are the usual protocol rejections (`review_request_intent_required`, `target_revision_mismatch`), seven of them in the seven hours before.                                                                                                               |
-| worker loop                              | **PASS**   | Outbox pass interval median 6.9 s, p95 10.4 s, max 68 s (00:08 to 01:01), against 6.0 s, 9.4 s and 73 s on the old worker (17:00 to 00:07). The longest passes are the ones that publish a review.                                                                                                                                            |
-| progress comment on the canary           | **PASS**   | [Canary PR 142](https://github.com/777genius/rr-codex-rotating-e2e/pull/142), one comment `7026650386`, seven edits, see below.                                                                                                                                                                                                               |
-| one summary per pull request (#933)      | **PASS**   | Second push to PR 142: the summary `7026712624` was edited in place at 01:00:00 ("Review updated"), one summary comment on the PR. social-monitor #782 reused its existing summary (edited 00:21:03), no new one.                                                                                                                             |
-| real review                              | **PASS**   | social-monitor #782: one progress comment `7026020278`, Reviewing 00:14:28, 00:14:54, 00:20:12, Complete 00:21:10, 7 s after the summary edit. Later social-monitor #665 (new execution), #764 and review-router-ai #939 published too.                                                                                                       |
-| no stale comment on old pull requests    | **PASS**   | Since the swap progress was published only for those reviews and the canary (five pull requests), all with a live or new execution, `failureCount` 0. The only pending row is review-router-saas-e2e #57 (an execution of 2026-09-17 re-promoted by #934; the repository is not selected, so it is deferred every 60 s with no GitHub write). |
-| GitHub rate limit or permission errors   | **PASS**   | None in the worker log or in `lastErrorCode` since the swap.                                                                                                                                                                                                                                                                                  |
-| investigation recovery (#935)            | **PASS**   | First pass at boot: `recoveredActiveTurnCount` 6, `failedInvestigationCount` 42, `failureCauseCode` `dossier_digest_invalid`, `deferredActiveTurnCount` 0 on the first pass. Turns now: leased 42, expired 7.                                                                                                                                 |
-| Web strings                              | **served** | Web container `.next/static`: "Updating the model list…", the out-of-date banner, "at least ", "so far, until … UTC", "Try again"; "Refresh models" only as the aria-label of the optional manual Refresh in the status line.                                                                                                                 |
+| Check                                    | Result           | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ---------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| worker and API 15 minutes after the swap | **PASS**         | 00:23: zero restarts, no error, fatal or `phases failed` line; API `forbidden` lines are the usual protocol rejections (`review_request_intent_required`, `target_revision_mismatch`), seven of them in the seven hours before.                                                                                                                                                                                                    |
+| worker loop                              | **PASS**         | Outbox pass interval median 6.9 s, p95 10.4 s, max 68 s (00:08 to 01:01), against 6.0 s, 9.4 s and 73 s on the old worker (17:00 to 00:07). The longest passes are the ones that publish a review.                                                                                                                                                                                                                                 |
+| progress comment on the canary           | **PASS**         | [Canary PR 142](https://github.com/777genius/rr-codex-rotating-e2e/pull/142), one comment `7026650386`, created and edited six times in place, see below.                                                                                                                                                                                                                                                                          |
+| one summary per pull request (#933)      | **PASS**         | Second push to PR 142: the summary `7026712624` was edited in place at 01:00:00 ("Review updated"), one summary comment on the PR. social-monitor #782 reused its existing summary (edited 00:21:03), no new one.                                                                                                                                                                                                                  |
+| real review                              | **PASS**         | social-monitor #782: one progress comment `7026020278`, Reviewing 00:14:28, 00:14:54, 00:20:12, Complete 00:21:10, 7 s after the summary edit. The 00:14:54 edit changed only "Last update", 26 s after the first one, inside the 60 s same-phase gap (likely the first-publish schedule; not verified, follow-up for the cadence owner). Later social-monitor #665 (new execution), #764 and review-router-ai #939 published too. |
+| no stale comment on old pull requests    | **PASS**         | Since the swap progress was published only for those reviews and the canary (five pull requests), all with a live or new execution, `failureCount` 0. The only pending row is review-router-saas-e2e #57 (an execution of 2026-09-17 re-promoted by #934; the repository is not selected in the GitHub App installation, so the row is deferred every 60 s with no GitHub write).                                                  |
+| GitHub rate limit or permission errors   | **PASS**         | None in the worker log. `lastErrorCode` on rows touched since the swap: none 5, `review_progress_stale_head` 3, `review_progress_github_repository_unavailable` 1; no `review_progress_snapshot_invalid` or `review_progress_pagination_inconclusive`, `failureCount` 0. No "Review progress settings are invalid" warning on worker, api or scan.                                                                                 |
+| investigation recovery (#935)            | **PASS**         | Pass 1 (00:07:59): `recoveredActiveTurnCount` 6, `failedInvestigationCount` 42, `failureCauseCode` `dossier_digest_invalid`. Pass 2 (01:08:00): failed 42, deferred 0 (the hourly pass lands exactly on the 1 h backoff, which allows the retry). Count check of the task record: `f superseded 6`, `t turn_leased 42`.                                                                                                            |
+| terminal promotion retry (#934)          | **partial**      | Terminal reached on the canary and real reviews, no sweep warning, no `review_v2.progress_*` failure. One historical row did not drain in the first hour: padelapp-club/monorepository #833 (September, phase `assembling`, comment posted then, publication row closed as `review_progress_stale_head`, so no GitHub write). Task record stays `installed`.                                                                       |
+| oversize notice (#938)                   | **not observed** | No oversized pull request was reviewed after the swap.                                                                                                                                                                                                                                                                                                                                                                             |
+| Web strings                              | **served**       | Web container `.next/static`: "Updating the model list…", the out-of-date banner, "at least ", "so far, until … UTC", "Try again"; "Refresh models" only as the aria-label of the optional manual Refresh in the status line.                                                                                                                                                                                                      |
 
 ### Canary timings (PR 142)
 
@@ -182,16 +191,32 @@ Updates are best effort, so this comment can lag a little behind the review.
 
 Finding for the owner: both the canary and social-monitor #782 show "Parts that
 could not be finished: 1" next to "Complete" while all files are reviewed. That
-reads like a contradiction; the count likely includes an optional part. Not a
-rollback signal; worth a wording or counting fix.
+reads like a contradiction. Unverified guess: the count includes an optional
+part. Not a rollback signal; worth a wording or counting fix.
+
+## Not verified and residual risks
+
+- Every repository, including third-party workspaces, now gets the visible
+  progress comment: the owner's product decision of 2026-11-19. It was watched
+  for about one hour, not the 24 h of runbook 15.
+- [#920](https://github.com/777genius/review-router-ai/pull/920) (progress
+  comment pagination fence) is still a Draft; without it a pull request with
+  more comments than the scan limit can defer instead of creating its comment.
+- The restart, permission loss and rate-limit cooldown gates of
+  [live review progress rollout](../../docs/operations/live-review-progress-rollout.md)
+  step 4 were not exercised.
+- #934 left one historical row undrained (see acceptance); #938 is not observed
+  yet; the Web checks need the owner's session.
 
 ## Private material retention (facts, not changed)
 
 The first maintenance pass also logged
 `review_investigation_private_material_prune_failed` (cause not in the
-allowlist, so `null`). It is new in kind: the old worker ran the same step after
-its active-turn failure and did not report it. `ReviewInvestigationPrivateMaterial`
-holds 2,065 rows of 53 investigations (302,802 ciphertext bytes), created
+allowlist, so `null`). The old worker would have logged this code too (it
+collects every failed step), but its lines up to the swap list only the
+active-turn code, and pass 2 at 01:08 lists only the active-turn code again, so
+the private-material step failed once, on the first pass after the 6 turns were
+recovered. `ReviewInvestigationPrivateMaterial` holds 2,065 rows of 53 investigations (302,802 ciphertext bytes), created
 2026-08-06 to 2026-10-19, all past `expiresAt` (oldest 2026-08-07): 1,181 belong
 to `superseded` investigations without an active turn, 823 to the 42 leased
 turns, 60 to `awaiting_turn`, 1 to `inconclusive`. Expired encrypted material
@@ -211,9 +236,11 @@ each image build costs about 7 GB.
   `docker builder prune --force --filter until=48h`.
 - Prune reported 76.85 GB. Free space on `/` 12,866,469,888 to 91,413,860,352
   bytes (99 % to 91 %). Build cache 181 GB in 819 records to 104 GB in 686.
-  Images (215), containers (472), volumes and the 32 retained rollback
-  containers were not touched. After the 9ee93eb1 build: 75 GB free.
-- Images, for the owner's decision (not changed): 17 used by running
+  Images (215 in `docker system df`), containers (472), volumes and the 32
+  retained rollback containers were not touched. After the 9ee93eb1 build: 75 GB free.
+- Images, for the owner's decision (not changed), counted over
+  `docker image ls -a` (273 entries, which includes untagged parents that
+  `docker system df` does not count): 17 used by running
   containers, 51 only by stopped or retained containers, 205 by no container
   (28 untagged intermediates; the rest include other projects on this host such
   as social-monitor and discord-meeting, and `reviewrouter-manual` images of
@@ -240,8 +267,9 @@ and the one-repository allow-list on api, worker and scan, so that also turns
 progress comments off. Then restore the canonical env files from
 `roles.<role>.canonical` in
 `/srv/platform/projects/review-router/releases/fleet-overlay-9ee93eb1-fWUbCDKu/snapshot.json`
-(see [fleet-overlay](../../deploy/hetzner/fleet-overlay/README.md)). No
-migration to undo. The expired progress rows stay expired (a new review on the
+(see [fleet-overlay](../../deploy/hetzner/fleet-overlay/README.md)). Keep that
+custody directory (root 0700; it holds the full canonical env files) until the
+next release closes this rollback window, then delete it. No migration to undo. The expired progress rows stay expired (a new review on the
 same pull request opens its row again). Published comments stay on GitHub.
 
 Kill switch without a rollback: fleet-overlay `add`

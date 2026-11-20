@@ -72,6 +72,7 @@ Rolling back the API stops new notices; existing ones stay and are harmless.
 
 ## Execution log
 
-| Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result | Evidence | Next action                   |
-| ------------ | -------------------- | ---------- | ---------------------- | ------------------------ | -------- | ----------------------------- |
-| Not executed | staging / production | Unassigned | Not verified           | Not deployed yet.        | None     | Ship in the next bundled one. |
+| Time (UTC)                | Environment          | Operator    | Actual version / image               | Step and observed result                                | Evidence                                                   | Next action                                            |
+| ------------------------- | -------------------- | ----------- | ------------------------------------ | ------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------ |
+| 2026-11-20 00:07 to 01:15 | production           | operator E2 | `9ee93eb1`, image `sha256:a032a165…` | Installed 00:08; no oversized pull request reviewed yet | [bundled rollout](2026-11-19-progress-comments-enabled.md) | Observe the notice on the next oversized pull request. |
+| Not executed              | staging / production | Unassigned  | Not verified                         | Not deployed yet.                                       | None                                                       | Ship in the next bundled one.                          |
