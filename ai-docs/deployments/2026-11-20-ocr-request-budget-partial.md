@@ -51,8 +51,8 @@ observed to be absent. Use the [status contract](README.md#status-contract).
   unknown or paid effect still fails closed.
 - The summary of any partial OCR run no longer counts every file as
   reviewed: files of OCR groups that never finished their main pass are
-  listed as `unreviewed` ("the review stopped before this file was
-  finished") and the scope line counts only the finished ones (single
+  listed as `unreviewed` ("the review did not finish this file") and the
+  scope line counts only the finished ones (single
   reviewer and roster lanes). A run restored in a new process after
   acceptance still counts the slot's files, as before.
 - The RR progress comment no longer prints "Files fully reviewed: X of N"
@@ -62,6 +62,9 @@ observed to be absent. Use the [status contract](README.md#status-contract).
 - A response body that names `output_truncated` or
   `model_dispatch_budget_exhausted` is treated as an unknown effect: only a
   stop the runtime observed itself keeps the finished work.
+- In reviewer-roster fallback mode, a lane ending with the fenced 4th
+  output-limit turn is now a partial accepted lane, so the chain no longer
+  hands over to the next reviewer (owner decision G in plan 87).
 - Model attribution now survives a known stop for every transport user, Codex
   included. In practice Codex cannot use it: its next turn is refused once
   inference is fenced. Fences are unchanged for all consumers.
