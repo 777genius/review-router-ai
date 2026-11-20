@@ -18,10 +18,10 @@
 
 ## Environment status
 
-| Target     | Status    | Actual version            | Evidence                    |
-| ---------- | --------- | ------------------------- | --------------------------- |
-| Native     | `pending` | prod native is `cfe50b7f` | Rides in bundle 3 (native)  |
-| Production | `pending` | Not deployed              | Native first, then the rest |
+| Target     | Status      | Actual version                 | Evidence                                                                                          |
+| ---------- | ----------- | ------------------------------ | ------------------------------------------------------------------------------------------------- |
+| Native     | `installed` | `f10a3801`, binary `d6ecc3d2…` | [Bundle 3](2026-11-20-bundle3.md) at 07:00 UTC; no bare NVIDIA 502 since, so no line observed yet |
+| Production | `installed` | native 105 under Gateway 115   | [Bundle 3](2026-11-20-bundle3.md)                                                                 |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -54,6 +54,6 @@ this change.
 
 ## Execution log
 
-| Time (UTC) | Environment | Operator | Actual version / image | Step and observed result | Evidence | Next action         |
-| ---------- | ----------- | -------- | ---------------------- | ------------------------ | -------- | ------------------- |
-| -          | -           | -        | -                      | Not deployed             | -        | Ship with bundle 3. |
+| Time (UTC)       | Environment | Operator | Actual version / image          | Step and observed result                         | Evidence                          | Next action                                                                    |
+| ---------------- | ----------- | -------- | ------------------------------- | ------------------------------------------------ | --------------------------------- | ------------------------------------------------------------------------------ |
+| 2026-11-20 07:00 | production  | D4       | native `f10a3801` (`d6ecc3d2…`) | Swapped under the admission gate, `READY_FENCED` | [bundle 3](2026-11-20-bundle3.md) | Check the next NVIDIA `native_response/denied/502` for the `http_status` line. |
