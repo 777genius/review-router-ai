@@ -16,10 +16,10 @@
 
 ## Environment status
 
-| Target     | Status    | Actual image | Evidence                                                |
-| ---------- | --------- | ------------ | ------------------------------------------------------- |
-| Staging    | `pending` | Not verified | Ordinary worker rollout                                 |
-| Production | `pending` | Not verified | Not deployed. Rides in the next bundled worker rollout. |
+| Target     | Status     | Actual image                         | Evidence                                                                                                                                                                                                                                                                                               |
+| ---------- | ---------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Staging    | `pending`  | Not verified                         | Ordinary worker rollout                                                                                                                                                                                                                                                                                |
+| Production | `deployed` | `d2f42908`, image `sha256:3da99827…` | Swap 03:30 UTC 2026-11-20: first pass without `review_investigation_private_material_prune_failed`, 100 rows per pass (1,182 to 1,082 to 982); the 883 rows of the owner decision were deleted in one guarded transaction right before. See the [bundled rollout 2](2026-11-20-bundle2-action-242.md). |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -130,6 +130,7 @@ run; it deletes nothing the old code would not delete.
 
 ## Execution log
 
-| Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result | Evidence | Next action                  |
-| ------------ | -------------------- | ---------- | ---------------------- | ------------------------ | -------- | ---------------------------- |
-| Not executed | staging / production | Unassigned | Not verified           | Not deployed.            | None     | Next bundled worker rollout. |
+| Time (UTC)                | Environment | Operator    | Actual version / image               | Step and observed result                                                                                                                                      | Evidence                                              | Next action                                                         |
+| ------------------------- | ----------- | ----------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------- |
+| 2026-11-20 03:30 to 03:54 | production  | operator D3 | `d2f42908`, image `sha256:3da99827…` | 883 expired rows (42 parked + 4 `awaiting_turn` investigations) deleted with count guards; worker passes prune 100 rows each with no private-material failure | [bundled rollout 2](2026-11-20-bundle2-action-242.md) | Watch the 981 `superseded` rows drain over about ten hourly passes. |
+| Not executed              | staging     | Unassigned  | Not verified                         | Not deployed.                                                                                                                                                 | None                                                  | Next staging rollout.                                               |
