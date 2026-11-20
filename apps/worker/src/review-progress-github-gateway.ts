@@ -1,6 +1,7 @@
 import {
   commentPageScanDecision,
   confirmedReconciliation,
+  hasUnclassifiedMarker,
   ownsMarker,
   parseCommentOrNull,
   type ReviewProgressComment,
@@ -15,6 +16,7 @@ import {
 import {
   classifyGitHubFailure,
   reconciliationFailure,
+  unconfirmedMutation,
   ReviewProgressGitHubError,
   type ReviewProgressGitHubFailureKind,
 } from "./review-progress-github-retry-policy";
@@ -561,42 +563,6 @@ function repositoryParameters(
  * A definite 4xx response proves GitHub rejected the write, so it is retried
  * and counted like on main. Anything else may have landed.
  */
-function unconfirmedMutation(
-  classified: ReviewProgressGitHubError,
-): ReviewProgressGitHubError {
-  const status = classified.metadata.status;
-  if (
-    classified.kind === "ambiguous_mutation" &&
-    status !== undefined &&
-    status >= 400 &&
-    status < 500
-  ) {
-    return classified;
-  }
-  return new ReviewProgressGitHubError(
-    classified.kind,
-    classified.message,
-    { ...classified.metadata, mutationMayHaveLanded: true },
-    { cause: classified },
-  );
-}
-
-function hasUnclassifiedMarker(
-  value: unknown,
-  marker: string,
-  expectedBotLogin: string,
-): boolean {
-  if (typeof value !== "object" || value === null) return true;
-  const body = (value as { body?: unknown }).body;
-  if (typeof body === "string") return body.includes(marker);
-  const user = (value as { user?: unknown }).user;
-  // Neither an unknown author nor an unreadable body can rule out a match.
-  if (typeof user !== "object" || user === null) return true;
-  const login = (user as { login?: unknown }).login;
-  if (typeof login !== "string" || !login.trim()) return true;
-  return login.toLowerCase() === expectedBotLogin.toLowerCase();
-}
-
 function parseComment(value: unknown): ReviewProgressComment {
   const comment = parseCommentOrNull(value);
   if (!comment)

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyGitHubFailure,
   reconciliationFailure,
+  unconfirmedMutation,
   ReviewProgressGitHubError,
   fallbackRetryAt,
   isSecondaryRateLimitResponse,
@@ -393,5 +394,26 @@ describe("Review progress GitHub retry policy", () => {
       );
       expect(result.metadata.installationCooldownUntil).toBeUndefined();
     }
+  });
+
+  it("keeps definite 4xx rejections distinct from uncertain writes", () => {
+    const rejected = new ReviewProgressGitHubError(
+      "ambiguous_mutation",
+      "client_rejected",
+      { status: 422, retryable: true },
+    );
+    expect(unconfirmedMutation(rejected)).toBe(rejected);
+
+    const uncertain = new ReviewProgressGitHubError(
+      "ambiguous_mutation",
+      "request_timed_out",
+      { retryable: true },
+    );
+    const result = unconfirmedMutation(uncertain);
+    expect(result).toMatchObject({
+      kind: "ambiguous_mutation",
+      metadata: { retryable: true, mutationMayHaveLanded: true },
+    });
+    expect(result.cause).toBe(uncertain);
   });
 });

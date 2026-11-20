@@ -88,3 +88,20 @@ function record(value: unknown): Record<string, unknown> | null {
     ? (value as Record<string, unknown>)
     : null;
 }
+
+/** Unreadable rows may contain our marker; never certify a destructive scan. */
+export function hasUnclassifiedMarker(
+  value: unknown,
+  marker: string,
+  expectedBotLogin: string,
+): boolean {
+  if (typeof value !== "object" || value === null) return true;
+  const body = (value as { body?: unknown }).body;
+  if (typeof body === "string") return body.includes(marker);
+  const user = (value as { user?: unknown }).user;
+  // Neither an unknown author nor an unreadable body can rule out a match.
+  if (typeof user !== "object" || user === null) return true;
+  const login = (user as { login?: unknown }).login;
+  if (typeof login !== "string" || !login.trim()) return true;
+  return login.toLowerCase() === expectedBotLogin.toLowerCase();
+}

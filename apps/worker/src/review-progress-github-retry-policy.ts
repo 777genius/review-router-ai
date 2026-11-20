@@ -299,3 +299,24 @@ function number(value: unknown): number | undefined {
     ? value
     : undefined;
 }
+
+/** Preserve a definite HTTP rejection, fence outcomes that may have landed. */
+export function unconfirmedMutation(
+  classified: ReviewProgressGitHubError,
+): ReviewProgressGitHubError {
+  const status = classified.metadata.status;
+  if (
+    classified.kind === "ambiguous_mutation" &&
+    status !== undefined &&
+    status >= 400 &&
+    status < 500
+  ) {
+    return classified;
+  }
+  return new ReviewProgressGitHubError(
+    classified.kind,
+    classified.message,
+    { ...classified.metadata, mutationMayHaveLanded: true },
+    { cause: classified },
+  );
+}

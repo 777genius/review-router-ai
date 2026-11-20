@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   commentPageScanDecision,
   confirmedReconciliation,
+  hasUnclassifiedMarker,
   ownsMarker,
   parseCommentOrNull,
 } from "./review-progress-github-comment-policy";
@@ -324,5 +325,21 @@ describe("Review progress GitHub comment policy", () => {
         input,
       ),
     ).toBe(false);
+  });
+
+  it("treats unreadable comment rows as potential marked comments", () => {
+    const marker = "<!-- review-router:progress:review -->";
+    const bot = "review-router[bot]";
+    const cases = [
+      [null, true],
+      [{ body: marker }, true],
+      [{ body: "other" }, false],
+      [{ body: 42, user: { login: bot } }, true],
+      [{ body: 42, user: { login: "other[bot]" } }, false],
+      [{ body: 42, user: null }, true],
+    ] as const;
+    for (const [row, expected] of cases) {
+      expect(hasUnclassifiedMarker(row, marker, bot)).toBe(expected);
+    }
   });
 });
