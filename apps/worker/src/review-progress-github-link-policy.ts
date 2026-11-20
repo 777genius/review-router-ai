@@ -44,6 +44,7 @@ export function commentPageLinks(
       const pageSizes = target.searchParams.getAll("per_page");
       if (
         target.searchParams.getAll("page").length !== 1 ||
+        (expectedCollectionPaths !== undefined && pageSizes.length !== 1) ||
         pageSizes.length > 1 ||
         (pageSizes.length === 1 && pageSizes[0] !== "100") ||
         [...target.searchParams.keys()].some(

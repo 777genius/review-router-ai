@@ -318,8 +318,8 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([], {
       pagedComments: [firstPage, [{ id: 701, body: desired }]],
       pageLinks: [
-        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="first"',
-        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="prev"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="first"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="prev"',
       ],
     });
     await expect(
@@ -349,7 +349,7 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([], {
       pagedComments: [firstPage],
       pageLinks: [
-        '<https://api.github.com/repos/acme/rocket/issues/43/comments?page=1>; rel="last"',
+        '<https://api.github.com/repos/acme/rocket/issues/43/comments?page=1&per_page=100>; rel="last"',
       ],
     });
     await expect(
@@ -370,7 +370,7 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([], {
       pagedComments: [full, [{ id: 701, body: desired }]],
       pageLinks: [
-        '<https://api.github.com/repositories/1300192/issues/42/comments?page=2>; rel="next"',
+        '<https://api.github.com/repositories/1300192/issues/42/comments?page=2&per_page=100>; rel="next"',
       ],
     });
     await expect(
@@ -387,7 +387,7 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([], {
       pagedComments: [full],
       pageLinks: [
-        '<https://api.github.com/repositories/1300193/issues/42/comments?page=1>; rel="last"',
+        '<https://api.github.com/repositories/1300193/issues/42/comments?page=1&per_page=100>; rel="last"',
       ],
     });
     await expect(
@@ -408,8 +408,8 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([], {
       pagedComments: [full, full, [{ id: 701, body: desired }]],
       pageLinks: [
-        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next"',
-        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="prev"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="prev"',
       ],
     });
     await expect(
@@ -438,8 +438,8 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([], {
       pagedComments: [firstPage, lastPage],
       pageLinks: [
-        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next"',
-        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="prev"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="prev"',
       ],
     });
 
@@ -472,8 +472,8 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([], {
       pagedComments: [firstPage, secondPage],
       pageLinks: [
-        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next"',
-        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="prev"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="prev"',
       ],
     });
 
@@ -498,8 +498,8 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([], {
       pagedComments: [firstPage, secondPage],
       pageLinks: [
-        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next"',
-        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="prev"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="prev"',
       ],
     });
     let firstPageReads = 0;
@@ -545,8 +545,8 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([known, duplicate], {
       pagedComments: [firstPage, [duplicate]],
       pageLinks: [
-        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next"',
-        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="prev"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="prev"',
       ],
     });
     const listRoute =
@@ -611,7 +611,7 @@ describe("ReviewProgressGitHubGateway", () => {
               ? firstPage
               : [...firstPage.slice(1), { id: 101, body: "new" }],
           headers: {
-            link: '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next"',
+            link: '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',
           },
         };
       }
@@ -625,7 +625,7 @@ describe("ReviewProgressGitHubGateway", () => {
             },
           ],
           headers: {
-            link: '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="prev"',
+            link: '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="prev"',
           },
         };
       }
@@ -654,7 +654,7 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([known], {
       pagedComments: [firstPage],
       pageLinks: [
-        '<https://api.github.com/repos/other/repo/issues/42/comments?page=2>; rel="next"',
+        '<https://api.github.com/repos/other/repo/issues/42/comments?page=2&per_page=100>; rel="next"',
       ],
     });
 
@@ -675,7 +675,7 @@ describe("ReviewProgressGitHubGateway", () => {
     const canonical = { id: 4, body: desired };
     const duplicate = { id: 7, body: `duplicate\n${marker}` };
     const last =
-      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="last"';
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="last"';
     const fixture = githubFixture([canonical, duplicate], {
       pagedComments: [[canonical], [duplicate]],
       pageLinks: [last, last],
@@ -702,9 +702,9 @@ describe("ReviewProgressGitHubGateway", () => {
     const canonical = { id: 4, body: desired };
     const duplicate = { id: 7, body: `duplicate\n${marker}` };
     const last =
-      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=3>; rel="last"';
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=3&per_page=100>; rel="last"';
     const previous =
-      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="prev"';
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="prev"';
     const fixture = githubFixture([canonical, duplicate], {
       pagedComments: [[canonical], [], [duplicate]],
       pageLinks: [last, previous, previous],
@@ -860,7 +860,7 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([], {
       pagedComments: [fullPage],
       pageLinks: [
-        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',
       ],
     });
 
@@ -881,7 +881,7 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([], {
       pagedComments: [fullPage],
       pageLinks: [
-        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next',
       ],
     });
     await expect(
@@ -913,12 +913,12 @@ describe("ReviewProgressGitHubGateway", () => {
     const duplicate = { id: 20, body: `duplicate\n${marker}` };
     for (const href of [
       "javascript:alert(1)",
-      "blob:https://api.github.com/repos/acme/rocket/issues/42/comments?page=2",
+      "blob:https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100",
       "data:text/plain,abc",
-      "ftp://api.github.com/comments?page=2",
-      "http://api.github.com/comments?page=2",
-      "https://untrusted.example/comments?page=2",
-      "//untrusted.example/comments?page=2",
+      "ftp://api.github.com/comments?page=2&per_page=100",
+      "http://api.github.com/comments?page=2&per_page=100",
+      "https://untrusted.example/comments?page=2&per_page=100",
+      "//untrusted.example/comments?page=2&per_page=100",
     ]) {
       const fixture = githubFixture([canonical, duplicate], {
         pagedComments: [[canonical, duplicate]],
@@ -938,8 +938,8 @@ describe("ReviewProgressGitHubGateway", () => {
     const desired = formatReviewProgressComment("working", marker);
     const canonical = { id: 19, body: desired };
     const conflict =
-      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="last", ' +
-      "<https://api.github.com/repos/acme/rocket/issues/42/comments?page=3>; rel=last";
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="last", ' +
+      "<https://api.github.com/repos/acme/rocket/issues/42/comments?page=3&per_page=100>; rel=last";
     const fixture = githubFixture([canonical], {
       pagedComments: [[canonical]],
       pageLinks: [conflict],
@@ -956,8 +956,8 @@ describe("ReviewProgressGitHubGateway", () => {
   it("does not mutate when next contradicts the advertised final page", async () => {
     const desired = formatReviewProgressComment("working", marker);
     const invalid =
-      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next", ' +
-      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="last"';
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next", ' +
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="last"';
     const fixture = githubFixture([{ id: 19, body: desired }], {
       pagedComments: [[{ id: 19, body: desired }]],
       pageLinks: [invalid],
@@ -979,7 +979,7 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([], {
       pagedComments: [[markedComment]],
       pageLinks: [
-        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next',
       ],
     });
 
@@ -997,7 +997,7 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([], {
       pagedComments: [[marked], []],
       pageLinks: [
-        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next',
       ],
     });
 

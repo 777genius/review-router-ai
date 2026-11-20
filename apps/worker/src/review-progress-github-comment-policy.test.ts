@@ -221,12 +221,26 @@ describe("Review progress GitHub comment policy", () => {
     }
   });
 
+  it("rejects a Link without the requested 100-comment window when issue-scoped", () => {
+    const expected = ["/repos/acme/rocket/issues/42/comments"];
+    const unbounded =
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"';
+    const bounded =
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"';
+    expect(commentPageLinks({ link: unbounded }, 1, expected)).toEqual({
+      hasNextPage: "invalid",
+    });
+    expect(commentPageLinks({ link: bounded }, 1, expected)).toEqual({
+      hasNextPage: true,
+    });
+  });
+
   it("rejects pagination hints for another issue collection", () => {
     const expected = ["/repos/acme/rocket/issues/42/comments"];
     const foreign =
       '<https://api.github.com/repos/acme/rocket/issues/43/comments?page=1>; rel="last"';
     const trusted =
-      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next"';
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"';
     expect(commentPageLinks({ link: foreign }, 1, expected)).toEqual({
       hasNextPage: "invalid",
     });
@@ -257,7 +271,7 @@ describe("Review progress GitHub comment policy", () => {
       "/repositories/1300192/issues/42/comments",
     ];
     const valid =
-      '<https://api.github.com/repositories/1300192/issues/42/comments?page=2>; rel="next"';
+      '<https://api.github.com/repositories/1300192/issues/42/comments?page=2&per_page=100>; rel="next"';
     const foreign =
       '<https://api.github.com/repositories/1300193/issues/42/comments?page=1>; rel="last"';
     expect(commentPageLinks({ link: valid }, 1, verified)).toEqual({
