@@ -1412,11 +1412,16 @@ describeDatabase("PrismaInvestigationStore PostgreSQL invariants", () => {
         healthySeed,
         `digest-open-${healthySeed.investigationId}`,
       );
-      await poisonStore.savePrivateMaterial(poisonMaterial);
-      await healthyStore.savePrivateMaterial(healthyMaterial);
-      await poisonHarness.prisma.reviewInvestigation.update({
+      await expect(
+        poisonStore.savePrivateMaterial(poisonMaterial),
+      ).resolves.toBe(InvestigationPrivateMaterialPersistenceStatus.Created);
+      await expect(
+        healthyStore.savePrivateMaterial(healthyMaterial),
+      ).resolves.toBe(InvestigationPrivateMaterialPersistenceStatus.Created);
+      const poisoned = await poisonHarness.prisma.reviewInvestigation.update({
         where: { investigationId: poisonSeed.investigationId },
         data: { dossierDigest: "0".repeat(64) },
+        select: { version: true, state: true },
       });
       await poisonHarness.prisma.$executeRaw(Prisma.sql`
         INSERT INTO "ReviewInvestigationMaintenanceCheckpoint" (
@@ -1444,6 +1449,12 @@ describeDatabase("PrismaInvestigationStore PostgreSQL invariants", () => {
           where: { investigationId: poisonSeed.investigationId },
         }),
       ).resolves.toBe(1);
+      await expect(
+        poisonHarness.prisma.reviewInvestigation.findUniqueOrThrow({
+          where: { investigationId: poisonSeed.investigationId },
+          select: { version: true, state: true },
+        }),
+      ).resolves.toEqual(poisoned);
       await expect(
         healthyHarness.prisma.reviewInvestigationPrivateMaterial.count({
           where: { investigationId: healthySeed.investigationId },

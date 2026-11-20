@@ -37,7 +37,11 @@ import {
   assertPersistedInvestigationRequirementsSanitized,
   validateInvestigationPrivateMaterialCommit,
 } from "../../application/investigation-private-material-commit-policy";
-import { ReconcileExpiredInvestigationPrivateMaterial } from "../../application/use-cases/reconcile-expired-investigation-private-material";
+import {
+  ReconcileExpiredInvestigationPrivateMaterial,
+  type ReconcileExpiredInvestigationPrivateMaterialResult,
+} from "../../application/use-cases/reconcile-expired-investigation-private-material";
+import { investigationDossierDigestInvalidMessage } from "../../application/use-cases/investigation-use-case-support";
 import {
   assertInvestigationPolicy,
   assertInvestigationPolicyCanonicalCompatibility,
@@ -919,11 +923,7 @@ export class PrismaInvestigationStore
                 InvestigationPrivateMaterialPruneFailureCause.ParentMissing,
               );
             }
-            let reconciled: Awaited<
-              ReturnType<
-                ReconcileExpiredInvestigationPrivateMaterial["execute"]
-              >
-            >;
+            let reconciled: ReconcileExpiredInvestigationPrivateMaterialResult;
             try {
               reconciled = await this.privateMaterialExpiry.execute({
                 investigation: current,
@@ -936,7 +936,7 @@ export class PrismaInvestigationStore
               // not stop the groups behind it in the batch.
               if (
                 error instanceof Error &&
-                error.message === "investigation_dossier_digest_invalid"
+                error.message === investigationDossierDigestInvalidMessage
               ) {
                 throw new PrivateMaterialGroupPruneError(
                   InvestigationPrivateMaterialPruneFailureCause.DossierDigestInvalid,

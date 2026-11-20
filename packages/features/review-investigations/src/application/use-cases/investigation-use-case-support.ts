@@ -86,6 +86,10 @@ export async function withCurrentDossierDigest(
   };
 }
 
+/** Thrown when a stored dossier no longer matches its digest. */
+export const investigationDossierDigestInvalidMessage =
+  "investigation_dossier_digest_invalid";
+
 export async function requireValidDossierDigest(
   digest: InvestigationDigestPort,
   investigation: ReviewInvestigation,
@@ -95,7 +99,7 @@ export async function requireValidDossierDigest(
     investigationDossierCanonicalValue(investigation),
   );
   if (current !== investigation.dossierDigest) {
-    throw new Error("investigation_dossier_digest_invalid");
+    throw new Error(investigationDossierDigestInvalidMessage);
   }
 }
 
