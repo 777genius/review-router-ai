@@ -131,6 +131,7 @@ const filePath = "src/review-file-000.ts";
       );
       const summaries: string[] = [];
       let firstLineage = "";
+      let summaryCommentId: number | undefined;
       for (let index = 0; index < 3; index += 1) {
         fixture.setRevision({
           baseSha: "c".repeat(40),
@@ -366,17 +367,24 @@ const filePath = "src/review-file-000.ts";
             where: { executionId: flow.executionId },
           });
         expect(attempt.terminalOutcome).toBe("succeeded");
-        // Native publication markers are revision-scoped. Preserve one managed
-        // summary per revision and idempotency within that revision.
-        expect(fixture.fakeGitHub.comments).toHaveLength(index + 1);
-        const matching = fixture.fakeGitHub.comments.filter((comment) =>
-          comment.body.includes(envelope.publishing.summary.marker),
-        );
-        expect(matching).toHaveLength(1);
-        const comment = matching[0]!;
+        // A pull request keeps one summary comment. The first head posts it and
+        // every later head rewrites that same comment in place, so it shows
+        // only the latest revision. Another worker pass changes nothing.
+        expect(fixture.fakeGitHub.comments).toHaveLength(1);
+        const comment = fixture.fakeGitHub.comments[0]!;
+        summaryCommentId ??= comment.id;
+        expect(comment.id).toBe(summaryCommentId);
+        expect(
+          fixture.fakeGitHub.countCalls("POST", "/issues/42/comments"),
+        ).toBe(1);
+        expect(
+          comment.body.match(/reviewrouter:summary:v2:[a-f0-9]{64}/gu),
+        ).toEqual([envelope.publishing.summary.marker]);
+        const published = comment.body;
         await fixture.processFinalizedOutbox();
         await fixture.runWorkerUntilSettled();
-        expect(fixture.fakeGitHub.comments).toHaveLength(index + 1);
+        expect(fixture.fakeGitHub.comments).toEqual([comment]);
+        expect(comment.body).toBe(published);
         expect(comment.user.login).toBe("reviewrouter-e2e[bot]");
         expect(comment.body).toContain(envelope.publishing.summary.body);
         expect(comment.body).toContain("/review-banner/v1.svg?");
