@@ -6,6 +6,7 @@ import type {
   AccountView,
 } from "../../src/server/account-gateway-accounts";
 import { accountModelCatalogOutOfDate } from "../../src/features/provider-setup/account-model-catalog-freshness";
+import { useAgeClock } from "./account-limits-line";
 import { StatusLine, updatedAgo } from "./status-line";
 import { AccountMetadataLine } from "./account-metadata-line";
 import type { GatewayModelAccountsRefresh } from "./gateway-model-account-options";
@@ -59,6 +60,7 @@ function CatalogStatus({
   publicCatalog,
 }: CatalogStatusProps) {
   const [refreshing, setRefreshing] = useState(false);
+  const now = useAgeClock();
   const catalog = account?.modelCatalog;
   const busy = bindingLoading(bindingId) || refreshing;
   // A configured profile list is not account discovery. In particular, a
@@ -93,7 +95,7 @@ function CatalogStatus({
       ? ["Loading model choices…", null]
       : catalog?.status === "snapshot"
         ? [
-            `${catalog.models.length === 0 ? "This account lists no models right now. " : ""}Model list updated ${catalog.fetchedAt ? updatedAgo(catalog.fetchedAt) : "recently"}.`,
+            `${catalog.models.length === 0 ? "This account lists no models right now. " : ""}Model list updated ${catalog.fetchedAt ? updatedAgo(catalog.fetchedAt, now) : "recently"}.`,
             "refresh",
           ]
         : catalog?.status === "unsupported"

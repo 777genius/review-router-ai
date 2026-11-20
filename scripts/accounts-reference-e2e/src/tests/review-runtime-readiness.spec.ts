@@ -89,12 +89,16 @@ test.describe("review runtime readiness", () => {
       ).toHaveCount(0);
 
       // Existing optimistic events must not turn an unverified caller into Ready.
-      // This fixture's refresh reloads the main document. Subscribe before the
-      // events so a readiness marker on the old document cannot satisfy the wait.
-      const refreshedDocument = page.waitForEvent("domcontentloaded", {
-        timeout: 60_000,
-      });
+      // The rows answer the burst with one server refresh and keep the document:
+      // a full reload would close the expanded rows and any open dialog.
+      const refreshed = page.waitForResponse(
+        (response) =>
+          response.url().includes("_rsc=") &&
+          !response.request().headers()["next-router-prefetch"],
+        { timeout: 60_000 },
+      );
       await page.evaluate(() => {
+        Object.assign(window, { reviewRuntimeDocument: true });
         for (const key of ["update", "unknown", "pending"])
           for (const type of [
             "reviewrouter:setup-pull-request-merged",
@@ -111,22 +115,16 @@ test.describe("review runtime readiness", () => {
               }),
             );
       });
+      await refreshed;
+      const expectSameDocument = async () =>
+        expect(
+          await page.evaluate(() => "reviewRuntimeDocument" in window),
+        ).toBe(true);
       for (const key of ["update", "unknown", "pending"])
         await expect(
           repository(page, key).locator("label.setup-toggle"),
         ).not.toContainText("4/4");
 
-      await refreshedDocument;
-      // Now await hydration in that refreshed document before using its controls.
-      await expect(page.locator("html")).toHaveAttribute(
-        "data-dashboard-layout-ready",
-        "true",
-        { timeout: 60_000 },
-      );
-      for (const key of ["update", "unknown", "pending"])
-        await expect(
-          repository(page, key).locator("label.setup-toggle"),
-        ).not.toContainText("4/4");
       await expectNoHorizontalOverflow(page);
       const expandRuntimeDetails = async () => {
         for (const row of [update, unknown]) {
@@ -145,6 +143,7 @@ test.describe("review runtime readiness", () => {
         .getByRole("button", { name: "Dark theme", exact: true })
         .click();
       await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+      await expectSameDocument();
       await expandRuntimeDetails();
       await expectNoHorizontalOverflow(page);
       await page.evaluate(() => window.scrollTo(0, 0));
@@ -182,6 +181,7 @@ test.describe("review runtime readiness", () => {
         path: info.outputPath(`review-runtime-${viewport.name}-empty.png`),
         fullPage: true,
       });
+      await expectSameDocument();
       await expectNetworkViolations(violations);
     });
 });

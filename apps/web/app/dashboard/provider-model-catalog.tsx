@@ -10,6 +10,7 @@ import {
   type ReviewModelOption,
 } from "@reviewrouter/features-review-providers";
 import { readProviderModelCatalog } from "./provider-model-catalog-api";
+import { useAgeClock } from "./account-limits-line";
 import { StatusLine, updatedAgo } from "./status-line";
 
 const providers = ["codex", "claude", "openrouter"] as const;
@@ -171,6 +172,7 @@ export function ProviderModelCatalogStatus({
 }: {
   status: ProviderModelCatalogState | null;
 }) {
+  const now = useAgeClock();
   if (!status) return null;
   const snapshot = status.snapshot;
   const failed = publicCatalogRefreshFailed(status);
@@ -181,7 +183,7 @@ export function ProviderModelCatalogStatus({
         ? "Could not update the model list. Showing the last available one."
         : "Could not load the model list."
       : snapshot?.state === "fresh" || snapshot?.state === "stale"
-        ? `Model list updated ${snapshot.fetchedAt === null ? "earlier" : updatedAgo(snapshot.fetchedAt)}.`
+        ? `Model list updated ${snapshot.fetchedAt === null ? "earlier" : updatedAgo(snapshot.fetchedAt, now)}.`
         : snapshot?.state === "fallback"
           ? "Showing built-in model choices."
           : "Model list is unavailable.";

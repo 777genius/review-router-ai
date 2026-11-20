@@ -17,10 +17,10 @@
 
 ## Environment status
 
-| Target     | Status    | Actual image | Evidence                        |
-| ---------- | --------- | ------------ | ------------------------------- |
-| Staging    | `pending` | Not verified | Ordinary API and worker rollout |
-| Production | `pending` | Not deployed | Rides in the next bundle        |
+| Target     | Status      | Actual image                         | Evidence                                                                                                                                 |
+| ---------- | ----------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Staging    | `pending`   | Not verified                         | Ordinary API and worker rollout                                                                                                          |
+| Production | `installed` | `be5c879d`, image `sha256:02248832…` | [Bundle 4](2026-11-20-bundle4.md), with the Action side (review-router#405) in `v1.0.244`; no GitHub blip yet, so no retry line observed |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -58,7 +58,7 @@ observed to be absent. Use the [status contract](README.md#status-contract).
 
 ## Applicability and rollout
 
-Ordinary API and worker image rollout. Bundle 3 was built before this PR, so it rides in the next bundle, NOT deployed.
+Ordinary API and worker image rollout, shipped in [bundle 4](2026-11-20-bundle4.md) (image `sha256:02248832…`, 2026-11-20 14:49 UTC). The Action's own guard got the same rules in review-router#405, released as `v1.0.244` = `workflow-v1` `b4d64b2f` in the same bundle.
 
 ## Verification and completion
 
@@ -73,6 +73,6 @@ Revert the commit and roll the API and worker back. No state is written by this 
 
 ## Execution log
 
-| Time (UTC) | Environment | Operator | Actual version / image | Step and observed result | Evidence | Next action                |
-| ---------- | ----------- | -------- | ---------------------- | ------------------------ | -------- | -------------------------- |
-| -          | -           | -        | -                      | Not deployed             | -        | Ship with the next bundle. |
+| Time (UTC)       | Environment | Operator | Actual version / image               | Step and observed result           | Evidence                          | Next action                                                                      |
+| ---------------- | ----------- | -------- | ------------------------------------ | ---------------------------------- | --------------------------------- | -------------------------------------------------------------------------------- |
+| 2026-11-20 14:49 | production  | D5       | `be5c879d`, image `sha256:02248832…` | API and worker swapped in bundle 4 | [Bundle 4](2026-11-20-bundle4.md) | Watch for `github_review_revision_read_retry` lines during the next GitHub blip. |

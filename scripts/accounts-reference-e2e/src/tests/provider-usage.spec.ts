@@ -1149,7 +1149,9 @@ test("provider usage renders native lag and partial producer coverage truthfully
       usageKpi(usage, "Known tokens").filter({ hasText: /^42\b/ }),
     ).toBeVisible();
     await expect(
-      usage.getByRole("link", { name: "Account limits are shown in Accounts" }),
+      usage.getByRole("link", {
+        name: "Account limits are shown in Connections",
+      }),
     ).toBeVisible();
     await expect(usage.getByLabel("Usage source coverage")).toContainText(
       "reported observations only; transport completeness varies",

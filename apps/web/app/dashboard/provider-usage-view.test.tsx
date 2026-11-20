@@ -215,7 +215,7 @@ describe("provider usage interactive report", () => {
     fireEvent.click(screen.getByLabelText("Details"));
     expect(
       screen
-        .getByRole("link", { name: "Account limits are shown in Accounts" })
+        .getByRole("link", { name: "Account limits are shown in Connections" })
         .getAttribute("href"),
     ).toBe("/dashboard/setup?workspace=workspace#dashboard-section-content");
     expect(container.textContent).not.toContain("Quota / limits: unknown");

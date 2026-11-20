@@ -373,7 +373,7 @@ function ProviderListItem({
 function credentialKeptText(row: ProviderListRow): string {
   switch (row.credentialKind) {
     case "gateway_binding":
-      return "The account stays in Accounts.";
+      return "The account stays in Connections.";
     case "managed_api_key":
       return "The saved key stays for any other provider that uses it.";
     case "user_ci_secret":
@@ -381,7 +381,7 @@ function credentialKeptText(row: ProviderListRow): string {
     case "repository_rotating":
       return "The Codex connection of the repository stays as it is.";
     case "hosted_pool":
-      return "The hosted Codex pool stays in Accounts.";
+      return "The hosted Codex pool stays in Connections.";
   }
 }
 

@@ -93,6 +93,26 @@ function summaryWindows(windows: readonly LimitsWindow[]) {
     .slice(0, 2);
 }
 
+/**
+ * The clock ages on screen are counted from (78, rule 2): it starts at
+ * `anchor`, the server time of the read, or at mount, and ticks every second.
+ * Null until mounted, so the server and the first client render agree.
+ */
+export function useAgeClock(anchor?: string): number | null {
+  const [clock, setClock] = useState<number | null>(null);
+  useEffect(() => {
+    const started = Date.now();
+    const base = anchor ? Date.parse(anchor) : started;
+    setClock(base);
+    const timer = window.setInterval(
+      () => setClock(base + Date.now() - started),
+      1_000,
+    );
+    return () => window.clearInterval(timer);
+  }, [anchor]);
+  return clock;
+}
+
 export function durationText(minutes: number) {
   const days = Math.floor(minutes / 1_440);
   const hours = Math.floor((minutes % 1_440) / 60);
@@ -145,8 +165,6 @@ export function AccountLimitsLine({
   expectedFetchedAt?: string | undefined;
 }) {
   const reading = useRef(false);
-  const [local, setLocal] = useState(false);
-  const [clock, setClock] = useState<number | null>(null);
   const initialRefresh = useRef<string | null>(null);
   const refresh = useMutation(
     accountLimitsRefreshOptions(
@@ -238,17 +256,9 @@ export function AccountLimitsLine({
     connectionId,
     refreshCurrent,
   ]);
-  useEffect(() => {
-    setLocal(true);
-    const started = Date.now();
-    const serverNow = fetchedAt ? Date.parse(fetchedAt) : started;
-    setClock(serverNow);
-    const timer = window.setInterval(
-      () => setClock(serverNow + Date.now() - started),
-      1_000,
-    );
-    return () => window.clearInterval(timer);
-  }, [fetchedAt]);
+  const clock = useAgeClock(fetchedAt);
+  // Local times only after mount, so the server and first client render agree.
+  const local = clock !== null;
   useEffect(() => {
     if (blocked) void removeAccountLimits(client, scope, connectionId);
   }, [blocked, client, scope, connectionId]);

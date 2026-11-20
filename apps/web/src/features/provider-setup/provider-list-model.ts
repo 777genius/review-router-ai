@@ -260,7 +260,7 @@ export function providerListDenialText(
     case "provider_in_use":
       return "To remove it, first choose another provider wherever it is used.";
     case "hosted_pool_not_default":
-      return "A hosted Codex pool is chosen for each repository in Accounts, so it cannot be the default.";
+      return "A hosted Codex pool is chosen for each repository in Connections, so it cannot be the default.";
     case "list_add_admin_required":
       return "Only workspace owners and admins add providers here. To add one for a repository you maintain, use its row in Repositories.";
     default:
