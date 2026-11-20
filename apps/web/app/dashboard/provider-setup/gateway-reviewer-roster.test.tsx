@@ -652,3 +652,96 @@ describe("Gateway reviewer roster", () => {
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 });
+
+describe("daily request limit notice", () => {
+  const free = "openai/gpt-oss-120b:free";
+  const paid = "openai/gpt-5.3-codex";
+  const notice = /This model has a daily request limit/;
+  const rowHint = /Free OpenRouter models have a daily request limit/;
+  function openRouterProps(models: readonly string[], fallback = false) {
+    if (accounts.status !== "ok") throw new Error("fixture_unavailable");
+    const page = accounts.value;
+    const connection = page.profiles[0]!.connection!;
+    const props = base();
+    const ids = models.map((_, index) => `p${index}`);
+    return {
+      ...props,
+      gatewayAccounts: {
+        status: "ok" as const,
+        value: {
+          ...page,
+          profiles: [
+            {
+              ...page.profiles[0]!,
+              models: [free, paid],
+              connection: {
+                ...connection,
+                provider: "openrouter",
+                modelSettings: [free, paid].map((modelId) => ({
+                  ...connection.modelSettings[0]!,
+                  modelId,
+                })),
+              },
+            },
+          ],
+        },
+      },
+      modelOptions: [free, paid].map((value) => ({
+        value,
+        label: value,
+        provider: "openrouter" as const,
+      })),
+      view: {
+        ...props.view,
+        ...(fallback ? { providerMode: "fallback" as const } : {}),
+        defaultSelection: selection(ids[0]!),
+        defaultSelections: ids.map((id) => selection(id)),
+        profiles: models.map((model, index) => ({
+          ...props.view.profiles[0]!,
+          id: ids[index]!,
+          model,
+          label: `Profile ${index}`,
+        })),
+      },
+    };
+  }
+
+  it("advises a second reviewer when the only reviewer is a free model, without blocking save", async () => {
+    render(<GatewayReviewerRoster {...openRouterProps([free])} />);
+    expect(screen.getByRole("note").textContent).toMatch(notice);
+    // One message only: the row repeats nothing.
+    expect(screen.queryByText(rowHint)).toBeNull();
+    const save = screen.getByRole("button", { name: "Save reviewers" });
+    expect(save).toHaveProperty("disabled", false);
+    fireEvent.click(save);
+    await waitFor(() => expect(saveProviderRoster).toHaveBeenCalledTimes(1));
+  });
+
+  it("opens a new reviewer from the notice and then hides it", () => {
+    render(<GatewayReviewerRoster {...openRouterProps([free])} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add a second reviewer" }),
+    );
+    expect(screen.getByText(/2\. Choose a model/)).toBeTruthy();
+    expect(
+      screen.getByRole("combobox", { name: "Account for reviewer 2" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("note")).toBeNull();
+    expect(
+      screen.getByRole("combobox", { name: /How reviewers work together/ }),
+    ).toBeTruthy();
+  });
+
+  it.each([
+    ["the only reviewer is a paid model", [paid], false],
+    ["a paid reviewer follows the free one in parallel", [free, paid], false],
+    ["a paid reviewer backs the free one up in fallback", [free, paid], true],
+  ] as const)("stays hidden when %s", (_case, models, fallback) => {
+    render(<GatewayReviewerRoster {...openRouterProps(models, fallback)} />);
+    expect(screen.queryByRole("note")).toBeNull();
+    // With several reviewers the free row keeps its own short hint.
+    expect(screen.queryAllByText(rowHint)).toHaveLength(
+      models.length > 1 ? 1 : 0,
+    );
+  });
+});

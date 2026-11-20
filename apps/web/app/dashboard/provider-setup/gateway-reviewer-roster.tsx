@@ -24,6 +24,7 @@ import {
   reviewerNames,
   type ProviderSetupView,
 } from "../../../src/features/provider-setup/provider-setup-model";
+import { soleReviewerHasDailyLimit } from "../../../src/features/provider-setup/daily-request-limit";
 import { useGatewayModelAccounts } from "../gateway-model-account-options";
 import { GatewayModelCatalogStatus } from "../gateway-model-catalog-status";
 import {
@@ -34,6 +35,7 @@ import { getGatewaySetupAccounts } from "../../../src/server/dashboard-provider-
 import { dashboardErrorText } from "../dashboard-copy";
 import { GatewayAccountLoadMore } from "./gateway-account-load-more";
 import { GatewayReviewerRowStatus } from "./gateway-reviewer-row-status";
+import { DailyLimitNotice } from "./daily-limit-notice";
 import {
   defaultProviderSelectionSettings,
   ProviderModelFields,
@@ -315,6 +317,21 @@ export function GatewayReviewerRoster({
       next.splice(index + offset, 0, row!);
       return next;
     });
+  const addReviewer = () => {
+    const id = `${prefix}-new-${nextRow}`;
+    setNextRow((value) => value + 1);
+    setRows((current) => [
+      ...current,
+      {
+        id,
+        bindingId: "",
+        profileRef: "",
+        model: "",
+        settings: { agenticContext: true, fastMode: false, requiredHealthy: true },
+      },
+    ]);
+    setEditing(id);
+  };
   const fallback = mode === "fallback";
   // How several reviewers work together means nothing for one reviewer: its
   // mode stays as saved and the server fits the limits to the count.
@@ -418,25 +435,7 @@ export function GatewayReviewerRoster({
           variant="outline"
           size="sm"
           disabled={blocked || rows.length >= 16}
-          onClick={() => {
-            const id = `${prefix}-new-${nextRow}`;
-            setNextRow((value) => value + 1);
-            setRows((current) => [
-              ...current,
-              {
-                id,
-                bindingId: "",
-                profileRef: "",
-                model: "",
-                settings: {
-                  agenticContext: true,
-                  fastMode: false,
-                  requiredHealthy: true,
-                },
-              },
-            ]);
-            setEditing(id);
-          }}
+          onClick={addReviewer}
         >
           Add reviewer
         </Button>
@@ -515,6 +514,7 @@ export function GatewayReviewerRoster({
                       profile={profile}
                       accounts={options}
                       settings={settingsFor(row)}
+                      showDailyLimit={several}
                     />
                   </div>
                   <div className="flex items-center gap-2">
@@ -706,6 +706,16 @@ export function GatewayReviewerRoster({
           })}
         </ol>
       )}
+      {soleReviewerHasDailyLimit(
+        rows.map((row) => ({
+          provider: options.profileFor(
+            accounts.find((candidate) => candidate.binding?.id === row.bindingId),
+          )?.connection?.provider,
+          model: row.model,
+        })),
+      ) ? (
+        <DailyLimitNotice onAddReviewer={addReviewer} disabled={blocked} />
+      ) : null}
       <div className="flex flex-wrap gap-3">
         <GatewayAccountLoadMore
           canLoadMore={options.canLoadMore}

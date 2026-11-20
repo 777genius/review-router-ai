@@ -6,10 +6,14 @@ import type {
   AccountView,
 } from "../../../src/server/account-gateway-accounts";
 import type { useGatewayModelAccounts } from "../gateway-model-account-options";
-import { isFreeModel } from "../provider-usage-format";
+import { hasDailyRequestLimit } from "../../../src/features/provider-setup/daily-request-limit";
 import { providerSelectionSettingsNeedCorrection } from "./provider-model-fields";
 
-/** What a reviewer row in the roster says about its account, model and settings. */
+/**
+ * What a reviewer row in the roster says about its account, model and
+ * settings. The daily limit line is for a roster with several reviewers; a
+ * single one gets the roster's DailyLimitNotice instead.
+ */
 export function GatewayReviewerRowStatus({
   bindingId,
   model,
@@ -17,6 +21,7 @@ export function GatewayReviewerRowStatus({
   profile,
   accounts,
   settings,
+  showDailyLimit,
 }: {
   bindingId: string;
   model: string;
@@ -27,6 +32,7 @@ export function GatewayReviewerRowStatus({
     "loading" | "listFailed"
   >;
   settings: Omit<ReviewProviderSelection, "profileId">;
+  showDailyLimit: boolean;
 }): React.ReactElement {
   return (
     <>
@@ -56,10 +62,8 @@ export function GatewayReviewerRowStatus({
           Review settings need updating for this model.
         </p>
       ) : null}
-      {isFreeModel({
-        provider: profile?.connection?.provider ?? "",
-        requestedModel: model,
-      }) ? (
+      {showDailyLimit &&
+      hasDailyRequestLimit({ provider: profile?.connection?.provider, model }) ? (
         <p className="text-xs leading-5 text-slate-400">
           Free OpenRouter models have a daily request limit. When it runs out,
           this reviewer stops until the limit resets.

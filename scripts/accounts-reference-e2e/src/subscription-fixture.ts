@@ -43,7 +43,9 @@ export const apiKeyStorageProfiles = [
     plan: "API key",
     planId: "pay_as_you_go",
     profileId: "openrouter-openai-responses-apikey-v1",
-    model: "openai/gpt-5.4-mini",
+    // A :free variant, as many OpenRouter accounts use: the daily limit
+    // notice depends on it. Not in the built-in catalog, so it keeps its ID.
+    model: "qwen/qwen3-coder:free",
   },
   {
     provider: "mimo",
