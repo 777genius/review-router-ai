@@ -1150,6 +1150,44 @@ it.each([403, 503])(
   },
 );
 
+it("companion HTTP refusal carries the closed cause next to the unchanged code", async () => {
+  const state = companionReservation();
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  const f = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: state.admission,
+    refusalStatus: 403,
+  });
+  // The route's own body is replaced by the companion envelope and context,
+  // so the wire answer of the companion catch is what the Action reads.
+  const http = await serveRelay({
+    ...f.relay,
+    responses: (token, _raw, controller, diagnostic) =>
+      f.relay.responses(
+        token,
+        companionEnvelope(),
+        controller,
+        diagnostic,
+        companionContext,
+      ),
+  });
+  try {
+    const response = await http.request();
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "companion_request_failed",
+        effect: "effect_unknown",
+        requestRef: "stored-companion-native-ref",
+        cause: "forbidden",
+      },
+    });
+  } finally {
+    await http.app.close();
+    await f.relay.shutdown();
+    log.mockRestore();
+  }
+});
+
 it("companion distinguishes local authority refusal before the SDK POST", async () => {
   const state = companionReservation();
   const log = vi.spyOn(console, "error").mockImplementation(() => {});
