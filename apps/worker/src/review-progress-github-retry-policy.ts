@@ -181,7 +181,9 @@ export function reconciliationFailure(
       observationError.message,
       {
         ...observationError.metadata,
-        mutationMayHaveLanded: true,
+        ...(mutationFailure.kind === "rate_limited"
+          ? {}
+          : { mutationMayHaveLanded: true as const }),
         ...(retryAt ? { retryAt } : {}),
         ...(retryNotBefore ? { retryNotBefore } : {}),
         ...(installationCooldownUntil ? { installationCooldownUntil } : {}),
@@ -216,7 +218,6 @@ export function reconciliationFailure(
       mutationFailure.message,
       {
         ...mutationFailure.metadata,
-        mutationMayHaveLanded: true,
         ...(retryAt ? { retryAt } : {}),
         ...(retryNotBefore ? { retryNotBefore } : {}),
         ...(mutationFailure.metadata.retryAt

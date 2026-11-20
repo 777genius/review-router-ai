@@ -350,6 +350,7 @@ describe("Review progress GitHub retry policy", () => {
       () => 0,
     );
     expect(result.kind).toBe("pagination_inconclusive");
+    expect(result.metadata.mutationMayHaveLanded).toBeUndefined();
     expect(result.metadata.retryAt).toEqual(
       new Date("2026-08-12T14:00:00.250Z"),
     );
@@ -377,6 +378,7 @@ describe("Review progress GitHub retry policy", () => {
       () => 0,
     );
     expect(result.kind).toBe("rate_limited");
+    expect(result.metadata.mutationMayHaveLanded).toBeUndefined();
     expect(result.metadata.retryAt).toEqual(
       new Date("2026-08-12T14:00:00.250Z"),
     );
