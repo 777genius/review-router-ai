@@ -31,7 +31,9 @@ observed to be absent. Use the [status contract](README.md#status-contract).
   `unverified_native_span`, the slot carries `provider_warning` and
   `unverified_native_span` instead of also `context_inspection_incomplete`.
   The projection then reports coverage complete, which matches the SaaS
-  `coverageState` that was already `completed` for these runs.
+  `coverageState` that was already `completed` for these runs. The verified
+  inline findings and lifecycle changes of such a run are published like on
+  any complete review instead of being withheld.
 - With any other degradation the slot keeps the full flag pair and the summary
   still explains the unverified quote.
 - The SaaS T0 reuse guard blocks only OCR observations with
