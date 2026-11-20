@@ -11,6 +11,8 @@
 - Implementation: [review-router#403](https://github.com/777genius/review-router/pull/403).
   Analysis and the other failure classes:
   [plan 86](../architecture/86-review-failure-classes-fixes.md).
+- Implementation reference: the squash commit of that PR on the public Action
+  `main`.
 - Dependencies: none. No migration, configuration or feature flag.
 - Last updated: 2026-11-20.
 
@@ -34,6 +36,9 @@ observed to be absent. Use the [status contract](README.md#status-contract).
   `coverageState` that was already `completed` for these runs. The verified
   inline findings and lifecycle changes of such a run are published like on
   any complete review instead of being withheld.
+- The cost: the summary no longer explains why that finding has no inline
+  anchor, and lifecycle changes now apply on a run with an unverified quote.
+  If the model made the quote up, nothing shows it.
 - With any other degradation the slot keeps the full flag pair and the summary
   still explains the unverified quote.
 - The SaaS T0 reuse guard blocks only OCR observations with
@@ -41,15 +46,34 @@ observed to be absent. Use the [status contract](README.md#status-contract).
   the exact same revision. `unverified_native_span` still ranks it below
   grounded evidence.
 
-## Rollout
+## Applicability and rollout
 
-Rides in the next bundled rollout with the next public Action release. NOT
-deployed. No server-side step.
+1. After merge, `Sync Public Action Runtime` brings the bundle to the public
+   Action `main`.
+2. Users get it only with the next Action release in the
+   [release procedure](../operations/07-environments-and-release-management.md),
+   which includes the usual producer registration and Action ref alignment.
+   Rides in the next bundled rollout, NOT deployed.
 
 ## Verification and completion
 
-After the Action release, the first OCR run whose acceptance log shows
-`"reasons":["unverified_native_span"]` with no other reason ends green, its
-summary has no "Review incomplete" and the finding is listed at file level.
-Read-only check: new executions with the `unverified_native_span` flag whose
-`qualityFlagsJson` has no `context_inspection_incomplete`.
+After the release, read-only on the RR database: new
+`ReviewEvidenceObservation` rows whose `qualityFlagsJson` has
+`unverified_native_span` but not `context_inspection_incomplete`, and their
+executions end with a complete projection. In the run log the acceptance line
+shows `"reasons":["unverified_native_span"]`, `classificationPartial:false`,
+`skippedFindingCount:0` and `uncoveredPathCount:0` (an output-limit turn is
+not in that line, so the database check is the main one).
+
+## Retry and rollback
+
+The bundle is a build artifact: rebuild with `npm run build` and commit.
+Reverting the commit restores the old behaviour after the next sync and Action
+release. Observations already stored with only the advisory flags stay
+eligible for exact-revision reuse after a rollback.
+
+## Execution log
+
+| Time (UTC) | Environment | Operator | Actual version / image | Step and observed result | Evidence | Next action                                    |
+| ---------- | ----------- | -------- | ---------------------- | ------------------------ | -------- | ---------------------------------------------- |
+| -          | -           | -        | -                      | Not deployed             | -        | Ship with the next bundled rollout and Action. |
