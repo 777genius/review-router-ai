@@ -107,8 +107,10 @@ jobs:
           REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
         run: node scripts/generate-prisma-offline.mjs
 
-      - name: Typecheck browser harness
-        run: pnpm --dir scripts/accounts-reference-e2e run check
+      - name: Typecheck browser harness with isolated TypeScript 7.0.2
+        run: |
+          pnpm --dir scripts/local-checks/native install --ignore-workspace --ignore-scripts --frozen-lockfile
+          node scripts/local-checks/compiler-cli.ts --native --noEmit -p scripts/accounts-reference-e2e/tsconfig.json
 
       - name: Install locked Chromium
         run: pnpm --dir scripts/accounts-reference-e2e exec playwright install --with-deps chromium
@@ -256,8 +258,10 @@ jobs:
             "$REVIEW_ROUTER_SKILL_SCANNER_TEST_PYTHON" -c 'import tiktoken; tiktoken.get_encoding("cl100k_base"); tiktoken.get_encoding("o200k_base")'
           pnpm --dir scripts/accounts-reference-e2e exec playwright install --with-deps chromium
 
-      - name: Typecheck browser harness
-        run: pnpm --dir scripts/accounts-reference-e2e run check
+      - name: Typecheck browser harness with isolated TypeScript 7.0.2
+        run: |
+          pnpm --dir scripts/local-checks/native install --ignore-workspace --ignore-scripts --frozen-lockfile
+          node scripts/local-checks/compiler-cli.ts --native --noEmit -p scripts/accounts-reference-e2e/tsconfig.json
 
       - name: Run all catalog browser scenarios
         run: |
