@@ -251,8 +251,7 @@ describe("Review progress GitHub comment policy", () => {
       ["last", 1, 1],
     ] as const;
     for (const [relation, currentPage, expectedPage] of cases) {
-      const link =
-        `<https://api.github.com/comments?page=${expectedPage}&page=99>; rel="${relation}"`;
+      const link = `<https://api.github.com/comments?page=${expectedPage}&page=99>; rel="${relation}"`;
       expect(commentPageLinks({ link }, currentPage)).toEqual({
         hasNextPage: "invalid",
       });
@@ -266,8 +265,7 @@ describe("Review progress GitHub comment policy", () => {
       "&per_page=100&per_page=100",
       "&since=2026-11-01T00%3A00%3A00Z",
     ]) {
-      const link =
-        `<https://api.github.com/comments?page=2${suffix}>; rel="next"`;
+      const link = `<https://api.github.com/comments?page=2${suffix}>; rel="next"`;
       expect(hasNextCommentPage({ link }, 1)).toBe("invalid");
     }
     const trusted =

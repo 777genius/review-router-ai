@@ -611,8 +611,7 @@ describe("ReviewProgressGitHubGateway", () => {
               ? firstPage
               : [...firstPage.slice(1), { id: 101, body: "new" }],
           headers: {
-            link:
-              '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next"',
+            link: '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next"',
           },
         };
       }
@@ -626,8 +625,7 @@ describe("ReviewProgressGitHubGateway", () => {
             },
           ],
           headers: {
-            link:
-              '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="prev"',
+            link: '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="prev"',
           },
         };
       }
