@@ -49,8 +49,9 @@ export function formatGithubProgressComment(
   // A complete review counts only the parts that covered it. An ordered
   // fallback completes once one reviewer covers the review: the parts of later
   // reviewers were not needed. A part that did not finish there (an optional
-  // part, or a failed reviewer that another one replaced) left no gap, so a
-  // Complete comment does not list it as unfinished.
+  // part such as the PR description, or a reviewer that another one covered:
+  // an ordered fallback or a quota skip, plans 67 and 69) left no gap in the
+  // execution's coverage verdict, so a Complete comment does not list it.
   const complete =
     snapshot.phase === "terminal" && snapshot.terminal === "complete";
   const partsNotNeeded = complete ? counts.requiredCancelled : 0;

@@ -31,7 +31,7 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
-Complete progress comment without an unfinished-parts line: [a Complete comment no longer also says "Parts that could not be finished" for an optional part or a reviewer an ordered fallback replaced](2026-11-20-progress-complete-unfinished-line.md), seen on social-monitor#782 after rollout `9ee93eb1` - worker-only ordinary rollout; merged, rides in the next bundled rollout, NOT deployed, `pending`. No migration or configuration.
+Complete progress comment without an unfinished-parts line: [a Complete comment no longer also says "Parts that could not be finished" for an optional part or a reviewer another one covered](2026-11-20-progress-complete-unfinished-line.md), [PR #941](https://github.com/777genius/review-router-ai/pull/941), seen on social-monitor#782 after rollout `9ee93eb1` - worker-only ordinary rollout; merged, rides in the next bundled rollout, NOT deployed, `pending`. No migration or configuration.
 
 Private material prune past an unverifiable dossier: [the private-material retention step fails only the investigation whose dossier cannot be verified and keeps pruning the rest of the batch](2026-11-20-private-material-prune-isolation.md), [PR #939](https://github.com/777genius/review-router-ai/pull/939) - worker-only ordinary rollout, `pending`; rides in the next bundled rollout, not deployed. No migration or configuration. 883 expired private-material rows that no code path can prune wait for an owner retention decision written in the record.
 
