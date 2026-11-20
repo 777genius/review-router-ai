@@ -259,6 +259,21 @@ describe("Review progress GitHub comment policy", () => {
     }
   });
 
+  it("rejects Link hints for a different page size or filtered collection", () => {
+    for (const suffix of [
+      "&per_page=1",
+      "&per_page=99",
+      "&per_page=100&per_page=100",
+      "&since=2026-11-01T00%3A00%3A00Z",
+    ]) {
+      const link = `<https://api.github.com/comments?page=2${suffix}>; rel="next"`;
+      expect(hasNextCommentPage({ link }, 1)).toBe("invalid");
+    }
+    const trusted =
+      '<https://api.github.com/comments?page=2&per_page=100>; rel="next"';
+    expect(hasNextCommentPage({ link: trusted }, 1)).toBe(true);
+  });
+
   it("parses only comments with safe IDs, bodies and author logins", () => {
     const raw = { id: 7, body: desired, user: { login: "review-router[bot]" } };
     expect(parseCommentOrNull(raw)).toEqual(marked(7, desired));

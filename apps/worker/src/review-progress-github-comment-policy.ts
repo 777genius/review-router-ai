@@ -92,8 +92,19 @@ export function commentPageLinks(
     }
     try {
       const target = new URL(href, "https://api.github.com");
-      // Duplicate page values cannot certify a pagination boundary.
-      if (target.searchParams.getAll("page").length !== 1) return invalid;
+      // Link hints must describe the same unfiltered 100-comment window.
+      // Different page sizes or filters cannot certify a complete scan.
+      const pageSizes = target.searchParams.getAll("per_page");
+      if (
+        target.searchParams.getAll("page").length !== 1 ||
+        pageSizes.length > 1 ||
+        (pageSizes.length === 1 && pageSizes[0] !== "100") ||
+        [...target.searchParams.keys()].some(
+          (key) => key !== "page" && key !== "per_page",
+        )
+      ) {
+        return invalid;
+      }
       if (
         target.protocol !== "https:" ||
         target.origin !== "https://api.github.com" ||
