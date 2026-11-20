@@ -327,7 +327,11 @@ export function GatewayReviewerRoster({
         bindingId: "",
         profileRef: "",
         model: "",
-        settings: { agenticContext: true, fastMode: false, requiredHealthy: true },
+        settings: {
+          agenticContext: true,
+          fastMode: false,
+          requiredHealthy: true,
+        },
       },
     ]);
     setEditing(id);
@@ -709,7 +713,9 @@ export function GatewayReviewerRoster({
       {soleReviewerHasDailyLimit(
         rows.map((row) => ({
           provider: options.profileFor(
-            accounts.find((candidate) => candidate.binding?.id === row.bindingId),
+            accounts.find(
+              (candidate) => candidate.binding?.id === row.bindingId,
+            ),
           )?.connection?.provider,
           model: row.model,
         })),

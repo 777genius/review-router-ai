@@ -63,7 +63,10 @@ export function GatewayReviewerRowStatus({
         </p>
       ) : null}
       {showDailyLimit &&
-      hasDailyRequestLimit({ provider: profile?.connection?.provider, model }) ? (
+      hasDailyRequestLimit({
+        provider: profile?.connection?.provider,
+        model,
+      }) ? (
         <p className="text-xs leading-5 text-slate-400">
           Free OpenRouter models have a daily request limit. When it runs out,
           this reviewer stops until the limit resets.

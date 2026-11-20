@@ -18,9 +18,9 @@
 
 ## Environment status
 
-| Target     | Status    | Actual image | Evidence                      |
-| ---------- | --------- | ------------ | ----------------------------- |
-| Staging    | `pending` | Not verified | Ordinary Web rollout          |
+| Target     | Status    | Actual image | Evidence                        |
+| ---------- | --------- | ------------ | ------------------------------- |
+| Staging    | `pending` | Not verified | Ordinary Web rollout            |
 | Production | `pending` | Not deployed | Rides in bundle 4, NOT deployed |
 
 `pending` means no verified completion is recorded, not that deployment was
@@ -37,6 +37,6 @@ previous Web image; nothing is stored.
 
 ## Execution log
 
-| Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result | Evidence | Next action          |
-| ------------ | -------------------- | ---------- | ---------------------- | ------------------------ | -------- | -------------------- |
-| Not executed | staging / production | Unassigned | Not verified           | Merged, not deployed     | None     | Ship with bundle 4.  |
+| Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result | Evidence | Next action         |
+| ------------ | -------------------- | ---------- | ---------------------- | ------------------------ | -------- | ------------------- |
+| Not executed | staging / production | Unassigned | Not verified           | Merged, not deployed     | None     | Ship with bundle 4. |

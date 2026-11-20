@@ -34,7 +34,11 @@ describe("soleReviewerHasDailyLimit", () => {
       [{ provider: undefined, model: free.model }],
       false,
     ],
-    ["the model is not chosen yet", [{ provider: "openrouter", model: "" }], false],
+    [
+      "the model is not chosen yet",
+      [{ provider: "openrouter", model: "" }],
+      false,
+    ],
     ["a second reviewer backs the free model up", [free, paid], false],
     ["both reviewers are free models", [free, free], false],
   ])("%s", (_case, reviewers, expected) => {
