@@ -7,6 +7,7 @@ import {
   Prisma,
   type PrismaClient,
 } from "@prisma/client";
+import { projectionClaimsCompleteCoverage } from "@reviewrouter/features-review-executions";
 import {
   executionStateTerminal,
   terminalSnapshot,
@@ -113,6 +114,34 @@ async function durableSettledPublicationOutcome(
   }
 }
 
+/**
+ * Read the coverage claim of the projection that was published, the same
+ * claim that makes its summary say "Review incomplete". Null when the
+ * finalized artifact does not belong to this progress generation.
+ */
+async function publishedProjectionComplete(
+  transaction: Prisma.TransactionClient,
+  executionId: string,
+  progress: { readonly generation: bigint; readonly headSha: string },
+): Promise<boolean | null> {
+  const artifact =
+    await transaction.finalizedReviewProjectionArtifactV2.findUnique({
+      where: { executionId },
+      select: {
+        generation: true,
+        reviewedHeadSha: true,
+        projectionEnvelope: true,
+      },
+    });
+  if (
+    !artifact ||
+    artifact.generation !== progress.generation ||
+    artifact.reviewedHeadSha !== progress.headSha
+  )
+    return null;
+  return projectionClaimsCompleteCoverage(artifact.projectionEnvelope);
+}
+
 /** Promote only a fully settled current attempt that still owns progress. */
 async function promoteSettledExecution(
   transaction: Prisma.TransactionClient,
@@ -132,9 +161,16 @@ async function promoteSettledExecution(
     promotable.progress,
   );
   if (!publicationOutcome) return false;
+  const producerCoverageComplete = await publishedProjectionComplete(
+    transaction,
+    executionId,
+    promotable.progress,
+  );
+  if (producerCoverageComplete === null) return false;
   const terminalOutcome = executionStateTerminal(
     execution.state,
     publicationOutcome,
+    producerCoverageComplete,
   );
   if (!terminalOutcome) return false;
   await persistTerminalPromotion(transaction, {

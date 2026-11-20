@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import { completeOutcomeCountsValid } from "@reviewrouter/features-review-progress";
+import { settledOutcomeCountsValid } from "@reviewrouter/features-review-progress";
 
 export type TerminalOutcome =
   | "complete"
@@ -7,13 +7,22 @@ export type TerminalOutcome =
   | "failed"
   | "superseded";
 
+/**
+ * The terminal outcome of a settled review. A completed execution is Complete
+ * only when its published review is complete too: the Action's projection can
+ * still claim incomplete coverage with every required part finished (for
+ * example unverified native spans), and its summary then says "Review
+ * incomplete".
+ */
 export function executionStateTerminal(
   value: string | undefined,
   publicationOutcome: "succeeded" | "failed" | "superseded",
+  producerCoverageComplete: boolean,
 ): TerminalOutcome | null {
   if (publicationOutcome === "failed") return "failed";
   if (publicationOutcome === "superseded") return "superseded";
-  if (value === "completed") return "complete";
+  if (value === "completed")
+    return producerCoverageComplete ? "complete" : "complete_with_gaps";
   if (value === "partial") return "complete_with_gaps";
   if (value === "failed") return "failed";
   if (value === "superseded") return "superseded";
@@ -60,21 +69,20 @@ function assertTerminalCounts(
   const requiredGaps = requiredExhausted + requiredCancelled;
   if (requiredCompleted + requiredGaps > requiredTotal)
     throw new Error("review_progress_snapshot_invalid");
+  if (terminal !== "complete" && terminal !== "complete_with_gaps") return;
   if (
-    terminal === "complete" &&
-    !completeOutcomeCountsValid({
+    !settledOutcomeCountsValid(terminal, {
       requiredCompleted,
       requiredTotal,
       requiredExhausted,
       requiredCancelled,
     })
   )
-    throw new Error("review_progress_complete_outcome_inconsistent");
-  if (
-    terminal === "complete_with_gaps" &&
-    (requiredGaps < 1 || requiredCompleted === requiredTotal)
-  )
-    throw new Error("review_progress_partial_outcome_inconsistent");
+    throw new Error(
+      terminal === "complete"
+        ? "review_progress_complete_outcome_inconsistent"
+        : "review_progress_partial_outcome_inconsistent",
+    );
 }
 
 /** Terminal counts must satisfy the same nonnegative-integer invariant as publication. */

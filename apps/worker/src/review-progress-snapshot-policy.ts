@@ -1,5 +1,5 @@
 import {
-  completeOutcomeCountsValid,
+  settledOutcomeCountsValid,
   type ProgressSnapshot,
 } from "@reviewrouter/features-review-progress";
 
@@ -89,14 +89,9 @@ function validTerminalCounts(
   value: Record<string, unknown>,
 ): boolean {
   const counts = value as unknown as ProgressSnapshot["counts"];
-  if (terminal === "complete") return completeOutcomeCountsValid(counts);
-  if (terminal === "complete_with_gaps") {
-    return (
-      counts.requiredCompleted !== counts.requiredTotal &&
-      counts.requiredExhausted + counts.requiredCancelled > 0
-    );
-  }
-  return true;
+  return terminal === "complete" || terminal === "complete_with_gaps"
+    ? settledOutcomeCountsValid(terminal, counts)
+    : true;
 }
 
 function validCoverage(value: unknown): boolean {

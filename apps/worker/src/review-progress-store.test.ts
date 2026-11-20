@@ -15,6 +15,122 @@ function settledAttempt(outcome: "succeeded" | "failed_no_effect") {
   };
 }
 
+/** The finalized artifact whose projection the summary was rendered from. */
+function publishedArtifact(
+  coverage: "complete" | "partial",
+  overrides: { generation?: bigint } = {},
+) {
+  return {
+    generation: overrides.generation ?? 7n,
+    reviewedHeadSha: "a".repeat(40),
+    projectionEnvelope: { coverage: { state: coverage } },
+  };
+}
+
+/** One completed execution whose publication succeeded, with all parts done. */
+function settledCompletedReview(artifact: ReturnType<typeof publishedArtifact>) {
+  const progressUpdate = vi.fn(async () => ({}));
+  const publicationUpdate = vi.fn(async () => ({}));
+  const store = new PrismaReviewProgressPublicationStore({
+    $transaction: async (operation: (transaction: unknown) => unknown) =>
+      operation({
+        reviewExecutionV2: {
+          findUnique: async () => ({
+            executionId: "execution-1",
+            state: "completed",
+          }),
+        },
+        finalizedReviewProjectionArtifactV2: {
+          findUnique: async () => artifact,
+        },
+        reviewCompletionProcess: {
+          findUnique: async () => ({ publicationAttemptId: "attempt-1" }),
+        },
+        reviewPublicationAttemptV2: {
+          findUnique: async () => settledAttempt("succeeded"),
+        },
+        reviewPublicationOperationV2: { count: async () => 0 },
+        reviewExecutionProgressV1: {
+          findUnique: async () => ({
+            executionId: "execution-1",
+            workspaceId: "workspace-1",
+            repositoryConnectionId: "repository-1",
+            scmRepositoryIdentityId: "identity-1",
+            pullRequestNumber: 42,
+            generation: 7n,
+            headSha: "a".repeat(40),
+            planHash: "b".repeat(64),
+            terminalOutcome: null,
+            snapshotJson: {
+              schemaVersion: 1,
+              phase: "assembling",
+              counts: {
+                requiredTotal: 2,
+                requiredCompleted: 2,
+                requiredExhausted: 0,
+                requiredCancelled: 0,
+              },
+            },
+          }),
+          update: progressUpdate,
+        },
+        reviewProgressPublicationV1: {
+          findUnique: async () => ({
+            activeExecutionId: "execution-1",
+            activeGeneration: 7n,
+            activeHeadSha: "a".repeat(40),
+            activePlanHash: "b".repeat(64),
+            desiredVersion: 73n,
+          }),
+          update: publicationUpdate,
+        },
+      }),
+  } as never);
+  return { store, progressUpdate, publicationUpdate };
+}
+
+describe("Progress terminal outcome follows the published review", () => {
+  it.each([
+    { coverage: "complete" as const, terminal: "complete" },
+    // Every part finished, but the Action could not verify native spans and
+    // its summary says "Review incomplete".
+    { coverage: "partial" as const, terminal: "complete_with_gaps" },
+  ])(
+    "promotes a completed execution with $coverage coverage to $terminal",
+    async ({ coverage, terminal }) => {
+      const review = settledCompletedReview(publishedArtifact(coverage));
+      await expect(
+        review.store.promoteSettledExecutions({
+          executionIds: ["execution-1"],
+          now,
+        }),
+      ).resolves.toBe(1);
+      expect(review.progressUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            terminalOutcome: terminal,
+            snapshotJson: expect.objectContaining({ terminal }),
+          }),
+        }),
+      );
+    },
+  );
+
+  it("waits while the finalized artifact belongs to another generation", async () => {
+    const review = settledCompletedReview(
+      publishedArtifact("complete", { generation: 6n }),
+    );
+    await expect(
+      review.store.promoteSettledExecutions({
+        executionIds: ["execution-1"],
+        now,
+      }),
+    ).resolves.toBe(0);
+    expect(review.progressUpdate).not.toHaveBeenCalled();
+    expect(review.publicationUpdate).not.toHaveBeenCalled();
+  });
+});
+
 describe("PrismaReviewProgressPublicationStore fencing", () => {
   it("does not complete a stale claim after a newer generation wins the scope", async () => {
     const updateMany = vi.fn(async () => ({ count: 0 }));
@@ -1192,6 +1308,9 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
               state: "completed",
             }),
           },
+          finalizedReviewProjectionArtifactV2: {
+            findUnique: async () => publishedArtifact("complete"),
+          },
           reviewCompletionProcess: {
             findUnique: async () => ({ publicationAttemptId: "attempt-1" }),
           },
@@ -1332,6 +1451,9 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
               state: "partial",
             }),
           },
+          finalizedReviewProjectionArtifactV2: {
+            findUnique: async () => publishedArtifact("complete"),
+          },
           reviewCompletionProcess: {
             findUnique: async () => ({ publicationAttemptId: "attempt-1" }),
           },
@@ -1401,6 +1523,9 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
               executionId: "execution-1",
               state: "completed",
             }),
+          },
+          finalizedReviewProjectionArtifactV2: {
+            findUnique: async () => publishedArtifact("complete"),
           },
           reviewCompletionProcess: {
             findUnique: async () => ({ publicationAttemptId: "attempt-1" }),

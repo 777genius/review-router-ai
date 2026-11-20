@@ -664,6 +664,22 @@ export function reviewExecutionIsTerminal(
   );
 }
 
+/**
+ * Whether the Action's projection envelope claims complete coverage. The
+ * Action marks its published summary "Review incomplete" whenever it does not,
+ * also with every required part finished (for example unverified native
+ * spans), so this is the one reading of the published review's completeness.
+ */
+export function projectionClaimsCompleteCoverage(envelope: unknown): boolean {
+  if (typeof envelope !== "object" || envelope === null) return false;
+  const coverage = (envelope as { readonly coverage?: unknown }).coverage;
+  return (
+    typeof coverage === "object" &&
+    coverage !== null &&
+    (coverage as { readonly state?: unknown }).state === "complete"
+  );
+}
+
 /** Server-verified facts that may excuse a required slot (plan 69). */
 export type ReviewCoverageExceptions = Readonly<{
   /** Reviewer votes whose provider quota the relay itself saw exhausted. */

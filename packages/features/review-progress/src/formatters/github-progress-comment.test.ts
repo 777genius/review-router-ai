@@ -180,7 +180,10 @@ describe("formatGithubProgressComment", () => {
         },
       }),
     );
-    expect(comment).toContain("**Phase:** Complete with gaps");
+    expect(comment).toContain("**Phase:** Review incomplete");
+    expect(comment).toContain(
+      "Some of the review could not be finished or verified. The review summary explains why.",
+    );
     expect(comment).not.toContain("Files fully reviewed");
     expect(comment).toContain("Parts that could not be finished: 1");
     expect(comment).not.toContain("provider-model-agent");
@@ -219,6 +222,26 @@ describe("formatGithubProgressComment", () => {
     expect(formatGithubProgressComment(snapshot)).toContain(
       "Parts that could not be finished: 1",
     );
+  });
+
+  it("says incomplete without unfinished parts when spans could not be verified", () => {
+    const comment = formatGithubProgressComment(
+      computeProgressSnapshot({
+        generation: 1,
+        phase: "terminal",
+        terminal: "complete_with_gaps",
+        updatedAt: "2026-08-12T17:00:00Z",
+        slots: [
+          { slotId: "one", required: true, state: "accepted" },
+          { slotId: "two", required: true, state: "accepted" },
+        ],
+      }),
+    );
+    expect(comment).toContain("**Phase:** Review incomplete");
+    expect(comment).toContain("could not be finished or verified");
+    expect(comment).toContain("Progress: 2 of 2 parts reviewed (100%)");
+    expect(comment).not.toContain("Parts that could not be finished");
+    expect(comment).not.toContain("**Phase:** Complete");
   });
 
   it("does not call a Complete review with a failed optional part unfinished", () => {

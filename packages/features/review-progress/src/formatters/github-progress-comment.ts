@@ -54,10 +54,20 @@ export function formatGithubProgressComment(
   // execution's coverage verdict, so a Complete comment does not list it.
   const complete =
     snapshot.phase === "terminal" && snapshot.terminal === "complete";
+  const incomplete =
+    snapshot.phase === "terminal" &&
+    snapshot.terminal === "complete_with_gaps";
   const partsNotNeeded = complete ? counts.requiredCancelled : 0;
   const partsTotal = complete ? counts.requiredCompleted : counts.requiredTotal;
   const multiPart = partsTotal >= 2;
   const details = [
+    // Same verdict as the summary's "Review incomplete"; parts can all be
+    // finished while some findings could not be verified.
+    ...(incomplete
+      ? [
+          "Some of the review could not be finished or verified. The review summary explains why.",
+        ]
+      : []),
     ...(multiPart
       ? partsProgressLines(counts.requiredCompleted, partsTotal)
       : []),
@@ -120,7 +130,7 @@ function phaseLabel(phase: ProgressPhase, terminal: ProgressTerminal): string {
   return {
     none: "Finished",
     complete: "Complete",
-    complete_with_gaps: "Complete with gaps",
+    complete_with_gaps: "Review incomplete",
     failed: "Failed",
     cancelled: "Cancelled",
     superseded: "Superseded",
