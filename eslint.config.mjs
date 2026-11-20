@@ -17,7 +17,7 @@ const webMaxLinesCeilings = {
   "apps/web/app/dashboard/provider-setup/gateway-reviewer-roster.tsx": 898,
   "apps/web/app/dashboard/provider-setup/provider-credential-delivery.tsx": 1374,
   "apps/web/app/dashboard/provider-setup/provider-list.tsx": 842,
-  "apps/web/app/dashboard/provider-setup/provider-setup-dialog.tsx": 2570,
+  "apps/web/app/dashboard/provider-setup/provider-setup-dialog.tsx": 2577,
   "apps/web/app/dashboard/provider-usage-tables.tsx": 629,
   "apps/web/app/dashboard/provider-usage-view.tsx": 753,
   "apps/web/app/dashboard/repository-live-search.tsx": 671,

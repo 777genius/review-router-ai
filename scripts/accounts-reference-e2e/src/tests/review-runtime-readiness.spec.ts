@@ -95,6 +95,7 @@ test.describe("review runtime readiness", () => {
         (response) =>
           response.url().includes("_rsc=") &&
           !response.request().headers()["next-router-prefetch"],
+        { timeout: 60_000 },
       );
       await page.evaluate(() => {
         Object.assign(window, { reviewRuntimeDocument: true });

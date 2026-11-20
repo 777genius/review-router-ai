@@ -31,19 +31,21 @@ export function setupPullRequestMergedEvent(
   return new CustomEvent(setupPullRequestMergedEventName, { detail });
 }
 
-let refreshedInThisTask = false;
+let refreshed = false;
 
 /**
- * One server refresh for the setup events of one task. Every repository row
- * listens to them, and a second `router.refresh()` in the same task after the
- * repository search rewrote the URL makes the Next router reload the whole
- * document, which closes open rows and dialogs.
+ * One server refresh for the setup events sent together (in one synchronous
+ * run, until the next microtask). Every repository row listens to them, and a
+ * second `router.refresh()` in that run after the repository search rewrote
+ * the URL makes the Next router reload the whole document, which closes open
+ * rows and dialogs. Each event is sent after its change was saved, so the one
+ * refresh already sees all of them.
  */
 export function refreshAfterSetupEvent(router: { refresh(): void }): void {
-  if (refreshedInThisTask) return;
-  refreshedInThisTask = true;
+  if (refreshed) return;
+  refreshed = true;
   queueMicrotask(() => {
-    refreshedInThisTask = false;
+    refreshed = false;
   });
   router.refresh();
 }

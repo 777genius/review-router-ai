@@ -1,6 +1,9 @@
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 
-/** Cancels the matching reads, then reads them again; no older read lands after. */
+/**
+ * Cancels the matching reads, then invalidates them: the shown ones are read
+ * again at once, the others on their next use. No older read lands after.
+ */
 export async function rereadQueries(
   client: QueryClient,
   matches: (key: QueryKey) => boolean,

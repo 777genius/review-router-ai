@@ -712,28 +712,28 @@ describe("adding a provider and connecting its account in one dialog", () => {
   });
 
   it("keeps an open form when a reread of the dialog's lists fails", () => {
-    function Form({ read }: { read: boolean }) {
-      // A failed reread leaves no list to say the provider can connect here.
+    const place = { scope, workspaceId: "workspace_1", workspaceName: "Acme" };
+    function Form(props: { available: boolean; readFailed: boolean }) {
       const inline = useInlineGatewayConnect({
-        available: read,
-        empty: read,
+        ...props,
+        empty: props.available,
         onConnected: () => {},
       });
       return <p>{inline.show ? "Form shown" : "Form gone"}</p>;
     }
-    const place = { scope, workspaceId: "workspace_1", workspaceName: "Acme" };
-    const { rerender } = render(
+    const view = (available: boolean, readFailed: boolean) => (
       <PersonalConnectProvider place={place}>
-        <Form read />
-      </PersonalConnectProvider>,
+        <Form available={available} readFailed={readFailed} />
+      </PersonalConnectProvider>
     );
+    const { rerender } = render(view(true, false));
     expect(screen.getByText("Form shown")).toBeTruthy();
-    rerender(
-      <PersonalConnectProvider place={place}>
-        <Form read={false} />
-      </PersonalConnectProvider>,
-    );
-    // A key typed into it and not sent yet stays.
+    // A failed reread leaves no list to say the provider can connect here,
+    // yet a key typed into the form and not sent yet stays.
+    rerender(view(false, true));
     expect(screen.getByText("Form shown")).toBeTruthy();
+    // A read that rules the provider out here closes it.
+    rerender(view(false, false));
+    expect(screen.getByText("Form gone")).toBeTruthy();
   });
 });

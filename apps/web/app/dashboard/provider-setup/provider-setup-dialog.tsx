@@ -317,8 +317,14 @@ function ProviderSetupDialogBody({
   const [chooseOther, setChooseOther] = useState(false);
   const [chooseRoster, setChooseRoster] = useState(false);
   const [choiceVersion, setChoiceVersion] = useState(0);
-  // An open connect request (79) keeps the provider form mounted.
+  // An open connect request (79) keeps the provider form mounted; the ref
+  // also stops a reload that was already reading when the request started.
   const [connecting, setConnecting] = useState(false);
+  const connectingNow = useRef(false);
+  const handleConnecting = useCallback((value: boolean) => {
+    connectingNow.current = value;
+    setConnecting(value);
+  }, []);
   const openedRoster = useRef<boolean | null>(null);
   const [savedWorkspaceDefault, setSavedWorkspaceDefault] = useState(false);
   const handleCredentialBusy = useCallback(
@@ -567,7 +573,7 @@ function ProviderSetupDialogBody({
                   key={choiceVersion}
                   onReload={async () => {
                     const latest = await view.refetch();
-                    if (latest.isSuccess)
+                    if (latest.isSuccess && !connectingNow.current)
                       setChoiceVersion((value) => value + 1);
                   }}
                   workspaceId={workspaceId}
@@ -581,7 +587,7 @@ function ProviderSetupDialogBody({
                   gatewayAccounts={gatewayAccounts}
                   agentProfileOptions={agentProfileOptions}
                   onLockedChange={onLockedChange}
-                  onConnectingChange={setConnecting}
+                  onConnectingChange={handleConnecting}
                   initialIntent={initialIntent}
                   onSaved={async (outcome) => {
                     await completion.complete();
@@ -1293,6 +1299,7 @@ function ProviderChoiceStep({
         connectsInProviderDialog(candidate, setupProvider),
       ) === true,
     empty: gatewayInventoryEmpty,
+    readFailed: gatewayReadFailed,
     onConnected: (bindingId) => {
       setModelTouched(false);
       setSettingsEdited(false);

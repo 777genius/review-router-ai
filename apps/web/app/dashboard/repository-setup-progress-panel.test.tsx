@@ -502,7 +502,7 @@ describe("RepositorySetupProgressPanel", () => {
     },
   );
 
-  it("refreshes once for confirmations of several repositories in one task", async () => {
+  it("refreshes once for confirmations of several repositories sent together", async () => {
     const panel = (repositoryId: string) => (
       <RepositorySetupProgressPanel
         key={repositoryId}
@@ -530,7 +530,7 @@ describe("RepositorySetupProgressPanel", () => {
         }),
       );
 
-    // A second refresh in the same task makes Next reload the whole page.
+    // A second refresh in the same run makes Next reload the whole page.
     act(() => {
       confirm("repo_1");
       confirm("repo_2");

@@ -1,14 +1,18 @@
 # Repositories page without a reload after setup confirmations: deployment
 
 - Task ID: `2026-11-20-accounts-line-review-followups`
-- Goal: provider confirmations on the Repositories page no longer reload the
-  whole document (one server refresh per burst of setup events, instead of one
-  per repository row). The provider dialog keeps its steps, "Configure
-  connected-account reviewers" and "Reload saved choices" disabled while a
-  connect request (for example a Codex device code) is open, and keeps an open
-  connect form when a reread of its account list fails. Small wording and
-  freshness fixes: one account-list error line with Try again, "Connections"
-  instead of "Accounts", a model list age that keeps ticking.
+- Goal: setup events sent together on the Repositories page ask the server
+  for one refresh instead of one per repository row, so the Next router no
+  longer falls back to a full document reload after the search rewrote the
+  URL. Today the product sends one confirmation per action, so this removes a
+  latent hazard (and duplicate server renders) rather than a reload users saw;
+  the e2e burst is what hit it. User-visible: the provider dialog keeps its
+  steps, "Configure connected-account reviewers" and "Reload saved choices"
+  disabled while a connect request (for example a Codex device code) is open,
+  and keeps an open connect form with a typed key when a reread of its account
+  list fails. Small wording and freshness fixes: one account-list error line
+  with Try again, "Connections" instead of "Accounts", a model list age that
+  keeps ticking.
 - Affected services/targets: Web only (`apps/web`). No API, worker, database,
   configuration, Gateway, native or public Action change.
 - Implementation PR/issue:
@@ -30,8 +34,9 @@
 
 ## Applicability and prerequisites
 
-- No new requests or timers except the one-second age clock of the model list
-  status line, which only re-renders that line while it is shown.
+- No new requests. One new timer: the model list status components use the
+  one-second age clock of the limits line, which re-renders only those small
+  components while they are mounted.
 
 ## Ordered rollout
 
@@ -42,9 +47,10 @@
 
 ## Verification and completion
 
-- Repositories page opened with a workspace id in the URL, then a provider
-  confirmed for a repository: the page refreshes its rows in place, expanded
-  rows stay open (no full document reload in the browser network log).
+- The refresh coalescing cannot be told apart in normal production use (one
+  confirmation per action never reloaded); it is covered by the e2e spec
+  `review runtime readiness`, which fails on the old code and passes on this
+  one.
 - Add provider > Codex (ReviewRouter storage) > Sign in: while the device code
   is shown, "1. Provider" / "2. ..." and "Configure connected-account
   reviewers" are disabled; Cancel sign-in enables them again.

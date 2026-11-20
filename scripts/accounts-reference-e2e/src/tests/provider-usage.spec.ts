@@ -157,6 +157,10 @@ test("provider usage overview keeps complete period totals, charts, models and r
       workspace: FIXTURES.workspaces.orgAlpha,
       purpose: "review",
     });
+    // `next dev` compiles the route on its first read: about 1 s on an idle
+    // host, 2-6 s on two cores, over 10 s on a busy CI runner. That read gets
+    // the navigation timeout, which covers the same compile for pages.
+    let compiled = false;
     const api = async (
       extra: Record<string, string> = {},
       expectedScope: {
@@ -166,11 +170,9 @@ test("provider usage overview keeps complete period totals, charts, models and r
     ) => {
       const response = await context.request.get(
         `/api/dashboard/provider-usage?${new URLSearchParams({ ...Object.fromEntries(query), ...extra })}`,
-        // `next dev` compiles the route on its first read: about 1 s on an
-        // idle host, 2-6 s on two cores, over 10 s on a busy CI runner. The
-        // navigation timeout covers the same compile for pages.
-        { timeout: 30_000 },
+        compiled ? undefined : { timeout: 30_000 },
       );
+      compiled = true;
       expect(response.status()).toBe(200);
       expect(response.headers()["cache-control"]).toBe("private, no-store");
       const payload = await response.json();
