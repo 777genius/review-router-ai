@@ -314,6 +314,7 @@ export class ReviewProgressGitHubGateway {
     if (violation) throw failure(violation.kind, violation.message, false);
     // GitHub may use /repositories/{id} rather than /repos/{owner}/{repo}
     // in pagination Links. Trust its numeric ID only after target validation.
+    // If GitHub omits that ID, fetchCommentPage trusts only the canonical path.
     const repository = response.data as {
       base?: { repo?: { id?: unknown } };
     };

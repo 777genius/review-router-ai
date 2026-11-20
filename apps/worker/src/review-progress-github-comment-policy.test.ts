@@ -245,9 +245,8 @@ describe("Review progress GitHub comment policy", () => {
     ] as const) {
       const href = `https://api.github.com${foreignIssue}?page=${targetPage}`;
       const foreign = `<${href}>; rel="${relation}"`;
-      expect(commentPageLinks({ link: foreign }, currentPage, expected)).toEqual({
-        hasNextPage: "invalid",
-      });
+      const parsed = commentPageLinks({ link: foreign }, currentPage, expected);
+      expect(parsed).toEqual({ hasNextPage: "invalid" });
     }
   });
 
