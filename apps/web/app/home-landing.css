@@ -164,10 +164,14 @@
   color: var(--rr-home-lime);
   font-weight: 800;
 }
+/* Wraps its parts instead of overflowing on both sides under large text zoom. */
 .rr-home-hero__powered {
   display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
   align-items: center;
   gap: 0.45rem;
+  max-width: 100%;
   color: inherit;
   white-space: nowrap;
 }

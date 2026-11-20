@@ -6,17 +6,14 @@
   centered below it. Wrapped rows, including a short last row, stay centered on
   desktop, tablet and phone. Before, the strip was left-aligned and a wrapped
   last row (NVIDIA Build on a phone) sat alone on the left.
-- Affected target: Web only (`apps/web/app/home-hero.tsx`,
+- Affected services/targets: Web only (`apps/web/app/home-hero.tsx`,
   `apps/web/app/home-landing.css`). API, worker, Gateway, native, the database
   and the public Action are unchanged.
 - Implementation PR: [#953](https://github.com/777genius/review-router-ai/pull/953).
-- Implementation reference: the squash commit of #953 on `main`.
+- Implementation reference: branch commit `eb0957c41` plus the review fix on
+  the same branch; replace with the squash commit of #953 on `main` after merge.
 - Dependencies: none. No migration, configuration or feature flag.
-- Not included: the hero video still plays V9.3. The rebuilt V9.4 (Grok, GLM
-  and MiniMax among the providers) was rendered on 2026-11-16 but never uploaded
-  to Mux; switching to it is a Mux upload plus one constant
-  (`homeHeroVideo.muxPlaybackId` in `apps/web/app/home-hero-video.tsx`).
-- Last updated: 2026-11-21.
+- Last updated: `2026-11-21`.
 
 ## Environment status
 
@@ -27,6 +24,11 @@
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
+
+## Applicability and prerequisites
+
+Any Web image built from a `main` commit that contains #953. No schema,
+configuration, credential or dependent task applies.
 
 ## Ordered rollout
 
@@ -50,11 +52,11 @@ previous Web image.
 ## Related links
 
 - [#953](https://github.com/777genius/review-router-ai/pull/953); the provider
-  row came from [#878](https://github.com/777genius/review-router-ai/pull/878),
-  the hero player from
-  [#875](https://github.com/777genius/review-router-ai/pull/875) and
-  [#876](https://github.com/777genius/review-router-ai/pull/876).
+  row was introduced in
+  [#874](https://github.com/777genius/review-router-ai/pull/874) and extended to
+  nine providers in [#878](https://github.com/777genius/review-router-ai/pull/878).
 - [Release process](../operations/07-environments-and-release-management.md).
+- [Quality gates](../operations/03-quality-gates.md).
 
 ## Execution log
 
