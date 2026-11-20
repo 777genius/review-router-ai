@@ -10,6 +10,7 @@ import {
   installLoopbackOnlyNetworkGuard,
   noSecrets,
   openAccounts,
+  reloadAccounts,
   sourceRow,
   useViewerSession,
 } from "./support.ts";
@@ -144,7 +145,7 @@ test("subscription connections use real server actions for all four providers an
   await expect.poll(() => authorizationDocuments).toBe(1);
   const authorizationCode = await authorization.locator("code").innerText();
   await authorization.close();
-  await page.reload({ waitUntil: "domcontentloaded" });
+  await reloadAccounts(page);
   // Readback restores original Grok plain-code grammar, not transient React state.
   await page.getByRole("button", { name: "Resume authorization" }).click();
   const completion = page.getByRole("dialog", {
@@ -208,7 +209,7 @@ test("subscription connections use real server actions for all four providers an
     fullPage: true,
   });
   // A reload only reads: it repeats no connect or sign-in.
-  await page.reload({ waitUntil: "domcontentloaded" });
+  await reloadAccounts(page);
   await expect(sourceRow(page, "Browser GLM subscription")).toBeVisible();
   expect(await since()).toMatchObject({
     connects: 3,
@@ -237,7 +238,7 @@ test("subscription connections use real server actions for all four providers an
         (await removed.textContent())?.includes("Retired"),
     )
     .toBe(true);
-  await page.reload({ waitUntil: "domcontentloaded" });
+  await reloadAccounts(page);
   await expect(
     removed.getByRole("button", { name: "Refresh Grok sign-in" }),
   ).toHaveCount(0);

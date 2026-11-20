@@ -95,6 +95,29 @@ export async function openAccounts(
   page: Page,
   workspace: string,
 ): Promise<void> {
+  await loadAccounts(page, workspace, () =>
+    page.goto(`/dashboard/setup?workspace=${encodeURIComponent(workspace)}`, {
+      waitUntil: "domcontentloaded",
+    }),
+  );
+}
+
+/**
+ * Reloads Connections and waits until it answers clicks: a click on the
+ * server HTML before hydration is lost (a row menu then never opens).
+ */
+export async function reloadAccounts(page: Page): Promise<void> {
+  const workspace = new URL(page.url()).searchParams.get("workspace") ?? "";
+  await loadAccounts(page, workspace, () =>
+    page.reload({ waitUntil: "domcontentloaded" }),
+  );
+}
+
+async function loadAccounts(
+  page: Page,
+  workspace: string,
+  navigate: () => Promise<unknown>,
+): Promise<void> {
   // This inventory GET starts after its streamed client subtree hydrates.
   const personalHydrated = workspace.startsWith("rr-e2e-personal-")
     ? page.waitForResponse((response) => {
@@ -106,12 +129,7 @@ export async function openAccounts(
         );
       })
     : null;
-  await page.goto(
-    `/dashboard/setup?workspace=${encodeURIComponent(workspace)}`,
-    {
-      waitUntil: "domcontentloaded",
-    },
-  );
+  await navigate();
   // The Connections section region is the page's top anchor and marks the
   // current account-management content as rendered.
   await expect(
