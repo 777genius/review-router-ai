@@ -903,6 +903,10 @@ it("companion local unpaid admission consumes one reservation and one SDK reques
         companionContext,
       ),
     ).rejects.toMatchObject({
+      // The runtime treats admission_limited + not_dispatched as a terminal
+      // admission refusal, so the code it acts on must stay generic here.
+      code: "companion_request_failed",
+      failureCause: "admission_limited",
       requestRef: "stored-companion-native-ref",
       effect: "not_dispatched",
     });
@@ -1091,7 +1095,7 @@ it.each([403, 503])(
 );
 
 it.each([403, 503])(
-  "companion logs only closed refusal fields for HTTP %s without retrying",
+  "companion returns and logs the closed Gateway cause for HTTP %s without retrying",
   async (httpStatus) => {
     const state = companionReservation();
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -1109,7 +1113,9 @@ it.each([403, 503])(
           companionContext,
         ),
       ).rejects.toMatchObject({
+        // The code callers act on is unchanged; the Gateway cause rides next to it.
         code: "companion_request_failed",
+        failureCause: "forbidden",
         statusCode: 502,
         effect: "effect_unknown",
         requestRef: "stored-companion-native-ref",
@@ -1121,6 +1127,7 @@ it.each([403, 503])(
           {
             event: "review_run_companion_gateway_request_failed",
             stage: "sdk_request",
+            relayCode: "forbidden",
             sdkCode: "safe_error",
             effect: "not_dispatched",
             diagnosticCode: "forbidden",
@@ -1142,6 +1149,44 @@ it.each([403, 503])(
     }
   },
 );
+
+it("companion HTTP refusal carries the closed cause next to the unchanged code", async () => {
+  const state = companionReservation();
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  const f = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: state.admission,
+    refusalStatus: 403,
+  });
+  // The route's own body is replaced by the companion envelope and context,
+  // so the wire answer of the companion catch is what the Action reads.
+  const http = await serveRelay({
+    ...f.relay,
+    responses: (token, _raw, controller, diagnostic) =>
+      f.relay.responses(
+        token,
+        companionEnvelope(),
+        controller,
+        diagnostic,
+        companionContext,
+      ),
+  });
+  try {
+    const response = await http.request();
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "companion_request_failed",
+        effect: "effect_unknown",
+        requestRef: "stored-companion-native-ref",
+        cause: "forbidden",
+      },
+    });
+  } finally {
+    await http.app.close();
+    await f.relay.shutdown();
+    log.mockRestore();
+  }
+});
 
 it("companion distinguishes local authority refusal before the SDK POST", async () => {
   const state = companionReservation();
@@ -1178,6 +1223,7 @@ it("companion distinguishes local authority refusal before the SDK POST", async 
       ),
     ).rejects.toMatchObject({
       code: "companion_request_failed",
+      failureCause: "authorization_denied",
       statusCode: 502,
       effect: "effect_unknown",
       requestRef: "stored-companion-native-ref",
@@ -1189,6 +1235,7 @@ it("companion distinguishes local authority refusal before the SDK POST", async 
         event: "review_run_companion_gateway_request_failed",
         stage: "local_authority",
         requestRef: "stored-companion-native-ref",
+        relayCode: "authorization_denied",
       },
     ]);
     expect(f.intents).toHaveLength(1);
@@ -1227,6 +1274,7 @@ it("companion settles its refusal even when the diagnostic sink throws", async (
       ),
     ).rejects.toMatchObject({
       code: "companion_request_failed",
+      failureCause: "forbidden",
       statusCode: 502,
       effect: "effect_unknown",
     });
