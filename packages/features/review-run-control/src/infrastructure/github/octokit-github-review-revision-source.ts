@@ -15,15 +15,41 @@ type OctokitRequest = {
 };
 type OctokitRequester = { request: OctokitRequest };
 const revisionReadTimeoutMs = 15_000;
+/**
+ * Waits before each retry of a transient GitHub read (plan 86). All attempts
+ * share the read's single deadline, so a retry never makes a read slower than
+ * one read could already be, and a wait that does not fit is not taken.
+ */
+export const GITHUB_REVISION_READ_RETRY_DELAYS_MS: readonly number[] =
+  Object.freeze([1_000, 2_000, 4_000]);
+const networkErrorCodes = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "EAI_AGAIN",
+  "ENOTFOUND",
+  "EPIPE",
+  "UND_ERR_SOCKET",
+  "UND_ERR_CONNECT_TIMEOUT",
+]);
 
 export class OctokitGitHubReviewRevisionSource implements GitHubReviewRevisionSourcePort {
   private readonly app: App;
 
+  private readonly retryDelaysMs: readonly number[];
+
   constructor(options: {
     readonly appId: string;
     readonly privateKey: string;
+    /** Tests only; production uses GITHUB_REVISION_READ_RETRY_DELAYS_MS. */
+    readonly retryDelaysMs?: readonly number[];
   }) {
-    this.app = new App(options);
+    this.app = new App({
+      appId: options.appId,
+      privateKey: options.privateKey,
+    });
+    this.retryDelaysMs =
+      options.retryDelaysMs ?? GITHUB_REVISION_READ_RETRY_DELAYS_MS;
   }
 
   async findPullRequestNumbersForRun(
@@ -107,6 +133,7 @@ export class OctokitGitHubReviewRevisionSource implements GitHubReviewRevisionSo
     parameters: Readonly<Record<string, unknown>>,
   ): Promise<{ readonly data: unknown }> {
     const signal = AbortSignal.timeout(revisionReadTimeoutMs);
+    const deadline = Date.now() + revisionReadTimeoutMs;
     let aborted!: () => void;
     const cancelled = new Promise<never>((_resolve, reject) => {
       aborted = () => reject(new Error("github_review_revision_read_timeout"));
@@ -115,15 +142,34 @@ export class OctokitGitHubReviewRevisionSource implements GitHubReviewRevisionSo
     });
     try {
       const work = (async () => {
-        const octokit = await this.installationOctokit(githubInstallationId);
-        if (signal.aborted)
-          throw new Error("github_review_revision_read_timeout");
-        // auth-app derives its cold installation-token POST from these request
-        // defaults. Endpoint-only options would leave that POST unbounded.
-        const request = octokit.request.defaults({
-          request: { signal, timeout: revisionReadTimeoutMs },
-        });
-        return await request(route, parameters);
+        for (let attempt = 0; ; attempt++) {
+          try {
+            const octokit =
+              await this.installationOctokit(githubInstallationId);
+            if (signal.aborted)
+              throw new Error("github_review_revision_read_timeout");
+            // auth-app derives its cold installation-token POST from these
+            // request defaults. Endpoint-only options would leave that POST
+            // unbounded.
+            const request = octokit.request.defaults({
+              request: { signal, timeout: revisionReadTimeoutMs },
+            });
+            return await request(route, parameters);
+          } catch (error) {
+            // Only a transient failure is read again, and never past the
+            // deadline. Every other error reaches the caller unchanged, so
+            // 404, auth failures and invalid answers behave as before.
+            const retry = transientRetry(
+              error,
+              this.retryDelaysMs[attempt],
+              deadline - Date.now(),
+            );
+            if (!retry || signal.aborted) throw error;
+            logRetry(retry, attempt + 1);
+            await waitUnlessAborted(retry.waitMs, signal);
+            if (signal.aborted) throw error;
+          }
+        }
       })();
       // Also bound auth-app's internal replication backoff, which is not itself
       // signal-aware. Its underlying HTTP still receives the same cancellation.
@@ -185,6 +231,103 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isPullRequestNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+type TransientRetry = Readonly<{
+  failureClass: "server_error" | "rate_limited" | "network";
+  status: number | null;
+  waitMs: number;
+}>;
+
+function transientRetry(
+  error: unknown,
+  delayMs: number | undefined,
+  remainingMs: number,
+): TransientRetry | null {
+  if (delayMs === undefined) return null;
+  const status = providerStatus(error);
+  const headers = responseHeaders(error);
+  let failureClass: TransientRetry["failureClass"];
+  if (status !== null && status >= 500 && status <= 599) {
+    failureClass = "server_error";
+  } else if (
+    status === 429 ||
+    (status === 403 &&
+      (headers["retry-after"] !== undefined ||
+        headers["x-ratelimit-remaining"] === "0"))
+  ) {
+    failureClass = "rate_limited";
+  } else if (
+    status === null &&
+    isRecord(error) &&
+    typeof error.code === "string" &&
+    networkErrorCodes.has(error.code)
+  ) {
+    failureClass = "network";
+  } else {
+    return null;
+  }
+  // Respect GitHub's own wait; give up when it does not fit the deadline.
+  const waitMs = Math.max(delayMs, serverWaitMs(headers));
+  return waitMs < remainingMs ? { failureClass, status, waitMs } : null;
+}
+
+function serverWaitMs(headers: Readonly<Record<string, string>>): number {
+  const retryAfter = Number(headers["retry-after"]);
+  if (Number.isFinite(retryAfter) && retryAfter >= 0) return retryAfter * 1000;
+  if (headers["x-ratelimit-remaining"] === "0") {
+    const reset = Number(headers["x-ratelimit-reset"]);
+    if (Number.isFinite(reset)) return Math.max(0, reset * 1000 - Date.now());
+  }
+  return 0;
+}
+
+function responseHeaders(error: unknown): Readonly<Record<string, string>> {
+  if (!isRecord(error) || !isRecord(error.response)) return {};
+  const headers = error.response.headers;
+  if (!isRecord(headers)) return {};
+  const result: Record<string, string> = {};
+  for (const name of [
+    "retry-after",
+    "x-ratelimit-remaining",
+    "x-ratelimit-reset",
+  ]) {
+    const value = headers[name];
+    if (typeof value === "string" || typeof value === "number")
+      result[name] = String(value);
+  }
+  return result;
+}
+
+function logRetry(retry: TransientRetry, attempt: number): void {
+  try {
+    console.warn(
+      JSON.stringify({
+        event: "github_review_revision_read_retry",
+        attempt,
+        failureClass: retry.failureClass,
+        ...(retry.status === null ? {} : { status: retry.status }),
+        waitMs: retry.waitMs,
+      }),
+    );
+  } catch {
+    // A diagnostic sink cannot change the read.
+  }
+}
+
+async function waitUnlessAborted(
+  ms: number,
+  signal: AbortSignal,
+): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done, { once: true });
+    function done() {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    }
+  });
 }
 
 function providerStatus(error: unknown): number | null {
