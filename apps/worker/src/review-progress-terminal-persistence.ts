@@ -213,7 +213,12 @@ async function promoteSettledExecution(
       now,
       // Every required part was covered on the server, also when the summary
       // says incomplete; the comment then counts only the parts it needed.
-      { requiredCoverageComplete: execution.state === "completed" },
+      {
+        requiredCoverageComplete:
+          terminalOutcome === "complete" ||
+          (terminalOutcome === "complete_with_gaps" &&
+            execution.state === "completed"),
+      },
     ),
     terminalOutcome,
     now,

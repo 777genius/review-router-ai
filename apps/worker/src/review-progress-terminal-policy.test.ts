@@ -14,11 +14,15 @@ describe("Review progress terminal policy", () => {
     expect(executionStateTerminal("partial", "succeeded", "complete")).toBe(
       "complete_with_gaps",
     );
-    expect(executionStateTerminal("completed", "failed", "complete")).toBe("failed");
-    expect(executionStateTerminal("completed", "superseded", "incomplete")).toBe(
-      "superseded",
+    expect(executionStateTerminal("completed", "failed", "complete")).toBe(
+      "failed",
     );
-    expect(executionStateTerminal("running", "succeeded", "complete")).toBeNull();
+    expect(
+      executionStateTerminal("completed", "superseded", "incomplete"),
+    ).toBe("superseded");
+    expect(
+      executionStateTerminal("running", "succeeded", "complete"),
+    ).toBeNull();
   });
 
   it("ends incomplete whenever the published review is incomplete", () => {
