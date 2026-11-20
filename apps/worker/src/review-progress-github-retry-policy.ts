@@ -118,7 +118,7 @@ function classifyRetryableHttpFailure(
     );
   }
   if (status === 408 || (status !== undefined && status >= 500)) {
-    const retryNotBefore = retryBoundary(headers, now());
+    const retryNotBefore = retryBoundary(headers, now(), "server_unavailable");
     return new ReviewProgressGitHubError(
       "github_unavailable",
       "github_progress_comment_unavailable",

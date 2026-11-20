@@ -33,7 +33,7 @@ describe("Review progress GitHub retry policy", () => {
       "retry-after": "10",
       "x-ratelimit-reset": "1786536060",
     };
-    const actual = retryBoundary(headers, now).getTime();
+    const actual = retryBoundary(headers, now, "server_unavailable").getTime();
     expect(actual).toBe(now.getTime() + 10_000);
   });
 
@@ -117,7 +117,7 @@ describe("Review progress GitHub retry policy", () => {
       expect(actual.getTime()).toBe(now.getTime() + 60_000);
     }
     const httpDate = "Wed, 12 Aug 2026 12:00:30 GMT";
-    expect(retryBoundary({ "retry-after": httpDate }, now).getTime()).toBe(
+    expect(retryBoundary({ "retry-after": httpDate }, now, "server_unavailable").getTime()).toBe(
       now.getTime() + 30_000,
     );
   });
@@ -136,10 +136,11 @@ describe("Review progress GitHub retry policy", () => {
   it("ignores oversized retry headers while preserving usable boundaries", () => {
     const oversized = "10000000000000";
     const nearDateLimit = "8639999999999.5";
-    const fallback = retryBoundary({ "retry-after": oversized }, now);
+    const fallback = retryBoundary({ "retry-after": oversized }, now, "server_unavailable");
     const reset = retryBoundary(
       { "retry-after": oversized, "x-ratelimit-reset": "1786536060" },
       now,
+      "server_unavailable",
     );
     const quota = retryBoundary(
       { "x-ratelimit-reset": nearDateLimit },
@@ -184,9 +185,9 @@ describe("Review progress GitHub retry policy", () => {
       "x-ratelimit-reset": "1786536020",
     };
     const stale = { "retry-after": "Wed, 12 Aug 2026 11:59:59 GMT" };
-    const reset = retryBoundary(headers, now).getTime();
-    const fallback = retryBoundary({}, now).getTime();
-    const expired = retryBoundary(stale, now).getTime();
+    const reset = retryBoundary(headers, now, "server_unavailable").getTime();
+    const fallback = retryBoundary({}, now, "server_unavailable").getTime();
+    const expired = retryBoundary(stale, now, "server_unavailable").getTime();
     expect(reset).toBe(now.getTime() + 20_000);
     expect(fallback).toBe(now.getTime() + 1_000);
     expect(expired).toBe(now.getTime());
