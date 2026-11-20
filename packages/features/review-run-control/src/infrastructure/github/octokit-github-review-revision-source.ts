@@ -261,15 +261,25 @@ function transientRetry(
   // up when that wait does not fit the deadline.
   const waitMs = Math.max(
     Math.round(delayMs * (0.5 + Math.random() / 2)),
-    failureClass === "rate_limited" ? rateLimitWaitMs(headers) : 0,
+    failureClass === "rate_limited"
+      ? rateLimitWaitMs(headers)
+      : (retryAfterMs(headers) ?? 0),
   );
   return waitMs < remainingMs ? { failureClass, status, waitMs } : null;
 }
 
-function rateLimitWaitMs(headers: Readonly<Record<string, string>>): number {
+function retryAfterMs(
+  headers: Readonly<Record<string, string>>,
+): number | null {
   const retryAfter = Number(headers["retry-after"]);
-  if (headers["retry-after"] !== undefined && Number.isFinite(retryAfter))
-    return Math.max(0, retryAfter * 1000);
+  return headers["retry-after"] !== undefined && Number.isFinite(retryAfter)
+    ? Math.max(0, retryAfter * 1000)
+    : null;
+}
+
+function rateLimitWaitMs(headers: Readonly<Record<string, string>>): number {
+  const retryAfter = retryAfterMs(headers);
+  if (retryAfter !== null) return retryAfter;
   if (headers["x-ratelimit-remaining"] === "0") {
     const reset = Number(headers["x-ratelimit-reset"]);
     if (Number.isFinite(reset)) return Math.max(0, reset * 1000 - Date.now());

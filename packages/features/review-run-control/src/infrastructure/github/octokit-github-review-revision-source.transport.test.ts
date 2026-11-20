@@ -362,3 +362,16 @@ it("reads again after a dropped connection and logs it as network", async () => 
     failureClass: "network",
   });
 });
+
+it("honours a server error's retry-after and refuses when it does not fit", async () => {
+  const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const reads = stubGitHub([
+    () => json(503, { message: "unavailable" }, { "retry-after": "30" }),
+    () => json(200, pullRequest),
+  ]);
+  await expect(
+    source(noWait).loadPullRequestPointer(retryInput()),
+  ).rejects.toMatchObject({ status: 503 });
+  expect(reads.count).toBe(1);
+  expect(log).not.toHaveBeenCalled();
+});

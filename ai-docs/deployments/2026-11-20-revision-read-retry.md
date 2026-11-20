@@ -32,13 +32,15 @@ observed to be absent. Use the [status contract](README.md#status-contract).
   or after GitHub's own `retry-after` / rate-limit reset when longer. A rate
   limit that names no wait needs at least a minute, so it is refused at once.
 - All attempts of one read share the existing 15 second read deadline; a wait
-  that does not fit is not taken. Per read: at most 4 GitHub requests (plus a
-  token request if needed) within 15 s, where before it was 1. A full revision
-  check makes 3 reads, so under a hard GitHub outage it now takes up to about
-  21 s of waits before it refuses instead of refusing at once, still under the
-  60 s companion budget and the relay request timeout. During that time the
-  relay slot stays reserved, so a long outage can add `relay_saturated`
-  refusals; the outcome stays a refusal.
+  that does not fit is not taken, and a `retry-after` on a 5xx is a floor too.
+  Per read: at most 4 GitHub requests (plus a token request if needed) within
+  15 s, where before it was 1.
+- Cost under GitHub trouble: in a hard outage the first read refuses after
+  about 3.5-7 s of waits instead of at once. When GitHub flaps, each of the 3
+  reads of one full check can need its retries, up to about 21 s of waits. A
+  companion request runs 3-4 full checks in a row, so it can take well over
+  60 s before it is refused. The relay slot stays reserved meanwhile, so a
+  long outage can add `relay_saturated` refusals. The outcome stays a refusal.
 - Not retried, exactly as before: 404 (closed or missing pull request), 401,
   403 without rate-limit headers, other 4xx, invalid answers. After the last
   retry the same error reaches the caller and the request is refused.
