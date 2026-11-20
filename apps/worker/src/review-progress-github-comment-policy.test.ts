@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  commentPageLinks,
   commentPageScanDecision,
   confirmedReconciliation,
   ownsMarker,
   parseCommentOrNull,
 } from "./review-progress-github-comment-policy";
+import { commentPageLinks } from "./review-progress-github-link-policy";
 
 function hasNextCommentPage(
   headers: Parameters<typeof commentPageLinks>[0],
@@ -224,6 +224,21 @@ describe("Review progress GitHub comment policy", () => {
     expect(commentPageLinks({ link: trusted }, 1, expected)).toEqual({
       hasNextPage: true,
     });
+  });
+
+  it("binds every Link relation to the requested issue collection", () => {
+    const expected = ["/repos/acme/rocket/issues/42/comments"];
+    for (const [relation, currentPage, targetPage] of [
+      ["first", 2, 1],
+      ["last", 1, 3],
+      ["prev", 2, 1],
+      ["next", 1, 2],
+    ] as const) {
+      const foreign = `<https://api.github.com/repos/acme/rocket/issues/43/comments?page=${targetPage}>; rel="${relation}"`;
+      expect(commentPageLinks({ link: foreign }, currentPage, expected)).toEqual({
+        hasNextPage: "invalid",
+      });
+    }
   });
 
   it("allows canonical repository-ID Links only for the verified repository", () => {

@@ -1,11 +1,11 @@
 import {
   commentPageScanDecision,
   confirmedReconciliation,
-  commentPageLinks,
   ownsMarker,
   parseCommentOrNull,
   type ReviewProgressComment,
 } from "./review-progress-github-comment-policy";
+import { commentPageLinks } from "./review-progress-github-link-policy";
 import {
   formatReviewProgressComment,
   pullRequestIdentityViolation,
