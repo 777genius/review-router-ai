@@ -192,24 +192,36 @@ export function resolveReviewPublicationRenderPolicyVersion(
   }
 }
 
+const reviewSummaryStatusMarkerPrefix = "<!-- reviewrouter:review-status:";
+
 /** The Action's machine-readable verdict line in its own summary body. */
-export const reviewSummaryIncompleteStatusMarker =
-  "<!-- reviewrouter:review-status:incomplete -->";
+export const reviewSummaryIncompleteStatusMarker = `${reviewSummaryStatusMarkerPrefix}incomplete -->`;
 
 /**
  * Whether the published summary says "Review incomplete". It is the server's
  * partial summary when server coverage is partial; otherwise the Action's own
- * body is published, and its status marker carries the Action's verdict (for
- * example unverified native spans with every required part finished, or
- * unverified previous findings).
+ * body is published, and the Action calls it incomplete whenever its
+ * projection does not claim complete coverage or its first status marker says
+ * so (for example unverified native spans with every required part finished,
+ * or unverified previous findings). Only the first status marker counts, so a
+ * marker quoted later in model output cannot flip the verdict.
  */
 export function publishedSummaryIncomplete(input: {
   readonly coverage: ReviewPublicationProjectionCoverage;
+  readonly producerCoverageComplete: boolean;
   readonly sourceSummaryBody: string;
 }): boolean {
+  const status = input.sourceSummaryBody.indexOf(
+    reviewSummaryStatusMarkerPrefix,
+  );
   return (
     input.coverage === ReviewPublicationProjectionCoverage.Partial ||
-    input.sourceSummaryBody.includes(reviewSummaryIncompleteStatusMarker)
+    !input.producerCoverageComplete ||
+    (status >= 0 &&
+      input.sourceSummaryBody.startsWith(
+        reviewSummaryIncompleteStatusMarker,
+        status,
+      ))
   );
 }
 

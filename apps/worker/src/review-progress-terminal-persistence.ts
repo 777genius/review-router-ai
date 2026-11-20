@@ -7,6 +7,7 @@ import {
   Prisma,
   type PrismaClient,
 } from "@prisma/client";
+import { projectionClaimsCompleteCoverage } from "@reviewrouter/features-review-executions";
 import {
   publishedSummaryIncomplete,
   ReviewPublicationProjectionCoverage,
@@ -148,6 +149,9 @@ async function publishedSummaryVerdict(
       artifact.coverageState === "partial"
         ? ReviewPublicationProjectionCoverage.Partial
         : ReviewPublicationProjectionCoverage.Completed,
+    producerCoverageComplete: projectionClaimsCompleteCoverage(
+      artifact.projectionEnvelope,
+    ),
     sourceSummaryBody: sourceSummaryBody(artifact.projectionEnvelope),
   })
     ? "incomplete"

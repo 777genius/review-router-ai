@@ -32,9 +32,10 @@ observed to be absent. Use the [status contract](README.md#status-contract).
   `publishedSummaryIncomplete` in the review-publishing domain, next to the
   renderer that builds the summary. The summary is the server's partial
   summary when server coverage is partial, otherwise the Action's own body,
-  whose status marker `<!-- reviewrouter:review-status:incomplete -->` carries
-  the Action's verdict (unverified native spans, unverified previous findings,
-  all providers failed, partial coverage).
+  which is incomplete when the Action's coverage claim is not complete or its
+  first status marker is `<!-- reviewrouter:review-status:incomplete -->`
+  (unverified native spans, unverified previous findings, all providers
+  failed, partial coverage).
 - Terminal promotion reads that verdict from the finalized artifact of the
   same generation and head, only for a completed execution whose publication
   succeeded. Complete only when the summary is complete, otherwise
