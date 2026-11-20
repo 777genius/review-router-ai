@@ -11,17 +11,17 @@
 - Implementation: [review-router#403](https://github.com/777genius/review-router/pull/403).
   Analysis and the other failure classes:
   [plan 86](../architecture/86-review-failure-classes-fixes.md).
-- Implementation reference: the squash commit of that PR on the public Action
-  `main`.
+- Implementation reference: `39e2870357b5f6787167225d6dea0732888074e7` on the
+  public Action `main`.
 - Dependencies: none. No migration, configuration or feature flag.
 - Last updated: 2026-11-20.
 
 ## Environment status
 
-| Target                    | Status    | Actual version | Evidence                                   |
-| ------------------------- | --------- | -------------- | ------------------------------------------ |
-| Public Action `main`      | `pending` | Not merged yet | review-router#403                          |
-| Public Action release/tag | `pending` | Not released   | Rides in the next bundled rollout (Action) |
+| Target                    | Status      | Actual version | Evidence                                   |
+| ------------------------- | ----------- | -------------- | ------------------------------------------ |
+| Public Action `main`      | `installed` | `39e28703`     | review-router#403 merged (squash)          |
+| Public Action release/tag | `pending`   | Not released   | Rides in the next bundled rollout (Action) |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -48,8 +48,8 @@ observed to be absent. Use the [status contract](README.md#status-contract).
 
 ## Applicability and rollout
 
-1. After merge, `Sync Public Action Runtime` brings the bundle to the public
-   Action `main`.
+1. The PR was merged straight into the public Action `main` as `39e28703`,
+   with the rebuilt bundle; no sync step is needed.
 2. Users get it only with the next Action release in the
    [release procedure](../operations/07-environments-and-release-management.md),
    which includes the usual producer registration and Action ref alignment.
@@ -74,6 +74,6 @@ eligible for exact-revision reuse after a rollback.
 
 ## Execution log
 
-| Time (UTC) | Environment | Operator | Actual version / image | Step and observed result | Evidence | Next action                                    |
-| ---------- | ----------- | -------- | ---------------------- | ------------------------ | -------- | ---------------------------------------------- |
-| -          | -           | -        | -                      | Not deployed             | -        | Ship with the next bundled rollout and Action. |
+| Time (UTC)       | Environment          | Operator | Actual version / image | Step and observed result  | Evidence          | Next action                                    |
+| ---------------- | -------------------- | -------- | ---------------------- | ------------------------- | ----------------- | ---------------------------------------------- |
+| 2026-11-20 04:40 | public Action `main` | N2       | `39e28703`             | #403 merged, not released | review-router#403 | Ship with the next bundled rollout and Action. |

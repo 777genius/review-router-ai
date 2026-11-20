@@ -1,6 +1,6 @@
 # Классы красных и неполных ревью после выкаток 2026-11-19/20
 
-Статус: исправление класса 1 в Draft PR 777genius/review-router#403, не смержено и не выпущено. Остальные классы отложены с причиной. Деплоя нет.
+Статус: исправление класса 1 смержено в main runtime (777genius/review-router#403, `39e28703`), не выпущено. Остальные классы отложены с причиной. Деплоя нет.
 Источник: read-only выборки из БД RR (`ReviewExecutionV2`, `ReviewExecutionProgressV1`, `ReviewEvidenceObservation`, `FinalizedReviewProjectionArtifactV2`) и kernel Gateway, логи 367 из 373 прогонов с исчерпанным слотом (6 логов не скачались), логи API из сохранённых контейнеров, код runtime, SaaS relay, Gateway, native и OCR. Окно 7 дней до 2026-11-20 04:00 UTC, срез "после" = с 2026-11-19 15:56 UTC.
 
 ## Картина
