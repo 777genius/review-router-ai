@@ -919,16 +919,31 @@ export class PrismaInvestigationStore
                 InvestigationPrivateMaterialPruneFailureCause.ParentMissing,
               );
             }
-            const reconciled: Awaited<
+            let reconciled: Awaited<
               ReturnType<
                 ReconcileExpiredInvestigationPrivateMaterial["execute"]
               >
-            > = await this.privateMaterialExpiry.execute({
-              investigation: current,
-              privateMaterialIds: lockedGroup.privateMaterialIds,
-              obligationIds: lockedGroup.obligationIds,
-              expiredAt: effectiveCutoff.toISOString(),
-            });
+            >;
+            try {
+              reconciled = await this.privateMaterialExpiry.execute({
+                investigation: current,
+                privateMaterialIds: lockedGroup.privateMaterialIds,
+                obligationIds: lockedGroup.obligationIds,
+                expiredAt: effectiveCutoff.toISOString(),
+              });
+            } catch (error: unknown) {
+              // An unverifiable dossier belongs to this one aggregate; it must
+              // not stop the groups behind it in the batch.
+              if (
+                error instanceof Error &&
+                error.message === "investigation_dossier_digest_invalid"
+              ) {
+                throw new PrivateMaterialGroupPruneError(
+                  InvestigationPrivateMaterialPruneFailureCause.DossierDigestInvalid,
+                );
+              }
+              throw error;
+            }
             if (
               reconciled.disposition ===
               InvestigationPrivateMaterialExpiryDisposition.DeferredActiveTurn

@@ -1361,6 +1361,100 @@ describeDatabase("PrismaInvestigationStore PostgreSQL invariants", () => {
     }
   });
 
+  it("prunes the rest of the batch past an aggregate whose dossier cannot be verified", async () => {
+    const poisonSeed = await withValidTestDossierDigest(
+      createInvestigationStoreContractSeed(`digest-material-${randomUUID()}`),
+    );
+    const healthySeed = await withValidTestDossierDigest(
+      createInvestigationStoreContractSeed(`digest-healthy-${randomUUID()}`),
+    );
+    const poisonHarness = await createHarness(poisonSeed);
+    const healthyHarness = await createHarness(healthySeed);
+    const poisonStore = poisonHarness.store as PrismaInvestigationStore;
+    const healthyStore = healthyHarness.store as PrismaInvestigationStore;
+    const cipher = new AesGcmInvestigationPrivateMaterialCipher(
+      "digest-prune-key",
+      new Map([["digest-prune-key", Buffer.alloc(32, 23)]]),
+    );
+    const materialFor = (
+      seed: typeof poisonSeed,
+      createdAt: string,
+      expiresAt: string,
+    ) =>
+      cipher.encrypt({
+        privateMaterialId: `private-${seed.investigationId}`,
+        investigationId: seed.investigationId,
+        obligationId: seed.obligations[0]!.obligationId,
+        plaintextCanonicalJson: '{"query":"expired material"}',
+        associatedDataCanonicalJson: `{"investigationId":"${seed.investigationId}"}`,
+        createdAt,
+        expiresAt,
+      });
+    // The unverifiable aggregate expires first, so its group is handled first.
+    const poisonMaterial = await materialFor(
+      poisonSeed,
+      "2026-08-02T10:00:00.000Z",
+      "2026-08-02T10:01:00.000Z",
+    );
+    const healthyMaterial = await materialFor(
+      healthySeed,
+      "2026-08-02T10:00:30.000Z",
+      "2026-08-02T10:01:30.000Z",
+    );
+    try {
+      await open(
+        poisonStore,
+        poisonSeed,
+        `digest-open-${poisonSeed.investigationId}`,
+      );
+      await open(
+        healthyStore,
+        healthySeed,
+        `digest-open-${healthySeed.investigationId}`,
+      );
+      await poisonStore.savePrivateMaterial(poisonMaterial);
+      await healthyStore.savePrivateMaterial(healthyMaterial);
+      await poisonHarness.prisma.reviewInvestigation.update({
+        where: { investigationId: poisonSeed.investigationId },
+        data: { dossierDigest: "0".repeat(64) },
+      });
+      await poisonHarness.prisma.$executeRaw(Prisma.sql`
+        INSERT INTO "ReviewInvestigationMaintenanceCheckpoint" (
+          "checkpointKey", "cursorExpiresAt", "cursorPrivateMaterialId", "updatedAt"
+        ) VALUES ('private_material_prune.v1', NULL, NULL, clock_timestamp())
+        ON CONFLICT ("checkpointKey") DO UPDATE
+        SET "cursorExpiresAt" = NULL,
+            "cursorPrivateMaterialId" = NULL,
+            "updatedAt" = clock_timestamp()
+      `);
+
+      await expect(
+        poisonStore.reconcileExpiredPrivateMaterial({
+          expiresAtOrBefore: healthyMaterial.expiresAt,
+          limit: 2,
+        }),
+      ).rejects.toMatchObject({
+        removedCount: 1,
+        failedInvestigationCount: 1,
+        causeCode:
+          InvestigationPrivateMaterialPruneFailureCause.DossierDigestInvalid,
+      } satisfies Partial<InvestigationPrivateMaterialPruneBatchError>);
+      await expect(
+        poisonHarness.prisma.reviewInvestigationPrivateMaterial.count({
+          where: { investigationId: poisonSeed.investigationId },
+        }),
+      ).resolves.toBe(1);
+      await expect(
+        healthyHarness.prisma.reviewInvestigationPrivateMaterial.count({
+          where: { investigationId: healthySeed.investigationId },
+        }),
+      ).resolves.toBe(0);
+    } finally {
+      await poisonHarness.dispose();
+      await healthyHarness.dispose();
+    }
+  });
+
   it("keeps expired material until active-turn recovery owns the transition", async () => {
     const suffix = randomUUID();
     const seed = await withValidTestDossierDigest(
