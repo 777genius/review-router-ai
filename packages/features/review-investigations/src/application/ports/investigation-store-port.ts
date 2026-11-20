@@ -136,6 +136,8 @@ export interface InvestigationStorePort {
   findExpiredActiveTurnIds(input: {
     readonly expiresAtOrBefore: string;
     readonly limit: number;
+    /** Rows on recovery backoff; they must not take a slot in the batch. */
+    readonly excludeInvestigationIds?: readonly string[];
   }): Promise<readonly string[]>;
   commit(input: {
     readonly investigation: ReviewInvestigation;

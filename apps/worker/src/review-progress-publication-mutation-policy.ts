@@ -1,3 +1,4 @@
+import { progressCommentMinEditIntervalMs } from "@reviewrouter/features-review-progress";
 import type { PrismaReviewProgressPublicationStore } from "./review-progress-store";
 
 /** Derive terminal/ongoing publication settlement fields before the fenced write. */
@@ -6,7 +7,7 @@ export function completionMutationData(
 ) {
   const nextPublishAt = input.publication.terminal
     ? input.now
-    : new Date(input.now.getTime() + 60_000);
+    : new Date(input.now.getTime() + progressCommentMinEditIntervalMs);
   return {
     publishedVersion: input.publication.desiredVersion,
     commentId: input.commentId,
@@ -26,9 +27,10 @@ export function completionMutationData(
 export function retryMutationData(
   input: Parameters<PrismaReviewProgressPublicationStore["retry"]>[0],
 ) {
+  const countsFailure =
+    input.resetFailureCount !== true && input.countFailure !== false;
   const reachesLimit =
-    input.countFailure !== false &&
-    input.publication.failureCount + 1 >= input.maxFailures;
+    countsFailure && input.publication.failureCount + 1 >= input.maxFailures;
   return {
     reachesLimit,
     data: {
@@ -38,9 +40,11 @@ export function retryMutationData(
       claimId: null,
       claimOwnerIdHash: null,
       claimUntil: null,
-      ...(input.countFailure === false
-        ? {}
-        : { failureCount: { increment: 1 } }),
+      ...(input.resetFailureCount === true
+        ? { failureCount: 0 }
+        : countsFailure
+          ? { failureCount: { increment: 1 } }
+          : {}),
       lastErrorCode: reachesLimit
         ? "review_progress_retry_limit_reached"
         : safeCode(input.safeCode),

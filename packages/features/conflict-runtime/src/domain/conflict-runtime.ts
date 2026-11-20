@@ -22,6 +22,7 @@ export const conflictRuntimeProviderEnvAllowlist = [
   "CODEX_CONFIG_TOML",
   "OPENAI_API_KEY",
   "MIMO_TOKEN_PLAN_API_KEY",
+  "REVIEW_OUTPUT_LANGUAGE",
 ] as const;
 
 export const conflictRuntimeForbiddenProviderEnvPatterns = [

@@ -473,14 +473,44 @@ describeWithDatabase.sequential(
       await fixture.processFinalizedOutbox();
       await fixture.runWorkerUntilSettled();
 
+      // Two pages each for the marker inventory before and after the write,
+      // plus two for the sticky-summary lookup.
       expect(fixture.fakeGitHub.countCalls("GET", `/issues/42/comments`)).toBe(
-        4,
+        6,
       );
       expect(
         fixture.fakeGitHub.comments.filter(
           (comment) => comment.user.login === "reviewrouter-e2e[bot]",
         ),
       ).toHaveLength(1);
+      await expectTerminalSuccess(fixture, flow.executionId);
+    }, 60_000);
+
+    it("rewrites the existing summary comment for a new revision instead of adding one", async () => {
+      const fixture = requiredHarness(harness);
+      const olderRun = fixture.fakeGitHub.seedAppComment(
+        `Older run\n\n<!-- reviewrouter:summary:v2:${hash("older-revision")} -->`,
+      );
+      const newerRun = fixture.fakeGitHub.seedAppComment(
+        `Newer run\n\n<!-- reviewrouter:summary:v2:${hash("newer-revision")} -->`,
+      );
+      const flow = await fixture.createCommittedFlow();
+      await fixture.finalize(flow);
+      await fixture.processFinalizedOutbox();
+      await fixture.runWorkerUntilSettled();
+
+      const appComments = fixture.fakeGitHub.comments.filter(
+        (comment) => comment.user.login === "reviewrouter-e2e[bot]",
+      );
+      expect(appComments.map((comment) => comment.id)).toEqual([
+        olderRun,
+        newerRun,
+      ]);
+      expect(appComments[0]?.body).toContain("Older run");
+      expect(appComments[1]?.body).toContain(
+        `reviewrouter:summary:v2:${flow.reviewRevisionHash}`,
+      );
+      expect(appComments[1]?.body).not.toContain("Newer run");
       await expectTerminalSuccess(fixture, flow.executionId);
     }, 60_000);
 
@@ -500,7 +530,7 @@ describeWithDatabase.sequential(
         published: 1,
       });
       expect(progressComments(fixture)[0]?.body).toContain(
-        "Review units: 1 of 3 complete (33%)",
+        "Progress: 1 of 3 parts reviewed (33%)",
       );
       const initial =
         await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
@@ -638,7 +668,7 @@ describeWithDatabase.sequential(
       const staleBody = formatGithubProgressComment(
         parseSnapshot(stale.snapshot),
       );
-      expect(staleBody).toContain("Review units: 2 of 3 complete (66%)");
+      expect(staleBody).toContain("Progress: 2 of 3 parts reviewed (66%)");
       // Leave the expired claim fence present for real worker takeover.
       await fixture.prisma.reviewProgressPublicationV1.updateMany({
         where: stale.scope,
@@ -684,7 +714,7 @@ describeWithDatabase.sequential(
       });
       const comment = progressComments(fixture)[0]!;
       const latestBody = comment.body;
-      expect(latestBody).toContain("Review units: 3 of 3 complete (100%)");
+      expect(latestBody).toContain("Progress: 3 of 3 parts reviewed (100%)");
       const settled =
         await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
           where: { activeExecutionId: flow.executionId },
@@ -812,12 +842,10 @@ describeWithDatabase.sequential(
       const comments = progressComments(fixture);
       expect(comments).toHaveLength(1);
       expect(comments[0]?.body).toContain(
-        "Review units: 42 of 72 complete (58%)",
+        "Progress: 42 of 72 parts reviewed (58%)",
       );
-      expect(comments[0]?.body).toContain(
-        "Files in completed units: 84 of 108",
-      );
-      expect(comments[0]?.body).toContain("Units currently retrying: 6");
+      expect(comments[0]?.body).toContain("Files fully reviewed: 84 of 108");
+      expect(comments[0]?.body).toContain("Parts being retried: 6");
 
       await fixture.setProgressFixture({
         executionId: flow.executionId,
@@ -830,18 +858,14 @@ describeWithDatabase.sequential(
       expect(recoveredPublication).toMatchObject({ published: 1 });
       expect(progressComments(fixture)).toHaveLength(1);
       expect(progressComments(fixture)[0]?.body).toContain(
-        "Review units: 72 of 72 complete (100%)",
+        "Progress: 72 of 72 parts reviewed (100%)",
       );
       expect(progressComments(fixture)[0]?.body).toContain(
-        "Units recovered by retry: 6",
+        "Parts finished after a retry: 6",
       );
 
-      fixture.fakeGitHub.seedProgressDuplicate(
-        progressComments(fixture)[0]!.body,
-      );
-      fixture.fakeGitHub.seedProgressDuplicate(
-        progressComments(fixture)[0]!.body,
-      );
+      fixture.fakeGitHub.seedAppComment(progressComments(fixture)[0]!.body);
+      fixture.fakeGitHub.seedAppComment(progressComments(fixture)[0]!.body);
       await fixture.prisma.reviewProgressPublicationV1.updateMany({
         where: { activeExecutionId: flow.executionId },
         data: { publishedVersion: { decrement: 1n } },
@@ -875,29 +899,57 @@ describeWithDatabase.sequential(
       await fixture.terminalizeProgressSlot(flow.executionId, 3);
       // An individual settlement is insufficient without a durable terminal
       // attempt. Exercise the actual finalized-outbox and publication path.
-      await expect(
-        fixture.promoteProgress(flow.executionId, "succeeded"),
-      ).resolves.toBe(0);
+      const terminalProgress = () =>
+        fixture.prisma.reviewExecutionProgressV1.findUniqueOrThrow({
+          where: { executionId: flow.executionId },
+          select: { terminalOutcome: true, desiredVersion: true },
+        });
+      await expect(fixture.promoteProgress(flow.executionId)).resolves.toBe(0);
+      await fixture.sweepProgressPromotion();
+      await expect(terminalProgress()).resolves.toMatchObject({
+        terminalOutcome: null,
+      });
       const finalized = await fixture.finalize(flow, { allowPartial: true });
       expect(finalized.result.status).toBe(
         ReviewExecutionMutationResultStatus.Applied,
       );
       await fixture.processFinalizedOutbox();
       await fixture.runWorkerUntilSettled();
-      // The normal worker harness does not enable progress publication.
-      // Promote only after the real terminal attempt has durably settled.
-      await expect(
-        fixture.promoteProgress(flow.executionId, "succeeded"),
-      ).resolves.toBe(1);
+      // The normal worker harness does not enable progress publication, so
+      // the settlement hint is lost like a worker restart loses it. Without a
+      // posted comment nothing is stuck on GitHub, and the sweep must not post
+      // one for a finished review (the operator's backlog expiry relies on it).
+      await fixture.sweepProgressPromotion();
+      await expect(terminalProgress()).resolves.toMatchObject({
+        terminalOutcome: null,
+      });
       await fixture.makeProgressDue();
       await expect(fixture.publishProgress()).resolves.toMatchObject({
         published: 1,
       });
+      expect(progressComments(fixture)[0]?.body).toContain(
+        "Assembling results",
+      );
+      // The comment now waits at "Assembling results". The sweep alone must
+      // promote the durably settled attempt, exactly once.
+      await expect(fixture.sweepProgressPromotion()).resolves.toBeGreaterThan(
+        0,
+      );
+      const promoted = await terminalProgress();
+      expect(promoted.terminalOutcome).toBe("complete_with_gaps");
+      await expect(fixture.sweepProgressPromotion()).resolves.toBe(0);
+      await expect(fixture.promoteProgress(flow.executionId)).resolves.toBe(0);
+      await expect(terminalProgress()).resolves.toEqual(promoted);
+      await fixture.makeProgressDue();
+      await expect(fixture.publishProgress()).resolves.toMatchObject({
+        published: 1,
+      });
+      expect(progressComments(fixture)).toHaveLength(1);
       const body = progressComments(fixture)[0]?.body ?? "";
       expect(body).toContain("**Phase:** Complete with gaps");
-      expect(body).toContain("Review units: 3 of 4 complete (75%)");
-      expect(body).toContain("Units not completed after retries: 1");
-      expect(body).not.toContain("complete (100%)");
+      expect(body).toContain("Progress: 3 of 4 parts reviewed (75%)");
+      expect(body).toContain("Parts that could not be finished: 1");
+      expect(body).not.toContain("reviewed (100%)");
     }, 60_000);
 
     it("finalizes exhausted work without regressing durable progress", async () => {

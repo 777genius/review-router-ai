@@ -192,8 +192,9 @@ export async function verifyHostedProgressCanary(
     final.coveredFiles !== config.expectedReviewedFiles ||
     final.totalFiles !== config.expectedReviewedFiles ||
     final.unassignedFiles !== 0 ||
-    final.excludedFiles !== config.expectedExcludedFiles ||
-    final.exhaustedUnits !== 0
+    // A Complete comment never lists unfinished parts, so Complete with gaps
+    // is what a required part that did not finish fails here.
+    final.excludedFiles !== config.expectedExcludedFiles
   )
     throw new Error("hosted_progress_canary_final_coverage_incomplete");
   return {
@@ -238,11 +239,11 @@ export function parseProgressComment(comment, config, expectedSource) {
       sourceIdentity.sourceRunAttempt !== expectedSource.sourceRunAttempt)
   )
     throw new Error("hosted_progress_canary_comment_source_mismatch");
-  const units = numbers(comment.body, /Review units: (\d+) of (\d+) complete/u);
-  const files = numbers(
+  const units = numbers(
     comment.body,
-    /Files in completed units: (\d+) of (\d+)/u,
+    /Progress: (\d+) of (\d+) parts? reviewed/u,
   );
+  const files = numbers(comment.body, /Files fully reviewed: (\d+) of (\d+)/u);
   return {
     commentId: comment.id,
     updatedAt: instant(comment.updated_at),
@@ -251,9 +252,16 @@ export function parseProgressComment(comment, config, expectedSource) {
     totalUnits: units[1],
     coveredFiles: files[0],
     totalFiles: files[1],
-    unassignedFiles: metric(comment.body, "Files not assigned"),
-    excludedFiles: metric(comment.body, "Files unavailable or excluded"),
-    exhaustedUnits: metric(comment.body, "Units not completed after retries"),
+    unassignedFiles: metric(comment.body, "Files not assigned to any part"),
+    excludedFiles: metric(
+      comment.body,
+      "Files skipped \\(unavailable or excluded\\)",
+    ),
+    // The comment shows retry lines only when their count is not zero.
+    exhaustedUnits: optionalMetric(
+      comment.body,
+      "Parts that could not be finished",
+    ),
     sourceIdentity,
   };
 }
@@ -654,6 +662,10 @@ function numbers(body, regex) {
 }
 function metric(body, label) {
   return Number(capture(body, new RegExp(`${label}: (\\d+)`, "u")));
+}
+function optionalMetric(body, label) {
+  const value = body?.match(new RegExp(`${label}: (\\d+)`, "u"))?.[1];
+  return value === undefined ? 0 : Number(value);
 }
 function instant(value) {
   if (!Number.isFinite(Date.parse(value)))

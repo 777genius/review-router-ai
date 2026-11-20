@@ -127,6 +127,7 @@ import { createProductionReviewV2WorkerRuntime } from "../../../apps/worker/src/
 import { createReviewStatisticsSettlementCapture } from "../../../apps/worker/src/review-statistics-settlement-capture.js";
 import { createReviewStatisticsSettledHandler } from "../../../apps/worker/src/review-statistics-worker-runtime.js";
 import { PrismaReviewProgressPublicationStore } from "../../../apps/worker/src/review-progress-store.js";
+import { ReviewProgressTerminalPromotion } from "../../../apps/worker/src/review-progress-terminal-promotion.js";
 import {
   createReviewV2WorkerFeature,
   reviewExecutionFinalizedEventType,
@@ -1462,7 +1463,8 @@ export class ReviewActionV2E2EHarness {
             : allowPartial
               ? "Partial review"
               : "Review complete",
-          marker: `<!-- ${flow.executionId}:summary -->`,
+          // Same family as the runtime marker, so the sticky summary applies.
+          marker: `reviewrouter:summary:v2:${flow.reviewRevisionHash}`,
           occurrenceCounts: {
             new: findings.length,
             reconfirmed: 0,
@@ -1616,12 +1618,14 @@ export class ReviewActionV2E2EHarness {
     const runtime = createProductionReviewV2WorkerRuntime({
       prisma: this.prisma,
       clock: new SystemClock(),
+      // Unset progress keys exercise the production default: on for every
+      // repository, without an allow-list.
       env: {
         ...this.env,
-        REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE: "1",
-        REVIEW_ROUTER_PROGRESS_FILE_COVERAGE: "1",
-        REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES: "1",
-        REVIEW_ROUTER_PROGRESS_REPOSITORIES: `${owner}/${repo}`,
+        REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE: undefined,
+        REVIEW_ROUTER_PROGRESS_FILE_COVERAGE: undefined,
+        REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES: undefined,
+        REVIEW_ROUTER_PROGRESS_REPOSITORIES: undefined,
         REVIEW_ROUTER_PROGRESS_MIN_MUTATION_INTERVAL_MS: "1",
       },
       githubAppId: requiredString(this.env.GITHUB_APP_ID),
@@ -1827,16 +1831,31 @@ export class ReviewActionV2E2EHarness {
     });
   }
 
-  async promoteProgress(
-    executionId: string,
-    outcome: "succeeded" | "failed" | "superseded",
-  ): Promise<number> {
+  async promoteProgress(executionId: string): Promise<number> {
     return new PrismaReviewProgressPublicationStore(
       this.prisma,
     ).promoteSettledExecutions({
-      settlements: [{ executionId, outcome }],
+      executionIds: [executionId],
       now: new Date(),
     });
+  }
+
+  /** Run the worker's promotion sweep without any settlement hint. */
+  async sweepProgressPromotion(): Promise<number> {
+    // Walk one whole pass with two scopes per page, so the keyset cursor
+    // crosses page boundaries on PostgreSQL like the worker's 100-scope pages.
+    const pageSize = 2;
+    const scopes = await this.prisma.reviewProgressPublicationV1.count();
+    const promotion = new ReviewProgressTerminalPromotion(
+      new PrismaReviewProgressPublicationStore(this.prisma),
+      { now: () => new Date() },
+      { pageSize },
+    );
+    let promoted = 0;
+    for (let page = 0; page <= Math.floor(scopes / pageSize); page += 1) {
+      promoted += await promotion.promote([]);
+    }
+    return promoted;
   }
 
   async deadLetterAndRecoverFinalizedEvent(): Promise<void> {
@@ -2764,6 +2783,9 @@ function productionEnv(input: {
     [reviewV2WorkerEnabledEnv]: "1",
     REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE: "1",
     REVIEW_ROUTER_PROGRESS_FILE_COVERAGE: "1",
+    // Comment writes are on by default. Scenarios publish progress only
+    // through publishProgress() so their GitHub request counts stay exact.
+    REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES: "0",
     REVIEW_ROUTER_REVIEW_V2_COMPLETION_CLAIM_MS: "1000",
     REVIEW_ROUTER_REVIEW_V2_PUBLICATION_CLAIM_MS: "1000",
     REVIEW_ROUTER_REVIEW_V2_MIN_MUTATION_LEASE_MS: "500",

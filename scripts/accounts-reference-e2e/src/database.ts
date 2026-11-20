@@ -385,6 +385,8 @@ export function applicationEnvironment(input: {
             "https://token-plan-sgp.xiaomimimo.com/v1",
           REVIEW_ROUTER_ACCOUNT_GATEWAY_OPENROUTER_PROFILE_ID:
             "openrouter-openai-responses-apikey-v1",
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_NVIDIA_PROFILE_ID:
+            "nvidia-build-chat-apikey-v1",
         }
       : {}),
     TMPDIR: input.tmpDir,

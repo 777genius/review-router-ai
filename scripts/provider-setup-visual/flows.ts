@@ -400,7 +400,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
             .click();
           await visible(
             dialog.getByText(
-              "Could not load account models. Try refreshing the model list. Your saved selection is unchanged.",
+              "Could not load account models. Your saved selection is unchanged.",
               { exact: true },
             ),
           );
@@ -409,7 +409,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
           await visible(
             dialog
               .getByText(
-                "Model availability could not be checked. Edit this reviewer to refresh account models. Your saved selection is unchanged.",
+                "Model availability could not be checked. Edit this reviewer to try again. Your saved selection is unchanged.",
                 { exact: true },
               )
               .first(),
@@ -429,14 +429,14 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
           });
           expectEqual(await save.isDisabled(), true, "catalog admission");
           const retry = dialog.getByRole("button", {
-            name: "Refresh models",
+            name: "Try again",
             exact: true,
           });
           expectEqual(await retry.isEnabled(), true, "model refresh retry");
           await save.scrollIntoViewIfNeeded();
           await flow.shot(page, "model-refresh-failure-retains-draft");
           await retry.click();
-          await visible(dialog.getByText(/^Account model catalog/));
+          await visible(dialog.getByText(/^Model list updated/));
           expectEqual(
             await save.isEnabled(),
             true,

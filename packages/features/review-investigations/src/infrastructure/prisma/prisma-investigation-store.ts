@@ -37,7 +37,11 @@ import {
   assertPersistedInvestigationRequirementsSanitized,
   validateInvestigationPrivateMaterialCommit,
 } from "../../application/investigation-private-material-commit-policy";
-import { ReconcileExpiredInvestigationPrivateMaterial } from "../../application/use-cases/reconcile-expired-investigation-private-material";
+import {
+  ReconcileExpiredInvestigationPrivateMaterial,
+  type ReconcileExpiredInvestigationPrivateMaterialResult,
+} from "../../application/use-cases/reconcile-expired-investigation-private-material";
+import { investigationDossierDigestInvalidMessage } from "../../application/use-cases/investigation-use-case-support";
 import {
   assertInvestigationPolicy,
   assertInvestigationPolicyCanonicalCompatibility,
@@ -275,8 +279,10 @@ export class PrismaInvestigationStore
   async findExpiredActiveTurnIds(input: {
     readonly expiresAtOrBefore: string;
     readonly limit: number;
+    readonly excludeInvestigationIds?: readonly string[];
   }): Promise<readonly string[]> {
     assertPruneLimit(input.limit);
+    const excluded = [...(input.excludeInvestigationIds ?? [])];
     const cutoff = parseCanonicalCutoff(
       input.expiresAtOrBefore,
       "investigation_turn_expiry_cutoff_invalid",
@@ -296,6 +302,7 @@ export class PrismaInvestigationStore
           WHERE investigation."state" = 'turn_leased'::"ReviewInvestigationStateV1"
             AND turn."state" = 'leased'::"ReviewInvestigationTurnStateV1"
             AND turn."expiresAt" <= ${effectiveCutoff}
+            AND NOT (investigation."investigationId" = ANY(${excluded}::text[]))
           ORDER BY turn."expiresAt" ASC, investigation."investigationId" ASC
           LIMIT ${input.limit}
           FOR UPDATE OF investigation SKIP LOCKED
@@ -916,16 +923,27 @@ export class PrismaInvestigationStore
                 InvestigationPrivateMaterialPruneFailureCause.ParentMissing,
               );
             }
-            const reconciled: Awaited<
-              ReturnType<
-                ReconcileExpiredInvestigationPrivateMaterial["execute"]
-              >
-            > = await this.privateMaterialExpiry.execute({
-              investigation: current,
-              privateMaterialIds: lockedGroup.privateMaterialIds,
-              obligationIds: lockedGroup.obligationIds,
-              expiredAt: effectiveCutoff.toISOString(),
-            });
+            let reconciled: ReconcileExpiredInvestigationPrivateMaterialResult;
+            try {
+              reconciled = await this.privateMaterialExpiry.execute({
+                investigation: current,
+                privateMaterialIds: lockedGroup.privateMaterialIds,
+                obligationIds: lockedGroup.obligationIds,
+                expiredAt: effectiveCutoff.toISOString(),
+              });
+            } catch (error: unknown) {
+              // An unverifiable dossier belongs to this one aggregate; it must
+              // not stop the groups behind it in the batch.
+              if (
+                error instanceof Error &&
+                error.message === investigationDossierDigestInvalidMessage
+              ) {
+                throw new PrivateMaterialGroupPruneError(
+                  InvestigationPrivateMaterialPruneFailureCause.DossierDigestInvalid,
+                );
+              }
+              throw error;
+            }
             if (
               reconciled.disposition ===
               InvestigationPrivateMaterialExpiryDisposition.DeferredActiveTurn

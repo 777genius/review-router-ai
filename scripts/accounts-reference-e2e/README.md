@@ -443,7 +443,7 @@ API-key enrollment fixture intentionally configures different MiMo profiles
 from the bounded connection-probe fixture):
 
 ```bash
-ACCOUNTS_REFERENCE_E2E_GREP='API key storage|public catalogs refresh|dynamic Codex account models|provider settings geometry' \
+ACCOUNTS_REFERENCE_E2E_GREP='API key storage|public catalogs refresh|dynamic Codex account models|provider settings geometry|model list updates itself' \
   node --import ./scripts/accounts-reference-e2e/node_modules/tsx/dist/loader.mjs \
   scripts/accounts-reference-e2e/src/run.ts \
   --repo-root "$PWD" --database-url "$ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL" \

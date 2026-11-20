@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { decidePullRequestReviewAdmission } from "@reviewrouter/features-codex-oauth-rotating";
 import type {
   ActionRepositoryContext,
+  HostedReviewPreleaseGateDecision,
   HostedReviewPreleaseGatePort,
 } from "@reviewrouter/features-action-control-plane";
 import {
@@ -16,6 +17,7 @@ import {
   type ReviewRequestedIntentQueryPort,
 } from "@reviewrouter/features-review-executions";
 import type { Clock } from "@reviewrouter/shared";
+import type { ReviewSizeLimitNoticePort } from "./review-size-limit-notice.js";
 
 export interface HostedReviewPullRequestFactsPort {
   resolve(input: {
@@ -43,6 +45,8 @@ export class ProductionHostedReviewPreleaseGate implements HostedReviewPreleaseG
       readonly pullRequests: HostedReviewPullRequestFactsPort;
       readonly clock: Clock;
       readonly maxChangedLines: number;
+      /** Explains a size refusal on the pull request; never changes it. */
+      readonly sizeLimitNotices?: ReviewSizeLimitNoticePort;
       readonly sleep?: (delayMs: number) => Promise<void>;
     },
   ) {
@@ -78,7 +82,10 @@ export class ProductionHostedReviewPreleaseGate implements HostedReviewPreleaseG
       (await this.createRerunIntent(input));
     if (!intent) return { status: "not_applicable" as const };
     const restored = await this.restorePersistedDecision(input, intent);
-    if (restored) return restored;
+    if (restored) {
+      this.noticeRefusal(input.repository, intent, restored);
+      return restored;
+    }
     if (intent.state !== ReviewRequestedIntentState.AwaitingAuthorization) {
       throw new Error("review_request_intent_not_awaiting_authorization");
     }
@@ -141,7 +148,40 @@ export class ProductionHostedReviewPreleaseGate implements HostedReviewPreleaseG
     if (!decision || decision.decisionHash !== decisionHash) {
       throw new Error("review_request_admission_transition_conflict");
     }
+    this.noticeRefusal(input.repository, intent, decision);
     return decision;
+  }
+
+  /**
+   * A refused run otherwise only fails red in Actions. The notice is posted in
+   * the background so a slow or failing GitHub call never delays or alters the
+   * authorization answer.
+   */
+  private noticeRefusal(
+    repository: ActionRepositoryContext,
+    intent: ReviewRequestedIntent,
+    decision: HostedReviewPreleaseGateDecision,
+  ): void {
+    const notices = this.dependencies.sizeLimitNotices;
+    if (decision.status !== "skipped" || !notices) return;
+    const notice = {
+      githubInstallationId: repository.githubInstallationId,
+      repositoryFullName: repository.fullName,
+      pullRequestNumber: intent.pullRequestNumber,
+      headSha: intent.revision.headSha,
+      changedLines: decision.changedLines,
+      maxChangedLines: decision.maxChangedLines,
+    };
+    // Detached from the request: even a synchronous throw lands in catch.
+    void Promise.resolve()
+      .then(() => notices.publish(notice))
+      .catch((error: unknown) => {
+        console.warn("review_size_limit_notice_failed", {
+          repository: repository.fullName,
+          pullRequestNumber: intent.pullRequestNumber,
+          ...safeNoticeFailure(error),
+        });
+      });
   }
 
   private findIntent(input: {
@@ -363,6 +403,19 @@ function sumChangedLines(additions: number, deletions: number): number {
     throw new Error("hosted_review_changed_lines_invalid");
   }
   return changedLines;
+}
+
+function safeNoticeFailure(error: unknown) {
+  const status =
+    typeof error === "object" && error !== null && "status" in error
+      ? error.status
+      : null;
+  const reason =
+    error instanceof Error &&
+    /^review_size_limit_notice_[a-z_]+$/u.test(error.message)
+      ? error.message
+      : null;
+  return { status, reason };
 }
 
 function digest(value: string): string {

@@ -222,9 +222,9 @@ function KeyMetrics({
         <dt className="text-xs text-slate-400">Known tokens</dt>
         <dd className="mt-1 font-medium text-slate-100">
           {count(totals.tokens.total)}
-          {totals.tokens.total !== null && totals.unknownTotalTokenCount > 0 ? (
+          {totals.tokens.total !== null && tokenCoverage(totals).totalHint ? (
             <small className="mt-1 block text-xs font-normal text-slate-400">
-              Known part
+              {tokenCoverage(totals).totalHint}
             </small>
           ) : null}
         </dd>

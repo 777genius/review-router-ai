@@ -219,12 +219,15 @@ describe("Gateway reviewer roster", () => {
       expect(save).toHaveProperty("disabled", false);
       fireEvent.click(refresh);
       await waitFor(() => expect(save).toHaveProperty("disabled", true));
-      const retry = screen.getByRole("button", { name: /^Refresh models$/ });
+      // A failed read offers Try again; an empty list keeps its small refresh.
+      const retry = screen.getByRole("button", {
+        name: outcome === "unavailable" ? "Try again" : /^Refresh models$/,
+      });
       await waitFor(() => expect(retry).toHaveProperty("disabled", false));
       expect(screen.getByText(/1\. model-one/)).toBeTruthy();
       expect(screen.getByText(/2\. model-two/)).toBeTruthy();
       const unknownWarning =
-        "Model availability could not be checked. Edit this reviewer to refresh account models. Your saved selection is unchanged.";
+        "Model availability could not be checked. Edit this reviewer to try again. Your saved selection is unchanged.";
       const unavailableWarning =
         "This model is unavailable for this account. Edit this reviewer to choose another model.";
       expect(
@@ -577,7 +580,8 @@ describe("Gateway reviewer roster", () => {
     const props = base();
     props.view = { ...props.view, defaultSelections: [selection("one")] };
     // An NVIDIA account without its own fresh catalogue: every model is listed
-    // but marked unusable, so typing its exact name must not make it savable.
+    // but unusable and the list says why once, so typing its exact name must
+    // not make it savable.
     props.gatewayAccounts = {
       status: "ok",
       value: {
@@ -597,12 +601,54 @@ describe("Gateway reviewer roster", () => {
       target: { value: "model-two" },
     });
     expect(
-      screen.getAllByText(/NVIDIA account model qualification unavailable/)
-        .length,
-    ).toBeGreaterThan(0);
+      screen.getByText("Could not update the model list for this account."),
+    ).toBeTruthy();
     const save = screen.getByRole("button", { name: "Save reviewers" });
     expect(save).toHaveProperty("disabled", true);
     fireEvent.click(save);
     expect(saveProviderRoster).not.toHaveBeenCalled();
+  });
+
+  it("names an unavailable account with Try again and has no Refresh accounts button", async () => {
+    if (accounts.status !== "ok") throw new Error("fixture_unavailable");
+    const get = vi
+      .fn<GatewayModelAccountsApi["get"]>()
+      .mockResolvedValue({ status: "denied" });
+    const list = vi.fn<GatewayModelAccountsApi["list"]>();
+    render(
+      <GatewayModelAccountsProvider
+        scope="viewer:workspace:w"
+        api={{ get, list }}
+      >
+        <GatewayReviewerRoster {...base()} />
+      </GatewayModelAccountsProvider>,
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]!);
+    expect(
+      await screen.findByText(
+        "This account is unavailable. Choose another account.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Refresh accounts" }),
+    ).toBeNull();
+    const reads = get.mock.calls.length;
+    fireEvent.click(screen.getAllByRole("button", { name: "Try again" })[0]!);
+    await waitFor(() => expect(get.mock.calls.length).toBe(reads + 1));
+    // An ordinary read of that one binding, not a forced model refresh.
+    expect(get).toHaveBeenLastCalledWith("binding");
+  });
+
+  it("says once that the account list failed instead of calling every account unavailable", () => {
+    render(
+      <GatewayReviewerRoster
+        {...base()}
+        gatewayAccounts={{ status: "unavailable" }}
+      />,
+    );
+    expect(screen.getByText("Could not load the account list.")).toBeTruthy();
+    expect(screen.queryByText(/This account is unavailable/)).toBeNull();
+    // Without an accounts adapter there is nothing to retry.
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 });

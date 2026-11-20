@@ -18,9 +18,6 @@ import {
   type ClaimedReviewProgress,
 } from "./review-progress-store";
 
-export const hostedProgressCommentWritesEnv =
-  "REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES";
-
 export type ReviewProgressInstallationRequesterFactory = (
   installationId: bigint,
 ) => Promise<
@@ -231,7 +228,8 @@ export class ReviewProgressPublisher {
         ),
         now: this.clock.now(),
         maxFailures: this.options.maxFailures,
-        countFailure: false,
+        // The canonical body is on GitHub; only duplicate cleanup remains.
+        resetFailureCount: true,
       });
       if (
         retryOutcome === "stale" &&
@@ -341,6 +339,7 @@ export class ReviewProgressPublisher {
           await this.store.requeueAfterClaimLoss({
             scope: publication.scope,
             now: this.clock.now(),
+            retryAt: retry.retryAt,
           });
         } catch (repairError) {
           throw new AggregateError(
@@ -355,9 +354,11 @@ export class ReviewProgressPublisher {
     if (retryOutcome === "stale") {
       if (mutationMayHaveLanded) {
         // A successful mutation or ambiguous PATCH may outlive its claim.
+        // Keep GitHub's retry deadline, which the stale retry did not save.
         await this.store.requeueAfterClaimLoss({
           scope: publication.scope,
           now: this.clock.now(),
+          retryAt: retry.retryAt,
         });
       }
       result.deferred += 1;

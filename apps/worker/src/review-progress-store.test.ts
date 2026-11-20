@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { progressCommentMinEditIntervalMs } from "@reviewrouter/features-review-progress";
 import { PrismaReviewProgressPublicationStore } from "./review-progress-store";
 
 const now = new Date("2026-08-12T12:00:00.000Z");
@@ -95,7 +96,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
   });
 
   it.each([
-    { code: "P2034", attempts: 2 },
+    { code: "P2034", attempts: 3 },
     { code: "P2002", attempts: 1 },
   ])("bounds $code scope-repair retries", async ({ code, attempts }) => {
     const updateMany = vi.fn(async () => ({ count: 0 }));
@@ -121,8 +122,8 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
   });
 
   it.each([
-    { name: "serialization", sqlState: "40001", nested: true, attempts: 2 },
-    { name: "deadlock", sqlState: "40P01", nested: false, attempts: 2 },
+    { name: "serialization", sqlState: "40001", nested: true, attempts: 3 },
+    { name: "deadlock", sqlState: "40P01", nested: false, attempts: 3 },
     { name: "other error", sqlState: "23505", nested: true, attempts: 1 },
   ])("bounds raw $name retries", async ({ sqlState, nested, attempts }) => {
     const updateMany = vi.fn(async () => ({ count: 0 }));
@@ -303,7 +304,11 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
   });
 
   it.each([
-    { mode: "ongoing", terminal: false, delayMs: 60_000 },
+    {
+      mode: "ongoing",
+      terminal: false,
+      delayMs: progressCommentMinEditIntervalMs,
+    },
     { mode: "terminal", terminal: true, delayMs: 0 },
   ])("settles $mode claims", async ({ terminal, delayMs }) => {
     const updateMany = vi.fn(async () => ({ count: 1 }));
@@ -1160,7 +1165,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
 
     await expect(
       store.promoteSettledExecutions({
-        settlements: [{ executionId: "execution-1", outcome: "succeeded" }],
+        executionIds: ["execution-1"],
         now,
       }),
     ).resolves.toBe(0);
@@ -1238,7 +1243,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
 
     await expect(
       store.promoteSettledExecutions({
-        settlements: [{ executionId: "execution-1", outcome: "failed" }],
+        executionIds: ["execution-1"],
         now,
       }),
     ).resolves.toBe(1);
@@ -1288,7 +1293,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     publicationUpdate.mockClear();
     await expect(
       store.promoteSettledExecutions({
-        settlements: [{ executionId: "execution-1", outcome: "failed" }],
+        executionIds: ["execution-1"],
         now,
       }),
     ).rejects.toThrow("progress-update-failed");
@@ -1376,7 +1381,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
 
     await expect(
       store.promoteSettledExecutions({
-        settlements: [{ executionId: "execution-1", outcome: "succeeded" }],
+        executionIds: ["execution-1"],
         now,
       }),
     ).rejects.toThrow(error);
@@ -1444,9 +1449,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     } as never);
 
     const settlement = {
-      settlements: [
-        { executionId: "execution-1", outcome: "succeeded" as const },
-      ],
+      executionIds: ["execution-1"],
       now,
     };
     await expect(store.promoteSettledExecutions(settlement)).resolves.toBe(0);
@@ -1471,11 +1474,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
 
     await expect(
       store.promoteSettledExecutions({
-        settlements: [
-          { executionId: "execution-1", outcome: "succeeded" },
-          { executionId: "execution-1", outcome: "failed" },
-          { executionId: "execution-2", outcome: "superseded" },
-        ],
+        executionIds: ["execution-1", "execution-1", "execution-2"],
         now,
       }),
     ).resolves.toBe(2);
@@ -1504,10 +1503,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
 
     await expect(
       store.promoteSettledExecutions({
-        settlements: [
-          { executionId: "execution-1", outcome: "failed" },
-          { executionId: "execution-2", outcome: "succeeded" },
-        ],
+        executionIds: ["execution-1", "execution-2"],
         now,
       }),
     ).rejects.toBe(firstFailure);
@@ -1527,10 +1523,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
 
     await expect(
       store.promoteSettledExecutions({
-        settlements: [
-          { executionId: "execution-1", outcome: "failed" },
-          { executionId: "execution-2", outcome: "superseded" },
-        ],
+        executionIds: ["execution-1", "execution-2"],
         now,
       }),
     ).rejects.toMatchObject({
@@ -1538,6 +1531,271 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
       errors: [firstFailure, secondFailure],
     });
     expect(transaction).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("PrismaReviewProgressPublicationStore recovery", () => {
+  const conflict = () =>
+    Object.assign(new Error("serialization_conflict"), { code: "P2034" });
+
+  it.each([
+    {
+      step: "claim",
+      run: (store: PrismaReviewProgressPublicationStore) =>
+        store.claimNext({
+          ownerIdHash: "d".repeat(64),
+          now,
+          claimDurationMs: 25_000,
+        }),
+    },
+    {
+      step: "reservation",
+      run: (store: PrismaReviewProgressPublicationStore) =>
+        store.reserveInstallationMutation({
+          publication: claimed(),
+          now,
+          minimumIntervalMs: 1_000,
+        }),
+    },
+    {
+      step: "retry",
+      run: (store: PrismaReviewProgressPublicationStore) =>
+        store.retry({
+          publication: claimed(),
+          safeCode: "review_progress_publish_failed",
+          retryAt: now,
+          now,
+          maxFailures: 3,
+        }),
+    },
+  ])(
+    "reruns the whole $step transaction after a serialization conflict",
+    async ({ run }) => {
+      const transaction = vi
+        .fn()
+        .mockRejectedValueOnce(conflict())
+        .mockResolvedValueOnce(null);
+      const store = new PrismaReviewProgressPublicationStore({
+        $transaction: transaction,
+      } as never);
+
+      await expect(run(store)).resolves.toBeNull();
+      expect(transaction).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("stops after bounded serialization retries and never retries other errors", async () => {
+    const persistent = conflict();
+    const conflicted = vi.fn(async () => {
+      throw persistent;
+    });
+    await expect(
+      new PrismaReviewProgressPublicationStore({
+        $transaction: conflicted,
+      } as never).claimNext({
+        ownerIdHash: "d".repeat(64),
+        now,
+        claimDurationMs: 25_000,
+      }),
+    ).rejects.toBe(persistent);
+    expect(conflicted).toHaveBeenCalledTimes(3);
+
+    const unique = Object.assign(new Error("unique"), { code: "P2002" });
+    const failed = vi.fn(async () => {
+      throw unique;
+    });
+    await expect(
+      new PrismaReviewProgressPublicationStore({
+        $transaction: failed,
+      } as never).claimNext({
+        ownerIdHash: "d".repeat(64),
+        now,
+        claimDurationMs: 25_000,
+      }),
+    ).rejects.toBe(unique);
+    expect(failed).toHaveBeenCalledOnce();
+  });
+
+  it("promotes a settlement whose first promotion hit a serialization conflict", async () => {
+    const transaction = vi
+      .fn()
+      .mockRejectedValueOnce(conflict())
+      .mockResolvedValueOnce(true);
+    const store = new PrismaReviewProgressPublicationStore({
+      $transaction: transaction,
+    } as never);
+
+    await expect(
+      store.promoteSettledExecutions({ executionIds: ["execution-1"], now }),
+    ).resolves.toBe(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
+    expect(transaction).toHaveBeenLastCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ isolationLevel: "Serializable" }),
+    );
+  });
+
+  it("clears earlier failures when only duplicate cleanup remains", async () => {
+    const recorded: Record<string, unknown>[] = [];
+    const store = new PrismaReviewProgressPublicationStore({
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          reviewProgressPublicationV1: {
+            updateMany: async (input: { data: Record<string, unknown> }) => {
+              recorded.push(input.data);
+              return { count: 1 };
+            },
+          },
+        }),
+    } as never);
+
+    await expect(
+      store.retry({
+        // One more counted failure would suppress this version.
+        publication: { ...claimed(), failureCount: 2 },
+        safeCode: "review_progress_duplicate_cleanup_pending",
+        retryAt: new Date(now.getTime() + 1_000),
+        now,
+        maxFailures: 3,
+        resetFailureCount: true,
+      }),
+    ).resolves.toBe("retried");
+    expect(recorded[0]).toMatchObject({
+      failureCount: 0,
+      lastErrorCode: "review_progress_duplicate_cleanup_pending",
+    });
+    expect(recorded[0]).not.toHaveProperty("publishedVersion");
+  });
+
+  it("gives a repaired scope a fresh failure budget and keeps GitHub's retry deadline", async () => {
+    const repair = vi.fn<(query: unknown) => Promise<number>>(async () => 1);
+    const store = new PrismaReviewProgressPublicationStore({
+      $executeRaw: repair,
+    } as never);
+    const retryAt = new Date(now.getTime() + 7_200_000);
+
+    await store.requeueAfterClaimLoss({ scope: claimed().scope, now });
+    await store.requeueAfterClaimLoss({ scope: claimed().scope, now, retryAt });
+
+    const [immediate, deferred] = repair.mock.calls.map(
+      ([query]) => query as { strings: readonly string[]; values: unknown[] },
+    );
+    for (const sql of [immediate!, deferred!]) {
+      expect(sql.strings.join(" ")).toContain('"failureCount" = 0');
+    }
+    expect(immediate!.values.slice(1, 3)).toEqual([now, now]);
+    expect(deferred!.values.slice(1, 3)).toEqual([retryAt, now]);
+  });
+
+  it("starts a new installation budget on the database clock", async () => {
+    const statements: string[] = [];
+    const store = new PrismaReviewProgressPublicationStore({
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          $executeRaw: async (query: {
+            strings: readonly string[];
+            values: readonly unknown[];
+          }) => {
+            statements.push(query.strings.join("?"));
+            expect(query.values).toEqual([17n]);
+            return 1;
+          },
+          $queryRaw: async (query: { strings: readonly string[] }) =>
+            query.strings.join(" ").includes("clock_timestamp()")
+              ? [{ lockedAt: now }]
+              : [],
+          reviewProgressInstallationBudgetV1: {
+            findUniqueOrThrow: async () => ({
+              nextMutationAt: now,
+              cooldownUntil: null,
+            }),
+            update: async () => ({}),
+          },
+          reviewProgressPublicationV1: { count: async () => 1 },
+        }),
+    } as never);
+
+    await expect(
+      store.reserveInstallationMutation({
+        // A worker clock ahead of the database must not read as a cooldown.
+        publication: claimed(),
+        now: new Date(now.getTime() + 30_000),
+        minimumIntervalMs: 1_000,
+      }),
+    ).resolves.toEqual({ allowed: true });
+    expect(statements[0]).toMatch(
+      /VALUES \(\s*\?,\s*clock_timestamp\(\) AT TIME ZONE 'UTC',\s*clock_timestamp\(\) AT TIME ZONE 'UTC'\s*\)/u,
+    );
+  });
+
+  it("pages scopes in key order and keeps only posted comments still assembling", async () => {
+    const scope = (pullRequestNumber: number) => ({
+      workspaceId: "workspace-1",
+      repositoryConnectionId: "repository-1",
+      scmRepositoryIdentityId: "identity-1",
+      pullRequestNumber,
+      activeExecutionId: `execution-${pullRequestNumber}`,
+      commentId: BigInt(pullRequestNumber) as bigint | null,
+    });
+    const findScopes = vi
+      .fn()
+      .mockResolvedValueOnce([
+        scope(1),
+        scope(2),
+        { ...scope(4), commentId: null },
+      ])
+      .mockResolvedValueOnce([scope(3)])
+      .mockResolvedValueOnce([]);
+    const findProgress = vi
+      .fn()
+      .mockResolvedValueOnce([{ executionId: "execution-2" }])
+      .mockResolvedValueOnce([]);
+    const store = new PrismaReviewProgressPublicationStore({
+      reviewProgressPublicationV1: { findMany: findScopes },
+      reviewExecutionProgressV1: { findMany: findProgress },
+    } as never);
+
+    const first = await store.scanPromotionCandidates({
+      after: null,
+      limit: 3,
+    });
+    expect(first).toEqual({
+      executionIds: ["execution-2"],
+      nextCursor: {
+        workspaceId: "workspace-1",
+        repositoryConnectionId: "repository-1",
+        scmRepositoryIdentityId: "identity-1",
+        pullRequestNumber: 4,
+      },
+    });
+    expect(findScopes.mock.calls[0]?.[0]).not.toHaveProperty("cursor");
+    expect(findProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          executionId: { in: ["execution-1", "execution-2"] },
+          phase: "assembling",
+          terminalOutcome: null,
+        },
+      }),
+    );
+
+    // A short page ends the pass, so the next sweep starts from the first key.
+    await expect(
+      store.scanPromotionCandidates({ after: first.nextCursor, limit: 3 }),
+    ).resolves.toEqual({ executionIds: [], nextCursor: null });
+    expect(findScopes.mock.calls[1]?.[0]).toMatchObject({
+      cursor: {
+        workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
+          first.nextCursor,
+      },
+      skip: 1,
+      take: 3,
+    });
+
+    await expect(
+      store.scanPromotionCandidates({ after: null, limit: 3 }),
+    ).resolves.toEqual({ executionIds: [], nextCursor: null });
+    expect(findProgress).toHaveBeenCalledTimes(2);
   });
 });
 

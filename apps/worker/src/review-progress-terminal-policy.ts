@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { completeOutcomeCountsValid } from "@reviewrouter/features-review-progress";
 
 export type TerminalOutcome =
   | "complete"
@@ -61,9 +62,12 @@ function assertTerminalCounts(
     throw new Error("review_progress_snapshot_invalid");
   if (
     terminal === "complete" &&
-    (requiredCompleted !== requiredTotal ||
-      requiredExhausted !== 0 ||
-      requiredCancelled !== 0)
+    !completeOutcomeCountsValid({
+      requiredCompleted,
+      requiredTotal,
+      requiredExhausted,
+      requiredCancelled,
+    })
   )
     throw new Error("review_progress_complete_outcome_inconsistent");
   if (

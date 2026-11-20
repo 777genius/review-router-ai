@@ -12,6 +12,7 @@ import {
   latencyLabel,
   metricLabel,
   observedPair,
+  partialDayLabel,
   tokenCoverage,
   unreportedUsageNote,
   usagePricing,
@@ -53,7 +54,7 @@ describe("usage presentation invariants", () => {
         "tokens",
         undefined,
       ),
-    ).toBe("130 (known part)");
+    ).toBe("at least 130");
     expect(
       metricLabel(
         { ...totals, tokens: { ...totals.tokens, total: null } },
@@ -104,6 +105,18 @@ describe("usage presentation invariants", () => {
       { day: "2026-03-29", partial: false },
     ]);
   });
+  it("names partial days in plain words from the period alone", () => {
+    const period = {
+      from: "2026-11-12T09:30:00.000Z",
+      to: "2026-11-19T21:58:00.000Z",
+    };
+    const days = utcDays(period.from, period.to);
+    expect(partialDayLabel(days[0]!, period)).toBe("from 09:30 UTC");
+    expect(partialDayLabel(days[1]!, period)).toBeNull();
+    expect(partialDayLabel(days.at(-1)!, period)).toBe(
+      "so far, until 21:58 UTC",
+    );
+  });
   it("renders a stable UTC date range with ASCII spaces across server and browser ICU versions", () => {
     expect(
       intervalLabel("2026-09-22T12:00:00.000Z", "2026-10-22T12:00:00.000Z"),
@@ -119,7 +132,7 @@ describe("usage presentation invariants", () => {
   });
   it("summarizes incomplete token data as an exact call count and keeps the source breakdown", () => {
     expect(tokenCoverage(totals)).toEqual({
-      label: "Reported observations",
+      label: "Every recorded call reported its tokens",
       detail: undefined,
       incomplete: false,
     });
@@ -130,10 +143,12 @@ describe("usage presentation invariants", () => {
         unknownTotalTokenCount: 1124,
       }),
     ).toEqual({
-      label: "1,126 calls with incomplete token data",
+      label: "1,126 calls may not have reported all their tokens",
       detail:
-        "79 calls without token counts · 1,047 calls marked partial by the source · 1,124 calls without total tokens",
+        "79 calls reported no tokens · 1,047 calls may have reported only part of their tokens · 1,124 calls did not report a token total",
       incomplete: true,
+      totalHint:
+        "At least this many. Some calls did not report a token total, so the real total may be higher",
     });
     expect(
       tokenCoverage({
@@ -141,7 +156,7 @@ describe("usage presentation invariants", () => {
         partialCount: 1,
         unknownTotalTokenCount: 1,
       }).label,
-    ).toBe("1 call with incomplete token data");
+    ).toBe("1 call may not have reported all its tokens");
     // A complete source flag with no total still never reads as complete.
     expect(
       tokenCoverage({
@@ -149,7 +164,7 @@ describe("usage presentation invariants", () => {
         partialCount: 0,
         unknownTotalTokenCount: 2,
       }).label,
-    ).toBe("2 calls without total tokens");
+    ).toBe("2 calls did not report a token total");
   });
   it("labels omitted source fields as not reported without inventing values", () => {
     expect(observedPair(null, null)).toBe("Not reported");
@@ -225,14 +240,16 @@ describe("usage presentation invariants", () => {
     expect(note([subscription])).toBeNull();
     expect(
       note([subscription, { ...subscription, route: "direct" as const }]),
-    ).toBe("△ 8 calls without reported cost");
+    ).toBe("△ 8 calls did not report their cost");
     expect(note([subscription], { unknownCount: 1 })).toBe(
-      "△ 1 call with incomplete token data",
+      "△ 1 call may not have reported all its tokens",
     );
     expect(
       note([{ ...subscription, provider: "openrouter" }], {
         unknownTotalTokenCount: 2,
       }),
-    ).toBe("△ 2 calls without total tokens · 8 calls without reported cost");
+    ).toBe(
+      "△ 2 calls did not report a token total · 8 calls did not report their cost",
+    );
   });
 });

@@ -216,7 +216,7 @@ function conflictReviewLanguageDirective(
   }
   return [
     "",
-    `Write "summaryMarkdown" and every finding "message" in ${language}. Keep the JSON structure, field names, severity values, file paths, and code identifiers unchanged; never translate code or JSON keys.`,
+    `Write "summaryMarkdown" and every finding "title" and "body" in ${language}. Keep the JSON structure, field names, severity values, file paths, and code identifiers unchanged; never translate code or JSON keys.`,
   ];
 }
 

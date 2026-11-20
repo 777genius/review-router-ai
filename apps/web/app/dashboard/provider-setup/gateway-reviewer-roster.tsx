@@ -26,6 +26,10 @@ import {
 } from "../../../src/features/provider-setup/provider-setup-model";
 import { useGatewayModelAccounts } from "../gateway-model-account-options";
 import { GatewayModelCatalogStatus } from "../gateway-model-catalog-status";
+import {
+  GatewayAccountListStatus,
+  GatewayBindingStatus,
+} from "./gateway-account-status";
 import { getGatewaySetupAccounts } from "../../../src/server/dashboard-provider-setup-readiness";
 import { dashboardErrorText } from "../dashboard-copy";
 import { isFreeModel } from "../provider-usage-format";
@@ -504,10 +508,13 @@ export function GatewayReviewerRoster({
                     <p className="break-words text-xs leading-5 text-slate-400">
                       {account?.label ?? existing?.label ?? "Choose an account"}
                     </p>
-                    {row.bindingId && !account && !options.loading ? (
+                    {row.bindingId &&
+                    !account &&
+                    !options.loading &&
+                    !options.listFailed ? (
                       <p className="text-xs leading-5 text-amber-100">
-                        This account is unavailable. Edit this reviewer or
-                        refresh accounts.
+                        This account is unavailable. Edit this reviewer to
+                        choose another account.
                       </p>
                     ) : profile &&
                       row.model &&
@@ -517,7 +524,7 @@ export function GatewayReviewerRoster({
                           ? "This model is unavailable for this account. Edit this reviewer to choose another model."
                           : account?.modelCatalog?.status === "unknown" ||
                               account?.modelCatalog?.status === "unavailable"
-                            ? "Model availability could not be checked. Edit this reviewer to refresh account models. Your saved selection is unchanged."
+                            ? "Model availability could not be checked. Edit this reviewer to try again. Your saved selection is unchanged."
                             : "This model is not in the configured choices for this account. Edit this reviewer to check its connection."}
                       </p>
                     ) : profile &&
@@ -681,6 +688,14 @@ export function GatewayReviewerRoster({
                       modelOptions={rowModelOptions(row, account, profile)}
                       modelChoice="catalog"
                       allowCustomModel={false}
+                      modelStatus={
+                        <GatewayModelCatalogStatus
+                          account={account}
+                          profile={profile}
+                          accounts={options}
+                          bindingId={row.bindingId}
+                        />
+                      }
                       settings={settingsFor(row)}
                       onSettingsChange={(settings) =>
                         update(row.id, {
@@ -704,24 +719,17 @@ export function GatewayReviewerRoster({
                       hasSavedSettings={row.savedSettings === true}
                       hasEditedSettings
                     />
-                    {account ? (
-                      <GatewayModelCatalogStatus
-                        account={account}
-                        loading={options.loading}
-                        canRefresh={options.canRefresh}
-                        onRefresh={() => options.refreshModels(row.bindingId)}
-                      />
-                    ) : null}
                     {denied ? (
                       <p className="text-xs text-amber-100">
                         {providerSetupDenialText(denied)}
                       </p>
                     ) : null}
                     {row.bindingId && !account ? (
-                      <p role="status" className="text-xs text-amber-100">
-                        This account is unavailable. Refresh accounts or choose
-                        another account.
-                      </p>
+                      <GatewayBindingStatus
+                        accounts={options}
+                        bindingId={row.bindingId}
+                        busy={blocked}
+                      />
                     ) : null}
                   </div>
                 ) : null}
@@ -736,17 +744,7 @@ export function GatewayReviewerRoster({
           loading={options.loading}
           onLoadMore={options.loadMore}
         />
-        {options.canRefresh ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={blocked || options.loading}
-            onClick={options.refresh}
-          >
-            Refresh accounts
-          </Button>
-        ) : null}
+        <GatewayAccountListStatus accounts={options} busy={blocked} />
       </div>
       {fallback || !several ? null : (
         <div className="grid gap-4 sm:grid-cols-2">

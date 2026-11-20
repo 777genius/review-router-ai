@@ -89,6 +89,8 @@ export type ProgressSnapshot = {
   readonly phase: ProgressPhase;
   readonly terminal: ProgressTerminal;
   readonly updatedAt: string;
+  /** When the review started; absent on snapshots captured before it existed. */
+  readonly startedAt?: string | undefined;
   readonly counts: ProgressCounts;
   readonly fileCoverage: FileCoverage;
   /** Non-secret GitHub Actions identity used to causally bind hosted progress. */
@@ -100,6 +102,7 @@ export type ComputeProgressSnapshotInput = {
   readonly phase: ProgressPhase;
   readonly terminal: ProgressTerminal;
   readonly updatedAt: Date | string;
+  readonly startedAt?: Date | string | undefined;
   readonly slots: readonly ReviewSlotProgressInput[];
   readonly assignmentManifest?: ReviewAssignmentManifest | undefined;
   readonly sourceIdentity?: ProgressSourceIdentity | undefined;
@@ -154,6 +157,14 @@ export function computeProgressSnapshot(
     phase: input.phase,
     terminal: input.terminal,
     updatedAt,
+    ...(input.startedAt === undefined
+      ? {}
+      : {
+          startedAt: normalizeInstant(
+            input.startedAt,
+            "progress_started_at_invalid",
+          ),
+        }),
     counts,
     fileCoverage: computeFileCoverage(input.assignmentManifest, slots),
     ...(input.sourceIdentity === undefined
@@ -254,6 +265,32 @@ function assertLifecycle(
   }
 }
 
+/**
+ * Required counts a "complete" outcome may show. The execution's coverage
+ * verdict owns completeness: an ordered fallback completes once one reviewer
+ * covers the review, leaving later reviewers' parts cancelled or a failed
+ * earlier reviewer's parts exhausted. Complete therefore needs every required
+ * part settled and at least one finished, not every required part finished.
+ */
+export function completeOutcomeCountsValid(
+  counts: Pick<
+    ProgressCounts,
+    | "requiredTotal"
+    | "requiredCompleted"
+    | "requiredExhausted"
+    | "requiredCancelled"
+  >,
+): boolean {
+  const settled =
+    counts.requiredCompleted +
+    counts.requiredExhausted +
+    counts.requiredCancelled;
+  return (
+    settled === counts.requiredTotal &&
+    (counts.requiredTotal === 0 || counts.requiredCompleted > 0)
+  );
+}
+
 function assertOutcomeCounts(
   input: ComputeProgressSnapshotInput,
   counts: ProgressCounts,
@@ -266,12 +303,7 @@ function assertOutcomeCounts(
   ) {
     throw new Error("progress_partial_outcome_inconsistent");
   }
-  if (
-    input.terminal === "complete" &&
-    (counts.requiredCompleted !== counts.requiredTotal ||
-      counts.requiredExhausted > 0 ||
-      counts.requiredCancelled > 0)
-  ) {
+  if (input.terminal === "complete" && !completeOutcomeCountsValid(counts)) {
     throw new Error("progress_complete_outcome_inconsistent");
   }
   if (
@@ -373,10 +405,12 @@ function phaseRank(phase: ProgressPhase): number {
   }[phase];
 }
 
-function normalizeInstant(value: Date | string): string {
+function normalizeInstant(
+  value: Date | string,
+  code = "progress_updated_at_invalid",
+): string {
   const date = value instanceof Date ? value : new Date(value);
-  if (!Number.isFinite(date.getTime()))
-    throw new Error("progress_updated_at_invalid");
+  if (!Number.isFinite(date.getTime())) throw new Error(code);
   return date.toISOString();
 }
 

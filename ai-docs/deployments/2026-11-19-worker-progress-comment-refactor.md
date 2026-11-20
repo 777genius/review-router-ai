@@ -15,10 +15,10 @@
 
 ## Environment status
 
-| Target     | Status      | Actual image                         | Evidence                                                                                                                                          |
-| ---------- | ----------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Staging    | `pending`   | Not verified                         | Ordinary worker rollout and the checks below                                                                                                      |
-| Production | `installed` | `7c176ef7`, image `sha256:a2c03f03…` | [rollout 7c176ef7](2026-11-19-rollout-7c176ef7.md) 2026-11-19 15:56 UTC. Dormant: hosted progress comment writes are off; see the rollout record. |
+| Target     | Status     | Actual image                         | Evidence                                                                                                                                                                                                                     |
+| ---------- | ---------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Staging    | `pending`  | Not verified                         | Ordinary worker rollout and the checks below                                                                                                                                                                                 |
+| Production | `deployed` | `9ee93eb1`, image `sha256:a032a165…` | Active since the [bundled rollout](2026-11-19-progress-comments-enabled.md) turned hosted progress comment writes on (2026-11-20 00:08 UTC); canary PR 142 and social-monitor #782 reached their final state in one comment. |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -66,6 +66,7 @@ any rollback as `rolled_back` with the previous image.
 
 ## Execution log
 
-| Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result | Evidence | Next action                            |
-| ------------ | -------------------- | ---------- | ---------------------- | ------------------------ | -------- | -------------------------------------- |
-| Not executed | staging / production | Unassigned | Not verified           | Merged, not deployed     | PR #821  | Roll out with the next worker release. |
+| Time (UTC)                | Environment          | Operator    | Actual version / image               | Step and observed result                                                                   | Evidence                                                   | Next action                            |
+| ------------------------- | -------------------- | ----------- | ------------------------------------ | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------- | -------------------------------------- |
+| 2026-11-20 00:07 to 01:15 | production           | operator E2 | `9ee93eb1`, image `sha256:a032a165…` | Writes turned on with the swap at 00:08; canary and real reviews reached their final state | [bundled rollout](2026-11-19-progress-comments-enabled.md) | Staging pending.                       |
+| Not executed              | staging / production | Unassigned  | Not verified                         | Merged, not deployed                                                                       | PR #821                                                    | Roll out with the next worker release. |

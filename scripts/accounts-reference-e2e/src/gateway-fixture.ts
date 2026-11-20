@@ -180,7 +180,8 @@ export async function startGatewayFixture(input: {
                 }
               : { kind: "api_key", create: true, reconnect: true },
           ],
-          limitsContract: "account-limits/v2",
+          limitsContract:
+            profile.provider === "nvidia" ? "none" : "account-limits/v2",
         }))
       : []),
     {
@@ -324,6 +325,8 @@ export async function startGatewayFixture(input: {
       return;
     }
     if (subscriptions && requestUrl.pathname === "/__subscription-fixture") {
+      if (request.method === "POST")
+        subscriptions.configure(await readJson(request));
       send(response, 200, subscriptions.stats());
       return;
     }

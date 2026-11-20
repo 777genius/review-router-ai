@@ -30,6 +30,13 @@ import {
 } from "../../application/ports/review-publication-provider-ports";
 import { canonicalReviewPublicationJson } from "../../domain/canonical-review-publication-json";
 import { extractUniqueReviewFindingFingerprint } from "../../domain/review-finding-marker";
+import {
+  containsReviewSummaryMarker,
+  isReviewSummaryMarker,
+} from "../../domain/review-summary-marker";
+
+/** 100 pages of 100 comments; the same bound the review comment reader uses. */
+const maxIssueCommentPages = 100;
 
 export type ReviewV2GitHubRepository = {
   readonly githubInstallationId: string;
@@ -246,7 +253,7 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
         case ReviewV2PublicationPayloadKind.PrDescription:
           return await this.updatePrDescription(payload, input.operation);
         case ReviewV2PublicationPayloadKind.Summary:
-          return await this.createIssueComment(payload, input.operation);
+          return await this.publishSummaryComment(payload, input.operation);
         case ReviewV2PublicationPayloadKind.ManagedCheck:
           return await this.createCheckRun(payload, input.operation);
         case ReviewV2PublicationPayloadKind.PendingReviewCreate:
@@ -290,16 +297,23 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
           ? ReviewPublicationReceiptStatus.StaleVisible
           : ReviewPublicationReceiptStatus.Succeeded;
       case ReviewV2PublicationPayloadKind.Summary:
-        await Promise.all(
-          staleObjectIds.map((id) =>
-            this.request(
-              "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",
-              {
-                comment_id: externalNumericId(id, "issue-comment"),
-              },
+        await Promise.all([
+          ...(input.compensateCanonical
+            ? [
+                this.deleteSummaryCommentIf(
+                  input.canonicalExternalObjectId,
+                  (body) => sha256(body) === payload.bodyHash,
+                ),
+              ]
+            : []),
+          ...input.duplicateExternalObjectIds
+            .filter((id) => id !== input.canonicalExternalObjectId)
+            .map((id) =>
+              this.deleteSummaryCommentIf(id, (body) =>
+                body.includes(payload.marker),
+              ),
             ),
-          ),
-        );
+        ]);
         return input.compensateCanonical
           ? ReviewPublicationReceiptStatus.Compensated
           : ReviewPublicationReceiptStatus.Succeeded;
@@ -500,6 +514,17 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
     cursor: string | null,
   ) {
     const page = parsePage(cursor);
+    const rows = await this.listIssueCommentsPage(page);
+    const objects = rows.flatMap((row) => {
+      if (!isOwnedBody(row, payload.marker, this.options.botLogin)) return [];
+      const id = numericId(row);
+      const body = requiredString(row.body, "github_comment_body_invalid");
+      return [gatewayObject(`issue-comment:${id}`, payload, sha256(body))];
+    });
+    return pageResult(objects, page, rows.length);
+  }
+
+  private async listIssueCommentsPage(page: number) {
     const response = await this.request(
       "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
       {
@@ -508,14 +533,7 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
         page,
       },
     );
-    const rows = requireArray(response.data, "github_issue_comments_invalid");
-    const objects = rows.flatMap((row) => {
-      if (!isOwnedBody(row, payload.marker, this.options.botLogin)) return [];
-      const id = numericId(row);
-      const body = requiredString(row.body, "github_comment_body_invalid");
-      return [gatewayObject(`issue-comment:${id}`, payload, sha256(body))];
-    });
-    return pageResult(objects, page, rows.length);
+    return requireArray(response.data, "github_issue_comments_invalid");
   }
 
   private async findCheckRuns(
@@ -807,13 +825,37 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
     return parent.databaseId as number;
   }
 
-  private async createIssueComment(
+  /**
+   * A pull request keeps one summary comment. A new revision rewrites the
+   * newest summary this App already posted instead of adding another one.
+   * Older summaries from before this rule stay untouched.
+   */
+  private async publishSummaryComment(
     payload: Extract<
       ReviewV2PublicationPayload,
       { readonly kind: ReviewV2PublicationPayloadKind.Summary }
     >,
     operation: ReviewPublicationOperation,
   ) {
+    const stickyCommentId = isReviewSummaryMarker(payload.marker)
+      ? await this.findStickySummaryCommentId()
+      : null;
+    if (stickyCommentId !== null) {
+      try {
+        const response = await this.request(
+          "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+          { comment_id: stickyCommentId, body: payload.body },
+        );
+        return gatewayObject(
+          `issue-comment:${numericId(requireRecord(response.data, "github_comment_invalid"))}`,
+          payload,
+          operation.bodyHash,
+        );
+      } catch (error) {
+        // Deleted between lookup and update: nothing was written, post anew.
+        if (!isGitHubNotFound(error)) throw error;
+      }
+    }
     const response = await this.request(
       "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
       {
@@ -826,6 +868,65 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
       payload,
       operation.bodyHash,
     );
+  }
+
+  private async findStickySummaryCommentId(): Promise<number | null> {
+    let newest: number | null = null;
+    for (let page = 1; page <= maxIssueCommentPages; page += 1) {
+      let rows: readonly Readonly<Record<string, unknown>>[];
+      try {
+        rows = await this.listIssueCommentsPage(page);
+      } catch (error) {
+        // Nothing has been written yet, so every lookup failure has no effect.
+        throw summaryLookupError(error);
+      }
+      for (const row of rows) {
+        if (!isOwnedSummaryComment(row, this.options.botLogin)) continue;
+        const id = numericId(row);
+        if (newest === null || id > newest) newest = id;
+      }
+      if (rows.length < 100) return newest;
+    }
+    throw new ReviewV2ScmMutationError(
+      "github_summary_comment_lookup_page_limit_exceeded",
+      ReviewV2ScmMutationFailureOutcome.DefinitelyNoEffect,
+      false,
+    );
+  }
+
+  /**
+   * The summary comment is shared by successive revisions. Cleanup re-reads it
+   * and deletes only while it still shows what this run is allowed to remove.
+   */
+  private async deleteSummaryCommentIf(
+    externalObjectId: string,
+    stillOwnedBody: (body: string) => boolean,
+  ) {
+    const commentId = externalNumericId(externalObjectId, "issue-comment");
+    try {
+      const current = requireRecord(
+        (
+          await this.request(
+            "GET /repos/{owner}/{repo}/issues/comments/{comment_id}",
+            { comment_id: commentId },
+          )
+        ).data,
+        "github_comment_invalid",
+      );
+      if (
+        !isBotAuthored(current, this.options.botLogin) ||
+        typeof current.body !== "string" ||
+        !stillOwnedBody(current.body)
+      ) {
+        return;
+      }
+      await this.request(
+        "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",
+        { comment_id: commentId },
+      );
+    } catch (error) {
+      if (!isGitHubNotFound(error)) throw error;
+    }
   }
 
   private async createCheckRun(
@@ -1243,6 +1344,15 @@ function githubMutationError(error: unknown): ReviewV2ScmMutationError {
   );
 }
 
+function summaryLookupError(error: unknown): ReviewV2ScmMutationError {
+  const classified = githubMutationError(error);
+  return new ReviewV2ScmMutationError(
+    "github_summary_comment_lookup_failed",
+    ReviewV2ScmMutationFailureOutcome.DefinitelyNoEffect,
+    classified.retryable,
+  );
+}
+
 function githubPostMutationObservationError(
   error: unknown,
 ): ReviewV2ScmMutationError {
@@ -1279,12 +1389,31 @@ function isOwnedBody(
   marker: string,
   botLogin: string,
 ): boolean {
-  const user = isRecord(row.user) ? row.user : null;
   return (
-    typeof user?.login === "string" &&
-    user.login.toLowerCase() === botLogin &&
+    isBotAuthored(row, botLogin) &&
     typeof row.body === "string" &&
     row.body.includes(marker)
+  );
+}
+
+function isOwnedSummaryComment(
+  row: Readonly<Record<string, unknown>>,
+  botLogin: string,
+): boolean {
+  return (
+    isBotAuthored(row, botLogin) &&
+    typeof row.body === "string" &&
+    containsReviewSummaryMarker(row.body)
+  );
+}
+
+function isBotAuthored(
+  row: Readonly<Record<string, unknown>>,
+  botLogin: string,
+): boolean {
+  const user = isRecord(row.user) ? row.user : null;
+  return (
+    typeof user?.login === "string" && user.login.toLowerCase() === botLogin
   );
 }
 
