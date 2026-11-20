@@ -32,8 +32,8 @@ import {
 } from "./gateway-account-status";
 import { getGatewaySetupAccounts } from "../../../src/server/dashboard-provider-setup-readiness";
 import { dashboardErrorText } from "../dashboard-copy";
-import { isFreeModel } from "../provider-usage-format";
 import { GatewayAccountLoadMore } from "./gateway-account-load-more";
+import { GatewayReviewerRowStatus } from "./gateway-reviewer-row-status";
 import {
   defaultProviderSelectionSettings,
   ProviderModelFields,
@@ -508,46 +508,14 @@ export function GatewayReviewerRoster({
                     <p className="break-words text-xs leading-5 text-slate-400">
                       {account?.label ?? existing?.label ?? "Choose an account"}
                     </p>
-                    {row.bindingId &&
-                    !account &&
-                    !options.loading &&
-                    !options.listFailed ? (
-                      <p className="text-xs leading-5 text-amber-100">
-                        This account is unavailable. Edit this reviewer to
-                        choose another account.
-                      </p>
-                    ) : profile &&
-                      row.model &&
-                      !profile.models.includes(row.model) ? (
-                      <p className="text-xs leading-5 text-amber-100">
-                        {account?.modelCatalog?.status === "snapshot"
-                          ? "This model is unavailable for this account. Edit this reviewer to choose another model."
-                          : account?.modelCatalog?.status === "unknown" ||
-                              account?.modelCatalog?.status === "unavailable"
-                            ? "Model availability could not be checked. Edit this reviewer to try again. Your saved selection is unchanged."
-                            : "This model is not in the configured choices for this account. Edit this reviewer to check its connection."}
-                      </p>
-                    ) : profile &&
-                      providerSelectionSettingsNeedCorrection({
-                        authMode: "codex_account_gateway",
-                        model: row.model,
-                        settings: settingsFor(row),
-                        connection: profile.connection,
-                        gatewayProfileRef: profile.id,
-                      }) ? (
-                      <p className="text-xs leading-5 text-amber-100">
-                        Review settings need updating for this model.
-                      </p>
-                    ) : null}
-                    {isFreeModel({
-                      provider: profile?.connection?.provider ?? "",
-                      requestedModel: row.model,
-                    }) ? (
-                      <p className="text-xs leading-5 text-slate-400">
-                        Free OpenRouter models have a daily request limit. When
-                        it runs out, this reviewer stops until the limit resets.
-                      </p>
-                    ) : null}
+                    <GatewayReviewerRowStatus
+                      bindingId={row.bindingId}
+                      model={row.model}
+                      account={account}
+                      profile={profile}
+                      accounts={options}
+                      settings={settingsFor(row)}
+                    />
                   </div>
                   <div className="flex items-center gap-2">
                     {several ? (
