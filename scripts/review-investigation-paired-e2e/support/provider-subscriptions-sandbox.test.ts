@@ -168,6 +168,13 @@ describe("joined read-only sandbox proof", () => {
       executesProbe: true,
       reason: "child_nonzero_exit",
     },
+    {
+      name: "actual child with a blackholed process.stdout",
+      body: 'while [ "$1" != "--" ]; do shift; done\nshift\nprobe_node="$1"\nshift\n"$probe_node" --import "$0.stdout.mjs" "$@" > "$0.receipt"\nstatus=$?\ncat "$0.receipt"\nexit "$status"',
+      executesProbe: true,
+      blackholeStdout: true,
+      reason: "child_nonzero_exit",
+    },
   ]) {
     it(`fails closed for ${fixture.name} and cleans its disposable controls`, async () => {
       const root = await mkdtemp(
@@ -179,6 +186,13 @@ describe("joined read-only sandbox proof", () => {
         await mkdir(workspace);
         await writeFile(binary, "#!/bin/sh\n" + fixture.body + "\n");
         await chmod(binary, 0o700);
+        if ("blackholeStdout" in fixture)
+          await writeFile(
+            binary + ".stdout.mjs",
+            'import { Writable } from "node:stream";\n' +
+              'Object.defineProperty(process, "stdout", { value: new Writable({ write(_chunk, _encoding, callback) { callback(); } }) });\n' +
+              'process.stdout.write("discarded-stream-control");\n',
+          );
         const error = await qualifyReadonlySandbox({
           binary,
           workspace,
@@ -211,6 +225,7 @@ describe("joined read-only sandbox proof", () => {
           });
           await rm(binary + ".receipt");
         }
+        if ("blackholeStdout" in fixture) await rm(binary + ".stdout.mjs");
         expect(await readdir(workspace)).toEqual([]);
         expect((await readdir(root)).sort()).toEqual([
           "negative-cli",

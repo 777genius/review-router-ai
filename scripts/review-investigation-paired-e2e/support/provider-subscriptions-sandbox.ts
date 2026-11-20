@@ -118,7 +118,8 @@ const result = {
   }),
   noNewPrivileges: /^NoNewPrivs:\\s+1$/m.test(readFileSync("/proc/self/status", "utf8")),
 };
-process.stdout.write(JSON.stringify(result) + "\\n");
+// Codex may deny Node's pipe-type discovery; write the inherited fd directly.
+writeFileSync(1, JSON.stringify(result) + "\\n");
 if (Object.entries(result).some(([key, value]) => key !== "contract" && value !== true)) process.exitCode = 1;
 `;
 
