@@ -181,7 +181,7 @@ export function reconciliationFailure(
       observationError.message,
       {
         ...observationError.metadata,
-        ...(mutationFailure.kind === "rate_limited"
+        ...(isDefinitelyRejectedMutation(mutationFailure)
           ? {}
           : { mutationMayHaveLanded: true as const }),
         ...(retryAt ? { retryAt } : {}),
@@ -246,7 +246,9 @@ export function reconciliationFailure(
     "github_progress_comment_mutation_ambiguous",
     {
       retryable: true,
-      mutationMayHaveLanded: true,
+      ...(!isDefinitelyRejectedMutation(mutationFailure)
+        ? { mutationMayHaveLanded: true as const }
+        : {}),
       retryAt: retryAt ?? fallbackRetryAt(now, random),
       ...(retryNotBefore ? { retryNotBefore } : {}),
     },
@@ -276,18 +278,25 @@ function number(value: unknown): number | undefined {
     : undefined;
 }
 
+/** Definite 4xx rejections cannot have landed, even if observation fails. */
+function isDefinitelyRejectedMutation(
+  failure: ReviewProgressGitHubError,
+): boolean {
+  const status = failure.metadata.status;
+  return (
+    failure.kind === "rate_limited" ||
+    (failure.kind === "ambiguous_mutation" &&
+      status !== undefined &&
+      status >= 400 &&
+      status < 500)
+  );
+}
+
 /** Preserve a definite HTTP rejection, fence outcomes that may have landed. */
 export function unconfirmedMutation(
   classified: ReviewProgressGitHubError,
 ): ReviewProgressGitHubError {
-  const status = classified.metadata.status;
-  if (
-    classified.kind === "rate_limited" ||
-    (classified.kind === "ambiguous_mutation" &&
-      status !== undefined &&
-      status >= 400 &&
-      status < 500)
-  ) {
+  if (isDefinitelyRejectedMutation(classified)) {
     return classified;
   }
   return new ReviewProgressGitHubError(

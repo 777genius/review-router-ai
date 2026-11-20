@@ -362,6 +362,43 @@ describe("Review progress GitHub retry policy", () => {
     );
   });
 
+  it("does not mark a rejected 422 PATCH as landed when scanning fails", () => {
+    const mutationError = { status: 422 };
+    const observationError = new ReviewProgressGitHubError(
+      "pagination_inconclusive",
+      "github_comment_scan_inconclusive",
+      {
+        retryable: true,
+        retryAt: new Date("2026-08-12T12:10:00.000Z"),
+      },
+    );
+    const result = reconciliationFailure(
+      mutationError,
+      observationError,
+      () => now,
+      () => 0,
+    );
+    expect(result.kind).toBe("pagination_inconclusive");
+    expect(result.metadata.mutationMayHaveLanded).toBeUndefined();
+    expect(result.metadata.retryAt).toEqual(
+      new Date("2026-08-12T12:10:00.000Z"),
+    );
+  });
+
+  it("does not mark a rejected 422 POST as landed when the read fails", () => {
+    const result = reconciliationFailure(
+      { status: 422 },
+      { status: 503, response: { headers: { "retry-after": "60" } } },
+      () => now,
+      () => 0,
+    );
+    expect(result.kind).toBe("ambiguous_mutation");
+    expect(result.metadata.mutationMayHaveLanded).toBeUndefined();
+    expect(result.metadata.retryAt).toEqual(
+      new Date("2026-08-12T12:01:00.250Z"),
+    );
+  });
+
   it("keeps PATCH throttling cooldown separate from a later GET outage", () => {
     const mutationError = {
       status: 429,
