@@ -48,8 +48,9 @@ export function formatGithubProgressComment(
   const { counts } = snapshot;
   // A complete review counts only the parts that covered it. An ordered
   // fallback completes once one reviewer covers the review: the parts of later
-  // reviewers were not needed, and a failed earlier reviewer's parts still
-  // show as "could not be finished".
+  // reviewers were not needed. A part that did not finish there (an optional
+  // part, or a failed reviewer that another one replaced) left no gap, so a
+  // Complete comment does not list it as unfinished.
   const complete =
     snapshot.phase === "terminal" && snapshot.terminal === "complete";
   const partsNotNeeded = complete ? counts.requiredCancelled : 0;
@@ -69,7 +70,10 @@ export function formatGithubProgressComment(
       : []),
     ...nonZeroLine("Parts being retried", counts.retrying),
     ...nonZeroLine("Parts finished after a retry", counts.recovered),
-    ...nonZeroLine("Parts that could not be finished", counts.exhausted),
+    ...nonZeroLine(
+      "Parts that could not be finished",
+      complete ? 0 : counts.exhausted,
+    ),
   ];
   return [
     githubProgressCommentMarker,

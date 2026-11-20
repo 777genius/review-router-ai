@@ -209,12 +209,39 @@ describe("formatGithubProgressComment", () => {
     expect(comment).toContain("**Phase:** Complete");
     expect(comment).toContain("Progress: 2 of 2 parts reviewed (100%)");
     expect(comment).toContain("Parts not needed: 1");
-    expect(comment).toContain("Parts that could not be finished: 1");
+    // The failed first reviewer was replaced, so Complete shows no gap.
+    expect(comment).not.toContain("could not be finished");
 
     // While the review runs, every required part still counts.
     expect(formatGithubProgressComment(snapshot)).toContain(
       "Progress: 2 of 4 parts reviewed (50%)",
     );
+    expect(formatGithubProgressComment(snapshot)).toContain(
+      "Parts that could not be finished: 1",
+    );
+  });
+
+  it("does not call a Complete review with a failed optional part unfinished", () => {
+    // Production shape (social-monitor#782): one required part reviewed every
+    // file, an optional part exhausted its retries.
+    const snapshot = computeProgressSnapshot({
+      generation: 1,
+      phase: "assembling",
+      terminal: "none",
+      updatedAt: "2026-08-12T17:00:00Z",
+      slots: [
+        { slotId: "review", required: true, state: "accepted" },
+        { slotId: "extra", required: false, state: "exhausted" },
+      ],
+    });
+    const complete = formatGithubProgressComment({
+      ...snapshot,
+      phase: "terminal",
+      terminal: "complete",
+    });
+    expect(complete).toContain("**Phase:** Complete");
+    expect(complete).not.toContain("could not be finished");
+    expect(complete).not.toContain("Parts not needed");
   });
 
   it("uses required units as the primary numerator and denominator", () => {
