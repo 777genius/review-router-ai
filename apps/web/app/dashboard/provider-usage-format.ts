@@ -1,4 +1,5 @@
 import type { UsageTotals } from "@reviewrouter/features-provider-usage";
+import { isOpenRouterFreeVariant } from "@reviewrouter/features-review-providers";
 import type { ProviderUsageReport } from "./provider-usage-model";
 export type UsageMetric = "tokens" | "requests" | "cost";
 export type CostBucket = { currency: string; basis: string };
@@ -164,8 +165,7 @@ type RequestedIdentity = {
  * `:free` variants at zero, and ReviewRouter never sends paid fallback models.
  */
 export const isFreeModel = (identity: RequestedIdentity) =>
-  identity.provider === "openrouter" &&
-  (identity.requestedModel?.endsWith(":free") ?? false);
+  isOpenRouterFreeVariant(identity.provider, identity.requestedModel);
 /** Why calls carry no cost: a free model, or a flat subscription/coding plan. */
 export type UsagePricing = "free_model" | "subscription" | undefined;
 /**

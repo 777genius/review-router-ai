@@ -49,6 +49,19 @@ const recommendedFreeOpenRouterModelIds = [
   "openrouter/owl-alpha",
 ] as const;
 
+/**
+ * OpenRouter's free variants, the model IDs ending in `:free`: billed at zero
+ * and capped at a daily request count
+ * (https://openrouter.ai/docs/api-reference/limits). A $0 catalog price is a
+ * different fact: other free models carry no such documented cap.
+ */
+export function isOpenRouterFreeVariant(
+  provider: string | undefined,
+  modelId: string | null | undefined,
+): boolean {
+  return provider === "openrouter" && (modelId?.endsWith(":free") ?? false);
+}
+
 export function isFreeCatalogModel(model: ProviderCatalogModel): boolean {
   return (
     model.pricing?.input === 0 &&
