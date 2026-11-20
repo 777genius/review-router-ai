@@ -62,7 +62,38 @@ describe("ReviewProgressGitHubGateway", () => {
     });
     expect(
       fixture.calls.filter(({ route }) => route.startsWith("GET ")),
-    ).toHaveLength(5);
+    ).toHaveLength(6);
+  });
+
+  it("does not confirm a landed POST when the head changes during the final scan", async () => {
+    const fixture = githubFixture([], { throwAfterPost: true });
+    const pullRoute = "GET /repos/{owner}/{repo}/pulls/{pull_number}";
+    let pullReads = 0;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (route !== pullRoute) return response;
+      pullReads += 1;
+      if (pullReads !== 4) return response;
+      return {
+        ...response,
+        data: {
+          ...(response.data as Record<string, unknown>),
+          head: { sha: "b".repeat(40) },
+        },
+      };
+    };
+
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "ambiguous_mutation",
+      metadata: { mutationMayHaveLanded: true, retryable: true },
+    });
+    expect(pullReads).toBe(4);
+    expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
+      "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
+    ]);
   });
 
   it("does not confirm a possibly landed POST after the pull head changes", async () => {
@@ -1144,6 +1175,52 @@ describe("ReviewProgressGitHubGateway", () => {
       operation: "reconciled",
       duplicateCommentIds: [],
     });
+  });
+
+  it("does not reconcile a busy-PR PATCH after the head changes during known-ID lookup", async () => {
+    const fullPage = fullUnrelatedPage();
+    const fixture = githubFixture(
+      [...fullPage, { id: 900, body: `known\n${marker}` }],
+      { listedComments: fullPage, throwAfterPatch: true },
+    );
+    const knownRoute = "GET /repos/{owner}/{repo}/issues/comments/{comment_id}";
+    const pullRoute = "GET /repos/{owner}/{repo}/pulls/{pull_number}";
+    let patchFailed = false;
+    let observedAfterPatch = false;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      try {
+        const response = await fixture.request(route, parameters);
+        if (patchFailed && route === knownRoute) observedAfterPatch = true;
+        if (!observedAfterPatch || route !== pullRoute) return response;
+        return {
+          ...response,
+          data: {
+            ...(response.data as Record<string, unknown>),
+            head: { sha: "b".repeat(40) },
+          },
+        };
+      } catch (error) {
+        if (route.startsWith("PATCH ")) patchFailed = true;
+        throw error;
+      }
+    };
+
+    await expect(
+      gateway(request, { maxCommentPages: 1 }).upsert({
+        ...input(),
+        knownCommentId: 900,
+      }),
+    ).rejects.toMatchObject({
+      kind: "ambiguous_mutation",
+      metadata: { mutationMayHaveLanded: true, retryable: true },
+    });
+    expect(observedAfterPatch).toBe(true);
+    expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
+      "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+    ]);
   });
 
   it("keeps a short ambiguous retry for an unconfirmed busy-PR PATCH", async () => {

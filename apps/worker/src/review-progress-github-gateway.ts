@@ -484,6 +484,8 @@ export class ReviewProgressGitHubGateway {
         input,
         await this.assertCurrentPullRequest(input),
       );
+      // The head can advance while reading comment pages after the first fence.
+      await this.assertCurrentPullRequest(input);
     } catch (observationError) {
       if (
         expectedCommentId !== undefined &&
@@ -530,6 +532,8 @@ export class ReviewProgressGitHubGateway {
         { ...input, knownCommentId: commentId },
         [],
       );
+      // A successful known-ID lookup must not confirm a stale-head mutation.
+      await this.assertCurrentPullRequest(input);
     } catch (lookupError) {
       throw reconciliationFailure(
         mutationError,
