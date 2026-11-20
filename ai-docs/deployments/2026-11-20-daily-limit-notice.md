@@ -23,10 +23,10 @@
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker  |
-| -------------------- | --------- | ------------------------------- | ------------------- | ------------------------------- |
-| staging              | `pending` | Not verified                    | Not verified        | Ordinary Web rollout            |
-| production           | `pending` | Not deployed                    | Not verified        | Rides in bundle 4, NOT deployed |
+| Environment / target | Status      | Actual deployed version / image      | Last verified (UTC) | Evidence / next step / blocker                                                                                           |
+| -------------------- | ----------- | ------------------------------------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| staging              | `pending`   | Not verified                         | Not verified        | Ordinary Web rollout                                                                                                     |
+| production           | `installed` | `be5c879d`, image `sha256:02248832…` | 2026-11-20 14:50    | [Bundle 4](2026-11-20-bundle4.md): notice string served in the Web chunks; the signed-in Providers check needs the owner |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -61,6 +61,6 @@ previous Web image.
 
 ## Execution log
 
-| Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result | Evidence | Next action         |
-| ------------ | -------------------- | ---------- | ---------------------- | ------------------------ | -------- | ------------------- |
-| Not executed | staging / production | Unassigned | Not verified           | Merged, not deployed     | None     | Ship with bundle 4. |
+| Time (UTC)       | Environment | Operator | Actual version / image               | Step and observed result                     | Evidence                          | Next action                                          |
+| ---------------- | ----------- | -------- | ------------------------------------ | -------------------------------------------- | --------------------------------- | ---------------------------------------------------- |
+| 2026-11-20 14:49 | production  | D5       | `be5c879d`, image `sha256:02248832…` | Image swap of bundle 4; notice string served | [Bundle 4](2026-11-20-bundle4.md) | Owner: signed-in check with a sole `:free` reviewer. |
