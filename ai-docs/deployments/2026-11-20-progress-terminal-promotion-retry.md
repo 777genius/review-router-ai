@@ -23,10 +23,10 @@
 
 ## Environment status
 
-| Target     | Status    | Actual image | Evidence                                                    |
-| ---------- | --------- | ------------ | ----------------------------------------------------------- |
-| Staging    | `pending` | Not verified | Ordinary worker rollout and the checks below                |
-| Production | `pending` | Not verified | Rides in the next bundled worker rollout; not deployed yet. |
+| Target     | Status      | Actual image                         | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ---------- | ----------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Staging    | `pending`   | Not verified                         | Ordinary worker rollout and the checks below                                                                                                                                                                                                                                                                                                                                                                                |
+| Production | `installed` | `9ee93eb1`, image `sha256:a032a165…` | Installed 2026-11-20 00:08 UTC; the canary and social-monitor #782 reached Complete and no sweep warning or `review_v2.progress_*` failure was logged, but one historical row (padelapp-club/monorepository #833, phase `assembling` with a September comment, publication row closed as `review_progress_stale_head`) did not drain in the first hour; see the [bundled rollout](2026-11-19-progress-comments-enabled.md). |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -114,6 +114,7 @@ kill switch over an image rollback while writes are on.
 
 ## Execution log
 
-| Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result | Evidence | Next action                                  |
-| ------------ | -------------------- | ---------- | ---------------------- | ------------------------ | -------- | -------------------------------------------- |
-| Not executed | staging / production | Unassigned | Not verified           | Not deployed             | PR #934  | Ship in the next bundled worker/API rollout. |
+| Time (UTC)                | Environment          | Operator    | Actual version / image               | Step and observed result                                                                                          | Evidence                                                   | Next action                                            |
+| ------------------------- | -------------------- | ----------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------ |
+| 2026-11-20 00:07 to 01:15 | production           | operator E2 | `9ee93eb1`, image `sha256:a032a165…` | Installed with the swap at 00:08; terminal reached on the canary and real reviews; padelapp #833 still assembling | [bundled rollout](2026-11-19-progress-comments-enabled.md) | Check that #833 drains or is named by a sweep warning. |
+| Not executed              | staging / production | Unassigned  | Not verified                         | Not deployed                                                                                                      | PR #934                                                    | Ship in the next bundled worker/API rollout.           |

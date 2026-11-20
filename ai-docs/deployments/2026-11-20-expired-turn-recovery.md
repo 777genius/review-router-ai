@@ -17,10 +17,10 @@
 
 ## Environment status
 
-| Target     | Status    | Actual image | Evidence                                                            |
-| ---------- | --------- | ------------ | ------------------------------------------------------------------- |
-| Staging    | `pending` | Not verified | Ordinary worker rollout and the checks below                        |
-| Production | `pending` | Not verified | Not deployed. Rides in the next bundled worker rollout (no window). |
+| Target     | Status     | Actual image                         | Evidence                                                                                                                                                                                                                                                                                                                                               |
+| ---------- | ---------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Staging    | `pending`  | Not verified                         | Ordinary worker rollout and the checks below                                                                                                                                                                                                                                                                                                           |
+| Production | `deployed` | `9ee93eb1`, image `sha256:a032a165…` | Pass 1 (00:07:59 UTC): recovered 6, failed 42 `dossier_digest_invalid`; pass 2 (01:08:00): failed 42 again, deferred 0, because the hourly pass lands exactly on the 1 h backoff; the count check reads `f superseded 6`, `t turn_leased 42`. Deferral shows from the 2 h step on; see the [bundled rollout](2026-11-19-progress-comments-enabled.md). |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -248,6 +248,7 @@ schedule lives only in memory.
 
 ## Execution log
 
-| Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result | Evidence | Next action                  |
-| ------------ | -------------------- | ---------- | ---------------------- | ------------------------ | -------- | ---------------------------- |
-| Not executed | staging / production | Unassigned | Not verified           | Not deployed.            | None     | Next bundled worker rollout. |
+| Time (UTC)                | Environment          | Operator    | Actual version / image               | Step and observed result                                                                                                            | Evidence                                                   | Next action                                  |
+| ------------------------- | -------------------- | ----------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------- |
+| 2026-11-20 00:07 to 01:15 | production           | operator E2 | `9ee93eb1`, image `sha256:a032a165…` | Pass 1 at 00:07:59: recovered 6, failed 42; pass 2 at 01:08:00: failed 42, deferred 0; count check f superseded 6, t turn_leased 42 | [bundled rollout](2026-11-19-progress-comments-enabled.md) | Confirm deferred 42 on the 2 h backoff step. |
+| Not executed              | staging / production | Unassigned  | Not verified                         | Not deployed.                                                                                                                       | None                                                       | Next bundled worker rollout.                 |
