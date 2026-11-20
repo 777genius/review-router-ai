@@ -238,7 +238,7 @@ describe("Review progress GitHub comment policy", () => {
   it("rejects pagination hints for another issue collection", () => {
     const expected = ["/repos/acme/rocket/issues/42/comments"];
     const foreign =
-      '<https://api.github.com/repos/acme/rocket/issues/43/comments?page=1>; rel="last"';
+      '<https://api.github.com/repos/acme/rocket/issues/43/comments?page=1&per_page=100>; rel="last"';
     const trusted =
       '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"';
     expect(commentPageLinks({ link: foreign }, 1, expected)).toEqual({
@@ -258,7 +258,7 @@ describe("Review progress GitHub comment policy", () => {
       ["prev", 2, 1],
       ["next", 1, 2],
     ] as const) {
-      const href = `https://api.github.com${foreignIssue}?page=${targetPage}`;
+      const href = `https://api.github.com${foreignIssue}?page=${targetPage}&per_page=100`;
       const foreign = `<${href}>; rel="${relation}"`;
       const parsed = commentPageLinks({ link: foreign }, currentPage, expected);
       expect(parsed).toEqual({ hasNextPage: "invalid" });
@@ -273,7 +273,7 @@ describe("Review progress GitHub comment policy", () => {
     const valid =
       '<https://api.github.com/repositories/1300192/issues/42/comments?page=2&per_page=100>; rel="next"';
     const foreign =
-      '<https://api.github.com/repositories/1300193/issues/42/comments?page=1>; rel="last"';
+      '<https://api.github.com/repositories/1300193/issues/42/comments?page=1&per_page=100>; rel="last"';
     expect(commentPageLinks({ link: valid }, 1, verified)).toEqual({
       hasNextPage: true,
     });
