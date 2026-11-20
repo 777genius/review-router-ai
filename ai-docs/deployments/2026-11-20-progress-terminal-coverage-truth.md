@@ -18,10 +18,10 @@
 
 ## Environment status
 
-| Target     | Status    | Actual image | Evidence                                                    |
-| ---------- | --------- | ------------ | ----------------------------------------------------------- |
-| Staging    | `pending` | Not verified | Ordinary worker rollout                                     |
-| Production | `pending` | Not verified | Rides in the next bundled worker rollout; not deployed yet. |
+| Target     | Status      | Actual image                         | Evidence                                                                                                                            |
+| ---------- | ----------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Staging    | `pending`   | Not verified                         | Ordinary worker rollout                                                                                                             |
+| Production | `installed` | `1d92ee85`, image `sha256:abf7f4a9…` | [Bundle 3](2026-11-20-bundle3.md) at 07:20 UTC; canary Complete matches its complete summary; the incomplete case not observed yet. |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -86,6 +86,6 @@ are on.
 
 ## Execution log
 
-| Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result | Evidence | Next action                              |
-| ------------ | -------------------- | ---------- | ---------------------- | ------------------------ | -------- | ---------------------------------------- |
-| Not executed | staging / production | Unassigned | Not verified           | Not deployed             | This PR  | Ship in the next bundled worker rollout. |
+| Time (UTC)       | Environment | Operator | Actual version / image               | Step and observed result                                                             | Evidence                          | Next action                                                                             |
+| ---------------- | ----------- | -------- | ------------------------------------ | ------------------------------------------------------------------------------------ | --------------------------------- | --------------------------------------------------------------------------------------- |
+| 2026-11-20 07:20 | production  | D4       | `1d92ee85`, image `sha256:abf7f4a9…` | Installed; canary PR 144 ended Complete next to a complete summary on both revisions | [bundle 3](2026-11-20-bundle3.md) | Watch the next "Review incomplete" summary: its progress comment must end the same way. |

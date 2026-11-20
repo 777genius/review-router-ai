@@ -18,10 +18,10 @@
 
 ## Environment status
 
-| Target                    | Status      | Actual version | Evidence                                   |
-| ------------------------- | ----------- | -------------- | ------------------------------------------ |
-| Public Action `main`      | `installed` | `39e28703`     | review-router#403 merged (squash)          |
-| Public Action release/tag | `pending`   | Not released   | Rides in the next bundled rollout (Action) |
+| Target                    | Status      | Actual version                          | Evidence                                                                                 |
+| ------------------------- | ----------- | --------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Public Action `main`      | `installed` | `39e28703`                              | review-router#403 merged (squash)                                                        |
+| Public Action release/tag | `installed` | `v1.0.243` = `workflow-v1` = `1db48dfa` | [Bundle 3](2026-11-20-bundle3.md); no unverified span in the canary, so not observed yet |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -74,6 +74,7 @@ eligible for exact-revision reuse after a rollback.
 
 ## Execution log
 
-| Time (UTC)       | Environment          | Operator | Actual version / image | Step and observed result  | Evidence          | Next action                                    |
-| ---------------- | -------------------- | -------- | ---------------------- | ------------------------- | ----------------- | ---------------------------------------------- |
-| 2026-11-20 04:40 | public Action `main` | N2       | `39e28703`             | #403 merged, not released | review-router#403 | Ship with the next bundled rollout and Action. |
+| Time (UTC)       | Environment                          | Operator | Actual version / image  | Step and observed result                                                   | Evidence                          | Next action                                                            |
+| ---------------- | ------------------------------------ | -------- | ----------------------- | -------------------------------------------------------------------------- | --------------------------------- | ---------------------------------------------------------------------- |
+| 2026-11-20 04:40 | public Action `main`                 | N2       | `39e28703`              | #403 merged, not released                                                  | review-router#403                 | Ship with the next bundled rollout and Action.                         |
+| 2026-11-20 07:35 | public Action release, `workflow-v1` | D4       | `v1.0.243` = `1db48dfa` | Released, producer 243 registered, `workflow-v1` promoted after the canary | [bundle 3](2026-11-20-bundle3.md) | Watch the next OCR review with an unverified span: it must stay green. |

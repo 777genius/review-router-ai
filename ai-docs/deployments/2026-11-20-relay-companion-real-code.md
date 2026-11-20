@@ -20,10 +20,10 @@
 
 ## Environment status
 
-| Target     | Status    | Actual image | Evidence                    |
-| ---------- | --------- | ------------ | --------------------------- |
-| Staging    | `pending` | Not verified | Ordinary API rollout        |
-| Production | `pending` | Not deployed | Rides in bundle 3 (the API) |
+| Target     | Status      | Actual image                         | Evidence                                                                                                    |
+| ---------- | ----------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| Staging    | `pending`   | Not verified                         | Ordinary API rollout                                                                                        |
+| Production | `installed` | `1d92ee85`, image `sha256:abf7f4a9…` | [Bundle 3](2026-11-20-bundle3.md) at 07:20 UTC; no companion failure since, so `relayCode` not observed yet |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -58,6 +58,6 @@ Revert the commit and roll the API back. No state is written by this change.
 
 ## Execution log
 
-| Time (UTC) | Environment | Operator | Actual version / image | Step and observed result | Evidence | Next action         |
-| ---------- | ----------- | -------- | ---------------------- | ------------------------ | -------- | ------------------- |
-| -          | -           | -        | -                      | Not deployed             | -        | Ship with bundle 3. |
+| Time (UTC)       | Environment | Operator | Actual version / image               | Step and observed result | Evidence                          | Next action                                                                        |
+| ---------------- | ----------- | -------- | ------------------------------------ | ------------------------ | --------------------------------- | ---------------------------------------------------------------------------------- |
+| 2026-11-20 07:20 | production  | D4       | `1d92ee85`, image `sha256:abf7f4a9…` | Installed with bundle 3  | [bundle 3](2026-11-20-bundle3.md) | Check the next `review_run_companion_gateway_request_failed` line for `relayCode`. |
