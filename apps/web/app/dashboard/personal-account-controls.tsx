@@ -26,6 +26,7 @@ import {
 import {
   QueryClient,
   QueryClientProvider,
+  type QueryKey,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -85,36 +86,23 @@ export async function refreshPersonalAccountViews(
   client: QueryClient,
   scope: string,
 ) {
-  const queries = client
-    .getQueryCache()
-    .getAll()
-    .filter(
-      (query) =>
-        (query.queryKey[0] === "personal-accounts" &&
-          query.queryKey[1] === scope &&
-          ["sources", "grants", "organizations", "access-summaries"].includes(
-            String(query.queryKey[2]),
-          )) ||
-        (["accounts-overview", "account-options", "account-option"].includes(
-          String(query.queryKey[0]),
-        ) &&
-          typeof query.queryKey[1] === "string" &&
-          query.queryKey[1].startsWith(`${scope}:workspace:`)) ||
-        // Connection management pages of the owner and of the workspace in the
-        // same list: a detach or attach changes the actions their rows offer.
-        (query.queryKey[0] === "gateway-accounts" &&
-          query.queryKey[2] === "page"),
-    );
-  await Promise.all(
-    queries.map((query) =>
-      client.cancelQueries({ queryKey: query.queryKey, exact: true }),
-    ),
-  );
-  await Promise.all(
-    queries.map((query) =>
-      client.invalidateQueries({ queryKey: query.queryKey, exact: true }),
-    ),
-  );
+  const predicate = ({ queryKey: key }: { queryKey: QueryKey }) =>
+    (key[0] === "personal-accounts" &&
+      key[1] === scope &&
+      ["sources", "grants", "organizations", "access-summaries"].includes(
+        String(key[2]),
+      )) ||
+    (["accounts-overview", "account-options", "account-option"].includes(
+      String(key[0]),
+    ) &&
+      typeof key[1] === "string" &&
+      key[1].startsWith(`${scope}:workspace:`)) ||
+    // Connection management pages of the owner and of the workspace in the
+    // same list: a detach or attach changes the actions their rows offer.
+    (key[0] === "gateway-accounts" && key[2] === "page");
+  // Older reads are cancelled first, so none lands after the reread.
+  await client.cancelQueries({ predicate });
+  await client.invalidateQueries({ predicate });
 }
 
 const noncePattern =

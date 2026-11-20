@@ -32,8 +32,9 @@ export function useInlineGatewayConnect({
   const [open, setOpen] = useState(false);
   const [nonce, setNonce] = useState<string | null>(null);
   const [connectedBinding, setConnectedBinding] = useState<string | null>(null);
-  // An open request keeps the form even if the dialog's lists fail to reread.
-  const supported = place !== null && (available || nonce !== null);
+  // An open form or request outlives a failed reread of the dialog's lists, so
+  // a typed key or a device code is not lost. Choosing again closes the form.
+  const supported = place !== null && (available || open || nonce !== null);
   const show = supported && (open || (empty && connectedBinding === null));
   useEffect(() => {
     // Opened because nothing was there: stay open while the list rereads.

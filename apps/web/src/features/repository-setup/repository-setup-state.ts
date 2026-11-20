@@ -114,6 +114,11 @@ export function repositoryMatchesSetupFilter(
   }
 }
 
+/** The words of a repository search; a row matches when it has every one. */
+export function tokenizeRepositorySearch(query: string): string[] {
+  return query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+}
+
 /** Reads `setup=` or `visibility=` from a URL; anything else is `all`. */
 export function readRepositorySetupFilter(
   read: (name: string) => string | null | undefined,

@@ -1225,7 +1225,11 @@ describe("ProviderSetupDialog", () => {
         },
       });
       expect(
-        await screen.findByRole("button", { name: "Retry accounts" }),
+        await screen.findByText(
+          status === "denied"
+            ? "Account access is unavailable. Check this workspace's access before continuing."
+            : "Could not load the account list.",
+        ),
       ).toBeTruthy();
       expect(
         screen.queryByRole("link", { name: "Connect account" }),

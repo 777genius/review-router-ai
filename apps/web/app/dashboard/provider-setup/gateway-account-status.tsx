@@ -10,6 +10,7 @@ import { StatusLine } from "../status-line";
 
 type Accounts = Pick<
   ReturnType<typeof useGatewayModelAccounts>,
+  | "accounts"
   | "loading"
   | "listFailed"
   | "canRefresh"
@@ -29,7 +30,11 @@ export function GatewayAccountListStatus({
   if (!accounts.listFailed) return null;
   return (
     <StatusLine
-      message="Could not load the account list."
+      message={
+        accounts.accounts?.status === "denied"
+          ? "Account access is unavailable. Check this workspace's access before continuing."
+          : "Could not load the account list."
+      }
       busy={busy || accounts.loading}
       onRetry={accounts.canRefresh ? accounts.refresh : undefined}
     />

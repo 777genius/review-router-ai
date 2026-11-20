@@ -3,9 +3,13 @@
 import { Button } from "@reviewrouter/ui";
 import { durationText } from "./account-limits-line";
 
-/** "just now" / "3m ago" for data that refreshes itself. */
-export function updatedAgo(at: string | number): string {
-  const minutes = Math.floor((Date.now() - new Date(at).getTime()) / 60_000);
+/**
+ * "just now" / "3m ago" for data that refreshes itself, counted on the
+ * ticking `useAgeClock` so the line keeps current while it is open.
+ */
+export function updatedAgo(at: string | number, now: number | null): string {
+  if (now === null) return "recently";
+  const minutes = Math.floor((now - new Date(at).getTime()) / 60_000);
   return minutes < 1 ? "just now" : `${durationText(minutes)} ago`;
 }
 

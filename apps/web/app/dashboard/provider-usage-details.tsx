@@ -58,7 +58,7 @@ export function UsageDetails({
           className="text-cyan-200 underline"
           href={dashboardSectionHref("setup", workspaceId)}
         >
-          Account limits are shown in Accounts
+          Account limits are shown in Connections
         </a>
       </p>
       <p>

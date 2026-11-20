@@ -89,7 +89,15 @@ test.describe("review runtime readiness", () => {
       ).toHaveCount(0);
 
       // Existing optimistic events must not turn an unverified caller into Ready.
+      // The rows answer the burst with one server refresh and keep the document:
+      // a full reload would close the expanded rows and any open dialog.
+      const refreshed = page.waitForResponse(
+        (response) =>
+          response.url().includes("_rsc=") &&
+          !response.request().headers()["next-router-prefetch"],
+      );
       await page.evaluate(() => {
+        Object.assign(window, { reviewRuntimeDocument: true });
         for (const key of ["update", "unknown", "pending"])
           for (const type of [
             "reviewrouter:setup-pull-request-merged",
@@ -106,20 +114,17 @@ test.describe("review runtime readiness", () => {
               }),
             );
       });
+      await refreshed;
+      const expectSameDocument = async () =>
+        expect(
+          await page.evaluate(() => "reviewRuntimeDocument" in window),
+        ).toBe(true);
       for (const key of ["update", "unknown", "pending"])
         await expect(
           repository(page, key).locator("label.setup-toggle"),
         ).not.toContainText("4/4");
 
       await expectNoHorizontalOverflow(page);
-      // Provider confirmations can refresh the document. The layout read above
-      // may recover against fresh server HTML before its controls are hydrated.
-      // Await the real dashboard readiness signal before the single theme click.
-      await expect(page.locator("html")).toHaveAttribute(
-        "data-dashboard-layout-ready",
-        "true",
-        { timeout: 60_000 },
-      );
       const expandRuntimeDetails = async () => {
         for (const row of [update, unknown]) {
           if (!(await row.getByRole("status").isVisible()))
@@ -127,12 +132,8 @@ test.describe("review runtime readiness", () => {
           await expect(row.getByRole("status")).toBeVisible();
         }
       };
-      // The provider confirmations above refresh the dashboard and can reload
-      // the document while the rows are expanded; retry until it has settled.
-      await expect(async () => {
-        await expandRuntimeDetails();
-        await page.evaluate(() => window.scrollTo(0, 0));
-      }).toPass({ timeout: 60_000 });
+      await expandRuntimeDetails();
+      await page.evaluate(() => window.scrollTo(0, 0));
       await page.screenshot({
         path: info.outputPath(`review-runtime-${viewport.name}-dark.png`),
         fullPage: true,
@@ -141,6 +142,7 @@ test.describe("review runtime readiness", () => {
         .getByRole("button", { name: "Dark theme", exact: true })
         .click();
       await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+      await expectSameDocument();
       await expandRuntimeDetails();
       await expectNoHorizontalOverflow(page);
       await page.evaluate(() => window.scrollTo(0, 0));
@@ -178,6 +180,7 @@ test.describe("review runtime readiness", () => {
         path: info.outputPath(`review-runtime-${viewport.name}-empty.png`),
         fullPage: true,
       });
+      await expectSameDocument();
       await expectNetworkViolations(violations);
     });
 });
