@@ -67,10 +67,6 @@ export function commentPageLinks(
     }
   }
 
-  const hasNext = entries.some((entry) =>
-    /;\s*rel=(?:"next"|next)\s*$/iu.test(entry),
-  );
-
   // A malformed or forward previous-page hint cannot certify a final page.
   const previousEntries = entries.filter((entry) =>
     /;\s*rel=(?:"prev"|prev)\s*$/iu.test(entry),
@@ -105,6 +101,7 @@ export function commentPageLinks(
     /;\s*rel=(?:"next"|next)\s*$/iu.test(entry),
   );
   if (nextEntries.length > 1) return invalid;
+  const hasNext = nextEntries.length > 0;
   let nextPage: number | null = null;
   if (hasNext) {
     const nextHref = nextEntries[0]?.match(/^\s*<([^>]+)>/u)?.[1];

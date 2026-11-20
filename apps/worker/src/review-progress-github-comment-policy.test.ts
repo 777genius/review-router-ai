@@ -122,6 +122,14 @@ describe("Review progress GitHub comment policy", () => {
     ).toBe(false);
   });
 
+  it("does not certify a full page from a previous-only Link", () => {
+    const previous = '</comments?page=1>; rel="prev"';
+    const hint = hasNextCommentPage({ link: previous }, 2);
+    expect(hint).toBe(false);
+    expect(commentPageScanDecision(hint, 100, 2, 5)).toBe("continue");
+    expect(commentPageScanDecision(hint, 99, 2, 5)).toBe("complete");
+  });
+
   it("rejects misleading first links before accepting scan completion", () => {
     const misleading = '</comments?page=3>; rel="first"';
     const decision = hasNextCommentPage({ link: misleading }, 1);
@@ -228,13 +236,15 @@ describe("Review progress GitHub comment policy", () => {
 
   it("binds every Link relation to the requested issue collection", () => {
     const expected = ["/repos/acme/rocket/issues/42/comments"];
+    const foreignIssue = "/repos/acme/rocket/issues/43/comments";
     for (const [relation, currentPage, targetPage] of [
       ["first", 2, 1],
       ["last", 1, 3],
       ["prev", 2, 1],
       ["next", 1, 2],
     ] as const) {
-      const foreign = `<https://api.github.com/repos/acme/rocket/issues/43/comments?page=${targetPage}>; rel="${relation}"`;
+      const href = `https://api.github.com${foreignIssue}?page=${targetPage}`;
+      const foreign = `<${href}>; rel="${relation}"`;
       expect(commentPageLinks({ link: foreign }, currentPage, expected)).toEqual({
         hasNextPage: "invalid",
       });
