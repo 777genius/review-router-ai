@@ -281,10 +281,11 @@ export function unconfirmedMutation(
 ): ReviewProgressGitHubError {
   const status = classified.metadata.status;
   if (
-    classified.kind === "ambiguous_mutation" &&
-    status !== undefined &&
-    status >= 400 &&
-    status < 500
+    classified.kind === "rate_limited" ||
+    (classified.kind === "ambiguous_mutation" &&
+      status !== undefined &&
+      status >= 400 &&
+      status < 500)
   ) {
     return classified;
   }

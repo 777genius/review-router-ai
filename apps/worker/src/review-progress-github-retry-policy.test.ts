@@ -427,6 +427,22 @@ describe("Review progress GitHub retry policy", () => {
     );
     expect(unconfirmedMutation(rejected)).toBe(rejected);
 
+    const rejectedPost = classifyGitHubFailure(
+      { status: 429, response: { headers: { "retry-after": "60" } } },
+      "ambiguous_mutation",
+      () => now,
+      () => 0,
+    );
+    expect(rejectedPost.kind).toBe("rate_limited");
+    expect(rejectedPost.metadata.retryNotBefore).toEqual(
+      new Date(now.getTime() + 60_000),
+    );
+    expect(rejectedPost.metadata.retryAt).toEqual(
+      new Date(now.getTime() + 60_250),
+    );
+    expect(unconfirmedMutation(rejectedPost)).toBe(rejectedPost);
+    expect(rejectedPost.metadata.mutationMayHaveLanded).toBeUndefined();
+
     const uncertain = new ReviewProgressGitHubError(
       "ambiguous_mutation",
       "request_timed_out",
