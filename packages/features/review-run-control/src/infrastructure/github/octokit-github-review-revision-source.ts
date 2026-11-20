@@ -22,16 +22,9 @@ const revisionReadTimeoutMs = 15_000;
  */
 export const GITHUB_REVISION_READ_RETRY_DELAYS_MS: readonly number[] =
   Object.freeze([1_000, 2_000, 4_000]);
-const networkErrorCodes = new Set([
-  "ECONNRESET",
-  "ECONNREFUSED",
-  "ETIMEDOUT",
-  "EAI_AGAIN",
-  "ENOTFOUND",
-  "EPIPE",
-  "UND_ERR_SOCKET",
-  "UND_ERR_CONNECT_TIMEOUT",
-]);
+// GitHub: a rate limit answer without a wait still needs at least a minute.
+// That never fits the read deadline, so such a read is refused at once.
+const unannouncedRateLimitWaitMs = 60_000;
 
 export class OctokitGitHubReviewRevisionSource implements GitHubReviewRevisionSourcePort {
   private readonly app: App;
@@ -248,7 +241,11 @@ function transientRetry(
   const status = providerStatus(error);
   const headers = responseHeaders(error);
   let failureClass: TransientRetry["failureClass"];
-  if (status !== null && status >= 500 && status <= 599) {
+  if (status === 500 && isRecord(error) && !isRecord(error.response)) {
+    // Octokit reports a failed fetch (reset, refused, DNS) as 500 without a
+    // response.
+    failureClass = "network";
+  } else if (status !== null && status >= 500 && status <= 599) {
     failureClass = "server_error";
   } else if (
     status === 429 ||
@@ -257,29 +254,27 @@ function transientRetry(
         headers["x-ratelimit-remaining"] === "0"))
   ) {
     failureClass = "rate_limited";
-  } else if (
-    status === null &&
-    isRecord(error) &&
-    typeof error.code === "string" &&
-    networkErrorCodes.has(error.code)
-  ) {
-    failureClass = "network";
   } else {
     return null;
   }
-  // Respect GitHub's own wait; give up when it does not fit the deadline.
-  const waitMs = Math.max(delayMs, serverWaitMs(headers));
+  // Spread concurrent readers; never wait less than GitHub asks for, and give
+  // up when that wait does not fit the deadline.
+  const waitMs = Math.max(
+    Math.round(delayMs * (0.5 + Math.random() / 2)),
+    failureClass === "rate_limited" ? rateLimitWaitMs(headers) : 0,
+  );
   return waitMs < remainingMs ? { failureClass, status, waitMs } : null;
 }
 
-function serverWaitMs(headers: Readonly<Record<string, string>>): number {
+function rateLimitWaitMs(headers: Readonly<Record<string, string>>): number {
   const retryAfter = Number(headers["retry-after"]);
-  if (Number.isFinite(retryAfter) && retryAfter >= 0) return retryAfter * 1000;
+  if (headers["retry-after"] !== undefined && Number.isFinite(retryAfter))
+    return Math.max(0, retryAfter * 1000);
   if (headers["x-ratelimit-remaining"] === "0") {
     const reset = Number(headers["x-ratelimit-reset"]);
     if (Number.isFinite(reset)) return Math.max(0, reset * 1000 - Date.now());
   }
-  return 0;
+  return unannouncedRateLimitWaitMs;
 }
 
 function responseHeaders(error: unknown): Readonly<Record<string, string>> {

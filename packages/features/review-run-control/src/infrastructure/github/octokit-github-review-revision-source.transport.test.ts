@@ -1,5 +1,7 @@
 import { generateKeyPairSync } from "node:crypto";
 import { afterEach, expect, it, vi } from "vitest";
+import { CanonicalReviewRevisionResolutionStatus } from "../../application/ports/review-scm-revision-ports";
+import { CanonicalGitHubReviewRevisionResolver } from "./canonical-github-review-revision-resolver";
 import { OctokitGitHubReviewRevisionSource } from "./octokit-github-review-revision-source";
 
 afterEach(() => {
@@ -149,7 +151,7 @@ it("reads again after a transient GitHub failure and returns the same current he
   const log = vi.spyOn(console, "warn").mockImplementation(() => {});
   const reads = stubGitHub([
     () => json(502, { message: "Bad Gateway" }),
-    () => json(429, { message: "slow down" }),
+    () => json(429, { message: "slow down" }, { "retry-after": "0" }),
     () => json(200, pullRequest),
   ]);
   await expect(
@@ -255,4 +257,108 @@ it("uses the 1, 2 and 4 second waits by default", async () => {
   const { GITHUB_REVISION_READ_RETRY_DELAYS_MS } =
     await import("./octokit-github-review-revision-source");
   expect(GITHUB_REVISION_READ_RETRY_DELAYS_MS).toEqual([1_000, 2_000, 4_000]);
+});
+
+it("refuses at once on a rate limit that names no wait", async () => {
+  // GitHub asks for at least a minute then, which never fits the deadline.
+  const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const reads = stubGitHub([() => json(429, { message: "slow down" })]);
+  await expect(
+    source(noWait).loadPullRequestPointer(retryInput()),
+  ).rejects.toMatchObject({ status: 429 });
+  expect(reads.count).toBe(1);
+  expect(log).not.toHaveBeenCalled();
+});
+
+it("retries an exhausted primary limit whose reset has already passed", async () => {
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  const reads = stubGitHub([
+    () =>
+      json(
+        403,
+        { message: "API rate limit exceeded" },
+        {
+          "x-ratelimit-remaining": "0",
+          "x-ratelimit-reset": String(Math.floor(Date.now() / 1000) - 1),
+        },
+      ),
+    () => json(200, pullRequest),
+  ]);
+  await expect(
+    source(noWait).loadPullRequestPointer(retryInput()),
+  ).resolves.toMatchObject({ headSha });
+  expect(reads.count).toBe(2);
+});
+
+it("still refuses a revision that moved while a read was retried", async () => {
+  // The retry only reads again: a head that changed between the two pointer
+  // reads stays revision_moved and never authorizes.
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  const movedHead = "c".repeat(40);
+  const pointers = [
+    () => json(200, pullRequest),
+    () => json(502, { message: "Bad Gateway" }),
+    () => json(200, { ...pullRequest, head: { sha: movedHead } }),
+  ];
+  let pointerReads = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      if (String(url).endsWith("/access_tokens"))
+        return json(201, {
+          token: "fixture-installation-token",
+          expires_at: new Date(Date.now() + 3600000).toISOString(),
+          permissions: { pull_requests: "read" },
+          repository_selection: "selected",
+        });
+      if (String(url).includes("/compare/"))
+        return json(200, { merge_base_commit: { sha: baseSha } });
+      const answer = pointers[Math.min(pointerReads, pointers.length - 1)]!;
+      pointerReads += 1;
+      return answer();
+    }),
+  );
+  const resolver = new CanonicalGitHubReviewRevisionResolver(source(noWait), {
+    digestUtf8: async () => "d".repeat(64),
+  } as unknown as ConstructorParameters<
+    typeof CanonicalGitHubReviewRevisionResolver
+  >[1]);
+  const scope = retryInput();
+  await expect(
+    resolver.resolve({
+      workspaceId: "workspace-1",
+      repositoryConnectionId: "connection-1",
+      scmRepositoryIdentityId: "identity-1",
+      githubInstallationId: scope.githubInstallationId,
+      owner: scope.owner,
+      repo: scope.repo,
+      sourceRunId: null,
+      pullRequestNumberHint: 12,
+    }),
+  ).resolves.toEqual({
+    status: CanonicalReviewRevisionResolutionStatus.RevisionMoved,
+  });
+  expect(pointerReads).toBe(3);
+});
+
+it("reads again after a dropped connection and logs it as network", async () => {
+  const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const reads = stubGitHub([
+    () => {
+      throw Object.assign(new TypeError("fetch failed"), {
+        cause: Object.assign(new Error("socket hang up"), {
+          code: "ECONNRESET",
+        }),
+      });
+    },
+    () => json(200, pullRequest),
+  ]);
+  await expect(
+    source(noWait).loadPullRequestPointer(retryInput()),
+  ).resolves.toMatchObject({ headSha });
+  expect(reads.count).toBe(2);
+  expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({
+    event: "github_review_revision_read_retry",
+    failureClass: "network",
+  });
 });
