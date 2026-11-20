@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  ReviewProgressGitHubError as BaseReviewProgressGitHubError,
+} from "./review-progress-github-error";
+import {
   classifyGitHubFailure,
   reconciliationFailure,
   unconfirmedMutation,
@@ -14,6 +17,17 @@ import {
 const now = new Date("2026-08-12T12:00:00.000Z");
 
 describe("Review progress GitHub retry policy", () => {
+  it("keeps the same GitHub error constructor after extraction", () => {
+    expect(ReviewProgressGitHubError).toBe(BaseReviewProgressGitHubError);
+    const classified = classifyGitHubFailure(
+      { status: 502 },
+      "github_request_failed",
+      () => now,
+      () => 0,
+    );
+    expect(classified).toBeInstanceOf(BaseReviewProgressGitHubError);
+  });
+
   it("prefers Retry-After over a later rate-limit reset", () => {
     const headers = {
       "retry-after": "10",
