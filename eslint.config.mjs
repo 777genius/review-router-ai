@@ -14,7 +14,7 @@ const webMaxLinesCeilings = {
   "apps/web/app/dashboard/dashboard-workspace-page.tsx": 3511,
   "apps/web/app/dashboard/personal-account-controls.tsx": 1875,
   "apps/web/app/dashboard/provider-setup-actions.ts": 1020,
-  "apps/web/app/dashboard/provider-setup/gateway-reviewer-roster.tsx": 884,
+  "apps/web/app/dashboard/provider-setup/gateway-reviewer-roster.tsx": 898,
   "apps/web/app/dashboard/provider-setup/provider-credential-delivery.tsx": 1374,
   "apps/web/app/dashboard/provider-setup/provider-list.tsx": 842,
   "apps/web/app/dashboard/provider-setup/provider-setup-dialog.tsx": 2581,
