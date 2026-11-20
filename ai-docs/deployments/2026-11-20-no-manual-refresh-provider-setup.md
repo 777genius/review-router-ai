@@ -18,10 +18,10 @@
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                  |
-| -------------------- | --------- | ------------------------------- | ------------------- | ----------------------------------------------- |
-| staging              | `pending` | Not verified                    | Not verified        | Rides in the next bundled ordinary Web rollout. |
-| production           | `pending` | Not verified                    | Not verified        | Rides in the next bundled ordinary Web rollout. |
+| Environment / target | Status      | Actual deployed version / image      | Last verified (UTC) | Evidence / next step / blocker                                                                                                                                                                                                                                                      |
+| -------------------- | ----------- | ------------------------------------ | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| staging              | `pending`   | Not verified                         | Not verified        | Rides in the next bundled ordinary Web rollout.                                                                                                                                                                                                                                     |
+| production           | `installed` | `9ee93eb1`, image `sha256:a032a165…` | 2026-11-20 00:30    | Installed 2026-11-20 00:08 UTC; "Refresh models" remains only as the aria-label of the optional manual Refresh in the status line, "Try again" is served. The signed-in dialog check needs the owner's session; see the [bundled rollout](2026-11-19-progress-comments-enabled.md). |
 
 `pending` means no verified completion is recorded. See the
 [status contract](README.md#status-contract).

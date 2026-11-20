@@ -15,10 +15,10 @@
 
 ## Environment status
 
-| Target     | Status    | Actual image | Evidence                                                                      |
-| ---------- | --------- | ------------ | ----------------------------------------------------------------------------- |
-| Staging    | `pending` | Not verified | Ordinary worker rollout and the checks below                                  |
-| Production | `pending` | Not verified | Not deployed. Rides in the next bundled rollout, not on its own (2026-11-20). |
+| Target     | Status     | Actual image                         | Evidence                                                                                                                                                                                                                                       |
+| ---------- | ---------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Staging    | `pending`  | Not verified                         | Ordinary worker rollout and the checks below                                                                                                                                                                                                   |
+| Production | `deployed` | `9ee93eb1`, image `sha256:a032a165…` | Installed 2026-11-20 00:08 UTC; a second push to canary PR 142 updated the one summary comment in place (no new one), and social-monitor #782 reused its existing summary, see the [bundled rollout](2026-11-19-progress-comments-enabled.md). |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).

@@ -17,10 +17,10 @@
 
 ## Environment status
 
-| Target     | Status    | Actual image | Evidence                                                            |
-| ---------- | --------- | ------------ | ------------------------------------------------------------------- |
-| Staging    | `pending` | Not verified | Ordinary worker rollout and the checks below                        |
-| Production | `pending` | Not verified | Not deployed. Rides in the next bundled worker rollout (no window). |
+| Target     | Status     | Actual image                         | Evidence                                                                                                                                                                                                                                                                                           |
+| ---------- | ---------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Staging    | `pending`  | Not verified                         | Ordinary worker rollout and the checks below                                                                                                                                                                                                                                                       |
+| Production | `deployed` | `9ee93eb1`, image `sha256:a032a165…` | First maintenance pass 2026-11-20 00:08 UTC: recovered 6, failed 42 with `dossier_digest_invalid`, as expected; the pass also showed `review_investigation_private_material_prune_failed` (follow-up #939, not in this image), see the [bundled rollout](2026-11-19-progress-comments-enabled.md). |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).

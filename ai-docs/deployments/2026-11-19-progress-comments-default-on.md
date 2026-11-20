@@ -12,14 +12,14 @@
 - Dependencies: [worker progress comment refactor](2026-11-19-worker-progress-comment-refactor.md)
   (#821, already installed on production). The backlog of old unpublished
   rows must be expired before the worker runs with writes on, see below.
-- Last updated: 2026-11-19.
+- Last updated: 2026-11-20.
 
 ## Environment status
 
-| Target     | Status    | Actual image | Evidence                                                                                                                     |
-| ---------- | --------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| Staging    | `pending` | Not verified | Ordinary worker and API rollout and the checks below                                                                         |
-| Production | `pending` | Not verified | Not deployed. Ships in one bundled worker rollout with the next approved change, not on its own (owner decision 2026-11-19). |
+| Target     | Status     | Actual image                         | Evidence                                                                                                                                                                                                                                                            |
+| ---------- | ---------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Staging    | `pending`  | Not verified                         | Ordinary worker and API rollout and the checks below                                                                                                                                                                                                                |
+| Production | `deployed` | `9ee93eb1`, image `sha256:a032a165…` | Swapped 2026-11-20 00:08 UTC with the four progress keys unset on api, worker and scan, after the expiry of 1144 backlog rows. Canary PR 142 and real reviews show one comment edited in place, see the [bundled rollout](2026-11-19-progress-comments-enabled.md). |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).

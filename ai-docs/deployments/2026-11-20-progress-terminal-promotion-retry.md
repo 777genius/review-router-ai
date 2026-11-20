@@ -23,10 +23,10 @@
 
 ## Environment status
 
-| Target     | Status    | Actual image | Evidence                                                    |
-| ---------- | --------- | ------------ | ----------------------------------------------------------- |
-| Staging    | `pending` | Not verified | Ordinary worker rollout and the checks below                |
-| Production | `pending` | Not verified | Rides in the next bundled worker rollout; not deployed yet. |
+| Target     | Status     | Actual image                         | Evidence                                                                                                                                                                               |
+| ---------- | ---------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Staging    | `pending`  | Not verified                         | Ordinary worker rollout and the checks below                                                                                                                                           |
+| Production | `deployed` | `9ee93eb1`, image `sha256:a032a165…` | Installed 2026-11-20 00:08 UTC; terminal states reached Complete on canary PR 142 and on social-monitor #782/#764, see the [bundled rollout](2026-11-19-progress-comments-enabled.md). |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
