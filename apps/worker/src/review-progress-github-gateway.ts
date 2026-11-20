@@ -393,6 +393,20 @@ export class ReviewProgressGitHubGateway {
         );
       }
     }
+    await this.recheckObservedCommentPages(
+      input,
+      observedPages,
+      verifiedRepositoryId,
+    );
+    return matches.sort((left, right) => left.id - right.id);
+  }
+
+  /** Recheck earlier offset pages before authorizing any mutation. */
+  private async recheckObservedCommentPages(
+    input: UpsertReviewProgressCommentInput,
+    observedPages: readonly string[],
+    verifiedRepositoryId?: number,
+  ): Promise<void> {
     // GitHub offset pages are not snapshots: deleting an earlier comment can
     // shift a marker into the gap even when the final page is short.
     // Recheck earlier pages before authorizing any POST, PATCH or DELETE.
@@ -416,7 +430,6 @@ export class ReviewProgressGitHubGateway {
         );
       }
     }
-    return matches.sort((left, right) => left.id - right.id);
   }
 
   private async fetchCommentPage(
