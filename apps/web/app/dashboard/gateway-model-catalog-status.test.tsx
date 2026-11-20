@@ -10,6 +10,11 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AccountView } from "../../src/server/account-gateway-accounts";
 import { GatewayModelCatalogStatus } from "./gateway-model-catalog-status";
+import {
+  GatewayModelAccountsProvider,
+  useGatewayModelAccounts,
+  type GatewayModelAccountsApi,
+} from "./gateway-model-account-options";
 
 afterEach(cleanup);
 const account: AccountView = {
@@ -27,6 +32,129 @@ const account: AccountView = {
     fencePending: false,
   },
 };
+
+it("renders selected-detail native facts and removes them when the same binding becomes restricted", async () => {
+  const known = <T,>(value: T) => ({
+    status: "known" as const,
+    value,
+    source: "provider_api" as const,
+    observedAt: "2026-11-20T12:00:00Z",
+    freshness: "current" as const,
+  });
+  const selected: AccountView = {
+    ...account,
+    modelCatalog: {
+      status: "snapshot",
+      source: "codex",
+      models: ["model"],
+      fetchedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 300_000).toISOString(),
+    },
+  };
+  const profile = {
+    id: selected.profileId,
+    label: selected.profileLabel,
+    protocol: "openai-responses" as const,
+    models: ["model"],
+  };
+  type Detail = Awaited<ReturnType<GatewayModelAccountsApi["get"]>>;
+  let resolveDetail!: (value: Detail) => void;
+  const detail = new Promise<Detail>((resolve) => {
+    resolveDetail = resolve;
+  });
+  const get = vi
+    .fn<GatewayModelAccountsApi["get"]>()
+    .mockReturnValueOnce(detail)
+    .mockResolvedValueOnce({
+      status: "ok",
+      value: {
+        account: {
+          ...selected,
+          metadata: { status: "restricted", displayToken: "restricted" },
+        },
+        profile,
+      },
+    });
+  const api = { list: vi.fn<GatewayModelAccountsApi["list"]>(), get };
+  function SelectedStatus() {
+    const options = useGatewayModelAccounts(
+      {
+        status: "ok",
+        value: { accounts: [selected], profiles: [profile], nextCursor: null },
+      },
+      ["binding-1"],
+    );
+    const current =
+      options.accounts?.status === "ok"
+        ? options.accounts.value.accounts.find(
+            (row) => row.binding?.id === "binding-1",
+          )
+        : undefined;
+    return (
+      <GatewayModelCatalogStatus
+        account={current}
+        profile={options.profileFor(current)}
+        accounts={options}
+        bindingId="binding-1"
+      />
+    );
+  }
+  render(
+    <GatewayModelAccountsProvider scope="viewer:workspace:org-x" api={api}>
+      <SelectedStatus />
+    </GatewayModelAccountsProvider>,
+  );
+  await waitFor(() => expect(get).toHaveBeenCalledWith("binding-1"));
+  expect(screen.queryByText("selected-codex@example.invalid")).toBeNull();
+  await act(async () =>
+    resolveDetail({
+      status: "ok",
+      value: {
+        account: {
+          ...selected,
+          metadata: {
+            status: "available",
+            displayToken: "selected-native-info",
+            fields: {
+              email: known("selected-codex@example.invalid"),
+              accountLabel: { status: "unknown" },
+              subscription: known({
+                code: "plus",
+                label: "Plus",
+                scope: "personal" as const,
+                endsAt: { kind: "date" as const, value: "2026-12-31" },
+              }),
+              credentialExpiresAt: known("2026-12-15T13:00:00Z"),
+              privacyMode: { status: "unknown" },
+            },
+          },
+        },
+        profile,
+      },
+    }),
+  );
+  expect(
+    await screen.findByText("selected-codex@example.invalid"),
+  ).toBeTruthy();
+  expect(screen.getByText("Plus", { exact: true })).toBeTruthy();
+  expect(screen.getByText("Subscription ends 2026-12-31")).toBeTruthy();
+  expect(
+    screen.getByText("Credential expires Dec 15, 2026, 1:00 PM UTC"),
+  ).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Refresh models" }));
+  await waitFor(() =>
+    expect(screen.queryByText("selected-codex@example.invalid")).toBeNull(),
+  );
+  expect(screen.queryByText("Plus", { exact: true })).toBeNull();
+  expect(screen.queryByText(/^Subscription ends/)).toBeNull();
+  expect(screen.queryByText(/^Credential expires/)).toBeNull();
+  expect(screen.getByRole("status").textContent).toMatch(/^Model list updated/);
+  expect(get.mock.calls).toEqual([
+    ["binding-1"],
+    ["binding-1", { forceRefresh: true }],
+  ]);
+  expect(api.list).not.toHaveBeenCalled();
+});
 
 it("distinguishes configured profile choices from account discovery and offers no dummy refresh", () => {
   const refresh = vi.fn();

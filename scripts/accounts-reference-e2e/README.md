@@ -402,24 +402,43 @@ It seeds the current provider registry with a historical saved model. The
 browser verifies that the model remains visible, discovers an unseen model,
 rejects a stale model now offered only by the other account, refreshes only the
 selected account, saves its refreshed model, and adds the second account's
-model. This is an HTTP dependency fixture, not a live Codex/native proof.
+model. The same Add/Edit controls show the authorized selected account's native
+email, plan, subscription end date and separate credential expiry in both themes.
+These facts come from the installed SDK's account-info read against the fixture.
+This is an HTTP dependency fixture, not a live Codex/native proof.
 Use the existing explicit `--database-url` and `--browser-executable` options
 where PostgreSQL or a preinstalled Chromium is required.
 
 The Linux `catalog-browser` CI job runs the account-scoped Codex scenario, the
 direct public-catalog refresh scenario, three inline Add provider scenarios and
-the subscription connections scenario
+the subscription connections and model-list update scenarios, plus two Codex
+credential import scenarios,
 after its unchanged 12-case Skills catalog acceptance and native scanner receipt
-checks. These six scenarios share
+checks. These nine scenarios share
 a second fresh service with the same pinned PostgreSQL 17 image on loopback port
 5433 and their own work directory. They run serially with separate browser contexts;
 the direct scenario closes without saving a provider. CI preserves and validates
 only Next's generated `next-env.d.ts` import change between runs, rejects other
 tracked changes, and requires an exact-head, empty-source-delta receipt with fresh
-migrations, successful boot, all six named scenarios passing once, zero failures/skips,
+migrations, successful boot, all nine named scenarios passing once, zero failures/skips,
 and no external network.
 Its separate `account-models-browser-<run-id>-<attempt>` artifact is retained even
-on failure; the fixture remains UI/read evidence, not live provider qualification.
+on failure; the fixture remains controlled browser integration evidence, not live
+provider qualification.
+
+The two `Codex import` cases submit a fixed synthetic refresh token or upload a
+synthetic `auth.json` file through the actual Connections dialog, Next server
+actions, PostgreSQL operation/source storage and installed Gateway SDK. They
+verify the committed account and metadata after a full reload. The refresh-token
+case also reconnects that same account, checks its unchanged source/account
+identity and increased authorization epoch, and verifies both applied operations.
+Each case enables the fixture's import methods only for its own duration; the
+existing default `create: false` Codex capability remains the default. The
+fixture accepts only the exact synthetic inputs, keeps no credential or digest,
+and returns owner-scoped metadata. Page/storage/response/log leak checks include
+both inputs and textareas. These cases do not perform Native credential exchange
+or attest real provider credentials; the separate joined Native/Gateway gate owns
+that proof.
 
 The same run combines the existing `--api-key-storage-fixture`,
 `--subscription-fixture`, `--account-models-fixture` and `--catalog-fixture` modes.

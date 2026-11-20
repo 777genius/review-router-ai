@@ -298,6 +298,8 @@ export async function startGatewayFixture(input: {
     log: string[],
   ): Promise<void> {
     const requestUrl = new URL(request.url ?? "/", url);
+    let body: Promise<Record<string, unknown>> | undefined;
+    const read = () => (body ??= readJson(request));
     const route = `${request.method ?? "GET"} ${requestUrl.pathname}`;
     log.push(route);
     subscriptions?.observe(request.method ?? "GET", requestUrl.pathname);
@@ -312,26 +314,24 @@ export async function startGatewayFixture(input: {
       request.method === "POST"
     ) {
       const result = await issuer(
-        await readJson(request),
+        await read(),
         request.headers["x-reviewrouter-probe-proof"],
       );
       send(response, result.status, result.body);
       return;
     }
     if (accountModels && requestUrl.pathname === "/__account-models-fixture") {
-      if (request.method === "POST")
-        accountModels.configure(await readJson(request));
+      if (request.method === "POST") accountModels.configure(await read());
       send(response, 200, accountModels.stats());
       return;
     }
     if (subscriptions && requestUrl.pathname === "/__subscription-fixture") {
-      if (request.method === "POST")
-        subscriptions.configure(await readJson(request));
+      if (request.method === "POST") subscriptions.configure(await read());
       send(response, 200, subscriptions.stats());
       return;
     }
     if (limits && requestUrl.pathname === "/__limits-fixture") {
-      if (request.method === "POST") limits.configure(await readJson(request));
+      if (request.method === "POST") limits.configure(await read());
       send(response, 200, limits.stats());
       return;
     }
@@ -339,7 +339,7 @@ export async function startGatewayFixture(input: {
     if (process.argv.includes("--probe-fixture")) {
       if (requestUrl.pathname === "/__probe-fixture") {
         if (request.method === "POST") {
-          const config = await readJson(request);
+          const config = await read();
           probeMode = String(config.mode ?? "ok");
         }
         send(response, 200, { ...probeStats, mode: probeMode });
@@ -351,7 +351,7 @@ export async function startGatewayFixture(input: {
         request.headers.authorization ===
           `Bearer ${input.secrets.personalControlToken}`
       ) {
-        const body = await readJson(request);
+        const body = await read();
         const refs = body.accountRefs as string[];
         const account = accounts.find(
           (item) => item.accountRef === refs?.[0] && item.state === "active",
@@ -406,7 +406,7 @@ export async function startGatewayFixture(input: {
           send(response, 403, safeError("forbidden", "probe-auth"));
           return;
         }
-        const body = await readJson(request);
+        const body = await read();
         if (match[2] === "close") {
           probeStats.closes++;
           send(response, 200, {
@@ -493,8 +493,11 @@ export async function startGatewayFixture(input: {
               tools: { allowed: ["function"], default: "function" },
             },
           ],
-          methods: profile.methods,
-          accountInfo: false,
+          methods:
+            profile.profileId === CODEX_MODEL_PROFILE && accountModels
+              ? accountModels.methods()
+              : profile.methods,
+          accountInfo: profile.profileId === CODEX_MODEL_PROFILE,
           limitsContract: profile.limitsContract,
           availability: "enabled",
         })),
@@ -503,10 +506,31 @@ export async function startGatewayFixture(input: {
     }
     if (
       accountModels &&
+      requestUrl.pathname === "/v1/account-info/read" &&
+      request.method === "POST"
+    ) {
+      const result = accountModels.info(await read());
+      send(response, result.status, result.body);
+      return;
+    }
+    if (
+      accountModels &&
+      request.method === "POST" &&
+      (requestUrl.pathname === "/v1/accounts" ||
+        /^\/v1\/accounts\/[^/]+\/reconnect$/.test(requestUrl.pathname))
+    ) {
+      const result = accountModels.import(requestUrl.pathname, await read());
+      if (result) {
+        send(response, result.status, result.body);
+        return;
+      }
+    }
+    if (
+      accountModels &&
       requestUrl.pathname === "/v1/account-models/read" &&
       request.method === "POST"
     ) {
-      const body = await readJson(request);
+      const body = await read();
       const account = accounts.find(
         (row) => row.accountRef === body.accountRef,
       );
@@ -536,7 +560,7 @@ export async function startGatewayFixture(input: {
       const result = await subscriptions.handle(
         request.method ?? "GET",
         requestUrl.pathname,
-        () => readJson(request),
+        read,
       );
       if (result) {
         send(response, result.status, result.body);
@@ -547,7 +571,7 @@ export async function startGatewayFixture(input: {
       const result = await limits.handle(
         request.method ?? "GET",
         requestUrl.pathname,
-        () => readJson(request),
+        read,
       );
       if (result) {
         send(response, result.status, result.body);
@@ -584,7 +608,8 @@ export async function startGatewayFixture(input: {
         send(response, 200, {
           ...account,
           authKind:
-            account.profileId === "grok-subscription-responses-oauth-v1"
+            account.profileId === "grok-subscription-responses-oauth-v1" ||
+            account.profileId === CODEX_MODEL_PROFILE
               ? "oauth"
               : "api_key",
           resumeCustody:
@@ -639,6 +664,11 @@ export async function startGatewayFixture(input: {
       /^\/v1\/operations\/([A-Za-z0-9_-]+)$/,
     );
     if (operationMatch && request.method === "GET") {
+      const operation = accountModels?.operation(operationMatch[1]!);
+      if (operation) {
+        send(response, 200, operation);
+        return;
+      }
       send(response, 200, {
         operationRef: operationMatch[1],
         state: "applied",
@@ -655,7 +685,7 @@ export async function startGatewayFixture(input: {
       requestUrl.pathname === "/v1/policy-fences" &&
       request.method === "POST"
     ) {
-      const body = await readJson(request);
+      const body = await read();
       send(response, 200, {
         operationRef: String(body.operationId ?? "rr-e2e-fence"),
         state: "applied",
@@ -666,7 +696,7 @@ export async function startGatewayFixture(input: {
       /^\/v1\/accounts\/([A-Za-z0-9_-]+)\/disable$/,
     );
     if (disableMatch && request.method === "POST") {
-      const body = await readJson(request);
+      const body = await read();
       const account = accounts.find(
         (item) => item.accountRef === disableMatch[1],
       );

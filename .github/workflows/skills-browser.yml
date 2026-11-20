@@ -325,7 +325,7 @@ jobs:
       - name: Run provider connection and model browser scenarios
         id: account_models
         env:
-          ACCOUNTS_REFERENCE_E2E_GREP: dynamic Codex account models|public catalogs refresh|Add provider|subscription connections|model list updates itself
+          ACCOUNTS_REFERENCE_E2E_GREP: dynamic Codex account models|public catalogs refresh|Add provider|subscription connections|model list updates itself|Codex import
           DATABASE_URL: postgresql://fixture_owner@127.0.0.1:5433/review_router_accounts_reference_e2e_test?schema=public
           TMPDIR: ${{ github.workspace }}/tmp/accounts-reference-e2e/tmp
         run: |
@@ -367,7 +367,7 @@ jobs:
           assert.equal(runtime.externalNetworkAllowed, false);
           assert.equal(result.fixtureBoundary, API_KEY_STORAGE_FIXTURE_BOUNDARY);
           assert.equal(runtime.fixtureBoundary, API_KEY_STORAGE_FIXTURE_BOUNDARY);
-          assert.equal(result.tests.passed, 7);
+          assert.equal(result.tests.passed, 9);
           assert.equal(result.tests.failed, 0);
           assert.equal(result.tests.skipped, 0);
           assert.deepEqual(result.tests.failures, []);
@@ -384,6 +384,8 @@ jobs:
             'Add provider connects an API-key account in place and saves it with its model',
             'Add provider signs in to Grok in place and selects the new account',
             'Add provider resets unsubmitted credentials when switching providers and preserves existing Codex without enrollment',
+            'Codex import refresh_token submits and reconnects through real server actions',
+            'Codex import oauth_auth_json submits through real server actions',
             'an NVIDIA account\'s model list updates itself when it lapses, with Try again only after a failure',
             'dynamic Codex account models work in provider edit and add with exact binding refresh and save validation',
             'public catalogs refresh direct providers, preserve the selected ID, and never test a connection automatically',

@@ -7,6 +7,7 @@ import type {
 } from "../../src/server/account-gateway-accounts";
 import { accountModelCatalogOutOfDate } from "../../src/features/provider-setup/account-model-catalog-freshness";
 import { StatusLine, updatedAgo } from "./status-line";
+import { AccountMetadataLine } from "./account-metadata-line";
 import type { GatewayModelAccountsRefresh } from "./gateway-model-account-options";
 import {
   publicCatalogRefreshFailed,
@@ -32,7 +33,7 @@ type CatalogStatusProps = {
   publicCatalog?: ProviderModelCatalogState | null;
 };
 
-/** Discovery state belongs to the selected binding, including an empty result. */
+/** Native facts and discovery state belong to the selected binding. */
 export function GatewayModelCatalogStatus(props: CatalogStatusProps) {
   return (
     <CatalogStatus
@@ -125,6 +126,7 @@ function CatalogStatus({
   }
   return (
     <div className="grid gap-1 text-xs text-slate-400">
+      <AccountMetadataLine metadata={account?.metadata} />
       <StatusLine
         message={message}
         title={

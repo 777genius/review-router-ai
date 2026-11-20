@@ -193,7 +193,9 @@ export async function noSecrets(page: Page, secrets: readonly string[]) {
       location: location.href,
       markup: document.body.innerHTML,
       inputValues: Array.from(
-        document.querySelectorAll("input"),
+        document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+          "input, textarea",
+        ),
         (input) => input.value,
       ),
     }),
