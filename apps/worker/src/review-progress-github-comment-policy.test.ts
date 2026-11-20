@@ -224,7 +224,7 @@ describe("Review progress GitHub comment policy", () => {
   it("rejects a Link without the requested 100-comment window when issue-scoped", () => {
     const expected = ["/repos/acme/rocket/issues/42/comments"];
     const unbounded =
-      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"';
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next"';
     const bounded =
       '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"';
     expect(commentPageLinks({ link: unbounded }, 1, expected)).toEqual({
