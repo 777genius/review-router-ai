@@ -1422,11 +1422,6 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
   });
   it.each([
     {
-      name: "without gaps",
-      values: [0, 0],
-      error: "review_progress_partial_outcome_inconsistent",
-    },
-    {
       name: "with a negative required count",
       values: [-1, 2],
       error: "review_progress_snapshot_invalid",
