@@ -903,6 +903,10 @@ it("companion local unpaid admission consumes one reservation and one SDK reques
         companionContext,
       ),
     ).rejects.toMatchObject({
+      // The runtime treats admission_limited + not_dispatched as a terminal
+      // admission refusal, so the code it acts on must stay generic here.
+      code: "companion_request_failed",
+      failureCause: "admission_limited",
       requestRef: "stored-companion-native-ref",
       effect: "not_dispatched",
     });
@@ -1109,8 +1113,9 @@ it.each([403, 503])(
           companionContext,
         ),
       ).rejects.toMatchObject({
-        // The Gateway's closed refusal code, not a generic relay code.
-        code: "forbidden",
+        // The code callers act on is unchanged; the Gateway cause rides next to it.
+        code: "companion_request_failed",
+        failureCause: "forbidden",
         statusCode: 502,
         effect: "effect_unknown",
         requestRef: "stored-companion-native-ref",
@@ -1179,7 +1184,8 @@ it("companion distinguishes local authority refusal before the SDK POST", async 
         companionContext,
       ),
     ).rejects.toMatchObject({
-      code: "authorization_denied",
+      code: "companion_request_failed",
+      failureCause: "authorization_denied",
       statusCode: 502,
       effect: "effect_unknown",
       requestRef: "stored-companion-native-ref",
@@ -1229,7 +1235,8 @@ it("companion settles its refusal even when the diagnostic sink throws", async (
         companionContext,
       ),
     ).rejects.toMatchObject({
-      code: "forbidden",
+      code: "companion_request_failed",
+      failureCause: "forbidden",
       statusCode: 502,
       effect: "effect_unknown",
     });

@@ -2,11 +2,11 @@
 
 - Task ID: `2026-11-20-relay-companion-real-code`
 - Goal: when a companion (OCR and other Account Gateway model) request fails
-  inside the SaaS relay, the runtime and the API log get the closed cause
-  (Gateway code such as `upstream_failure` or `forbidden`, a local
-  `authorization_denied`, provider quota, otherwise `relay_unknown`) instead
-  of the generic `companion_request_failed` that runtime logs showed as
-  `unrecognized`.
+  inside the SaaS relay, its closed cause (a Gateway code such as
+  `upstream_failure` or `forbidden`, a local refusal such as
+  `authorization_denied`, otherwise `relay_unknown`) is reported next to the
+  unchanged generic `companion_request_failed`: as `cause` in the error body
+  and as `relayCode` in the API log.
 - Affected target: API only (`apps/api/src/review-run-gateway-relay.ts`).
   Web, worker, Gateway, native, the database and the public Action are
   unchanged.
@@ -30,22 +30,17 @@ observed to be absent. Use the [status contract](README.md#status-contract).
 
 ## What changes at runtime
 
-- Only the code in the relay's error body changes, and the companion failure
-  log line gains `relayCode`. Status stays 502, the effect is the one the relay
-  already settled (`effect_unknown`, or `not_dispatched` for a local admission
-  limit), and no `failureScope` or concurrency group is passed on. Retries,
-  settlement, usage and run outcome are unchanged.
-- The runtime already lists the codes this path produces in practice
-  (Gateway codes, `authorization_denied`, `gateway_unavailable`,
-  `relay_unknown`; see `ocr-review-failure-diagnostic.ts` and `observeRelay` in
-  `action.ts`), so "Managed OCR failure" lines show the real code with the
-  current Action. A rarer RR-local code still shows as `unrecognized` there but
-  is in the API log. One visible difference: an NVIDIA rejection that the
-  Gateway reports as `upstream_failure` now arrives with that code and
-  `effect_unknown`, so the summary uses the
-  existing "upstream failure, outcome unknown" notice instead of the generic
-  "request outcome unknown" one (plan 71 wording, no new text).
-- `companion_request_failed` is no longer emitted.
+- The error body gains an optional `cause` field and the companion failure log
+  line gains `relayCode`. The `code`, status 502, effect, `failureScope` and
+  provider quota are exactly as before.
+- The code is deliberately not replaced: the runtime stops retrying on
+  `admission_limited` with `not_dispatched`, and the relay itself scopes a
+  failure to the allocation for codes such as `model_dispatch_budget_exhausted`.
+  Keeping `code` means retries, settlement, usage, scope and run outcome cannot
+  change.
+- The current Action ignores unknown body fields, so run logs still show
+  `unrecognized` for these failures; the cause is in the API log, matched by
+  `requestRef`. Showing `cause` in the run log needs a later Action change.
 
 ## Applicability and rollout
 
@@ -54,9 +49,8 @@ Ordinary API image rollout. Rides in bundle 3, NOT deployed.
 ## Verification and completion
 
 After the rollout, read-only: the next companion failure in the API log
-(`review_run_companion_gateway_request_failed`) carries `relayCode`, and the
-matching run log line "Managed OCR failure" shows that code instead of
-`unrecognized`.
+(`review_run_companion_gateway_request_failed`) carries `relayCode`, matched to
+the run by `requestRef`.
 
 ## Retry and rollback
 

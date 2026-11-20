@@ -121,6 +121,9 @@ class RelayFailure extends Error {
     readonly failureScope?: "reviewer" | "allocation" | "run",
     readonly concurrencyGroupId?: string,
     readonly providerQuota?: ProviderQuota,
+    /** Closed cause behind a generic code, reported next to it so callers
+     * that act on `code` keep their behaviour. */
+    readonly failureCause?: string,
   ) {
     super(code);
   }
@@ -1102,8 +1105,9 @@ export function createReviewRunGatewayRelay(input: {
         },
       };
     } catch (error) {
-      // The refusal keeps its closed cause (Gateway code, local authority
-      // refusal, provider quota); status and effect stay those of this path.
+      // Report the closed cause (Gateway code, local refusal, otherwise
+      // relay_unknown) next to the unchanged generic code: callers classify,
+      // retry and scope on `code`, so it must stay what it was.
       const cause = safeFailure(error);
       emitRequestFailureDiagnostic(
         error,
@@ -1129,15 +1133,20 @@ export function createReviewRunGatewayRelay(input: {
         }
       } else await unknown();
       dispose();
+      const providerQuota = gatewayProviderQuota(error);
+      const code = providerQuota
+        ? "provider_quota_exhausted"
+        : "companion_request_failed";
       throw new RelayFailure(
-        cause.code,
+        code,
         502,
         failureEffect,
         requestRef,
         undefined,
         undefined,
         undefined,
-        cause.providerQuota,
+        providerQuota,
+        cause.code === code ? undefined : cause.code,
       );
     }
   }
@@ -1745,6 +1754,7 @@ export function createReviewRunGatewayRelay(input: {
           allocationFailure ? "allocation" : "reviewer",
           lane.reviewer.concurrencyGroupId,
           providerQuota,
+          failure.failureCause,
         );
       }
     } catch (error) {
@@ -2198,6 +2208,9 @@ export async function registerReviewRunGatewayRelayRoutes(
                 ...(failure.dispatch ? { dispatch: failure.dispatch } : {}),
                 ...(failure.providerQuota
                   ? { providerQuota: failure.providerQuota }
+                  : {}),
+                ...(failure.failureCause
+                  ? { cause: failure.failureCause }
                   : {}),
               },
             });
