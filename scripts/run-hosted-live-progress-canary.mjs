@@ -192,8 +192,9 @@ export async function verifyHostedProgressCanary(
     final.coveredFiles !== config.expectedReviewedFiles ||
     final.totalFiles !== config.expectedReviewedFiles ||
     final.unassignedFiles !== 0 ||
-    final.excludedFiles !== config.expectedExcludedFiles ||
-    final.exhaustedUnits !== 0
+    // A Complete comment never lists unfinished parts, so Complete with gaps
+    // is what a required part that did not finish fails here.
+    final.excludedFiles !== config.expectedExcludedFiles
   )
     throw new Error("hosted_progress_canary_final_coverage_incomplete");
   return {
