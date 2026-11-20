@@ -676,7 +676,7 @@ describe("daily request limit notice", () => {
               models: [free, paid],
               connection: {
                 ...connection,
-                provider: "openrouter",
+                provider: "openrouter" as const,
                 modelSettings: [free, paid].map((modelId) => ({
                   ...connection.modelSettings[0]!,
                   modelId,
