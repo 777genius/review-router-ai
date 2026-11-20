@@ -665,7 +665,7 @@ describe("adding a provider and connecting its account in one dialog", () => {
   it("keeps the dialog's other views closed while a sign-in waits", async () => {
     view = {
       ...view,
-      target: "repository",
+      target: "repositories",
       repositories: [
         {
           id: "repo_1",

@@ -11,10 +11,10 @@ import {
 } from "react";
 import {
   QueryClient,
-  type QueryKey,
   useInfiniteQuery,
   useQueries,
 } from "@tanstack/react-query";
+import { rereadQueries } from "./reread-queries";
 import type {
   AccountProfileView,
   AccountsPage,
@@ -70,14 +70,15 @@ export function useCurrentGatewayModelAccountsCache() {
             client: context.client,
             async refresh() {
               const viewer = `${context.scope.split(":workspace:")[0]}:workspace:`;
-              const predicate = ({ queryKey: key }: { queryKey: QueryKey }) =>
-                (key[0] === "account-options" ||
-                  key[0] === "account-option" ||
-                  key[0] === "accounts-overview") &&
-                typeof key[1] === "string" &&
-                key[1].startsWith(viewer);
-              await context.client.cancelQueries({ predicate });
-              await context.client.invalidateQueries({ predicate });
+              await rereadQueries(
+                context.client,
+                (key) =>
+                  (key[0] === "account-options" ||
+                    key[0] === "account-option" ||
+                    key[0] === "accounts-overview") &&
+                  typeof key[1] === "string" &&
+                  key[1].startsWith(viewer),
+              );
             },
           }
         : null,

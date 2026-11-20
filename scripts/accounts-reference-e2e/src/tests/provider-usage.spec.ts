@@ -166,6 +166,10 @@ test("provider usage overview keeps complete period totals, charts, models and r
     ) => {
       const response = await context.request.get(
         `/api/dashboard/provider-usage?${new URLSearchParams({ ...Object.fromEntries(query), ...extra })}`,
+        // `next dev` compiles the route on its first read: about 1 s on an
+        // idle host, 2-6 s on two cores, over 10 s on a busy CI runner. The
+        // navigation timeout covers the same compile for pages.
+        { timeout: 30_000 },
       );
       expect(response.status()).toBe(200);
       expect(response.headers()["cache-control"]).toBe("private, no-store");
