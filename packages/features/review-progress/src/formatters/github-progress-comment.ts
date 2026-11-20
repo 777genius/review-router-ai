@@ -55,8 +55,7 @@ export function formatGithubProgressComment(
   const complete =
     snapshot.phase === "terminal" && snapshot.terminal === "complete";
   const incomplete =
-    snapshot.phase === "terminal" &&
-    snapshot.terminal === "complete_with_gaps";
+    snapshot.phase === "terminal" && snapshot.terminal === "complete_with_gaps";
   const partsNotNeeded = complete ? counts.requiredCancelled : 0;
   const partsTotal = complete ? counts.requiredCompleted : counts.requiredTotal;
   const multiPart = partsTotal >= 2;

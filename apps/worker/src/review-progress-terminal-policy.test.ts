@@ -42,9 +42,9 @@ describe("Review progress terminal policy", () => {
         requiredCancelled: 0,
       },
     };
-    expect(
-      terminalSnapshot(snapshot, "complete_with_gaps", now),
-    ).toMatchObject({ terminal: "complete_with_gaps" });
+    expect(terminalSnapshot(snapshot, "complete_with_gaps", now)).toMatchObject(
+      { terminal: "complete_with_gaps" },
+    );
   });
 
   it("preserves the original terminal snapshot projection", () => {

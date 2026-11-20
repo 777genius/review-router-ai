@@ -28,7 +28,9 @@ function publishedArtifact(
 }
 
 /** One completed execution whose publication succeeded, with all parts done. */
-function settledCompletedReview(artifact: ReturnType<typeof publishedArtifact>) {
+function settledCompletedReview(
+  artifact: ReturnType<typeof publishedArtifact>,
+) {
   const progressUpdate = vi.fn(async () => ({}));
   const publicationUpdate = vi.fn(async () => ({}));
   const store = new PrismaReviewProgressPublicationStore({
