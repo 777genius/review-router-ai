@@ -11,7 +11,7 @@
   selected or installed.
 - Dependencies: [expired turn recovery](2026-11-20-expired-turn-recovery.md)
   (#935). The orchestrator reports it live on production since 2026-11-20
-  00:08 UTC; that record is still `pending` until the operator fills it in.
+  00:08 UTC; recorded in the [bundled rollout](2026-11-19-progress-comments-enabled.md).
 - Last updated: 2026-11-20.
 
 ## Environment status
