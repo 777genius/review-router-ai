@@ -8,6 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { parseCliOptions } from "./cli.ts";
 import { readSourceRevision } from "./source-revision.ts";
+import { warmAccountsRoutes } from "./warm-accounts-routes.ts";
 import { warmNextClientScripts } from "./warm-next-client-scripts.ts";
 import {
   BASELINE_REVISION,
@@ -339,23 +340,7 @@ async function verifyBoot(
     // the existing setup budget so a cold limits route cannot stall summaries.
     // Missing query fields return before account access; browser assertions
     // still require the actual authenticated responses within their own budget.
-    const signal = AbortSignal.timeout(120_000);
-    for (const route of ["access", "limits"] as const) {
-      const response = await fetch(
-        `${appUrl}/api/dashboard/accounts/${route}`,
-        {
-          redirect: "error",
-          signal,
-        },
-      );
-      const result: unknown = await response.json();
-      if (
-        response.status !== 200 ||
-        JSON.stringify(result) !== '{"status":"invalid"}'
-      )
-        throw new Error(`accounts_reference_e2e_${route}_route_warmup_failed`);
-      checks.push(`accounts-${route}-route-warmed`);
-    }
+    checks.push(...(await warmAccountsRoutes(appUrl)));
   }
   if (process.argv.includes("--review-runtime-fixture")) {
     const signal = AbortSignal.timeout(120_000);

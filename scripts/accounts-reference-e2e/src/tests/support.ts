@@ -2,6 +2,7 @@ import type { BrowserContext, Locator, Page, Response } from "@playwright/test";
 import { expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { warmAccountsRoutes } from "../warm-accounts-routes.ts";
 
 const observedRequests = new WeakMap<
   Page,
@@ -111,6 +112,11 @@ async function navigateAccounts(
   workspace: string,
   navigate: () => Promise<unknown>,
 ): Promise<void> {
+  // Next dev may evict boot-warmed routes between scenarios. Prepare only the
+  // subscription fixture before navigation; the real inventory keeps its own
+  // unchanged readiness deadline below.
+  if (process.env.ACCOUNTS_REFERENCE_E2E_SUBSCRIPTIONS === "1")
+    await warmAccountsRoutes(process.env.ACCOUNTS_REFERENCE_E2E_BASE_URL);
   // Capture fast replies during navigation, but start the readiness deadline
   // only after the new page is rendered. Navigation has its own bounded wait.
   let personalHydrated = !workspace.startsWith("rr-e2e-personal-");
