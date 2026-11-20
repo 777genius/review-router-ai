@@ -46,18 +46,31 @@ export function formatGithubProgressComment(
   snapshot: ProgressSnapshot,
 ): string {
   const { counts } = snapshot;
-  // A complete review counts only the parts that covered it. An ordered
-  // fallback completes once one reviewer covers the review: the parts of later
-  // reviewers were not needed. A part that did not finish there (an optional
-  // part such as the PR description, or a reviewer that another one covered:
-  // an ordered fallback or a quota skip, plans 67 and 69) left no gap in the
-  // execution's coverage verdict, so a Complete comment does not list it.
-  const complete =
-    snapshot.phase === "terminal" && snapshot.terminal === "complete";
-  const partsNotNeeded = complete ? counts.requiredCancelled : 0;
-  const partsTotal = complete ? counts.requiredCompleted : counts.requiredTotal;
+  // A review the server covered counts only the parts that covered it. An
+  // ordered fallback completes once one reviewer covers the review: the parts
+  // of later reviewers were not needed. A part that did not finish there (an
+  // optional part such as the PR description, or a reviewer that another one
+  // covered: an ordered fallback or a quota skip, plans 67 and 69) left no gap,
+  // so it is not listed as unfinished. The summary can still call such a
+  // review incomplete (for example unverified native spans).
+  const terminal = snapshot.phase === "terminal";
+  const covered =
+    terminal &&
+    (snapshot.terminal === "complete" ||
+      (snapshot.terminal === "complete_with_gaps" &&
+        snapshot.requiredCoverageComplete === true));
+  const incomplete = terminal && snapshot.terminal === "complete_with_gaps";
+  const partsNotNeeded = covered ? counts.requiredCancelled : 0;
+  const partsTotal = covered ? counts.requiredCompleted : counts.requiredTotal;
   const multiPart = partsTotal >= 2;
   const details = [
+    // Same verdict as the summary's "Review incomplete"; parts can all be
+    // finished while some findings could not be verified.
+    ...(incomplete
+      ? [
+          "Some of the review could not be finished or verified. The review summary explains why.",
+        ]
+      : []),
     ...(multiPart
       ? partsProgressLines(counts.requiredCompleted, partsTotal)
       : []),
@@ -73,7 +86,7 @@ export function formatGithubProgressComment(
     ...nonZeroLine("Parts finished after a retry", counts.recovered),
     ...nonZeroLine(
       "Parts that could not be finished",
-      complete ? 0 : counts.exhausted,
+      covered ? 0 : counts.exhausted,
     ),
   ];
   return [
@@ -120,7 +133,7 @@ function phaseLabel(phase: ProgressPhase, terminal: ProgressTerminal): string {
   return {
     none: "Finished",
     complete: "Complete",
-    complete_with_gaps: "Complete with gaps",
+    complete_with_gaps: "Review incomplete",
     failed: "Failed",
     cancelled: "Cancelled",
     superseded: "Superseded",

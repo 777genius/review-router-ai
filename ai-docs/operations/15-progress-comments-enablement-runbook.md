@@ -65,7 +65,7 @@
 **Шаги и наблюдение.** Отдельных логов успеха у publisher нет: счётчики `progress*` в лог не выводятся. Ошибки видны в строке `ReviewRouter worker phases failed` с фазами `review_v2.progress_*`, коды — только в `lastErrorCode` в БД.
 
 1. После apply: worker running, 0 рестартов, нет `phases failed` с `review_v2.progress_*`. Пока нет нового review, у строк канарейки не меняются `lastErrorCode` и `updatedAt`.
-2. Один review в канарейке: новый PR или новый коммит в переиспользуемый PR 135. Ровно один комментарий с маркером `<!-- review-router-live-progress -->`. Он обновляется во время review (до 90 с) и приходит в Complete или Complete with gaps примерно через 30 с после App summary. В строке `publishedVersion = desiredVersion`, `lastErrorCode` и `failureCount` пусты.
+2. Один review в канарейке: новый PR или новый коммит в переиспользуемый PR 135. Ровно один комментарий с маркером `<!-- review-router-live-progress -->`. Он обновляется во время review (до 90 с) и приходит в Complete или Review incomplete (тот же вердикт, что в summary) примерно через 30 с после App summary. В строке `publishedVersion = desiredVersion`, `lastErrorCode` и `failureCount` пусты.
 3. Новый коммит посреди review: тот же комментарий обновляется на месте, дубля нет.
 4. 24 ч, SQL раз в несколько часов. По канарейке: `lastErrorCode`, `failureCount` и возраст строк с `desiredVersion > publishedVersion`. Вне канарейки ни одной строки с `lastPublishedAt` или `commentId` после включения.
 

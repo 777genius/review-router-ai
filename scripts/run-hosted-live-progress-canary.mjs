@@ -22,7 +22,7 @@ const pinnedTarget = Object.freeze({
 const expectedActionReleaseTag = "v1.0.113";
 const terminalPhases = new Set([
   "Complete",
-  "Complete with gaps",
+  "Review incomplete",
   "Failed",
   "Cancelled",
   "Superseded",
@@ -192,7 +192,7 @@ export async function verifyHostedProgressCanary(
     final.coveredFiles !== config.expectedReviewedFiles ||
     final.totalFiles !== config.expectedReviewedFiles ||
     final.unassignedFiles !== 0 ||
-    // A Complete comment never lists unfinished parts, so Complete with gaps
+    // A Complete comment never lists unfinished parts, so Review incomplete
     // is what a required part that did not finish fails here.
     final.excludedFiles !== config.expectedExcludedFiles
   )
@@ -683,7 +683,7 @@ function phaseRank(phase) {
       "Assembling results": 2,
       "Publishing results": 3,
       Complete: 4,
-      "Complete with gaps": 4,
+      "Review incomplete": 4,
       Failed: 4,
       Cancelled: 4,
       Superseded: 4,

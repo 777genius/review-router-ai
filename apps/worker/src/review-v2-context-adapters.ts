@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   ReviewCoverageState,
   ReviewExecutionState,
+  projectionClaimsCompleteCoverage,
   type FinalizedReviewProjectionArtifact,
   type ReviewExecutionQueryPort,
   type ReviewExecutionSnapshot,
@@ -613,8 +614,7 @@ export function reviewSnapshotSourceCoverage(
   }
   const projection = parseCanonicalObject(artifact.projectionEnvelopeJson);
   return projection.envelopeVersion === "review_projection.v1" &&
-    isRecord(projection.coverage) &&
-    projection.coverage.state === "complete"
+    projectionClaimsCompleteCoverage(projection)
     ? ReviewCoverageState.Completed
     : ReviewCoverageState.Partial;
 }

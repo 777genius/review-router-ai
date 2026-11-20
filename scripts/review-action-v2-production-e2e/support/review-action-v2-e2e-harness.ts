@@ -52,7 +52,10 @@ import {
 import { historyChangedEventType } from "../../../packages/features/review-history/src/index.js";
 import { createReviewHistoryChangedHandler } from "../../../apps/worker/src/review-history-worker-runtime.js";
 import { ReviewV2RequestIngressOutbox } from "../../../apps/api/src/review-v2-request-ingress-outbox.js";
-import { ClaimReviewPublicationStatus } from "../../../packages/features/review-publishing/src/v2/index.js";
+import {
+  ClaimReviewPublicationStatus,
+  reviewSummaryIncompleteStatusMarker,
+} from "../../../packages/features/review-publishing/src/v2/index.js";
 import { PrismaReviewPublicationRepository } from "../../../packages/features/review-publishing/src/v2/composition/index.js";
 import {
   canonicalJson,
@@ -1458,11 +1461,14 @@ export class ReviewActionV2E2EHarness {
         lifecycle: [],
         summary: {
           allClear: !allowPartial && !hasFindings,
-          body: hasFindings
-            ? `Investigation Findings\n${findings.map((finding) => `${finding.title}: ${finding.message}`).join("\n")}`
-            : allowPartial
-              ? "Partial review"
-              : "Review complete",
+          // The Action marks an incomplete summary with its status marker.
+          body: `${allowPartial ? `${reviewSummaryIncompleteStatusMarker}\n` : ""}${
+            hasFindings
+              ? `Investigation Findings\n${findings.map((finding) => `${finding.title}: ${finding.message}`).join("\n")}`
+              : allowPartial
+                ? "Partial review"
+                : "Review complete"
+          }`,
           // Same family as the runtime marker, so the sticky summary applies.
           marker: `reviewrouter:summary:v2:${flow.reviewRevisionHash}`,
           occurrenceCounts: {

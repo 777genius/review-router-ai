@@ -95,6 +95,12 @@ export type ProgressSnapshot = {
   readonly fileCoverage: FileCoverage;
   /** Non-secret GitHub Actions identity used to causally bind hosted progress. */
   readonly sourceIdentity?: ProgressSourceIdentity | undefined;
+  /**
+   * Set on a terminal snapshot when the server covered every required part,
+   * also when the published summary still says the review is incomplete. The
+   * comment then counts only the parts the review needed.
+   */
+  readonly requiredCoverageComplete?: true | undefined;
 };
 
 export type ComputeProgressSnapshotInput = {
@@ -266,13 +272,16 @@ function assertLifecycle(
 }
 
 /**
- * Required counts a "complete" outcome may show. The execution's coverage
- * verdict owns completeness: an ordered fallback completes once one reviewer
- * covers the review, leaving later reviewers' parts cancelled or a failed
- * earlier reviewer's parts exhausted. Complete therefore needs every required
- * part settled and at least one finished, not every required part finished.
+ * Required counts a Complete or Complete-with-gaps outcome may show. The
+ * counts never decide between the two: the execution's coverage verdict and
+ * the published review's coverage claim do. An ordered fallback completes with
+ * later reviewers' parts cancelled or a failed reviewer's parts exhausted, and
+ * a review can end incomplete with every part finished (for example when
+ * native spans could not be verified). Both outcomes therefore need every
+ * required part settled; Complete also needs at least one finished.
  */
-export function completeOutcomeCountsValid(
+export function settledOutcomeCountsValid(
+  terminal: Extract<ProgressTerminal, "complete" | "complete_with_gaps">,
   counts: Pick<
     ProgressCounts,
     | "requiredTotal"
@@ -287,7 +296,9 @@ export function completeOutcomeCountsValid(
     counts.requiredCancelled;
   return (
     settled === counts.requiredTotal &&
-    (counts.requiredTotal === 0 || counts.requiredCompleted > 0)
+    (terminal === "complete_with_gaps" ||
+      counts.requiredTotal === 0 ||
+      counts.requiredCompleted > 0)
   );
 }
 
@@ -303,13 +314,15 @@ function assertOutcomeCounts(
   ) {
     throw new Error("progress_partial_outcome_inconsistent");
   }
-  if (input.terminal === "complete" && !completeOutcomeCountsValid(counts)) {
+  if (
+    input.terminal === "complete" &&
+    !settledOutcomeCountsValid("complete", counts)
+  ) {
     throw new Error("progress_complete_outcome_inconsistent");
   }
   if (
     input.terminal === "complete_with_gaps" &&
-    (counts.requiredExhausted + counts.requiredCancelled === 0 ||
-      counts.requiredCompleted === counts.requiredTotal)
+    !settledOutcomeCountsValid("complete_with_gaps", counts)
   ) {
     throw new Error("progress_gap_outcome_inconsistent");
   }
