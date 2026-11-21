@@ -170,7 +170,12 @@ export class ReviewProgressGitHubGateway {
       );
     }
 
-    return this.settleUnchangedComment(input, canonical.id, duplicates);
+    return this.settleUnchangedComment(
+      input,
+      canonical.id,
+      duplicates,
+      desiredBody,
+    );
   }
 
   /** Reconcile ambiguous PATCH failures without deleting duplicate comments. */
@@ -221,6 +226,7 @@ export class ReviewProgressGitHubGateway {
     input: UpsertReviewProgressCommentInput,
     canonicalId: number,
     duplicates: readonly ReviewProgressComment[],
+    desiredBody: string,
   ): Promise<UpsertReviewProgressCommentResult> {
     const duplicate = duplicates[0];
     if (!duplicate) {
@@ -231,6 +237,30 @@ export class ReviewProgressGitHubGateway {
       };
     }
     await this.assertCurrentPullRequest(input);
+    // An offset scan cannot prove the canonical still exists at deletion time.
+    const verified = await this.includeVerifiedKnownComment(
+      { ...input, knownCommentId: canonicalId },
+      [],
+    );
+    if (verified[0]?.body !== desiredBody) {
+      throw failure(
+        "pagination_inconclusive",
+        "github_canonical_comment_changed_before_delete",
+        true,
+      );
+    }
+    // Do not delete a once-marked comment repurposed since the offset scan.
+    const duplicateNow = await this.includeVerifiedKnownComment(
+      { ...input, knownCommentId: duplicate.id },
+      [],
+    );
+    if (duplicateNow[0]?.body !== duplicate.body) {
+      throw failure(
+        "pagination_inconclusive",
+        "github_duplicate_comment_changed_before_delete",
+        true,
+      );
+    }
     try {
       await this.request(
         "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",

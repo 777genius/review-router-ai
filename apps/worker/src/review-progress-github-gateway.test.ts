@@ -251,6 +251,116 @@ describe("ReviewProgressGitHubGateway", () => {
     ]);
   });
 
+  it("blocks deletion when canonical disappeared after scan", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture([
+      { id: 4, body: desired },
+      { id: 7, body: `duplicate\n${marker}` },
+    ]);
+    const knownRoute = "GET /repos/{owner}/{repo}/issues/comments/{comment_id}";
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      if (route === knownRoute && parameters?.comment_id === 4) {
+        throw { status: 404 };
+      }
+      return fixture.request(route, parameters);
+    };
+
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      message: "github_canonical_comment_changed_before_delete",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("blocks deletion when canonical was edited after scan", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture([
+      { id: 4, body: desired },
+      { id: 7, body: `duplicate\n${marker}` },
+    ]);
+    const knownRoute = "GET /repos/{owner}/{repo}/issues/comments/{comment_id}";
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (route !== knownRoute || parameters?.comment_id !== 4) return response;
+      return {
+        ...response,
+        data: {
+          ...(response.data as Record<string, unknown>),
+          body: `changed\n${marker}`,
+        },
+      };
+    };
+
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      message: "github_canonical_comment_changed_before_delete",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("blocks deletion when duplicate disappeared after scan", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture([
+      { id: 4, body: desired },
+      { id: 7, body: `duplicate\n${marker}` },
+    ]);
+    const knownRoute = "GET /repos/{owner}/{repo}/issues/comments/{comment_id}";
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      if (route === knownRoute && parameters?.comment_id === 7) {
+        throw { status: 404 };
+      }
+      return fixture.request(route, parameters);
+    };
+
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      message: "github_duplicate_comment_changed_before_delete",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("blocks deletion when duplicate was edited but still marked", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture([
+      { id: 4, body: desired },
+      { id: 7, body: `duplicate\n${marker}` },
+    ]);
+    const knownRoute = "GET /repos/{owner}/{repo}/issues/comments/{comment_id}";
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (route !== knownRoute || parameters?.comment_id !== 7) return response;
+      return {
+        ...response,
+        data: {
+          ...(response.data as Record<string, unknown>),
+          body: `repurposed\n${marker}`,
+        },
+      };
+    };
+
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      message: "github_duplicate_comment_changed_before_delete",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("rechecks the PR head before deleting a duplicate", async () => {
     const desired = formatReviewProgressComment("working", marker);
     const fixture = githubFixture(
