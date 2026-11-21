@@ -299,6 +299,49 @@ describe("hosted live-progress canary", () => {
     ).toBe(0);
   });
 
+  it("reads an incomplete comment without a file count as a baseline", () => {
+    // An incomplete review with accepted parts drops the per-file count
+    // (plan 87); a canary run must still start from such a comment.
+    const body = formatGithubProgressComment(
+      computeProgressSnapshot({
+        generation: 1,
+        sourceIdentity: { sourceRunId: "123", sourceRunAttempt: "2" },
+        phase: "terminal",
+        terminal: "complete_with_gaps",
+        updatedAt: "2026-08-13T10:00:01.000Z",
+        slots: [
+          { slotId: "a", required: true, state: "accepted" },
+          { slotId: "b", required: true, state: "accepted" },
+        ],
+        assignmentManifest: {
+          paths: [
+            {
+              pathId: "covered",
+              disposition: "reviewable",
+              requiredCoveringSlotIds: ["a"],
+            },
+          ],
+        },
+      }),
+    );
+    expect(body).not.toContain("Files fully reviewed");
+    const parsed = parseProgressComment(comment(41, body), configFixture());
+    expect(parsed).toMatchObject({
+      phase: "Review incomplete",
+      coveredFiles: null,
+      totalFiles: null,
+    });
+    // A later comment with a count is not a monotonicity break.
+    expect(() =>
+      assertMonotonic(parsed, {
+        ...parsed,
+        updatedAt: "2026-08-13T10:00:05.000Z",
+        coveredFiles: 0,
+        totalFiles: 1,
+      }),
+    ).not.toThrow();
+  });
+
   it("proves one bot/app comment ID, dynamic updates and exact terminal coverage", async () => {
     const github = fakeGitHub();
     const comments = [
