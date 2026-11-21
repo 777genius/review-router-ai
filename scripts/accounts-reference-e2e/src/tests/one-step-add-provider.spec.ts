@@ -239,3 +239,92 @@ test("Add provider signs in to Grok in place and selects the new account", async
   await leaks.verify();
   await expectNetworkViolations(violations);
 });
+
+test("Add provider resets unsubmitted credentials when switching providers and preserves existing Codex without enrollment", async ({
+  page,
+  context,
+  request,
+}, info) => {
+  test.skip(
+    process.env.ACCOUNTS_REFERENCE_E2E_API_KEY_STORAGE !== "1" ||
+      process.env.ACCOUNTS_REFERENCE_E2E_ACCOUNT_MODELS !== "1",
+    "Requires API-key storage and account-model fixtures; no live credentials.",
+  );
+  test.setTimeout(240_000);
+  const violations: string[] = [];
+  const secret = "synthetic-unsent-one-step-key";
+  const leaks = captureSecretLeaks(page, [secret]);
+  await useViewerSession(context);
+  await installLoopbackOnlyNetworkGuard(page, violations);
+  const statsUrl = `${process.env.ACCOUNTS_REFERENCE_E2E_GATEWAY_URL}/__subscription-fixture`;
+  const before = await (await request.get(statsUrl)).json();
+
+  const dialog = await openNewProvider(page, FIXTURES.workspaces.orgAlpha);
+  const startUrl = page.url();
+  // The account-model fixture deliberately advertises create:false for Codex.
+  // Its existing authorized account remains selectable without a new sign-in.
+  await choose(page, "Provider", "Codex");
+  await choose(page, "Account", FIXTURES.sourceLabels.viewerPrimary);
+  await expect(
+    dialog.getByRole("combobox", { name: /^Account\b/ }),
+  ).toContainText(FIXTURES.sourceLabels.viewerPrimary);
+  await expect(
+    dialog.getByRole("region", { name: "Connect Codex", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    dialog.getByRole("button", { name: "New connection", exact: true }),
+  ).toHaveCount(0);
+
+  // Neither of these profiles has an account here, so the same embedded host
+  // stays mounted across the provider change. Each provider needs a fresh form.
+  await choose(page, "Provider", "Kimi Code");
+  const kimiForm = dialog.getByRole("region", {
+    name: "Connect Kimi Code",
+    exact: true,
+  });
+  const kimiKey = kimiForm.locator('input[name="credential"]');
+  await expect(kimiKey).toBeVisible();
+  await kimiKey.fill(secret);
+  await choose(page, "Provider", "MiMo Token Plan");
+  const mimoKey = dialog
+    .getByRole("region", { name: "Connect MiMo Token Plan", exact: true })
+    .locator('input[name="credential"]');
+  await expect(mimoKey).toBeVisible();
+  await expect(mimoKey).toHaveValue("");
+  await expect(kimiForm).toHaveCount(0);
+  await choose(page, "Provider", "Kimi Code");
+  await expect(kimiKey).toBeVisible();
+  await expect(kimiKey).toHaveValue("");
+  await noSecrets(page, [secret]);
+  await page.screenshot({
+    path: info.outputPath("one-step-provider-switch-cleared.png"),
+    fullPage: true,
+  });
+
+  await choose(page, "Provider", "Codex");
+  await choose(page, "Account", FIXTURES.sourceLabels.viewerPrimary);
+  await expect(
+    dialog.getByRole("combobox", { name: /^Account\b/ }),
+  ).toContainText(FIXTURES.sourceLabels.viewerPrimary);
+  await expect(
+    dialog.getByRole("region", { name: "Connect Codex", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    dialog.getByRole("button", { name: "New connection", exact: true }),
+  ).toHaveCount(0);
+  await expect(dialog.locator('input[name="credential"]')).toHaveCount(0);
+  expect(page.url()).toBe(startUrl);
+  const after = await (await request.get(statsUrl)).json();
+  for (const field of [
+    "connects",
+    "begins",
+    "completes",
+    "reconnects",
+    "deletes",
+    "operationIds",
+  ])
+    expect(after[field]).toEqual(before[field]);
+  await noSecrets(page, [secret]);
+  await leaks.verify();
+  await expectNetworkViolations(violations);
+});

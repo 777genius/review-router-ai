@@ -14,7 +14,7 @@
     "@aws-sdk/client-kms": "3.1111.0",
     "@aws-sdk/credential-providers": "3.1111.0",
     "@smithy/node-http-handler": "4.11.3",
-    "@777genius/subscription-runtime": "git+https://github.com/777genius/ar.git#83a7329f4383b05ac5c39356b79f82f029182d42",
+    "@777genius/subscription-runtime": "git+https://github.com/777genius/ar.git#c7543bc716411a5f899a790a735d09ed2530f779",
     "@openai/codex": "0.147.0",
     "@prisma/client": "^7.8.0",
     "fastify": "^5.10.0",

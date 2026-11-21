@@ -60,6 +60,20 @@ approves only the locked `esbuild@0.28.2` and `sharp@0.34.5` lifecycle scripts;
 these permissions do not extend to the application workspace. Do not pass
 `--ignore-workspace`: pnpm would also ignore this local build policy.
 
+`check` invokes the repository's `compiler-cli.ts --native` entrypoint with
+the pinned TypeScript 7.0.2 compiler and this directory's strict `tsconfig.json`.
+The root postinstall prepares its isolated `scripts/local-checks/native`
+installation. When installing root dependencies with `--ignore-scripts`, run
+`pnpm compiler:prepare` from the repository root before the harness check.
+Both Skills browser CI jobs perform the equivalent isolated installation
+explicitly in their typecheck step, then invoke the native entrypoint against
+the same harness project.
+
+The existing TypeScript 6.0.3 dependency remains available to Next's separate
+compiler API profile. A native harness check qualifies this harness's source;
+it does not qualify Next's compiler API or migrate the wider repository's
+compiler routes. See the [compiler profiles](../local-checks/compiler-README.md).
+
 Run from the repository root:
 
 ```bash
@@ -73,8 +87,9 @@ pnpm --dir scripts/accounts-reference-e2e run check
 pnpm --dir scripts/accounts-reference-e2e exec playwright test -c playwright.config.ts --list
 ```
 
-These commands install only inside `scripts/accounts-reference-e2e/` and cache
-only inside the repository-owned `tmp/`. They do not update the root lockfile.
+The harness install uses its own workspace and frozen lockfile; the root
+postinstall also prepares the isolated native compiler. Browser caches stay
+inside the repository-owned `tmp/`. These commands do not update lockfiles.
 
 ## Local isolated run
 
@@ -402,22 +417,56 @@ It seeds the current provider registry with a historical saved model. The
 browser verifies that the model remains visible, discovers an unseen model,
 rejects a stale model now offered only by the other account, refreshes only the
 selected account, saves its refreshed model, and adds the second account's
-model. This is an HTTP dependency fixture, not a live Codex/native proof.
+model. The same Add/Edit controls show the authorized selected account's native
+email, plan, subscription end date and separate credential expiry in both themes.
+These facts come from the installed SDK's account-info read against the fixture.
+This is an HTTP dependency fixture, not a live Codex/native proof.
 Use the existing explicit `--database-url` and `--browser-executable` options
 where PostgreSQL or a preinstalled Chromium is required.
 
-The Linux `catalog-browser` CI job runs the account-scoped Codex scenario and the
-direct public-catalog refresh scenario after its unchanged 12-case Skills catalog
-acceptance and eight-static/one-AI receipt checks. These two model scenarios share
+The Linux `catalog-browser` CI job runs the account-scoped Codex scenario, the
+direct public-catalog refresh scenario, three inline Add provider scenarios and
+the subscription connections and model-list update scenarios, plus two Codex
+credential import scenarios,
+after its unchanged 12-case Skills catalog acceptance and native scanner receipt
+checks. These nine scenarios share
 a second fresh service with the same pinned PostgreSQL 17 image on loopback port
 5433 and their own work directory. They run serially with separate browser contexts;
 the direct scenario closes without saving a provider. CI preserves and validates
 only Next's generated `next-env.d.ts` import change between runs, rejects other
 tracked changes, and requires an exact-head, empty-source-delta receipt with fresh
-migrations, successful boot, both named scenarios passing once, zero failures/skips,
+migrations, successful boot, all nine named scenarios passing once, zero failures/skips,
 and no external network.
 Its separate `account-models-browser-<run-id>-<attempt>` artifact is retained even
-on failure; the fixture remains UI/read evidence, not live provider qualification.
+on failure; the fixture remains controlled browser integration evidence, not live
+provider qualification.
+
+The two `Codex import` cases submit a fixed synthetic refresh token or upload a
+synthetic `auth.json` file through the actual Connections dialog, Next server
+actions, PostgreSQL operation/source storage and installed Gateway SDK. They
+verify the committed account and metadata after a full reload. The refresh-token
+case also reconnects that same account, checks its unchanged source/account
+identity and increased authorization epoch, and verifies both applied operations.
+Each case enables the fixture's import methods only for its own duration; the
+existing default `create: false` Codex capability remains the default. The
+fixture accepts only the exact synthetic inputs, keeps no credential or digest,
+and returns owner-scoped metadata. Page/storage/response/log leak checks include
+both inputs and textareas. These cases do not perform Native credential exchange
+or attest real provider credentials; the separate joined Native/Gateway gate owns
+that proof.
+
+The same run combines the existing `--api-key-storage-fixture`,
+`--subscription-fixture`, `--account-models-fixture` and `--catalog-fixture` modes.
+Their enrollment profiles are deduplicated by the same profile ID used by the
+Gateway catalog and operation handlers. The two existing one-step cases connect
+OpenRouter by key and Grok by a synthetic browser authorization code, attach the
+account, select its model and save the provider without leaving the dialog.
+The third case switches an unsubmitted key between Kimi and MiMo in the actual
+embedded form, verifies that the field is present and empty after each switch,
+and keeps an existing Codex account selectable while its `create: false`
+capability prevents a new sign-in. It checks that no enrollment operation was
+started and that the discarded key is absent from the page and browser storage.
+The selected cases must execute; skipped cases fail the CI receipt.
 
 ## Provider settings UX integration
 

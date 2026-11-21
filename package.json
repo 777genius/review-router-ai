@@ -116,9 +116,10 @@
     "release-witness:start": "pnpm --filter @reviewrouter/api release-witness:start",
     "worker:start": "node --conditions=production apps/worker/dist/worker.js",
     "runtime:smoke": "node scripts/run-with-env.mjs node scripts/check-production-runtime.mjs",
+    "action:build:typecheck": "node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.action-build.json",
     "action:build": "node scripts/build-codex-rotating-action.mjs && node scripts/build-conflict-runtime.ts",
-    "action:artifact:check": "node scripts/check-codex-rotating-action-artifact.mjs && node scripts/build-conflict-runtime.ts --check",
-    "action:artifact:check:smoke": "REVIEWROUTER_CODEX_ROTATING_ACTION_REQUIRE_BINARY=0 node scripts/check-codex-rotating-action-artifact.mjs && node scripts/build-conflict-runtime.ts --check",
+    "action:artifact:check": "pnpm action:build:typecheck && node scripts/check-codex-rotating-action-artifact.mjs && node scripts/build-conflict-runtime.ts --check",
+    "action:artifact:check:smoke": "pnpm action:build:typecheck && REVIEWROUTER_CODEX_ROTATING_ACTION_REQUIRE_BINARY=0 node scripts/check-codex-rotating-action-artifact.mjs && node scripts/build-conflict-runtime.ts --check",
     "action:sync-public-runtime": "node scripts/sync-public-action-runtime.mjs",
     "subscription-runtime:contract": "node scripts/check-external-subscription-runtime.mjs",
     "subscription-runtime:redaction-canary": "node scripts/check-external-subscription-runtime.mjs",
@@ -131,7 +132,7 @@
     "subscription-runtime:check": "node scripts/check-external-subscription-runtime.mjs && pnpm action:artifact:check:smoke && pnpm subscription-runtime:live-e2e:smoke",
     "subscription-runtime:release-gate": "pnpm subscription-runtime:check && pnpm codex-rotating:secret-write-boundary && pnpm action:artifact:check && pnpm exec vitest run packages/features/codex-oauth-rotating/src/tests/codex-oauth-rotating.test.ts packages/features/codex-oauth-rotating/src/tests/github-action.test.ts && pnpm architecture:check && pnpm typecheck && git diff --check",
     "architecture:web-host-cms": "tsx scripts/check-web-host-cms-profile-cli.ts",
-    "architecture:check": "node scripts/check-architecture-boundaries.mjs && pnpm architecture:web-host-cms && pnpm foundation:check && pnpm foundation:assert-dev-only && pnpm foundation:assert-registry && pnpm foundation:qualify-memory && pnpm foundation:qualify-statistics && pnpm history:architecture",
+    "architecture:check": "node scripts/check-architecture-boundaries.mjs && pnpm architecture:web-host-cms && pnpm foundation:check && pnpm foundation:assert-dev-only && pnpm foundation:assert-registry && pnpm foundation:qualify-memory && pnpm foundation:qualify-statistics && pnpm history:architecture && pnpm metadata:architecture && pnpm metadata:typecheck",
     "github-app:check": "node scripts/run-with-env.mjs node scripts/check-github-app-readiness.mjs",
     "github-app:create": "node scripts/create-github-app-manifest.mjs",
     "github-app:manifest:smoke": "node scripts/check-github-app-manifest-smoke.mjs",
@@ -154,11 +155,13 @@
     "foundation:qualify": "node scripts/provider-foundation/qualify-packed.ts && tsc -p scripts/provider-foundation/tsconfig.json && node --import tsx scripts/provider-foundation/qualify-boundaries.ts",
     "subscription-runtime:prepare": "node scripts/prepare-pinned-subscription-runtime.ts",
     "foundation:qualify-memory": "node --import tsx scripts/memory-foundation/qualify-boundaries.ts",
-    "modular:qualify": "node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.modular.json && vitest run packages/features/review-providers/src/composition/index.test.ts packages/features/provider-usage/src/tests/composition.test.ts packages/features/provider-accounts/src/account-limits/composition.test.ts packages/features/memory/src/composition/memory-knowledge-runtime.test.ts packages/features/review-statistics/src/composition/index.test.ts packages/features/review-history/src/composition/review-history.root.test.ts",
+    "modular:qualify": "node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.modular.json && vitest run packages/features/review-providers/src/composition/index.test.ts packages/features/provider-usage/src/tests/composition.test.ts packages/features/provider-accounts/src/account-limits/composition.test.ts packages/features/memory/src/composition/memory-knowledge-runtime.test.ts packages/features/review-statistics/src/composition/index.test.ts packages/features/review-history/src/composition/review-history.root.test.ts packages/features/provider-accounts/src/account-metadata/composition/account-metadata.root.test.ts",
     "foundation:qualify-statistics": "node --import tsx scripts/statistics-foundation/qualify-boundaries.ts",
     "history:architecture": "node --import tsx scripts/review-history-tooling/check.ts",
     "history:test:postgres": "vitest run packages/features/review-history/src/tests/history.postgres.test.ts packages/features/review-history/src/tests/history-reader.postgres.test.ts",
-    "history:activate": "node scripts/run-with-env.mjs node --import tsx scripts/activate-review-history.ts"
+    "history:activate": "node scripts/run-with-env.mjs node --import tsx scripts/activate-review-history.ts",
+    "metadata:architecture": "node --import tsx scripts/account-metadata-tooling/check.ts",
+    "metadata:typecheck": "node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.account-metadata.json"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
@@ -190,10 +193,11 @@
     "@get-modular/assembly": "0.7.0"
   },
   "optionalDependencies": {
-    "@777genius/subscription-runtime": "git+https://github.com/777genius/ar.git#83a7329f4383b05ac5c39356b79f82f029182d42"
+    "@777genius/subscription-runtime": "git+https://github.com/777genius/ar.git#c7543bc716411a5f899a790a735d09ed2530f779"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "acorn": "8.16.0",
     "@prisma/adapter-pg": "7.8.0",
     "@tailwindcss/postcss": "4.2.4",
     "@testing-library/react": "^16.3.2",

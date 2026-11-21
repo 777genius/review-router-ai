@@ -1,5 +1,7 @@
 import {
   snapshotCanonicalIntent,
+  assertCredentialImportMethod,
+  type CredentialImportMethod,
   type PersonalCanonicalIntent,
 } from "../../domain/personal-canonical-operation";
 import { createHash } from "node:crypto";
@@ -24,7 +26,11 @@ export type PersonalAccountIntent =
           readonly proposedSourceId: string;
           readonly profileId: string;
           readonly displayName: string;
-          readonly ingress: "api-key-create" | "oauth-begin";
+          readonly ingress:
+            | "api-key-create"
+            | "oauth-begin"
+            | "credential-import";
+          readonly credentialImportMethod?: CredentialImportMethod;
           readonly method?: "device_code" | "browser";
         }
       | {
@@ -75,11 +81,17 @@ export function snapshotPersonalIntent(
     });
     if (
       Buffer.byteLength(displayName, "utf8") > 400 ||
-      !["api-key-create", "oauth-begin"].includes(input.ingress) ||
+      !["api-key-create", "oauth-begin", "credential-import"].includes(
+        input.ingress,
+      ) ||
       (input.method !== undefined &&
         (input.ingress !== "oauth-begin" ||
           !["device_code", "browser"].includes(input.method)))
     )
+      throw new ProviderAccountError("invalid_input");
+    if (input.ingress === "credential-import")
+      assertCredentialImportMethod(input.credentialImportMethod);
+    else if (input.credentialImportMethod !== undefined)
       throw new ProviderAccountError("invalid_input");
     return Object.freeze({
       ...base,
@@ -88,6 +100,9 @@ export function snapshotPersonalIntent(
       profileId: input.profileId,
       displayName,
       ingress: input.ingress,
+      ...(input.credentialImportMethod !== undefined
+        ? { credentialImportMethod: input.credentialImportMethod }
+        : {}),
       ...(input.method === "device_code"
         ? { method: "device_code" as const }
         : {}),

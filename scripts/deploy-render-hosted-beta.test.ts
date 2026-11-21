@@ -419,7 +419,7 @@ describe("Render hosted deploy hardening", () => {
     const packageJson = readFileSync("package.json", "utf8");
 
     expect(packageJson).toContain(
-      '"@777genius/subscription-runtime": "git+https://github.com/777genius/ar.git#83a7329f4383b05ac5c39356b79f82f029182d42"',
+      '"@777genius/subscription-runtime": "git+https://github.com/777genius/ar.git#c7543bc716411a5f899a790a735d09ed2530f779"',
     );
     expect(dockerfile).toContain("pnpm install --frozen-lockfile");
     expect(dockerfile).not.toContain("ssh-ed25519");

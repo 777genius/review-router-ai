@@ -141,6 +141,12 @@ async function main(): Promise<void> {
     if (!options.flags.personalSharing)
       gateway = await startGatewayCatalogFixture({
         nvidiaEvaluation: options.flags.nvidiaEvaluation === true,
+        credentialImports: scenarios.some((scenario) =>
+          scenario.id.startsWith("native-import"),
+        ),
+        accountMetadata: scenarios.some((scenario) =>
+          scenario.id.startsWith("native-account-info"),
+        ),
         reviewerAccounts:
           options.flows &&
           options.only?.test("flow-gateway-reviewer-roster") === true,

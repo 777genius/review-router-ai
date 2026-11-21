@@ -1,4 +1,5 @@
 import { App } from "@octokit/app";
+import type { PrismaClient } from "@prisma/client";
 import { githubAppTestTransport } from "./github-app-test-transport";
 import type { Session } from "next-auth";
 import { getServerSession } from "next-auth";
@@ -28,20 +29,23 @@ import { DashboardMutationRefusedError } from "./dashboard-mutation-errors";
 // request. React's request-scoped cache avoids repeating the session and
 // identity database reads without sharing authorization state across users.
 const getDashboardServerSession = cache(() => getServerSession(authOptions));
-const findDashboardUserBySource = cache(
-  async (sourceProvider: "github" | "gitlab", externalUserId: string) => {
-    const identity = await getPrisma().userExternalIdentity.findUnique({
-      where: {
-        provider_externalUserId: {
-          provider: sourceProvider,
-          externalUserId,
-        },
+async function readDashboardUserBySource(
+  sourceProvider: "github" | "gitlab",
+  externalUserId: string,
+  prisma: Pick<PrismaClient, "userExternalIdentity"> = getPrisma(),
+) {
+  const identity = await prisma.userExternalIdentity.findUnique({
+    where: {
+      provider_externalUserId: {
+        provider: sourceProvider,
+        externalUserId,
       },
-      select: { userId: true },
-    });
-    return identity ? { id: identity.userId } : null;
-  },
-);
+    },
+    select: { userId: true },
+  });
+  return identity ? { id: identity.userId } : null;
+}
+const findDashboardUserBySource = cache(readDashboardUserBySource);
 
 export type DashboardMutationActor = {
   readonly userId: string;
@@ -286,6 +290,7 @@ export async function assertDashboardRepositoryConfigMutationAllowed(
 
 export async function getDashboardSignedInActor(options?: {
   readonly readOnly?: boolean;
+  readonly prisma?: Pick<PrismaClient, "userExternalIdentity">;
 }): Promise<DashboardMutationActor | null> {
   if (
     !getAuthEnvironmentStatus().configured ||
@@ -300,7 +305,7 @@ export async function getDashboardSignedInActor(options?: {
     return null;
   }
 
-  const user = await findUserForSourceIdentity(identity);
+  const user = await findUserForSourceIdentity(identity, options?.prisma);
   if (!user) return null;
 
   return {
@@ -658,6 +663,7 @@ function githubApiStatus(error: unknown): number | null {
 
 export async function assertDashboardWorkspaceAdminAllowed(
   workspaceId: string,
+  prisma?: Pick<PrismaClient, "userExternalIdentity" | "workspaceMember">,
 ): Promise<DashboardWorkspaceAdminActor> {
   if (!getAuthEnvironmentStatus().configured) {
     throw new Error("dashboard_auth_misconfigured");
@@ -669,7 +675,7 @@ export async function assertDashboardWorkspaceAdminAllowed(
     throw new Error("dashboard_admin_requires_sign_in");
   }
 
-  const user = await findUserForSourceIdentity(identity);
+  const user = await findUserForSourceIdentity(identity, prisma);
   if (!user) {
     throw new Error("dashboard_admin_requires_sign_in");
   }
@@ -685,7 +691,9 @@ export async function assertDashboardWorkspaceAdminAllowed(
       ),
     },
     {
-      workspaceAccess: new PrismaWorkspaceAccessRepository(getPrisma()),
+      workspaceAccess: new PrismaWorkspaceAccessRepository(
+        prisma ?? getPrisma(),
+      ),
     },
   );
 
@@ -1054,11 +1062,20 @@ function githubLoginForIdentity(
     : null;
 }
 
-async function findUserForSourceIdentity(input: {
-  readonly sourceProvider: "github" | "gitlab";
-  readonly externalUserId: string;
-}): Promise<{ readonly id: string } | null> {
-  return findDashboardUserBySource(input.sourceProvider, input.externalUserId);
+async function findUserForSourceIdentity(
+  input: {
+    readonly sourceProvider: "github" | "gitlab";
+    readonly externalUserId: string;
+  },
+  prisma?: Pick<PrismaClient, "userExternalIdentity">,
+): Promise<{ readonly id: string } | null> {
+  return prisma
+    ? readDashboardUserBySource(
+        input.sourceProvider,
+        input.externalUserId,
+        prisma,
+      )
+    : findDashboardUserBySource(input.sourceProvider, input.externalUserId);
 }
 
 function dashboardMutationsEnabled(): boolean {

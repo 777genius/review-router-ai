@@ -338,7 +338,7 @@ function writeSyncedFixture(repo: string, file: string, version: string): void {
   }
   const runtimeMarker =
     file === "action-dist/index.cjs"
-      ? "@vioxen/subscription-runtime 0.1.0-main.28 777genius/ar@83a7329f4383b05ac5c39356b79f82f029182d42 "
+      ? "@vioxen/subscription-runtime 0.1.0-main.28 777genius/ar@c7543bc716411a5f899a790a735d09ed2530f779 "
       : "";
   writeFileSync(target, `${runtimeMarker}${version} bytes for ${file}\n`);
 }

@@ -261,7 +261,7 @@ test("subscription connections use real server actions for all four providers an
     await noSecrets(page, secrets);
   }
   await expect.poll(async () => (await since()).deletes).toBe(3);
-  await page.reload({ waitUntil: "domcontentloaded" });
+  await reloadAccounts(page);
   for (const provider of ["GLM", "MiniMax"]) {
     const row = sourceRow(page, `Browser ${provider} subscription`);
     if (await row.count()) await expect(row).toContainText("Retired");

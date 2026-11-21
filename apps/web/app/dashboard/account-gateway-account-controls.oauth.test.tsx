@@ -687,6 +687,77 @@ test("personal OAuth injection preserves the existing one-off handoff and comple
   assertNoCapability();
   assertNoCallback();
 });
+test("personal import continuation associates byte-limit errors and preserves the original operation", async () => {
+  sessionStorage.setItem(
+    "rr-c3-account-operations:personal:workspace-user",
+    JSON.stringify([savedNonce]),
+  );
+  const resume = {
+    kind: "reconnect" as const,
+    connectionId: "own-source",
+    profileId: oauthProfileId,
+    gatewayRevision: 17,
+    mirrorRevision: 4,
+    credentialImportMethod: "oauth_auth_json" as const,
+  };
+  const api = personalApi();
+  api.readGatewayOperation.mockResolvedValue({
+    status: "ok",
+    value: {
+      nonce: savedNonce,
+      state: "pending",
+      cleanup: "unresolved",
+      resume,
+    },
+  });
+  await mount({ api, managementScope: "personal" });
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Continue account import" }),
+  );
+  const dialog = await screen.findByRole("dialog", {
+    name: "Continue account import",
+  });
+  const field = within(dialog).getByLabelText("Codex auth.json");
+  const file = within(dialog).getByLabelText("Or choose an auth.json file");
+  const submit = within(dialog).getByRole("button", {
+    name: "Continue update",
+  });
+  fireEvent.input(field, { target: { value: "é".repeat(32769) } });
+  fireEvent.click(submit);
+  const validation = within(dialog).getByRole("alert");
+  expect(validation.textContent).toBe("Enter valid text of 64 KiB or smaller.");
+  for (const input of [field, file]) {
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(input.getAttribute("aria-describedby")).toBe(validation.id);
+  }
+  expect(api.submitGatewayApiKey).not.toHaveBeenCalled();
+  const secret =
+    '{"tokens":{"refresh_token":"synthetic-personal-resume-token"}}';
+  fireEvent.input(field, { target: { value: secret } });
+  expect(within(dialog).queryByRole("alert")).toBeNull();
+  for (const input of [field, file]) {
+    expect(input.hasAttribute("aria-invalid")).toBe(false);
+    expect(input.hasAttribute("aria-describedby")).toBe(false);
+  }
+  fireEvent.click(submit);
+  await waitFor(() => expect(api.submitGatewayApiKey).toHaveBeenCalledTimes(1));
+  expect(api.submitGatewayApiKey).toHaveBeenCalledWith(
+    context,
+    { ...resume, nonce: savedNonce },
+    secret,
+  );
+  expect(api.beginGatewayOAuth).not.toHaveBeenCalled();
+  expect(api.completeGatewayOAuth).not.toHaveBeenCalled();
+  expect((field as HTMLTextAreaElement).value).toBe("");
+  expect(
+    [
+      document.body.innerHTML,
+      ...cacheSnapshots,
+      ...[...clients].map(caches),
+      JSON.stringify(storageWrites.mock.calls),
+    ].join("\n"),
+  ).not.toContain(secret);
+});
 test.each(["applied", "lost_ack"] as const)(
   "personal key continuation keeps original nonce and discards deferred ready reads (%s)",
   async (outcome) => {
@@ -2710,3 +2781,126 @@ test("remount reauthorizes cached inventory before enabling pagination or exposi
     ),
   );
 });
+
+test.each(["refresh_token", "oauth_auth_json"] as const)(
+  "Codex %s uses a one-off import without entering query caches or OAuth completion",
+  async (method) => {
+    const secret =
+      method === "refresh_token"
+        ? "synthetic-import-refresh-token"
+        : '{"tokens":{"refresh_token":"synthetic-import-auth-json"}}';
+    page = {
+      ...page,
+      accounts: [],
+      profiles: [
+        {
+          id: oauthProfileId,
+          label: "Codex",
+          authKind: "oauth",
+          canReconnect: true,
+          protocol: "openai-responses",
+          models: ["codex"],
+          oauthMethods: ["browser"],
+          connection: {
+            provider: "openai",
+            planLabel: "Codex subscription",
+            regionLabel: "Global",
+            completionInputKind: "callback_url",
+            limitsContract: "account-limits/v2",
+            modelSettings: [],
+            methods: [
+              { kind: "browser", create: true, reconnect: false },
+              {
+                kind: "credential_import",
+                method,
+                maxBytes: 65536,
+                create: true,
+                reconnect: true,
+              },
+            ],
+          },
+        },
+      ],
+    };
+    vi.mocked(submitGatewayApiKey).mockImplementation(
+      async (_context, intent) => safeOperation(intent.nonce),
+    );
+    await mount();
+    const dialog = await openConnectionDialog();
+    fireEvent.click(
+      within(dialog).getByRole("combobox", { name: "Sign-in method" }),
+    );
+    const option = await screen.findByRole("option", {
+      name:
+        method === "refresh_token"
+          ? "Import Refresh token"
+          : "Import Codex auth.json",
+    });
+    fireEvent.mouseMove(option);
+    fireEvent.click(option);
+    const field = within(dialog).getByLabelText(
+      method === "refresh_token" ? "Refresh token" : "Codex auth.json",
+    );
+    const submit = within(dialog).getByRole("button", {
+      name:
+        method === "refresh_token"
+          ? "Import Refresh token"
+          : "Import Codex auth.json",
+    });
+    // Below the character limit, but above the UTF-8 byte limit.
+    fireEvent.input(field, { target: { value: "é".repeat(32769) } });
+    fireEvent.click(submit);
+    const validation = within(dialog).getByRole("alert");
+    expect(validation.textContent).toBe(
+      "Enter valid text of 64 KiB or smaller.",
+    );
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(field.getAttribute("aria-describedby")).toBe(validation.id);
+    const file = within(dialog).queryByLabelText("Or choose an auth.json file");
+    if (method === "oauth_auth_json") {
+      expect(file?.getAttribute("aria-invalid")).toBe("true");
+      expect(file?.getAttribute("aria-describedby")).toBe(validation.id);
+    }
+    expect(submitGatewayApiKey).not.toHaveBeenCalled();
+    expect(beginGatewayOAuth).not.toHaveBeenCalled();
+    fireEvent.input(field, { target: { value: secret } });
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+    expect(field.hasAttribute("aria-invalid")).toBe(false);
+    expect(field.hasAttribute("aria-describedby")).toBe(false);
+    if (file) {
+      expect(file.hasAttribute("aria-invalid")).toBe(false);
+      expect(file.hasAttribute("aria-describedby")).toBe(false);
+    }
+    fireEvent.click(
+      within(dialog).getByRole("button", {
+        name:
+          method === "refresh_token"
+            ? "Import Refresh token"
+            : "Import Codex auth.json",
+      }),
+    );
+    await waitFor(() => expect(submitGatewayApiKey).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(submitGatewayApiKey).mock.calls[0]).toEqual([
+      context,
+      expect.objectContaining({
+        kind: "connect",
+        profileId: oauthProfileId,
+        credentialImportMethod: method,
+      }),
+      secret,
+    ]);
+    expect(beginGatewayOAuth).not.toHaveBeenCalled();
+    expect(completeGatewayOAuth).not.toHaveBeenCalled();
+    expect(
+      screen.queryByLabelText(/Authorization result|Callback URL/),
+    ).toBeNull();
+    expect(document.body.innerHTML).not.toContain(secret);
+    expect(
+      [
+        ...cacheSnapshots,
+        ...[...clients].map(caches),
+        JSON.stringify(storageWrites.mock.calls),
+      ].join("\n"),
+    ).not.toContain(secret);
+  },
+);

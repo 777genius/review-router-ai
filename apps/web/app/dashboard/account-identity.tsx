@@ -5,6 +5,8 @@ import {
   type ProviderIdentity,
 } from "../../src/features/provider-setup/provider-identity";
 import { ProviderLogo } from "./provider-logo";
+import { AccountMetadataLine } from "./account-metadata-line";
+import type { AccountMetadataView } from "@reviewrouter/features-provider-accounts";
 
 export function AccountProviderLogo({
   providerId,
@@ -32,12 +34,14 @@ export function AccountIdentity({
   provider,
   authKind,
   connection,
+  metadata,
 }: {
   label: string;
   profileLabel?: string;
   provider?: ProviderKind | "nvidia" | undefined;
   authKind?: string | undefined;
   connection?: AccountConnectionView | undefined;
+  metadata?: AccountMetadataView | undefined;
 }) {
   return (
     <div className="flex min-w-0 items-center gap-3">
@@ -56,6 +60,7 @@ export function AccountIdentity({
             ? ` · ${authKind === "oauth" ? "OAuth" : connection && ["kimi", "glm", "minimax"].includes(connection.provider) ? "Subscription key" : "API key"}`
             : ""}
         </p>
+        <AccountMetadataLine metadata={metadata} />
       </div>
     </div>
   );

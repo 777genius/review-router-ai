@@ -98,6 +98,7 @@ await checkPrismaTransactionQuerySerialization(violations);
 await checkReleaseRolloutProviderNeutrality(violations);
 await checkCodexRuntimeOwnershipBoundaries(violations);
 await checkReviewExecutionExtractionBoundaries(violations);
+checkAccountMetadataHostBoundaries(violations);
 violations.push(
   ...(await checkApplicationCompositionBoundaries(
     root,
@@ -378,6 +379,73 @@ function extractImportSpecifiers(source) {
   }
 
   return specifiers;
+}
+
+/** Exact host seams; Foundation separately governs their application and SQL targets. */
+function checkAccountMetadataHostBoundaries(violations) {
+  const files = {
+    "account-metadata-service.ts": new Set([
+      "node:crypto",
+      "@prisma/client",
+      "@reviewrouter/features-provider-accounts/account-metadata",
+      "@reviewrouter/features-provider-accounts/account-metadata/composition",
+      "./account-metadata/authorization",
+    ]),
+    "account-metadata-sdk-reader.ts": new Set([
+      "@agent-teams/account-gateway/http",
+      "@agent-teams/account-gateway/contracts",
+      "@reviewrouter/features-provider-accounts/account-metadata",
+    ]),
+  };
+  for (const [name, allowed] of Object.entries(files)) {
+    const file = join(root, "apps/web/src/server", name);
+    if (!existsSync(file)) continue;
+    const source = ts.createSourceFile(
+      file,
+      readFileSync(file, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    function reject(imported) {
+      violations.push({
+        file,
+        imported,
+        reason:
+          "account metadata host must use only its declared public SDK, composition and authorization seams",
+      });
+    }
+    function visit(node) {
+      let specifier;
+      if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
+        specifier = node.moduleSpecifier;
+      else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument))
+        specifier = node.argument.literal;
+      else if (ts.isCallExpression(node)) {
+        if (
+          node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+          (ts.isIdentifier(node.expression) &&
+            node.expression.text === "require")
+        ) {
+          specifier = node.arguments[0];
+          if (!specifier || !ts.isStringLiteralLike(specifier))
+            reject("computed module import");
+        }
+        if (
+          ts.isIdentifier(node.expression) &&
+          node.expression.text === "fetch"
+        )
+          reject("direct fetch");
+      }
+      if (
+        specifier &&
+        ts.isStringLiteralLike(specifier) &&
+        !allowed.has(specifier.text)
+      )
+        reject(specifier.text);
+      ts.forEachChild(node, visit);
+    }
+    visit(source);
+  }
 }
 
 async function checkReviewActionV2ProtocolBoundaries(violations) {

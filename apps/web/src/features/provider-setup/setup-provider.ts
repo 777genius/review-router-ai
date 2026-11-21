@@ -1,3 +1,5 @@
+import { canCreateConnection } from "../account-gateway/connection-capabilities";
+import { nativeAPIProvider } from "../account-gateway/native-api-profiles";
 import {
   apiKeyProviders,
   apiKeyProviderForAuthMode,
@@ -20,7 +22,9 @@ export type SetupProviderId =
   | "glm"
   | "nvidia"
   | "minimax"
-  | "grok";
+  | "grok"
+  | "anthropic"
+  | "gemini";
 
 export type SetupProvider = Readonly<{
   id: SetupProviderId;
@@ -60,6 +64,17 @@ export const setupProviders: readonly SetupProvider[] = Object.freeze([
       credentialKind: "api_key",
       githubSource: `user_ci_secret:${provider.directAuthMode}`,
       publicCatalogProvider: provider.directProviderKind,
+    }),
+  ),
+  ...(["anthropic", "gemini"] as const).map(
+    (id): SetupProvider => ({
+      id,
+      label: id === "anthropic" ? "Anthropic API" : "Gemini API",
+      identity: id,
+      credentialLabel: "API key",
+      credentialKind: "api_key",
+      githubSource: null,
+      publicCatalogProvider: null,
     }),
   ),
   {
@@ -154,6 +169,13 @@ export function setupProviderForGatewayProfile(
   profile: GatewayProfileIdentity | undefined,
 ): SetupProviderId | undefined {
   if (!profile || profile.protocol !== "openai-responses") return undefined;
+  const nativeProvider = nativeAPIProvider(profile.id);
+  if (nativeProvider)
+    return profile.authKind === "api_key" &&
+      profile.connection?.provider === nativeProvider &&
+      (!profile.provider || profile.provider === "codex")
+      ? nativeProvider
+      : undefined;
   if (profile.id === "nvidia-build-chat-apikey-v1")
     return profile.authKind === "api_key" &&
       profile.connection?.provider === "nvidia" &&
@@ -189,9 +211,9 @@ type EnrollableProfile = GatewayProfileIdentity &
 function enrollableSetupProvider(
   profile: EnrollableProfile,
 ): SetupProviderId | undefined {
-  return profile.availability === "deployment_configuration_required"
-    ? undefined
-    : setupProviderForGatewayProfile(profile);
+  return canCreateConnection(profile)
+    ? setupProviderForGatewayProfile(profile)
+    : undefined;
 }
 
 /** A profile the provider dialog may connect in place (79). */

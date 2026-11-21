@@ -214,6 +214,98 @@ async function openBulkDialog({ page, user }: ScenarioContext) {
 }
 
 export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
+  {
+    id: "native-account-info-owner",
+    title:
+      "Native details in the real accounts list: long identity, calendar date and stale privacy",
+    users: ["owner"],
+    route: workspaceRoute("main", "setup"),
+    widths: [390, 900, 1440],
+    requires: { personalSharing: false },
+    prepare: async ({ page }) => {
+      await page
+        .getByText(
+          "review-team-with-a-deliberately-long-account-name@example.invalid",
+        )
+        .first()
+        .waitFor();
+      await page
+        .getByText("Some account details may be out of date")
+        .first()
+        .waitFor();
+      await page.getByText("Subscription ends 2026-12-31").first().waitFor();
+    },
+    probe: async ({ page }) => ({
+      emailVisible: await page
+        .getByText(
+          "review-team-with-a-deliberately-long-account-name@example.invalid",
+        )
+        .count(),
+      horizontalOverflow: await page.evaluate(
+        () => document.documentElement.scrollWidth > window.innerWidth,
+      ),
+    }),
+  },
+  {
+    id: "native-account-info-unsupported",
+    title:
+      "Native details unavailable for this connection do not hide its inventory",
+    users: ["owner"],
+    route: workspaceRoute("locked", "setup"),
+    requires: { personalSharing: false },
+    prepare: async ({ page }) => {
+      await page
+        .getByText("Account details are not provided for this connection")
+        .first()
+        .waitFor();
+    },
+  },
+  ...(
+    ["Refresh token", "Codex auth.json", "Anthropic API", "Gemini API"] as const
+  ).map(
+    (label): VisualScenario => ({
+      id: `native-import-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`,
+      title: `Qualified native account connection: ${label}`,
+      users: ["owner"],
+      route: workspaceRoute("main", "setup"),
+      widths: [390, 900, 1440],
+      fullPage: false,
+      requires: { personalSharing: false },
+      prepare: async ({ page }) => {
+        await page
+          .getByRole("button", {
+            name: /Add account|Connect account/,
+            exact: false,
+          })
+          .first()
+          .click();
+        const dialog = page.getByRole("dialog", { name: "Connect a provider" });
+        await dialog.waitFor();
+        await dialog
+          .getByRole("combobox", { name: "Provider", exact: true })
+          .click();
+        await page
+          .getByRole("option", {
+            name: label.endsWith("API") ? label : /Codex/,
+          })
+          .click();
+        if (!label.endsWith("API")) {
+          await dialog
+            .getByRole("combobox", { name: "Sign-in method" })
+            .click();
+          await page
+            .getByRole("option", { name: `Import ${label}`, exact: true })
+            .click();
+          await dialog.getByLabel(label, { exact: true }).waitFor();
+        } else await dialog.getByLabel("API key", { exact: true }).waitFor();
+      },
+      probe: async ({ page }) => ({
+        horizontalOverflow: await page.evaluate(
+          () => document.documentElement.scrollWidth > innerWidth,
+        ),
+      }),
+    }),
+  ),
   // Repository table and the setup steps of every state.
   {
     id: "workspace-repositories",

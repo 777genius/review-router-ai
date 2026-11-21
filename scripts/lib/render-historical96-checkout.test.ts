@@ -26,6 +26,7 @@ const previousFull = currentFull.filter(
     row.migrationName !== "000157_claude_code_api_key_secret" &&
     row.migrationName !== "000158_review_run_allocation_provider_quota" &&
     row.migrationName !== "000159_producer_reviewer_plan_v2" &&
+    row.migrationName !== "000160_personal_credential_import_method" &&
     row.migrationName !== "000156_verified_thread_reply",
 );
 const full = previousFull

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -17,6 +18,7 @@ import type {
   AccountsResult,
   AccountView,
 } from "../../../src/server/account-gateway-accounts";
+import type { CredentialImportMethod } from "../../../src/features/account-gateway/connection-capabilities";
 import {
   GatewayModelAccountsProvider,
   type GatewayModelAccountsApi,
@@ -119,6 +121,28 @@ const codex: AccountProfileView = {
   provider: "codex",
   models: ["gpt-5.6-sol", "gpt-5.5"],
 };
+function importProfile(method: CredentialImportMethod): AccountProfileView {
+  return {
+    ...codex,
+    connection: {
+      provider: "openai",
+      planLabel: "Codex subscription",
+      regionLabel: "Global",
+      completionInputKind: "none",
+      limitsContract: "account-limits/v2",
+      modelSettings: [],
+      methods: [
+        {
+          kind: "credential_import",
+          method,
+          maxBytes: 65536,
+          create: true,
+          reconnect: true,
+        },
+      ],
+    },
+  };
+}
 const connected: AccountView = {
   connectionId: "binding-new",
   label: "NVIDIA Build",
@@ -143,9 +167,10 @@ const connected: AccountView = {
     fencePending: false,
   },
 };
+let profiles: AccountProfileView[];
 const page = (accounts: AccountView[]): AccountsResult<AccountsPage> => ({
   status: "ok",
-  value: { accounts, profiles: [nvidia, codex], nextCursor: null },
+  value: { accounts, profiles, nextCursor: null },
 });
 const operation = (
   nonce: string,
@@ -166,6 +191,7 @@ let listFails: boolean;
 
 beforeEach(() => {
   sessionStorage.clear();
+  profiles = [nvidia, codex];
   workspaceAccounts = [];
   listFails = false;
   view = {
@@ -230,7 +256,7 @@ function renderAddProvider(
             status: "ok" as const,
             value: {
               account,
-              profile: account.profileId === codex.id ? codex : nvidia,
+              profile: profiles.find((row) => row.id === account.profileId)!,
             },
           }
         : { status: "unavailable" as const };
@@ -329,6 +355,152 @@ async function startWaitingCodexSignIn() {
 }
 
 describe("adding a provider and connecting its account in one dialog", () => {
+  it.each(["refresh_token", "oauth_auth_json"] as const)(
+    "imports Codex %s in place and selects the attached connection",
+    async (method) => {
+      profiles = [nvidia, importProfile(method)];
+      vi.mocked(listPersonalGatewayAccounts).mockResolvedValue(page([]));
+      const imported: AccountView = {
+        connectionId: "binding-codex-import",
+        profileId: codex.id,
+        profileLabel: codex.label,
+        label: "Imported Codex",
+        authKind: "oauth",
+        state: "active",
+        gatewayRevision: 1,
+        mirrorRevision: 1,
+        origin: "personal",
+        binding: { ...connected.binding!, id: "binding-codex-import" },
+      };
+      const applied = (
+        nonce: string,
+      ): AccountsResult<AccountOperationView> => ({
+        status: "ok",
+        value: {
+          nonce,
+          state: "applied",
+          cleanup: "unresolved",
+          account: imported,
+        },
+      });
+      vi.mocked(submitPersonalGatewayKey).mockImplementation(
+        async (_scope, intent) => applied(intent.nonce),
+      );
+      vi.mocked(readPersonalGatewayOperation).mockImplementation(
+        async (_scope, nonce) => applied(nonce),
+      );
+      vi.mocked(attachConnectedPersonalAccount).mockImplementation(async () => {
+        workspaceAccounts = [imported];
+        return {
+          status: "ok",
+          value: { status: "attached", bindingId: "binding-codex-import" },
+        };
+      });
+      renderAddProvider();
+      fireEvent.click(
+        await screen.findByRole("combobox", { name: /^Provider\b/ }),
+      );
+      const option = await screen.findByRole("option", { name: /^Codex/ });
+      fireEvent.mouseMove(option);
+      fireEvent.click(option);
+      const form = await screen.findByRole("region", { name: "Connect Codex" });
+      const label =
+        method === "refresh_token" ? "Refresh token" : "Codex auth.json";
+      const field = await within(form).findByLabelText(label);
+      const credential =
+        method === "refresh_token"
+          ? "synthetic-inline-refresh-token"
+          : '{"tokens":{"refresh_token":"synthetic-inline-auth-json"}}';
+      fireEvent.input(field, { target: { value: credential } });
+      const submit = within(form).getByRole("button", {
+        name: `Import ${label}`,
+      });
+      await waitFor(() => expect(submit).toHaveProperty("disabled", false));
+      fireEvent.click(submit);
+      await screen.findByText("Connected and added to this workspace.");
+      expect(submitPersonalGatewayKey).toHaveBeenCalledExactlyOnceWith(
+        scope,
+        expect.objectContaining({
+          kind: "connect",
+          profileId: codex.id,
+          credentialImportMethod: method,
+        }),
+        credential,
+      );
+      expect(beginPersonalGatewayOAuth).not.toHaveBeenCalled();
+      expect(attachConnectedPersonalAccount).toHaveBeenCalledExactlyOnceWith(
+        scope,
+        "workspace_1",
+        vi.mocked(submitPersonalGatewayKey).mock.calls[0]![1].nonce,
+      );
+      expect(
+        screen.getByRole("combobox", { name: /^Account\b/ }).textContent,
+      ).toContain("Imported Codex");
+      expect(document.body.innerHTML).not.toContain(credential);
+      expect(JSON.stringify(Object.entries(sessionStorage))).not.toContain(
+        credential,
+      );
+    },
+  );
+
+  it("clears unsubmitted imports, errors and late file reads when switching the embedded provider", async () => {
+    profiles = [nvidia, importProfile("oauth_auth_json")];
+    vi.mocked(listPersonalGatewayAccounts).mockResolvedValue(page([]));
+    renderAddProvider();
+    const chooseCodex = async () => {
+      fireEvent.click(
+        await screen.findByRole("combobox", { name: /^Provider\b/ }),
+      );
+      const option = await screen.findByRole("option", { name: /^Codex/ });
+      fireEvent.mouseMove(option);
+      fireEvent.click(option);
+      return screen.findByRole("region", { name: "Connect Codex" });
+    };
+    const form = await chooseCodex();
+    const field = await within(form).findByLabelText("Codex auth.json");
+    fireEvent.input(field, { target: { value: "é".repeat(32769) } });
+    fireEvent.click(
+      within(form).getByRole("button", { name: "Import Codex auth.json" }),
+    );
+    expect(within(form).getByRole("alert").textContent).toContain("64 KiB");
+    await chooseNvidia();
+    const keyForm = await screen.findByRole("region", {
+      name: "Connect NVIDIA Build",
+    });
+    await waitFor(() =>
+      expect(keyForm.querySelector('input[name="credential"]')).not.toBeNull(),
+    );
+    expect(within(keyForm).queryByRole("alert")).toBeNull();
+    const returned = await chooseCodex();
+    const newField = await within(returned).findByLabelText("Codex auth.json");
+    expect(newField).toHaveProperty("value", "");
+    expect(within(returned).queryByRole("alert")).toBeNull();
+    let finishRead!: (text: string) => void;
+    const file = new File(["deferred"], "auth.json");
+    Object.defineProperty(file, "text", {
+      value: () =>
+        new Promise<string>((resolve) => {
+          finishRead = resolve;
+        }),
+    });
+    fireEvent.change(
+      within(returned).getByLabelText("Or choose an auth.json file"),
+      {
+        target: { files: [file] },
+      },
+    );
+    await chooseNvidia();
+    const fresh = await chooseCodex();
+    const freshField = await within(fresh).findByLabelText("Codex auth.json");
+    await act(async () => finishRead("synthetic-stale-file-secret"));
+    expect(freshField).toHaveProperty("value", "");
+    expect(
+      within(fresh).getByRole("button", { name: "Import Codex auth.json" }),
+    ).toHaveProperty("disabled", false);
+    expect(submitPersonalGatewayKey).not.toHaveBeenCalled();
+    expect(beginPersonalGatewayOAuth).not.toHaveBeenCalled();
+  });
+
   it("connects an API key in place, selects the new connection and its model", async () => {
     renderAddProvider();
     await chooseNvidia();

@@ -12,6 +12,8 @@ import { getDashboardSignedInActor } from "./dashboard-mutations";
 import { createGatewayModelAccountOptions } from "./gateway-model-account-options";
 import { productionPersonalAccounts } from "./personal-account-composition";
 import { getPrisma } from "./prisma";
+import { createAccountMetadataService } from "./account-metadata-service";
+import { accountMetadataReader } from "./account-metadata-sdk-reader";
 
 /** Model selection also works for organization bindings with sharing disabled.
  * Reuses only the existing deployment management role in that mode. */
@@ -27,7 +29,32 @@ export async function productionGatewayModelAccounts(workspaceId: string) {
   const userId = actor.userId;
   const profiles = await (await accountsServerAdapter()).reviewCatalog();
   const settings = accountGatewayProfilesConfiguration();
+  const metadata = createAccountMetadataService({
+    prisma: getPrisma(),
+    reader: accountMetadataReader({
+      role: "management",
+      origin: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "",
+      token: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN ?? "",
+    }),
+    secret: settings.contextKey,
+    ...(settings.operatorWorkspaceId
+      ? { operatorWorkspaceId: settings.operatorWorkspaceId }
+      : {}),
+    ownerRef: (owner) =>
+      owner.kind === "user"
+        ? accountGatewayUserOwnerRef(owner.userId)
+        : accountGatewayWorkspaceOwnerRef(owner.workspaceId),
+    authorize: async (authorizationDb) => {
+      const current = await getDashboardSignedInActor({
+        prisma: authorizationDb,
+      });
+      if (current?.userId !== userId)
+        throw new ProviderAccountError("workspace_forbidden");
+      return { userId, workspaceId };
+    },
+  });
   const reader = createGatewayModelAccountOptions({
+    metadata,
     prisma: getPrisma(),
     env: process.env,
     profiles,

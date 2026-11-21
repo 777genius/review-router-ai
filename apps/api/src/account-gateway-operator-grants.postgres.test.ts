@@ -521,6 +521,7 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
             gatewayOperationRef: null,
             profileRef: profile,
             displayName: "Forbidden rename",
+            authorizationEpoch: 1,
             state: "active",
           }),
         ).rejects.toMatchObject({ code: "revision_conflict" });
@@ -966,6 +967,8 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
           connectionId: connection.id,
           expectedRevision: 1,
           gatewayOperationRef: operation.operationRef,
+          authorizationEpoch: remote.get(connection.gatewayAccountRef)!
+            .authorizationEpoch,
           profileRef: profile,
           displayName: connection.displayName,
           state: "disabled",

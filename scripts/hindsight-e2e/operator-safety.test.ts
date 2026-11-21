@@ -15,6 +15,7 @@ import {
 import {
   assertCleanupOperationSources,
   appendCleanupOperationPage,
+  collectCleanupOperations,
   leafFirstOperations,
   operationClosure,
   terminalizeDrainedCleanupOperations,
@@ -532,6 +533,118 @@ test("native operation pagination rejects overlap, unstable totals and malformed
     appendCleanupOperationPage(all, { operations: [two], total: 2 }, 2),
     2,
   );
+});
+
+test("drained operation discovery reconciles every page and full read with the independent database census", async () => {
+  const operations = Array.from({ length: 3 }, () => ({
+    operation_id: randomUUID(),
+    status: "completed",
+  }));
+  const ids = operations.map((operation) => operation.operation_id);
+  const offsets: number[] = [];
+  const fullReads: string[] = [];
+  const discovered = await collectCleanupOperations(
+    async (offset) => {
+      offsets.push(offset);
+      return { operations: operations.slice(offset, offset + 1), total: 3 };
+    },
+    async (operationId) => {
+      fullReads.push(operationId);
+      const operation = operations.find(
+        (entry) => entry.operation_id === operationId,
+      );
+      assert(operation);
+      return operation;
+    },
+    async () => [...ids].reverse(),
+    [ids[0]!, ids[0]!, ids[2]!],
+  );
+  assert.deepEqual(offsets, [0, 1, 2]);
+  assert.deepEqual(fullReads, ids);
+  assert.deepEqual([...discovered.keys()], ids);
+  assert.equal(discovered.size, 3);
+});
+
+test("drained operation discovery rejects partial, unstable and mismatched inventories before cleanup", async (context) => {
+  const one = { operation_id: randomUUID(), status: "completed" };
+  const two = { operation_id: randomUUID(), status: "completed" };
+  const readOperation = async (operationId: string) =>
+    operationId === one.operation_id ? one : two;
+  const cases = [
+    {
+      name: "duplicate pages cannot hide an omitted original operation",
+      pages: [
+        { operations: [one], total: 2 },
+        { operations: [one], total: 2 },
+      ],
+      persisted: [one.operation_id, two.operation_id],
+      required: [one.operation_id, two.operation_id],
+    },
+    {
+      name: "changing total",
+      pages: [
+        { operations: [one], total: 2 },
+        { operations: [two], total: 3 },
+      ],
+      persisted: [one.operation_id, two.operation_id],
+      required: [one.operation_id],
+    },
+    {
+      name: "early empty page",
+      pages: [
+        { operations: [one], total: 2 },
+        { operations: [], total: 2 },
+      ],
+      persisted: [one.operation_id, two.operation_id],
+      required: [one.operation_id],
+    },
+    {
+      name: "public total omits an unknown persisted child",
+      pages: [{ operations: [one], total: 1 }],
+      persisted: [one.operation_id, two.operation_id],
+      required: [one.operation_id],
+    },
+    {
+      name: "complete census omits a required original or late identity",
+      pages: [{ operations: [one], total: 1 }],
+      persisted: [one.operation_id],
+      required: [two.operation_id],
+    },
+    {
+      name: "duplicate database identity",
+      pages: [{ operations: [one], total: 1 }],
+      persisted: [one.operation_id, one.operation_id],
+      required: [one.operation_id],
+    },
+  ];
+  for (const fixture of cases) {
+    await context.test(fixture.name, async () => {
+      await assert.rejects(() =>
+        collectCleanupOperations(
+          async (offset) => {
+            const page = fixture.pages[offset];
+            assert(page, "Unexpected pagination request");
+            return page;
+          },
+          readOperation,
+          async () => fixture.persisted,
+          fixture.required,
+        ),
+      );
+    });
+  }
+  for (const full of [two, { ...one, status: "not_found" }]) {
+    await assert.rejects(
+      () =>
+        collectCleanupOperations(
+          async () => ({ operations: [one], total: 1 }),
+          async () => full,
+          async () => [one.operation_id],
+          [one.operation_id],
+        ),
+      /full operation read did not match/,
+    );
+  }
 });
 
 test("drained cancellation re-reads parents terminalized by child rollup and verifies terminal state before payload deletion", async () => {

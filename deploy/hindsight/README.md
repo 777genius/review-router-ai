@@ -51,6 +51,14 @@ with pagination, removes terminal payloads and verifies absence after restart.
 These are native protocol/storage/failure guarantees with deterministic inference;
 they establish no actual selected-model semantic quality benchmark.
 
+Operation pagination keeps `limit=1` and must match an independent, bounded
+database identity census after all executors are drained. Duplicate pages,
+changing totals, missing original UUIDs and mismatched full reads fail closed.
+The derivative orders tied creation timestamps by operation UUID as recorded in
+`PATCH-RECORD.md`; strict absence covers every original and discovered operation
+before and after restart. The source-pinned SQL regression does not replace the
+fresh Docker/API/PG17 run for the changed derivative image.
+
 The same run executes the actual production SDK adapter and the production Docker
 cleanup operator. Its cleanup fixture first produces a real derived observation
 and a native consolidation update with nonempty persisted history, then verifies
