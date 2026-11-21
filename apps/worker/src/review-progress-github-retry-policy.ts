@@ -176,14 +176,17 @@ export function reconciliationFailure(
       mutationFailure.metadata.retryNotBefore,
       observationError.metadata.retryNotBefore,
     );
+    const observationMetadata = { ...observationError.metadata };
+    if (isDefinitelyRejectedMutation(mutationFailure)) {
+      delete observationMetadata.mutationMayHaveLanded;
+    } else {
+      observationMetadata.mutationMayHaveLanded = true;
+    }
     return new ReviewProgressGitHubError(
       observationError.kind,
       observationError.message,
       {
-        ...observationError.metadata,
-        ...(isDefinitelyRejectedMutation(mutationFailure)
-          ? {}
-          : { mutationMayHaveLanded: true as const }),
+        ...observationMetadata,
         ...(retryAt ? { retryAt } : {}),
         ...(retryNotBefore ? { retryNotBefore } : {}),
         ...(installationCooldownUntil ? { installationCooldownUntil } : {}),

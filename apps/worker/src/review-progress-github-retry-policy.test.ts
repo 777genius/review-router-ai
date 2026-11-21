@@ -399,6 +399,32 @@ describe("Review progress GitHub retry policy", () => {
     );
   });
 
+  it("clears an inherited landed flag after a definitely rejected write", () => {
+    const observationError = new ReviewProgressGitHubError(
+      "pagination_inconclusive",
+      "github_comment_scan_inconclusive",
+      { retryable: true, mutationMayHaveLanded: true },
+    );
+    const rejected = reconciliationFailure(
+      { status: 422 },
+      observationError,
+      () => now,
+      () => 0,
+    );
+    const uncertain = reconciliationFailure(
+      { status: 503 },
+      observationError,
+      () => now,
+      () => 0,
+    );
+    expect(rejected.kind).toBe("pagination_inconclusive");
+    expect(rejected.metadata.mutationMayHaveLanded).toBeUndefined();
+    expect(
+      Object.hasOwn(rejected.metadata, "mutationMayHaveLanded"),
+    ).toBe(false);
+    expect(uncertain.metadata.mutationMayHaveLanded).toBe(true);
+  });
+
   it("keeps PATCH throttling cooldown separate from a later GET outage", () => {
     const mutationError = {
       status: 429,
