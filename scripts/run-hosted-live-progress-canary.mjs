@@ -243,7 +243,10 @@ export function parseProgressComment(comment, config, expectedSource) {
     comment.body,
     /Progress: (\d+) of (\d+) parts? reviewed/u,
   );
-  const files = numbers(comment.body, /Files fully reviewed: (\d+) of (\d+)/u);
+  // An incomplete review with accepted parts has no file count (plan 87).
+  const files = /Files fully reviewed: /u.test(comment.body ?? "")
+    ? numbers(comment.body, /Files fully reviewed: (\d+) of (\d+)/u)
+    : [null, null];
   return {
     commentId: comment.id,
     updatedAt: instant(comment.updated_at),
@@ -287,9 +290,13 @@ export function assertMonotonic(previous, next) {
     next.commentId !== previous.commentId ||
     Date.parse(next.updatedAt) <= Date.parse(previous.updatedAt) ||
     next.totalUnits !== previous.totalUnits ||
-    next.totalFiles !== previous.totalFiles ||
+    (next.totalFiles !== null &&
+      previous.totalFiles !== null &&
+      next.totalFiles !== previous.totalFiles) ||
     next.completedUnits < previous.completedUnits ||
-    next.coveredFiles < previous.coveredFiles ||
+    (next.coveredFiles !== null &&
+      previous.coveredFiles !== null &&
+      next.coveredFiles < previous.coveredFiles) ||
     phaseRank(next.phase) < phaseRank(previous.phase) ||
     next.sourceIdentity?.sourceRunId !== previous.sourceIdentity?.sourceRunId ||
     next.sourceIdentity?.sourceRunAttempt !==

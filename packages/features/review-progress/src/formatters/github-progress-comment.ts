@@ -77,7 +77,15 @@ export function formatGithubProgressComment(
     ...nonZeroLine("Parts not needed", partsNotNeeded),
     ...(snapshot.fileCoverage.valid
       ? [
-          `Files fully reviewed: ${snapshot.fileCoverage.covered} of ${snapshot.fileCoverage.total}`,
+          // Counts follow accepted parts. An incomplete review can accept a
+          // part that stopped early (plan 87), so only the summary knows which
+          // files were really reviewed; never claim them here. With no part
+          // accepted, "0 of N" is still a true count.
+          ...(incomplete && counts.requiredCompleted > 0
+            ? []
+            : [
+                `Files fully reviewed: ${snapshot.fileCoverage.covered} of ${snapshot.fileCoverage.total}`,
+              ]),
           `Files not assigned to any part: ${snapshot.fileCoverage.uncovered}`,
           `Files skipped (unavailable or excluded): ${snapshot.fileCoverage.excluded}`,
         ]
