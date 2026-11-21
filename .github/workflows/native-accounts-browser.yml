@@ -1,6 +1,12 @@
 name: Native accounts browser
 
 on:
+  workflow_call:
+    inputs:
+      source_revision:
+        description: Exact Review Router commit qualified by a dependency workflow
+        required: true
+        type: string
   workflow_dispatch:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -34,7 +40,7 @@ concurrency:
 jobs:
   browser:
     name: Native account details and connection forms
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    if: inputs.source_revision != '' || github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LINUX_BUILD_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 35
     services:
@@ -53,27 +59,45 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/reviewrouter_provider_setup_visual
       PROVIDER_VISUAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/reviewrouter_provider_setup_visual
-      EXPECTED_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+      EXPECTED_REVISION: ${{ inputs.source_revision || github.event.pull_request.head.sha || github.sha }}
       TZ: UTC
     steps:
       - name: Checkout exact qualification source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          repository: 777genius/review-router-ai
+          ref: ${{ inputs.source_revision || github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact consumer source
+        run: |
+          [[ "$EXPECTED_REVISION" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_REVISION"
+          test -z "$(git status --porcelain)"
       - name: Setup pinned provider-accounts toolchain
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "24.21.0"
       - name: Install locked dependencies and pinned runtime
         run: |
-          npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+          browser_bin="$RUNNER_TEMP/native-accounts-browser-bin"
+          corepack_entry="$(dirname "$(dirname "$(command -v node)")")/lib/node_modules/corepack/dist/corepack.js"
+          test -f "$corepack_entry"
+          mkdir -p "$browser_bin"
+          printf '#!/bin/sh\nexec "%s" "%s" pnpm "$@"\n' "$(command -v node)" "$corepack_entry" > "$browser_bin/pnpm"
+          chmod 755 "$browser_bin/pnpm"
+          export PATH="$browser_bin:$PATH"
+          echo "$browser_bin" >> "$GITHUB_PATH"
+          test "$(pnpm --version)" = 11.28.7
           node scripts/install-private-dependencies.mjs --frozen-lockfile
           node scripts/prepare-pinned-subscription-runtime.ts
       - name: Generate offline Prisma client
         env:
           REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
         run: node scripts/generate-prisma-offline.mjs
+      - name: Check the complete web project with TypeScript 7.0.2
+        run: |
+          pnpm compiler:prepare
+          node scripts/local-checks/compiler-cli.ts --native --noEmit --incremental false -p apps/web/tsconfig.json
       - name: Install Chromium from the locked Playwright package
         run: pnpm exec playwright-core install --with-deps chromium
       - name: Capture actual authenticated Next accounts and connection forms
@@ -175,7 +199,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: native-accounts-browser-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
+          name: native-accounts-browser-${{ env.EXPECTED_REVISION }}-${{ github.run_attempt }}
           path: |
             tmp/native-accounts-browser/manifest.json
             tmp/native-accounts-browser/screens/
