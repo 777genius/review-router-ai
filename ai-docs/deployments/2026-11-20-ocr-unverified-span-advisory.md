@@ -50,10 +50,9 @@ observed to be absent. Use the [status contract](README.md#status-contract).
 
 1. The PR was merged straight into the public Action `main` as `39e28703`,
    with the rebuilt bundle; no sync step is needed.
-2. Users get it only with the next Action release in the
-   [release procedure](../operations/07-environments-and-release-management.md),
-   which includes the usual producer registration and Action ref alignment.
-   Rides in the next bundled rollout, NOT deployed.
+2. Released in `v1.0.243` and observed in the bundle 5 canary on
+   `v1.0.245`; see the environment status above and the
+   [bundle 5 record](2026-11-21-bundle5.md).
 
 ## Verification and completion
 
