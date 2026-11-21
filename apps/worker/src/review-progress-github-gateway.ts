@@ -12,8 +12,10 @@ import {
 } from "./review-progress-github-comment-policy";
 import { commentPageLinks } from "./review-progress-github-link-policy";
 import {
+  expectedIssueCommentCollectionPaths,
   formatReviewProgressComment,
   pullRequestIdentityViolation,
+  repositoryIdFromValidatedPullRequest,
   repositoryParameters,
   validateReviewProgressInput,
   type UpsertReviewProgressCommentInput,
@@ -287,16 +289,7 @@ export class ReviewProgressGitHubGateway {
     }
     const violation = pullRequestIdentityViolation(response.data, input);
     if (violation) throw failure(violation.kind, violation.message, false);
-    // GitHub may use /repositories/{id} rather than /repos/{owner}/{repo}
-    // in pagination Links. Trust its numeric ID only after target validation.
-    // If GitHub omits that ID, fetchCommentPage trusts only the canonical path.
-    const repository = response.data as {
-      base?: { repo?: { id?: unknown } };
-    };
-    const id = repository?.base?.repo?.id;
-    return typeof id === "number" && Number.isSafeInteger(id) && id > 0
-      ? id
-      : undefined;
+    return repositoryIdFromValidatedPullRequest(response.data);
   }
 
   private async findMarkedComments(
@@ -430,14 +423,10 @@ export class ReviewProgressGitHubGateway {
     if (!Array.isArray(response.data)) {
       throw failure("invalid_response", "github_issue_comments_invalid", false);
     }
-    const expectedCollectionPaths = [
-      `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/${input.pullNumber}/comments`,
-    ];
-    if (verifiedRepositoryId !== undefined) {
-      expectedCollectionPaths.push(
-        `/repositories/${verifiedRepositoryId}/issues/${input.pullNumber}/comments`,
-      );
-    }
+    const expectedCollectionPaths = expectedIssueCommentCollectionPaths(
+      input,
+      verifiedRepositoryId,
+    );
     return {
       comments: response.data,
       ...commentPageLinks(response.headers, page, expectedCollectionPaths),

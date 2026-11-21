@@ -119,3 +119,35 @@ export function repositoryParameters(
 ): Readonly<Record<string, unknown>> {
   return { owner: input.owner, repo: input.repo, ...extra };
 }
+
+/** Trust a numeric repository ID only after the pull identity was fenced. */
+export function repositoryIdFromValidatedPullRequest(
+  value: unknown,
+): number | undefined {
+  const pull = record(value);
+  const base = record(pull?.base);
+  const repository = record(base?.repo);
+  const id = repository?.id;
+  return typeof id === "number" && Number.isSafeInteger(id) && id > 0
+    ? id
+    : undefined;
+}
+
+/** Scope pagination Links to the requested PR's issue comment collection. */
+export function expectedIssueCommentCollectionPaths(
+  input: Pick<
+    UpsertReviewProgressCommentInput,
+    "owner" | "repo" | "pullNumber"
+  >,
+  verifiedRepositoryId?: number,
+): string[] {
+  const paths = [
+    `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/${input.pullNumber}/comments`,
+  ];
+  if (verifiedRepositoryId !== undefined) {
+    paths.push(
+      `/repositories/${verifiedRepositoryId}/issues/${input.pullNumber}/comments`,
+    );
+  }
+  return paths;
+}
