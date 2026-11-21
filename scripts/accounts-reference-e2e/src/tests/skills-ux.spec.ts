@@ -686,6 +686,15 @@ test.describe("Skills real Next UX resilience", () => {
     context,
   }) => {
     const first = await ensurePaths(page, "122", "Fixture skill 057");
+    const originalDocumentTimeOrigin = await page.evaluate(
+      () => performance.timeOrigin,
+    );
+    const expectOriginalDocument = async () => {
+      expect(
+        await page.evaluate(() => performance.timeOrigin),
+        "The stale Paths draft must remain in its original document",
+      ).toBe(originalDocumentTimeOrigin);
+    };
     const original = (await binding("122", "rr-e2e-skill-057"))!;
     await first.row
       .getByRole("textbox", { name: "Include paths", exact: true })
@@ -705,6 +714,7 @@ test.describe("Skills real Next UX resilience", () => {
     await installLoopbackOnlyNetworkGuard(second, network);
     try {
       const current = await openOperation(second, "122", "Fixture skill 057");
+      await expectOriginalDocument();
       await current.row
         .getByRole("button", {
           name: "Remove skill Fixture skill 057",
@@ -728,6 +738,7 @@ test.describe("Skills real Next UX resilience", () => {
       const recreated = (await binding("122", "rr-e2e-skill-057"))!;
       expect(recreated.version).toBe(original.version);
       expect(recreated.generation).not.toBe(original.generation);
+      await expectOriginalDocument();
       await first.row
         .getByRole("button", { name: "Save paths", exact: true })
         .click();
@@ -737,6 +748,7 @@ test.describe("Skills real Next UX resilience", () => {
       await expect(
         first.row.getByRole("textbox", { name: "Include paths", exact: true }),
       ).toHaveValue("stale-incarnation/**");
+      await expectOriginalDocument();
       expect(await binding("122", "rr-e2e-skill-057")).toEqual(recreated);
       await first.row
         .getByRole("button", {
@@ -750,6 +762,7 @@ test.describe("Skills real Next UX resilience", () => {
       await expect(
         first.row.getByRole("textbox", { name: "Include paths", exact: true }),
       ).toHaveValue("**");
+      await expectOriginalDocument();
       let unexpectedPrompt = false;
       page.once("dialog", (value) => {
         unexpectedPrompt = true;

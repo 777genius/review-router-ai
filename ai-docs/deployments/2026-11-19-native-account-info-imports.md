@@ -121,10 +121,44 @@ generated-patch application checks. The permanent SQL regression executes the
 exact pinned list method against tied fixtures and two legal SQLite plans. It
 demonstrates the original 16-page/15-identity defect and complete 16-identity
 results after correction; it is not PostgreSQL or native-runtime qualification.
-The current PR gate must supply a fresh Docker/API/PG17 receipt for the changed
-derivative. Any later authorized Hindsight rollout must bind that exact image
-and receipt; old derivative receipts cannot be reused. No environment rollout
-or production migration has been performed.
+The subsequent [native qualification on cf900602](https://github.com/777genius/review-router-ai/actions/runs/44853638542)
+passed all 65 contracts and 32 native checkpoints on actual synthetic
+`693c1886909350795cc17400af0058287738f2d2`, tree
+`256b7083765e26d0158b3781ab65abfbda2090b2`. Its new image
+`sha256:02b21f537bdd4c57daa8b0db74bfe25812d37e82f13dfda0eeee114de35a9f22`
+matches build metadata and the final cleanup/restart receipt. Artifact
+`14687307689`, ZIP SHA256
+`8253ee99e97d97f4195a440b12cff1e5c4246d455a43d0ad5746984366db05e8`,
+matched the API, upload log and downloaded bytes. This is native/API/PG17
+deterministic-fixture evidence; real-model and production-release flags remain
+false. Any later authorized Hindsight rollout must bind its exact qualified
+image and receipt; old derivative receipts cannot be reused. No environment
+rollout or production migration has been performed.
+
+### Skills fixture scan-grace correction
+
+The [Skills run on cf900602](https://github.com/777genius/review-router-ai/actions/runs/44853638473)
+passed 23 of 24 browser cases; the stale Paths editor case timed out before its
+save request. The retained trace proves that the original page reloaded before
+the second page removed the binding. Both database assertions later confirmed
+version one with a different generation, but no `updateBindingScope` request
+was sent, so this is not evidence of a failed generation fence.
+
+The populated Skills fixture installations inherited a fresh `createdAt` and
+had no scan outbox request. The real model therefore classified them as scanning
+inside its 120-second new-installation grace, then unknown outside it. Recorded
+reads at ages 106.597 and 138.626 seconds crossed that boundary and triggered a
+dashboard refresh. An independent probe of the actual model reproduced this
+transition; ageing the same fixtures by one day removed the transition and its
+refresh key. This probe is not a replacement for the browser gate.
+
+Only the two existing Skills fixture installations are now seeded as one day
+old. The production scan model is unchanged. The stale-editor case additionally
+checks its original `performance.timeOrigin` before removal, before save,
+after the conflict and after reconciliation. All 24 cases, generation/version
+and database assertions, draft checks, 30-second action deadlines and zero
+retries remain intact. Native TypeScript 7.0.2, targeted lint and formatting
+passed locally; a fresh complete browser run remains required.
 
 ## Verification and completion
 
