@@ -279,11 +279,11 @@
   `snapshotPersonalIntent`, который отвергает всё кроме `api-key-create` и
   `oauth-begin` (`personal-account-operations.ts:78`), а reconnect-импорт
   (у него `ingress IS NULL`) старый код примет за обычный reconnect.
-- Staging: правило базы данных в
-  [release process](../operations/07-environments-and-release-management.md#database-release-rule)
-  просит migrate и smoke на staging. Как и в выкатах 2026-11-17, его заменяют
-  CI-репетиции на точном `9c52c250`: DB Contract and Migration Checks, Full
-  private PG16 to PG17 rehearsal и Managed migration PG17.
+- Staging: [правило выпуска БД](../operations/07-environments-and-release-management.md#database-release-rule)
+  требует выполнить миграцию и smoke на staging до production. CI-репетиции
+  на точном `9c52c250` дополняют эти шаги, но не заменяют их. Для будущего
+  целевого SHA нужно проверить релевантные CI и staging-результаты; без
+  выполненных staging-проверок production-выкат по этому плану не начинать.
 
 ### Нативные миграции 260, 261, 262
 
@@ -768,6 +768,8 @@ D5. #955 (runner starvation, plan 88), смержен в 15:11 UTC (вместе
 - [ ] Сухой прогон `apply-domain.sh` во временный каталог: пять файлов равны
       живым, management равен кандидату.
 - [ ] `a02b1607..main` без неожиданных миграций; main CI целевого SHA зелёный.
+- [ ] Миграция и smoke на staging для целевого релиза прошли по правилу
+      выпуска БД; подтверждение и точная версия записаны в task record.
 - [ ] Native: две сборки дают одинаковый SHA256, тесты прошли.
 - [ ] Gateway release: tracked файлы равны `44bf7ae0`, тесты прошли.
 - [ ] Операторы прошли независимый ревью, `prepare`/`plan` без эффектов.
