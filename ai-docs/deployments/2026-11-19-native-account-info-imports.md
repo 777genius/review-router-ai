@@ -73,8 +73,11 @@ The [bundle 6 plan](2026-11-21-bundle6-plan.md) runs steps 1-4 as: Caddy
 SDK routes, native `14f500eb`, Gateway 116, migration `000160`, then one image
 for all four roles. There is no switch that keeps import submissions off:
 native advertises the Codex import methods whenever Codex OAuth connect and
-dispatch are configured. Step 4 still holds because `fleet-overlay` stops every
-old container before any new one starts and only Web writes import rows, so no
+dispatch are configured. So, by owner decision D2, the plan drops the separate
+"reader installed, imports disabled" phase of step 4: the writer becomes
+available in the same cutover as the reader, before the canary. What step 4
+protects against still cannot happen, because `fleet-overlay` stops every old
+container before any new one starts and only Web writes import rows, so no
 pre-M2 reader ever runs next to the new writer. The exact rollback revision is
 `a02b1607` only while the RR, Gateway kernel and native import counts are all
 zero, counted with writers stopped; after the first import the rollback target
