@@ -75,15 +75,15 @@ async function assertNoSecrets(page: Page) {
     );
 }
 
-async function waitForAccount(flow: FlowRun, label: string) {
+async function waitForAccount(flow: FlowRun, label: string, revision = 1) {
   const deadline = Date.now() + 20000;
   while (Date.now() < deadline) {
     const account = await flow.prisma.providerAccountConnection.findFirst({
       where: { profileRef: VISUAL_NATIVE_PROFILE, displayName: label },
     });
-    if (account) {
+    if (account && account.metadataRevision === revision) {
       assert.equal(account.state, "active");
-      return;
+      return account;
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
@@ -177,6 +177,83 @@ export const nativeConnectionFlow: VisualFlow = {
       },
     );
     await flow.shot(page, "native-structured-applied");
+    await page.reload();
+    await flow.check(
+      "native reconnect preserves the account and clears cancelled credentials",
+      async () => {
+        const before = await waitForAccount(flow, "Visual native structured");
+        const connectionRow = page
+          .locator("div")
+          .filter({
+            has: page.getByText("Visual native structured", { exact: true }),
+          })
+          .filter({
+            has: page.getByRole("button", { name: "Reconnect", exact: true }),
+          })
+          .last();
+        const openReconnect = async () => {
+          await connectionRow
+            .getByRole("button", { name: "Reconnect", exact: true })
+            .click();
+          const reconnectDialog = page.getByRole("dialog", {
+            name: "Reconnect New native provider",
+            exact: true,
+          });
+          await reconnectDialog.waitFor();
+          return reconnectDialog;
+        };
+        let reconnectDialog = await openReconnect();
+        await fillIdentity(page, reconnectDialog);
+        await page.keyboard.press("Escape");
+        await reconnectDialog.waitFor({ state: "hidden" });
+        assert.equal(
+          fixture.evidence().filter((effect) => effect.action === "reconnect")
+            .length,
+          0,
+        );
+        await assertNoSecrets(page);
+        reconnectDialog = await openReconnect();
+        for (const label of ["Identity document", "Identity secret"])
+          assert.equal(
+            await reconnectDialog
+              .getByLabel(label, { exact: true })
+              .inputValue(),
+            "",
+          );
+        await fillIdentity(page, reconnectDialog);
+        await reconnectDialog
+          .getByRole("button", {
+            name: "Reconnect New native provider",
+            exact: true,
+          })
+          .click();
+        await reconnectDialog.waitFor({ state: "hidden" });
+        const after = await waitForAccount(flow, "Visual native structured", 2);
+        assert.equal(after.id, before.id);
+        assert.equal(after.gatewayAccountRef, before.gatewayAccountRef);
+        assert.equal(
+          await flow.prisma.providerAccountConnection.count({
+            where: {
+              profileRef: VISUAL_NATIVE_PROFILE,
+              displayName: "Visual native structured",
+            },
+          }),
+          1,
+        );
+        assert.deepEqual(
+          fixture.evidence().filter((effect) => effect.action === "reconnect"),
+          [
+            {
+              action: "reconnect",
+              methodId: "structured",
+              inputAccepted: true,
+            },
+          ],
+        );
+        await assertNoSecrets(page);
+      },
+    );
+    await flow.shot(page, "native-structured-reconnected");
     await page.reload();
     dialog = await openNative(page);
     await flow.check(

@@ -89,16 +89,18 @@ export function createNativeOperationsFixture() {
         send(receipt ? 200 : 404, receipt ?? { error: "not_found" });
         return true;
       }
+      const reconnect =
+        /^\/v3\/accounts\/([^/]+)\/connections\/reconnect$/.exec(path);
       if (
         request.method !== "POST" ||
-        !path.startsWith("/v3/accounts/connections/")
+        (!path.startsWith("/v3/accounts/connections/") && !reconnect)
       )
         return false;
       let raw = "";
       for await (const chunk of request) raw += String(chunk);
       const input = JSON.parse(raw) as Record<string, unknown>;
       const operationId = String(input.operationId);
-      if (path.endsWith("/begin")) {
+      if (path.endsWith("/begin") || reconnect) {
         const connection = input.connection as Record<string, unknown>;
         const method = visualNativeMethods.find(
           (row) =>
@@ -122,7 +124,7 @@ export function createNativeOperationsFixture() {
             fields.document === VISUAL_NATIVE_DOCUMENT &&
             fields.secret === VISUAL_NATIVE_SECRET);
         effects.push({
-          action: "begin",
+          action: reconnect ? "reconnect" : "begin",
           methodId: method.methodId,
           inputAccepted,
         });
@@ -134,20 +136,41 @@ export function createNativeOperationsFixture() {
           send(200, receipts.get(operationId));
           return true;
         }
+        const existing = reconnect
+          ? accounts.get(decodeURIComponent(reconnect[1]!))
+          : undefined;
+        if (
+          reconnect &&
+          (!existing ||
+            existing.profileId !== connection.profileId ||
+            existing.metadataRevision !== input.expectedMetadataRevision)
+        ) {
+          send(409, { error: "revision_conflict" });
+          return true;
+        }
         const receipt: Receipt = {
           operation: { operationRef: operationId, state: "pending" },
           connection: { connection, method },
         };
         receipts.set(operationId, receipt);
-        targets.set(operationId, {
-          accountRef: `visual-native-account-${receipts.size}`,
-          ownerRef: String(input.ownerRef),
-          profileId: VISUAL_NATIVE_PROFILE,
-          displayName: String(input.displayName),
-          state: "active",
-          metadataRevision: 1,
-          authorizationEpoch: 1,
-        });
+        targets.set(
+          operationId,
+          existing
+            ? {
+                ...existing,
+                metadataRevision: existing.metadataRevision + 1,
+                authorizationEpoch: existing.authorizationEpoch + 1,
+              }
+            : {
+                accountRef: `visual-native-account-${receipts.size}`,
+                ownerRef: String(input.ownerRef),
+                profileId: VISUAL_NATIVE_PROFILE,
+                displayName: String(input.displayName),
+                state: "active",
+                metadataRevision: 1,
+                authorizationEpoch: 1,
+              },
+        );
         if (method.methodId === "structured")
           send(200, apply(operationId, receipt));
         else

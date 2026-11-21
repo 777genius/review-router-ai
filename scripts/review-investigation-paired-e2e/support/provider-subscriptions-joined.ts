@@ -24,6 +24,7 @@ import {
   createJoinedReviewProof,
   type JoinedReasoningReviewProof,
 } from "./provider-subscriptions-review-proof";
+import type { JoinedDispatchTrace } from "./provider-subscriptions-dispatch-trace";
 
 type JoinedInput = Readonly<{
   origin: string;
@@ -32,6 +33,7 @@ type JoinedInput = Readonly<{
   profileId: string;
   model: string;
   reviewProof?: JoinedReasoningReviewProof;
+  beforeDispatch?: (trace: JoinedDispatchTrace) => Promise<void>;
   limits: Readonly<{
     requests: number;
     concurrency: number;
@@ -232,12 +234,16 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
       token: input.token,
       timeoutMs: 5000,
     });
+    const runOperationId = randomUUID();
+    const invocationRef = randomUUID();
+    const attemptRef = randomUUID();
+    const policySubjectRef = "joined-provider-policy";
     const access = await consumer.runAccess({
-      operationId: randomUUID(),
-      invocationRef: randomUUID(),
-      attemptRef: randomUUID(),
+      operationId: runOperationId,
+      invocationRef,
+      attemptRef,
       accountRefs: [input.accountRef],
-      subjectRef: "joined-provider-policy",
+      subjectRef: policySubjectRef,
       policyRevision: 1,
       bindingRevision: 1,
       profileId: input.profileId,
@@ -397,6 +403,21 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
           "production relay must preserve the review schema",
         );
         relayPhase = "sdk-execution-request";
+        await input.beforeDispatch?.(
+          Object.freeze({
+            runOperationId,
+            policySubjectRef,
+            invocationRef,
+            attemptRef,
+            executionRef: selectedRef,
+            requestRef: requestId,
+            accountRef: input.accountRef,
+            profileId: input.profileId,
+            modelId: input.model,
+            occurredAt: new Date().toISOString(),
+            serviceTier: "default",
+          }),
+        );
         const upstream = await selectedExecution.request(
           selectedRef,
           {

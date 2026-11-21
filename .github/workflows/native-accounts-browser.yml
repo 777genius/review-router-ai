@@ -56,6 +56,18 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      postgres_rollback:
+        image: postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: rr_gateway_test_native_rollback
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["127.0.0.1:5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d rr_gateway_test_native_rollback"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/reviewrouter_provider_setup_visual
       PROVIDER_VISUAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/reviewrouter_provider_setup_visual
@@ -99,6 +111,54 @@ jobs:
           pnpm compiler:prepare
           node scripts/local-checks/compiler-cli.ts --native --noEmit --incremental false -p apps/web/tsconfig.json
           node scripts/local-checks/compiler-cli.ts --native --noEmit --incremental false -p tsconfig.provider-setup-visual.json
+          node scripts/local-checks/compiler-cli.ts --native --noEmit --incremental false -p tsconfig.provider-subscriptions-extension.json
+      - name: Use the primary runtime for the immutable rollback reader
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "26.11.1"
+      - name: Qualify old RR reader against newly written native operation rows
+        env:
+          ROLLBACK_POSTGRES_CONTAINER: ${{ job.services.postgres_rollback.id }}
+          RR_PROVIDER_ACCOUNTS_DISPOSABLE_CLUSTER: "1"
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = v26.11.1
+          node scripts/local-checks/compiler-cli.ts --native --noEmit --incremental false -p tsconfig.provider-accounts-rollback.json
+          reader_sha=38eb54a1706658fc005eba99d5c774c50005df90
+          reader_root="$RUNNER_TEMP/rr-native-rollback-source"
+          git fetch --no-tags origin "$reader_sha"
+          git worktree add --detach "$reader_root" "$reader_sha"
+          rollback_bin="$RUNNER_TEMP/rr-native-rollback-bin"
+          mkdir "$rollback_bin"
+          ROLLBACK_BIN="$rollback_bin" python3 - <<'PY'
+          import json, os, pathlib, re
+          container = os.environ['ROLLBACK_POSTGRES_CONTAINER']
+          assert re.fullmatch(r'[a-f0-9]{64}', container)
+          script = pathlib.Path(os.environ['ROLLBACK_BIN']) / 'psql'
+          script.write_text(
+            '#!/usr/bin/env python3\n'
+            'import os, sys\n'
+            'args = sys.argv[1:]\n'
+            'assert args[args.index("-h") + 1] == "127.0.0.1"\n'
+            'assert args[args.index("-p") + 1] == "5433"\n'
+            'assert args[args.index("-U") + 1] == "postgres"\n'
+            'args[args.index("-p") + 1] = "5432"\n'
+            'os.execvp("docker", ["docker", "exec", "-i", "-e", "PGOPTIONS=-c search_path=public", '
+            '"-e", "PGSSLMODE=disable", "-e", "PGPASSFILE=/dev/null", '
+            + json.dumps(container) + ', "psql", *args])\n'
+          )
+          script.chmod(0o755)
+          PY
+          export PATH="$rollback_bin:$PATH"
+          node --import tsx packages/features/provider-accounts/tests/native-connection-rollback.ts \
+            --writer-root "$GITHUB_WORKSPACE" --writer-sha "$EXPECTED_REVISION" \
+            --reader-root "$reader_root" --reader-sha "$reader_sha" \
+            --database-url postgresql://postgres@127.0.0.1:5433/rr_gateway_test_native_rollback \
+            --output "$RUNNER_TEMP/rr-native-rollback-output"
+      - name: Restore the browser compatibility runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24.21.0"
       - name: Install Chromium from the locked Playwright package
         run: pnpm exec playwright-core install --with-deps chromium
       - name: Capture actual authenticated Next accounts and connection forms
@@ -124,11 +184,11 @@ jobs:
           const flow = manifest.flows[0];
           assert.equal(flow.flow, 'flow-native-connections');
           assert.equal(flow.status, 'pass');
-          assert.equal(flow.checks.length, 4);
+          assert.equal(flow.checks.length, 5);
           assert(flow.checks.every(check => check.pass));
           assert.deepEqual(flow.pageErrors, []);
           assert.deepEqual(flow.blockedRequests, []);
-          assert.equal(flow.screenshots.length, 4);
+          assert.equal(flow.screenshots.length, 5);
           for (const file of flow.screenshots) assert(statSync(join(directory, file)).size > 0);
           assert.deepEqual(manifest.network.blocked, []);
           assert.deepEqual(manifest.network.githubUnhandled, []);
@@ -207,5 +267,16 @@ jobs:
             tmp/native-accounts-browser/flows/
             tmp/native-accounts-browser/next-app.log
             tmp/native-accounts-browser/migrate.log
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Preserve immutable RR rollback reader evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-rr-rollback-reader-${{ env.EXPECTED_REVISION }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/rr-native-rollback-output/old-reader-build.json
+            ${{ runner.temp }}/rr-native-rollback-output/old-reader-receipt.json
+            ${{ runner.temp }}/rr-native-rollback-output/rollback-receipt.json
           if-no-files-found: warn
           retention-days: 14
