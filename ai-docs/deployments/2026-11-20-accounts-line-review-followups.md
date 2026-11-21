@@ -20,14 +20,14 @@
   follow-ups of plans 76-83 (PRs #901 to #937).
 - Implementation reference: the branch head of that PR.
 - Dependencies: none.
-- Last updated: `2026-11-20`.
+- Last updated: `2026-11-21`.
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                  |
-| -------------------- | --------- | ------------------------------- | ------------------- | ----------------------------------------------- |
-| staging              | `pending` | Not verified                    | Not verified        | Rides in the next bundled ordinary Web rollout. |
-| production           | `pending` | Not verified                    | Not verified        | Rides in the next bundled ordinary Web rollout. |
+| Environment / target | Status      | Actual deployed version / image      | Last verified (UTC) | Evidence / next step / blocker                                                 |
+| -------------------- | ----------- | ------------------------------------ | ------------------- | ------------------------------------------------------------------------------ |
+| staging              | `pending`   | Not verified                         | Not verified        | Rides in the next bundled ordinary Web rollout.                                |
+| production           | `installed` | `a02b1607`, image `sha256:8d9dd8f3…` | 2026-11-21 12:28    | [Bundle 5](2026-11-21-bundle5.md); the signed-in dialog check needs the owner. |
 
 `pending` means no verified completion is recorded. See the
 [status contract](README.md#status-contract).
@@ -67,6 +67,7 @@ Stateless; roll back by deploying the previous Web image.
 
 ## Execution log
 
-| Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result | Evidence | Next action                          |
-| ------------ | -------------------- | ---------- | ---------------------- | ------------------------ | -------- | ------------------------------------ |
-| Not executed | staging / production | Unassigned | Not verified           | Not deployed yet.        | None     | Include in the next bundled rollout. |
+| Time (UTC)       | Environment | Operator   | Actual version / image               | Step and observed result                                                                  | Evidence                          | Next action                                                           |
+| ---------------- | ----------- | ---------- | ------------------------------------ | ----------------------------------------------------------------------------------------- | --------------------------------- | --------------------------------------------------------------------- |
+| Not executed     | staging     | Unassigned | Not verified                         | Not deployed yet.                                                                         | None                              | Include in the next bundled rollout.                                  |
+| 2026-11-21 12:28 | production  | D5         | `a02b1607`, image `sha256:8d9dd8f3…` | Web swapped in bundle 5; `/ready` and Web 200; the UI e2e job had passed on the #950 head | [Bundle 5](2026-11-21-bundle5.md) | Owner: the signed-in Codex sign-in lock check in the provider dialog. |
