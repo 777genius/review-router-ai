@@ -1,4 +1,7 @@
+import { ReviewProgressGitHubError } from "./review-progress-github-error";
 import type { UpsertReviewProgressCommentInput } from "./review-progress-github-input-policy";
+
+export const CAPACITY_LIMIT_SCAN = "github_issue_comments_page_limit";
 
 export type ReviewProgressComment = {
   readonly id: number;
@@ -72,6 +75,17 @@ export function parseCommentOrNull(
     : null;
 }
 
+export function parseComment(value: unknown): ReviewProgressComment {
+  const comment = parseCommentOrNull(value);
+  if (!comment)
+    throw new ReviewProgressGitHubError(
+      "invalid_response",
+      "github_issue_comment_invalid",
+      { retryable: false },
+    );
+  return comment;
+}
+
 export function ownsMarker(
   comment: ReviewProgressComment,
   input: Pick<UpsertReviewProgressCommentInput, "expectedBotLogin" | "marker">,
@@ -104,4 +118,14 @@ export function hasUnclassifiedMarker(
   const login = (user as { login?: unknown }).login;
   if (typeof login !== "string" || !login.trim()) return true;
   return login.toLowerCase() === expectedBotLogin.toLowerCase();
+}
+
+export function isCapacityLimitedScan(
+  error: unknown,
+): error is ReviewProgressGitHubError {
+  return (
+    error instanceof ReviewProgressGitHubError &&
+    error.kind === "pagination_inconclusive" &&
+    error.message === CAPACITY_LIMIT_SCAN
+  );
 }

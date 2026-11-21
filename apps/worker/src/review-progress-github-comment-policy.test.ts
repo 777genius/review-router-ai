@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { ReviewProgressGitHubError } from "./review-progress-github-error";
 import {
+  CAPACITY_LIMIT_SCAN,
   commentPageScanDecision,
   confirmedReconciliation,
   hasUnclassifiedMarker,
+  isCapacityLimitedScan,
   ownsMarker,
+  parseComment,
   parseCommentOrNull,
 } from "./review-progress-github-comment-policy";
 import { commentPageLinks } from "./review-progress-github-link-policy";
@@ -354,6 +358,36 @@ describe("Review progress GitHub comment policy", () => {
     ] as const;
     for (const [row, expected] of cases) {
       expect(hasUnclassifiedMarker(row, marker, bot)).toBe(expected);
+    }
+  });
+
+  it("parses valid write replies and rejects malformed comments", () => {
+    const raw = { id: 7, body: desired, user: { login: "review-router[bot]" } };
+    expect(parseComment(raw)).toEqual(marked(7, desired));
+    expect(() => parseComment({ ...raw, id: "7" })).toThrowError(
+      "github_issue_comment_invalid",
+    );
+  });
+
+  it("recognizes only bounded-scan overflow for known-ID recovery", () => {
+    expect(
+      isCapacityLimitedScan(
+        new ReviewProgressGitHubError(
+          "pagination_inconclusive",
+          CAPACITY_LIMIT_SCAN,
+          { retryable: true },
+        ),
+      ),
+    ).toBe(true);
+    for (const [kind, message] of [
+      ["pagination_inconclusive", "github_issue_comments_offset_changed"],
+      ["invalid_response", CAPACITY_LIMIT_SCAN],
+    ] as const) {
+      expect(
+        isCapacityLimitedScan(
+          new ReviewProgressGitHubError(kind, message, { retryable: true }),
+        ),
+      ).toBe(false);
     }
   });
 });

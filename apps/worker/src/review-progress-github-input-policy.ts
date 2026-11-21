@@ -112,3 +112,10 @@ function record(value: unknown): Record<string, unknown> | null {
     ? (value as Record<string, unknown>)
     : null;
 }
+
+export function repositoryParameters(
+  input: Pick<UpsertReviewProgressCommentInput, "owner" | "repo">,
+  extra: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  return { owner: input.owner, repo: input.repo, ...extra };
+}

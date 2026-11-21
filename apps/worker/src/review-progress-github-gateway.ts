@@ -1,8 +1,11 @@
 import {
+  CAPACITY_LIMIT_SCAN,
   commentPageScanDecision,
   confirmedReconciliation,
   hasUnclassifiedMarker,
+  isCapacityLimitedScan,
   ownsMarker,
+  parseComment,
   parseCommentOrNull,
   type ReviewProgressComment,
 } from "./review-progress-github-comment-policy";
@@ -10,6 +13,7 @@ import { commentPageLinks } from "./review-progress-github-link-policy";
 import {
   formatReviewProgressComment,
   pullRequestIdentityViolation,
+  repositoryParameters,
   validateReviewProgressInput,
   type UpsertReviewProgressCommentInput,
 } from "./review-progress-github-input-policy";
@@ -29,8 +33,6 @@ export {
   createReviewProgressMarker,
   formatReviewProgressComment,
 } from "./review-progress-github-input-policy";
-
-const CAPACITY_LIMIT_SCAN = "github_issue_comments_page_limit";
 
 export type ReviewProgressGitHubRequester = (
   route: string,
@@ -554,34 +556,10 @@ export class ReviewProgressGitHubGateway {
   }
 }
 
-function isCapacityLimitedScan(
-  error: unknown,
-): error is ReviewProgressGitHubError {
-  return (
-    error instanceof ReviewProgressGitHubError &&
-    error.kind === "pagination_inconclusive" &&
-    error.message === CAPACITY_LIMIT_SCAN
-  );
-}
-
-function repositoryParameters(
-  input: Pick<UpsertReviewProgressCommentInput, "owner" | "repo">,
-  extra: Readonly<Record<string, unknown>>,
-): Readonly<Record<string, unknown>> {
-  return { owner: input.owner, repo: input.repo, ...extra };
-}
-
 /**
  * A definite 4xx response proves GitHub rejected the write, so it is retried
  * and counted like on main. Anything else may have landed.
  */
-function parseComment(value: unknown): ReviewProgressComment {
-  const comment = parseCommentOrNull(value);
-  if (!comment)
-    throw failure("invalid_response", "github_issue_comment_invalid", false);
-  return comment;
-}
-
 function failure(
   kind: ReviewProgressGitHubFailureKind,
   message: string,
