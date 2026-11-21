@@ -132,42 +132,48 @@ export function formatGithubProgressComment(
 /**
  * Plan 88: the progress comment while the review's GitHub Actions job is
  * still queued without a runner. The review's own progress replaces it once
- * the job starts.
+ * the job starts; the absolute end time shows when the text is outdated.
  */
 export function formatGithubProgressWaitingForRunnerComment(input: {
   readonly headSha: string;
   readonly queuedSince: string;
-  readonly maxWaitMinutes: number;
+  readonly queuedUntil: string;
   readonly updatedAt: string;
 }): string {
-  assertNoticeMinutes(input.maxWaitMinutes);
   return startNoticeComment(
     "Waiting for a runner",
     [
-      `The review of commit \`${shortHeadSha(input.headSha)}\` has been waiting for a GitHub Actions runner since ${formatUtc(input.queuedSince)}. It starts by itself when GitHub assigns one; ReviewRouter keeps it queued for up to ${input.maxWaitMinutes} minutes.`,
+      `The review of commit \`${shortHeadSha(input.headSha)}\` has been waiting for a GitHub Actions runner since ${formatUtc(input.queuedSince)}. It starts by itself when GitHub assigns one. ReviewRouter keeps it queued until about ${formatUtc(input.queuedUntil)}.`,
     ],
     input.updatedAt,
   );
 }
 
 /**
- * Plan 88: the progress comment of a review whose GitHub Actions job never got
- * a runner. The next review of the pull request replaces it.
+ * Plan 88: the progress comment of a review whose run never reached
+ * ReviewRouter, either because GitHub gave its job no runner or because the
+ * job stopped before it checked in. The next review replaces it.
  */
 export function formatGithubProgressNotStartedComment(input: {
   readonly headSha: string;
   readonly waitedMinutes: number;
+  readonly runnerAssigned: boolean;
   readonly runUrl: string;
   readonly updatedAt: string;
 }): string {
-  assertNoticeMinutes(input.waitedMinutes);
+  if (!Number.isSafeInteger(input.waitedMinutes) || input.waitedMinutes < 1) {
+    throw new Error("progress_start_notice_minutes_invalid");
+  }
   if (!/^https:\/\/github\.com\/[^\s()]+$/u.test(input.runUrl)) {
     throw new Error("progress_start_notice_run_url_invalid");
   }
+  const cause = input.runnerAssigned
+    ? `the review job started but did not reach ReviewRouter within ${input.waitedMinutes} minutes. Its run log shows why.`
+    : `GitHub Actions did not give the review job a runner within ${input.waitedMinutes} minutes.`;
   return startNoticeComment(
     "Not started",
     [
-      `The review of commit \`${shortHeadSha(input.headSha)}\` did not start: GitHub Actions did not give the review job a runner within ${input.waitedMinutes} minutes.`,
+      `The review of commit \`${shortHeadSha(input.headSha)}\` did not start: ${cause}`,
       "",
       `To try again, push a new commit or re-run [the ReviewRouter run](${input.runUrl}).`,
     ],
@@ -197,12 +203,6 @@ function shortHeadSha(headSha: string): string {
     throw new Error("progress_start_notice_head_invalid");
   }
   return headSha.slice(0, 12);
-}
-
-function assertNoticeMinutes(minutes: number): void {
-  if (!Number.isSafeInteger(minutes) || minutes < 1) {
-    throw new Error("progress_start_notice_minutes_invalid");
-  }
 }
 
 function phaseLabel(phase: ProgressPhase, terminal: ProgressTerminal): string {

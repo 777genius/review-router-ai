@@ -657,6 +657,15 @@ export class InMemoryReviewRequestedIntentStore
       const decision = extendReviewRequestedQueuedRunWait({
         intent,
         ...command,
+        competingPreAdmission: [...this.intents.values()].some(
+          (other) =>
+            other.requestId !== intent.requestId &&
+            scopeKey(other) === scopeKey(intent) &&
+            (other.state === ReviewRequestedIntentState.PendingDispatch ||
+              other.state === ReviewRequestedIntentState.Dispatching ||
+              other.state === ReviewRequestedIntentState.ReconcilingDispatch ||
+              other.state === ReviewRequestedIntentState.AwaitingAuthorization),
+        ),
       });
       if (decision.status !== ReviewRequestedTransitionDecisionStatus.Applied) {
         return { status: ReviewRequestedTransitionStatus.Conflict };

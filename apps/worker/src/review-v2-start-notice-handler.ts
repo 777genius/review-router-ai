@@ -16,6 +16,11 @@ import {
 export type ReviewRequestedStartNoticePublication = Readonly<{
   intent: ReviewRequestedIntent;
   notice: ReviewRequestedStartNotice;
+  /**
+   * For "not started": whether GitHub ever gave the run a runner. A run that
+   * got one but never reached ReviewRouter is not a runner shortage.
+   */
+  runnerAssigned: boolean;
 }>;
 
 /** Writes a start notice into the pull request's progress comment. */
@@ -28,10 +33,11 @@ export type ReviewRequestedStartNoticePublisherPort = {
 
 /**
  * Plan 88: tells the pull request that its review waits for a GitHub runner,
- * or that it stopped without one. It speaks only while the request is still
- * in the state the notice describes, no newer review request for the pull
- * request exists, the pull request still shows the revision and GitHub shows
- * that no job got a runner. Anything else stays silent, as before.
+ * or that it stopped before a run reached ReviewRouter. It speaks only while
+ * the request is still in the state the notice describes, no newer review
+ * request for the pull request exists and the pull request still shows the
+ * revision; "waiting" also needs every job still queued without a runner.
+ * A stop always gets its status, so a "waiting" text never outlives its run.
  */
 export function createReviewRequestedStartNoticeHandler(dependencies: {
   readonly intents: Pick<ReviewRequestedIntentQueryPort, "findByRequestId"> &
@@ -85,13 +91,14 @@ export function createReviewRequestedStartNoticeHandler(dependencies: {
           throw failure("start_notice_runner_inspection_unavailable");
         });
       const notice = current.payload.notice;
-      const runnerFactHolds =
-        notice === ReviewRequestedStartNotice.WaitingForRunner
-          ? runner.waitingForRunner
-          : runner.neverStarted;
-      if (!runnerFactHolds || !runner.revisionCurrent) return;
+      if (
+        !runner.revisionCurrent ||
+        (notice === ReviewRequestedStartNotice.WaitingForRunner &&
+          !runner.waitingForRunner)
+      )
+        return;
       const published = await dependencies.publisher
-        .publish({ intent, notice })
+        .publish({ intent, notice, runnerAssigned: !runner.neverStarted })
         .catch(() => {
           throw failure("start_notice_publication_failed");
         });

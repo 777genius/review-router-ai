@@ -598,30 +598,12 @@ export class PrismaReviewRequestedIntentStore
           }
           const intent = intentToDomain(record);
           const now = await databaseNow(transaction);
-          const competitor = await transaction.reviewRequestedIntent.findFirst({
-            where: {
-              ...scopeWhere(intent),
-              requestId: { not: intent.requestId },
-              state: {
-                in: [
-                  intentStateToPrisma(
-                    ReviewRequestedIntentState.PendingDispatch,
-                  ),
-                  intentStateToPrisma(ReviewRequestedIntentState.Dispatching),
-                  intentStateToPrisma(
-                    ReviewRequestedIntentState.ReconcilingDispatch,
-                  ),
-                  intentStateToPrisma(
-                    ReviewRequestedIntentState.AwaitingAuthorization,
-                  ),
-                ],
-              },
-            },
-            select: { requestId: true },
-          });
           const decision = decideReviewRequestedDispatch({
             intent,
-            competingPreAdmission: competitor !== null,
+            competingPreAdmission: await hasCompetingPreAdmission(
+              transaction,
+              intent,
+            ),
             claimId: command.claimId,
             ownerIdHash: command.ownerIdHash,
             fencingToken: command.fencingToken,
@@ -817,6 +799,10 @@ export class PrismaReviewRequestedIntentStore
           const decision = extendReviewRequestedQueuedRunWait({
             intent,
             expectedVersion: command.expectedVersion,
+            competingPreAdmission: await hasCompetingPreAdmission(
+              transaction,
+              intent,
+            ),
             now,
             windowMs: command.windowMs,
             nextResolutionAt: databaseRelativeDate(
@@ -1291,6 +1277,29 @@ function isConcurrencyError(error: unknown): boolean {
 }
 
 class ConcurrentIntentMutationError extends Error {}
+
+/** Another request of the pull request that has not reached its own run yet. */
+async function hasCompetingPreAdmission(
+  transaction: Transaction,
+  intent: ReviewRequestedIntent,
+): Promise<boolean> {
+  const competitor = await transaction.reviewRequestedIntent.findFirst({
+    where: {
+      ...scopeWhere(intent),
+      requestId: { not: intent.requestId },
+      state: {
+        in: [
+          intentStateToPrisma(ReviewRequestedIntentState.PendingDispatch),
+          intentStateToPrisma(ReviewRequestedIntentState.Dispatching),
+          intentStateToPrisma(ReviewRequestedIntentState.ReconcilingDispatch),
+          intentStateToPrisma(ReviewRequestedIntentState.AwaitingAuthorization),
+        ],
+      },
+    },
+    select: { requestId: true },
+  });
+  return competitor !== null;
+}
 
 /** One status per request and kind; a later extension adds nothing new. */
 async function enqueueStartNotice(

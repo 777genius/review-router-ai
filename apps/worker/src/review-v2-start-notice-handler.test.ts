@@ -29,6 +29,7 @@ describe("review requested start notice handler", () => {
     expect(f.publish).toHaveBeenCalledWith({
       intent: f.intent,
       notice: ReviewRequestedStartNotice.WaitingForRunner,
+      runnerAssigned: false,
     });
   });
 
@@ -41,19 +42,34 @@ describe("review requested start notice handler", () => {
     expect(f.publish).toHaveBeenCalledWith({
       intent: f.intent,
       notice: ReviewRequestedStartNotice.NotStarted,
+      runnerAssigned: false,
+    });
+  });
+
+  it("replaces a waiting text when the run got a runner but never reached ReviewRouter", async () => {
+    const f = fixture(notStarted(), {
+      waitingForRunner: false,
+      neverStarted: false,
+      revisionCurrent: true,
+    });
+    await f.handle();
+    expect(f.publish).toHaveBeenCalledWith({
+      intent: f.intent,
+      notice: ReviewRequestedStartNotice.NotStarted,
+      runnerAssigned: true,
     });
   });
 
   it.each([
     ["a job got a runner", waiting(), { ...noRunner, waitingForRunner: false }],
     [
-      "the run had a runner before it stopped",
-      notStarted(),
-      { ...noRunner, waitingForRunner: false, neverStarted: false },
-    ],
-    [
       "the pull request moved",
       waiting(),
+      { ...noRunner, revisionCurrent: false },
+    ],
+    [
+      "the pull request moved after the stop",
+      notStarted(),
       { ...noRunner, revisionCurrent: false },
     ],
   ] as const)("stays silent when %s", async (_name, intent, runner) => {

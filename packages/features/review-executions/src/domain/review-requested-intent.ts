@@ -923,19 +923,43 @@ export function reviewRequestedQueuedRunWaitLimit(
 }
 
 /**
+ * The next deadline a run still waiting for a runner may get: one more window
+ * on top of the current deadline, capped by the queued-wait limit. `null`
+ * when the limit leaves less than half a window, because a runner arriving in
+ * such a stub would be too late for admission anyway.
+ */
+export function reviewRequestedQueuedRunWaitExtension(
+  intent: Pick<
+    ReviewRequestedIntent,
+    "submissionStartedAt" | "resolutionDeadlineAt"
+  >,
+  windowMs: number,
+): Date | null {
+  const deadline = intent.resolutionDeadlineAt;
+  const limit = reviewRequestedQueuedRunWaitLimit(intent);
+  if (deadline === null || limit === null) return null;
+  const extended = Math.min(deadline.getTime() + windowMs, limit.getTime());
+  return extended - deadline.getTime() < windowMs / 2
+    ? null
+    : new Date(extended);
+}
+
+/**
  * Gives a dispatched run that is still waiting for a GitHub runner one more
  * authorization window instead of stopping the request, so the run keeps its
  * place in the GitHub queue (plan 88). Only an open window is extended: once
  * the deadline passed, a newer request for the same revision may already run.
- * Only a request that no run has reached (admission not evaluated, no
- * authorization or execution) is extended, the new deadline never passes the
- * queued-wait limit, and an extension shorter than half a window is not worth
- * a runner that would arrive too late for admission. The caller must have
- * proven from GitHub that no job got a runner.
+ * Another request of the pull request waiting for its own run (a manual
+ * review command) blocks the extension too, so the pull request never gets
+ * two runs. Only a request that no run has reached (admission not evaluated,
+ * no authorization or execution) is extended, within
+ * `reviewRequestedQueuedRunWaitExtension`. The caller must have proven from
+ * GitHub that no job got a runner.
  */
 export function extendReviewRequestedQueuedRunWait(input: {
   readonly intent: ReviewRequestedIntent;
   readonly expectedVersion: bigint;
+  readonly competingPreAdmission: boolean;
   readonly now: Date;
   readonly windowMs: number;
   readonly nextResolutionAt: Date;
@@ -944,26 +968,21 @@ export function extendReviewRequestedQueuedRunWait(input: {
   assertDate(input.nextResolutionAt, "next_resolution_at");
   assertPositiveSafeInteger(input.windowMs, "queued_wait_window_ms");
   const intent = input.intent;
-  const deadline = intent.resolutionDeadlineAt;
-  const limit = reviewRequestedQueuedRunWaitLimit(intent);
+  const resolutionDeadlineAt = reviewRequestedQueuedRunWaitExtension(
+    intent,
+    input.windowMs,
+  );
   if (
     intent.version !== input.expectedVersion ||
+    input.competingPreAdmission ||
     intent.state !== ReviewRequestedIntentState.AwaitingAuthorization ||
     intent.admission.state !== ReviewRequestAdmissionState.NotEvaluated ||
     intent.authorizationId !== null ||
     intent.executionId !== null ||
     intent.sourceRunId === null ||
-    deadline === null ||
-    limit === null ||
-    input.now >= deadline
-  ) {
-    return { status: ReviewRequestedTransitionDecisionStatus.Conflict };
-  }
-  const resolutionDeadlineAt = new Date(
-    Math.min(deadline.getTime() + input.windowMs, limit.getTime()),
-  );
-  if (
-    resolutionDeadlineAt.getTime() - deadline.getTime() < input.windowMs / 2 ||
+    intent.resolutionDeadlineAt === null ||
+    input.now >= intent.resolutionDeadlineAt ||
+    resolutionDeadlineAt === null ||
     input.nextResolutionAt <= input.now ||
     input.nextResolutionAt > resolutionDeadlineAt
   ) {

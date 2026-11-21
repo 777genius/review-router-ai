@@ -429,21 +429,34 @@ describe("start notices in the progress comment (plan 88)", () => {
     const waiting = formatGithubProgressWaitingForRunnerComment({
       headSha: "c".repeat(40),
       queuedSince: "2026-11-21T13:28:24.000Z",
-      maxWaitMinutes: 90,
+      queuedUntil: "2026-11-21T14:58:24.000Z",
       updatedAt: "2026-11-21T13:56:30.000Z",
     });
     const notStarted = formatGithubProgressNotStartedComment({
       headSha: "c".repeat(40),
       waitedMinutes: 90,
+      runnerAssigned: false,
       runUrl: "https://github.com/777genius/social-monitor/actions/runs/701",
       updatedAt: "2026-11-21T14:58:30.000Z",
     });
-    for (const comment of [waiting, notStarted]) {
+    const notReached = formatGithubProgressNotStartedComment({
+      headSha: "c".repeat(40),
+      waitedMinutes: 30,
+      runnerAssigned: true,
+      runUrl: "https://github.com/777genius/social-monitor/actions/runs/701",
+      updatedAt: "2026-11-21T14:58:30.000Z",
+    });
+    for (const comment of [waiting, notStarted, notReached]) {
       expect(comment.split("\n")[0]).toBe(githubProgressCommentMarker);
       expect(parseGithubProgressSourceIdentity(comment)).toBeNull();
     }
     expect(waiting).toContain("**Phase:** Waiting for a runner");
     expect(waiting).toContain("since 2026-11-21 13:28:24 UTC");
+    expect(waiting).toContain("until about 2026-11-21 14:58:24 UTC");
+    expect(notReached).toContain(
+      "the review job started but did not reach ReviewRouter within 30 minutes",
+    );
+    expect(notReached).not.toContain("runner within");
     expect(notStarted).toContain("**Phase:** Not started");
     expect(notStarted).toContain("a runner within 90 minutes");
     expect(notStarted).toContain(

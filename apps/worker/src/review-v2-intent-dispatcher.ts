@@ -155,8 +155,9 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
 
   /**
    * Whether any job of the exact run attempt was ever given a runner, and
-   * whether the pull request still shows the requested revision. Anything
-   * GitHub does not state plainly is treated as "a runner may have started".
+   * whether the pull request still shows the requested revision: two reads,
+   * the attempt's jobs and the pull request. Anything GitHub does not state
+   * plainly throws, so callers treat it as "a runner may have started".
    */
   async inspectRunnerWait(input: {
     readonly intent: ReviewRequestedIntent;
@@ -172,21 +173,6 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
     const attempt = requiredRunIdentity(
       input.intent.sourceRunAttempt,
       "review_requested_inspection_attempt_missing",
-    );
-    const run = parseInspectionResponse(
-      (
-        await octokit.request(
-          "GET /repos/{owner}/{repo}/actions/runs/{run_id}",
-          {
-            owner: target.owner,
-            repo: target.repo,
-            run_id: runId,
-            headers: { "X-GitHub-Api-Version": "2026-03-10" },
-          },
-        )
-      ).data,
-      input.intent,
-      this.workflowPath,
     );
     const jobs = await octokit.request(
       "GET /repos/{owner}/{repo}/actions/runs/{run_id}/attempts/{attempt_number}/jobs",
@@ -210,8 +196,8 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
       },
     );
     return {
-      waitingForRunner:
-        !run.completed && jobFacts.neverStarted && jobFacts.allQueued,
+      // Every job still queued means the attempt has not completed either.
+      waitingForRunner: jobFacts.neverStarted && jobFacts.allQueued,
       neverStarted: jobFacts.neverStarted,
       revisionCurrent: pullRequestShowsRevision(pullRequest.data, input.intent),
     };

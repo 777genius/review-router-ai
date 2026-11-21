@@ -65,6 +65,14 @@ describe("queued run wait (domain)", () => {
     );
   });
 
+  it("does not extend while another request of the pull request waits for its own run", () => {
+    // A manual review command does not join the queued run; once this run
+    // got a runner, both would run on the same revision.
+    expect(extend(awaiting(30), at(28), true).status).toBe(
+      ReviewRequestedTransitionDecisionStatus.Conflict,
+    );
+  });
+
   it("never reopens a passed deadline, where a newer request may already run", () => {
     expect(extend(awaiting(30), at(30)).status).toBe(
       ReviewRequestedTransitionDecisionStatus.Conflict,
@@ -98,6 +106,7 @@ describe("queued run wait (domain)", () => {
       extendReviewRequestedQueuedRunWait({
         intent,
         expectedVersion: 4n,
+        competingPreAdmission: false,
         now: at(28),
         windowMs,
         nextResolutionAt: at(28.5),
@@ -166,6 +175,15 @@ describe("queued run wait (recovery)", () => {
       terminalReason:
         ReviewRequestedIntentTerminalReason.AuthorizationDeadlineExceeded,
     });
+  });
+
+  it("stops at the first deadline when a manual request of the pull request is waiting", async () => {
+    const harness = await recoveryHarness(async () => queued);
+    await harness.registerManualRequest();
+    expect(await harness.runUntil(at(40))).toEqual([at(30)]);
+    expect((await harness.intent())?.terminalReason).toBe(
+      ReviewRequestedIntentTerminalReason.AuthorizationDeadlineExceeded,
+    );
   });
 
   it("fails closed when GitHub does not answer the runner check", async () => {
@@ -269,6 +287,22 @@ async function recoveryHarness(
   const intent = () => intents.findByRequestId("request-1");
   return {
     recovery,
+    /** A `/rr review` on the same head: it does not join the queued run. */
+    async registerManualRequest() {
+      await intents.registerIntent({
+        candidate: {
+          ...scope,
+          requestId: "request-manual",
+          revision: revision(),
+          triggerKind: ReviewRequestedTriggerKind.ManualCommand,
+          deliveryIdentityHash: "e".repeat(64),
+          canonicalRequestHash: "f".repeat(64),
+          notBefore: at(10),
+          createdAt: at(10),
+          retainUntil: new Date(dispatchedAt.getTime() + 86_400_000),
+        },
+      });
+    },
     inspectRunnerWait: inspect,
     cancelKnownRun: cancel,
     intent,
@@ -291,10 +325,15 @@ async function recoveryHarness(
   };
 }
 
-function extend(intent: ReviewRequestedIntent, now: Date) {
+function extend(
+  intent: ReviewRequestedIntent,
+  now: Date,
+  competingPreAdmission = false,
+) {
   return extendReviewRequestedQueuedRunWait({
     intent,
     expectedVersion: intent.version,
+    competingPreAdmission,
     now,
     windowMs,
     nextResolutionAt: new Date(now.getTime() + 30_000),

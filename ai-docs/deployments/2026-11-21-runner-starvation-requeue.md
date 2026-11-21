@@ -12,7 +12,7 @@
 - Affected target: worker only (intent recovery, a new outbox handler, the
   progress comment formatter). API, Web, Gateway, native, the public Action
   and the workflow are unchanged.
-- Implementation PR: added when opened.
+- Implementation PR: [PR #955](https://github.com/777genius/review-router-ai/pull/955).
 - Implementation reference: the squash commit of that PR on `main`.
 - Dependencies: none. No migration, no configuration, no feature flag.
 - Last updated: 2026-11-21.
@@ -30,10 +30,11 @@ observed to be absent. Use the [status contract](README.md#status-contract).
 ## What changes at runtime
 
 - In the last four recovery passes before an authorization deadline (about
-  two minutes), the worker reads the exact run attempt, its jobs and the pull
-  request from GitHub. When every job is still `queued` without a runner and
-  the pull request is open on the same head and base, the request gets one
-  more window of `REVIEW_ROUTER_REVIEW_V2_INTENT_AUTHORIZATION_TIMEOUT_MS`
+  two minutes), the worker reads the jobs of the exact run attempt and the
+  pull request from GitHub. When every job is still `queued` without a runner,
+  the pull request is open on the same head and base, and no other request of
+  the pull request waits for its own run (a manual review command), the
+  request gets one more window of `REVIEW_ROUTER_REVIEW_V2_INTENT_AUTHORIZATION_TIMEOUT_MS`
   (30 minutes) on top of its deadline, never later than 90 minutes after
   dispatch and never shorter than half a window. With the default window
   that is two extensions: 30, 60, 90 minutes.
@@ -41,12 +42,15 @@ observed to be absent. Use the [status contract](README.md#status-contract).
   lock, and any GitHub error or unclear answer stops the request at its
   deadline exactly as before (terminal `authorization_deadline_exceeded`,
   the existing cleanup outbox cancels the run).
-- Outbox `review.requested_start_notice` (version 1), at most once per request
-  and kind: `waiting_for_runner` with the first extension, `not_started` when
-  the request stops at its deadline. The worker handler checks again that the
-  request is still in that state, that no newer review request exists for the
-  pull request, that GitHub still shows no runner and the same revision, and
-  that progress comments are on for the repository. It then rewrites the one
+- Outbox `review.requested_start_notice` (version 1, up to 20 attempts), at
+  most once per request and kind: `waiting_for_runner` with the first
+  extension, `not_started` when the request stops at its deadline. The worker
+  handler checks again that the request is still in that state, that no newer
+  review request exists for the pull request, that the pull request still
+  shows the revision, and that progress comments are on for the repository.
+  "Waiting" also needs every job still queued without a runner; "not started"
+  names the cause GitHub shows (no runner, or a job that started but never
+  reached ReviewRouter). It then rewrites the one
   progress comment (`review-router-live-progress` marker) through the progress
   gateway, sharing the installation write budget and the known comment id,
   and retries while a progress publication of the pull request is claimed or

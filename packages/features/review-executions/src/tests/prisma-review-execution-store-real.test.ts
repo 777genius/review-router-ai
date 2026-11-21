@@ -865,6 +865,46 @@ if (databaseUrl) {
         { requestId, notice: "waiting_for_runner" },
       ]);
 
+      // Another replica that read the request before the last extension, and
+      // a manual review command waiting for its own run, both get no window.
+      const extendedTwice = await store.findByRequestId(requestId);
+      await expect(
+        store.extendQueuedRunWait({
+          requestId,
+          expectedVersion: extendedTwice!.version - 1n,
+          now: new Date(),
+          windowMs: 1500,
+          nextResolutionAt: new Date(Date.now() + 10),
+        }),
+      ).resolves.toMatchObject({
+        status: ReviewRequestedTransitionStatus.Conflict,
+      });
+      const manualAt = new Date();
+      await store.registerIntent({
+        candidate: {
+          ...harness.scope,
+          requestId: `${requestId}-manual`,
+          revision: extendedTwice!.revision,
+          triggerKind: ReviewRequestedTriggerKind.ManualCommand,
+          deliveryIdentityHash: hashFromText(randomUUID()),
+          canonicalRequestHash: hashFromText(randomUUID()),
+          notBefore: manualAt,
+          createdAt: manualAt,
+          retainUntil: new Date(manualAt.getTime() + 86400000),
+        },
+      });
+      await expect(
+        store.extendQueuedRunWait({
+          requestId,
+          expectedVersion: extendedTwice!.version,
+          now: new Date(),
+          windowMs: 1500,
+          nextResolutionAt: new Date(Date.now() + 10),
+        }),
+      ).resolves.toMatchObject({
+        status: ReviewRequestedTransitionStatus.Conflict,
+      });
+
       // A passed deadline is never reopened: the request stops as before and
       // owes the pull request one "not started" status.
       const waited = await store.findByRequestId(requestId);

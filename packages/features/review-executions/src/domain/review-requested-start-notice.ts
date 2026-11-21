@@ -49,7 +49,8 @@ export function reviewRequestedStartNoticeEvent(intent: ReviewRequestedIntent) {
     repositoryId: intent.repositoryConnectionId,
     aggregateId: intent.requestId,
     payload: { requestId: intent.requestId, notice },
-    maxAttempts: 8,
+    // With the outbox backoff this waits about an hour for a busy progress comment.
+    maxAttempts: 20,
     occurredAt: intent.updatedAt,
   } as const;
 }

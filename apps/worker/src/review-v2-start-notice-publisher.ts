@@ -6,7 +6,7 @@ import {
 } from "@reviewrouter/features-review-progress";
 import {
   ReviewRequestedStartNotice,
-  reviewRequestedMaxQueuedRunWaitMs,
+  reviewRequestedQueuedRunWaitLimit,
 } from "@reviewrouter/features-review-executions";
 import type { createPrismaClient } from "@reviewrouter/platform-db";
 import type { Clock } from "@reviewrouter/shared";
@@ -132,7 +132,9 @@ export class GitHubReviewRequestedStartNoticePublisher implements ReviewRequeste
       return formatGithubProgressWaitingForRunnerComment({
         headSha: intent.revision.headSha,
         queuedSince: requiredDate(intent.submissionStartedAt).toISOString(),
-        maxWaitMinutes: reviewRequestedMaxQueuedRunWaitMs / 60_000,
+        queuedUntil: requiredDate(
+          reviewRequestedQueuedRunWaitLimit(intent),
+        ).toISOString(),
         updatedAt,
       });
     }
@@ -150,6 +152,7 @@ export class GitHubReviewRequestedStartNoticePublisher implements ReviewRequeste
             60_000,
         ),
       ),
+      runnerAssigned: input.runnerAssigned,
       runUrl: `https://github.com/${repository.owner}/${repository.name}/actions/runs/${sourceRunId}`,
       updatedAt,
     });

@@ -573,26 +573,13 @@ describe("GitHubActionsReviewRequestedDispatchGateway.inspectRunnerWait", () => 
     runner_name: "",
     steps: [],
   };
-  const inspect = (
-    jobs: unknown,
-    options: { runStatus?: string; pullRequest?: object } = {},
-  ) =>
+  const inspect = (jobs: unknown, options: { pullRequest?: object } = {}) =>
     gatewayWith(async (route: string) => {
       if (route.endsWith("/jobs")) return { data: jobs };
-      if (route.includes("/actions/runs/")) {
-        return {
-          data: {
-            id: 701,
-            run_attempt: 1,
-            event: "workflow_dispatch",
-            display_title: "ReviewRouter review request-1",
-            status: options.runStatus ?? "queued",
-            conclusion: options.runStatus === "completed" ? "cancelled" : null,
-            path: ".github/workflows/reviewrouter-review.yml",
-          },
-        };
+      if (route.includes("/pulls/")) {
+        return { data: options.pullRequest ?? pullRequestFixture() };
       }
-      return { data: options.pullRequest ?? pullRequestFixture() };
+      throw new Error("unexpected_route");
     }).inspectRunnerWait({
       intent: {
         ...intentFixture(),
@@ -638,10 +625,10 @@ describe("GitHubActionsReviewRequestedDispatchGateway.inspectRunnerWait", () => 
 
   it("keeps a cancelled run without a runner as never started", async () => {
     await expect(
-      inspect(
-        { total_count: 1, jobs: [{ ...queuedJob, status: "completed" }] },
-        { runStatus: "completed" },
-      ),
+      inspect({
+        total_count: 1,
+        jobs: [{ ...queuedJob, status: "completed" }],
+      }),
     ).resolves.toEqual({
       waitingForRunner: false,
       neverStarted: true,

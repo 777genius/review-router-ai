@@ -9,7 +9,7 @@ import {
 import {
   ReviewRequestedIntentState,
   ReviewRequestedIntentTerminalReason,
-  reviewRequestedQueuedRunWaitLimit,
+  reviewRequestedQueuedRunWaitExtension,
   type ReviewRequestedIntent,
 } from "../../domain/review-requested-intent";
 import {
@@ -259,10 +259,11 @@ export class RecoverReviewRequestedDispatches {
     now: Date,
     deadline: Date,
   ): Promise<boolean> {
-    const limit = reviewRequestedQueuedRunWaitLimit(intent);
     if (
-      limit === null ||
-      limit <= deadline ||
+      reviewRequestedQueuedRunWaitExtension(
+        intent,
+        this.policy.authorizationResolutionTimeoutMs,
+      ) === null ||
       now >= deadline ||
       deadline.getTime() - now.getTime() >
         queuedRunExtensionPasses * this.policy.authorizationResolutionDelayMs
