@@ -161,7 +161,12 @@ import {
   type ReviewV2PublicationMaintenanceRuntime,
   type ReviewV2ProgressMaintenanceRuntime,
 } from "./review-v2-worker-runtime";
-import { ReviewProgressPublisher } from "./review-progress-publisher";
+import {
+  ReviewProgressPublisher,
+  type ReviewProgressInstallationRequesterFactory,
+} from "./review-progress-publisher";
+import { createReviewRequestedStartNoticeHandler } from "./review-v2-start-notice-handler";
+import { GitHubReviewRequestedStartNoticePublisher } from "./review-v2-start-notice-publisher";
 import { PrismaReviewProgressPublicationStore } from "./review-progress-store";
 import { ReviewProgressTerminalPromotion } from "./review-progress-terminal-promotion";
 import { GitHubActionsReviewRequestedDispatchGateway } from "./review-v2-intent-dispatcher";
@@ -504,10 +509,34 @@ export function createProductionReviewV2WorkerRuntime(input: {
       };
     },
   };
+  const progressInstallations = createProgressInstallationRequester({
+    githubAppId: input.githubAppId,
+    githubPrivateKey: input.githubPrivateKey,
+  });
+  const progressCommentWrites = progressSettings.hostedCommentWrites;
   const ingressHandlers = [
     createReviewRequestedDispatchCleanupHandler({
       intents: requestedIntents,
       gateway: intentGateway,
+    }),
+    createReviewRequestedStartNoticeHandler({
+      intents: requestedIntents,
+      gateway: intentGateway,
+      publisher: progressCommentWrites
+        ? new GitHubReviewRequestedStartNoticePublisher(
+            input.prisma,
+            progressInstallations,
+            input.clock,
+            {
+              allowedRepositoryFullNames:
+                progressCommentWrites.allowedRepositoryFullNames,
+              maxCommentPages: progressMaxCommentPages(input.env),
+              minimumMutationIntervalMs: progressMinimumMutationIntervalMs(
+                input.env,
+              ),
+            },
+          )
+        : null,
     }),
     createGitHubReviewRequestIngressHandler({
       repositories: new PrismaActionControlPlaneRepository(input.prisma),
@@ -701,8 +730,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
     clock: input.clock,
     env: input.env,
     settings: progressSettings,
-    githubAppId: input.githubAppId,
-    githubPrivateKey: input.githubPrivateKey,
+    requestForInstallation: progressInstallations,
     ownerIdHash,
     ...(input.logger ? { logger: input.logger } : {}),
   });
@@ -751,23 +779,31 @@ export function createProductionReviewV2WorkerRuntime(input: {
   };
 }
 
-function createHostedReviewProgressRuntime(input: {
-  readonly prisma: PrismaClient;
-  readonly clock: SystemClock;
-  readonly env: Readonly<Record<string, string | undefined>>;
-  readonly settings: ReviewProgressSettings;
+function progressMinimumMutationIntervalMs(
+  env: Readonly<Record<string, string | undefined>>,
+): number {
+  return positiveInteger(
+    env.REVIEW_ROUTER_PROGRESS_MIN_MUTATION_INTERVAL_MS,
+    1_000,
+    "review_progress_mutation_interval_ms_invalid",
+  );
+}
+
+function progressMaxCommentPages(
+  env: Readonly<Record<string, string | undefined>>,
+): number {
+  return positiveInteger(
+    env.REVIEW_ROUTER_PROGRESS_MAX_COMMENT_PAGES,
+    5,
+    "review_progress_max_comment_pages_invalid",
+  );
+}
+
+/** One GitHub App client for every writer of the progress comment. */
+function createProgressInstallationRequester(input: {
   readonly githubAppId: string;
   readonly githubPrivateKey: string;
-  readonly ownerIdHash: string;
-  readonly logger?: Pick<Logger, "warn">;
-}): ReviewV2ProgressMaintenanceRuntime | undefined {
-  // On by default for every repository; the writes kill switch or a malformed
-  // setting leaves the publisher out of the worker loop entirely.
-  const writes = input.settings.hostedCommentWrites;
-  if (!writes) return undefined;
-  const store = new PrismaReviewProgressPublicationStore(input.prisma, {
-    allowedRepositoryFullNames: writes.allowedRepositoryFullNames,
-  });
+}): ReviewProgressInstallationRequesterFactory {
   const app = new App({
     appId: input.githubAppId,
     privateKey: input.githubPrivateKey,
@@ -787,28 +823,47 @@ function createHostedReviewProgressRuntime(input: {
       });
     return botLogin;
   };
+  return async (installationId) => {
+    const numericInstallationId = Number(installationId);
+    if (
+      !Number.isSafeInteger(numericInstallationId) ||
+      numericInstallationId < 1
+    ) {
+      throw new Error("review_progress_github_installation_id_invalid");
+    }
+    const octokit = await app.getInstallationOctokit(numericInstallationId);
+    return {
+      request: async (route, parameters) => {
+        const response = await octokit.request(
+          route as "GET /rate_limit",
+          parameters as never,
+        );
+        return { data: response.data, headers: response.headers };
+      },
+      botLogin: await resolveBotLogin(),
+    };
+  };
+}
+
+function createHostedReviewProgressRuntime(input: {
+  readonly prisma: PrismaClient;
+  readonly clock: SystemClock;
+  readonly env: Readonly<Record<string, string | undefined>>;
+  readonly settings: ReviewProgressSettings;
+  readonly requestForInstallation: ReviewProgressInstallationRequesterFactory;
+  readonly ownerIdHash: string;
+  readonly logger?: Pick<Logger, "warn">;
+}): ReviewV2ProgressMaintenanceRuntime | undefined {
+  // On by default for every repository; the writes kill switch or a malformed
+  // setting leaves the publisher out of the worker loop entirely.
+  const writes = input.settings.hostedCommentWrites;
+  if (!writes) return undefined;
+  const store = new PrismaReviewProgressPublicationStore(input.prisma, {
+    allowedRepositoryFullNames: writes.allowedRepositoryFullNames,
+  });
   const publisher = new ReviewProgressPublisher(
     store,
-    async (installationId) => {
-      const numericInstallationId = Number(installationId);
-      if (
-        !Number.isSafeInteger(numericInstallationId) ||
-        numericInstallationId < 1
-      ) {
-        throw new Error("review_progress_github_installation_id_invalid");
-      }
-      const octokit = await app.getInstallationOctokit(numericInstallationId);
-      return {
-        request: async (route, parameters) => {
-          const response = await octokit.request(
-            route as "GET /rate_limit",
-            parameters as never,
-          );
-          return { data: response.data, headers: response.headers };
-        },
-        botLogin: await resolveBotLogin(),
-      };
-    },
+    input.requestForInstallation,
     input.clock,
     input.ownerIdHash,
     {
@@ -822,21 +877,13 @@ function createHostedReviewProgressRuntime(input: {
         25_000,
         "review_progress_publish_claim_ms_invalid",
       ),
-      minimumMutationIntervalMs: positiveInteger(
-        input.env.REVIEW_ROUTER_PROGRESS_MIN_MUTATION_INTERVAL_MS,
-        1_000,
-        "review_progress_mutation_interval_ms_invalid",
-      ),
+      minimumMutationIntervalMs: progressMinimumMutationIntervalMs(input.env),
       retryDelayMs: positiveInteger(
         input.env.REVIEW_ROUTER_PROGRESS_PUBLISH_RETRY_MS,
         5_000,
         "review_progress_publish_retry_ms_invalid",
       ),
-      maxCommentPages: positiveInteger(
-        input.env.REVIEW_ROUTER_PROGRESS_MAX_COMMENT_PAGES,
-        5,
-        "review_progress_max_comment_pages_invalid",
-      ),
+      maxCommentPages: progressMaxCommentPages(input.env),
       maxFailures: positiveInteger(
         input.env.REVIEW_ROUTER_PROGRESS_MAX_FAILURES,
         10,

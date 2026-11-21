@@ -44,9 +44,9 @@ export function HomeFeatures(): React.ReactElement {
         <div className="rr-home-engine__intro">
           <div className="rr-home-engine__copy">
             <h2 id="rr-engine-title">
-              Purpose-built for code review.
+              Purpose-built for code review
               <br />
-              <em>Not general agent loops.</em>
+              <em>Not general agent loops</em>
             </h2>
             <p>
               Powered by the open-source <strong>OpenCodeReview</strong> engine.
@@ -63,9 +63,9 @@ export function HomeFeatures(): React.ReactElement {
       >
         <header className="rr-home-insights__heading">
           <h2 id="rr-insights-title">
-            Your models.
+            Your models
             <br />
-            <em>Your usage.</em>
+            <em>Your usage</em>
           </h2>
           <p>
             Keep your subscription or API key. See what your review runs
@@ -83,7 +83,7 @@ export function HomeFeatures(): React.ReactElement {
       >
         <header className="rr-home-workflow__heading">
           <h2 id="rr-workflow-title">
-            Connect. Review. <em>Understand.</em>
+            Connect. Review. <em>Understand</em>
           </h2>
           <p>One familiar flow, not another tool you have to babysit.</p>
         </header>
@@ -112,9 +112,9 @@ export function HomeFeatures(): React.ReactElement {
       >
         <header className="rr-home-hosting__heading">
           <h2 id="rr-hosting-title">
-            Hosted or self-hosted.
+            Hosted or self-hosted
             <br />
-            <em>Always your choice.</em>
+            <em>Always your choice</em>
           </h2>
         </header>
         <div className="rr-home-hosting__grid">
