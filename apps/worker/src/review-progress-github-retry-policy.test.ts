@@ -202,7 +202,10 @@ describe("Review progress GitHub retry policy", () => {
   it("never schedules jitter earlier than the retry boundary", () => {
     const low = jitterAfter(now, () => -1).getTime();
     const high = jitterAfter(now, () => 2).getTime();
-    const fallback = fallbackRetryAt(() => now, () => 0).getTime();
+    const fallback = fallbackRetryAt(
+      () => now,
+      () => 0,
+    ).getTime();
     expect(low).toBe(now.getTime() + 250);
     expect(high).toBe(now.getTime() + 1_000);
     expect(fallback).toBe(now.getTime() + 1_250);
