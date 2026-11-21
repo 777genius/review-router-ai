@@ -14,7 +14,7 @@
 - Canonical contract and parallel plans: `agent-teams-ai/account-gateway`,
   `docs/reference/native-account-contracts.md` and
   `docs/reference/native-account-integration-plan.md`.
-- Last updated: `2026-11-20`.
+- Last updated: `2026-11-21`.
 
 ## Environment status
 
@@ -97,6 +97,34 @@ comment ID, a current revision marker and idempotent replay.
 Current-source CI, the complete browser receipt and the joined six-profile
 RR → Gateway → Sub2API review flow still precede final qualification. Local
 tooling checks do not establish those runtime outcomes.
+
+### Hindsight operation-pagination qualification correction
+
+The fresh [Hindsight qualification run on head 948](https://github.com/777genius/review-router-ai/actions/runs/44848646316)
+passed its 56 contract tests and then failed the additional operation-absence
+readback. Its partial artifact does not identify the exact failed operation or
+phase. Investigation independently demonstrated a pagination defect: native
+retain parents and children share a transaction timestamp, and ordering offset
+pages only by that timestamp can repeat one ID and omit another.
+
+The existing source-pinned derivative now adds operation UUID as the secondary
+descending ordering key. The qualification harness retains one-record pages and
+uses the production strict page guard, an independent bounded database census,
+matching full-read identities, and every original/discovered/late ID before and
+after restart. No deletion, authorization or deadline check is relaxed. Upstream
+revision, base-image selection and dependency pins remain fixed; derivative
+bytes and the resulting image identity change.
+
+Local verification passed 65 contract tests with zero skips, six native control
+fixtures, native TypeScript 7.0.2 for the expanded bootstrap project, lint and
+generated-patch application checks. The permanent SQL regression executes the
+exact pinned list method against tied fixtures and two legal SQLite plans. It
+demonstrates the original 16-page/15-identity defect and complete 16-identity
+results after correction; it is not PostgreSQL or native-runtime qualification.
+The current PR gate must supply a fresh Docker/API/PG17 receipt for the changed
+derivative. Any later authorized Hindsight rollout must bind that exact image
+and receipt; old derivative receipts cannot be reused. No environment rollout
+or production migration has been performed.
 
 ## Verification and completion
 

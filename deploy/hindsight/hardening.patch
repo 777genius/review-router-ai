@@ -175,6 +175,15 @@
  
      @staticmethod
      def _pool_health_stats(backend: Any) -> dict:
+@@ -21992,7 +21991,7 @@
+                        result_metadata, retry_count, next_retry_at
+                 FROM {fq_table("async_operations")}
+                 WHERE {where_clause}
+-                ORDER BY created_at DESC
++                ORDER BY created_at DESC, operation_id DESC
+                 LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}
+                 """,
+                 *params,
 --- a/hindsight-api-slim/hindsight_api/engine/memories/pg/links.py
 +++ b/hindsight-api-slim/hindsight_api/engine/memories/pg/links.py
 @@ -574,7 +574,7 @@
