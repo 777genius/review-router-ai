@@ -18,10 +18,10 @@
 
 ## Environment status
 
-| Target                    | Status      | Actual version                                                           | Evidence                                                                                                  |
-| ------------------------- | ----------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| Public Action `main`      | `installed` | `39e28703`                                                               | review-router#403 merged (squash)                                                                         |
-| Public Action release/tag | `deployed`  | `v1.0.243` = `workflow-v1` = `1db48dfa`, kept in `v1.0.245` = `e0e5f8fa` | [Bundle 3](2026-11-20-bundle3.md); observed in the [bundle 5](2026-11-21-bundle5.md) canary (see the log) |
+| Target                    | Status      | Actual version                                                                             | Evidence                                                                                                  |
+| ------------------------- | ----------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| Public Action `main`      | `installed` | `39e28703`                                                                                 | review-router#403 merged (squash)                                                                         |
+| Public Action release/tag | `deployed`  | first in `v1.0.243` (`1db48dfa`, bundle 3); now in `v1.0.245` = `workflow-v1` = `e0e5f8fa` | [Bundle 3](2026-11-20-bundle3.md); observed in the [bundle 5](2026-11-21-bundle5.md) canary (see the log) |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
