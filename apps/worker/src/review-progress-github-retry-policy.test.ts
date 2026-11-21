@@ -419,9 +419,8 @@ describe("Review progress GitHub retry policy", () => {
     );
     expect(rejected.kind).toBe("pagination_inconclusive");
     expect(rejected.metadata.mutationMayHaveLanded).toBeUndefined();
-    expect(
-      Object.hasOwn(rejected.metadata, "mutationMayHaveLanded"),
-    ).toBe(false);
+    const hasFlag = Object.hasOwn(rejected.metadata, "mutationMayHaveLanded");
+    expect(hasFlag).toBe(false);
     expect(uncertain.metadata.mutationMayHaveLanded).toBe(true);
   });
 
@@ -503,6 +502,16 @@ describe("Review progress GitHub retry policy", () => {
     );
     expect(unconfirmedMutation(rejectedPost)).toBe(rejectedPost);
     expect(rejectedPost.metadata.mutationMayHaveLanded).toBeUndefined();
+
+    // A future server-side throttle must not masquerade as a rejected write.
+    const serverThrottle = new ReviewProgressGitHubError(
+      "rate_limited",
+      "server_throttle",
+      { status: 503, retryable: true },
+    );
+    const pending = unconfirmedMutation(serverThrottle);
+    expect(pending.metadata.mutationMayHaveLanded).toBe(true);
+    expect(pending.cause).toBe(serverThrottle);
 
     const uncertain = new ReviewProgressGitHubError(
       "ambiguous_mutation",

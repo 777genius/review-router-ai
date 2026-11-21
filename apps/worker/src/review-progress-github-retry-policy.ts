@@ -287,11 +287,10 @@ function isDefinitelyRejectedMutation(
 ): boolean {
   const status = failure.metadata.status;
   return (
-    failure.kind === "rate_limited" ||
-    (failure.kind === "ambiguous_mutation" &&
-      status !== undefined &&
-      status >= 400 &&
-      status < 500)
+    status !== undefined &&
+    status >= 400 &&
+    status < 500 &&
+    (failure.kind === "rate_limited" || failure.kind === "ambiguous_mutation")
   );
 }
 
