@@ -105,6 +105,25 @@ describe("review requested start notice handler", () => {
     expect(f.inspectRunnerWait).not.toHaveBeenCalled();
   });
 
+  it("stays silent when the repository or run is gone, and retries a GitHub outage", async () => {
+    for (const permanent of [
+      new Error("review_requested_dispatch_repository_unavailable"),
+      new Error("review_requested_runner_inspection_invalid"),
+      Object.assign(new Error("Not Found"), { status: 404 }),
+    ]) {
+      const f = fixture(waiting(), noRunner, { inspectionError: permanent });
+      await f.handle();
+      expect(f.publish).not.toHaveBeenCalled();
+    }
+    const outage = fixture(waiting(), noRunner, {
+      inspectionError: Object.assign(new Error("Bad Gateway"), { status: 502 }),
+    });
+    await expect(outage.handle()).rejects.toMatchObject({
+      code: "start_notice_runner_inspection_unavailable",
+      retryable: true,
+    });
+  });
+
   it("retries while live progress of the pull request is being published", async () => {
     const f = fixture(waiting(), noRunner, { busy: true });
     await expect(f.handle()).rejects.toMatchObject({
@@ -117,12 +136,20 @@ describe("review requested start notice handler", () => {
 function fixture(
   intent: ReviewRequestedIntent,
   runner: ReviewRequestedRunnerWaitInspection = noRunner,
-  options: { newer?: boolean; busy?: boolean; publisherOff?: boolean } = {},
+  options: {
+    newer?: boolean;
+    busy?: boolean;
+    publisherOff?: boolean;
+    inspectionError?: Error;
+  } = {},
 ) {
   const publish = vi.fn<ReviewRequestedStartNoticePublisherPort["publish"]>(
     async () => (options.busy ? "busy" : "published"),
   );
-  const inspectRunnerWait = vi.fn(async () => runner);
+  const inspectRunnerWait = vi.fn(async () => {
+    if (options.inspectionError) throw options.inspectionError;
+    return runner;
+  });
   const handler = createReviewRequestedStartNoticeHandler({
     intents: {
       findByRequestId: async () => intent,

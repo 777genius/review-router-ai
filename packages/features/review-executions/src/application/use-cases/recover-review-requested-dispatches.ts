@@ -34,6 +34,8 @@ type CandidateResolution = "pending" | "recovered" | "failed";
  * window. Several, so the check lands before the last minute: a runner that
  * arrives after it still finds a whole window, and one that arrived before it
  * still has time for admission (`reviewRequestedAdmissionHandoffMinimumMs`).
+ * Never more than a quarter window, so a long pass interval cannot turn the
+ * check into an extension right after dispatch.
  */
 const queuedRunExtensionPasses = 4;
 
@@ -266,7 +268,10 @@ export class RecoverReviewRequestedDispatches {
       ) === null ||
       now >= deadline ||
       deadline.getTime() - now.getTime() >
-        queuedRunExtensionPasses * this.policy.authorizationResolutionDelayMs
+        Math.min(
+          queuedRunExtensionPasses * this.policy.authorizationResolutionDelayMs,
+          this.policy.authorizationResolutionTimeoutMs / 4,
+        )
     ) {
       return false;
     }

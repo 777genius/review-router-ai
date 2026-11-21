@@ -14,6 +14,7 @@ import {
   ReviewProgressGitHubError,
   ReviewProgressGitHubGateway,
 } from "./review-progress-github-gateway";
+import { isPublishableGitHubRepository } from "./review-progress-claim-eligibility-policy";
 import {
   persistInstallationCooldown,
   reserveProgressCommentNotice,
@@ -53,15 +54,23 @@ export class GitHubReviewRequestedStartNoticePublisher implements ReviewRequeste
       where: { id: intent.repositoryConnectionId },
       select: {
         workspaceId: true,
+        scmRepositoryIdentityId: true,
+        selected: true,
+        archived: true,
+        provider: true,
         owner: true,
         name: true,
         fullName: true,
-        installation: { select: { githubInstallationId: true } },
+        installation: { select: { githubInstallationId: true, status: true } },
       },
     });
     if (
       !repository?.installation ||
-      repository.workspaceId !== intent.workspaceId ||
+      !isPublishableGitHubRepository(
+        repository,
+        repository.installation.status,
+        intent,
+      ) ||
       (this.options.allowedRepositoryFullNames !== null &&
         !this.options.allowedRepositoryFullNames.has(
           repository.fullName.toLowerCase(),
@@ -81,7 +90,11 @@ export class GitHubReviewRequestedStartNoticePublisher implements ReviewRequeste
             pullRequestNumber: intent.pullRequestNumber,
           },
           installationId,
-          minimumIntervalMs: this.options.minimumMutationIntervalMs,
+          // The live publisher never writes more often than once a second.
+          minimumIntervalMs: Math.max(
+            1_000,
+            this.options.minimumMutationIntervalMs,
+          ),
         }),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
@@ -116,9 +129,8 @@ export class GitHubReviewRequestedStartNoticePublisher implements ReviewRequeste
         );
       }
       // A moved or closed pull request, another repository or a revoked App
-      // cannot take this status; only a retryable GitHub failure is retried.
-      if (!error.metadata.retryable) return "skipped";
-      throw error;
+      // cannot take this status; a retryable GitHub failure is tried again.
+      return error.metadata.retryable ? "busy" : "skipped";
     }
   }
 

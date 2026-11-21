@@ -17,7 +17,9 @@ import {
   ReviewRequestedIntentState,
   ReviewRequestedIntentTerminalReason,
   ReviewRequestedTriggerKind,
+  type ReviewRequestedIntent,
 } from "../domain/review-requested-intent";
+import type { ReviewExecutionScope } from "../domain/review-execution";
 import {
   ReviewExecutionAdmissionStatus,
   ReviewExecutionAdmissionVerdict,
@@ -43,6 +45,65 @@ import {
 } from "../testing/review-execution-store-contract";
 
 const databaseUrl = process.env.REVIEW_ROUTER_PROVIDER_SCOPE_TEST_DATABASE_URL;
+
+/** A request whose run was dispatched and now waits for authorization. */
+async function dispatchQueuedRequest(
+  store: PrismaReviewRequestedIntentStore,
+  scope: ReviewExecutionScope,
+  requestId: string,
+  windowMs: number,
+): Promise<ReviewRequestedIntent> {
+  const now = new Date();
+  await store.registerIntent({
+    candidate: {
+      ...scope,
+      requestId,
+      revision: {
+        baseSha: "a".repeat(40),
+        mergeBaseSha: "b".repeat(40),
+        headSha: "c".repeat(40),
+        reviewRevisionHash: hash(1),
+      },
+      triggerKind: ReviewRequestedTriggerKind.PullRequestSynchronized,
+      deliveryIdentityHash: hashFromText(randomUUID()),
+      canonicalRequestHash: hashFromText(randomUUID()),
+      notBefore: now,
+      createdAt: now,
+      retainUntil: new Date(now.getTime() + 86400000),
+    },
+  });
+  const claimed = await store.claimIntent({
+    requestId,
+    claimId: randomUUID(),
+    ownerIdHash: hashFromText(randomUUID()),
+    now,
+    claimUntil: new Date(now.getTime() + 30000),
+  });
+  const claim = claimed.intent!.claim!;
+  const submission = {
+    requestId,
+    claimId: claim.claimId,
+    ownerIdHash: claim.ownerIdHash,
+    fencingToken: claim.fencingToken,
+    now,
+    nextResolutionAt: new Date(now.getTime() + 10),
+    resolutionDeadlineAt: new Date(now.getTime() + windowMs),
+  };
+  await store.beginSubmission(submission);
+  const recorded = await store.recordDispatch({
+    ...submission,
+    sourceRunId: "702",
+    sourceRunAttempt: "1",
+  });
+  if (!recorded.intent) throw new Error("queued_request_fixture_missing");
+  return recorded.intent;
+}
+
+async function databaseClock(): Promise<Date> {
+  const [row] = await prisma.$queryRaw<Array<{ now: Date }>>`
+    SELECT clock_timestamp() AS now`;
+  return row!.now;
+}
 let prisma: PrismaClient;
 const currentWorkspaceIds = new Set<string>();
 const limitsProfileId = "limits-contract";
@@ -791,49 +852,9 @@ if (databaseUrl) {
       const harness = await createHarness();
       const store =
         harness.requestedIntents as PrismaReviewRequestedIntentStore;
-      const now = new Date();
+      const windowMs = 3000;
       const requestId = `queued-wait-${randomUUID()}`;
-      await store.registerIntent({
-        candidate: {
-          ...harness.scope,
-          requestId,
-          revision: {
-            baseSha: "a".repeat(40),
-            mergeBaseSha: "b".repeat(40),
-            headSha: "c".repeat(40),
-            reviewRevisionHash: hash(1),
-          },
-          triggerKind: ReviewRequestedTriggerKind.PullRequestSynchronized,
-          deliveryIdentityHash: hashFromText(randomUUID()),
-          canonicalRequestHash: hashFromText(randomUUID()),
-          notBefore: now,
-          createdAt: now,
-          retainUntil: new Date(now.getTime() + 86400000),
-        },
-      });
-      const claimed = await store.claimIntent({
-        requestId,
-        claimId: randomUUID(),
-        ownerIdHash: hashFromText(randomUUID()),
-        now,
-        claimUntil: new Date(now.getTime() + 30000),
-      });
-      const claim = claimed.intent!.claim!;
-      const submission = {
-        requestId,
-        claimId: claim.claimId,
-        ownerIdHash: claim.ownerIdHash,
-        fencingToken: claim.fencingToken,
-        now,
-        nextResolutionAt: new Date(now.getTime() + 10),
-        resolutionDeadlineAt: new Date(now.getTime() + 1500),
-      };
-      await store.beginSubmission(submission);
-      await store.recordDispatch({
-        ...submission,
-        sourceRunId: "702",
-        sourceRunAttempt: "1",
-      });
+      await dispatchQueuedRequest(store, harness.scope, requestId, windowMs);
       const notices = () =>
         prisma.outboxEvent.findMany({
           where: {
@@ -848,7 +869,7 @@ if (databaseUrl) {
           requestId,
           expectedVersion: current!.version,
           now: new Date(),
-          windowMs: 1500,
+          windowMs,
           nextResolutionAt: new Date(Date.now() + 10),
         });
         expect(extended).toMatchObject({
@@ -856,7 +877,7 @@ if (databaseUrl) {
           intent: {
             state: ReviewRequestedIntentState.AwaitingAuthorization,
             resolutionDeadlineAt: new Date(
-              current!.resolutionDeadlineAt!.getTime() + 1500,
+              current!.resolutionDeadlineAt!.getTime() + windowMs,
             ),
           },
         });
@@ -865,22 +886,22 @@ if (databaseUrl) {
         { requestId, notice: "waiting_for_runner" },
       ]);
 
-      // Another replica that read the request before the last extension, and
-      // a manual review command waiting for its own run, both get no window.
+      // Another replica that read the request before the last extension gets
+      // no window.
       const extendedTwice = await store.findByRequestId(requestId);
       await expect(
         store.extendQueuedRunWait({
           requestId,
           expectedVersion: extendedTwice!.version - 1n,
           now: new Date(),
-          windowMs: 1500,
+          windowMs,
           nextResolutionAt: new Date(Date.now() + 10),
         }),
       ).resolves.toMatchObject({
         status: ReviewRequestedTransitionStatus.Conflict,
       });
       // An event of the same revision joins the waiting run and is not a newer
-      // review request; a manual review command is.
+      // review request.
       expect(await store.hasNewerRequestInScope(extendedTwice!)).toBe(false);
       const joinedAt = new Date();
       await expect(
@@ -904,49 +925,22 @@ if (databaseUrl) {
         },
       });
       expect(await store.hasNewerRequestInScope(extendedTwice!)).toBe(false);
-      const manualAt = new Date();
-      await store.registerIntent({
-        candidate: {
-          ...harness.scope,
-          requestId: `${requestId}-manual`,
-          revision: extendedTwice!.revision,
-          triggerKind: ReviewRequestedTriggerKind.ManualCommand,
-          deliveryIdentityHash: hashFromText(randomUUID()),
-          canonicalRequestHash: hashFromText(randomUUID()),
-          notBefore: manualAt,
-          createdAt: manualAt,
-          retainUntil: new Date(manualAt.getTime() + 86400000),
-        },
-      });
-      expect(await store.hasNewerRequestInScope(extendedTwice!)).toBe(true);
+
+      // A passed deadline is never reopened, even when the worker clock lags
+      // behind the database: the request stops as before and owes the pull
+      // request one "not started" status.
+      const deadline = extendedTwice!.resolutionDeadlineAt!;
+      while ((await databaseClock()) <= deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      const laggingWorkerClock = new Date(deadline.getTime() - 60_000);
       await expect(
         store.extendQueuedRunWait({
           requestId,
           expectedVersion: extendedTwice!.version,
-          now: new Date(),
-          windowMs: 1500,
-          nextResolutionAt: new Date(Date.now() + 10),
-        }),
-      ).resolves.toMatchObject({
-        status: ReviewRequestedTransitionStatus.Conflict,
-      });
-
-      // A passed deadline is never reopened: the request stops as before and
-      // owes the pull request one "not started" status.
-      const waited = await store.findByRequestId(requestId);
-      await new Promise((resolve) =>
-        setTimeout(
-          resolve,
-          waited!.resolutionDeadlineAt!.getTime() - Date.now() + 200,
-        ),
-      );
-      await expect(
-        store.extendQueuedRunWait({
-          requestId,
-          expectedVersion: waited!.version,
-          now: new Date(),
-          windowMs: 1500,
-          nextResolutionAt: new Date(Date.now() + 10),
+          now: laggingWorkerClock,
+          windowMs,
+          nextResolutionAt: new Date(laggingWorkerClock.getTime() + 10),
         }),
       ).resolves.toMatchObject({
         status: ReviewRequestedTransitionStatus.Conflict,
@@ -954,7 +948,7 @@ if (databaseUrl) {
       await expect(
         store.recoverDispatch({
           requestId,
-          expectedVersion: waited!.version,
+          expectedVersion: extendedTwice!.version,
           sourceRunId: "702",
           sourceRunAttempt: "1",
           now: new Date(),
@@ -969,6 +963,48 @@ if (databaseUrl) {
         { requestId, notice: "waiting_for_runner" },
         { requestId, notice: "not_started" },
       ]);
+    });
+
+    it("does not extend a queued run while a manual request of the pull request waits", async () => {
+      const harness = await createHarness();
+      const store =
+        harness.requestedIntents as PrismaReviewRequestedIntentStore;
+      const requestId = `queued-wait-manual-${randomUUID()}`;
+      const queued = await dispatchQueuedRequest(
+        store,
+        harness.scope,
+        requestId,
+        60_000,
+      );
+      const manualAt = new Date();
+      await store.registerIntent({
+        candidate: {
+          ...harness.scope,
+          requestId: `${requestId}-manual`,
+          revision: queued.revision,
+          triggerKind: ReviewRequestedTriggerKind.ManualCommand,
+          deliveryIdentityHash: hashFromText(randomUUID()),
+          canonicalRequestHash: hashFromText(randomUUID()),
+          notBefore: manualAt,
+          createdAt: manualAt,
+          retainUntil: new Date(manualAt.getTime() + 86400000),
+        },
+      });
+      expect(await store.hasNewerRequestInScope(queued)).toBe(true);
+      await expect(
+        store.extendQueuedRunWait({
+          requestId,
+          expectedVersion: queued.version,
+          now: new Date(),
+          windowMs: 60_000,
+          nextResolutionAt: new Date(Date.now() + 10),
+        }),
+      ).resolves.toMatchObject({
+        status: ReviewRequestedTransitionStatus.Conflict,
+      });
+      expect((await store.findByRequestId(requestId))?.version).toBe(
+        queued.version,
+      );
     });
 
     it("retries registration when admission wins the supersede compare-and-set", async () => {

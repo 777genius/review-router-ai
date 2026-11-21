@@ -782,14 +782,10 @@ export function createProductionReviewV2WorkerRuntime(input: {
 function progressMinimumMutationIntervalMs(
   env: Readonly<Record<string, string | undefined>>,
 ): number {
-  // The publisher never writes more often than once a second per installation.
-  return Math.max(
+  return positiveInteger(
+    env.REVIEW_ROUTER_PROGRESS_MIN_MUTATION_INTERVAL_MS,
     1_000,
-    positiveInteger(
-      env.REVIEW_ROUTER_PROGRESS_MIN_MUTATION_INTERVAL_MS,
-      1_000,
-      "review_progress_mutation_interval_ms_invalid",
-    ),
+    "review_progress_mutation_interval_ms_invalid",
   );
 }
 
