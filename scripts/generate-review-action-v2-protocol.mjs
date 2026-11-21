@@ -171,7 +171,22 @@ export async function generateReviewActionV2Protocol(input = {}) {
         "// Generated from provider-usage/domain/usage.ts. Do not edit.\n" +
           usageSource
             .slice(0, wireBoundary)
-            .replace('"./usage-price"', '"./usage-price-v1.js"'),
+            .replace('"./usage-price"', '"./usage-price-v1.js"')
+            .replace('"./native-usage-context"', '"./native-usage-context.js"'),
+        { parser: "typescript" },
+      ),
+    ],
+    [
+      "generated/native-usage-context.ts",
+      await format(
+        "// Generated from provider-usage/domain/native-usage-context.ts. Do not edit.\n" +
+          (await readFile(
+            join(
+              repositoryRoot,
+              "packages/features/provider-usage/src/domain/native-usage-context.ts",
+            ),
+            "utf8",
+          )),
         { parser: "typescript" },
       ),
     ],

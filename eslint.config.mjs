@@ -7,17 +7,17 @@ import tseslint from "typescript-eslint";
 // See ai-docs/architecture/83-file-size-governance.md.
 const webMaxLines = 600;
 const webMaxLinesCeilings = {
-  "apps/web/app/dashboard/account-gateway-account-controls.tsx": 3135,
+  "apps/web/app/dashboard/account-gateway-account-controls.tsx": 2923,
   "apps/web/app/dashboard/account-lifecycle-controls.tsx": 812,
   "apps/web/app/dashboard/actions.ts": 3979,
   "apps/web/app/dashboard/dashboard-copy.ts": 921,
   "apps/web/app/dashboard/dashboard-workspace-page.tsx": 3509,
-  "apps/web/app/dashboard/personal-account-controls.tsx": 1869,
+  "apps/web/app/dashboard/personal-account-controls.tsx": 1870,
   "apps/web/app/dashboard/provider-setup-actions.ts": 1020,
   "apps/web/app/dashboard/provider-setup/gateway-reviewer-roster.tsx": 898,
   "apps/web/app/dashboard/provider-setup/provider-credential-delivery.tsx": 1374,
   "apps/web/app/dashboard/provider-setup/provider-list.tsx": 842,
-  "apps/web/app/dashboard/provider-setup/provider-setup-dialog.tsx": 2586,
+  "apps/web/app/dashboard/provider-setup/provider-setup-dialog.tsx": 2608,
   "apps/web/app/dashboard/provider-usage-tables.tsx": 629,
   "apps/web/app/dashboard/provider-usage-view.tsx": 753,
   "apps/web/app/dashboard/repository-live-search.tsx": 671,
@@ -26,14 +26,14 @@ const webMaxLinesCeilings = {
   "apps/web/app/dashboard/repository-skills-dialog.tsx": 742,
   "apps/web/app/dashboard/review-skills-library.tsx": 816,
   "apps/web/app/dashboard/skill-catalog-dialog.tsx": 779,
-  "apps/web/app/dashboard/workspace-personal-accounts.tsx": 642,
+  "apps/web/app/dashboard/workspace-personal-accounts.tsx": 643,
   "apps/web/app/setup/page.tsx": 688,
   "apps/web/src/features/memory/interface/components/memory-knowledge-screen.tsx": 859,
-  "apps/web/src/features/provider-setup/provider-setup-model.ts": 623,
-  "apps/web/src/server/account-gateway-accounts.ts": 2508,
+  "apps/web/src/features/provider-setup/provider-setup-model.ts": 628,
+  "apps/web/src/server/account-gateway-accounts.ts": 2530,
   "apps/web/src/server/dashboard-mutations.ts": 1105,
   "apps/web/src/server/personal-account-composition.ts": 848,
-  "apps/web/src/server/personal-canonical-accounts.ts": 1148,
+  "apps/web/src/server/personal-canonical-accounts.ts": 1157,
 };
 
 export default [

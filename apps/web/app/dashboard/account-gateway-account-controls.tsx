@@ -1,14 +1,20 @@
 "use client";
 
 import {
-  connectionMethodAllowed,
+  OAuthForm,
+  type OAuthFormIntent,
+} from "./legacy-oauth-connection-form";
+import {
+  NativeConnectionForm,
+  type NativeConnectionSubmission,
+} from "./native-connection-form";
+
+import {
   canCreateConnection,
-  credentialImportMethods,
   type CredentialImportMethod,
 } from "../../src/features/account-gateway/connection-capabilities";
 import {
   CredentialImportFields,
-  credentialImportLabels,
   validCredentialImportText,
 } from "./credential-import-fields";
 
@@ -94,8 +100,6 @@ import {
 } from "./account-connection-presentation";
 import type {
   AccountIntent,
-  AccountOAuthIntent,
-  AccountOAuthReconnectIntent,
   AccountOperationView,
   AccountProfileView,
   AccountView,
@@ -106,6 +110,8 @@ import type {
 import {
   bindGatewayAccount,
   beginGatewayOAuth,
+  beginGatewayNativeConnection,
+  continueGatewayNativeConnection,
   completeGatewayOAuth,
   pollGatewayOAuth,
   detachGatewayAccount,
@@ -124,6 +130,8 @@ export type AccountGatewayManagementApi = Pick<
   | "beginGatewayOAuth"
   | "completeGatewayOAuth"
 > & {
+  beginGatewayNativeConnection?: typeof beginGatewayNativeConnection;
+  continueGatewayNativeConnection?: typeof continueGatewayNativeConnection;
   pollGatewayOAuth?: (
     context: string,
     nonce: string,
@@ -135,6 +143,8 @@ const defaultManagementApi = {
   submitGatewayApiKey,
   readGatewayOperation,
   beginGatewayOAuth,
+  beginGatewayNativeConnection,
+  continueGatewayNativeConnection,
   completeGatewayOAuth,
   pollGatewayOAuth,
 };
@@ -153,7 +163,8 @@ export type AddConnectionToWorkspace = (
 // Legacy Claude OAuth accounts remain readable, but customers may only enroll
 // subscription credentials locally in their own GitHub Actions CLI workflow.
 const centrallyEnrollAllowed = (profile: AccountProfileView) =>
-  profile.id !== "anthropic-claude-oauth-messages-v1" &&
+  (profile.connection?.nativeMethods !== undefined ||
+    profile.id !== "anthropic-claude-oauth-messages-v1") &&
   canCreateConnection(profile);
 
 // Small safe keys: scoped stable user/workspace locator; no signature or secret.
@@ -203,9 +214,6 @@ type DeviceAuthorization = {
   expiresAt: string;
   intervalSeconds: number;
 };
-type OAuthFormIntent =
-  | Omit<AccountOAuthIntent, "nonce">
-  | Omit<AccountOAuthReconnectIntent, "nonce">;
 const inputClass =
   "min-h-11 rounded-lg border border-cyan-200/20 bg-slate-950 px-3 text-cyan-50";
 const keyUnconfirmedText =
@@ -746,9 +754,19 @@ function Controls({
     );
     await refresh();
   }
-  async function beginOAuth(intent: OAuthFormIntent, existingNonce?: string) {
+  async function beginOAuth(
+    intent: OAuthFormIntent,
+    existingNonce?: string,
+    native?: NativeConnectionSubmission,
+  ) {
     if (submitting.current) return;
-    const method = intent.method ?? "device_code";
+    const method = native
+      ? native.interaction === "browser"
+        ? "browser"
+        : native.interaction === "device"
+          ? "device_code"
+          : undefined
+      : (intent.method ?? "device_code");
     let tab: Window | null = null;
     let nonce: string | null;
     try {
@@ -805,17 +823,28 @@ function Controls({
         await fenceReconnect(nonce, intent.connectionId);
       // Direct ingress: neither the Begin response nor its temporary URL enters
       // a query/mutation cache, component state, storage or a readback request.
-      const fresh = await api.beginGatewayOAuth(context, {
-        ...intent,
-        method,
-        nonce,
-      });
+      const fresh = native
+        ? api.beginGatewayNativeConnection
+          ? await api.beginGatewayNativeConnection(
+              context,
+              { ...native.intent, nonce },
+              native.inputFields,
+            )
+          : { status: "unavailable" as const }
+        : await api.beginGatewayOAuth(context, {
+            ...intent,
+            ...(method ? { method } : {}),
+            nonce,
+          });
       const safe: AccountsResult<AccountOperationView> =
         fresh.status === "ok"
           ? fresh.value.operation.nonce === nonce
             ? {
                 status: "ok",
-                value: { ...fresh.value.operation, oauthMethod: method },
+                value: {
+                  ...fresh.value.operation,
+                  ...(method ? { oauthMethod: method } : {}),
+                },
               }
             : {
                 status: "ok",
@@ -874,6 +903,22 @@ function Controls({
       submitting.current = false;
       setBusy(false);
     }
+  }
+  function beginNative(
+    submission: NativeConnectionSubmission,
+    existingNonce?: string,
+  ) {
+    const { intent } = submission;
+    return beginOAuth(
+      intent.existing
+        ? { ...intent.existing }
+        : {
+            profileId: intent.connection.profileId,
+            ...(intent.label ? { label: intent.label } : {}),
+          },
+      existingNonce,
+      submission,
+    );
   }
   const metadataMutation = useMutation({
     mutationKey: ["gateway-accounts", scope, "metadata"] as const,
@@ -1026,6 +1071,7 @@ function Controls({
           />
         ) : null}
         {account.authKind === "api_key" &&
+        !account.connection?.nativeMethods &&
         account.state !== "disabled" &&
         account.state !== "tombstoned" &&
         data.value.profiles.find((p) => p.id === account.profileId)
@@ -1041,6 +1087,7 @@ function Controls({
           />
         ) : null}
         {account.authKind === "oauth" &&
+        !account.connection?.nativeMethods &&
         account.profileId !== "anthropic-claude-oauth-messages-v1" &&
         account.state !== "disabled" &&
         account.state !== "tombstoned" &&
@@ -1056,6 +1103,21 @@ function Controls({
             begin={beginOAuth}
             submit={submit}
             managementScope={managementScope}
+          />
+        ) : null}
+        {account.connection?.nativeMethods &&
+        account.state !== "disabled" &&
+        account.state !== "tombstoned" &&
+        data.value.profiles.find((p) => p.id === account.profileId)
+          ?.canReconnect ? (
+          <NativeConnectionForm
+            profile={
+              data.value.profiles.find((p) => p.id === account.profileId)!
+            }
+            account={account}
+            disabled={sourceBusy || account.canManage !== true}
+            disabledReason={manageReason}
+            begin={beginNative}
           />
         ) : null}
         {!personal && account.binding?.state !== "active" ? (
@@ -1106,6 +1168,7 @@ function Controls({
           disabled={disabled}
           managementScope={managementScope}
           begin={beginOAuth}
+          beginNative={beginNative}
           submit={submit}
         />
       ) : embedded && !activeNonce && data?.status === "ok" ? (
@@ -1118,17 +1181,24 @@ function Controls({
           {!fullToolbar ? null : connectEntry !== undefined ? (
             connectEntry
           ) : enrollmentProfiles.some(
-              (p) => p.authKind === "api_key" || p.authKind === "oauth",
+              (p) =>
+                p.connection?.nativeMethods ||
+                p.authKind === "api_key" ||
+                p.authKind === "oauth",
             ) ? (
             <ConnectAccountDialog
               profiles={enrollmentProfiles.filter(
-                (p) => p.authKind === "api_key" || p.authKind === "oauth",
+                (p) =>
+                  p.connection?.nativeMethods ||
+                  p.authKind === "api_key" ||
+                  p.authKind === "oauth",
               )}
               accounts={enrollmentAccounts}
               disabled={disabled}
               managementScope={managementScope}
               addsToWorkspace={Boolean(addToWorkspace)}
               begin={beginOAuth}
+              beginNative={beginNative}
               submit={submit}
             />
           ) : null}
@@ -1196,6 +1266,10 @@ function Controls({
                 deviceAuthorization={deviceHandoffs[nonce]}
                 completionProvider={completionProviders[nonce]}
                 beginContinuation={(intent) => beginOAuth(intent, nonce)}
+                nativeContinuation={(submission) =>
+                  beginNative(submission, nonce)
+                }
+                profiles={data?.status === "ok" ? data.value.profiles : []}
                 inline={connectOnly}
                 cancel={
                   // Leaves a waiting sign-in as a receipt in Connections.
@@ -1219,7 +1293,10 @@ function Controls({
                 consumeCompletionHandoff={() => consumeCompletionHandoff(nonce)}
                 oauthEnabled={
                   data?.status === "ok" &&
-                  data.value.profiles.some((p) => p.authKind === "oauth")
+                  data.value.profiles.some(
+                    (p) =>
+                      p.connection?.nativeMethods || p.authKind === "oauth",
+                  )
                 }
                 api={api}
                 managementScope={managementScope}
@@ -1272,6 +1349,7 @@ function Controls({
                   profileLabel={account.profileLabel}
                   provider={account.provider}
                   authKind={account.authKind}
+                  nativeCredential={account.nativeCredential}
                   connection={account.connection}
                   metadata={
                     lifecycleActivities.has(account.connectionId)
@@ -1393,6 +1471,7 @@ function ConnectAccountDialog({
   managementScope,
   addsToWorkspace = false,
   begin,
+  beginNative,
   submit,
 }: Parameters<typeof ConnectionForm>[0] & {
   addsToWorkspace?: boolean;
@@ -1431,6 +1510,10 @@ function ConnectAccountDialog({
                 setOpen(false);
                 return begin(intent);
               }}
+              beginNative={(submission) => {
+                setOpen(false);
+                return beginNative(submission);
+              }}
               submit={(intent, credential) => {
                 setOpen(false);
                 return submit(intent, credential);
@@ -1449,6 +1532,7 @@ function ConnectionForm({
   disabled,
   managementScope,
   begin,
+  beginNative,
   submit,
 }: {
   profiles: AccountProfileView[];
@@ -1456,6 +1540,7 @@ function ConnectionForm({
   disabled: boolean;
   managementScope: ManagementScope;
   begin(intent: OAuthFormIntent): Promise<void>;
+  beginNative(submission: NativeConnectionSubmission): Promise<void>;
   submit(
     intent: Omit<AccountIntent, "nonce">,
     credential?: string,
@@ -1521,9 +1606,11 @@ function ConnectionForm({
           }}
           options={ordered.map((row) => ({
             value: row.id,
-            label: setupProviderForGatewayProfile(row)
-              ? getSetupProvider(setupProviderForGatewayProfile(row)!).label
-              : row.label,
+            label: row.connection?.nativeMethods
+              ? (row.connection.providerLabel ?? row.label)
+              : setupProviderForGatewayProfile(row)
+                ? getSetupProvider(setupProviderForGatewayProfile(row)!).label
+                : row.label,
             icon: (
               <AccountProviderLogo
                 connection={row.connection}
@@ -1531,12 +1618,25 @@ function ConnectionForm({
               />
             ),
             description:
-              row.connection?.planLabel ??
+              (row.connection?.nativeMethods
+                ? [row.connection.planLabel, row.connection.regionLabel]
+                    .filter(Boolean)
+                    .join(" · ")
+                : row.connection?.planLabel) ??
               (row.authKind === "oauth" ? "Sign in" : "API key"),
           }))}
         />
       )}
-      {profile?.authKind === "oauth" ? (
+      {profile?.connection?.nativeMethods ? (
+        <NativeConnectionForm
+          key={profile.id}
+          profile={profile}
+          accounts={accounts}
+          inline
+          disabled={disabled}
+          begin={beginNative}
+        />
+      ) : profile?.authKind === "oauth" ? (
         <OAuthForm
           key={profile.id}
           inline
@@ -1561,374 +1661,6 @@ function ConnectionForm({
   );
 }
 
-function OAuthForm({
-  inline = false,
-  account,
-  accounts = [],
-  profiles,
-  disabled,
-  disabledReason,
-  begin,
-  submit,
-  managementScope = "workspace",
-}: {
-  inline?: boolean;
-  account?: AccountView;
-  accounts?: AccountView[];
-  profiles: AccountProfileView[];
-  disabled: boolean;
-  disabledReason?: string | undefined;
-  begin(intent: OAuthFormIntent): Promise<void>;
-  submit(
-    intent: Omit<AccountIntent, "nonce">,
-    credential?: string,
-  ): Promise<void>;
-  managementScope?: ManagementScope;
-}) {
-  const menuReturnFocus = useAccountMenuReturnFocus();
-  const [open, setOpen] = useState(false);
-  const [profileId, setProfileId] = useState(
-    account?.profileId ?? profiles[0]?.id ?? "",
-  );
-  const profile =
-    profiles.find((candidate) => candidate.id === profileId) ?? profiles[0];
-  const action = account ? "reconnect" : "create";
-  const methods = profile
-    ? (
-        profile.oauthMethods ??
-        (profile.id === "openai-codex-oauth-responses-v1" && !profile.connection
-          ? (["device_code", "browser"] as const)
-          : (["browser"] as const))
-      ).filter((method) => connectionMethodAllowed(profile, action, method))
-    : [];
-  const imports = profile ? credentialImportMethods(profile, action) : [];
-  type Method = "device_code" | "browser" | CredentialImportMethod;
-  const [chosenMethod, setMethod] = useState<Method>(
-    methods[0] ?? imports[0] ?? "browser",
-  );
-  const choices: Method[] = [...methods, ...imports];
-  const method = choices.includes(chosenMethod) ? chosenMethod : choices[0];
-  const importMethod =
-    method === "refresh_token" || method === "oauth_auth_json"
-      ? method
-      : undefined;
-  const [importLoading, setImportLoading] = useState(false);
-  const [importError, setImportError] = useState("");
-  const importErrorId = useId();
-  const formRef = useRef<HTMLFormElement>(null);
-  function chooseMethod(value: Method) {
-    formRef.current
-      ?.querySelectorAll<
-        HTMLInputElement | HTMLTextAreaElement
-      >('[name="credential"], [name="credentialFile"]')
-      .forEach((field) => {
-        field.value = "";
-        field.dispatchEvent(new Event("input", { bubbles: true }));
-      });
-    setImportLoading(false);
-    setImportError("");
-    setMethod(value);
-  }
-  const providerLabel = profile?.label ?? account?.profileLabel ?? "provider";
-  const connectText =
-    profiles.length > 1
-      ? "Connect with OAuth"
-      : `Connect ${providerLabel} OAuth`;
-  const reconnectText = `Refresh ${providerLabel} sign-in`;
-  const fields = (
-    <form
-      ref={formRef}
-      className="mt-4 grid gap-4"
-      onInput={() => setImportError("")}
-      onSubmit={(event) => {
-        event.preventDefault();
-        const form = event.currentTarget;
-        const values = new FormData(form);
-        if (!method || importLoading) return;
-        setImportError("");
-        if (importMethod) {
-          const credential = String(values.get("credential") ?? "");
-          if (!validCredentialImportText(credential)) {
-            setImportError("Enter valid text of 64 KiB or smaller.");
-            return;
-          }
-          const intent: Omit<AccountIntent, "nonce"> = account
-            ? {
-                kind: "reconnect",
-                connectionId: account.connectionId,
-                gatewayRevision: account.gatewayRevision,
-                mirrorRevision: account.mirrorRevision,
-                credentialImportMethod: importMethod,
-              }
-            : {
-                kind: "connect",
-                profileId: profile!.id,
-                label:
-                  String(values.get("label") ?? "").trim() ||
-                  suggestedAccountLabel(
-                    providerLabel,
-                    accounts.map((item) => item.label),
-                  ),
-                credentialImportMethod: importMethod,
-              };
-          form.reset();
-          values.delete("credential");
-          values.delete("credentialFile");
-          setOpen(false);
-          void submit(intent, credential);
-          return;
-        }
-        if (method !== "browser" && method !== "device_code") return;
-        const intent: OAuthFormIntent = account
-          ? {
-              method,
-              connectionId: account.connectionId,
-              gatewayRevision: account.gatewayRevision,
-              mirrorRevision: account.mirrorRevision,
-            }
-          : {
-              method,
-              profileId: String(values.get("profileId") ?? ""),
-              label:
-                String(values.get("label") ?? "").trim() ||
-                suggestedAccountLabel(
-                  providerLabel,
-                  accounts.map((a) => a.label),
-                ),
-            };
-        form.reset();
-        setOpen(false);
-        void begin(intent);
-      }}
-    >
-      {imports.length ? (
-        <SelectField
-          name="connectionMethod"
-          label="Sign-in method"
-          value={method ?? ""}
-          onValueChange={(value) => chooseMethod(value as Method)}
-          options={choices.map((value) => ({
-            value,
-            label:
-              value === "device_code"
-                ? "Device code"
-                : value === "browser"
-                  ? "Browser sign-in"
-                  : `Import ${credentialImportLabels[value]}`,
-          }))}
-        />
-      ) : null}
-      {importMethod ? (
-        <CredentialImportFields
-          key={importMethod}
-          method={importMethod}
-          loading={setImportLoading}
-          validationErrorId={importError ? importErrorId : undefined}
-        />
-      ) : method === "browser" || method === "device_code" ? (
-        <OAuthMethodChoice
-          key={profile?.id}
-          method={method}
-          methods={imports.length ? [method] : methods}
-          completionKind={
-            profile?.connection?.completionInputKind ??
-            oauthCompletionPresentation(profile)?.inputKind ??
-            "callback_url"
-          }
-          change={chooseMethod}
-        />
-      ) : (
-        <p role="status">No sign-in method is currently available.</p>
-      )}
-      {importError ? (
-        <p id={importErrorId} role="alert" className="text-sm text-amber-200">
-          {importError}
-        </p>
-      ) : null}
-      {!account ? (
-        <>
-          {!inline ? (
-            <SelectField
-              name="profileId"
-              label="Provider profile"
-              defaultValue={profileId}
-              onValueChange={(id) => {
-                setProfileId(id);
-                const selected = profiles.find(
-                  (candidate) => candidate.id === id,
-                );
-                chooseMethod(
-                  selected?.oauthMethods?.[0] ??
-                    (selected?.id === "openai-codex-oauth-responses-v1" &&
-                    !selected?.connection
-                      ? "device_code"
-                      : "browser"),
-                );
-              }}
-              options={profiles.map((p) => ({
-                value: p.id,
-                label: p.label,
-                ...(p.connection?.planLabel
-                  ? { description: p.connection.planLabel }
-                  : {}),
-              }))}
-            />
-          ) : (
-            <input
-              type="hidden"
-              name="profileId"
-              value={profiles[0]?.id ?? ""}
-            />
-          )}
-          <label className="grid gap-2 text-sm">
-            Connection name
-            <input
-              className={inputClass}
-              name="label"
-              key={profile?.id}
-              defaultValue={suggestedAccountLabel(
-                providerLabel,
-                accounts.map((a) => a.label),
-              )}
-              maxLength={120}
-            />
-          </label>
-        </>
-      ) : (
-        <p className="text-sm text-slate-300">{account.label}</p>
-      )}
-      <Button type="submit" disabled={disabled || importLoading || !method}>
-        {importLoading
-          ? "Reading file…"
-          : importMethod
-            ? `Import ${credentialImportLabels[importMethod]}`
-            : `Sign in to ${providerLabel}`}
-      </Button>
-    </form>
-  );
-  if (inline) return fields;
-  return (
-    <Dialog.Root
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) {
-          formRef.current?.reset();
-          setImportLoading(false);
-          setImportError("");
-        }
-        setOpen(next);
-      }}
-    >
-      <AccountMenuItem>
-        <Dialog.Trigger
-          render={
-            <Button
-              variant="ghost"
-              size="sm"
-              className={accountMenuItemClass}
-              disabled={disabled}
-              title={disabled ? disabledReason : undefined}
-            />
-          }
-        >
-          {account ? reconnectText : connectText}
-        </Dialog.Trigger>
-      </AccountMenuItem>
-      <Dialog.Portal>
-        <Dialog.Backdrop />
-        <Dialog.Popup finalFocus={menuReturnFocus}>
-          <Dialog.Title>
-            {account ? `${reconnectText} · ${account.label}` : connectText}
-          </Dialog.Title>
-          <Dialog.Description>
-            {`Sign in with your ${providerLabel} account. No API key is needed.`}
-            {account
-              ? " Your existing connection is kept until sign-in is confirmed."
-              : ""}
-            {managementScope === "personal"
-              ? " This is your canonical personal connection. Its name is visible wherever you explicitly share it; authentication is shared across all authorized uses."
-              : ""}
-          </Dialog.Description>
-          {fields}
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
-  );
-}
-
-function OAuthMethodChoice({
-  method,
-  methods,
-  completionKind,
-  change,
-}: {
-  method: "device_code" | "browser";
-  methods: readonly ("device_code" | "browser")[];
-  completionKind: "none" | OAuthCompletionPresentation["inputKind"];
-  change(value: "device_code" | "browser"): void;
-}) {
-  return (
-    <div className="space-y-3">
-      {methods.length > 1 ? (
-        <SelectField
-          name="oauthMethod"
-          label="Sign-in method"
-          value={method}
-          onValueChange={(value) => change(value as "device_code" | "browser")}
-          options={[
-            ...(methods.includes("device_code")
-              ? [
-                  {
-                    value: "device_code",
-                    label: "Device code",
-                    description: "Recommended · enter a short code at OpenAI",
-                  },
-                ]
-              : []),
-            {
-              value: "browser",
-              label:
-                completionKind === "authorization_code"
-                  ? "Browser sign-in"
-                  : "Browser callback",
-              description:
-                completionKind === "authorization_code"
-                  ? "Paste the authorization code after sign-in"
-                  : "Fallback · paste the authorization result address",
-            },
-          ]}
-        />
-      ) : (
-        <p className="text-sm text-slate-400">
-          {method === "device_code" ? "Device code sign-in" : "Browser sign-in"}
-        </p>
-      )}
-      {method === "device_code" ? (
-        <p className="text-sm text-slate-400">
-          First enable device code login at{" "}
-          <a
-            className="text-cyan-200 underline"
-            href="https://chatgpt.com/settings/security"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            ChatGPT Settings → Security
-          </a>{" "}
-          (at the bottom of the page).
-        </p>
-      ) : (
-        <p className="text-sm text-slate-400">
-          {completionKind === "none"
-            ? "A browser tab opens for sign-in. Return here when you finish."
-            : completionKind === "authorization_code"
-              ? "Paste the full authorization code shown after sign-in to finish."
-              : "A browser tab opens for sign-in. Paste its final address here to finish."}
-        </p>
-      )}
-    </div>
-  );
-}
-
 function OperationReadback({
   context,
   scope,
@@ -1937,6 +1669,8 @@ function OperationReadback({
   deviceAuthorization,
   completionProvider,
   beginContinuation,
+  nativeContinuation,
+  profiles,
   inline = false,
   startAnother,
   cancel,
@@ -1960,6 +1694,8 @@ function OperationReadback({
   deviceAuthorization?: DeviceAuthorization | undefined;
   completionProvider?: OAuthCompletionPresentation | undefined;
   beginContinuation(intent: OAuthFormIntent): Promise<void>;
+  nativeContinuation(submission: NativeConnectionSubmission): Promise<void>;
+  profiles: readonly AccountProfileView[];
   inline?: boolean;
   dismiss(): void;
   refresh(): Promise<void>;
@@ -1995,8 +1731,12 @@ function OperationReadback({
         known?.status === "ok" &&
           known.value.oauthMethod === "device_code" &&
           known.value.state === "pending" &&
-          api.pollGatewayOAuth
-          ? api.pollGatewayOAuth(context, nonce)
+          (known.value.native
+            ? api.continueGatewayNativeConnection
+            : api.pollGatewayOAuth)
+          ? known.value.native
+            ? api.continueGatewayNativeConnection!(context, nonce)
+            : api.pollGatewayOAuth!(context, nonce)
           : api.readGatewayOperation(context, nonce),
       );
     },
@@ -2028,12 +1768,19 @@ function OperationReadback({
       : undefined;
   const oauthResume =
     resume &&
+    !resume.nativeConnection &&
     data?.status === "ok" &&
     data.value.completion &&
     data.value.completion.inputKind !== "none"
       ? resume
       : undefined;
-  const keyResume = oauthResume ? undefined : resume;
+  const keyResume =
+    oauthResume || resume?.nativeConnection ? undefined : resume;
+  const nativeResumeProfile = resume?.nativeConnection
+    ? profiles.find(
+        (profile) => profile.id === resume.nativeConnection!.profileId,
+      )
+    : undefined;
   async function continueOAuth() {
     if (keyContinuationEntered.current || !oauthResume || state !== "pending")
       return;
@@ -2173,6 +1920,7 @@ function OperationReadback({
             profileLabel={data.value.account.profileLabel}
             provider={data.value.account.provider}
             authKind={data.value.account.authKind}
+            nativeCredential={data.value.account.nativeCredential}
             connection={data.value.account.connection}
             metadata={data.value.account.metadata}
           />
@@ -2232,7 +1980,17 @@ function OperationReadback({
       {state === "pending" &&
       data?.status === "ok" &&
       data.value.oauthMethod === "device_code" ? (
-        <DeviceCodeHandoff authorization={deviceAuthorization} />
+        <DeviceCodeHandoff
+          authorization={deviceAuthorization}
+          providerLabel={
+            data.value.native
+              ? (profiles.find(
+                  (profile) =>
+                    profile.id === data.value.native!.connection.profileId,
+                )?.connection?.providerLabel ?? "your provider")
+              : "OpenAI"
+          }
+        />
       ) : null}
       {operation.isError ? (
         <p role="status" className="text-sm text-slate-400">
@@ -2270,17 +2028,49 @@ function OperationReadback({
         />
       ) : null}
       {state === "pending" &&
+      resume?.nativeConnection &&
+      nativeResumeProfile ? (
+        <NativeConnectionForm
+          key={`${nonce}:${resume.nativeConnection.methodId}`}
+          profile={nativeResumeProfile}
+          inline
+          selection={resume.nativeConnection}
+          account={{
+            connectionId: resume.connectionId,
+            gatewayRevision: resume.gatewayRevision,
+            mirrorRevision: resume.mirrorRevision,
+            label: nativeResumeProfile.label,
+          }}
+          disabled={keyContinuationBusy || operation.isFetching}
+          begin={nativeContinuation}
+        />
+      ) : null}
+      {state === "pending" &&
       !keyResume &&
+      !resume?.nativeConnection &&
+      !(
+        data?.status === "ok" &&
+        data.value.native?.method.interaction.kind === "browser" &&
+        data.value.native.method.interaction.callbackMode === "automatic"
+      ) &&
       (!oauthResume || keyContinuationSpent) &&
       !(data?.status === "ok" && data.value.oauthMethod === "device_code") &&
       (completion ||
         (data?.status === "ok" && data.value.oauthMethod === "browser") ||
         autoOpenCompletion ||
         completionOffered) &&
-      (oauthEnabled || autoOpenCompletion || completionOffered) ? (
+      (oauthEnabled ||
+        (data?.status === "ok" && Boolean(data.value.native)) ||
+        autoOpenCompletion ||
+        completionOffered) ? (
         <OAuthCompletionForm
           inline={inline}
           completeOAuth={api.completeGatewayOAuth}
+          completeNative={
+            data?.status === "ok" && data.value.native
+              ? api.continueGatewayNativeConnection
+              : undefined
+          }
           provider={completion}
           managementScope={managementScope}
           context={context}
@@ -2409,8 +2199,10 @@ function ConnectWorkspaceAttach({
 
 function DeviceCodeHandoff({
   authorization,
+  providerLabel,
 }: {
   authorization: DeviceAuthorization | undefined;
+  providerLabel: string;
 }) {
   const [copied, setCopied] = useState(false);
   const [expired, setExpired] = useState(
@@ -2434,14 +2226,14 @@ function DeviceCodeHandoff({
   if (!authorization)
     return (
       <p className="text-sm text-slate-400">
-        Waiting for OpenAI. If you already entered the code, keep this page
-        open. For a new code, wait for this request to expire before starting
-        again.
+        Waiting for {providerLabel}. If you already entered the code, keep this
+        page open. For a new code, wait for this request to expire before
+        starting again.
       </p>
     );
   return (
     <div className="space-y-4 border-y border-cyan-200/10 py-4">
-      <p>Enter this one-time code at OpenAI:</p>
+      <p>Enter this one-time code at {providerLabel}:</p>
       <div className="flex flex-wrap items-center gap-3">
         <span className="select-all font-mono text-2xl font-semibold tracking-[0.18em] text-cyan-50">
           {authorization.userCode}
@@ -2470,7 +2262,7 @@ function DeviceCodeHandoff({
         target="_blank"
         rel="noopener noreferrer"
       >
-        Open OpenAI
+        Open {providerLabel}
         <ExternalLink aria-hidden="true" className="size-4" />
       </a>
       <p className="text-xs text-slate-400">
@@ -2608,6 +2400,7 @@ function OAuthCompletionForm({
   restorePreEntry,
   accept,
   completeOAuth,
+  completeNative,
   managementScope,
 }: {
   inline?: boolean;
@@ -2621,6 +2414,9 @@ function OAuthCompletionForm({
   restorePreEntry(): void;
   accept(result: AccountsResult<AccountOperationView>): Promise<void>;
   completeOAuth: AccountGatewayManagementApi["completeGatewayOAuth"];
+  completeNative?:
+    | AccountGatewayManagementApi["continueGatewayNativeConnection"]
+    | undefined;
   managementScope: ManagementScope;
 }) {
   const [open, setOpen] = useState(false);
@@ -2641,14 +2437,18 @@ function OAuthCompletionForm({
     try {
       // Grammar belongs to the original operation's profile, never to the
       // contents of a pasted secret. Neither credential enters cache/storage.
-      const result = await completeOAuth(context, {
-        nonce,
-        ...(!provider
-          ? { authorizationResult }
-          : provider.inputKind === "authorization_code"
-            ? { authorizationCode: authorizationResult }
-            : { callbackURL: authorizationResult }),
-      });
+      const result = completeNative
+        ? await completeNative(context, nonce, {
+            completion: authorizationResult,
+          })
+        : await completeOAuth(context, {
+            nonce,
+            ...(!provider
+              ? { authorizationResult }
+              : provider.inputKind === "authorization_code"
+                ? { authorizationCode: authorizationResult }
+                : { callbackURL: authorizationResult }),
+          });
       if (result.status !== "ok") {
         // The server returns ok/unknown after sensitive ingress has entered.
         if (result.status === "invalid" || result.status === "denied")
@@ -2678,7 +2478,7 @@ function OAuthCompletionForm({
         const field = form.elements.namedItem(
           "callbackURL",
         ) as HTMLInputElement;
-        const callbackURL = field.value.trim();
+        const callbackURL = completeNative ? field.value : field.value.trim();
         field.value = "";
         form.reset(); // Clear the uncontrolled secret BEFORE any await.
         void complete(callbackURL);
@@ -2697,7 +2497,7 @@ function OAuthCompletionForm({
           autoComplete="off"
           spellCheck={false}
           required
-          maxLength={16384}
+          maxLength={completeNative ? 65536 : 16384}
           disabled={busy || spent}
         />
       </label>

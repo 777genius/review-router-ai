@@ -51,6 +51,8 @@ import {
 } from "./fixture-contract.js";
 import type { VisualTheme } from "./scenarios.js";
 import type { VisualSeedResult } from "./seed.js";
+import { nativeConnectionFlow } from "./native-connection-flow.js";
+import type { NativeOperationsFixture } from "./native-operations-fixture.js";
 import {
   chooseCard,
   chooseModel,
@@ -94,9 +96,10 @@ export type FlowEnvironment = Readonly<{
   /** Restores the data set and the GitHub state of a fresh seed. */
   reset: () => Promise<VisualSeedResult>;
   writeGitHubState: (state: GitHubFixtureState) => Promise<void>;
+  nativeOperations?: NativeOperationsFixture;
 }>;
 
-type VisualFlow = Readonly<{
+export type VisualFlow = Readonly<{
   id: string;
   title: string;
   requires?: Partial<VisualRunFlags>;
@@ -106,7 +109,7 @@ type VisualFlow = Readonly<{
 class FlowCheckFailed extends Error {}
 
 /** One flow's pages, checks and screenshots. */
-class FlowRun {
+export class FlowRun {
   readonly checks: FlowCheck[] = [];
   readonly screenshots: string[] = [];
   readonly pageErrors: string[] = [];
@@ -252,6 +255,7 @@ export async function runFlows(
 }
 
 const VISUAL_FLOWS: readonly VisualFlow[] = [
+  nativeConnectionFlow,
   {
     id: "flow-gateway-reviewer-roster",
     title:

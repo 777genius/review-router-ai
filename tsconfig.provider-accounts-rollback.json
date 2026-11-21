@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    "packages/features/provider-accounts/tests/native-connection-rollback.ts",
+    "packages/features/provider-accounts/tests/native-connection-rollback-reader.ts"
+  ],
+  "exclude": ["node_modules", "dist", ".next"]
+}

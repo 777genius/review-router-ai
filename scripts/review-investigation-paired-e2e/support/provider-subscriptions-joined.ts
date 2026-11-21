@@ -20,6 +20,11 @@ import {
   SandboxQualificationError,
   type SandboxQualification,
 } from "./provider-subscriptions-sandbox";
+import {
+  createJoinedReviewProof,
+  type JoinedReasoningReviewProof,
+} from "./provider-subscriptions-review-proof";
+import type { JoinedDispatchTrace } from "./provider-subscriptions-dispatch-trace";
 
 type JoinedInput = Readonly<{
   origin: string;
@@ -27,6 +32,8 @@ type JoinedInput = Readonly<{
   accountRef: string;
   profileId: string;
   model: string;
+  reviewProof?: JoinedReasoningReviewProof;
+  beforeDispatch?: (trace: JoinedDispatchTrace) => Promise<void>;
   limits: Readonly<{
     requests: number;
     concurrency: number;
@@ -132,6 +139,9 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
   let returnedFunctionTools = 0;
   let structuredOutputRequests = 0;
   let sandboxQualification: SandboxQualification | undefined;
+  let reasoningProof:
+    | ReturnType<ReturnType<typeof createJoinedReviewProof>["receipt"]>
+    | undefined;
   const active = new Set<() => Promise<void>>();
   const inFlight = new Set<Promise<void>>();
   const savedEnv = { ...process.env };
@@ -140,6 +150,10 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
   try {
     loopback(input.origin);
     assert.ok(input.model && input.profileId && input.accountRef);
+    const reviewProof = createJoinedReviewProof(
+      input.reviewProof,
+      input.limits.tokens,
+    );
     const archive = requiredPath("RR_PROVIDER_JOINED_ACTION_ARCHIVE");
     const binary = requiredPath("RR_PROVIDER_JOINED_CODEX_BINARY");
     const sdkPath = requiredPath("RR_PROVIDER_JOINED_SDK_HTTP");
@@ -220,12 +234,16 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
       token: input.token,
       timeoutMs: 5000,
     });
+    const runOperationId = randomUUID();
+    const invocationRef = randomUUID();
+    const attemptRef = randomUUID();
+    const policySubjectRef = "joined-provider-policy";
     const access = await consumer.runAccess({
-      operationId: randomUUID(),
-      invocationRef: randomUUID(),
-      attemptRef: randomUUID(),
+      operationId: runOperationId,
+      invocationRef,
+      attemptRef,
       accountRefs: [input.accountRef],
-      subjectRef: "joined-provider-policy",
+      subjectRef: policySubjectRef,
       policyRevision: 1,
       bindingRevision: 1,
       profileId: input.profileId,
@@ -313,10 +331,7 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
         );
         structuredOutputRequests++;
         relayPhase = "cli-reasoning";
-        assert.ok(
-          raw.reasoning === undefined || raw.reasoning === null,
-          "unsupported reasoning must not inherit ambient xhigh",
-        );
+        reviewProof.assertRequest(raw, entries);
         relayPhase = "cli-fast";
         assert.ok(
           !("service_tier" in raw),
@@ -373,14 +388,14 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
         const preparedBody = relayAdapter.prepareReviewRunGatewayResponses(
           bytes,
           input.model,
-          100,
+          reviewProof.maxOutputTokens,
           input.limits.requestBytes,
           input.limits.tokens,
         );
         const forwarded = JSON.parse(
           new TextDecoder().decode(preparedBody),
         ) as Record<string, unknown>;
-        assert.ok(!("reasoning" in forwarded));
+        reviewProof.assertForwarded(raw, forwarded);
         assert.equal(forwarded.service_tier, "default");
         assert.deepEqual(
           forwarded.text,
@@ -388,6 +403,21 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
           "production relay must preserve the review schema",
         );
         relayPhase = "sdk-execution-request";
+        await input.beforeDispatch?.(
+          Object.freeze({
+            runOperationId,
+            policySubjectRef,
+            invocationRef,
+            attemptRef,
+            executionRef: selectedRef,
+            requestRef: requestId,
+            accountRef: input.accountRef,
+            profileId: input.profileId,
+            modelId: input.model,
+            occurredAt: new Date().toISOString(),
+            serviceTier: "default",
+          }),
+        );
         const upstream = await selectedExecution.request(
           selectedRef,
           {
@@ -438,6 +468,7 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
         }
         wire += decoder.decode();
         assert.match(wire, /response\.completed/u);
+        reviewProof.observeResponse(wire, entries);
         completions++;
         complete = true;
         // The same production gate releases the unchanged terminal only after
@@ -484,6 +515,7 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
       path.join(codexHome, "config.toml"),
       [
         ...protectedResponsesToolPolicyConfigLines(),
+        ...reviewProof.modelConfigLines,
         "features.use_legacy_landlock = false",
         'model_provider = "reviewrouter_joined"',
         "[model_providers.reviewrouter_joined]",
@@ -506,7 +538,11 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
     process.env.REVIEWROUTER_CODEX_BINARY = binary;
     process.env.REVIEWROUTER_FORK_AGENTIC_SANDBOX = "true";
     process.env.CODEX_AGENTIC_AUDIT = "strict";
-    delete process.env.CODEX_REASONING_EFFORT;
+    if (reviewProof.reasoningEffort) {
+      process.env.CODEX_REASONING_EFFORT = reviewProof.reasoningEffort;
+    } else {
+      delete process.env.CODEX_REASONING_EFFORT;
+    }
     process.chdir(checkout);
     phase = "cli-sandbox-preflight";
     sandboxQualification = await qualifyReadonlySandbox({
@@ -537,6 +573,7 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
     assert.deepEqual(JSON.parse(result.content), finalReview);
     assert.deepEqual(result.findings, []);
     assert.deepEqual(result.revalidations, []);
+    reasoningProof = reviewProof.receipt();
     closeReason = "completed";
   } catch (error) {
     // Neither raw CLI/provider errors nor SDK diagnostics (which may carry
@@ -576,7 +613,8 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
           "applied",
           "joined execution closure ACK required",
         );
-        if (closeReason === "completed")
+        if (closeReason === "completed") {
+          assert.ok(reasoningProof);
           joinedProviderReceipts.push(
             Object.freeze({
               profileId: input.profileId,
@@ -593,11 +631,12 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
               returnedCustomTools,
               structuredOutputRequests,
               sandboxQualification,
-              reasoningOmitted: true,
+              ...reasoningProof,
               fastOmitted: true,
               executionClosureAcknowledged: true,
             }),
           );
+        }
       }
     } catch {
       failure ??= Object.assign(

@@ -17,6 +17,7 @@ export type {
 /** Report-only correction of a configured label; the source identity stays intact. */
 export type UsageReportObservation = UsageProjection & {
   readonly requestedProvider?: string;
+  readonly billing?: import("../domain/native-usage-context").UsageBilling;
 };
 export interface UsagePeriodReport {
   overview: UsageOverview;

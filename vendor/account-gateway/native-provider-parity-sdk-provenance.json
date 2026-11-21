@@ -1,0 +1,136 @@
+{
+  "contract": "native-provider-parity-sdk-provenance/v1",
+  "archive": "agent-teams-account-gateway-0.1.0-native-parity-83c18fd090e7.tgz",
+  "sha256": "1f3d802d11509cbd29070960859d3f1e34836cd18807c7a1f228eb46c2a1e0e3",
+  "integrity": "sha512-kMLKrUj68niesuqs1IvyCCuAQ5NtTC1jUqVClrd3IRxPY2GM4HNHOVU3hhzVgZPR8YpaiK5ZbTyNpGT92JI4dw==",
+  "sdkSourceRepository": "agent-teams-ai/account-gateway",
+  "sdkSourceCommit": "bb5b48cabb01bbf08ed108c5f99d4cc6add0ff68",
+  "sourceTreeSha256": "83c18fd090e7e1be388e89ee6ee3224f1dfeeac15b215b8919edaf8ddb6e8175",
+  "sourceHashes": {
+    "packages/account-gateway/README.md": "16768f284b0f799dc4f80ef61567521bf9522a036312cf1b51467e4665b81982",
+    "packages/account-gateway/package.json": "7e2930a240a160baee0a780967e5e29d47de8c91598fa39a46e5c2419235b660",
+    "packages/account-gateway/src/contracts/index.ts": "8cb94022bbaa15bcab875935ee04d4f59d4d0d076b6e0d96d39de5b7b660c40f",
+    "packages/account-gateway/src/features/facade-client/contracts/account-info.ts": "bccb92a4a04f9d8eafbb49ce1b28a1c2f55d59d725d1a47417505debe16411fb",
+    "packages/account-gateway/src/features/facade-client/contracts/connections-v3.ts": "f24ced80ef28ab0e9b5482e01e48fd8cda4031ff65ced754656a19a6a87b8bee",
+    "packages/account-gateway/src/features/facade-client/contracts/core.ts": "fbd22143ab0ed4b276a047499605cccc69f118f257b3640702ccaa2e8cfab26b",
+    "packages/account-gateway/src/features/facade-client/contracts/index.ts": "219675efbe54dbef576582fc93ccccd918f1baf7e105537fcff36e7c735b6130",
+    "packages/account-gateway/src/features/facade-client/contracts/lifecycle-v3.ts": "2aa478d55871a6efa5d2a4d38eab6b3134abb7249bac96270f13bc44e403224a",
+    "packages/account-gateway/src/features/facade-client/contracts/limits-window.ts": "93fea92d6380ae0e03bbde7138f7a7789314f9fc917c79923aeec205f1ebab77",
+    "packages/account-gateway/src/features/facade-client/contracts/native-observations.ts": "9563a673105597af7b1d797ee4911ad73d45c53de208e2f4dac69e2d56c2b483",
+    "packages/account-gateway/src/features/facade-client/contracts/primitives.ts": "1d5ca55b2e324d4f60b9d196d73658abb4e11153633a9348f8ad19db4153cb63",
+    "packages/account-gateway/src/features/facade-client/http/clients.ts": "f77ff91f09b2fcd054c1a287f65eb902a31a3d197b6b8b65943e452927844731",
+    "packages/account-gateway/src/features/facade-client/http/connection-ingress.ts": "2f438b8bd832526dc808dc6c9a078648d91861759aac0269ab88af8a47be9296",
+    "packages/account-gateway/src/features/facade-client/http/connections.ts": "fbd691e88d858438c8e329784ba7143648529ac46ca23b96d38943ae8c821e47",
+    "packages/account-gateway/src/features/facade-client/http/index.ts": "d62c429a9056430cb29dedc190cbf5b40cd8adc6e94e7873588cbee34db1e391",
+    "packages/account-gateway/src/features/facade-client/http/ingress.ts": "0f7c498fcb92fb216746fbb16338a0c8bbd771848a877ab916a4c0e0f6ad9bdf",
+    "packages/account-gateway/src/features/facade-client/http/lifecycle-v3.ts": "6d721487392928c2afb418baf091fa4ed8e1e7107c09b3f99bc52e2f68cf540f",
+    "packages/account-gateway/src/features/facade-client/http/transport.ts": "794a2c4952fa4874cb75ae5c8d5374584df81a712d7b9b515dd37b46426c40a9",
+    "packages/account-gateway/src/features/llm/adapters/index.ts": "705529aa94c2f509c33170f8da64a8808b1d2bf83cc6df3518ae348be63fb6cc",
+    "packages/account-gateway/src/features/llm/adapters/responses-request.ts": "d3b121bac613c3ea2e1e67918a25a4dde2b213fe6c89cc3fa379f6c898930061",
+    "packages/account-gateway/src/features/llm/adapters/responses-stream.ts": "29de52ebc41b83e36d8fa266330c14a974dbc07c1cf1b6cf7695c0b6963abb7a",
+    "packages/account-gateway/src/features/llm/adapters/strict-json-schema.ts": "926059fbbbd1288d256bd7e0ef8617c179f3f8f040fdfaa38a7eb09e907eaa49",
+    "packages/account-gateway/src/features/llm/application/generate.ts": "b9f72557603e5e183f1500d3dda1d3a1df362cfe5ac0a85ec66dbbe97c8420ba",
+    "packages/account-gateway/src/features/llm/application/index.ts": "57f1682c4bb2671517a000898a71bdb7c514bd5bd2843973af15323f46b5d6ce",
+    "packages/account-gateway/src/features/llm/application/ports.ts": "a8add0baa12193e4f3d98848cd5f33165310f71f99d0ed83556f727c57e6076f",
+    "packages/account-gateway/src/features/llm/domain/failure.ts": "466bbd034fc1d9c0715d95a03abe7d1480e7d0eb114a894a3a330cc82731fdf8",
+    "packages/account-gateway/src/features/llm/domain/generation.ts": "8dc0fdc9faebc70901c0fad442c13bde13944b010672c1a41d8f926e8f9da690",
+    "packages/account-gateway/src/features/llm/domain/index.ts": "a02e930fd21e209d546d2259b0accd5cd0bf5d44ad68f1d40bcce5fbbed41a94",
+    "packages/account-gateway/src/features/llm/domain/outcome.ts": "92a45cdbd1819fdd6a4358d814f9201d84d69a84b30ba5debaf0b2cec75ac873",
+    "packages/account-gateway/src/features/llm/domain/task.ts": "3e782c39d52831d3d278113e64a7acd2fd06997988c5ea55865ba7555aea9f71",
+    "packages/account-gateway/src/get-modular/index.ts": "8525638f8c844b4a0fe23a6ad8ad2de89e92b4aa98b221f4740c5c448c4d8f05",
+    "packages/account-gateway/src/http/index.ts": "01780e93cb5d485d294dcf8e3434869bce779884b921717336e32c14eb5e3ee2",
+    "packages/account-gateway/src/index.ts": "bd5f44d7c744bde634a351d7543eb38ef62af0890ee15da64e72863b84e5946a",
+    "packages/account-gateway/src/llm/index.ts": "d565f8f58c9e4a64fdd35732cce88750ae7543bc72cbee84fd3d99fbcb9e2188",
+    "tsconfig.build.json": "2e533fdcff29916b6a6bdc84e3f920deca5841ddebb7eed172b91409160d4a02",
+    "tsconfig.json": "42e2b06be6fb1366ec888820d6d7557b0c302e5b8729d73c526e1286d3bb387e"
+  },
+  "build": {
+    "node": "26.11.1",
+    "pnpm": "11.28.7",
+    "typescript": "7.0.2"
+  },
+  "qualification": {
+    "sdkBuild": "passed",
+    "typescript": "7.0.2",
+    "gatewayNativeConnectionsPostgres": {
+      "passed": 4,
+      "postgres": "17.10"
+    },
+    "nativeAndSdkHTTP": {
+      "passed": 14
+    },
+    "installedConsumer": {
+      "frozenInstall": "passed supply-chain validation, 1089 entries",
+      "exactArchiveFiles": 66,
+      "consumers": [
+        "web",
+        "api",
+        "provider-usage"
+      ],
+      "focusedTests": {
+        "passed": 13,
+        "postgresCaseVerifiedSeparately": true
+      },
+      "realPostgres": {
+        "passed": 15,
+        "version": "17.10",
+        "legacyC2bReplay": "passed_1_in_separate_empty_database"
+      },
+      "browser": "pending",
+      "typescript": {
+        "version": "7.0.2",
+        "targetedAdapters": "passed",
+        "fullWeb": "pending_resource_limit"
+      },
+      "lint": "passed",
+      "foundation": "passed_zero_diagnostics"
+    },
+    "nativeGatewayJoinedE2E": "pending",
+    "fullProviderMatrix": "pending"
+  },
+  "scope": "Provider connections and lifecycle v3; account metadata v2; native models, limits v3 and usage context contracts. Exact published source and qualified SDK; joined native runtime qualification is recorded separately.",
+  "publicPublished": false,
+  "productionDeployed": false,
+  "previousProvenance": "native-account-info-sdk-provenance.json",
+  "previousQualifiedCheckpoint": {
+    "archive": "agent-teams-account-gateway-0.1.0-native-parity-95c90c8607d8.tgz",
+    "sha256": "0eafb6349a9fe67387d0f3939981323d74c41d548f7c73e0d1c517772dd56742",
+    "sdkSourceCommit": "9d148050f9008c520c30850bfc19e07c14c5e413",
+    "qualification": {
+      "sdkBuild": "passed",
+      "sdkBoundaryTests": {
+        "passed": 103
+      },
+      "gatewayNativeConnectionsPostgres": {
+        "passed": 3,
+        "postgres": "17.10"
+      },
+      "installedConsumer": {
+        "focusedBoundaryTests": {
+          "passed": 14,
+          "pgCasesRunSeparately": 1
+        },
+        "criticalMissingReceiptRecovery": {
+          "passed": 1
+        },
+        "realPostgres": {
+          "version": "17.10",
+          "passed": 15,
+          "legacyMigrationReplayRunSeparately": true
+        },
+        "typescript": {
+          "version": "7.0.2",
+          "targetedNativeAdapters": "passed",
+          "browserHarness": "passed",
+          "providerAccounts": "passed",
+          "providerUsage": "passed",
+          "generatedProtocol": "passed",
+          "fullWeb": "pending_resource_limit"
+        },
+        "browser": "pending_next_compiler_memory_limit"
+      },
+      "nativeGatewayJoinedE2E": "pending",
+      "fullProviderMatrix": "pending"
+    }
+  }
+}

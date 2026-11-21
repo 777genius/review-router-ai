@@ -253,6 +253,8 @@ boundaries:
       - packages/features/provider-usage/src/domain
     entrypoints:
       - packages/features/provider-usage/src/domain/estimate-usage-cost.ts
+      - packages/features/provider-usage/src/domain/native-usage-context.ts
+      - packages/features/provider-usage/src/domain/native-usage-replay.ts
       - packages/features/provider-usage/src/domain/usage-price.ts
       - packages/features/provider-usage/src/domain/usage.ts
     allow:
