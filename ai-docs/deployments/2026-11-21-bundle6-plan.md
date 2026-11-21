@@ -15,9 +15,12 @@
     #116), без миграций и без новых зависимостей;
   - две строки allowlist в Caddy management site (`/v1/account-info/read`,
     `/v2/provider-connection-capabilities`), через `apply-domain.sh`;
-  - ReviewRouter `9c52c250b279f81470703b35fae0e787880a08ea` на всех четырёх
-    ролях = `a02b1607` (bundle 5) + #914; миграция
-    `000160_personal_credential_import_method`.
+  - ReviewRouter на всех четырёх ролях: `a02b1607` (bundle 5) + #914
+    (`9c52c250b279f81470703b35fae0e787880a08ea`, миграция
+    `000160_personal_credential_import_method`). Пока план писался, в `main`
+    вошли #955 (`9f11eec1`, 15:11 UTC) и #958 (`91c14404`, 15:12 UTC), без
+    миграций; по рекомендации D5 образ строится из текущего `main` после его
+    зелёного CI. Всё про миграцию и совместимость ниже относится к #914.
 - Покрывает task record
   [native account info imports](2026-11-19-native-account-info-imports.md).
 - Не входит: публичный Action (не нужен), FILE/producer/`workflow-v1` (не
@@ -214,7 +217,9 @@
   `c7543bc7` (ar #85, merge в ветку `chore/rr-runtime-83a-maintenance`,
   компиляция TS 7). В `action-dist/index.cjs` от этого поменялась одна строка
   notice, код бандла тот же.
-- Сборка: `deploy/hetzner/release.sh build 9c52c250b279f81470703b35fae0e787880a08ea`.
+- Сборка: `deploy/hetzner/release.sh build <целевой SHA>`: текущий `main` с
+  #955 и #958 по D5 (сейчас `91c144044ca3c74d044303e19109ea3531b4dc6a`) или
+  `9c52c250b279f81470703b35fae0e787880a08ea`.
 
 ### Action
 
@@ -431,7 +436,7 @@ Custody под `/srv/platform/projects/review-router/releases/` (root, 0700).
 
 1. Заморозка состава: `git log a02b1607..origin/main`. Если к этому моменту
    смержен [#955](https://github.com/777genius/review-router-ai/pull/955)
-   (на 13:48 UTC открыт, уже не Draft) и решение D5 = брать, целевой SHA =
+   (смержен в 15:11 UTC) и решение D5 = брать, целевой SHA =
    новый `main`, иначе `9c52c250`. Миграций кроме `000160` в диапазоне быть
    не должно (`git log -- '**/migrations/**'`).
 2. RR: отдельный прогон typecheck/Vitest на worker не нужен, если целевой
@@ -598,13 +603,16 @@ stop новых, вернуть
 
 ## Что ещё едет (вопрос 5)
 
-Сверено 2026-11-21 13:40 UTC:
+Сверено 2026-11-21 13:40 UTC, обновлено в 15:40 UTC:
 
-- review-router-ai: `a02b1607..origin/main` = только #914. Открыты и не
-  смержены: #955 (runner starvation, открыт, не Draft с 13:47; worker и
-  пакеты review-executions/review-progress, без миграции; см. D5), #956 (запись
-  bundle 5, docs; смержить до этого плана не обязательно), #920 и другие
-  Draft. Dependabot PR нет.
+- review-router-ai: `a02b1607..origin/main` = #914 (`9c52c250`), #955
+  (`9f11eec1`, runner starvation: worker и пакеты
+  review-executions/review-progress, без миграции, откат мягкий; см. D5) и
+  #958 (`91c14404`: тексты страниц и лендинга в Web, README, одна SVG; без
+  миграции). `git diff 9c52c250 origin/main -- packages/platform/db/prisma/migrations`
+  пустой. Main CI на `9f11eec1` отменён следующим push, на `91c14404` в
+  15:40 стоял в очереди: нужен зелёный CI этого SHA до сборки. Открыты: #956
+  (запись bundle 5, docs), #920 и другие Draft. Dependabot PR нет.
 - account-gateway: #116 (runtime), #117, #118 (CI/доки). Dependabot #76
   (fast-uri) не смержен, не едет.
 - sub2api-standalone: `14f500eb` (#103) и `2d5f681a` (#1, апстрим); см. D1.
@@ -699,9 +707,11 @@ D4. Anthropic/Gemini API-профили.
   Надёжность 9/10, уверенность 9/10.
 - Включить сейчас без реального ключа. Надёжность 5/10, уверенность 7/10.
 
-D5. #955 (runner starvation, plan 88), если он смержен до заморозки.
+D5. #955 (runner starvation, plan 88), смержен в 15:11 UTC (вместе с ним
+в `main` пришёл #958, только тексты Web).
 
-- (Рекомендую) Брать, если смержен до шага 0.1, и добавить его проверки:
+- (Рекомендую) Брать: образ из текущего `main` после зелёного CI, и добавить
+  проверки #955:
   тесты `apps/worker/src/review-v2-*` и review-executions, а в приёмке
   отметить, что очередь без runner канарейка воспроизвести не может.
   Откат у него мягкий: старый worker не берёт события
@@ -710,10 +720,9 @@ D5. #955 (runner starvation, plan 88), если он смержен до зам�
   Надёжность 7/10, уверенность 7/10. Чуть ниже второго варианта по
   надёжности, но экономит отдельный выкат worker, а правило владельца -
   пакеты, не мелкие выкаты; откат у #955 мягкий.
-- Не брать в этот пакет, оставить следующему вместе с апстримом native: меньше
-  изменений в одном окне. Надёжность 8/10, уверенность 7/10.
-- Ждать его merge, если не успел: против правила "не ждать мелочей".
-  Надёжность 7/10, уверенность 6/10.
+- Не брать: собрать образ из `9c52c250`, #955 и #958 оставить следующему
+  пакету вместе с апстримом native. Меньше изменений в одном окне.
+  Надёжность 8/10, уверенность 7/10.
 
 ## Оценка времени
 
