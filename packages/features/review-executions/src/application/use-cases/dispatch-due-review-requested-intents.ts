@@ -3,7 +3,10 @@ import {
   ReviewRequestedClaimStatus,
   ReviewRequestedDispatchSubmissionStatus,
   ReviewRequestedTransitionStatus,
+  ReviewRequestedStaleRevisionError,
   type ReviewRequestedDispatchGatewayPort,
+  type ReviewRequestedDispatchSubmissionResult,
+  type ReviewRequestedPreparedDispatchPort,
   type ReviewRequestedIntentCommandPort,
   type ReviewRequestedIntentQueryPort,
 } from "../ports/review-requested-intent-ports";
@@ -22,10 +25,16 @@ export type DispatchDueReviewRequestedIntentsResult = Readonly<{
   dispatched: number;
   busy: number;
   failed: number;
+  preparationSaturated: boolean;
+  preparationsInFlight: number;
+  submissionSaturated: boolean;
+  submissionsInFlight: number;
 }>;
 
 export class DispatchDueReviewRequestedIntents {
   private readonly policy: ReviewRequestedDispatchPolicy;
+  private readonly inFlightPreparations = new Set<string>();
+  private readonly inFlightSubmissions = new Set<string>();
 
   constructor(
     private readonly queries: ReviewRequestedIntentQueryPort,
@@ -40,6 +49,7 @@ export class DispatchDueReviewRequestedIntents {
     policy: ReviewRequestedDispatchPolicy = defaultReviewRequestedDispatchPolicy,
     private readonly canDispatch?: (
       intent: ReviewRequestedIntent,
+      signal?: AbortSignal,
     ) => Promise<boolean>,
   ) {
     validateReviewRequestedDispatchPolicy(policy);
@@ -52,153 +62,205 @@ export class DispatchDueReviewRequestedIntents {
   }): Promise<DispatchDueReviewRequestedIntentsResult> {
     assertOwnerHash(input.ownerIdHash);
     assertLimit(input.limit);
+    const excludedAtQuery = new Set(this.inFlightPreparations);
     const due = await this.queries.listDue({
       now: this.clock.now(),
       limit: input.limit,
+      excludeRequestIds: [...excludedAtQuery],
     });
     const claimedScopes = new Set<string>();
     let claimed = 0;
     let dispatched = 0;
     let busy = 0;
     let failed = 0;
+    let preparationSaturated =
+      this.inFlightPreparations.size >= maximumPreparationsInFlight;
+    if (preparationSaturated) failed += 1;
+    let submissionSaturated =
+      this.inFlightSubmissions.size >= maximumSubmissionsInFlight;
+    if (submissionSaturated) failed += 1;
+    const submissions: Array<Promise<"dispatched" | "failed" | "complete">> =
+      [];
+    const pending: Array<{
+      intent: ReviewRequestedIntent;
+      preparation: Promise<
+        PromiseSettledResult<Awaited<
+          ReturnType<ReviewRequestedDispatchGatewayPort["prepare"]>
+        > | null>
+      >;
+    }> = [];
 
     for (const candidate of due) {
+      if (this.inFlightPreparations.has(candidate.requestId)) {
+        // An abandoned, still-running read cannot issue a POST. At its 24h
+        // deadline the store may terminalize the expired claim under lock.
+        // Only an excluded request returned by the query is known to have
+        // passed its deadline using the query's clock (database clock in PG).
+        // A concurrent execute may reserve a different returned candidate; do
+        // not reclaim that newly reserved work.
+        if (excludedAtQuery.has(candidate.requestId)) {
+          const now = this.clock.now();
+          const expired = await this.commands.claimIntent({
+            requestId: candidate.requestId,
+            claimId: this.ids.nextClaimId(),
+            ownerIdHash: input.ownerIdHash,
+            now,
+            claimUntil: new Date(now.getTime() + this.policy.claimDurationMs),
+          });
+          if (expired.status === ReviewRequestedClaimStatus.PreparationExpired)
+            failed += 1;
+        }
+        continue;
+      }
+      if (this.inFlightPreparations.size >= maximumPreparationsInFlight) {
+        if (!preparationSaturated) failed += 1;
+        preparationSaturated = true;
+        continue;
+      }
+      // Reserve before claiming so overlapping maintenance passes cannot start
+      // the same unabortable pre-submission operation twice.
+      this.inFlightPreparations.add(candidate.requestId);
       const scope = intentScopeKey(candidate);
       if (claimedScopes.has(scope)) {
+        this.inFlightPreparations.delete(candidate.requestId);
         busy += 1;
         continue;
       }
       const observedAt = this.clock.now();
-      const claim = await this.commands.claimIntent({
-        requestId: candidate.requestId,
-        claimId: this.ids.nextClaimId(),
-        ownerIdHash: input.ownerIdHash,
-        now: observedAt,
-        claimUntil: new Date(
-          observedAt.getTime() + this.policy.claimDurationMs,
-        ),
-      });
+      let claim;
+      try {
+        claim = await this.commands.claimIntent({
+          requestId: candidate.requestId,
+          claimId: this.ids.nextClaimId(),
+          ownerIdHash: input.ownerIdHash,
+          now: observedAt,
+          claimUntil: new Date(
+            observedAt.getTime() + this.policy.claimDurationMs,
+          ),
+        });
+      } catch (error) {
+        this.inFlightPreparations.delete(candidate.requestId);
+        throw error;
+      }
+      if (claim.status === ReviewRequestedClaimStatus.PreparationExpired) {
+        this.inFlightPreparations.delete(candidate.requestId);
+        failed += 1;
+        continue;
+      }
       if (
         claim.status !== ReviewRequestedClaimStatus.Claimed &&
         claim.status !== ReviewRequestedClaimStatus.Restored
       ) {
+        this.inFlightPreparations.delete(candidate.requestId);
         busy += 1;
         continue;
       }
       if (!claim.intent?.claim) {
+        this.inFlightPreparations.delete(candidate.requestId);
         throw new Error("review_requested_claim_term_missing");
       }
       claimed += 1;
       claimedScopes.add(scope);
 
-      let prepared;
-      try {
-        if (this.canDispatch && !(await this.canDispatch(claim.intent))) {
-          await this.commands.cancelPreAdmission({
-            ...claim.intent,
+      const intent = claim.intent;
+      const preparation = this.startPreparation(intent);
+      pending.push({
+        intent,
+        preparation: preparation.then(
+          (value) => ({ status: "fulfilled" as const, value }),
+          (reason: unknown) => ({ status: "rejected" as const, reason }),
+        ),
+      });
+    }
+
+    // All pre-submission reads start together and share one short wait window.
+    // Only the actual I/O completion releases a reservation, not the timeout.
+    await Promise.all(pending.map((item) => item.preparation));
+    for (const item of pending) {
+      const claim = { intent: item.intent };
+      if (!claim.intent.claim)
+        throw new Error("review_requested_claim_term_missing");
+      const result = await item.preparation;
+      if (result.status === "rejected") {
+        if (result.reason instanceof ReviewRequestedStaleRevisionError) {
+          await this.commands.resolvePreparation({
+            requestId: claim.intent.requestId,
+            expectedVersion: claim.intent.version,
+            claimId: claim.intent.claim.claimId,
+            ownerIdHash: claim.intent.claim.ownerIdHash,
+            fencingToken: claim.intent.claim.fencingToken,
             now: this.clock.now(),
           });
-          continue;
         }
-        prepared = await this.gateway.prepare({ intent: claim.intent });
-      } catch {
-        // No effect-bearing call has happened. The expiring claim can be
-        // retried safely after repository/credential preparation recovers.
         failed += 1;
         continue;
       }
+      const prepared = result.value;
+      if (prepared === null) {
+        const stopped = await this.commands.resolvePreparation({
+          requestId: claim.intent.requestId,
+          expectedVersion: claim.intent.version,
+          claimId: claim.intent.claim.claimId,
+          ownerIdHash: claim.intent.claim.ownerIdHash,
+          fencingToken: claim.intent.claim.fencingToken,
+          now: this.clock.now(),
+        });
+        if (stopped.status !== ReviewRequestedTransitionStatus.Applied)
+          failed += 1;
+        continue;
+      }
 
+      if (this.inFlightSubmissions.size >= maximumSubmissionsInFlight) {
+        if (!submissionSaturated) failed += 1;
+        submissionSaturated = true;
+        continue;
+      }
+      // Reserve before durable begin; a saturated pool must not create an
+      // uncertain dispatch for which no POST can be started.
+      this.inFlightSubmissions.add(claim.intent.requestId);
       const submissionAt = this.clock.now();
-      const begun = await this.commands.beginSubmission({
-        requestId: claim.intent.requestId,
-        claimId: claim.intent.claim.claimId,
-        ownerIdHash: claim.intent.claim.ownerIdHash,
-        fencingToken: claim.intent.claim.fencingToken,
-        now: submissionAt,
-        nextResolutionAt: new Date(
-          submissionAt.getTime() + this.policy.dispatchResolutionDelayMs,
-        ),
-        resolutionDeadlineAt: new Date(
-          submissionAt.getTime() + this.policy.dispatchResolutionTimeoutMs,
-        ),
-      });
+      let begun;
+      try {
+        begun = await this.commands.beginSubmission({
+          requestId: claim.intent.requestId,
+          claimId: claim.intent.claim.claimId,
+          ownerIdHash: claim.intent.claim.ownerIdHash,
+          fencingToken: claim.intent.claim.fencingToken,
+          now: submissionAt,
+          nextResolutionAt: new Date(
+            submissionAt.getTime() + this.policy.dispatchResolutionDelayMs,
+          ),
+          resolutionDeadlineAt: new Date(
+            submissionAt.getTime() + this.policy.dispatchResolutionTimeoutMs,
+          ),
+        });
+      } catch (error) {
+        this.inFlightSubmissions.delete(claim.intent.requestId);
+        throw error;
+      }
       if (
         begun.status !== ReviewRequestedTransitionStatus.Applied ||
         !begun.intent?.claim
       ) {
+        this.inFlightSubmissions.delete(claim.intent.requestId);
         // A restored begin means the one allowed POST may already have happened.
         // Only the reconciliation path is allowed to make progress from there.
         failed += 1;
         continue;
       }
 
-      try {
-        const submission = await prepared.submit();
-        if (
-          submission.status ===
-          ReviewRequestedDispatchSubmissionStatus.DefinitelyNoEffect
-        ) {
-          const now = this.clock.now();
-          const successor = await buildReviewRequestedRetryCandidate({
-            intent: begun.intent,
-            now,
-            identitySeed: `definitely-no-effect\0${begun.intent.dispatchAttempt}`,
-            dependencies: {
-              ids: this.ids,
-              digest: this.digest,
-            },
-            policy: this.policy,
-          });
-          const recovered = await this.commands.recoverDispatch({
-            requestId: begun.intent.requestId,
-            expectedVersion: begun.intent.version,
-            sourceRunId: null,
-            sourceRunAttempt: null,
-            now,
-            terminalReason:
-              successor === null
-                ? ReviewRequestedIntentTerminalReason.DispatchAttemptsExhausted
-                : ReviewRequestedIntentTerminalReason.DispatchFailedNoEffect,
-            successorCandidate: successor,
-          });
-          if (
-            recovered.status !== ReviewRequestedTransitionStatus.Applied &&
-            recovered.status !== ReviewRequestedTransitionStatus.Restored
-          ) {
-            failed += 1;
-          }
-          continue;
-        }
-
-        const recordedAt = this.clock.now();
-        const recorded = await this.commands.recordDispatch({
-          requestId: begun.intent.requestId,
-          claimId: begun.intent.claim.claimId,
-          ownerIdHash: begun.intent.claim.ownerIdHash,
-          fencingToken: begun.intent.claim.fencingToken,
-          sourceRunId: submission.sourceRunId,
-          sourceRunAttempt: submission.sourceRunAttempt,
-          now: recordedAt,
-          nextResolutionAt: new Date(
-            recordedAt.getTime() + this.policy.authorizationResolutionDelayMs,
-          ),
-          resolutionDeadlineAt: new Date(
-            recordedAt.getTime() + this.policy.authorizationResolutionTimeoutMs,
-          ),
-        });
-        if (
-          recorded.status === ReviewRequestedTransitionStatus.Applied ||
-          recorded.status === ReviewRequestedTransitionStatus.Restored
-        ) {
-          dispatched += 1;
-        } else {
-          failed += 1;
-        }
-      } catch {
-        // Unknown POST outcome remains ReconcilingDispatch. Recovery performs
-        // lookup only and never submits this request identity again.
-        failed += 1;
-      }
+      const intent = begun.intent;
+      // Record each completed POST immediately; another slow POST must not
+      // delay admission of the run whose id we have already received.
+      submissions.push(
+        this.startSubmission(intent, prepared).catch(() => "failed" as const),
+      );
+    }
+    // Timed-out POSTs remain unknown. A later confirmed run may still be
+    // recorded by the same fenced transition; no second POST is issued.
+    for (const outcome of await Promise.all(submissions)) {
+      if (outcome === "dispatched") dispatched += 1;
+      else if (outcome === "failed") failed += 1;
     }
 
     return {
@@ -207,7 +269,153 @@ export class DispatchDueReviewRequestedIntents {
       dispatched,
       busy,
       failed,
+      preparationSaturated,
+      preparationsInFlight: this.inFlightPreparations.size,
+      submissionSaturated,
+      submissionsInFlight: this.inFlightSubmissions.size,
     };
+  }
+
+  private async completeSubmission(
+    intent: ReviewRequestedIntent,
+    submission: ReviewRequestedDispatchSubmissionResult,
+  ): Promise<"dispatched" | "failed" | "complete"> {
+    const claim = intent.claim;
+    if (!claim) return "failed";
+    try {
+      if (
+        submission.status ===
+        ReviewRequestedDispatchSubmissionStatus.DefinitelyNoEffect
+      ) {
+        const now = this.clock.now();
+        const successor = await buildReviewRequestedRetryCandidate({
+          intent,
+          now,
+          identitySeed: `definitely-no-effect\0${intent.dispatchAttempt}`,
+          dependencies: { ids: this.ids, digest: this.digest },
+          policy: this.policy,
+        });
+        const recovered = await this.commands.recoverDispatch({
+          requestId: intent.requestId,
+          expectedVersion: intent.version,
+          sourceRunId: null,
+          sourceRunAttempt: null,
+          now,
+          terminalReason:
+            successor === null
+              ? ReviewRequestedIntentTerminalReason.DispatchAttemptsExhausted
+              : ReviewRequestedIntentTerminalReason.DispatchFailedNoEffect,
+          successorCandidate: successor,
+        });
+        return recovered.status === ReviewRequestedTransitionStatus.Applied ||
+          recovered.status === ReviewRequestedTransitionStatus.Restored
+          ? "complete"
+          : "failed";
+      }
+      const recordedAt = this.clock.now();
+      const recorded = await this.commands.recordDispatch({
+        requestId: intent.requestId,
+        claimId: claim.claimId,
+        ownerIdHash: claim.ownerIdHash,
+        fencingToken: claim.fencingToken,
+        sourceRunId: submission.sourceRunId,
+        sourceRunAttempt: submission.sourceRunAttempt,
+        now: recordedAt,
+        nextResolutionAt: new Date(
+          recordedAt.getTime() + this.policy.authorizationResolutionDelayMs,
+        ),
+        resolutionDeadlineAt: new Date(
+          recordedAt.getTime() + this.policy.authorizationResolutionTimeoutMs,
+        ),
+      });
+      return recorded.status === ReviewRequestedTransitionStatus.Applied ||
+        recorded.status === ReviewRequestedTransitionStatus.Restored
+        ? "dispatched"
+        : "failed";
+    } catch {
+      // A failed write leaves the durable submission for normal reconciliation.
+      return "failed";
+    }
+  }
+
+  private startSubmission(
+    intent: ReviewRequestedIntent,
+    prepared: ReviewRequestedPreparedDispatchPort,
+  ) {
+    let observationExpired = false;
+    return withIoTimeout(
+      maximumSubmissionWaitMs,
+      async (signal) => {
+        try {
+          const submission = await prepared.submit(signal);
+          // Once observation timed out, a late no-effect response must not
+          // create a new attempt. Only a confirmed run may be bound late.
+          if (
+            observationExpired &&
+            submission.status !==
+              ReviewRequestedDispatchSubmissionStatus.Accepted
+          )
+            return "failed" as const;
+          return await this.completeSubmission(intent, submission);
+        } finally {
+          this.inFlightSubmissions.delete(intent.requestId);
+        }
+      },
+      () => {
+        observationExpired = true;
+      },
+    );
+  }
+
+  private startPreparation(intent: ReviewRequestedIntent) {
+    return withIoTimeout(
+      Math.min(
+        maximumPreparationWaitMs,
+        Math.max(1, Math.floor(this.policy.claimDurationMs * 0.8)),
+      ),
+      async (signal) => {
+        try {
+          if (this.canDispatch && !(await this.canDispatch(intent, signal)))
+            return null;
+          if (signal.aborted)
+            throw new Error("review_requested_preparation_timeout");
+          return await this.gateway.prepare({ intent, signal });
+        } finally {
+          this.inFlightPreparations.delete(intent.requestId);
+        }
+      },
+    );
+  }
+}
+
+// Bounded even when a dependency ignores AbortSignal. The slot is retained
+// until the real I/O settles; saturation fails closed instead of leaking work.
+const maximumPreparationsInFlight = 32;
+const maximumSubmissionsInFlight = 32;
+const maximumPreparationWaitMs = 5_000;
+const maximumSubmissionWaitMs = 5_000;
+
+/** Bound observation, not the lifetime of an operation that ignores abort. */
+async function withIoTimeout<T>(
+  timeoutMs: number,
+  work: (signal: AbortSignal) => Promise<T>,
+  onSoftTimeout?: () => void,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const controller = new AbortController();
+  try {
+    return await Promise.race([
+      work(controller.signal),
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => {
+          if (onSoftTimeout) onSoftTimeout();
+          else controller.abort();
+          reject(new Error("review_requested_preparation_timeout"));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
   }
 }
 

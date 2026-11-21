@@ -13,6 +13,7 @@ import {
   ReviewRequestedDispatchLookupStatus,
   ReviewRequestedDispatchRunStatus,
   ReviewRequestedDispatchSubmissionStatus,
+  ReviewRequestedStaleRevisionError,
   reviewRequestedDispatchCleanupEvent,
 } from "@reviewrouter/features-review-executions";
 import type { createPrismaClient } from "@reviewrouter/platform-db";
@@ -53,14 +54,22 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
 
   async prepare(input: {
     readonly intent: ReviewRequestedIntent;
+    readonly signal?: AbortSignal;
   }): Promise<ReviewRequestedPreparedDispatchPort> {
     const target = await this.resolveTarget(input.intent);
+    input.signal?.throwIfAborted();
     const octokit = await this.installations.forInstallation(
       installationId(target.githubInstallationId),
     );
-    const dispatchRef = await resolveDispatchRef(octokit, target, input.intent);
+    input.signal?.throwIfAborted();
+    const dispatchRef = await resolveDispatchRef(
+      octokit,
+      target,
+      input.intent,
+      input.signal,
+    );
     return Object.freeze({
-      submit: async () => {
+      submit: async (signal?: AbortSignal) => {
         try {
           const response = await octokit.request(
             "POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
@@ -75,6 +84,7 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
                 review_head_sha: input.intent.revision.headSha,
               },
               headers: { "X-GitHub-Api-Version": "2026-03-10" },
+              ...(signal ? { request: { signal } } : {}),
             },
           );
           return {
@@ -410,6 +420,7 @@ async function resolveDispatchRef(
   octokit: OctokitRequester,
   target: DispatchTarget,
   intent: ReviewRequestedIntent,
+  signal?: AbortSignal,
 ): Promise<string> {
   const response = await octokit.request(
     "GET /repos/{owner}/{repo}/pulls/{pull_number}",
@@ -418,12 +429,16 @@ async function resolveDispatchRef(
       repo: target.repo,
       pull_number: intent.pullRequestNumber,
       headers: { "X-GitHub-Api-Version": "2026-03-10" },
+      ...(signal ? { request: { signal } } : {}),
     },
   );
   if (!isRecord(response.data)) {
     throw new Error("review_requested_dispatch_pull_request_invalid");
   }
   const pullRequest = response.data;
+  if (pullRequest.state === "closed") {
+    throw new ReviewRequestedStaleRevisionError();
+  }
   const head = pullRequest.head;
   const base = pullRequest.base;
   const expectedRepository = `${target.owner}/${target.repo}`.toLowerCase();
@@ -431,12 +446,22 @@ async function resolveDispatchRef(
     pullRequest.state !== "open" ||
     !isRecord(head) ||
     !isRecord(base) ||
-    head.sha !== intent.revision.headSha ||
-    base.sha !== intent.revision.baseSha ||
+    typeof head.sha !== "string" ||
+    typeof base.sha !== "string" ||
+    !/^[a-f0-9]{40}$/i.test(head.sha) ||
+    !/^[a-f0-9]{40}$/i.test(base.sha) ||
+    repositoryFullName(head.repo) === null ||
+    repositoryFullName(base.repo) === null
+  ) {
+    throw new Error("review_requested_dispatch_pull_request_invalid");
+  }
+  if (
+    head.sha.toLowerCase() !== intent.revision.headSha.toLowerCase() ||
+    base.sha.toLowerCase() !== intent.revision.baseSha.toLowerCase() ||
     repositoryFullName(head.repo) !== expectedRepository ||
     repositoryFullName(base.repo) !== expectedRepository
   ) {
-    throw new Error("review_requested_dispatch_revision_changed");
+    throw new ReviewRequestedStaleRevisionError();
   }
   const baseRef = base.ref;
   if (
@@ -582,8 +607,11 @@ function parseRevisionInspection(
   data: unknown,
   intent: ReviewRequestedIntent,
 ): { readonly status: ReviewRequestedDispatchRunStatus } {
+  if (!isRecord(data) || (data.state !== "open" && data.state !== "closed")) {
+    throw new Error("review_requested_revision_inspection_invalid");
+  }
   return {
-    status: pullRequestRevisionMatches(data, intent)
+    status: pullRequestShowsRevision(data, intent)
       ? ReviewRequestedDispatchRunStatus.TerminalCurrentRevision
       : ReviewRequestedDispatchRunStatus.TerminalStaleRevision,
   };

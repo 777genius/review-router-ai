@@ -221,6 +221,45 @@ describe("GitHubActionsReviewRequestedDispatchGateway", () => {
     expect(request).toHaveBeenCalledTimes(1);
   });
 
+  it("passes the preparation abort signal to the GitHub pull request read", async () => {
+    const controller = new AbortController();
+    const request = vi.fn(
+      async (
+        _route: string,
+        parameters?: Readonly<Record<string, unknown>>,
+      ) => {
+        expect(parameters).toMatchObject({
+          request: { signal: controller.signal },
+        });
+        return { data: pullRequestFixture() };
+      },
+    );
+    await gatewayWith(request).prepare({
+      intent: intentFixture(),
+      signal: controller.signal,
+    });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes the submission abort signal to the workflow dispatch POST", async () => {
+    const controller = new AbortController();
+    const request = vi.fn(
+      async (route: string, parameters?: Readonly<Record<string, unknown>>) => {
+        if (route.startsWith("GET")) return { data: pullRequestFixture() };
+        expect(parameters).toMatchObject({
+          request: { signal: controller.signal },
+        });
+        return { data: { workflow_run_id: 702 } };
+      },
+    );
+    const prepared = await gatewayWith(request).prepare({
+      intent: intentFixture(),
+    });
+    await expect(prepared.submit(controller.signal)).resolves.toMatchObject({
+      status: ReviewRequestedDispatchSubmissionStatus.Accepted,
+    });
+  });
+
   it.each([
     ".github/workflows/reviewrouter-review.yml",
     ".github/workflows/reviewrouter-review.yml@main",
@@ -245,6 +284,7 @@ describe("GitHubActionsReviewRequestedDispatchGateway", () => {
         }
         return {
           data: {
+            state: "open",
             head: { sha: "c".repeat(40) },
             base: { sha: "a".repeat(40) },
           },
@@ -304,6 +344,46 @@ describe("GitHubActionsReviewRequestedDispatchGateway", () => {
       expect(request).toHaveBeenCalledTimes(2);
     },
   );
+
+  it("does not retry a completed run after its pull request closes", async () => {
+    const request = vi.fn(async (route: string) => {
+      if (!route.includes("/actions/runs/"))
+        return { data: { ...pullRequestFixture(), state: "closed" } };
+      return {
+        data: {
+          id: 701,
+          run_attempt: 1,
+          event: "workflow_dispatch",
+          display_title: "ReviewRouter review request-1",
+          status: "completed",
+          conclusion: "failure",
+          path: ".github/workflows/reviewrouter-review.yml",
+        },
+      };
+    });
+    await expect(
+      gatewayWith(request).inspectKnownRun({
+        intent: {
+          ...intentFixture(),
+          state: ReviewRequestedIntentState.AwaitingAuthorization,
+          claim: null,
+          sourceRunId: "701",
+          sourceRunAttempt: "1",
+        },
+      }),
+    ).resolves.toEqual({
+      status: ReviewRequestedDispatchRunStatus.TerminalStaleRevision,
+    });
+  });
+
+  it("does not classify a malformed PR response as a known stale revision", async () => {
+    const gateway = gatewayWith(async () => ({
+      data: { state: "open", head: {} },
+    }));
+    await expect(gateway.prepare({ intent: intentFixture() })).rejects.toThrow(
+      "review_requested_dispatch_pull_request_invalid",
+    );
+  });
 
   it.each([undefined, null])(
     "keeps waiting for a completed run without a conclusion (%s)",
