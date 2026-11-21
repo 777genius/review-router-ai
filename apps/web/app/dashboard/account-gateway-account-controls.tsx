@@ -1980,7 +1980,17 @@ function OperationReadback({
       {state === "pending" &&
       data?.status === "ok" &&
       data.value.oauthMethod === "device_code" ? (
-        <DeviceCodeHandoff authorization={deviceAuthorization} />
+        <DeviceCodeHandoff
+          authorization={deviceAuthorization}
+          providerLabel={
+            data.value.native
+              ? (profiles.find(
+                  (profile) =>
+                    profile.id === data.value.native!.connection.profileId,
+                )?.connection?.providerLabel ?? "your provider")
+              : "OpenAI"
+          }
+        />
       ) : null}
       {operation.isError ? (
         <p role="status" className="text-sm text-slate-400">
@@ -2189,8 +2199,10 @@ function ConnectWorkspaceAttach({
 
 function DeviceCodeHandoff({
   authorization,
+  providerLabel,
 }: {
   authorization: DeviceAuthorization | undefined;
+  providerLabel: string;
 }) {
   const [copied, setCopied] = useState(false);
   const [expired, setExpired] = useState(
@@ -2214,14 +2226,14 @@ function DeviceCodeHandoff({
   if (!authorization)
     return (
       <p className="text-sm text-slate-400">
-        Waiting for OpenAI. If you already entered the code, keep this page
-        open. For a new code, wait for this request to expire before starting
-        again.
+        Waiting for {providerLabel}. If you already entered the code, keep this
+        page open. For a new code, wait for this request to expire before
+        starting again.
       </p>
     );
   return (
     <div className="space-y-4 border-y border-cyan-200/10 py-4">
-      <p>Enter this one-time code at OpenAI:</p>
+      <p>Enter this one-time code at {providerLabel}:</p>
       <div className="flex flex-wrap items-center gap-3">
         <span className="select-all font-mono text-2xl font-semibold tracking-[0.18em] text-cyan-50">
           {authorization.userCode}
@@ -2250,7 +2262,7 @@ function DeviceCodeHandoff({
         target="_blank"
         rel="noopener noreferrer"
       >
-        Open OpenAI
+        Open {providerLabel}
         <ExternalLink aria-hidden="true" className="size-4" />
       </a>
       <p className="text-xs text-slate-400">

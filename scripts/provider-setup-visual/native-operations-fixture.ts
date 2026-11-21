@@ -164,7 +164,7 @@ export function createNativeOperationsFixture() {
                     kind: "device",
                     userCode: "VISUAL-CODE",
                     verificationURL: "https://identity.example.invalid/device",
-                    expiresAt: "2099-01-01T00:00:00Z",
+                    expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
                     intervalSeconds: 3,
                   },
           });

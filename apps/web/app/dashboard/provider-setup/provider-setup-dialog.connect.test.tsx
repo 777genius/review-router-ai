@@ -52,6 +52,8 @@ vi.mock("../provider-setup-actions", () => ({
 // Only the server boundary is mocked; the connect form, its receipts and the
 // dialog's account options are the real components.
 vi.mock("../account-gateway-account-actions", () => ({
+  beginGatewayNativeConnection: vi.fn(),
+  continueGatewayNativeConnection: vi.fn(),
   beginGatewayOAuth: vi.fn(),
   completeGatewayOAuth: vi.fn(),
   pollGatewayOAuth: vi.fn(),
@@ -69,6 +71,8 @@ vi.mock("../account-lifecycle-actions", () => ({
 }));
 vi.mock("../personal-account-actions", () => ({
   attachConnectedPersonalAccount: vi.fn(),
+  beginPersonalGatewayNativeConnection: vi.fn(),
+  continuePersonalGatewayNativeConnection: vi.fn(),
   beginPersonalGatewayOAuth: vi.fn(),
   completePersonalGatewayOAuth: vi.fn(),
   listPersonalGatewayAccounts: vi.fn(),

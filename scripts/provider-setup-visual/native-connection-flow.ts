@@ -242,6 +242,14 @@ export const nativeConnectionFlow: VisualFlow = {
           })
           .click();
         await page.getByText("VISUAL-CODE", { exact: true }).waitFor();
+        const signIn = page.getByRole("link", {
+          name: "Open New native provider",
+          exact: true,
+        });
+        assert.equal(
+          await signIn.getAttribute("href"),
+          "https://identity.example.invalid/device",
+        );
         // A provider grants the device authorization after the user sees the
         // code. Automatic success on the first background poll can remove the
         // handoff before the browser observes it, bypassing this user step.

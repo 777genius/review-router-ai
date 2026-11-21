@@ -31,6 +31,15 @@ export function createJoinedReviewProof(
   return {
     reasoningEffort: requested?.reasoningEffort,
     maxOutputTokens: requested?.maxOutputTokens ?? 100,
+    // The explicit native capability enables the pinned CLI's own reasoning
+    // encoder for this custom model. Omit summaries from its actual request;
+    // the assertions below still require the CLI to emit the effort itself.
+    modelConfigLines: requested
+      ? [
+          "model_supports_reasoning_summaries = true",
+          'model_reasoning_summary = "none"',
+        ]
+      : [],
     assertRequest(raw: Readonly<Record<string, unknown>>, ordinal: number) {
       if (!requested) {
         assert.ok(

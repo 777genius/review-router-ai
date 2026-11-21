@@ -494,6 +494,7 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
       path.join(codexHome, "config.toml"),
       [
         ...protectedResponsesToolPolicyConfigLines(),
+        ...reviewProof.modelConfigLines,
         "features.use_legacy_landlock = false",
         'model_provider = "reviewrouter_joined"',
         "[model_providers.reviewrouter_joined]",

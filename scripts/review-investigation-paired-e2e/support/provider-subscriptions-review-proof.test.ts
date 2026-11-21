@@ -19,6 +19,7 @@ describe("joined explicit reasoning proof", () => {
   it("preserves the default 100-token no-reasoning policy", () => {
     const proof = createJoinedReviewProof(undefined, 512);
     expect(proof.maxOutputTokens).toBe(100);
+    expect(proof.modelConfigLines).toEqual([]);
     proof.assertRequest({ input: "review" }, 1);
     proof.assertRequest({ input: "review", reasoning: null }, 2);
     proof.assertForwarded({ reasoning: null }, {});
@@ -33,6 +34,10 @@ describe("joined explicit reasoning proof", () => {
 
   it("requires an observed native token to return through the CLI and relay unchanged", () => {
     const proof = createJoinedReviewProof(requested, 16384);
+    expect(proof.modelConfigLines).toEqual([
+      "model_supports_reasoning_summaries = true",
+      'model_reasoning_summary = "none"',
+    ]);
     proof.assertRequest(first, 1);
     proof.observeResponse(wire, 1);
     const second = {
