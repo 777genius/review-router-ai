@@ -28,7 +28,7 @@ export function HomeFinalCta({
           className="mx-auto mt-4 max-w-2xl text-3xl font-semibold leading-tight tracking-tight text-cyan-50 sm:text-4xl"
         >
           Open source. Your AI.{" "}
-          <span className="text-lime-300">Your review platform.</span>
+          <span className="text-lime-300">Your review platform</span>
         </h2>
         <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-slate-300">
           Start free in your CI with your own model and settings. The platform
