@@ -67,7 +67,7 @@ Stateless; roll back by deploying the previous Web image.
 
 ## Execution log
 
-| Time (UTC)       | Environment | Operator   | Actual version / image               | Step and observed result                                                                  | Evidence                          | Next action                                                           |
-| ---------------- | ----------- | ---------- | ------------------------------------ | ----------------------------------------------------------------------------------------- | --------------------------------- | --------------------------------------------------------------------- |
-| Not executed     | staging     | Unassigned | Not verified                         | Not deployed yet.                                                                         | None                              | Include in the next bundled rollout.                                  |
+| Time (UTC)       | Environment | Operator   | Actual version / image               | Step and observed result                                                                  | Evidence                          | Next action                                                               |
+| ---------------- | ----------- | ---------- | ------------------------------------ | ----------------------------------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------- |
+| Not executed     | staging     | Unassigned | Not verified                         | Not deployed yet.                                                                         | None                              | Include in the next bundled rollout.                                      |
 | 2026-11-21 12:28 | production  | D5         | `a02b1607`, image `sha256:8d9dd8f3…` | Web swapped in bundle 5; `/ready` and Web 200; the UI e2e job had passed on the #950 head | [Bundle 5](2026-11-21-bundle5.md) | Owner: run the signed-in Codex sign-in lock check in the provider dialog. |
