@@ -107,6 +107,7 @@ export const visualNativeMethods = [
 export function nativeVisualCatalog(
   capabilities: readonly LegacyCapability[],
   includeSynthetic: boolean,
+  accountInfo = false,
 ) {
   const converted = capabilities.map(({ methods, ...profile }) => ({
     ...profile,
@@ -203,7 +204,7 @@ export function nativeVisualCatalog(
                 unavailableFallback: "qualified_anchor",
               },
               methods: visualNativeMethods,
-              accountInfo: false,
+              accountInfo,
               limitsContract: "unsupported",
               availability: "enabled",
             },

@@ -52,6 +52,8 @@ import {
 import type { VisualTheme } from "./scenarios.js";
 import type { VisualSeedResult } from "./seed.js";
 import { nativeConnectionFlow } from "./native-connection-flow.js";
+import { nativeVisibilityFlow } from "./native-visibility-flow.js";
+import type { NativeVisibilityFixture } from "./native-visibility-fixture.js";
 import type { NativeOperationsFixture } from "./native-operations-fixture.js";
 import {
   chooseCard,
@@ -97,6 +99,7 @@ export type FlowEnvironment = Readonly<{
   reset: () => Promise<VisualSeedResult>;
   writeGitHubState: (state: GitHubFixtureState) => Promise<void>;
   nativeOperations?: NativeOperationsFixture;
+  nativeVisibility?: NativeVisibilityFixture;
 }>;
 
 export type VisualFlow = Readonly<{
@@ -186,17 +189,24 @@ export class FlowRun {
 }
 
 /** Whether `--only` selects any flow. */
-export function visualFlowSelected(only: RegExp | null): boolean {
-  return VISUAL_FLOWS.some((flow) => !only || only.test(flow.id));
+export function visualFlowSelected(
+  only: RegExp | null,
+  deferredId?: string,
+): boolean {
+  return VISUAL_FLOWS.some(
+    (flow) => flow.id !== deferredId && (!only || only.test(flow.id)),
+  );
 }
 
 export async function runFlows(
   env: FlowEnvironment,
   only: RegExp | null,
+  deferredId?: string,
 ): Promise<readonly FlowRecord[]> {
   await mkdir(join(env.outDir, "flows"), { recursive: true, mode: 0o700 });
   const records: FlowRecord[] = [];
   for (const flow of VISUAL_FLOWS) {
+    if (flow.id === deferredId) continue;
     if (only && !only.test(flow.id)) continue;
     const unmet = Object.entries(flow.requires ?? {}).find(
       ([flag, value]) => env.flags[flag as keyof VisualRunFlags] !== value,
@@ -216,6 +226,8 @@ export async function runFlows(
       continue;
     }
     const startedAt = Date.now();
+    // A role-specific native overlay must never survive a later legacy reseed.
+    env.nativeVisibility?.setActive(false);
     const run = new FlowRun(env, flow.id, await env.reset());
     let reason: string | undefined;
     try {
@@ -230,6 +242,7 @@ export async function runFlows(
       await run.evidence();
     } finally {
       await run.close();
+      env.nativeVisibility?.setActive(false);
     }
     if (!reason && run.pageErrors.length > 0)
       reason = `browser runtime errors: ${run.pageErrors.join("; ")}`;
@@ -256,6 +269,7 @@ export async function runFlows(
 
 const VISUAL_FLOWS: readonly VisualFlow[] = [
   nativeConnectionFlow,
+  nativeVisibilityFlow,
   {
     id: "flow-gateway-reviewer-roster",
     title:

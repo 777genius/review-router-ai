@@ -5,10 +5,16 @@
  * Everything else is 404. The dedicated reviewer-roster flow opts into exact
  * seeded organization-account metadata and two controlled model capabilities;
  * this permits configuration writes, without exposing any inference endpoint.
+ * The separate native visibility flow adds consumer-control reads for the
+ * existing personal/shared PG accounts; RR still authorizes each private read.
  */
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { nativeVisualCatalog } from "./native-catalog-fixture.js";
+import {
+  createNativeVisibilityFixture,
+  type NativeVisibilityFixture,
+} from "./native-visibility-fixture.js";
 import {
   createNativeOperationsFixture,
   type NativeOperationsFixture,
@@ -74,6 +80,7 @@ export type GatewayCatalogFixture = Readonly<{
   /** Environment that points the dashboard at this server. */
   environment: Readonly<Record<string, string>>;
   nativeOperations: NativeOperationsFixture;
+  nativeVisibility?: NativeVisibilityFixture;
   stop(): Promise<void>;
 }>;
 
@@ -83,19 +90,31 @@ export async function startGatewayCatalogFixture(
     nvidiaEvaluation?: boolean;
     accountMetadata?: boolean;
     credentialImports?: boolean;
+    nativeVisibility?: boolean;
   } = {},
 ): Promise<GatewayCatalogFixture> {
   const token = randomBytes(24).toString("base64url");
+  const personalToken = randomBytes(24).toString("base64url");
   const nativeOperations = createNativeOperationsFixture();
+  const nativeVisibility = options.nativeVisibility
+    ? createNativeVisibilityFixture()
+    : undefined;
   let failedModelRefresh = false;
   const server: Server = createServer(async (request, response) => {
     const send = (status: number, body: unknown) => {
       response.writeHead(status, { "content-type": "application/json" });
       response.end(JSON.stringify(body));
     };
-    if (request.headers.authorization !== `Bearer ${token}`)
-      return send(401, { error: "unauthorized" });
+    const realm =
+      request.headers.authorization === `Bearer ${token}`
+        ? "management"
+        : nativeVisibility?.active &&
+            request.headers.authorization === `Bearer ${personalToken}`
+          ? "consumer-control"
+          : null;
+    if (!realm) return send(401, { error: "unauthorized" });
     const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+    if (await nativeVisibility?.handle(request, path, realm, send)) return;
     if (await nativeOperations.handle(request, path, send)) return;
     const nativeAccount = nativeOperations
       .accounts()
@@ -345,7 +364,9 @@ export async function startGatewayCatalogFixture(
         path.startsWith("/v3/")
           ? nativeVisualCatalog(
               catalog.capabilities,
-              options.credentialImports === true,
+              options.credentialImports === true ||
+                nativeVisibility?.active === true,
+              nativeVisibility?.active === true,
             )
           : catalog,
       );
@@ -438,9 +459,16 @@ export async function startGatewayCatalogFixture(
     throw new Error("provider_visual_gateway_fixture_unavailable");
   return {
     nativeOperations,
+    ...(nativeVisibility ? { nativeVisibility } : {}),
     environment: {
       REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN: `http://127.0.0.1:${address.port}`,
       REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN: token,
+      ...(nativeVisibility
+        ? {
+            REVIEW_ROUTER_ACCOUNT_GATEWAY_PERSONAL_CONTROL_ORIGIN: `http://127.0.0.1:${address.port}`,
+            REVIEW_ROUTER_ACCOUNT_GATEWAY_PERSONAL_CONTROL_TOKEN: personalToken,
+          }
+        : {}),
       REVIEW_ROUTER_ACCOUNT_GATEWAY_ACCOUNTS_CONTEXT_SECRET:
         randomBytes(32).toString("base64url"),
       // The fixture profile is an approved key profile of this deployment.

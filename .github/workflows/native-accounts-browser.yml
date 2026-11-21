@@ -209,12 +209,50 @@ jobs:
           }
           assert.equal(expected.size, 0);
           NODE
+      - name: Qualify native account owner and shared borrower visibility in Chromium
+        run: >-
+          pnpm provider-setup:visual --flows-only
+          --only '^flow-native-visibility$'
+          --next-heap-mb 4096 --out tmp/native-accounts-visibility
+      - name: Assert all four native visibility roles and source read boundaries
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync, statSync } from 'node:fs';
+          import { join } from 'node:path';
+          const directory = 'tmp/native-accounts-visibility';
+          const manifest = JSON.parse(readFileSync(join(directory, 'manifest.json'), 'utf8'));
+          assert.equal(manifest.revision, process.env.EXPECTED_REVISION);
+          assert.deepEqual(manifest.sourceBefore, manifest.sourceAfter);
+          assert.equal(manifest.sourceBefore.sourceDeltaSha256, 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+          assert.deepEqual(manifest.sourceBefore.untrackedPaths, []);
+          assert.equal(manifest.flags.personalSharing, true);
+          assert.deepEqual(manifest.summary, { captured: 0, suspect: 0, failed: 0, skipped: 0 });
+          assert.deepEqual(manifest.flowSummary, { pass: 1, fail: 0, skipped: 0 });
+          assert.equal(manifest.flows.length, 1);
+          const flow = manifest.flows[0];
+          assert.equal(flow.flow, 'flow-native-visibility');
+          assert.equal(flow.status, 'pass');
+          assert.equal(flow.checks.length, 4);
+          assert(flow.checks.every(check => check.pass));
+          assert.deepEqual(flow.pageErrors, []);
+          assert.deepEqual(flow.blockedRequests, []);
+          assert.equal(flow.screenshots.length, 4);
+          for (const file of flow.screenshots) assert(statSync(join(directory, file)).size > 0);
+          assert.deepEqual(flow.checks.map(check => JSON.parse(check.detail)), [
+            { viewer: 'admin', workspace: 'adminPersonal', metadataReadAccountRefs: ['rr-visual-gateway-admin-personal'], metadataReadRealms: ['consumer-control'], metadataReadChannels: ['consumer-control:rr-visual-gateway-admin-personal'] },
+            { viewer: 'admin', workspace: 'main', metadataReadAccountRefs: ['rr-visual-gateway-admin-personal', 'rr-visual-gateway-main-org'], metadataReadRealms: ['consumer-control', 'management'], metadataReadChannels: ['consumer-control:rr-visual-gateway-admin-personal', 'management:rr-visual-gateway-admin-personal', 'management:rr-visual-gateway-main-org'] },
+            { viewer: 'owner', workspace: 'main', metadataReadAccountRefs: ['rr-visual-gateway-main-org'], metadataReadRealms: ['management'], metadataReadChannels: ['management:rr-visual-gateway-main-org'] },
+            { viewer: 'member', workspace: 'main', metadataReadAccountRefs: [], metadataReadRealms: [], metadataReadChannels: [] },
+          ]);
+          assert.deepEqual(manifest.network.blocked, []);
+          assert.deepEqual(manifest.network.githubUnhandled, []);
+          NODE
       - name: Report bounded native browser failure evidence
         if: failure()
         run: |
           node --input-type=module <<'NODE'
           import { existsSync, readFileSync } from 'node:fs';
-          const directory = 'tmp/native-accounts-browser';
           const safe = value => String(value ?? '')
             .replace(/\x1b\[[0-9;]*m/g, '')
             .replace(/https?:\/\/[^\s"'<>]+/g, value => {
@@ -225,6 +263,7 @@ jobs:
             .replace(/\b[A-Za-z0-9_-]{40,}\b/g, '[opaque]')
             .slice(0, 1200);
           const errors = values => (Array.isArray(values) ? values : []).slice(0, 5).map(safe);
+          for (const directory of ['tmp/native-accounts-browser', 'tmp/native-accounts-visibility']) {
           const manifestPath = directory + '/manifest.json';
           if (existsSync(manifestPath)) {
             const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
@@ -255,6 +294,7 @@ jobs:
               .filter(line => /GET \/dashboard|POST \/dashboard|[Cc]ompil|[Rr]eady in/.test(line))
               .slice(-40).map(safe) }));
           }
+          }
           NODE
       - name: Preserve visual receipts and screenshots
         if: always()
@@ -278,5 +318,17 @@ jobs:
             ${{ runner.temp }}/rr-native-rollback-output/old-reader-build.json
             ${{ runner.temp }}/rr-native-rollback-output/old-reader-receipt.json
             ${{ runner.temp }}/rr-native-rollback-output/rollback-receipt.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Preserve native role visibility receipts and screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-accounts-visibility-${{ env.EXPECTED_REVISION }}-${{ github.run_attempt }}
+          path: |
+            tmp/native-accounts-visibility/manifest.json
+            tmp/native-accounts-visibility/flows/
+            tmp/native-accounts-visibility/next-app.log
+            tmp/native-accounts-visibility/migrate.log
           if-no-files-found: warn
           retention-days: 14
