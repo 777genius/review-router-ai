@@ -39,22 +39,22 @@ const secretCommand = `# Copy the full repo-scoped Codex command from the Review
 const securitySignals = [
   {
     icon: Code2,
-    title: "Review execution runs in the authorized CI job.",
+    title: "Review execution runs in the authorized CI job",
     body: "Submitted review context is sent to the selected model provider, through Account Gateway relay in Gateway mode. ReviewRouter stores review metadata and normalized findings, which may include source excerpts.",
   },
   {
     icon: KeyRound,
-    title: "Credentials use protected mode-specific custody.",
+    title: "Credentials use protected mode-specific custody",
     body: "Direct workflow credentials are installed in GitHub Actions. Account Gateway credentials use the supported server ingress and protected server custody; they are not exposed through account readback or copied into the review job. Enrollment handles plaintext transiently; stored credentials are encrypted at rest.",
   },
   {
     icon: AlertTriangle,
-    title: "Secret-backed review is skipped for fork PRs by default.",
+    title: "Secret-backed review is skipped for fork PRs by default",
     body: "The generated workflow avoids automatically exposing secrets to untrusted fork code. Trusted rerun flows should be explicit maintainer actions.",
   },
   {
     icon: RadioTower,
-    title: "OIDC avoids long-lived ReviewRouter API tokens in repos.",
+    title: "OIDC avoids long-lived ReviewRouter API tokens in repos",
     body: "GitHub Actions requests short-lived runtime config through OIDC. Production Codex OAuth rotating runs fail closed if the control plane cannot validate the run.",
   },
 ] as const;
@@ -244,7 +244,7 @@ export default function SecurityPage(): React.ReactElement {
         <header className="max-w-3xl">
           <Badge tone="accent">Security model</Badge>
           <h1 className="mt-6 text-4xl font-semibold text-cyan-50 sm:text-5xl">
-            Code and secrets stay under your control.
+            Code and secrets stay under your control
           </h1>
           <p className="mt-5 text-base leading-7 text-slate-300 sm:text-lg sm:leading-8">
             Direct mode uses explicitly configured GitHub Actions or self-hosted
