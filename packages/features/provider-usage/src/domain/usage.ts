@@ -2,6 +2,10 @@ import {
   validateUsagePriceSnapshot,
   type UsagePriceSnapshot,
 } from "./usage-price";
+import {
+  validNativeUsageContext,
+  type NativeUsageContext,
+} from "./native-usage-context";
 /** Safe RR-owned DTO. All tokens are inclusive totals; subdivisions never add to total. */
 export interface UsageTokens {
   inputTotal: number | null;
@@ -40,6 +44,7 @@ export interface UsageIdentity {
   occurredAt: string;
 }
 export interface UsageFact {
+  nativeContext?: NativeUsageContext;
   serviceTier?: string | null;
   priceSnapshot?: UsagePriceSnapshot | null;
   schemaVersion: 1;
@@ -141,9 +146,16 @@ export function validateUsageFact(f: UsageFact): void {
       "correctionReason",
       "childCallIds",
     ],
-    ["serviceTier", "priceSnapshot"],
+    ["serviceTier", "priceSnapshot", "nativeContext"],
   );
   if (Object.hasOwn(f, "serviceTier")) text(f.serviceTier, true);
+  if (
+    Object.hasOwn(f, "nativeContext") &&
+    (f.authority !== "native" ||
+      f.identity?.route !== "gateway" ||
+      !validNativeUsageContext(f.nativeContext!))
+  )
+    invalid();
   if (Object.hasOwn(f, "priceSnapshot") && f.priceSnapshot !== null) {
     try {
       validateUsagePriceSnapshot(f.priceSnapshot);
@@ -425,6 +437,7 @@ export function selectProjection(facts: readonly UsageFact[]): UsageProjection {
           f.actualModel,
           f.serviceTier ?? null,
           f.priceSnapshot ?? null,
+          f.nativeContext ?? null,
           f.completeness,
           f.state,
           f.dispatchEffect,

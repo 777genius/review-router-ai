@@ -32,7 +32,7 @@ const observation = (accountRef: string): AccountMetadataObservation => ({
       accountLabel: { status: "unknown" },
       subscription: { status: "unknown" },
       credentialExpiresAt: { status: "unknown" },
-      privacyMode: { status: "unsupported" },
+      trainingUsage: { status: "unsupported" },
     },
   },
 });
