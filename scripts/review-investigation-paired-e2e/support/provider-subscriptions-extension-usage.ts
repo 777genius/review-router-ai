@@ -108,9 +108,9 @@ export function createExtensionUsageObserver(input: {
         input.profile.profileId,
       );
       assert.equal(projection.usage.nativeContext?.modelId, input.modelId);
-      assert.equal(projection.usage.tokens.inputTotal, 3);
-      assert.equal(projection.usage.tokens.outputTotal, 1);
-      assert.equal(projection.usage.tokens.total, 4);
+      assert.equal(projection.usage.tokens.inputTotal, 7);
+      assert.equal(projection.usage.tokens.outputTotal, 3);
+      assert.equal(projection.usage.tokens.total, 10);
       assert.equal(
         projection.usage.cost,
         null,
@@ -130,9 +130,9 @@ export function createExtensionUsageObserver(input: {
     );
     assert.equal(report.rows.length, 2);
     assert.equal(report.totals.providerAttempts, 2);
-    assert.equal(report.totals.tokens.inputTotal, 6);
-    assert.equal(report.totals.tokens.outputTotal, 2);
-    assert.equal(report.totals.tokens.total, 8);
+    assert.equal(report.totals.tokens.inputTotal, 14);
+    assert.equal(report.totals.tokens.outputTotal, 6);
+    assert.equal(report.totals.tokens.total, 20);
     assert.equal(report.totals.unknownCostCount, 2);
     for (const row of report.rows) {
       assert.equal(row.provider, input.profile.provider.id);
@@ -140,7 +140,7 @@ export function createExtensionUsageObserver(input: {
       assert.equal(row.model, input.modelId);
       assert.equal(row.requestedModel, input.modelId);
       assert.equal(row.authority, "native");
-      assert.equal(row.total, 4);
+      assert.equal(row.total, 10);
       assert.equal(row.cost, null);
       assert.deepEqual(
         row.billing,
