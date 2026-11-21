@@ -781,7 +781,7 @@ describe("ReviewProgressPublisher", () => {
       suppressed: 0,
       failed: 0,
     });
-    expect(pages).toEqual([1, 2]);
+    expect(pages).toEqual([1, 2, 1]);
     expect(store.retry).toHaveBeenCalledWith(
       expect.objectContaining({
         publication,

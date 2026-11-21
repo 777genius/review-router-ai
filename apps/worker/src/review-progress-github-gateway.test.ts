@@ -530,7 +530,7 @@ describe("ReviewProgressGitHubGateway", () => {
     const pageNumbers = fixture.calls
       .filter(({ route }) => route === commentListRoute)
       .map(({ parameters }) => parameters.page);
-    expect(pageNumbers).toEqual([1, 2]);
+    expect(pageNumbers).toEqual([1, 2, 1]);
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
