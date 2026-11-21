@@ -86,6 +86,36 @@ export function parseComment(value: unknown): ReviewProgressComment {
   return comment;
 }
 
+/** A successful HTTP write still needs an issue-scoped, bot-authored reply. */
+export function requireConfirmedMutationReply(
+  data: unknown,
+  input: Pick<
+    UpsertReviewProgressCommentInput,
+    "owner" | "repo" | "pullNumber" | "expectedBotLogin" | "marker"
+  >,
+  desiredBody: string,
+  expectedCommentId?: number,
+): ReviewProgressComment {
+  const comment = parseCommentOrNull(data);
+  const issueUrl = record(data)?.issue_url;
+  if (
+    !comment ||
+    (expectedCommentId !== undefined && comment.id !== expectedCommentId) ||
+    comment.body !== desiredBody ||
+    !ownsMarker(comment, input) ||
+    typeof issueUrl !== "string" ||
+    issueUrl.toLowerCase() !== expectedIssueUrl(input).toLowerCase()
+  ) {
+    // A malformed acknowledgement does not prove that the write failed.
+    throw new ReviewProgressGitHubError(
+      "ambiguous_mutation",
+      "github_issue_comment_mutation_reply_unconfirmed",
+      { retryable: true, mutationMayHaveLanded: true },
+    );
+  }
+  return comment;
+}
+
 export function ownsMarker(
   comment: ReviewProgressComment,
   input: Pick<UpsertReviewProgressCommentInput, "expectedBotLogin" | "marker">,
@@ -101,6 +131,21 @@ function record(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function expectedIssueUrl(
+  input: Pick<
+    UpsertReviewProgressCommentInput,
+    "owner" | "repo" | "pullNumber"
+  >,
+): string {
+  return [
+    "https://api.github.com/repos",
+    input.owner,
+    input.repo,
+    "issues",
+    input.pullNumber,
+  ].join("/");
 }
 
 /** Unreadable rows may contain our marker; never certify a destructive scan. */
@@ -154,14 +199,7 @@ export function verifiedKnownComment(
       { retryable: false },
     );
   }
-  const expectedIssueUrl = [
-    "https://api.github.com/repos",
-    input.owner,
-    input.repo,
-    "issues",
-    input.pullNumber,
-  ].join("/");
-  if (issueUrl.toLowerCase() !== expectedIssueUrl.toLowerCase()) {
+  if (issueUrl.toLowerCase() !== expectedIssueUrl(input).toLowerCase()) {
     return null;
   }
   const known = parseCommentOrNull(data);

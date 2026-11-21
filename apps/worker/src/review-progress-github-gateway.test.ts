@@ -52,6 +52,31 @@ describe("ReviewProgressGitHubGateway", () => {
     });
   });
 
+  it("reconciles a foreign POST reply", async () => {
+    const fixture = githubFixture([]);
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (!route.startsWith("POST ")) return response;
+      return {
+        ...response,
+        data: {
+          ...(response.data as Record<string, unknown>),
+          issue_url: "https://api.github.com/repos/acme/rocket/issues/43",
+        },
+      };
+    };
+
+    await expect(gateway(request).upsert(input())).resolves.toEqual({
+      commentId: 100,
+      operation: "reconciled",
+      duplicateCommentIds: [],
+    });
+    expect(mutations(fixture.calls)).toHaveLength(1);
+  });
+
   it("reconciles a timed-out POST when the marked comment appeared", async () => {
     const fixture = githubFixture([], { throwAfterPost: true });
 
@@ -125,6 +150,26 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
       "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
     ]);
+  });
+
+  it("reconciles a PATCH with no response comment", async () => {
+    const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      return route.startsWith("PATCH ")
+        ? { ...response, data: null }
+        : response;
+    };
+
+    await expect(gateway(request).upsert(input())).resolves.toEqual({
+      commentId: 8,
+      operation: "reconciled",
+      duplicateCommentIds: [],
+    });
+    expect(mutations(fixture.calls)).toHaveLength(1);
   });
 
   it("reconciles a timed-out PATCH when the marked comment was updated", async () => {
@@ -2357,6 +2402,7 @@ function toResponseComment(comment: {
     id: comment.id,
     body: comment.body,
     user: { login: comment.authorLogin },
+    issue_url: "https://api.github.com/repos/acme/rocket/issues/42",
   };
 }
 

@@ -5,8 +5,8 @@ import {
   hasUnclassifiedMarker,
   isCapacityLimitedScan,
   ownsMarker,
-  parseComment,
   parseCommentOrNull,
+  requireConfirmedMutationReply,
   verifiedKnownComment,
   type ReviewProgressComment,
 } from "./review-progress-github-comment-policy";
@@ -182,12 +182,18 @@ export class ReviewProgressGitHubGateway {
   ): Promise<UpsertReviewProgressCommentResult> {
     await this.assertCurrentPullRequest(input);
     try {
-      await this.request(
+      const response = await this.request(
         "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
         repositoryParameters(input, {
           comment_id: canonicalId,
           body: desiredBody,
         }),
+      );
+      requireConfirmedMutationReply(
+        response.data,
+        input,
+        desiredBody,
+        canonicalId,
       );
     } catch (error) {
       const reconciled = await this.reconcileMutation(
@@ -255,7 +261,11 @@ export class ReviewProgressGitHubGateway {
           body: desiredBody,
         }),
       );
-      const created = parseComment(response.data);
+      const created = requireConfirmedMutationReply(
+        response.data,
+        input,
+        desiredBody,
+      );
       return {
         commentId: created.id,
         operation: "created",
