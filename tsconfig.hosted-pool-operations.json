@@ -7,6 +7,7 @@
   },
   "include": [
     "scripts/locked-provider.pg17.real.test.ts",
+    "scripts/lib/render-managed-workflow-cutover.test.ts",
     "scripts/hosted-pool-production-control.ts",
     "scripts/hosted-pool-production-ports.ts",
     "scripts/hosted-pool-production-github-dispatch.ts",
