@@ -199,7 +199,11 @@ export const nativeConnectionFlow: VisualFlow = {
           name: "Resume authorization",
           exact: true,
         });
-        if (await resume.count()) await resume.first().click();
+        // The pinned operation is loaded asynchronously after a page reload.
+        // A synchronous count can run before that read resolves and miss the
+        // only user action that opens the completion form.
+        await resume.first().waitFor({ state: "visible" });
+        await resume.first().click();
         await page
           .getByLabel("Authorization code", { exact: true })
           .fill(VISUAL_NATIVE_COMPLETION);
