@@ -26,3 +26,16 @@ packages/features/hosted-account-pool/src/**/*.js
 /goal-*.js
 /playwright-report/
 /test-results/
+
+# Impeccable working state: keep only intentional project context tracked
+**/.impeccable/config.local.json
+**/.impeccable/hook.cache.json
+**/.impeccable/hook.pending.json
+**/.impeccable/*.png
+**/.impeccable/review/
+**/.impeccable/questions/
+**/.impeccable/live/server.json
+**/.impeccable/live/sessions/
+**/.impeccable/live/previews/
+**/.impeccable/live/annotations/
+**/.impeccable/live/cache/
