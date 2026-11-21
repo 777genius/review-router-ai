@@ -171,6 +171,7 @@ export class InMemoryReviewRequestedIntentStore
     readonly now: Date;
     readonly limit: number;
     readonly excludeRequestIds?: readonly string[];
+    readonly excludeAlwaysRequestIds?: readonly string[];
   }): Promise<readonly ReviewRequestedIntent[]> {
     await this.transactionTail;
     assertDate(input.now, "review_requested_due_now");
@@ -184,6 +185,7 @@ export class InMemoryReviewRequestedIntentStore
     return [...this.intents.values()]
       .filter(
         (intent) =>
+          !input.excludeAlwaysRequestIds?.includes(intent.requestId) &&
           (!input.excludeRequestIds?.includes(intent.requestId) ||
             (intent.state === ReviewRequestedIntentState.Dispatching &&
               intent.resolutionDeadlineAt !== null &&

@@ -1831,6 +1831,15 @@ if (databaseUrl) {
         candidate.requestId,
         fresh.requestId,
       ]);
+      const excludedBegin = await store.listDue({
+        now,
+        limit: 2,
+        excludeRequestIds: [candidate.requestId],
+        excludeAlwaysRequestIds: [candidate.requestId],
+      });
+      expect(excludedBegin.map((row) => row.requestId)).toEqual([
+        fresh.requestId,
+      ]);
     });
 
     it("expires an in-flight preparation with a worker clock behind database time", async () => {

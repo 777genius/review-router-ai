@@ -46,6 +46,164 @@ const retainUntil = new Date("2026-08-22T12:00:00.000Z");
 const ownerIdHash = createReviewV2WorkerOwnerId("worker-test");
 
 describe("review v2 worker runtime", () => {
+  it.each(["applied", "rejected"] as const)(
+    "continues healthy dispatches and publication when begin hangs then %s",
+    async (lateOutcome) => {
+      vi.useFakeTimers();
+      try {
+        const fixture = await createFixture({ createProcess: false });
+        const store = new InMemoryReviewRequestedIntentStore();
+        const digest = (i: number) => i.toString(16).padStart(64, "0");
+        for (let i = 0; i < 3; i++) {
+          await store.registerIntent({
+            candidate: {
+              workspaceId: "workspace",
+              repositoryConnectionId: "repository",
+              scmRepositoryIdentityId: "identity",
+              pullRequestNumber: i + 1,
+              requestId: `begin-${i}`,
+              revision: {
+                baseSha: "a".repeat(40),
+                mergeBaseSha: "b".repeat(40),
+                headSha: "c".repeat(40),
+                reviewRevisionHash: digest(i + 1),
+              },
+              triggerKind: ReviewRequestedTriggerKind.PullRequestSynchronized,
+              deliveryIdentityHash: digest(i + 100),
+              canonicalRequestHash: digest(i + 200),
+              notBefore: new Date(now.getTime() + i),
+              createdAt: now,
+              retainUntil,
+            },
+          });
+        }
+        let releaseBegin!: () => void;
+        const deferredBegin = new Promise<void>((resolve) => {
+          releaseBegin = resolve;
+        });
+        const begin = store.beginSubmission.bind(store);
+        const beginSpy = vi
+          .spyOn(store, "beginSubmission")
+          .mockImplementation(async (command) => {
+            if (command.requestId === "begin-1") {
+              await deferredBegin;
+              if (lateOutcome === "rejected")
+                throw new Error("unknown_begin_result");
+            }
+            return begin(command);
+          });
+        const submit = vi.fn(async (requestId: string) => ({
+          status: ReviewRequestedDispatchSubmissionStatus.Accepted as const,
+          sourceRunId: requestId === "begin-0" ? "101" : "103",
+          sourceRunAttempt: "1",
+        }));
+        let sequence = 0;
+        let workerTime = new Date(now.getTime() + 1_000);
+        const dispatcher = new DispatchDueReviewRequestedIntents(
+          store,
+          store,
+          {
+            async prepare({ intent }) {
+              return { submit: () => submit(intent.requestId) };
+            },
+            async findByRequestIdentity() {
+              return {
+                status: ReviewRequestedDispatchLookupStatus.Absent as const,
+              };
+            },
+            async inspectKnownRun() {
+              return { status: ReviewRequestedDispatchRunStatus.Pending };
+            },
+            async inspectRunnerWait() {
+              return {
+                waitingForRunner: false,
+                neverStarted: false,
+                revisionCurrent: true,
+              };
+            },
+            async cancelKnownRun() {},
+          },
+          { now: () => workerTime },
+          {
+            nextClaimId: () => `claim-${sequence++}`,
+            nextRequestId: () => `next-${sequence++}`,
+          },
+          { digestUtf8: async () => digest(900) },
+        );
+        let publicationRan = false;
+        const pass = runReviewV2Maintenance({
+          runtime: fixture.runtime,
+          ownerIdHash,
+          dueLimit: 10,
+          intents: {
+            async runMaintenance() {
+              const result = await dispatcher.execute({
+                ownerIdHash,
+                limit: 10,
+              });
+              return { ...result, recovered: 0 };
+            },
+          },
+          publication: {
+            async runMaintenance() {
+              publicationRan = true;
+              return {
+                processed: 0,
+                manualRequired: 0,
+                terminalUnknown: 0,
+                settledExecutionIds: [],
+                progressSettlements: [],
+              };
+            },
+          },
+        });
+        await vi.advanceTimersByTimeAsync(5_000);
+        await expect(pass).resolves.toMatchObject({
+          intentsDispatched: 2,
+          intentDispatchFailures: 1,
+        });
+        expect(publicationRan).toBe(true);
+        expect(submit.mock.calls.map(([id]) => id).sort()).toEqual([
+          "begin-0",
+          "begin-2",
+        ]);
+        expect(await store.findByRequestId("begin-1")).toMatchObject({
+          state: ReviewRequestedIntentState.Dispatching,
+        });
+        workerTime = new Date(now.getTime() + 2 * 86400000);
+        await expect(
+          dispatcher.execute({ ownerIdHash, limit: 10 }),
+        ).resolves.toMatchObject({ scanned: 0, submissionsInFlight: 1 });
+        expect(
+          beginSpy.mock.calls.filter(
+            ([command]) => command.requestId === "begin-1",
+          ),
+        ).toHaveLength(1);
+        releaseBegin();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(submit.mock.calls.map(([id]) => id)).not.toContain("begin-1");
+        expect(await store.findByRequestId("begin-1")).toMatchObject({
+          state:
+            lateOutcome === "applied"
+              ? ReviewRequestedIntentState.ReconcilingDispatch
+              : ReviewRequestedIntentState.Dispatching,
+          sourceRunId: null,
+        });
+        if (lateOutcome === "applied") {
+          await expect(
+            dispatcher.execute({ ownerIdHash, limit: 10 }),
+          ).resolves.toMatchObject({ scanned: 0 });
+          expect(
+            beginSpy.mock.calls.filter(
+              ([command]) => command.requestId === "begin-1",
+            ),
+          ).toHaveLength(1);
+        }
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
   it("continues another dispatch and later phases when a POST hangs, retaining unknown outcome", async () => {
     vi.useFakeTimers();
     try {

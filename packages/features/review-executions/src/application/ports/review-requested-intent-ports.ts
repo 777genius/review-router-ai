@@ -220,6 +220,7 @@ export interface ReviewRequestedIntentQueryPort {
     readonly now: Date;
     readonly limit: number;
     readonly excludeRequestIds?: readonly string[];
+    readonly excludeAlwaysRequestIds?: readonly string[];
   }): Promise<readonly ReviewRequestedIntent[]>;
   listDueForResolution(input: {
     readonly now: Date;

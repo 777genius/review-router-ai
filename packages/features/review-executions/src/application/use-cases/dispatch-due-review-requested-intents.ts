@@ -35,6 +35,8 @@ export class DispatchDueReviewRequestedIntents {
   private readonly policy: ReviewRequestedDispatchPolicy;
   private readonly inFlightPreparations = new Set<string>();
   private readonly inFlightSubmissions = new Set<string>();
+  private readonly inFlightBeginnings = new Set<string>();
+  private dispatchTransitionTail: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly queries: ReviewRequestedIntentQueryPort,
@@ -67,6 +69,7 @@ export class DispatchDueReviewRequestedIntents {
       now: this.clock.now(),
       limit: input.limit,
       excludeRequestIds: [...excludedAtQuery],
+      excludeAlwaysRequestIds: [...this.inFlightBeginnings],
     });
     const claimedScopes = new Set<string>();
     let claimed = 0;
@@ -91,6 +94,7 @@ export class DispatchDueReviewRequestedIntents {
     }> = [];
 
     for (const candidate of due) {
+      if (this.inFlightBeginnings.has(candidate.requestId)) continue;
       if (this.inFlightPreparations.has(candidate.requestId)) {
         // An abandoned, still-running read cannot issue a POST. At its 24h
         // deadline the store may terminalize the expired claim under lock.
@@ -180,15 +184,16 @@ export class DispatchDueReviewRequestedIntents {
       const claim = { intent: item.intent };
       if (!claim.intent.claim)
         throw new Error("review_requested_claim_term_missing");
+      const claimTerm = claim.intent.claim;
       const result = await item.preparation;
       if (result.status === "rejected") {
         if (result.reason instanceof ReviewRequestedStaleRevisionError) {
           await this.commands.resolvePreparation({
             requestId: claim.intent.requestId,
             expectedVersion: claim.intent.version,
-            claimId: claim.intent.claim.claimId,
-            ownerIdHash: claim.intent.claim.ownerIdHash,
-            fencingToken: claim.intent.claim.fencingToken,
+            claimId: claimTerm.claimId,
+            ownerIdHash: claimTerm.ownerIdHash,
+            fencingToken: claimTerm.fencingToken,
             now: this.clock.now(),
           });
         }
@@ -218,43 +223,8 @@ export class DispatchDueReviewRequestedIntents {
       // Reserve before durable begin; a saturated pool must not create an
       // uncertain dispatch for which no POST can be started.
       this.inFlightSubmissions.add(claim.intent.requestId);
-      const submissionAt = this.clock.now();
-      let begun;
-      try {
-        begun = await this.commands.beginSubmission({
-          requestId: claim.intent.requestId,
-          claimId: claim.intent.claim.claimId,
-          ownerIdHash: claim.intent.claim.ownerIdHash,
-          fencingToken: claim.intent.claim.fencingToken,
-          now: submissionAt,
-          nextResolutionAt: new Date(
-            submissionAt.getTime() + this.policy.dispatchResolutionDelayMs,
-          ),
-          resolutionDeadlineAt: new Date(
-            submissionAt.getTime() + this.policy.dispatchResolutionTimeoutMs,
-          ),
-        });
-      } catch (error) {
-        this.inFlightSubmissions.delete(claim.intent.requestId);
-        throw error;
-      }
-      if (
-        begun.status !== ReviewRequestedTransitionStatus.Applied ||
-        !begun.intent?.claim
-      ) {
-        this.inFlightSubmissions.delete(claim.intent.requestId);
-        // A restored begin means the one allowed POST may already have happened.
-        // Only the reconciliation path is allowed to make progress from there.
-        failed += 1;
-        continue;
-      }
-
-      const intent = begun.intent;
-      // Record each completed POST immediately; another slow POST must not
-      // delay admission of the run whose id we have already received.
-      submissions.push(
-        this.startSubmission(intent, prepared).catch(() => "failed" as const),
-      );
+      this.inFlightBeginnings.add(claim.intent.requestId);
+      submissions.push(this.startBegin(claim.intent, prepared));
     }
     // Timed-out POSTs remain unknown. A later confirmed run may still be
     // recorded by the same fenced transition; no second POST is issued.
@@ -276,6 +246,63 @@ export class DispatchDueReviewRequestedIntents {
     };
   }
 
+  private startBegin(
+    intent: ReviewRequestedIntent,
+    prepared: ReviewRequestedPreparedDispatchPort,
+  ): Promise<"dispatched" | "failed" | "complete"> {
+    const claim = intent.claim;
+    if (!claim) throw new Error("review_requested_claim_term_missing");
+    let observationExpired = false;
+    let handedOff = false;
+    const observed = withIoTimeout(
+      maximumSubmissionWaitMs,
+      async () => {
+        try {
+          const now = this.clock.now();
+          const begun = await this.withDispatchTransition(() =>
+            observationExpired
+              ? Promise.resolve(null)
+              : this.commands.beginSubmission({
+                  requestId: intent.requestId,
+                  claimId: claim.claimId,
+                  ownerIdHash: claim.ownerIdHash,
+                  fencingToken: claim.fencingToken,
+                  now,
+                  nextResolutionAt: new Date(
+                    now.getTime() + this.policy.dispatchResolutionDelayMs,
+                  ),
+                  resolutionDeadlineAt: new Date(
+                    now.getTime() + this.policy.dispatchResolutionTimeoutMs,
+                  ),
+                }),
+          );
+          if (
+            observationExpired ||
+            !begun ||
+            begun.status !== ReviewRequestedTransitionStatus.Applied ||
+            !begun.intent?.claim
+          )
+            return null;
+          handedOff = true;
+          return begun.intent;
+        } finally {
+          this.inFlightBeginnings.delete(intent.requestId);
+          if (!handedOff) this.inFlightSubmissions.delete(intent.requestId);
+        }
+      },
+      () => {
+        observationExpired = true;
+      },
+    );
+    return observed.then(
+      (begun) =>
+        begun
+          ? this.startSubmission(begun, prepared).catch(() => "failed" as const)
+          : ("failed" as const),
+      () => "failed" as const,
+    );
+  }
+
   private async completeSubmission(
     intent: ReviewRequestedIntent,
     submission: ReviewRequestedDispatchSubmissionResult,
@@ -295,39 +322,43 @@ export class DispatchDueReviewRequestedIntents {
           dependencies: { ids: this.ids, digest: this.digest },
           policy: this.policy,
         });
-        const recovered = await this.commands.recoverDispatch({
-          requestId: intent.requestId,
-          expectedVersion: intent.version,
-          sourceRunId: null,
-          sourceRunAttempt: null,
-          now,
-          terminalReason:
-            successor === null
-              ? ReviewRequestedIntentTerminalReason.DispatchAttemptsExhausted
-              : ReviewRequestedIntentTerminalReason.DispatchFailedNoEffect,
-          successorCandidate: successor,
-        });
+        const recovered = await this.withDispatchTransition(() =>
+          this.commands.recoverDispatch({
+            requestId: intent.requestId,
+            expectedVersion: intent.version,
+            sourceRunId: null,
+            sourceRunAttempt: null,
+            now,
+            terminalReason:
+              successor === null
+                ? ReviewRequestedIntentTerminalReason.DispatchAttemptsExhausted
+                : ReviewRequestedIntentTerminalReason.DispatchFailedNoEffect,
+            successorCandidate: successor,
+          }),
+        );
         return recovered.status === ReviewRequestedTransitionStatus.Applied ||
           recovered.status === ReviewRequestedTransitionStatus.Restored
           ? "complete"
           : "failed";
       }
       const recordedAt = this.clock.now();
-      const recorded = await this.commands.recordDispatch({
-        requestId: intent.requestId,
-        claimId: claim.claimId,
-        ownerIdHash: claim.ownerIdHash,
-        fencingToken: claim.fencingToken,
-        sourceRunId: submission.sourceRunId,
-        sourceRunAttempt: submission.sourceRunAttempt,
-        now: recordedAt,
-        nextResolutionAt: new Date(
-          recordedAt.getTime() + this.policy.authorizationResolutionDelayMs,
-        ),
-        resolutionDeadlineAt: new Date(
-          recordedAt.getTime() + this.policy.authorizationResolutionTimeoutMs,
-        ),
-      });
+      const recorded = await this.withDispatchTransition(() =>
+        this.commands.recordDispatch({
+          requestId: intent.requestId,
+          claimId: claim.claimId,
+          ownerIdHash: claim.ownerIdHash,
+          fencingToken: claim.fencingToken,
+          sourceRunId: submission.sourceRunId,
+          sourceRunAttempt: submission.sourceRunAttempt,
+          now: recordedAt,
+          nextResolutionAt: new Date(
+            recordedAt.getTime() + this.policy.authorizationResolutionDelayMs,
+          ),
+          resolutionDeadlineAt: new Date(
+            recordedAt.getTime() + this.policy.authorizationResolutionTimeoutMs,
+          ),
+        }),
+      );
       return recorded.status === ReviewRequestedTransitionStatus.Applied ||
         recorded.status === ReviewRequestedTransitionStatus.Restored
         ? "dispatched"
@@ -365,6 +396,26 @@ export class DispatchDueReviewRequestedIntents {
         observationExpired = true;
       },
     );
+  }
+
+  private withDispatchTransition<T>(work: () => Promise<T>): Promise<T> {
+    const previous = this.dispatchTransitionTail;
+    let release!: () => void;
+    this.dispatchTransitionTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return previous.then(() => {
+      // Pace normal short transactions without letting a hung database call
+      // indefinitely block unrelated dispatches. This timer does not cancel
+      // the call: fencing and bounded submission slots remain in force.
+      const timer = setTimeout(release, 20);
+      return Promise.resolve()
+        .then(work)
+        .finally(() => {
+          clearTimeout(timer);
+          release();
+        });
+    });
   }
 
   private startPreparation(intent: ReviewRequestedIntent) {
