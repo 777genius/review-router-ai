@@ -5,6 +5,8 @@ import {
 } from "../domain/review-progress";
 import {
   formatGithubProgressComment,
+  formatGithubProgressNotStartedComment,
+  formatGithubProgressWaitingForRunnerComment,
   githubProgressCommentMarker,
   parseGithubProgressSourceIdentity,
 } from "./github-progress-comment";
@@ -419,5 +421,46 @@ describe("formatGithubProgressComment", () => {
       expect(comment).not.toContain("Progress:");
       expect(comment).not.toContain("%");
     }
+  });
+});
+
+describe("start notices in the progress comment (plan 88)", () => {
+  it("keeps the progress marker so live progress replaces the notice", () => {
+    const waiting = formatGithubProgressWaitingForRunnerComment({
+      headSha: "c".repeat(40),
+      queuedSince: "2026-11-21T13:28:24.000Z",
+      queuedUntil: "2026-11-21T14:58:24.000Z",
+      updatedAt: "2026-11-21T13:56:30.000Z",
+    });
+    const notStarted = formatGithubProgressNotStartedComment({
+      headSha: "c".repeat(40),
+      waitedMinutes: 90,
+      runnerAssigned: false,
+      runUrl: "https://github.com/777genius/social-monitor/actions/runs/701",
+      updatedAt: "2026-11-21T14:58:30.000Z",
+    });
+    const notReached = formatGithubProgressNotStartedComment({
+      headSha: "c".repeat(40),
+      waitedMinutes: 30,
+      runnerAssigned: true,
+      runUrl: "https://github.com/777genius/social-monitor/actions/runs/701",
+      updatedAt: "2026-11-21T14:58:30.000Z",
+    });
+    for (const comment of [waiting, notStarted, notReached]) {
+      expect(comment.split("\n")[0]).toBe(githubProgressCommentMarker);
+      expect(parseGithubProgressSourceIdentity(comment)).toBeNull();
+    }
+    expect(waiting).toContain("**Phase:** Waiting for a runner");
+    expect(waiting).toContain("since 2026-11-21 13:28:24 UTC");
+    expect(waiting).toContain("until about 2026-11-21 14:58:24 UTC");
+    expect(notReached).toContain(
+      "the review job did not reach ReviewRouter within 30 minutes.",
+    );
+    expect(notReached).not.toContain("runner within");
+    expect(notStarted).toContain("**Phase:** Not started");
+    expect(notStarted).toContain("a runner within 90 minutes");
+    expect(notStarted).toContain(
+      "re-run [the ReviewRouter run](https://github.com/777genius/social-monitor/actions/runs/701)",
+    );
   });
 });

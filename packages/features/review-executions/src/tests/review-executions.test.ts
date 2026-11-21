@@ -674,6 +674,7 @@ describe("review execution domain", () => {
       prepare,
       findByRequestIdentity: vi.fn(),
       inspectKnownRun: vi.fn(),
+      inspectRunnerWait: vi.fn(),
       cancelKnownRun: vi.fn(),
     };
     const dispatcher = new DispatchDueReviewRequestedIntents(
@@ -711,6 +712,7 @@ describe("review execution domain", () => {
         prepare,
         findByRequestIdentity: vi.fn(),
         inspectKnownRun: vi.fn(),
+        inspectRunnerWait: vi.fn(),
         cancelKnownRun: vi.fn(),
       },
       { now: () => baseTime },
@@ -761,6 +763,9 @@ describe("review execution domain", () => {
           sourceRunId: "12345",
           sourceRunAttempt: "1",
         };
+      },
+      async inspectRunnerWait() {
+        return runnerAlreadyAssigned;
       },
       async inspectKnownRun() {
         return { status: ReviewRequestedDispatchRunStatus.Pending };
@@ -879,6 +884,9 @@ describe("review execution domain", () => {
             status: ReviewRequestedDispatchLookupStatus.Absent as const,
           };
         },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
+        },
         async inspectKnownRun() {
           return { status: ReviewRequestedDispatchRunStatus.Pending };
         },
@@ -950,6 +958,9 @@ describe("review execution domain", () => {
             status: ReviewRequestedDispatchLookupStatus.Absent as const,
           };
         },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
+        },
         async inspectKnownRun() {
           return { status: ReviewRequestedDispatchRunStatus.Pending };
         },
@@ -1011,6 +1022,9 @@ describe("review execution domain", () => {
           return {
             status: ReviewRequestedDispatchLookupStatus.Absent as const,
           };
+        },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
         },
         async inspectKnownRun() {
           return { status: ReviewRequestedDispatchRunStatus.Pending };
@@ -1088,6 +1102,9 @@ describe("review execution domain", () => {
           return {
             status: ReviewRequestedDispatchLookupStatus.Absent as const,
           };
+        },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
         },
         async inspectKnownRun() {
           return { status: ReviewRequestedDispatchRunStatus.Pending };
@@ -2679,6 +2696,9 @@ describe("durable ReviewRequested ingress", () => {
             status: ReviewRequestedDispatchLookupStatus.Absent as const,
           };
         },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
+        },
         async inspectKnownRun() {
           return {
             status: ReviewRequestedDispatchRunStatus.TerminalCurrentRevision,
@@ -2755,6 +2775,9 @@ describe("durable ReviewRequested ingress", () => {
             status: ReviewRequestedDispatchLookupStatus.Absent as const,
           };
         },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
+        },
         async inspectKnownRun() {
           return {
             status: ReviewRequestedDispatchRunStatus.TerminalStaleRevision,
@@ -2816,6 +2839,9 @@ describe("durable ReviewRequested ingress", () => {
           return {
             status: ReviewRequestedDispatchLookupStatus.Absent as const,
           };
+        },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
         },
         async inspectKnownRun() {
           return {
@@ -2887,6 +2913,9 @@ describe("durable ReviewRequested ingress", () => {
           return {
             status: ReviewRequestedDispatchLookupStatus.Absent as const,
           };
+        },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
         },
         async inspectKnownRun() {
           return {
@@ -3233,6 +3262,13 @@ function resolutionWindow(now: Date) {
     resolutionDeadlineAt: new Date(now.getTime() + 60_000),
   };
 }
+
+/** A run that GitHub already gave a runner: never waits longer (plan 88). */
+const runnerAlreadyAssigned = {
+  waitingForRunner: false,
+  neverStarted: false,
+  revisionCurrent: true,
+} as const;
 
 function testDispatchPolicy() {
   return {

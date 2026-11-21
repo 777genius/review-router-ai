@@ -89,6 +89,7 @@ async function fixture(intent = supersede()) {
         ? ReviewRequestedDispatchRunStatus.TerminalStaleRevision
         : ReviewRequestedDispatchRunStatus.Pending,
     })),
+    inspectRunnerWait: vi.fn(),
     cancelKnownRun: vi.fn(async (input: { intent: ReviewRequestedIntent }) => {
       expect(input.intent.requestId).toBe("request-old");
       terminal = true;
