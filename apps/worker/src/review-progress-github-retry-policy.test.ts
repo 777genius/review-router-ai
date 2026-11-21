@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  ReviewProgressGitHubError as BaseReviewProgressGitHubError,
-} from "./review-progress-github-error";
+import * as sharedGithubError from "./review-progress-github-error";
 import {
   classifyGitHubFailure,
   reconciliationFailure,
@@ -18,14 +16,15 @@ const now = new Date("2026-08-12T12:00:00.000Z");
 
 describe("Review progress GitHub retry policy", () => {
   it("keeps the same GitHub error constructor after extraction", () => {
-    expect(ReviewProgressGitHubError).toBe(BaseReviewProgressGitHubError);
+    const sharedErrorConstructor = sharedGithubError.ReviewProgressGitHubError;
+    expect(ReviewProgressGitHubError).toBe(sharedErrorConstructor);
     const classified = classifyGitHubFailure(
       { status: 502 },
       "github_request_failed",
       () => now,
       () => 0,
     );
-    expect(classified).toBeInstanceOf(BaseReviewProgressGitHubError);
+    expect(classified).toBeInstanceOf(sharedErrorConstructor);
   });
 
   it("prefers Retry-After over a later rate-limit reset", () => {
