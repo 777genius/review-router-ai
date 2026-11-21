@@ -125,7 +125,7 @@ it("renders selected-detail native facts and removes them when the same binding 
                 endsAt: { kind: "date" as const, value: "2026-12-31" },
               }),
               credentialExpiresAt: known("2026-12-15T13:00:00Z"),
-              privacyMode: { status: "unknown" },
+              trainingUsage: { status: "unknown" },
             },
           },
         },

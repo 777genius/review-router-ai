@@ -51,7 +51,20 @@ const legacyObservation = z
     cost: z.null(),
   })
   .strict();
-const observation = z.union([legacyObservation, usageObservationV2]);
+// SDK schemas own their validator version. Cross the package boundary through
+// its public parser rather than composing Zod's versioned internal schema ABI.
+const nativeObservation = z.unknown().transform((value, context) => {
+  const parsed = usageObservationV2.safeParse(value);
+  if (!parsed.success) {
+    context.addIssue({
+      code: "custom",
+      message: "Invalid native usage observation",
+    });
+    return z.NEVER;
+  }
+  return parsed.data;
+});
+const observation = z.union([legacyObservation, nativeObservation]);
 function legacyObservationProjection(value: z.infer<typeof observation>) {
   if (value.schemaVersion === 1) return value;
   const { nativeContext: _context, ...common } = value;
