@@ -360,6 +360,14 @@ export class ReviewProgressGitHubGateway {
           page === this.maxCommentPages &&
           effectiveNextPage !== "invalid" &&
           (comments.length === 100 || effectiveNextPage === true);
+        if (capacityLimited) {
+          // Stable earlier pages are required for capacity recovery.
+          await this.recheckObservedCommentPages(
+            input,
+            observedPages,
+            verifiedRepositoryId,
+          );
+        }
         throw failure(
           "pagination_inconclusive",
           capacityLimited

@@ -1126,6 +1126,63 @@ describe("ReviewProgressGitHubGateway", () => {
     );
   });
 
+  it("rechecks pages before capped known-ID recovery", async () => {
+    const firstPage = fullUnrelatedPage();
+    const secondPage = firstPage.map((row) => ({ ...row, id: row.id + 100 }));
+    const fixture = githubFixture([{ id: 900, body: `old\n${marker}` }], {
+      pagedComments: [firstPage, secondPage],
+    });
+
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 2 }).upsert({
+        ...input(),
+        knownCommentId: 900,
+      }),
+    ).resolves.toMatchObject({ commentId: 900, operation: "updated" });
+    const pageReads = fixture.calls
+      .filter(({ route }) => route.includes("/issues/{issue_number}/comments"))
+      .map(({ parameters }) => parameters.page);
+    expect(pageReads).toEqual([1, 2, 1]);
+    expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
+      "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+    ]);
+  });
+
+  it("blocks capped recovery after an earlier deletion", async () => {
+    const firstPage = fullUnrelatedPage();
+    const secondPage = firstPage.map((row) => ({ ...row, id: row.id + 100 }));
+    const fixture = githubFixture([{ id: 900, body: `old\n${marker}` }], {
+      pagedComments: [firstPage, secondPage],
+    });
+    const route = "GET /repos/{owner}/{repo}/issues/{issue_number}/comments";
+    let firstPageReads = 0;
+    const request: ReviewProgressGitHubRequester = async (path, parameters) => {
+      const response = await fixture.request(path, parameters);
+      if (path !== route || parameters?.page !== 1) return response;
+      firstPageReads += 1;
+      if (firstPageReads !== 2) return response;
+      return {
+        ...response,
+        data: [
+          ...(response.data as unknown[]).slice(1),
+          { id: 101, body: "shifted", user: { login: "other" } },
+        ],
+      };
+    };
+
+    await expect(
+      gateway(request, { maxCommentPages: 2 }).upsert({
+        ...input(),
+        knownCommentId: 900,
+      }),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      message: "github_issue_comments_offset_changed",
+    });
+    expect(firstPageReads).toBe(2);
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("recovers the persisted known comment id before relying on the bounded scan", async () => {
     const fullPage = Array.from({ length: 100 }, (_, index) => ({
       id: index + 1,
