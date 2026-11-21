@@ -340,7 +340,7 @@ function GitHubAppInstallHandoffCard({
             </span>
           </div>
           <h2 className="mt-4 min-w-0 text-2xl font-semibold text-cyan-50">
-            Waiting for GitHub metadata.
+            Waiting for GitHub metadata
           </h2>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
             GitHub confirmed the App installation. ReviewRouter is waiting for
@@ -392,8 +392,8 @@ function SetupStartCard({
           </Badge>
           <h2 className="mt-4 text-2xl font-semibold text-cyan-50">
             {hasConnectedApp
-              ? "Open your dashboard."
-              : "Start by selecting repositories."}
+              ? "Open your dashboard"
+              : "Start by selecting repositories"}
           </h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
             {hasConnectedApp
