@@ -434,20 +434,9 @@ export class InMemoryReviewRequestedIntentStore
       if (sourceRunIdentityOwned) {
         return { status: ReviewRequestedTransitionStatus.StaleClaim };
       }
-      const competingPreAdmission = [...this.intents.values()].some(
-        (candidate) =>
-          candidate.requestId !== intent.requestId &&
-          scopeKey(candidate) === scopeKey(intent) &&
-          (candidate.state === ReviewRequestedIntentState.PendingDispatch ||
-            candidate.state === ReviewRequestedIntentState.Dispatching ||
-            candidate.state ===
-              ReviewRequestedIntentState.ReconcilingDispatch ||
-            candidate.state ===
-              ReviewRequestedIntentState.AwaitingAuthorization),
-      );
       const decision = decideReviewRequestedDispatch({
         intent,
-        competingPreAdmission,
+        competingPreAdmission: this.hasCompetingPreAdmission(intent),
         ...command,
       });
       if (
@@ -657,15 +646,7 @@ export class InMemoryReviewRequestedIntentStore
       const decision = extendReviewRequestedQueuedRunWait({
         intent,
         ...command,
-        competingPreAdmission: [...this.intents.values()].some(
-          (other) =>
-            other.requestId !== intent.requestId &&
-            scopeKey(other) === scopeKey(intent) &&
-            (other.state === ReviewRequestedIntentState.PendingDispatch ||
-              other.state === ReviewRequestedIntentState.Dispatching ||
-              other.state === ReviewRequestedIntentState.ReconcilingDispatch ||
-              other.state === ReviewRequestedIntentState.AwaitingAuthorization),
-        ),
+        competingPreAdmission: this.hasCompetingPreAdmission(intent),
       });
       if (decision.status !== ReviewRequestedTransitionDecisionStatus.Applied) {
         return { status: ReviewRequestedTransitionStatus.Conflict };
@@ -676,6 +657,19 @@ export class InMemoryReviewRequestedIntentStore
         intent: cloneIntent(decision.intent),
       };
     });
+  }
+
+  /** Another request of the pull request that has not reached its own run yet. */
+  private hasCompetingPreAdmission(intent: ReviewRequestedIntent): boolean {
+    return [...this.intents.values()].some(
+      (candidate) =>
+        candidate.requestId !== intent.requestId &&
+        scopeKey(candidate) === scopeKey(intent) &&
+        (candidate.state === ReviewRequestedIntentState.PendingDispatch ||
+          candidate.state === ReviewRequestedIntentState.Dispatching ||
+          candidate.state === ReviewRequestedIntentState.ReconcilingDispatch ||
+          candidate.state === ReviewRequestedIntentState.AwaitingAuthorization),
+    );
   }
 
   async pruneRetainedIntents(input: {

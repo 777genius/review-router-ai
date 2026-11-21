@@ -454,7 +454,7 @@ describe("start notices in the progress comment (plan 88)", () => {
     expect(waiting).toContain("since 2026-11-21 13:28:24 UTC");
     expect(waiting).toContain("until about 2026-11-21 14:58:24 UTC");
     expect(notReached).toContain(
-      "the review job started but did not reach ReviewRouter within 30 minutes",
+      "the review job did not reach ReviewRouter within 30 minutes.",
     );
     expect(notReached).not.toContain("runner within");
     expect(notStarted).toContain("**Phase:** Not started");

@@ -37,7 +37,9 @@ export type ReviewRequestedStartNoticePublisherPort = {
  * the request is still in the state the notice describes, no newer review
  * request for the pull request exists and the pull request still shows the
  * revision; "waiting" also needs every job still queued without a runner.
- * A stop always gets its status, so a "waiting" text never outlives its run.
+ * A stop at the deadline always gets its status and so replaces a "waiting"
+ * text. Other ends of the request (size refusal, new push, exhausted retries)
+ * leave the waiting text, whose absolute end time then shows it is outdated.
  */
 export function createReviewRequestedStartNoticeHandler(dependencies: {
   readonly intents: Pick<ReviewRequestedIntentQueryPort, "findByRequestId"> &

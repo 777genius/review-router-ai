@@ -152,7 +152,8 @@ export function formatGithubProgressWaitingForRunnerComment(input: {
 /**
  * Plan 88: the progress comment of a review whose run never reached
  * ReviewRouter, either because GitHub gave its job no runner or because the
- * job stopped before it checked in. The next review replaces it.
+ * job got one too late or stopped before it checked in. The next review
+ * replaces it.
  */
 export function formatGithubProgressNotStartedComment(input: {
   readonly headSha: string;
@@ -168,7 +169,7 @@ export function formatGithubProgressNotStartedComment(input: {
     throw new Error("progress_start_notice_run_url_invalid");
   }
   const cause = input.runnerAssigned
-    ? `the review job started but did not reach ReviewRouter within ${input.waitedMinutes} minutes. Its run log shows why.`
+    ? `the review job did not reach ReviewRouter within ${input.waitedMinutes} minutes.`
     : `GitHub Actions did not give the review job a runner within ${input.waitedMinutes} minutes.`;
   return startNoticeComment(
     "Not started",

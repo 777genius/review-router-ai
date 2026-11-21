@@ -879,6 +879,31 @@ if (databaseUrl) {
       ).resolves.toMatchObject({
         status: ReviewRequestedTransitionStatus.Conflict,
       });
+      // An event of the same revision joins the waiting run and is not a newer
+      // review request; a manual review command is.
+      expect(await store.hasNewerRequestInScope(extendedTwice!)).toBe(false);
+      const joinedAt = new Date();
+      await expect(
+        store.registerIntent({
+          candidate: {
+            ...harness.scope,
+            requestId: `${requestId}-joined`,
+            revision: extendedTwice!.revision,
+            triggerKind: ReviewRequestedTriggerKind.LifecycleChanged,
+            deliveryIdentityHash: hashFromText(randomUUID()),
+            canonicalRequestHash: hashFromText(randomUUID()),
+            notBefore: joinedAt,
+            createdAt: joinedAt,
+            retainUntil: new Date(joinedAt.getTime() + 86400000),
+          },
+        }),
+      ).resolves.toMatchObject({
+        intent: {
+          state: ReviewRequestedIntentState.Superseded,
+          supersededByRequestId: requestId,
+        },
+      });
+      expect(await store.hasNewerRequestInScope(extendedTwice!)).toBe(false);
       const manualAt = new Date();
       await store.registerIntent({
         candidate: {
@@ -893,6 +918,7 @@ if (databaseUrl) {
           retainUntil: new Date(manualAt.getTime() + 86400000),
         },
       });
+      expect(await store.hasNewerRequestInScope(extendedTwice!)).toBe(true);
       await expect(
         store.extendQueuedRunWait({
           requestId,
