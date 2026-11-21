@@ -1,4 +1,15 @@
 import {
+  snapshotAccountCredential,
+  snapshotOAuthCompletion,
+  oauthCompletionMatchesProfile,
+} from "./legacy-oauth-credentials";
+import { createPersonalNativeConnections } from "./personal-native-connections";
+import {
+  snapshotNativeConnectionRequest,
+  type AccountNativeConnectionIntent,
+} from "./native-connection-adapter";
+import { snapshotNativeConnectionInputs } from "../features/account-gateway/domain/native-connection";
+import {
   connectionMethodAllowed,
   type CredentialImportMethod,
 } from "../features/account-gateway/connection-capabilities";
@@ -25,9 +36,6 @@ import {
   type PersonalCanonicalReceipt,
 } from "@reviewrouter/features-provider-accounts/synchronization";
 import {
-  snapshotOAuthCompletion,
-  snapshotAccountCredential,
-  oauthCompletionMatchesProfile,
   accountGatewayUserOwnerRef,
   type AccountIntent,
   type AccountOAuthIntent,
@@ -48,7 +56,7 @@ type PersonalAdapter = Pick<
   ReturnType<typeof createDisabledPersonalAccountsAdapter>,
   "list" | "connect" | "operation" | "completeOAuth" | "pollOAuth"
 >;
-type QualifiedProfile = AccountProfileView & { authKind: "api_key" | "oauth" };
+type QualifiedProfile = AccountProfileView;
 export type PersonalCanonicalOperationView = AccountOperationView & {
   resume?: {
     kind: "reconnect";
@@ -79,7 +87,16 @@ type Dependencies = {
     "profiles" | "get" | "operation" | "rename" | "reconnect" | "disable"
   > &
     Partial<
-      Pick<ConsumerControlClient, "beginOAuthReconnect" | "completeOAuth">
+      Pick<
+        ConsumerControlClient,
+        | "beginOAuthReconnect"
+        | "completeOAuth"
+        | "beginConnection"
+        | "reconnectConnection"
+        | "readConnection"
+        | "submitConnection"
+        | "pollConnection"
+      >
     >;
   profiles: readonly {
     id: string;
@@ -163,6 +180,7 @@ const unknown = (value: string): PersonalCanonicalOperationView => ({
 
 /** Disabled composition only. Display context never supplies identity or permissions. */
 export function createPersonalCanonicalAccounts(input: Dependencies) {
+  const nativeConnections = createPersonalNativeConnections(input);
   const approved = input.profiles.map((profile) => ({
     id: profile.id,
     label: profile.label,
@@ -199,6 +217,7 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
       if (input.catalogue) {
         const current = await checked(input.catalogue);
         return current.flatMap((profile) => {
+          if (profile.connection?.nativeMethods) return [profile];
           const allowed = approved.find(
             (entry) =>
               entry.id === profile.id && entry.authKind === profile.authKind,
@@ -272,8 +291,7 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
         source.owner.userId !== actor ||
         account.ownerRef !== ownerRef ||
         account.accountRef !== source.gatewayAccountRef ||
-        account.profileId !== source.profileRef ||
-        !profileFor(account.profileId)
+        account.profileId !== source.profileRef
       )
         throw new Denied();
       return account;
@@ -293,8 +311,7 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
           if (
             account.ownerRef !== ownerRef ||
             account.accountRef !== accountRef ||
-            account.profileId !== profileId ||
-            !profileFor(profileId)
+            account.profileId !== profileId
           )
             throw new Denied();
           return account;
@@ -319,7 +336,14 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
       currentProfile?: QualifiedProfile | Dependencies["profiles"][number],
     ) {
       const account = await get(source);
-      const profile = currentProfile ?? profileFor(account.profileId);
+      const profile = currentProfile ??
+        profileFor(account.profileId) ?? {
+          id: account.profileId,
+          label: "Provider account",
+          protocol: "openai-responses",
+          models: [],
+          canReconnect: false,
+        };
       if (!profile || profile.id !== account.profileId) throw new Denied();
       const current = await checked(() =>
         input.store.findOwnedSource(actor, source.id),
@@ -898,7 +922,6 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
         });
         const rows = await Promise.all(
           page.sources.map(async (row) => {
-            if (!scope.profileFor(row.profileId)) return null;
             try {
               return await scope.project(
                 await scope.checked(() =>
@@ -1043,12 +1066,59 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
         const operation = await scope.checked(() =>
           input.store.readOperation(scope.actor, value),
         );
+        if (
+          (operation.intent.action === "connect" ||
+            operation.intent.action === "reconnect") &&
+          operation.intent.nativeConnection
+        )
+          return nativeConnections.read(scope, value);
         if (["rename", "reconnect", "retire"].includes(operation.intent.action))
           return scope.view(await scope.readCanonical(value));
         if (operation.intent.action !== "connect") throw new Denied();
         const result = await scope.personal.operation(value);
         return projectConnectResult(scope, value, result);
       });
+    },
+    async beginGatewayNativeConnection(
+      _context: string,
+      raw: AccountNativeConnectionIntent,
+      values: Record<string, string>,
+    ) {
+      let request: AccountNativeConnectionIntent;
+      let inputFields: Record<string, string>;
+      try {
+        request = snapshotNativeConnectionRequest(raw);
+        inputFields = snapshotNativeConnectionInputs(values);
+      } catch {
+        return { status: "invalid" as const };
+      }
+      return safe(
+        (scope, retain) =>
+          nativeConnections.begin(scope, request, inputFields, retain),
+        () => ({ operation: unknown(request.nonce) }),
+      );
+    },
+    async continueGatewayNativeConnection(
+      _context: string,
+      raw: string,
+      values?: Record<string, string>,
+    ) {
+      let value: string;
+      let inputFields: Record<string, string> | undefined;
+      try {
+        value = nonce.parse(raw);
+        inputFields =
+          values === undefined
+            ? undefined
+            : snapshotNativeConnectionInputs(values);
+      } catch {
+        return { status: "invalid" as const };
+      }
+      return safe(
+        (scope, retain) =>
+          nativeConnections.continue(scope, value, inputFields, retain),
+        () => unknown(value),
+      );
     },
     async beginGatewayOAuth(
       _context: string,

@@ -1,5 +1,8 @@
 import type { UsageTokens } from "../domain/usage";
-import { combineUsageBilling, type UsageBilling } from "../domain/native-usage-context";
+import {
+  combineUsageBilling,
+  type UsageBilling,
+} from "../domain/native-usage-context";
 import type { UsageReportQuery } from "./ports";
 import type { UsagePeriodReport, UsageReportObservation } from "./report-usage";
 import { costUnits, decimal } from "./usage-money";
@@ -100,19 +103,25 @@ function sortedIdentities(identities: readonly UsageRequestedIdentity[]) {
     const key = usageRequestedIdentityKey(identity);
     grouped.set(key, [...(grouped.get(key) ?? []), identity]);
   }
-  return [
-    ...grouped.values(),
-  ].map((group) => ({
-    ...group[0]!,
-    ...(group.some((identity) => identity.billing)
-      ? { billing: combineUsageBilling(group.map((identity) => identity.billing ?? { status: "unknown" })) }
-      : {}),
-  })).sort((a, b) =>
-    compareUsageStrings(
-      usageRequestedIdentityKey(a),
-      usageRequestedIdentityKey(b),
-    ),
-  );
+  return [...grouped.values()]
+    .map((group) => ({
+      ...group[0]!,
+      ...(group.some((identity) => identity.billing)
+        ? {
+            billing: combineUsageBilling(
+              group.map(
+                (identity) => identity.billing ?? { status: "unknown" },
+              ),
+            ),
+          }
+        : {}),
+    }))
+    .sort((a, b) =>
+      compareUsageStrings(
+        usageRequestedIdentityKey(a),
+        usageRequestedIdentityKey(b),
+      ),
+    );
 }
 
 /** Assemble bounded pages and full-period aggregates without recreating source facts. */

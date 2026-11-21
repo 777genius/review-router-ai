@@ -83,7 +83,8 @@ export function AccountMetadataLine({
           {identity.value}
         </p>
       )}
-      {(subscription.status === "known" || trainingUsage.status === "known") && (
+      {(subscription.status === "known" ||
+        trainingUsage.status === "known") && (
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
           {subscription.status === "known" && (
             <span

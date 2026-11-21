@@ -180,15 +180,27 @@ export function usagePricing(
   subscriptionProviders: readonly string[],
 ): UsagePricing {
   if (!identities.length) return undefined;
-  if (routes.length > 0 && routes.every((route) => route === "direct") && identities.every(isFreeModel))
+  if (
+    routes.length > 0 &&
+    routes.every((route) => route === "direct") &&
+    identities.every(isFreeModel)
+  )
     return "free_model";
   // New reports carry request-scoped evidence, including an explicit unknown.
   // A native product/brand or one free sibling cannot classify the whole bucket.
   if (identities.some((identity) => identity.billing !== undefined)) {
-    if (!routes.length || routes.some((route) => route !== "gateway")) return undefined;
-    if (identities.every(({ billing }) => billing?.status === "known" && billing.kind === "free"))
+    if (!routes.length || routes.some((route) => route !== "gateway"))
+      return undefined;
+    if (
+      identities.every(
+        ({ billing }) => billing?.status === "known" && billing.kind === "free",
+      )
+    )
       return "free_model";
-    return identities.every(({ billing }) => billing?.status === "known" && billing.kind === "subscription")
+    return identities.every(
+      ({ billing }) =>
+        billing?.status === "known" && billing.kind === "subscription",
+    )
       ? "subscription"
       : undefined;
   }

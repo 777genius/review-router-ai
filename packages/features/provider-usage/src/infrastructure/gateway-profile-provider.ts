@@ -16,12 +16,20 @@ const legacyProfiles = [
 ] as const;
 
 export const gatewayProfileUsageProviders = legacyProfiles.map(
-  ([profileRef, provider, subscription]) => ({ profileRef, provider, subscription }),
+  ([profileRef, provider, subscription]) => ({
+    profileRef,
+    provider,
+    subscription,
+  }),
 );
 
 /** Compatibility only. Unknown profiles must use their frozen native context. */
-export function gatewayProfileUsageProvider(profileRef: string): string | undefined {
-  return gatewayProfileUsageProviders.find((profile) => profile.profileRef === profileRef)?.provider;
+export function gatewayProfileUsageProvider(
+  profileRef: string,
+): string | undefined {
+  return gatewayProfileUsageProviders.find(
+    (profile) => profile.profileRef === profileRef,
+  )?.provider;
 }
 
 /** Legacy report compatibility; v3 request pricing uses per-execution evidence. */

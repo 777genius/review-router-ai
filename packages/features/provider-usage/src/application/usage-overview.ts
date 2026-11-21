@@ -2,7 +2,10 @@ import type { UsageProjection } from "../domain/usage";
 import type { UsageReportQuery } from "./ports";
 import { costUnits } from "./usage-money";
 import { aggregateUsage, type UsageTotals } from "./usage-totals";
-import { combineUsageBilling, type UsageBilling } from "../domain/native-usage-context";
+import {
+  combineUsageBilling,
+  type UsageBilling,
+} from "../domain/native-usage-context";
 
 export interface UsageRequestedIdentity {
   provider: string;
@@ -54,7 +57,13 @@ const requestedIdentity = (p: UsageProjection): UsageRequestedIdentity => ({
 });
 function billing(rows: readonly UsageProjection[]): { billing?: UsageBilling } {
   return rows.some((row) => row.usage?.nativeContext)
-    ? { billing: combineUsageBilling(rows.map((row) => row.usage?.nativeContext?.billing ?? { status: "unknown" })) }
+    ? {
+        billing: combineUsageBilling(
+          rows.map(
+            (row) => row.usage?.nativeContext?.billing ?? { status: "unknown" },
+          ),
+        ),
+      }
     : {};
 }
 function identities(
@@ -65,9 +74,12 @@ function identities(
     const key = identityKey(requestedIdentity(row));
     grouped.set(key, [...(grouped.get(key) ?? []), row]);
   }
-  return [...grouped.values()].map((group) => ({
-    ...requestedIdentity(group[0]!), ...billing(group),
-  })).sort((a, b) => compare(identityKey(a), identityKey(b)));
+  return [...grouped.values()]
+    .map((group) => ({
+      ...requestedIdentity(group[0]!),
+      ...billing(group),
+    }))
+    .sort((a, b) => compare(identityKey(a), identityKey(b)));
 }
 function annotations(rows: readonly UsageProjection[]) {
   return {

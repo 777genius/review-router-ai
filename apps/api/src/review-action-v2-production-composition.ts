@@ -23,6 +23,8 @@ import {
 import type { RegisterHostedCodexRelayRoutesDependencies } from "@reviewrouter/features-hosted-account-pool";
 import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config";
 import { createConsumerControlClient } from "@agent-teams/account-gateway/http";
+import type { ProviderConnectionCapabilitiesV3 } from "@agent-teams/account-gateway/contracts";
+import { qualifiedGatewayRelayPolicy } from "./native-gateway-relay-policy";
 import { PrismaProviderAccountRepository } from "@reviewrouter/features-provider-accounts";
 import { createProviderUsageActionSessionIssuer } from "./provider-usage-action-session.js";
 import { createProviderUsageRunCompletion } from "./provider-usage-run-completion.js";
@@ -65,7 +67,6 @@ import {
 import { PrismaReviewRunGatewayExecutionBinding } from "./prisma-review-run-gateway-execution-binding";
 import {
   createReviewRunGatewayRelay,
-  readReviewRunGatewayRelayPolicy,
   type ReviewRunGatewayRelay,
 } from "./review-run-gateway-relay";
 import {
@@ -385,6 +386,7 @@ export function composeReviewActionV2ProductionRunControl(input: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly prisma: PrismaClient;
   readonly oidcAudience?: string | undefined;
+  readonly nativeGatewayCatalog?: ProviderConnectionCapabilitiesV3 | undefined;
 }) {
   const githubAppId = requiredEnv(input.env, "GITHUB_APP_ID");
   const githubAppPrivateKey = readGitHubAppPrivateKey(input.env);
@@ -415,8 +417,9 @@ export function composeReviewActionV2ProductionRunControl(input: {
   );
   const accountGatewayRelayPolicy =
     input.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED === "1"
-      ? readReviewRunGatewayRelayPolicy(
+      ? qualifiedGatewayRelayPolicy(
           requiredEnv(input.env, "REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY"),
+          input.nativeGatewayCatalog,
         )
       : undefined;
   const runGatewayPolicy = readServerApprovedReviewRunGatewayPolicy(
@@ -548,6 +551,7 @@ export function composeReviewActionV2ProductionRunControl(input: {
 }
 
 export function composeReviewActionV2ProductionRoutes(input: {
+  readonly nativeGatewayCatalog?: ProviderConnectionCapabilitiesV3 | undefined;
   readonly historyWriter?: HistoryCapture;
   readonly memoryInputAdmission?: ReviewExecutionInputAdmissionPort;
   readonly investigationMemoryInputAdmission?: PrismaInvestigationStoreOptions["inputAdmission"];
@@ -631,6 +635,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
   } = composeReviewActionV2ProductionRunControl({
     env: input.env,
     prisma: input.prisma,
+    nativeGatewayCatalog: input.nativeGatewayCatalog,
     ...(input.oidcAudience === undefined
       ? {}
       : { oidcAudience: input.oidcAudience }),

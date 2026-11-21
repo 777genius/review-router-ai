@@ -45,6 +45,8 @@ export interface UsageIdentity {
 }
 export interface UsageFact {
   nativeContext?: NativeUsageContext;
+  /** Records the observed native wire revision only when it adds actual evidence. */
+  nativeEvidenceVersion?: 2;
   serviceTier?: string | null;
   priceSnapshot?: UsagePriceSnapshot | null;
   schemaVersion: 1;
@@ -146,13 +148,21 @@ export function validateUsageFact(f: UsageFact): void {
       "correctionReason",
       "childCallIds",
     ],
-    ["serviceTier", "priceSnapshot", "nativeContext"],
+    ["serviceTier", "priceSnapshot", "nativeContext", "nativeEvidenceVersion"],
   );
   if (Object.hasOwn(f, "serviceTier")) text(f.serviceTier, true);
+  if (
+    Object.hasOwn(f, "nativeEvidenceVersion") &&
+    (f.nativeEvidenceVersion !== 2 ||
+      f.authority !== "native" ||
+      f.identity?.route !== "gateway")
+  )
+    invalid();
   if (
     Object.hasOwn(f, "nativeContext") &&
     (f.authority !== "native" ||
       f.identity?.route !== "gateway" ||
+      f.nativeEvidenceVersion !== 2 ||
       !validNativeUsageContext(f.nativeContext!))
   )
     invalid();
@@ -438,6 +448,7 @@ export function selectProjection(facts: readonly UsageFact[]): UsageProjection {
           f.serviceTier ?? null,
           f.priceSnapshot ?? null,
           f.nativeContext ?? null,
+          f.nativeEvidenceVersion ?? null,
           f.completeness,
           f.state,
           f.dispatchEffect,

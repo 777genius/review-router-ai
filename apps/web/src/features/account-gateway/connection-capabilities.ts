@@ -24,7 +24,11 @@ export type AccountConnectionView = {
   planLabel: string;
   regionLabel: string;
   completionInputKind: "none" | "callback_url" | "authorization_code";
-  limitsContract: "account-limits/v1" | "account-limits/v2" | "account-limits/v3" | "none";
+  limitsContract:
+    | "account-limits/v1"
+    | "account-limits/v2"
+    | "account-limits/v3"
+    | "none";
   modelSettings: readonly AccountModelSettings[];
   modelPolicy?: NativeModelPolicy;
   /** V3 uses native method identity; legacy methods are compatibility only. */

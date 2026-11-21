@@ -149,7 +149,10 @@ export function createGatewayUsageRecorder(
               : -1)
         ];
       if (!lane) throw new Error("usage_gateway_provider_missing");
-      const configured = providerUsageConfiguredProvider(lane, gateway.nativeContext);
+      const configured = providerUsageConfiguredProvider(
+        lane,
+        gateway.nativeContext,
+      );
       const repo = await prisma.scmRepositoryIdentity.findUnique({
         where: {
           scmRepositoryIdentityId: input.authorization.scmRepositoryIdentityId,

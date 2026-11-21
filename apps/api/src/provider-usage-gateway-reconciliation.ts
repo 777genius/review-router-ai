@@ -89,7 +89,7 @@ export function createProviderUsageGatewayReconciliation(
             client: {
               async listUsage(query) {
                 try {
-                  return await client.listUsage(query);
+                  return await client.listUsageV2(query);
                 } catch (error) {
                   if (transientGatewayRead(error))
                     throw new GatewayUsageTemporarilyUnavailable();

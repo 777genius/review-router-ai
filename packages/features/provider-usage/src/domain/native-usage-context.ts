@@ -21,7 +21,9 @@ export function validNativeUsageContext(value: NativeUsageContext): boolean {
     Object.keys(value).length !== 6 ||
     value.schemaVersion !== 1 ||
     ![value.providerId, value.productId, value.profileId].every(
-      (id) => typeof id === "string" && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(id),
+      (id) =>
+        typeof id === "string" &&
+        /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(id),
     ) ||
     typeof value.modelId !== "string" ||
     !value.modelId.length ||
@@ -36,13 +38,19 @@ export function validNativeUsageContext(value: NativeUsageContext): boolean {
     ? Object.keys(value.billing).length === 1
     : value.billing.status === "known" &&
         Object.keys(value.billing).length === 2 &&
-        ["subscription", "credits", "free", "payg", "mixed"].includes(value.billing.kind);
+        ["subscription", "credits", "free", "payg", "mixed"].includes(
+          value.billing.kind,
+        );
 }
 
 /** Unknown members stay unknown; a mixed aggregate never becomes a subscription. */
-export function combineUsageBilling(values: readonly UsageBilling[]): UsageBilling {
+export function combineUsageBilling(
+  values: readonly UsageBilling[],
+): UsageBilling {
   if (!values.length || values.some((value) => value.status !== "known"))
     return { status: "unknown" };
-  const kinds = new Set(values.flatMap((value) => value.status === "known" ? [value.kind] : []));
+  const kinds = new Set(
+    values.flatMap((value) => (value.status === "known" ? [value.kind] : [])),
+  );
   return { status: "known", kind: kinds.size === 1 ? [...kinds][0]! : "mixed" };
 }

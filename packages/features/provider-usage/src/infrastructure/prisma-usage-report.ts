@@ -204,7 +204,11 @@ async function readProjectionPage(
   const page = ids.slice(0, limit).map((r) => r.callId);
   const rows = page.length
     ? await tx.$queryRaw<
-        { projection: UsageProjection; requestedProvider: string; billing: NonNullable<UsageReportObservation["billing"]> }[]
+        {
+          projection: UsageProjection;
+          requestedProvider: string;
+          billing: NonNullable<UsageReportObservation["billing"]>;
+        }[]
       >(
         Prisma.sql`/* usage-report:projection-page */ SELECT u."projection",${usageRequestedProviderSql()} AS "requestedProvider",${usageBillingSql()} AS billing
           ${fromScope(scope)} WHERE ${scopePredicate(scope)}
@@ -216,7 +220,9 @@ async function readProjectionPage(
     rows: rows.map((r) => ({
       ...r.projection,
       billing: r.billing,
-      ...(r.requestedProvider === r.projection.identity.provider ? {} : { requestedProvider: r.requestedProvider }),
+      ...(r.requestedProvider === r.projection.identity.provider
+        ? {}
+        : { requestedProvider: r.requestedProvider }),
     })),
     nextCursor: ids.length > limit ? page.at(-1)! : null,
   };

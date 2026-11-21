@@ -30,7 +30,9 @@ function fact<T, U>(
     : { status: value.status };
 }
 /** Positive field projection: a type narrowing alone would retain extra data. */
-function fields(value: AccountInfoFields | AccountInfoFieldsV2): AccountMetadataFields {
+function fields(
+  value: AccountInfoFields | AccountInfoFieldsV2,
+): AccountMetadataFields {
   return {
     email: fact(value.email, (text) => text),
     accountLabel: fact(value.accountLabel, (text) => text),

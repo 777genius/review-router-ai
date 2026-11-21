@@ -100,12 +100,18 @@ export function nativeConnectionProfileView(
       modelSettings: value.models.map((model) => ({
         modelId: model.modelId,
         reasoning: model.reasoning
-          ? { allowed: [...model.reasoning.allowed], default: model.reasoning.default }
+          ? {
+              allowed: [...model.reasoning.allowed],
+              default: model.reasoning.default,
+            }
           : null,
         fast: model.fast
           ? { allowed: [...model.fast.allowed], default: model.fast.default }
           : null,
-        tools: { allowed: [...model.tools.allowed], default: model.tools.default },
+        tools: {
+          allowed: [...model.tools.allowed],
+          default: model.tools.default,
+        },
       })),
     },
   };

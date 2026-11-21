@@ -3,7 +3,6 @@ import {
   nvidiaProfileId,
 } from "./account-connection-catalog";
 import { directNativeAPIProfiles } from "../features/account-gateway/native-api-profiles";
-import { connectionMethodAllowed } from "../features/account-gateway/connection-capabilities";
 import {
   subscriptionProfileDefinition,
   subscriptionProfileProviders,
@@ -178,90 +177,16 @@ export async function productionPersonalAccounts() {
         availability: "deployment_configuration_required",
       });
   }
-  let connectionCapabilitiesV2:
-    | (() => Promise<c.ProviderConnectionCapabilitiesV2>)
-    | undefined;
-  if (
-    (settings.subscriptionProfileIds?.length ?? 0) > 0 ||
-    (process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN &&
-      process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN)
-  ) {
-    const managementSettings = {
-      role: "management" as const,
-      origin: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "",
-      token: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN ?? "",
-      timeoutMs: 10000,
-      responseBytes: 65536,
-    };
-    let v2: Promise<c.ProviderConnectionCapabilitiesV2> | undefined;
-    connectionCapabilitiesV2 = () =>
-      (v2 ??= checked(() =>
-        createManagementClient(
-          managementSettings,
-        ).getProviderConnectionCapabilitiesV2(),
-      ));
-  }
+  let v3: Promise<c.ProviderConnectionCapabilitiesV3> | undefined;
+  const connectionCapabilitiesV3 = () =>
+    (v3 ??= checked(() => control.getProviderConnectionCapabilitiesV3()));
   async function catalogue(): Promise<AccountProfileView[]> {
-    const live = await checked(() => control.profiles());
-    const configured = legacyProfiles.flatMap((profile) => {
-      const wire = live.profiles.find(
-        (entry) =>
-          entry.profileId === profile.id &&
-          entry.authKinds.includes(profile.authKind),
-      );
-      return wire
-        ? [
-            {
-              ...profile,
-              // This placeholder denies NVIDIA without native qualification;
-              // the catalog's exact-ID/provider guard owns its live status.
-              ...(profile.provider === "nvidia"
-                ? { availability: undefined }
-                : {}),
-              protocol: wire.protocol,
-              models: [...wire.modelIds],
-            },
-          ]
-        : [];
-    });
-    return checked(async () => {
-      const qualified = await connectionProfiles({
-        legacy: configured,
-        subscriptionProfileIds: settings.subscriptionProfileIds ?? [],
-        ...(connectionCapabilitiesV2
-          ? { capabilitiesV2: connectionCapabilitiesV2 }
-          : {}),
-      });
-      return qualified.map((profile) => {
-        if (profile.id !== settings.codexOAuthProfileId) return profile;
-        if (!profile.connection?.methods)
-          return { ...profile, canReconnect: false };
-        // The personal journal supports browser and credential-import reconnect;
-        // device authorization is supported only when creating an account.
-        const bounded = {
-          ...profile,
-          connection: {
-            ...profile.connection,
-            methods: profile.connection.methods.map((method) =>
-              method.kind === "device_code"
-                ? { ...method, reconnect: false }
-                : method,
-            ),
-          },
-        };
-        return {
-          ...bounded,
-          canReconnect: bounded.connection.methods.some((method) =>
-            connectionMethodAllowed(
-              bounded,
-              "reconnect",
-              method.kind,
-              method.kind === "credential_import" ? method.method : undefined,
-            ),
-          ),
-        };
-      });
-    });
+    return checked(() =>
+      connectionProfiles({
+        legacy: [],
+        capabilitiesV3: connectionCapabilitiesV3,
+      }),
+    );
   }
   const ingress = new Map(
     profiles.map((profile) => [
@@ -281,7 +206,7 @@ export async function productionPersonalAccounts() {
     });
   const gateway = {
     async get(actorUserId: string, accountRef: string, profileId: string) {
-      if (actorUserId !== userId || !ingress.has(profileId))
+      if (actorUserId !== userId)
         throw new ProviderAccountError("connection_unavailable");
       const account = await checked(() => control.get(accountRef));
       if (

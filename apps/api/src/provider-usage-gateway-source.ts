@@ -11,7 +11,7 @@ import type {
 /** Safe native facade contract; no native DB, administrative credential or body. */
 export interface GatewayUsageObservation {
   schemaVersion: 1 | 2;
-  nativeContext?: Omit<NativeUsageContext, "schemaVersion">;
+  nativeContext?: Omit<NativeUsageContext, "schemaVersion"> | null;
   eventId: string;
   revision: number;
   executionRef: string;
@@ -84,8 +84,8 @@ export function createGatewayUsageSource(input: {
           throw new Error("gateway_usage_revision_invalid");
         if (
           observation.schemaVersion === 2 &&
-          (!observation.nativeContext ||
-            observation.nativeContext.profileId !== observation.profileId)
+          observation.nativeContext &&
+          observation.nativeContext.profileId !== observation.profileId
         )
           throw new Error("gateway_usage_context_invalid");
         const identity = await input.attribution.findIdentity({
@@ -127,6 +127,10 @@ export function createGatewayUsageSource(input: {
         });
         const fact: UsageFact = {
           schemaVersion: 1,
+          ...(observation.schemaVersion === 2 &&
+          (observation.nativeContext || observation.cost)
+            ? { nativeEvidenceVersion: 2 as const }
+            : {}),
           ...(observation.schemaVersion === 2 && observation.nativeContext
             ? {
                 nativeContext: {
@@ -135,9 +139,13 @@ export function createGatewayUsageSource(input: {
                   productId: observation.nativeContext.productId,
                   profileId: observation.nativeContext.profileId,
                   modelId: observation.nativeContext.modelId,
-                  billing: observation.nativeContext.billing.status === "known"
-                    ? { status: "known" as const, kind: observation.nativeContext.billing.kind }
-                    : { status: "unknown" as const },
+                  billing:
+                    observation.nativeContext.billing.status === "known"
+                      ? {
+                          status: "known" as const,
+                          kind: observation.nativeContext.billing.kind,
+                        }
+                      : { status: "unknown" as const },
                 },
               }
             : {}),
@@ -175,16 +183,17 @@ export function createGatewayUsageSource(input: {
                 ? observation.inputTokens + observation.outputTokens
                 : null,
           },
-          cost: observation.schemaVersion === 2 && observation.cost
-            ? {
-                amount: observation.cost.amountDecimal,
-                currency: observation.cost.currency,
-                basis: "source_reported",
-                source: input.sourceInstance,
-                asOf: observation.occurredAt,
-                priceVersion: null,
-              }
-            : null,
+          cost:
+            observation.schemaVersion === 2 && observation.cost
+              ? {
+                  amount: observation.cost.amountDecimal,
+                  currency: observation.cost.currency,
+                  basis: "source_reported",
+                  source: input.sourceInstance,
+                  asOf: observation.occurredAt,
+                  priceVersion: null,
+                }
+              : null,
           completeness: observation.completeness,
           state:
             observation.effect === "completed"
@@ -236,8 +245,13 @@ export function createGatewayUsageSource(input: {
           identity.runAttempt === null &&
           ["completed", "failed", "unknown"].includes(fact.state)
         ) {
-          const { nativeContext: _nativeContext, ...lifecycle } = fact;
+          const {
+            nativeContext: _nativeContext,
+            nativeEvidenceVersion: _version,
+            ...lifecycle
+          } = fact;
           void _nativeContext;
+          void _version;
           facts.push({
             ...lifecycle,
             sourceInstance: input.sourceInstance,

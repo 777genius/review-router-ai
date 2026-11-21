@@ -54,9 +54,9 @@ export type NativeModelPolicy = Readonly<{
 }>;
 
 const supportedRequirements = new Set([
-  "owner_scoped_custody",
-  "effect_fence",
-  "native_dispatch",
+  "owner_scoped_custody/v1",
+  "effect_fence/v1",
+  "native_dispatch/v1",
 ]);
 const supportedCredentialPolicies = new Set([
   "provider_key",
@@ -104,6 +104,28 @@ export function nativeConnectionFields(
       : (method.interaction.preflightFields ?? []);
 }
 
+/** Consumer form admission checks bounded declared fields, never their provider syntax. */
+export function nativeConnectionInputsAllowed(
+  method: NativeConnectionMethod,
+  values: Readonly<Record<string, string>>,
+): boolean {
+  const fields = nativeConnectionFields(method);
+  return (
+    Object.keys(values).every((id) =>
+      fields.some((field) => field.fieldId === id),
+    ) &&
+    fields.every((field) => {
+      const value = values[field.fieldId];
+      if (value === undefined || value === "") return !field.required;
+      return (
+        new TextEncoder().encode(value).byteLength <= field.maxBytes &&
+        (field.kind !== "select" ||
+          field.choices?.some((choice) => choice.value === value) === true)
+      );
+    })
+  );
+}
+
 /** Bounded opaque envelope. Native alone interprets token/document/callback syntax. */
 export function snapshotNativeConnectionInputs(
   value: unknown,
@@ -115,7 +137,7 @@ export function snapshotNativeConnectionInputs(
   let bytes = 0;
   for (const [key, text] of entries) {
     if (
-      !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(key) ||
+      !/^[a-z][a-z0-9_-]{0,127}$/.test(key) ||
       typeof text !== "string" ||
       !text.isWellFormed()
     )
@@ -123,5 +145,8 @@ export function snapshotNativeConnectionInputs(
     bytes += new TextEncoder().encode(text).byteLength;
     if (bytes > 65536) throw new Error("invalid_connection_inputs");
   }
-  return Object.freeze(Object.fromEntries(entries));
+  const captured = Object.fromEntries(entries);
+  if (new TextEncoder().encode(JSON.stringify(captured)).byteLength > 65536)
+    throw new Error("invalid_connection_inputs");
+  return Object.freeze(captured);
 }

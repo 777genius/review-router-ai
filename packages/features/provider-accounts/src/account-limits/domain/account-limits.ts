@@ -238,9 +238,10 @@ export function projectAccountLimits(
     return invalid();
   const ids = new Set<string>();
   const family = result.windows[0]?.family;
-  const nativeProvider = result.windows[0]?.family === "native"
-    ? result.windows[0].providerId
-    : undefined;
+  const nativeProvider =
+    result.windows[0]?.family === "native"
+      ? result.windows[0].providerId
+      : undefined;
   for (const window of result.windows) {
     const subscription = window && subscriptionWindow(window);
     const key = subscription

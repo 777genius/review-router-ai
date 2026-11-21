@@ -10,6 +10,7 @@ import {
   createAccountLimitsClient,
   createAccountLimitsRefreshClient,
   createAccountLimitsV2Client,
+  createAccountLimitsV3Client,
   createConsumerControlClient,
   createManagementClient,
   GatewayError,
@@ -19,8 +20,10 @@ import {
   createAccountLimits,
   createGatewayAccountLimitsReader,
 } from "@reviewrouter/features-provider-accounts/composition";
-import type { AccountLimitsV2 } from "@agent-teams/account-gateway/contracts";
-import { subscriptionProfileProviders } from "./account-connection-catalog";
+import type {
+  AccountLimitsV2,
+  AccountLimitsV3,
+} from "@agent-teams/account-gateway/contracts";
 
 const subscriptionProviders = new Set<string>([
   "kimi",
@@ -70,6 +73,43 @@ export function subscriptionLimitsObservation(
   };
 }
 
+/** Provider identity comes from the mounted profile; window semantics stay closed. */
+function nativeLimitsObservation(
+  result: AccountLimitsV2 | AccountLimitsV3,
+  expectedProvider: string,
+): AccountLimitsSourceResult {
+  if (result.status !== "snapshot") return result;
+  if (result.windows.some((window) => window.provider !== expectedProvider))
+    return { status: "unavailable", reason: "invalid_snapshot" };
+  return {
+    status: "snapshot",
+    physicalGeneration: result.physicalGeneration,
+    principalVersion: result.principalVersion,
+    revision: result.revision,
+    scope: result.scope,
+    windows: result.windows.map((window) => ({
+      id: window.id,
+      family: "native",
+      providerId: window.provider,
+      dimension: window.dimension,
+      unit: window.unit,
+      basis:
+        window.period.kind === "duration"
+          ? "duration"
+          : window.period.kind === "monthly_billing_cycle"
+            ? "billing_cycle"
+            : "unknown",
+      durationSeconds:
+        window.period.kind === "duration"
+          ? window.period.durationSeconds
+          : null,
+      usedPercent: window.usedPercent,
+      observedAt: window.observedAt,
+      resetAt: window.resetAt,
+    })),
+  };
+}
+
 /** Capability negotiation fails closed; this client never invokes legacy quota handlers. */
 export async function accountLimitsReader(
   settings:
@@ -79,6 +119,9 @@ export async function accountLimitsReader(
         origin: string;
         token: string;
       },
+  discoveryContract:
+    | "provider-connections/v1"
+    | "provider-connections/v3" = "provider-connections/v3",
 ): Promise<AccountLimitsReader> {
   try {
     const legacy = createGatewayAccountLimitsReader(
@@ -94,24 +137,12 @@ export async function accountLimitsReader(
       timeoutMs: 3000,
       responseBytes: 262144,
     });
-    const subscriptions = createGatewayAccountLimitsReader(
-      {
-        getAccountLimitsCapabilities: () => v2.getAccountLimitsCapabilities(),
-        readAccountLimits: async (target) => {
-          const provider =
-            subscriptionProfileProviders[
-              target.profileId as keyof typeof subscriptionProfileProviders
-            ];
-          return provider
-            ? subscriptionLimitsObservation(
-                await v2.readAccountLimits(target),
-                provider,
-              )
-            : { status: "unsupported", reason: "unsupported_profile" };
-        },
-      },
-      "account-limits/v2",
-    );
+    const v3 = createAccountLimitsV3Client({
+      ...settings,
+      contract: "account-limits/v3",
+      timeoutMs: 3000,
+      responseBytes: 262144,
+    });
     const discovery =
       settings.role === "management"
         ? createManagementClient({
@@ -124,22 +155,69 @@ export async function accountLimitsReader(
             timeoutMs: 3000,
             responseBytes: 262144,
           });
-    let contracts: Promise<ReadonlyMap<string, string>> | undefined;
+    let contracts:
+      | Promise<ReadonlyMap<string, { contract: string; provider: string }>>
+      | undefined;
+    const genericReader = (
+      version: "account-limits/v2" | "account-limits/v3",
+    ) => {
+      const client = version === "account-limits/v3" ? v3 : v2;
+      return createGatewayAccountLimitsReader(
+        {
+          getAccountLimitsCapabilities: () =>
+            client.getAccountLimitsCapabilities(),
+          readAccountLimits: async (target) => {
+            const profile = (await contracts)?.get(target.profileId);
+            return profile
+              ? nativeLimitsObservation(
+                  await client.readAccountLimits(target),
+                  profile.provider,
+                )
+              : { status: "unsupported", reason: "unsupported_profile" };
+          },
+        },
+        version,
+      );
+    };
+    const versioned = {
+      "account-limits/v2": genericReader("account-limits/v2"),
+      "account-limits/v3": genericReader("account-limits/v3"),
+    };
     const reader: AccountLimitsReader = {
       async read(target) {
-        // Old profiles keep their cached v1 path, including deployments without
-        // the additive capability endpoint. New profiles cannot fall back to v1.
-        if (!Object.hasOwn(subscriptionProfileProviders, target.profileId))
-          return legacy.read(target);
         try {
-          contracts ??= discovery
-            .getProviderConnectionCapabilities()
+          contracts ??= (
+            discoveryContract === "provider-connections/v3"
+              ? discovery
+                  .getProviderConnectionCapabilitiesV3()
+                  .then((value) =>
+                    value.capabilities.map((item) => ({
+                      id: item.profileId,
+                      provider: item.provider.id,
+                      contract: item.limitsContract,
+                      availability: item.availability,
+                    })),
+                  )
+              : discovery
+                  .getProviderConnectionCapabilities()
+                  .then((value) =>
+                    value.capabilities.map((item) => ({
+                      id: item.profileId,
+                      provider: item.provider.identity,
+                      contract: item.limitsContract,
+                      availability: item.availability,
+                    })),
+                  )
+          )
             .then(
               (value) =>
                 new Map(
-                  value.capabilities
+                  value
                     .filter((item) => item.availability === "enabled")
-                    .map((item) => [item.profileId, item.limitsContract]),
+                    .map((item) => [
+                      item.id,
+                      { contract: item.contract, provider: item.provider },
+                    ]),
                 ),
             )
             .catch((error) => {
@@ -147,9 +225,14 @@ export async function accountLimitsReader(
               contracts = undefined;
               throw error;
             });
-          if ((await contracts).get(target.profileId) !== "account-limits/v2")
-            return { status: "unsupported", reason: "unsupported_profile" };
-          return subscriptions.read(target);
+          const contract = (await contracts).get(target.profileId)?.contract;
+          if (contract === "account-limits/v1") return legacy.read(target);
+          if (
+            contract === "account-limits/v2" ||
+            contract === "account-limits/v3"
+          )
+            return versioned[contract].read(target);
+          return { status: "unsupported", reason: "unsupported_profile" };
         } catch (error) {
           if (
             error instanceof GatewayError &&
