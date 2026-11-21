@@ -11,15 +11,18 @@ and review rules in one dashboard.
 ## Dashboard preview
 
 <p align="center">
-  <img width="49%" alt="ReviewRouter usage" src="https://github.com/user-attachments/assets/447a4f0c-5527-41bd-a08e-6bb540eb3943" />
-  <img width="49%" alt="ReviewRouter statistics" src="https://github.com/user-attachments/assets/9a6d86ae-1884-45f4-9c89-3c5851bd2ccf" />
+  <a href="https://reviewrouter.org/" title="Watch video">
+    <img width="49%" alt="Play ReviewRouter product video — Watch video" src="./assets/readme-video-preview.svg" />
+  </a>
+  <img width="49%" alt="ReviewRouter usage: tokens, models and requests" src="./apps/web/public/landing/usage.webp" />
 </p>
 <p align="center">
-  <img width="49%" alt="ReviewRouter Accounts" src="https://github.com/user-attachments/assets/5b7b1383-683b-4266-9da5-74c48f1d94c9" />
-  <img width="49%" alt="ReviewRouter dashboard" src="https://github.com/user-attachments/assets/18b8e7bd-88a3-4235-bfb2-2110ae284ce7" />
+  <img width="49%" alt="ReviewRouter review statistics" src="./apps/web/public/landing/statistics.webp" />
+  <img width="49%" alt="ReviewRouter connected AI providers" src="./apps/web/public/landing/providers.webp" />
 </p>
 <p align="center">
-  <img width="49%" alt="ReviewRouter review comment" src="https://github.com/user-attachments/assets/3def12b4-ad47-4b85-95b7-5cc585e4ff72" />
+  <img width="49%" alt="ReviewRouter repository setup and management" src="./apps/web/public/landing/repositories.webp" />
+  <img width="49%" alt="ReviewRouter inline review comment on GitHub" src="./apps/web/public/landing/review-comment.webp" />
 </p>
 
 ## Features

@@ -27,6 +27,15 @@ describe("ReviewRouter landing presentation", () => {
     expect(html).toContain("not billing or runtime telemetry");
   });
 
+  it("does not end visible landing headings with a period", () => {
+    const html = renderToStaticMarkup(<HomeFeatures />);
+    const headings = [...html.matchAll(/<h[2-6][^>]*>(.*?)<\/h[2-6]>/gs)];
+    expect(headings.length).toBeGreaterThan(0);
+    for (const [, heading] of headings) {
+      expect(heading.replace(/<[^>]*>/g, "").trim()).not.toMatch(/\.$/);
+    }
+  });
+
   it("keeps honest costs and the numbering-free section headings", () => {
     const html = renderToStaticMarkup(<HomeFeatures />);
     expect(html).not.toMatch(/\d\d \/ /);
