@@ -98,6 +98,7 @@ jobs:
         run: |
           pnpm compiler:prepare
           node scripts/local-checks/compiler-cli.ts --native --noEmit --incremental false -p apps/web/tsconfig.json
+          node scripts/local-checks/compiler-cli.ts --native --noEmit --incremental false -p tsconfig.provider-setup-visual.json
       - name: Install Chromium from the locked Playwright package
         run: pnpm exec playwright-core install --with-deps chromium
       - name: Capture actual authenticated Next accounts and connection forms

@@ -30,6 +30,7 @@ export function createNativeOperationsFixture() {
   const receipts = new Map<string, Receipt>();
   const targets = new Map<string, Account>();
   const accounts = new Map<string, Account>();
+  const authorizedDevices = new Set<string>();
   const effects: {
     action: string;
     methodId: string;
@@ -65,6 +66,17 @@ export function createNativeOperationsFixture() {
     },
     evidence: () => structuredClone(effects),
     accounts: () => [...accounts.values()],
+    authorizeDevice(displayName: string) {
+      const pending = [...targets].filter(
+        ([operationId, account]) =>
+          account.displayName === displayName &&
+          receipts.get(operationId)?.connection.method.methodId === "device" &&
+          receipts.get(operationId)?.operation.state === "pending",
+      );
+      if (pending.length !== 1)
+        throw new Error("expected one exact pending device authorization");
+      authorizedDevices.add(pending[0]![0]);
+    },
     async handle(
       request: IncomingMessage,
       path: string,
@@ -187,7 +199,9 @@ export function createNativeOperationsFixture() {
         });
         send(
           200,
-          methodId === "device" ? apply(operationId, receipt) : receipt,
+          methodId === "device" && authorizedDevices.has(operationId)
+            ? apply(operationId, receipt)
+            : receipt,
         );
         return true;
       }

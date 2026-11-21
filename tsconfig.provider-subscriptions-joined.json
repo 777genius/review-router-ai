@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "@agent-teams/account-gateway/http": [
+        "./apps/api/node_modules/@agent-teams/account-gateway/dist/http/index.d.ts"
+      ]
+    }
+  },
+  "include": [
+    "scripts/review-investigation-paired-e2e/support/provider-subscriptions-joined.ts",
+    "scripts/review-investigation-paired-e2e/support/provider-subscriptions-review-proof.test.ts"
+  ],
+  "exclude": ["node_modules", "dist", ".next"]
+}

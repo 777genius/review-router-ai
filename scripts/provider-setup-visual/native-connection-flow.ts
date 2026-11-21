@@ -242,6 +242,10 @@ export const nativeConnectionFlow: VisualFlow = {
           })
           .click();
         await page.getByText("VISUAL-CODE", { exact: true }).waitFor();
+        // A provider grants the device authorization after the user sees the
+        // code. Automatic success on the first background poll can remove the
+        // handoff before the browser observes it, bypassing this user step.
+        fixture.authorizeDevice("Visual native device");
         await waitForAccount(flow, "Visual native device");
         await assertNoSecrets(page);
         const evidence = fixture.evidence();
