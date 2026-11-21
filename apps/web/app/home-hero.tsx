@@ -81,7 +81,6 @@ export function HomeHero({
           POWERED BY <b>OpenCodeReview</b>
           <ArrowUpRight size={13} aria-hidden="true" />
         </a>
-        <span className="rr-home-hero__divider" aria-hidden="true" />
         <HomeProviders />
       </div>
     </section>
