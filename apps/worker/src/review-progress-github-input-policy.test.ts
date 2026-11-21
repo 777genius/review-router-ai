@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   createReviewProgressMarker,
+  expectedIssueCommentCollectionPaths,
   formatReviewProgressComment,
   pullRequestIdentityViolation,
+  repositoryIdFromValidatedPullRequest,
   validateReviewProgressInput,
 } from "./review-progress-github-input-policy";
 
@@ -90,6 +92,33 @@ describe("Review progress GitHub input policy", () => {
         }),
       ).toThrow("review_progress_marker_invalid");
     }
+  });
+
+  it("trusts only safe numeric repository IDs", () => {
+    expect(
+      repositoryIdFromValidatedPullRequest({
+        base: { repo: { id: 1337 } },
+      }),
+    ).toBe(1337);
+    for (const id of [0, -1, 1.5, "1337", null, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(
+        repositoryIdFromValidatedPullRequest({
+          base: { repo: { id } },
+        }),
+      ).toBeUndefined();
+    }
+    expect(repositoryIdFromValidatedPullRequest(null)).toBeUndefined();
+  });
+
+  it("scopes pagination to the expected issue collection", () => {
+    const input = { ...validInput(), owner: "owner name", repo: "repo/name" };
+    const canonical = "/repos/owner%20name/repo%2Fname/issues/42/comments";
+    const verified = "/repositories/1337/issues/42/comments";
+    expect(expectedIssueCommentCollectionPaths(input)).toEqual([canonical]);
+    expect(expectedIssueCommentCollectionPaths(input, 1337)).toEqual([
+      canonical,
+      verified,
+    ]);
   });
 
   it("keeps the expected remote pull identity contract", () => {

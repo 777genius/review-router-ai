@@ -16,6 +16,7 @@ import type {
 } from "./review-progress-store";
 
 const now = new Date("2026-08-12T12:00:00.000Z");
+const targetIssueUrl = "https://api.github.com/repos/acme/rocket/issues/42";
 
 describe("ReviewProgressPublisher", () => {
   it("publishes through the installation and fences completion", async () => {
@@ -41,6 +42,7 @@ describe("ReviewProgressPublisher", () => {
               id: 77,
               body: parameters.body,
               user: { login: "review-router[bot]" },
+              issue_url: targetIssueUrl,
             },
           };
         }
@@ -88,6 +90,7 @@ describe("ReviewProgressPublisher", () => {
               id: 77,
               body: parameters.body,
               user: { login: "review-router[bot]" },
+              issue_url: targetIssueUrl,
             },
           };
         }
@@ -133,7 +136,14 @@ describe("ReviewProgressPublisher", () => {
             expect(parameters.body).toContain(
               "<!-- review-router-live-progress -->",
             );
-            return { data: { id: 77 } };
+            return {
+              data: {
+                id: 77,
+                body: parameters.body,
+                user: { login: "review-router[bot]" },
+                issue_url: targetIssueUrl,
+              },
+            };
           }
           throw new Error(`unexpected:${route}`);
         },
@@ -172,6 +182,7 @@ describe("ReviewProgressPublisher", () => {
               id: 77,
               body: parameters.body,
               user: { login: "review-router[bot]" },
+              issue_url: targetIssueUrl,
             },
           };
         }
@@ -341,6 +352,7 @@ describe("ReviewProgressPublisher", () => {
             id: 77,
             body: parameters.body,
             user: { login: "review-router[bot]" },
+            issue_url: targetIssueUrl,
           },
         };
       },
@@ -377,6 +389,7 @@ describe("ReviewProgressPublisher", () => {
           id: 77,
           body: parameters.body,
           user: { login: "review-router[bot]" },
+          issue_url: targetIssueUrl,
         },
       }),
     );
@@ -410,12 +423,21 @@ describe("ReviewProgressPublisher", () => {
     const secondComment = { ...comment, id: 78 };
     const publisher = createPublisher(store, async () => ({
       botLogin: "review-router[bot]",
-      request: async (route) => {
+      request: async (route, parameters = {}) => {
         if (route.includes("/pulls/")) return pull();
         if (route.startsWith("GET")) {
           return { data: [firstComment, secondComment] };
         }
-        if (route.startsWith("PATCH")) return { data: {} };
+        if (route.startsWith("PATCH")) {
+          return {
+            data: {
+              id: 77,
+              body: parameters.body,
+              user: { login: "review-router[bot]" },
+              issue_url: targetIssueUrl,
+            },
+          };
+        }
         throw new Error(`unexpected:${route}`);
       },
     }));
@@ -449,7 +471,7 @@ describe("ReviewProgressPublisher", () => {
     };
     const publisher = createPublisher(store, async () => ({
       botLogin: "review-router[bot]",
-      request: async (route) => {
+      request: async (route, parameters = {}) => {
         if (route.includes("/pulls/")) return pull();
         if (route.startsWith("GET")) {
           return {
@@ -459,7 +481,16 @@ describe("ReviewProgressPublisher", () => {
             ],
           };
         }
-        if (route.startsWith("PATCH")) return { data: {} };
+        if (route.startsWith("PATCH")) {
+          return {
+            data: {
+              id: 77,
+              body: parameters.body,
+              user: { login: "review-router[bot]" },
+              issue_url: targetIssueUrl,
+            },
+          };
+        }
         throw new Error(`unexpected:${route}`);
       },
     }));
@@ -752,7 +783,7 @@ describe("ReviewProgressPublisher", () => {
       suppressed: 0,
       failed: 0,
     });
-    expect(pages).toEqual([1, 2]);
+    expect(pages).toEqual([1, 2, 1]);
     expect(store.retry).toHaveBeenCalledWith(
       expect.objectContaining({
         publication,
@@ -999,6 +1030,7 @@ describe("ReviewProgressPublisher", () => {
                 id: 77,
                 body: parameters.body,
                 user: { login: "review-router[bot]" },
+                issue_url: targetIssueUrl,
               },
             };
           }
@@ -1048,6 +1080,7 @@ describe("ReviewProgressPublisher", () => {
               id: 77,
               body: parameters.body,
               user: { login: "review-router[bot]" },
+              issue_url: targetIssueUrl,
             },
           };
         }

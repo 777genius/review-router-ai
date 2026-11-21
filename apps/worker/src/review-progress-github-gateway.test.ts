@@ -52,6 +52,31 @@ describe("ReviewProgressGitHubGateway", () => {
     });
   });
 
+  it("reconciles a foreign POST reply", async () => {
+    const fixture = githubFixture([]);
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (!route.startsWith("POST ")) return response;
+      return {
+        ...response,
+        data: {
+          ...(response.data as Record<string, unknown>),
+          issue_url: "https://api.github.com/repos/acme/rocket/issues/43",
+        },
+      };
+    };
+
+    await expect(gateway(request).upsert(input())).resolves.toEqual({
+      commentId: 100,
+      operation: "reconciled",
+      duplicateCommentIds: [],
+    });
+    expect(mutations(fixture.calls)).toHaveLength(1);
+  });
+
   it("reconciles a timed-out POST when the marked comment appeared", async () => {
     const fixture = githubFixture([], { throwAfterPost: true });
 
@@ -62,7 +87,89 @@ describe("ReviewProgressGitHubGateway", () => {
     });
     expect(
       fixture.calls.filter(({ route }) => route.startsWith("GET ")),
-    ).toHaveLength(4);
+    ).toHaveLength(6);
+  });
+
+  it("does not confirm a landed POST when the head changes during the final scan", async () => {
+    const fixture = githubFixture([], { throwAfterPost: true });
+    const pullRoute = "GET /repos/{owner}/{repo}/pulls/{pull_number}";
+    let pullReads = 0;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (route !== pullRoute) return response;
+      pullReads += 1;
+      if (pullReads !== 4) return response;
+      return {
+        ...response,
+        data: {
+          ...(response.data as Record<string, unknown>),
+          head: { sha: "b".repeat(40) },
+        },
+      };
+    };
+
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "ambiguous_mutation",
+      metadata: { mutationMayHaveLanded: true, retryable: true },
+    });
+    expect(pullReads).toBe(4);
+    expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
+      "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
+    ]);
+  });
+
+  it("does not confirm a possibly landed POST after the pull head changes", async () => {
+    const fixture = githubFixture([], { throwAfterPost: true });
+    let pullReads = 0;
+    const pullRoute = "GET /repos/{owner}/{repo}/pulls/{pull_number}";
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (route !== pullRoute) return response;
+      pullReads += 1;
+      if (pullReads !== 3) return response;
+      return {
+        ...response,
+        data: {
+          ...(response.data as Record<string, unknown>),
+          head: { sha: "b".repeat(40) },
+        },
+      };
+    };
+
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "ambiguous_mutation",
+      metadata: { mutationMayHaveLanded: true, retryable: true },
+    });
+    expect(pullReads).toBe(3);
+    expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
+      "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
+    ]);
+  });
+
+  it("reconciles a PATCH with no response comment", async () => {
+    const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      return route.startsWith("PATCH ")
+        ? { ...response, data: null }
+        : response;
+    };
+
+    await expect(gateway(request).upsert(input())).resolves.toEqual({
+      commentId: 8,
+      operation: "reconciled",
+      duplicateCommentIds: [],
+    });
+    expect(mutations(fixture.calls)).toHaveLength(1);
   });
 
   it("reconciles a timed-out PATCH when the marked comment was updated", async () => {
@@ -274,7 +381,7 @@ describe("ReviewProgressGitHubGateway", () => {
             "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
         )
         .map(({ parameters }) => parameters.page),
-    ).toEqual([1, 2]);
+    ).toEqual([1, 2, 1]);
     expect(mutations(calls)).toEqual([]);
   });
 
@@ -287,8 +394,8 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([], {
       pagedComments: [firstPage, [{ id: 701, body: desired }]],
       pageLinks: [
-        '<https://api.github.com/comments?page=1>; rel="first"',
-        '<https://api.github.com/comments?page=1>; rel="prev"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="first"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="prev"',
       ],
     });
     await expect(
@@ -306,7 +413,91 @@ describe("ReviewProgressGitHubGateway", () => {
             "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
         )
         .map(({ parameters }) => parameters.page),
-    ).toEqual([1, 2]);
+    ).toEqual([1, 2, 1]);
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("does not trust a foreign issue's last-page Link before POST", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const fixture = githubFixture([], {
+      pagedComments: [firstPage],
+      pageLinks: [
+        '<https://api.github.com/repos/acme/rocket/issues/43/comments?page=1&per_page=100>; rel="last"',
+      ],
+    });
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 2 }).upsert(input()),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("accepts GitHub's verified numeric repository pagination Link", async () => {
+    const full = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture([], {
+      pagedComments: [full, [{ id: 701, body: desired }]],
+      pageLinks: [
+        '<https://api.github.com/repositories/1300192/issues/42/comments?page=2&per_page=100>; rel="next"',
+      ],
+    });
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 2 }).upsert(input()),
+    ).resolves.toMatchObject({ commentId: 701, operation: "unchanged" });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("rejects another numeric repository's pagination Link", async () => {
+    const full = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const fixture = githubFixture([], {
+      pagedComments: [full],
+      pageLinks: [
+        '<https://api.github.com/repositories/1300193/issues/42/comments?page=1&per_page=100>; rel="last"',
+      ],
+    });
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 2 }).upsert(input()),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("continues after a full previous-only page to find the marker", async () => {
+    const full = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture([], {
+      pagedComments: [full, full, [{ id: 701, body: desired }]],
+      pageLinks: [
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="prev"',
+      ],
+    });
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 3 }).upsert(input()),
+    ).resolves.toMatchObject({ commentId: 701, operation: "unchanged" });
+    expect(
+      fixture.calls
+        .filter(({ route }) =>
+          route.includes("/issues/{issue_number}/comments"),
+        )
+        .map(({ parameters }) => parameters.page),
+    ).toEqual([1, 2, 3, 1, 2]);
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
@@ -323,8 +514,8 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([], {
       pagedComments: [firstPage, lastPage],
       pageLinks: [
-        '<https://api.github.com/comments?page=2>; rel="next"',
-        '<https://api.github.com/comments?page=1>; rel="prev"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="prev"',
       ],
     });
 
@@ -339,7 +530,7 @@ describe("ReviewProgressGitHubGateway", () => {
     const pageNumbers = fixture.calls
       .filter(({ route }) => route === commentListRoute)
       .map(({ parameters }) => parameters.page);
-    expect(pageNumbers).toEqual([1, 2]);
+    expect(pageNumbers).toEqual([1, 2, 1]);
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
@@ -357,8 +548,8 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([], {
       pagedComments: [firstPage, secondPage],
       pageLinks: [
-        '<https://api.github.com/comments?page=2>; rel="next"',
-        '<https://api.github.com/comments?page=1>; rel="prev"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="prev"',
       ],
     });
 
@@ -371,11 +562,196 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
+  it("defers a short final page when an earlier deletion shifts the offset", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const secondPage = Array.from({ length: 99 }, (_, index) => ({
+      id: index + 102,
+      body: "unrelated",
+    }));
+    const fixture = githubFixture([], {
+      pagedComments: [firstPage, secondPage],
+      pageLinks: [
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="prev"',
+      ],
+    });
+    let firstPageReads = 0;
+    const route = "GET /repos/{owner}/{repo}/issues/{issue_number}/comments";
+    const request: ReviewProgressGitHubRequester = async (path, parameters) => {
+      const response = await fixture.request(path, parameters);
+      if (path === route && parameters?.page === 1) {
+        firstPageReads += 1;
+        if (firstPageReads === 2) {
+          return {
+            ...response,
+            data: [
+              ...(response.data as unknown[]).slice(1),
+              {
+                id: 101,
+                body: `hidden\n${marker}`,
+                user: { login: "review-router[bot]" },
+              },
+            ],
+          };
+        }
+      }
+      return response;
+    };
+
+    await expect(
+      gateway(request, { maxCommentPages: 2 }).upsert(input()),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      metadata: { retryable: true },
+    });
+    expect(firstPageReads).toBe(2);
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("blocks known-ID fallback on offset drift", async () => {
+    const known = { id: 101, body: `old\n${marker}` };
+    const duplicate = { id: 102, body: `duplicate\n${marker}` };
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const fixture = githubFixture([known, duplicate], {
+      pagedComments: [firstPage, [duplicate]],
+      pageLinks: [
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="prev"',
+      ],
+    });
+    const listRoute =
+      "GET /repos/{owner}/{repo}/issues/{issue_number}/comments";
+    let firstPageReads = 0;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (route === listRoute && parameters?.page === 1) {
+        firstPageReads += 1;
+        if (firstPageReads === 2) {
+          return {
+            ...response,
+            data: [
+              ...(response.data as unknown[]).slice(1),
+              { ...known, user: { login: "review-router[bot]" } },
+            ],
+          };
+        }
+      }
+      return response;
+    };
+
+    await expect(
+      gateway(request, { maxCommentPages: 2 }).upsert({
+        ...input(),
+        knownCommentId: 101,
+      }),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      message: "github_issue_comments_offset_changed",
+      metadata: { retryable: true },
+    });
+    expect(firstPageReads).toBe(2);
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("rejects PATCH reconciliation after offset drift", async () => {
+    const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }], {
+      throwAfterPatch: true,
+    });
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const listRoute =
+      "GET /repos/{owner}/{repo}/issues/{issue_number}/comments";
+    let listReads = 0;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (route !== listRoute) return response;
+      listReads += 1;
+      if (listReads === 2 || listReads === 4) {
+        return {
+          data:
+            listReads === 2
+              ? firstPage
+              : [...firstPage.slice(1), { id: 101, body: "new" }],
+          headers: {
+            link: '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',
+          },
+        };
+      }
+      if (listReads === 3) {
+        return {
+          data: [
+            {
+              id: 102,
+              body: `duplicate\n${marker}`,
+              user: { login: "review-router[bot]" },
+            },
+          ],
+          headers: {
+            link: '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="prev"',
+          },
+        };
+      }
+      return response;
+    };
+
+    await expect(
+      gateway(request, { maxCommentPages: 2 }).upsert(input()),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      message: "github_issue_comments_offset_changed",
+      metadata: { mutationMayHaveLanded: true, retryable: true },
+    });
+    expect(listReads).toBe(4);
+    expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
+      "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+    ]);
+  });
+
+  it("rejects known-ID fallback for an untrusted Link", async () => {
+    const known = { id: 101, body: `old\n${marker}` };
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const fixture = githubFixture([known], {
+      pagedComments: [firstPage],
+      pageLinks: [
+        '<https://api.github.com/repos/other/repo/issues/42/comments?page=2&per_page=100>; rel="next"',
+      ],
+    });
+
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 1 }).upsert({
+        ...input(),
+        knownCommentId: 101,
+      }),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("checks the final page from a last-only Link before duplicate cleanup", async () => {
     const desired = formatReviewProgressComment("working", marker);
     const canonical = { id: 4, body: desired };
     const duplicate = { id: 7, body: `duplicate\n${marker}` };
-    const last = '<https://api.github.com/comments?page=2>; rel="last"';
+    const last =
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="last"';
     const fixture = githubFixture([canonical, duplicate], {
       pagedComments: [[canonical], [duplicate]],
       pageLinks: [last, last],
@@ -393,7 +769,7 @@ describe("ReviewProgressGitHubGateway", () => {
           route.includes("/issues/{issue_number}/comments"),
         )
         .map(({ parameters }) => parameters.page),
-    ).toEqual([1, 2]);
+    ).toEqual([1, 2, 1]);
     expect(mutations(fixture.calls)).toHaveLength(1);
   });
 
@@ -401,8 +777,10 @@ describe("ReviewProgressGitHubGateway", () => {
     const desired = formatReviewProgressComment("working", marker);
     const canonical = { id: 4, body: desired };
     const duplicate = { id: 7, body: `duplicate\n${marker}` };
-    const last = '<https://api.github.com/comments?page=3>; rel="last"';
-    const previous = '<https://api.github.com/comments?page=1>; rel="prev"';
+    const last =
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=3&per_page=100>; rel="last"';
+    const previous =
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="prev"';
     const fixture = githubFixture([canonical, duplicate], {
       pagedComments: [[canonical], [], [duplicate]],
       pageLinks: [last, previous, previous],
@@ -420,7 +798,7 @@ describe("ReviewProgressGitHubGateway", () => {
           route.includes("/issues/{issue_number}/comments"),
         )
         .map(({ parameters }) => parameters.page),
-    ).toEqual([1, 2, 3]);
+    ).toEqual([1, 2, 3, 1, 2]);
     expect(mutations(fixture.calls)).toHaveLength(1);
   });
 
@@ -557,7 +935,9 @@ describe("ReviewProgressGitHubGateway", () => {
     }));
     const fixture = githubFixture([], {
       pagedComments: [fullPage],
-      pageLinks: ['<https://api.github.com/comments?page=2>; rel="next"'],
+      pageLinks: [
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',
+      ],
     });
 
     await expect(
@@ -576,7 +956,9 @@ describe("ReviewProgressGitHubGateway", () => {
     }));
     const fixture = githubFixture([], {
       pagedComments: [fullPage],
-      pageLinks: ['<https://api.github.com/comments?page=2>; rel="next'],
+      pageLinks: [
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next',
+      ],
     });
     await expect(
       gateway(fixture.request, { maxCommentPages: 1 }).upsert(input()),
@@ -607,12 +989,12 @@ describe("ReviewProgressGitHubGateway", () => {
     const duplicate = { id: 20, body: `duplicate\n${marker}` };
     for (const href of [
       "javascript:alert(1)",
-      "blob:https://api.github.com/comments?page=2",
+      "blob:https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100",
       "data:text/plain,abc",
-      "ftp://api.github.com/comments?page=2",
-      "http://api.github.com/comments?page=2",
-      "https://untrusted.example/comments?page=2",
-      "//untrusted.example/comments?page=2",
+      "ftp://api.github.com/comments?page=2&per_page=100",
+      "http://api.github.com/comments?page=2&per_page=100",
+      "https://untrusted.example/comments?page=2&per_page=100",
+      "//untrusted.example/comments?page=2&per_page=100",
     ]) {
       const fixture = githubFixture([canonical, duplicate], {
         pagedComments: [[canonical, duplicate]],
@@ -632,8 +1014,8 @@ describe("ReviewProgressGitHubGateway", () => {
     const desired = formatReviewProgressComment("working", marker);
     const canonical = { id: 19, body: desired };
     const conflict =
-      '<https://api.github.com/comments?page=1>; rel="last", ' +
-      "<https://api.github.com/comments?page=3>; rel=last";
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="last", ' +
+      "<https://api.github.com/repos/acme/rocket/issues/42/comments?page=3&per_page=100>; rel=last";
     const fixture = githubFixture([canonical], {
       pagedComments: [[canonical]],
       pageLinks: [conflict],
@@ -650,8 +1032,8 @@ describe("ReviewProgressGitHubGateway", () => {
   it("does not mutate when next contradicts the advertised final page", async () => {
     const desired = formatReviewProgressComment("working", marker);
     const invalid =
-      '<https://api.github.com/comments?page=2>; rel="next", ' +
-      '<https://api.github.com/comments?page=1>; rel="last"';
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next", ' +
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="last"';
     const fixture = githubFixture([{ id: 19, body: desired }], {
       pagedComments: [[{ id: 19, body: desired }]],
       pageLinks: [invalid],
@@ -672,7 +1054,9 @@ describe("ReviewProgressGitHubGateway", () => {
     };
     const fixture = githubFixture([], {
       pagedComments: [[markedComment]],
-      pageLinks: ['<https://api.github.com/comments?page=2>; rel="next'],
+      pageLinks: [
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next',
+      ],
     });
 
     await expect(
@@ -688,7 +1072,9 @@ describe("ReviewProgressGitHubGateway", () => {
     const marked = { id: 19, body: `old\n${marker}` };
     const fixture = githubFixture([], {
       pagedComments: [[marked], []],
-      pageLinks: ['<https://api.github.com/comments?page=2>; rel="next'],
+      pageLinks: [
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next',
+      ],
     });
 
     await expect(
@@ -738,6 +1124,63 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(fixture.calls.some(({ route }) => route.startsWith("POST "))).toBe(
       false,
     );
+  });
+
+  it("rechecks pages before capped known-ID recovery", async () => {
+    const firstPage = fullUnrelatedPage();
+    const secondPage = firstPage.map((row) => ({ ...row, id: row.id + 100 }));
+    const fixture = githubFixture([{ id: 900, body: `old\n${marker}` }], {
+      pagedComments: [firstPage, secondPage],
+    });
+
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 2 }).upsert({
+        ...input(),
+        knownCommentId: 900,
+      }),
+    ).resolves.toMatchObject({ commentId: 900, operation: "updated" });
+    const pageReads = fixture.calls
+      .filter(({ route }) => route.includes("/issues/{issue_number}/comments"))
+      .map(({ parameters }) => parameters.page);
+    expect(pageReads).toEqual([1, 2, 1]);
+    expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
+      "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+    ]);
+  });
+
+  it("blocks capped recovery after an earlier deletion", async () => {
+    const firstPage = fullUnrelatedPage();
+    const secondPage = firstPage.map((row) => ({ ...row, id: row.id + 100 }));
+    const fixture = githubFixture([{ id: 900, body: `old\n${marker}` }], {
+      pagedComments: [firstPage, secondPage],
+    });
+    const route = "GET /repos/{owner}/{repo}/issues/{issue_number}/comments";
+    let firstPageReads = 0;
+    const request: ReviewProgressGitHubRequester = async (path, parameters) => {
+      const response = await fixture.request(path, parameters);
+      if (path !== route || parameters?.page !== 1) return response;
+      firstPageReads += 1;
+      if (firstPageReads !== 2) return response;
+      return {
+        ...response,
+        data: [
+          ...(response.data as unknown[]).slice(1),
+          { id: 101, body: "shifted", user: { login: "other" } },
+        ],
+      };
+    };
+
+    await expect(
+      gateway(request, { maxCommentPages: 2 }).upsert({
+        ...input(),
+        knownCommentId: 900,
+      }),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      message: "github_issue_comments_offset_changed",
+    });
+    expect(firstPageReads).toBe(2);
+    expect(mutations(fixture.calls)).toEqual([]);
   });
 
   it("recovers the persisted known comment id before relying on the bounded scan", async () => {
@@ -834,6 +1277,52 @@ describe("ReviewProgressGitHubGateway", () => {
       operation: "reconciled",
       duplicateCommentIds: [],
     });
+  });
+
+  it("does not reconcile a busy-PR PATCH after the head changes during known-ID lookup", async () => {
+    const fullPage = fullUnrelatedPage();
+    const fixture = githubFixture(
+      [...fullPage, { id: 900, body: `known\n${marker}` }],
+      { listedComments: fullPage, throwAfterPatch: true },
+    );
+    const knownRoute = "GET /repos/{owner}/{repo}/issues/comments/{comment_id}";
+    const pullRoute = "GET /repos/{owner}/{repo}/pulls/{pull_number}";
+    let patchFailed = false;
+    let observedAfterPatch = false;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      try {
+        const response = await fixture.request(route, parameters);
+        if (patchFailed && route === knownRoute) observedAfterPatch = true;
+        if (!observedAfterPatch || route !== pullRoute) return response;
+        return {
+          ...response,
+          data: {
+            ...(response.data as Record<string, unknown>),
+            head: { sha: "b".repeat(40) },
+          },
+        };
+      } catch (error) {
+        if (route.startsWith("PATCH ")) patchFailed = true;
+        throw error;
+      }
+    };
+
+    await expect(
+      gateway(request, { maxCommentPages: 1 }).upsert({
+        ...input(),
+        knownCommentId: 900,
+      }),
+    ).rejects.toMatchObject({
+      kind: "ambiguous_mutation",
+      metadata: { mutationMayHaveLanded: true, retryable: true },
+    });
+    expect(observedAfterPatch).toBe(true);
+    expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
+      "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+    ]);
   });
 
   it("keeps a short ambiguous retry for an unconfirmed busy-PR PATCH", async () => {
@@ -1063,6 +1552,46 @@ describe("ReviewProgressGitHubGateway", () => {
         parameters: expect.objectContaining({ comment_id: 7 }),
       }),
     ]);
+  });
+
+  it("counts a definite 429 rejection of a duplicate DELETE", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture([
+      { id: 4, body: desired },
+      { id: 7, body: `duplicate\n${marker}` },
+    ]);
+    let deleteAttempts = 0;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      if (route.startsWith("DELETE ")) {
+        deleteAttempts += 1;
+        throw { status: 429, response: { headers: { "retry-after": "60" } } };
+      }
+      return fixture.request(route, parameters);
+    };
+    const now = new Date("2026-08-12T12:00:00.000Z");
+    const caught = await gateway(request, {
+      now: () => now,
+      random: () => 0,
+    })
+      .upsert(input())
+      .catch((error: unknown) => error);
+    expect(caught).toBeInstanceOf(ReviewProgressGitHubError);
+    expect(caught).toMatchObject({
+      kind: "rate_limited",
+      metadata: {
+        status: 429,
+        retryable: true,
+        retryNotBefore: new Date("2026-08-12T12:01:00.000Z"),
+        retryAt: new Date("2026-08-12T12:01:00.250Z"),
+      },
+    });
+    expect(
+      (caught as ReviewProgressGitHubError).metadata.mutationMayHaveLanded,
+    ).toBeUndefined();
+    expect(deleteAttempts).toBe(1);
   });
 
   it("rechecks the PR head before patching a changed canonical comment", async () => {
@@ -1838,7 +2367,10 @@ function githubFixture(
                 : (options.currentHead ?? head),
           },
           base: {
-            repo: { full_name: options.repositoryFullName ?? "acme/rocket" },
+            repo: {
+              id: 1300192,
+              full_name: options.repositoryFullName ?? "acme/rocket",
+            },
           },
         },
       };
@@ -1927,6 +2459,7 @@ function toResponseComment(comment: {
     id: comment.id,
     body: comment.body,
     user: { login: comment.authorLogin },
+    issue_url: "https://api.github.com/repos/acme/rocket/issues/42",
   };
 }
 
