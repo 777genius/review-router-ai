@@ -1,8 +1,14 @@
 import { z } from "zod";
 import * as c from "@agent-teams/account-gateway/contracts";
-import type { ManagementClient } from "@agent-teams/account-gateway/http";
+import {
+  GatewayError,
+  type ManagementClient,
+} from "@agent-teams/account-gateway/http";
 import { ProviderAccountError } from "@reviewrouter/features-provider-accounts";
-import { nativeConnectionMethodView } from "./native-connection-view";
+import {
+  nativeConnectionMethodView,
+  nativeCredentialView,
+} from "./native-connection-view";
 import {
   nativeConnectionMethodAllowed,
   nativeConnectionInputsAllowed,
@@ -46,7 +52,15 @@ const intentSchema = z.strictObject({
 });
 export const snapshotNativeConnectionRequest = (
   value: unknown,
-): AccountNativeConnectionIntent => intentSchema.parse(value);
+): AccountNativeConnectionIntent => {
+  const parsed = intentSchema.parse(value);
+  return {
+    nonce: parsed.nonce,
+    connection: parsed.connection,
+    ...(parsed.label === undefined ? {} : { label: parsed.label }),
+    ...(parsed.existing === undefined ? {} : { existing: parsed.existing }),
+  };
+};
 type NativeClient = Pick<
   ManagementClient,
   | "beginConnection"
@@ -135,7 +149,23 @@ export function createNativeConnectionAdapter<Scope>(input: {
           native: {
             connection: { ...snapshot.connection },
             method: nativeConnectionMethodView(snapshot.method),
+            ...(snapshot.credential
+              ? { credential: nativeCredentialView(snapshot.credential) }
+              : {}),
           },
+          ...(snapshot.credential &&
+          view.account &&
+          result.operation.state === "applied" &&
+          result.operation.result?.kind === "account" &&
+          view.account.gatewayRevision ===
+            result.operation.result.metadataRevision
+            ? {
+                account: {
+                  ...view.account,
+                  nativeCredential: nativeCredentialView(snapshot.credential),
+                },
+              }
+            : {}),
           ...(snapshot.method.interaction.kind === "browser"
             ? {
                 oauthMethod: "browser" as const,
@@ -159,7 +189,7 @@ export function createNativeConnectionAdapter<Scope>(input: {
       let entered = false;
       let nonce: string | undefined;
       try {
-        const intent = intentSchema.parse(raw);
+        const intent = snapshotNativeConnectionRequest(raw);
         const inputFields = snapshotNativeConnectionInputs(values);
         nonce = intent.nonce;
         const scope = await input.authorize(context);
@@ -291,15 +321,21 @@ export function createNativeConnectionAdapter<Scope>(input: {
           value: await project(context, scope, nonce, result),
         };
       } catch (error) {
-        return entered && nonce ? unknown(nonce) : input.failure(error);
+        return nonce &&
+          (entered ||
+            (error instanceof GatewayError &&
+              error.effect === "effect_unknown"))
+          ? unknown(nonce)
+          : input.failure(error);
       }
     },
     async read(
       context: string,
       rawNonce: string,
     ): Promise<AccountsResult<AccountOperationView>> {
+      let nonce: string | undefined;
       try {
-        const nonce = nonceSchema.parse(rawNonce);
+        nonce = nonceSchema.parse(rawNonce);
         const scope = await input.authorize(context);
         const result = await input
           .client(context, scope)
@@ -309,6 +345,12 @@ export function createNativeConnectionAdapter<Scope>(input: {
           value: await project(context, scope, nonce, result),
         };
       } catch (error) {
+        if (
+          nonce &&
+          error instanceof GatewayError &&
+          error.effect === "effect_unknown"
+        )
+          return unknown(nonce);
         return input.failure(error);
       }
     },

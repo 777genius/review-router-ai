@@ -141,9 +141,12 @@ async function main(): Promise<void> {
     if (!options.flags.personalSharing)
       gateway = await startGatewayCatalogFixture({
         nvidiaEvaluation: options.flags.nvidiaEvaluation === true,
-        credentialImports: scenarios.some((scenario) =>
-          scenario.id.startsWith("native-import"),
-        ),
+        credentialImports:
+          scenarios.some((scenario) =>
+            scenario.id.startsWith("native-import"),
+          ) ||
+          (options.flows &&
+            (!options.only || options.only.test("flow-native-connections"))),
         accountMetadata: scenarios.some((scenario) =>
           scenario.id.startsWith("native-account-info"),
         ),
@@ -209,6 +212,7 @@ async function main(): Promise<void> {
             outDir: options.outDir,
             reset: reseed,
             writeGitHubState,
+            ...(gateway ? { nativeOperations: gateway.nativeOperations } : {}),
           },
           options.only,
         );

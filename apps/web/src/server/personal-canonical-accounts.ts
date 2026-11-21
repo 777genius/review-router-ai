@@ -1,26 +1,27 @@
+import type {
+  PersonalAccountDependencies as Dependencies,
+  PersonalAdapter,
+  QualifiedProfile,
+  PersonalCanonicalOperationView,
+} from "./personal-account-adapter-contract";
 import {
   snapshotAccountCredential,
   snapshotOAuthCompletion,
   oauthCompletionMatchesProfile,
 } from "./legacy-oauth-credentials";
 import { createPersonalNativeConnections } from "./personal-native-connections";
+import { nativeCredentialView } from "./native-connection-view";
 import {
   snapshotNativeConnectionRequest,
   type AccountNativeConnectionIntent,
 } from "./native-connection-adapter";
 import { snapshotNativeConnectionInputs } from "../features/account-gateway/domain/native-connection";
-import {
-  connectionMethodAllowed,
-  type CredentialImportMethod,
-} from "../features/account-gateway/connection-capabilities";
-import type { AccountLimitsService } from "./account-limits-service";
-import type { AccountMetadataService } from "./account-metadata-service";
+import { connectionMethodAllowed } from "../features/account-gateway/connection-capabilities";
 import { operationCompletion } from "./account-connection-catalog";
 import { secretSubmission } from "@agent-teams/account-gateway/http";
 import { lifecycleProjection } from "./account-lifecycle";
 import type { AccountLifecycleRead } from "./account-lifecycle-reader";
 import * as c from "@agent-teams/account-gateway/contracts";
-import type { ConsumerControlClient } from "@agent-teams/account-gateway/http";
 import { z } from "zod";
 import {
   ProviderAccountError,
@@ -32,7 +33,6 @@ import {
   beginPersonalCanonicalOperation,
   readPersonalCanonicalOperation,
   submitPersonalCanonicalOperation,
-  type PersonalCanonicalOperationStore,
   type PersonalCanonicalReceipt,
 } from "@reviewrouter/features-provider-accounts/synchronization";
 import {
@@ -42,92 +42,14 @@ import {
   type AccountOAuthReconnectIntent,
   type AccountOAuthCompletion,
   type AccountOperationView,
-  type AccountProfileView,
   type AccountsPage,
   type AccountsResult,
-  type createDisabledPersonalAccountsAdapter,
 } from "./account-gateway-accounts";
 import {
   canonicalMimoBaseURL,
   suggestedAccountLabel,
 } from "../features/account-gateway/connection-options";
 
-type PersonalAdapter = Pick<
-  ReturnType<typeof createDisabledPersonalAccountsAdapter>,
-  "list" | "connect" | "operation" | "completeOAuth" | "pollOAuth"
->;
-type QualifiedProfile = AccountProfileView;
-export type PersonalCanonicalOperationView = AccountOperationView & {
-  resume?: {
-    kind: "reconnect";
-    connectionId: string;
-    profileId: string;
-    gatewayRevision: number;
-    mirrorRevision: number;
-    credentialImportMethod?: CredentialImportMethod;
-  };
-};
-type Dependencies = {
-  limits?: AccountLimitsService;
-  metadata?: AccountMetadataService;
-  authorizeUser(): Promise<string>;
-  lifecycleReader?: {
-    get(accountRef: string): Promise<AccountLifecycleRead>;
-    compatible(): Promise<boolean>;
-    writable(): Promise<boolean>;
-  };
-  readLifecycleAction?: (
-    sourceId: string,
-    operationId: string,
-  ) => Promise<"suspend" | "resume" | "delete" | null>;
-  store: PersonalAccountOperationStore;
-  canonical: PersonalCanonicalOperationStore;
-  control: Pick<
-    ConsumerControlClient,
-    "profiles" | "get" | "operation" | "rename" | "reconnect" | "disable"
-  > &
-    Partial<
-      Pick<
-        ConsumerControlClient,
-        | "beginOAuthReconnect"
-        | "completeOAuth"
-        | "beginConnection"
-        | "reconnectConnection"
-        | "readConnection"
-        | "submitConnection"
-        | "pollConnection"
-      >
-    >;
-  profiles: readonly {
-    id: string;
-    label: string;
-    provider?: NonNullable<AccountProfileView["provider"]>;
-    authKind: "api_key" | "oauth";
-    canReconnect?: boolean;
-    oauthMethods?: NonNullable<AccountProfileView["oauthMethods"]>;
-    dedicatedBaseURL?: string;
-    connection?: AccountProfileView["connection"];
-    availability?: AccountProfileView["availability"];
-  }[];
-  /** Current connection admission/display only; original recovery needs no discovery. */
-  catalogue?: () => Promise<AccountProfileView[]>;
-  personalAdapterFactory(input: {
-    authorizeUser(): Promise<string>;
-    profiles: ReadonlyMap<string, "api-key-create" | "oauth-begin">;
-    connectionProfiles?: readonly Pick<
-      AccountProfileView,
-      | "id"
-      | "label"
-      | "connection"
-      | "oauthMethods"
-      | "authKind"
-      | "canReconnect"
-      | "availability"
-    >[];
-  }): PersonalAdapter;
-  /** Bounded exact-ID fence delivery/ACK only; no credential or inference ingress. */
-  deliverFences(actorUserId: string, clientOperationId: string): Promise<void>;
-};
 const nonce = z
   .string()
   .uuid()
@@ -382,7 +304,10 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
         profileId: account.profileId,
         profileLabel: profile.label,
         provider: profile.provider,
-        authKind: profile.authKind,
+        ...(profile.authKind ? { authKind: profile.authKind } : {}),
+        ...(account.credential
+          ? { nativeCredential: nativeCredentialView(account.credential) }
+          : {}),
         connection: profile.connection,
         state: account.state,
         readiness: current.pendingSourceOperationId
@@ -913,7 +838,10 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
       cursor: string | null,
     ): Promise<AccountsResult<AccountsPage>> {
       return safe(async (scope) => {
-        const profiles = await scope.catalogue();
+        const profiles = await scope.catalogue().catch(async () => {
+          await scope.authorize();
+          return [];
+        });
         const afterSourceId =
           cursor === null ? undefined : c.reference.parse(cursor);
         const page = await scope.personal.list({
@@ -947,9 +875,20 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
                 if (fallbackError instanceof Denied) throw fallbackError;
                 return null;
               }
-              const profile =
+              const profile:
+                | QualifiedProfile
+                | Dependencies["profiles"][number]
+                | undefined =
                 profiles.find((entry) => entry.id === source.profileRef) ??
-                scope.profileFor(source.profileRef);
+                scope.profileFor(source.profileRef) ??
+                (source.profileRef
+                  ? {
+                      id: source.profileRef,
+                      label: "Provider account",
+                      protocol: "openai-responses",
+                      models: [],
+                    }
+                  : undefined);
               if (!profile) return null;
               const projection = lifecycleProjection({
                 pendingAction: pendingAction ?? undefined,
@@ -966,7 +905,7 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
                 profileId: profile.id,
                 profileLabel: profile.label,
                 provider: profile.provider,
-                authKind: profile.authKind,
+                ...(profile.authKind ? { authKind: profile.authKind } : {}),
                 connection: profile.connection,
                 state:
                   source.state === "suspended"

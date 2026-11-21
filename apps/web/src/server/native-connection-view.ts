@@ -3,14 +3,26 @@ import {
   type ConnectionInputField,
   type ConnectionMethodV3,
   type ConnectionProfileV3,
+  type CredentialAttestation,
 } from "@agent-teams/account-gateway/contracts";
 import type {
   NativeConnectionField,
   NativeConnectionInteraction,
   NativeConnectionMethod,
+  NativeCredentialAttestation,
 } from "../features/account-gateway/domain/native-connection";
 import { nativeConnectionMethodAllowed } from "../features/account-gateway/domain/native-connection";
 import type { AccountProfileView } from "./account-gateway-accounts";
+
+export function nativeCredentialView(
+  value: CredentialAttestation,
+): NativeCredentialAttestation {
+  return {
+    credentialKind: value.credentialKind,
+    credentialPolicy: value.credentialPolicy,
+    refreshPolicy: value.refreshPolicy,
+  };
+}
 
 function field(value: ConnectionInputField): NativeConnectionField {
   return {

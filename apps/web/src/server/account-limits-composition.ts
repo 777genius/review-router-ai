@@ -188,26 +188,22 @@ export async function accountLimitsReader(
         try {
           contracts ??= (
             discoveryContract === "provider-connections/v3"
-              ? discovery
-                  .getProviderConnectionCapabilitiesV3()
-                  .then((value) =>
-                    value.capabilities.map((item) => ({
-                      id: item.profileId,
-                      provider: item.provider.id,
-                      contract: item.limitsContract,
-                      availability: item.availability,
-                    })),
-                  )
-              : discovery
-                  .getProviderConnectionCapabilities()
-                  .then((value) =>
-                    value.capabilities.map((item) => ({
-                      id: item.profileId,
-                      provider: item.provider.identity,
-                      contract: item.limitsContract,
-                      availability: item.availability,
-                    })),
-                  )
+              ? discovery.getProviderConnectionCapabilitiesV3().then((value) =>
+                  value.capabilities.map((item) => ({
+                    id: item.profileId,
+                    provider: item.provider.id,
+                    contract: item.limitsContract,
+                    availability: item.availability,
+                  })),
+                )
+              : discovery.getProviderConnectionCapabilities().then((value) =>
+                  value.capabilities.map((item) => ({
+                    id: item.profileId,
+                    provider: item.provider.identity,
+                    contract: item.limitsContract,
+                    availability: item.availability,
+                  })),
+                )
           )
             .then(
               (value) =>

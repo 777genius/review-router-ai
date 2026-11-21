@@ -47,6 +47,17 @@ export type NativeConnectionSelection = Readonly<{
   configurationGeneration: string;
 }>;
 
+/** Actual native evidence; never inferred from the selected method or provider. */
+export type NativeCredentialAttestation = Readonly<{
+  credentialKind: "api_key" | "oauth" | "native";
+  credentialPolicy:
+    | "provider_key"
+    | "subscription_session"
+    | "cloud_identity"
+    | "delegated_identity";
+  refreshPolicy: "native" | "none";
+}>;
+
 export type NativeModelPolicy = Readonly<{
   sourceId: string;
   contract: "native-account-models/v2";
@@ -74,6 +85,7 @@ export function nativeConnectionMethodAllowed(
     method.availability === "enabled" &&
     method[action] &&
     method.interaction.kind !== "unsupported" &&
+    new Set(method.requirements).size === supportedRequirements.size &&
     method.requirements.every((id) => supportedRequirements.has(id)) &&
     method.allowedCredentialPolicies.length > 0 &&
     method.allowedCredentialPolicies.every((id) =>
@@ -139,7 +151,7 @@ export function snapshotNativeConnectionInputs(
     if (
       !/^[a-z][a-z0-9_-]{0,127}$/.test(key) ||
       typeof text !== "string" ||
-      !text.isWellFormed()
+      /\p{Cs}/u.test(text)
     )
       throw new Error("invalid_connection_inputs");
     bytes += new TextEncoder().encode(text).byteLength;

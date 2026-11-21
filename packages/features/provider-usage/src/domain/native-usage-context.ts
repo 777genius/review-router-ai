@@ -28,7 +28,10 @@ export function validNativeUsageContext(value: NativeUsageContext): boolean {
     typeof value.modelId !== "string" ||
     !value.modelId.length ||
     value.modelId.length > 256 ||
-    /[\u0000-\u001f\u007f]/.test(value.modelId) ||
+    [...value.modelId].some(
+      (character) =>
+        character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+    ) ||
     !value.billing ||
     typeof value.billing !== "object" ||
     Array.isArray(value.billing)

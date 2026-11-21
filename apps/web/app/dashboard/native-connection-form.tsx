@@ -55,16 +55,19 @@ export function NativeConnectionForm({
 }) {
   const methods = (profile.connection?.nativeMethods ?? []).filter(
     (method) =>
-      nativeConnectionMethodAllowed(method, account ? "reconnect" : "create") &&
+      method[account ? "reconnect" : "create"] &&
       (!selection ||
         (selection.methodId === method.methodId &&
           selection.methodRevision === method.revision &&
           selection.configurationGeneration ===
             method.configurationGeneration)),
   );
-  const [chosen, setChosen] = useState(methods[0]?.methodId ?? "");
+  const available = methods.filter((method) =>
+    nativeConnectionMethodAllowed(method, account ? "reconnect" : "create"),
+  );
+  const [chosen, setChosen] = useState(available[0]?.methodId ?? "");
   const method =
-    methods.find((value) => value.methodId === chosen) ?? methods[0];
+    available.find((value) => value.methodId === chosen) ?? available[0];
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
   const formRef = useRef<HTMLFormElement>(null);
@@ -140,6 +143,15 @@ export function NativeConnectionForm({
           options={methods.map((value) => ({
             value: value.methodId,
             label: value.label,
+            disabled: !available.includes(value),
+            ...(!available.includes(value)
+              ? {
+                  description:
+                    value.availability === "deployment_configuration_required"
+                      ? "Requires server configuration"
+                      : "This connection method is not supported yet",
+                }
+              : {}),
           }))}
         />
       ) : (

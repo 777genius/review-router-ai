@@ -46,19 +46,33 @@ export async function loadNativeGatewayCatalog(
   const raw = env.REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY;
   if (!raw || !isNative(decode(raw))) return undefined;
   nativePolicy.parse(decode(raw));
+  const origin = env.REVIEW_ROUTER_ACCOUNT_GATEWAY_PERSONAL_CONTROL_ORIGIN;
+  const token = env.REVIEW_ROUTER_ACCOUNT_GATEWAY_PERSONAL_CONTROL_TOKEN;
+  if (!origin || !token)
+    throw new Error("review_run_native_catalog_consumer_control_missing");
+  const executionOrigin =
+    env.REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN ??
+    env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN;
+  if (
+    !executionOrigin ||
+    new URL(executionOrigin).origin !== new URL(origin).origin
+  )
+    throw new Error("review_run_native_catalog_origin_mismatch");
   const client = createConsumerControlClient({
     role: "consumer-control",
-    origin:
-      env.REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN ??
-      env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN ??
-      "",
-    token: env.REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER ?? "",
+    origin,
+    token,
     timeoutMs: 10000,
     responseBytes: 1024 * 1024,
   });
-  return c.providerConnectionCapabilitiesV3.parse(
-    await client.getProviderConnectionCapabilitiesV3(),
-  );
+  try {
+    return c.providerConnectionCapabilitiesV3.parse(
+      await client.getProviderConnectionCapabilitiesV3(),
+    );
+  } catch {
+    // Recovery services still start. No current native declaration means no new model admission.
+    return undefined;
+  }
 }
 
 /** Runs before composition/transactions. Local allowances never come from discovery. */
@@ -74,16 +88,25 @@ export function qualifiedGatewayRelayPolicy(
     ...limits
   } = nativePolicy.parse(decoded);
   void _contract;
-  if (!catalog) throw new Error("review_run_native_catalog_unavailable");
-  const native = c.providerConnectionCapabilitiesV3.parse(catalog);
+  const native = catalog
+    ? c.providerConnectionCapabilitiesV3.parse(catalog)
+    : undefined;
   return {
     ...limits,
     profiles: profiles.map((entry) => {
-      const profile = native.capabilities.find(
+      const profile = native?.capabilities.find(
         (row) => row.profileId === entry.profileId,
       );
       if (!profile || profile.availability !== "enabled")
-        throw new Error("review_run_native_profile_unavailable");
+        return {
+          outputTokens: entry.outputTokens,
+          profile: {
+            profileId: entry.profileId,
+            protocol: "openai-responses",
+            modelIds: [],
+            authKinds: [],
+          },
+        };
       return {
         outputTokens: entry.outputTokens,
         profile: {

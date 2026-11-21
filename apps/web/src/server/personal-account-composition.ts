@@ -19,7 +19,7 @@ import { createAccountLifecycleReader } from "./account-lifecycle-reader";
 import { createHash } from "node:crypto";
 import * as c from "@agent-teams/account-gateway/contracts";
 import {
-  createLifecycleClient,
+  createLifecycleV3Client,
   createConsumerControlClient,
   createManagementClient,
 } from "@agent-teams/account-gateway/http";
@@ -108,11 +108,12 @@ export async function productionPersonalAccounts() {
   };
   const control = createConsumerControlClient(controlSettings);
   const lifecycleReader = createAccountLifecycleReader({
+    contract: "account-lifecycle/v3",
     legacy: control,
-    lifecycle: createLifecycleClient({
+    lifecycle: createLifecycleV3Client({
       ...controlSettings,
-      capability: c.LIFECYCLE_CAPABILITY_CONTRACT,
-      clientContract: c.LIFECYCLE_CLIENT_CONTRACT,
+      capability: c.LIFECYCLE_V3_CAPABILITY_CONTRACT,
+      clientContract: c.LIFECYCLE_V3_CLIENT_CONTRACT,
     }),
   });
   const prisma = getPrisma();
@@ -517,7 +518,8 @@ export async function productionPersonalAccounts() {
   }
   async function overview(workspaceId: string) {
     await workspaceAccess(workspaceId);
-    const qualified = await catalogue();
+    const qualified = await catalogue().catch(() => []);
+    await workspaceAccess(workspaceId);
     const managementSettings = {
       role: "management" as const,
       origin: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "",
@@ -526,11 +528,12 @@ export async function productionPersonalAccounts() {
       responseBytes: 65536,
     };
     const overviewReader = createAccountLifecycleReader({
+      contract: "account-lifecycle/v3",
       legacy: createManagementClient(managementSettings),
-      lifecycle: createLifecycleClient({
+      lifecycle: createLifecycleV3Client({
         ...managementSettings,
-        capability: c.LIFECYCLE_CAPABILITY_CONTRACT,
-        clientContract: c.LIFECYCLE_CLIENT_CONTRACT,
+        capability: c.LIFECYCLE_V3_CAPABILITY_CONTRACT,
+        clientContract: c.LIFECYCLE_V3_CLIENT_CONTRACT,
       }),
     });
     return createAccountsOverview({
@@ -541,14 +544,22 @@ export async function productionPersonalAccounts() {
       gateway: overviewReader,
       visibleRepositoryIds: () => usageRepositoryVisibility(workspaceId),
       lifecycleCompatible: overviewReader.writable,
-      profiles: profiles.map(
-        (identity) =>
-          qualified.find((profile) => profile.id === identity.id) ?? {
-            ...identity,
-            availability: "deployment_configuration_required",
-            canReconnect: false,
-          },
-      ),
+      profiles: [
+        ...qualified,
+        ...profiles
+          .filter(
+            (identity) =>
+              !qualified.some((profile) => profile.id === identity.id),
+          )
+          .map(
+            (identity) =>
+              ({
+                ...identity,
+                availability: "deployment_configuration_required",
+                canReconnect: false,
+              }) as const,
+          ),
+      ],
       ...(settings.operatorWorkspaceId
         ? { operatorWorkspaceId: settings.operatorWorkspaceId }
         : {}),

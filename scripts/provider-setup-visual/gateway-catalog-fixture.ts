@@ -8,6 +8,11 @@
  */
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
+import { nativeVisualCatalog } from "./native-catalog-fixture.js";
+import {
+  createNativeOperationsFixture,
+  type NativeOperationsFixture,
+} from "./native-operations-fixture.js";
 import {
   VISUAL_GATEWAY_PROFILE,
   VISUAL_CONNECTIONS,
@@ -68,6 +73,7 @@ const NATIVE_IMPORT_PROFILES = [
 export type GatewayCatalogFixture = Readonly<{
   /** Environment that points the dashboard at this server. */
   environment: Readonly<Record<string, string>>;
+  nativeOperations: NativeOperationsFixture;
   stop(): Promise<void>;
 }>;
 
@@ -80,6 +86,7 @@ export async function startGatewayCatalogFixture(
   } = {},
 ): Promise<GatewayCatalogFixture> {
   const token = randomBytes(24).toString("base64url");
+  const nativeOperations = createNativeOperationsFixture();
   let failedModelRefresh = false;
   const server: Server = createServer(async (request, response) => {
     const send = (status: number, body: unknown) => {
@@ -89,6 +96,12 @@ export async function startGatewayCatalogFixture(
     if (request.headers.authorization !== `Bearer ${token}`)
       return send(401, { error: "unauthorized" });
     const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+    if (await nativeOperations.handle(request, path, send)) return;
+    const nativeAccount = nativeOperations
+      .accounts()
+      .find((row) => path === `/v1/accounts/${row.accountRef}`);
+    if (request.method === "GET" && nativeAccount)
+      return send(200, nativeAccount);
     const accountRows = Object.values(VISUAL_CONNECTIONS)
       .filter((row) => row.owner.kind === "workspace")
       .map((connection) => ({
@@ -110,7 +123,7 @@ export async function startGatewayCatalogFixture(
     if (
       options.accountMetadata &&
       request.method === "POST" &&
-      path === "/v1/account-info/read"
+      ["/v1/account-info/read", "/v2/account-info/read"].includes(path)
     ) {
       try {
         let body = "";
@@ -139,7 +152,9 @@ export async function startGatewayCatalogFixture(
           freshness,
         });
         return send(200, {
-          contract: "account-info/v1",
+          contract: path.startsWith("/v2/")
+            ? "account-info/v2"
+            : "account-info/v1",
           accounts: input.accountRefs.map((accountRef) => ({
             accountRef,
             metadataRevision: 1,
@@ -163,7 +178,9 @@ export async function startGatewayCatalogFixture(
                         endsAt: { kind: "date", value: "2026-12-31" },
                       }),
                       credentialExpiresAt: known("2026-11-30T23:00:00Z"),
-                      privacyMode: known("private", "stale"),
+                      ...(path.startsWith("/v2/")
+                        ? { trainingUsage: known("disabled", "stale") }
+                        : { privacyMode: { status: "unsupported" } }),
                     },
                   },
           })),
@@ -242,8 +259,13 @@ export async function startGatewayCatalogFixture(
       });
     if (
       request.method === "GET" &&
-      path === "/v2/provider-connection-capabilities"
+      [
+        "/v2/provider-connection-capabilities",
+        "/v3/provider-connection-capabilities",
+      ].includes(path)
     ) {
+      if (path.startsWith("/v3/") && !nativeOperations.discoveryAvailable)
+        return send(503, { error: "catalog_unavailable" });
       const identity = {
         region: { id: "global", label: "Global" },
         protocol: "openai-responses",
@@ -252,7 +274,7 @@ export async function startGatewayCatalogFixture(
         limitsContract: "none",
         availability: "enabled",
       };
-      return send(200, {
+      const catalog = {
         contract: "provider-connections/v2",
         capabilities: [
           {
@@ -317,7 +339,16 @@ export async function startGatewayCatalogFixture(
               ]
             : []),
         ],
-      });
+      };
+      return send(
+        200,
+        path.startsWith("/v3/")
+          ? nativeVisualCatalog(
+              catalog.capabilities,
+              options.credentialImports === true,
+            )
+          : catalog,
+      );
     }
     if (
       (options.reviewerAccounts ||
@@ -386,9 +417,14 @@ export async function startGatewayCatalogFixture(
         "http://127.0.0.1",
       ).searchParams.get("ownerRef");
       return send(200, {
-        accounts: options.accountMetadata
-          ? accountRows.filter((row) => row.ownerRef === ownerRef)
-          : [],
+        accounts: [
+          ...(options.accountMetadata
+            ? accountRows.filter((row) => row.ownerRef === ownerRef)
+            : []),
+          ...nativeOperations
+            .accounts()
+            .filter((row) => row.ownerRef === ownerRef),
+        ],
       });
     }
     return send(404, { error: "not_found" });
@@ -401,6 +437,7 @@ export async function startGatewayCatalogFixture(
   if (!address || typeof address !== "object")
     throw new Error("provider_visual_gateway_fixture_unavailable");
   return {
+    nativeOperations,
     environment: {
       REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN: `http://127.0.0.1:${address.port}`,
       REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN: token,

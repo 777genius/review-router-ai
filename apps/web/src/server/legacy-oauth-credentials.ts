@@ -1,3 +1,5 @@
+import { ProviderAccountError } from "@reviewrouter/features-provider-accounts";
+import { connectionMethodAllowed } from "../features/account-gateway/connection-capabilities";
 import { z } from "zod";
 import { secretSubmission } from "@agent-teams/account-gateway/http";
 import type { CredentialImportMethod } from "../features/account-gateway/connection-capabilities";
@@ -106,4 +108,28 @@ export function snapshotOAuthCompletion(
       ? { nonce, callbackURL: authorizationResult }
       : { nonce, authorizationCode: authorizationResult },
   );
+}
+
+export function oauthMethodFor(
+  profile: Pick<
+    AccountProfileView,
+    | "id"
+    | "oauthMethods"
+    | "authKind"
+    | "canReconnect"
+    | "connection"
+    | "availability"
+  >,
+  requested?: "device_code" | "browser",
+  action: "create" | "reconnect" = "create",
+) {
+  const allowed = profile.oauthMethods ?? ["device_code", "browser"];
+  const method = requested ?? allowed[0];
+  if (
+    !method ||
+    !allowed.includes(method) ||
+    !connectionMethodAllowed(profile, action, method)
+  )
+    throw new ProviderAccountError("connection_unavailable");
+  return method;
 }

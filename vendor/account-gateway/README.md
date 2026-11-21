@@ -3,8 +3,8 @@
 ## Native provider parity SDK candidate
 
 The new source checkpoint is
-`agent-teams-account-gateway-0.1.0-native-parity-1a6ff077c6a8.tgz`. Its SDK source
-files match committed Gateway source `1a6ff077c6a86081e05ee7f27b503aa7391043a7`.
+`agent-teams-account-gateway-0.1.0-native-parity-95c90c8607d8.tgz`. Its SDK source
+files match committed Gateway source `9d148050f9008c520c30850bfc19e07c14c5e413`.
 `native-provider-parity-sdk-provenance.json` records the exact archive hash,
 source hashes, and build tools. This candidate adds provider connections and
 lifecycle v3, account metadata v2, and native model/limits/usage contracts.

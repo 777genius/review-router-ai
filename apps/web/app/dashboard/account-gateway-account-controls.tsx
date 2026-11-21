@@ -10,14 +10,11 @@ import {
 } from "./native-connection-form";
 
 import {
-  connectionMethodAllowed,
   canCreateConnection,
-  credentialImportMethods,
   type CredentialImportMethod,
 } from "../../src/features/account-gateway/connection-capabilities";
 import {
   CredentialImportFields,
-  credentialImportLabels,
   validCredentialImportText,
 } from "./credential-import-fields";
 
@@ -103,8 +100,6 @@ import {
 } from "./account-connection-presentation";
 import type {
   AccountIntent,
-  AccountOAuthIntent,
-  AccountOAuthReconnectIntent,
   AccountOperationView,
   AccountProfileView,
   AccountView,
@@ -836,7 +831,11 @@ function Controls({
               native.inputFields,
             )
           : { status: "unavailable" as const }
-        : await api.beginGatewayOAuth(context, { ...intent, method, nonce });
+        : await api.beginGatewayOAuth(context, {
+            ...intent,
+            ...(method ? { method } : {}),
+            nonce,
+          });
       const safe: AccountsResult<AccountOperationView> =
         fresh.status === "ok"
           ? fresh.value.operation.nonce === nonce
@@ -1350,6 +1349,7 @@ function Controls({
                   profileLabel={account.profileLabel}
                   provider={account.provider}
                   authKind={account.authKind}
+                  nativeCredential={account.nativeCredential}
                   connection={account.connection}
                   metadata={
                     lifecycleActivities.has(account.connectionId)
@@ -1618,7 +1618,11 @@ function ConnectionForm({
               />
             ),
             description:
-              row.connection?.planLabel ??
+              (row.connection?.nativeMethods
+                ? [row.connection.planLabel, row.connection.regionLabel]
+                    .filter(Boolean)
+                    .join(" · ")
+                : row.connection?.planLabel) ??
               (row.authKind === "oauth" ? "Sign in" : "API key"),
           }))}
         />
@@ -1916,6 +1920,7 @@ function OperationReadback({
             profileLabel={data.value.account.profileLabel}
             provider={data.value.account.provider}
             authKind={data.value.account.authKind}
+            nativeCredential={data.value.account.nativeCredential}
             connection={data.value.account.connection}
             metadata={data.value.account.metadata}
           />
@@ -2044,7 +2049,10 @@ function OperationReadback({
         (data?.status === "ok" && data.value.oauthMethod === "browser") ||
         autoOpenCompletion ||
         completionOffered) &&
-      (oauthEnabled || autoOpenCompletion || completionOffered) ? (
+      (oauthEnabled ||
+        (data?.status === "ok" && Boolean(data.value.native)) ||
+        autoOpenCompletion ||
+        completionOffered) ? (
         <OAuthCompletionForm
           inline={inline}
           completeOAuth={api.completeGatewayOAuth}

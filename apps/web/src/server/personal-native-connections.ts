@@ -14,7 +14,6 @@ import {
   readPersonalCanonicalOperation,
   snapshotNativeConnectionIntent,
   submitPersonalCanonicalOperation,
-  type NativeConnectionIntent,
   type PersonalCanonicalDependencies,
   type PersonalCanonicalOperationStore,
 } from "@reviewrouter/features-provider-accounts/synchronization";
@@ -31,7 +30,10 @@ import {
   type AccountView,
 } from "./account-gateway-accounts";
 import type { AccountNativeConnectionIntent } from "./native-connection-adapter";
-import { nativeConnectionMethodView } from "./native-connection-view";
+import {
+  nativeConnectionMethodView,
+  nativeCredentialView,
+} from "./native-connection-view";
 
 type NativeControl = Pick<
   ConsumerControlClient,
@@ -155,6 +157,9 @@ export function createPersonalNativeConnections(input: {
             native: {
               connection: { ...native.connection },
               method: nativeConnectionMethodView(native.method),
+              ...(native.credential
+                ? { credential: nativeCredentialView(native.credential) }
+                : {}),
             },
             ...(native.method.interaction.kind === "browser"
               ? {

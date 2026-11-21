@@ -8,11 +8,13 @@ on:
       - ".github/workflows/native-accounts-browser.yml"
       - "scripts/provider-setup-visual/**"
       - "apps/web/app/dashboard/*account*"
+      - "apps/web/app/dashboard/native-*"
       - "apps/web/src/features/account-gateway/**"
       - "apps/web/src/features/provider-setup/**"
       - "apps/web/src/server/account-*"
       - "apps/web/src/server/accounts-*"
       - "apps/web/src/server/personal-*"
+      - "apps/web/src/server/native-*"
       - "apps/web/src/server/dashboard-gateway-accounts.ts"
       - "apps/web/src/server/gateway-model-account-options.ts"
       - "packages/features/provider-accounts/**"
@@ -76,10 +78,10 @@ jobs:
         run: pnpm exec playwright-core install --with-deps chromium
       - name: Capture actual authenticated Next accounts and connection forms
         run: >-
-          pnpm provider-setup:visual --no-personal-sharing
-          --only 'native-account-info|native-import'
+          pnpm provider-setup:visual --no-personal-sharing --flows
+          --only 'native-account-info|native-import|flow-native-connections'
           --next-heap-mb 4096 --out tmp/native-accounts-browser
-      - name: Assert all 34 screenshots and exact source receipt
+      - name: Assert all 34 screenshots, native connection flow and exact source receipt
         run: |
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
@@ -92,6 +94,17 @@ jobs:
           assert.equal(manifest.sourceBefore.sourceDeltaSha256, 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
           assert.deepEqual(manifest.sourceBefore.untrackedPaths, []);
           assert.deepEqual(manifest.summary, { captured: 34, suspect: 0, failed: 0, skipped: 0 });
+          assert.deepEqual(manifest.flowSummary, { pass: 1, fail: 0, skipped: 0 });
+          assert.equal(manifest.flows.length, 1);
+          const flow = manifest.flows[0];
+          assert.equal(flow.flow, 'flow-native-connections');
+          assert.equal(flow.status, 'pass');
+          assert.equal(flow.checks.length, 4);
+          assert(flow.checks.every(check => check.pass));
+          assert.deepEqual(flow.pageErrors, []);
+          assert.deepEqual(flow.blockedRequests, []);
+          assert.equal(flow.screenshots.length, 4);
+          for (const file of flow.screenshots) assert(statSync(join(directory, file)).size > 0);
           assert.deepEqual(manifest.network.blocked, []);
           assert.deepEqual(manifest.network.githubUnhandled, []);
           const expected = new Set();
@@ -166,6 +179,7 @@ jobs:
           path: |
             tmp/native-accounts-browser/manifest.json
             tmp/native-accounts-browser/screens/
+            tmp/native-accounts-browser/flows/
             tmp/native-accounts-browser/next-app.log
             tmp/native-accounts-browser/migrate.log
           if-no-files-found: warn
