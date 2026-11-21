@@ -407,7 +407,8 @@ describe("Review progress GitHub comment policy", () => {
       user: { login: "review-router[bot]" },
       issue_url: "https://api.github.com/repos/acme/rocket/issues/42",
     };
-    expect(verifiedKnownComment(row, input, 900)).toEqual(marked(900, row.body));
+    const verified = verifiedKnownComment(row, input, 900);
+    expect(verified).toEqual(marked(900, row.body));
     expect(
       verifiedKnownComment(
         {
