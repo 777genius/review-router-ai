@@ -725,6 +725,14 @@ if (databaseUrl) {
           async inspectKnownRun() {
             return { status: ReviewRequestedDispatchRunStatus.Pending };
           },
+          async inspectRunnerWait() {
+            // GitHub already gave the run a runner: no queued wait (plan 88).
+            return {
+              waitingForRunner: false,
+              neverStarted: false,
+              revisionCurrent: true,
+            };
+          },
           async cancelKnownRun() {
             cancels++;
             throw new Error("injected_pre_http_transport_failure");
@@ -777,6 +785,124 @@ if (databaseUrl) {
           },
         }),
       ).toBe(1);
+    });
+
+    it("extends a queued run under the database clock and queues each start notice once", async () => {
+      const harness = await createHarness();
+      const store =
+        harness.requestedIntents as PrismaReviewRequestedIntentStore;
+      const now = new Date();
+      const requestId = `queued-wait-${randomUUID()}`;
+      await store.registerIntent({
+        candidate: {
+          ...harness.scope,
+          requestId,
+          revision: {
+            baseSha: "a".repeat(40),
+            mergeBaseSha: "b".repeat(40),
+            headSha: "c".repeat(40),
+            reviewRevisionHash: hash(1),
+          },
+          triggerKind: ReviewRequestedTriggerKind.PullRequestSynchronized,
+          deliveryIdentityHash: hashFromText(randomUUID()),
+          canonicalRequestHash: hashFromText(randomUUID()),
+          notBefore: now,
+          createdAt: now,
+          retainUntil: new Date(now.getTime() + 86400000),
+        },
+      });
+      const claimed = await store.claimIntent({
+        requestId,
+        claimId: randomUUID(),
+        ownerIdHash: hashFromText(randomUUID()),
+        now,
+        claimUntil: new Date(now.getTime() + 30000),
+      });
+      const claim = claimed.intent!.claim!;
+      const submission = {
+        requestId,
+        claimId: claim.claimId,
+        ownerIdHash: claim.ownerIdHash,
+        fencingToken: claim.fencingToken,
+        now,
+        nextResolutionAt: new Date(now.getTime() + 10),
+        resolutionDeadlineAt: new Date(now.getTime() + 1500),
+      };
+      await store.beginSubmission(submission);
+      await store.recordDispatch({
+        ...submission,
+        sourceRunId: "702",
+        sourceRunAttempt: "1",
+      });
+      const notices = () =>
+        prisma.outboxEvent.findMany({
+          where: {
+            aggregateId: requestId,
+            type: "review.requested_start_notice",
+          },
+          orderBy: { createdAt: "asc" },
+        });
+      for (let extension = 0; extension < 2; extension += 1) {
+        const current = await store.findByRequestId(requestId);
+        const extended = await store.extendQueuedRunWait({
+          requestId,
+          expectedVersion: current!.version,
+          now: new Date(),
+          windowMs: 1500,
+          nextResolutionAt: new Date(Date.now() + 10),
+        });
+        expect(extended).toMatchObject({
+          status: ReviewRequestedTransitionStatus.Applied,
+          intent: {
+            state: ReviewRequestedIntentState.AwaitingAuthorization,
+            resolutionDeadlineAt: new Date(
+              current!.resolutionDeadlineAt!.getTime() + 1500,
+            ),
+          },
+        });
+      }
+      expect((await notices()).map((event) => event.payload)).toEqual([
+        { requestId, notice: "waiting_for_runner" },
+      ]);
+
+      // A passed deadline is never reopened: the request stops as before and
+      // owes the pull request one "not started" status.
+      const waited = await store.findByRequestId(requestId);
+      await new Promise((resolve) =>
+        setTimeout(
+          resolve,
+          waited!.resolutionDeadlineAt!.getTime() - Date.now() + 200,
+        ),
+      );
+      await expect(
+        store.extendQueuedRunWait({
+          requestId,
+          expectedVersion: waited!.version,
+          now: new Date(),
+          windowMs: 1500,
+          nextResolutionAt: new Date(Date.now() + 10),
+        }),
+      ).resolves.toMatchObject({
+        status: ReviewRequestedTransitionStatus.Conflict,
+      });
+      await expect(
+        store.recoverDispatch({
+          requestId,
+          expectedVersion: waited!.version,
+          sourceRunId: "702",
+          sourceRunAttempt: "1",
+          now: new Date(),
+          terminalReason:
+            ReviewRequestedIntentTerminalReason.AuthorizationDeadlineExceeded,
+          successorCandidate: null,
+        }),
+      ).resolves.toMatchObject({
+        status: ReviewRequestedTransitionStatus.Applied,
+      });
+      expect((await notices()).map((event) => event.payload)).toEqual([
+        { requestId, notice: "waiting_for_runner" },
+        { requestId, notice: "not_started" },
+      ]);
     });
 
     it("retries registration when admission wins the supersede compare-and-set", async () => {

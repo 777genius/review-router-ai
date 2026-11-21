@@ -64,6 +64,62 @@ export async function reserveInstallationBudgetMutation(
   return { allowed: true as const };
 }
 
+/**
+ * Plan 88: a start notice shares the pull request's progress comment and the
+ * installation's write budget with live progress. It may write only while no
+ * progress publication of the pull request is claimed or waiting to publish,
+ * and then takes one installation mutation like the publisher does.
+ */
+export async function reserveProgressCommentNotice(
+  transaction: Prisma.TransactionClient,
+  input: {
+    readonly scope: {
+      readonly workspaceId: string;
+      readonly repositoryConnectionId: string;
+      readonly scmRepositoryIdentityId: string;
+      readonly pullRequestNumber: number;
+    };
+    readonly installationId: bigint;
+    readonly minimumIntervalMs: number;
+  },
+): Promise<
+  | { readonly allowed: true; readonly commentId: bigint | null }
+  | { readonly allowed: false }
+> {
+  const { budget, lockedAt } = await lockInstallationBudget(
+    transaction,
+    input.installationId,
+  );
+  const publication = await transaction.reviewProgressPublicationV1.findUnique({
+    where: {
+      workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
+        input.scope,
+    },
+    select: {
+      claimUntil: true,
+      desiredVersion: true,
+      publishedVersion: true,
+      commentId: true,
+    },
+  });
+  if (
+    (publication !== null &&
+      ((publication.claimUntil !== null && publication.claimUntil > lockedAt) ||
+        publication.desiredVersion > publication.publishedVersion)) ||
+    maxDate(budget.nextMutationAt, budget.cooldownUntil) > lockedAt
+  ) {
+    return { allowed: false };
+  }
+  await transaction.reviewProgressInstallationBudgetV1.update({
+    where: { githubInstallationId: input.installationId },
+    data: {
+      nextMutationAt: new Date(lockedAt.getTime() + input.minimumIntervalMs),
+      updatedAt: lockedAt,
+    },
+  });
+  return { allowed: true, commentId: publication?.commentId ?? null };
+}
+
 /** Acquire the installation row lock before inspecting its budget. */
 async function lockInstallationBudget(
   transaction: Prisma.TransactionClient,

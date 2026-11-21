@@ -564,6 +564,130 @@ describe("GitHubActionsReviewRequestedDispatchGateway", () => {
   });
 });
 
+describe("GitHubActionsReviewRequestedDispatchGateway.inspectRunnerWait", () => {
+  const queuedJob = {
+    run_id: 701,
+    run_attempt: 1,
+    status: "queued",
+    runner_id: 0,
+    runner_name: "",
+    steps: [],
+  };
+  const inspect = (
+    jobs: unknown,
+    options: { runStatus?: string; pullRequest?: object } = {},
+  ) =>
+    gatewayWith(async (route: string) => {
+      if (route.endsWith("/jobs")) return { data: jobs };
+      if (route.includes("/actions/runs/")) {
+        return {
+          data: {
+            id: 701,
+            run_attempt: 1,
+            event: "workflow_dispatch",
+            display_title: "ReviewRouter review request-1",
+            status: options.runStatus ?? "queued",
+            conclusion: options.runStatus === "completed" ? "cancelled" : null,
+            path: ".github/workflows/reviewrouter-review.yml",
+          },
+        };
+      }
+      return { data: options.pullRequest ?? pullRequestFixture() };
+    }).inspectRunnerWait({
+      intent: {
+        ...intentFixture(),
+        state: ReviewRequestedIntentState.AwaitingAuthorization,
+        claim: null,
+        sourceRunId: "701",
+        sourceRunAttempt: "1",
+      },
+    });
+
+  it("reports a run whose only job is queued without a runner", async () => {
+    await expect(
+      inspect({ total_count: 1, jobs: [queuedJob] }),
+    ).resolves.toEqual({
+      waitingForRunner: true,
+      neverStarted: true,
+      revisionCurrent: true,
+    });
+    // GitHub also reports a queued job's runner as null.
+    await expect(
+      inspect({
+        total_count: 1,
+        jobs: [{ ...queuedJob, runner_id: null, runner_name: null }],
+      }),
+    ).resolves.toMatchObject({ waitingForRunner: true });
+  });
+
+  it.each([
+    ["has a runner id", { runner_id: 1000409855 }],
+    ["has a runner name", { runner_name: "GitHub Actions 1000409855" }],
+    ["started a step", { steps: [{ started_at: "2026-11-21T07:11:59Z" }] }],
+  ])("does not wait for a job that %s", async (_name, change) => {
+    await expect(
+      inspect({ total_count: 1, jobs: [{ ...queuedJob, ...change }] }),
+    ).resolves.toMatchObject({ waitingForRunner: false, neverStarted: false });
+  });
+
+  it("does not treat a job waiting for an environment approval as queued", async () => {
+    await expect(
+      inspect({ total_count: 1, jobs: [{ ...queuedJob, status: "waiting" }] }),
+    ).resolves.toMatchObject({ waitingForRunner: false, neverStarted: true });
+  });
+
+  it("keeps a cancelled run without a runner as never started", async () => {
+    await expect(
+      inspect(
+        { total_count: 1, jobs: [{ ...queuedJob, status: "completed" }] },
+        { runStatus: "completed" },
+      ),
+    ).resolves.toEqual({
+      waitingForRunner: false,
+      neverStarted: true,
+      revisionCurrent: true,
+    });
+  });
+
+  it("reports a closed or moved pull request as not current", async () => {
+    await expect(
+      inspect(
+        { total_count: 1, jobs: [queuedJob] },
+        { pullRequest: { ...pullRequestFixture(), state: "closed" } },
+      ),
+    ).resolves.toMatchObject({ revisionCurrent: false });
+    await expect(
+      inspect(
+        { total_count: 1, jobs: [queuedJob] },
+        {
+          pullRequest: {
+            ...pullRequestFixture(),
+            head: { ...pullRequestFixture().head, sha: "e".repeat(40) },
+          },
+        },
+      ),
+    ).resolves.toMatchObject({ revisionCurrent: false });
+  });
+
+  it.each([
+    ["no jobs", { total_count: 0, jobs: [] }],
+    ["a partial page", { total_count: 2, jobs: [queuedJob] }],
+    ["another run", { total_count: 1, jobs: [{ ...queuedJob, run_id: 9 }] }],
+    [
+      "another attempt",
+      { total_count: 1, jobs: [{ ...queuedJob, run_attempt: 2 }] },
+    ],
+    [
+      "a job without steps",
+      { total_count: 1, jobs: [{ ...queuedJob, steps: null }] },
+    ],
+  ])("refuses to prove anything from %s", async (_name, jobs) => {
+    await expect(inspect(jobs)).rejects.toThrow(
+      "review_requested_runner_inspection_invalid",
+    );
+  });
+});
+
 function gatewayWith(
   request: (
     route: string,

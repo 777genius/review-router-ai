@@ -147,6 +147,15 @@ export type DeferReviewRequestedResolutionCommand = {
   readonly nextResolutionAt: Date;
 };
 
+export type ExtendReviewRequestedQueuedRunWaitCommand = {
+  readonly requestId: string;
+  readonly expectedVersion: bigint;
+  readonly now: Date;
+  /** Added to the current deadline, capped by the queued-wait limit. */
+  readonly windowMs: number;
+  readonly nextResolutionAt: Date;
+};
+
 export type ReviewRequestedSourceRunIdentity = ReviewExecutionScope & {
   readonly sourceRunId: string;
   readonly sourceRunAttempt: string;
@@ -162,6 +171,14 @@ export interface ReviewRequestedDispatchCleanupTargetPort {
     readonly status: ReviewRequestedTransitionStatus;
     readonly intent?: ReviewRequestedIntent | undefined;
   }>;
+}
+
+export interface ReviewRequestedNewerRequestQueryPort {
+  /**
+   * Whether the pull request got another review request at or after this one,
+   * other than events that joined this request's run.
+   */
+  hasNewerRequestInScope(intent: ReviewRequestedIntent): Promise<boolean>;
 }
 
 export interface ReviewRequestedIntentQueryPort {
@@ -236,6 +253,12 @@ export interface ReviewRequestedIntentCommandPort {
     readonly status: ReviewRequestedTransitionStatus;
     readonly intent?: ReviewRequestedIntent | undefined;
   }>;
+  extendQueuedRunWait(
+    command: ExtendReviewRequestedQueuedRunWaitCommand,
+  ): Promise<{
+    readonly status: ReviewRequestedTransitionStatus;
+    readonly intent?: ReviewRequestedIntent | undefined;
+  }>;
 }
 
 export interface ReviewRequestedIntentPrunerPort {
@@ -256,6 +279,16 @@ export interface ReviewRequestedPreparedDispatchPort {
   /** The only potentially effect-bearing call on a fully prepared dispatch. */
   submit(): Promise<ReviewRequestedDispatchSubmissionResult>;
 }
+
+/** GitHub facts about a dispatched run that no run has authorized yet. */
+export type ReviewRequestedRunnerWaitInspection = Readonly<{
+  /** The run attempt is not completed and every job is queued without a runner. */
+  waitingForRunner: boolean;
+  /** No job of the run attempt was ever given a runner or started a step. */
+  neverStarted: boolean;
+  /** The pull request is open and its head and base equal the request revision. */
+  revisionCurrent: boolean;
+}>;
 
 export interface ReviewRequestedDispatchGatewayPort {
   /** Resolve repository, credentials, and transport before durable submission. */
@@ -279,6 +312,10 @@ export interface ReviewRequestedDispatchGatewayPort {
   inspectKnownRun(input: { readonly intent: ReviewRequestedIntent }): Promise<{
     readonly status: ReviewRequestedDispatchRunStatus;
   }>;
+  /** Throws when GitHub does not answer plainly; callers then do not wait longer. */
+  inspectRunnerWait(input: {
+    readonly intent: ReviewRequestedIntent;
+  }): Promise<ReviewRequestedRunnerWaitInspection>;
   cancelKnownRun(input: {
     readonly intent: ReviewRequestedIntent;
   }): Promise<void>;

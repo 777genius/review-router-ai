@@ -903,6 +903,90 @@ export function deferReviewRequestedResolution(input: {
   };
 }
 
+/**
+ * How long after dispatch a run that GitHub has not given a runner may keep
+ * its place in the GitHub queue (plan 88): the first window and at most two
+ * more of the 30 minute default.
+ */
+export const reviewRequestedMaxQueuedRunWaitMs = 5_400_000;
+
+/** The latest authorization deadline of a run that is still waiting for a runner. */
+export function reviewRequestedQueuedRunWaitLimit(
+  intent: Pick<ReviewRequestedIntent, "submissionStartedAt">,
+): Date | null {
+  return intent.submissionStartedAt === null
+    ? null
+    : new Date(
+        intent.submissionStartedAt.getTime() +
+          reviewRequestedMaxQueuedRunWaitMs,
+      );
+}
+
+/**
+ * Gives a dispatched run that is still waiting for a GitHub runner one more
+ * authorization window instead of stopping the request, so the run keeps its
+ * place in the GitHub queue (plan 88). Only an open window is extended: once
+ * the deadline passed, a newer request for the same revision may already run.
+ * Only a request that no run has reached (admission not evaluated, no
+ * authorization or execution) is extended, the new deadline never passes the
+ * queued-wait limit, and an extension shorter than half a window is not worth
+ * a runner that would arrive too late for admission. The caller must have
+ * proven from GitHub that no job got a runner.
+ */
+export function extendReviewRequestedQueuedRunWait(input: {
+  readonly intent: ReviewRequestedIntent;
+  readonly expectedVersion: bigint;
+  readonly now: Date;
+  readonly windowMs: number;
+  readonly nextResolutionAt: Date;
+}): ReviewRequestedTransitionDecision {
+  assertDate(input.now, "queued_wait_extended_at");
+  assertDate(input.nextResolutionAt, "next_resolution_at");
+  assertPositiveSafeInteger(input.windowMs, "queued_wait_window_ms");
+  const intent = input.intent;
+  const deadline = intent.resolutionDeadlineAt;
+  const limit = reviewRequestedQueuedRunWaitLimit(intent);
+  if (
+    intent.version !== input.expectedVersion ||
+    intent.state !== ReviewRequestedIntentState.AwaitingAuthorization ||
+    intent.admission.state !== ReviewRequestAdmissionState.NotEvaluated ||
+    intent.authorizationId !== null ||
+    intent.executionId !== null ||
+    intent.sourceRunId === null ||
+    deadline === null ||
+    limit === null ||
+    input.now >= deadline
+  ) {
+    return { status: ReviewRequestedTransitionDecisionStatus.Conflict };
+  }
+  const resolutionDeadlineAt = new Date(
+    Math.min(deadline.getTime() + input.windowMs, limit.getTime()),
+  );
+  if (
+    resolutionDeadlineAt.getTime() - deadline.getTime() < input.windowMs / 2 ||
+    input.nextResolutionAt <= input.now ||
+    input.nextResolutionAt > resolutionDeadlineAt
+  ) {
+    return { status: ReviewRequestedTransitionDecisionStatus.Conflict };
+  }
+  return {
+    status: ReviewRequestedTransitionDecisionStatus.Applied,
+    intent: {
+      ...intent,
+      version: intent.version + 1n,
+      nextResolutionAt: new Date(input.nextResolutionAt),
+      resolutionDeadlineAt,
+      updatedAt: new Date(input.now),
+    },
+  };
+}
+
+function assertPositiveSafeInteger(value: number, field: string): void {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${field}_invalid`);
+  }
+}
+
 function terminalizeReviewRequestedIntent(input: {
   readonly intent: ReviewRequestedIntent;
   readonly expectedVersion: bigint;

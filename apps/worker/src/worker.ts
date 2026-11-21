@@ -17,6 +17,8 @@ import {
   reviewRequestIngressEventVersion,
   reviewRequestedDispatchCleanupEventType,
   reviewRequestedDispatchCleanupEventVersion,
+  reviewRequestedStartNoticeEventType,
+  reviewRequestedStartNoticeEventVersion,
 } from "@reviewrouter/features-review-executions";
 import { PrismaReviewExecutionStore } from "@reviewrouter/features-review-executions/composition";
 import {
@@ -328,6 +330,10 @@ const knownOutboxHandlers = [
   {
     type: reviewRequestedDispatchCleanupEventType,
     version: reviewRequestedDispatchCleanupEventVersion,
+  },
+  {
+    type: reviewRequestedStartNoticeEventType,
+    version: reviewRequestedStartNoticeEventVersion,
   },
   reviewStatisticsHandlerDefinition,
   {

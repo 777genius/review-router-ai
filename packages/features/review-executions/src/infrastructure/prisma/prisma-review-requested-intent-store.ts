@@ -3,6 +3,7 @@ import {
   reviewRequestedDispatchCleanupEventType,
   bindReviewRequestedDispatchCleanupTarget,
 } from "../../domain/review-requested-dispatch-cleanup";
+import { reviewRequestedStartNoticeEvent } from "../../domain/review-requested-start-notice";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import {
   ReviewRequestedClaimStatus,
@@ -14,6 +15,7 @@ import {
   type CancelReviewRequestedPreAdmissionCommand,
   type DeferReviewRequestedResolutionCommand,
   type EnsureReviewRequestedRerunIntentCommand,
+  type ExtendReviewRequestedQueuedRunWaitCommand,
   type LinkReviewRequestedAdmissionCommand,
   type RecordReviewRequestedDispatchCommand,
   type RecordReviewRequestedAdmissionDecisionCommand,
@@ -23,6 +25,7 @@ import {
   type ReviewRequestedIntentPrunerPort,
   type ReviewRequestedIntentQueryPort,
   type ReviewRequestedDispatchCleanupTargetPort,
+  type ReviewRequestedNewerRequestQueryPort,
 } from "../../application/ports/review-requested-intent-ports";
 import {
   cancelReviewRequestedPreAdmissionIntent,
@@ -41,6 +44,7 @@ import {
   decideReviewRequestedDispatchRecovery,
   decideReviewRequestedRegistration,
   deferReviewRequestedResolution,
+  extendReviewRequestedQueuedRunWait,
   type ReviewRequestedIntent,
 } from "../../domain/review-requested-intent";
 import {
@@ -87,7 +91,8 @@ export class PrismaReviewRequestedIntentStore
     ReviewRequestedIntentQueryPort,
     ReviewRequestedIntentCommandPort,
     ReviewRequestedDispatchCleanupTargetPort,
-    ReviewRequestedIntentPrunerPort
+    ReviewRequestedIntentPrunerPort,
+    ReviewRequestedNewerRequestQueryPort
 {
   constructor(
     private readonly prisma: PrismaClient,
@@ -123,6 +128,24 @@ export class PrismaReviewRequestedIntentStore
       orderBy: [{ createdAt: "asc" }, { requestId: "asc" }],
     });
     return record === null ? null : intentToDomain(record);
+  }
+
+  async hasNewerRequestInScope(
+    intent: ReviewRequestedIntent,
+  ): Promise<boolean> {
+    const newer = await this.prisma.reviewRequestedIntent.findFirst({
+      where: {
+        ...scopeWhere(intent),
+        requestId: { not: intent.requestId },
+        createdAt: { gte: intent.createdAt },
+        OR: [
+          { supersededByRequestId: null },
+          { supersededByRequestId: { not: intent.requestId } },
+        ],
+      },
+      select: { requestId: true },
+    });
+    return newer !== null;
   }
 
   async findBySourceRunIdentity(input: {
@@ -764,6 +787,67 @@ export class PrismaReviewRequestedIntentStore
     );
   }
 
+  /**
+   * Under the pull request lock, like every other dispatch transition, so a
+   * request registered for the same revision cannot interleave (plan 88).
+   * The first extension also queues the "waiting for a runner" status.
+   */
+  async extendQueuedRunWait(
+    command: ExtendReviewRequestedQueuedRunWaitCommand,
+  ) {
+    const observed = await this.prisma.reviewRequestedIntent.findUnique({
+      where: { requestId: command.requestId },
+    });
+    if (observed === null) {
+      return { status: ReviewRequestedTransitionStatus.Missing };
+    }
+    try {
+      return await this.prisma.$transaction(
+        async (transaction) => {
+          await lockScope(transaction, intentToDomain(observed));
+          await lockIntent(transaction, command.requestId);
+          const record = await transaction.reviewRequestedIntent.findUnique({
+            where: { requestId: command.requestId },
+          });
+          if (record === null) {
+            return { status: ReviewRequestedTransitionStatus.Missing };
+          }
+          const intent = intentToDomain(record);
+          const now = await databaseNow(transaction);
+          const decision = extendReviewRequestedQueuedRunWait({
+            intent,
+            expectedVersion: command.expectedVersion,
+            now,
+            windowMs: command.windowMs,
+            nextResolutionAt: databaseRelativeDate(
+              now,
+              command.now,
+              command.nextResolutionAt,
+              "next_resolution_deadline",
+            ),
+          });
+          if (
+            decision.status !== ReviewRequestedTransitionDecisionStatus.Applied
+          ) {
+            return { status: ReviewRequestedTransitionStatus.Conflict };
+          }
+          await this.updateIntent(transaction, intent, decision.intent);
+          await enqueueStartNotice(transaction, decision.intent);
+          return {
+            status: ReviewRequestedTransitionStatus.Applied,
+            intent: decision.intent,
+          };
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (error) {
+      if (isConcurrencyError(error)) {
+        return { status: ReviewRequestedTransitionStatus.StaleClaim };
+      }
+      throw error;
+    }
+  }
+
   async cancelPreAdmission(
     command: CancelReviewRequestedPreAdmissionCommand,
   ): Promise<{ readonly cancelled: number }> {
@@ -904,6 +988,7 @@ export class PrismaReviewRequestedIntentStore
             ReviewRequestedDispatchRecoveryDecisionStatus.Terminalized
           ) {
             await enqueueDispatchCleanup(transaction, decision.intent);
+            await enqueueStartNotice(transaction, decision.intent);
           }
           return {
             status: ReviewRequestedTransitionStatus.Applied,
@@ -1206,6 +1291,19 @@ function isConcurrencyError(error: unknown): boolean {
 }
 
 class ConcurrentIntentMutationError extends Error {}
+
+/** One status per request and kind; a later extension adds nothing new. */
+async function enqueueStartNotice(
+  transaction: Transaction,
+  intent: ReviewRequestedIntent,
+): Promise<void> {
+  const event = reviewRequestedStartNoticeEvent(intent);
+  if (event)
+    await transaction.outboxEvent.createMany({
+      data: [event],
+      skipDuplicates: true,
+    });
+}
 
 async function enqueueDispatchCleanup(
   transaction: Transaction,

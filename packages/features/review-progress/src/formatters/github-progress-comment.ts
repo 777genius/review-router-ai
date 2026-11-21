@@ -129,6 +129,82 @@ export function formatGithubProgressComment(
   ].join("\n");
 }
 
+/**
+ * Plan 88: the progress comment while the review's GitHub Actions job is
+ * still queued without a runner. The review's own progress replaces it once
+ * the job starts.
+ */
+export function formatGithubProgressWaitingForRunnerComment(input: {
+  readonly headSha: string;
+  readonly queuedSince: string;
+  readonly maxWaitMinutes: number;
+  readonly updatedAt: string;
+}): string {
+  assertNoticeMinutes(input.maxWaitMinutes);
+  return startNoticeComment(
+    "Waiting for a runner",
+    [
+      `The review of commit \`${shortHeadSha(input.headSha)}\` has been waiting for a GitHub Actions runner since ${formatUtc(input.queuedSince)}. It starts by itself when GitHub assigns one; ReviewRouter keeps it queued for up to ${input.maxWaitMinutes} minutes.`,
+    ],
+    input.updatedAt,
+  );
+}
+
+/**
+ * Plan 88: the progress comment of a review whose GitHub Actions job never got
+ * a runner. The next review of the pull request replaces it.
+ */
+export function formatGithubProgressNotStartedComment(input: {
+  readonly headSha: string;
+  readonly waitedMinutes: number;
+  readonly runUrl: string;
+  readonly updatedAt: string;
+}): string {
+  assertNoticeMinutes(input.waitedMinutes);
+  if (!/^https:\/\/github\.com\/[^\s()]+$/u.test(input.runUrl)) {
+    throw new Error("progress_start_notice_run_url_invalid");
+  }
+  return startNoticeComment(
+    "Not started",
+    [
+      `The review of commit \`${shortHeadSha(input.headSha)}\` did not start: GitHub Actions did not give the review job a runner within ${input.waitedMinutes} minutes.`,
+      "",
+      `To try again, push a new commit or re-run [the ReviewRouter run](${input.runUrl}).`,
+    ],
+    input.updatedAt,
+  );
+}
+
+function startNoticeComment(
+  phase: string,
+  details: readonly string[],
+  updatedAt: string,
+): string {
+  return [
+    githubProgressCommentMarker,
+    "## ReviewRouter",
+    "",
+    `**Phase:** ${phase}`,
+    "",
+    ...details,
+    "",
+    `Last update: ${formatUtc(updatedAt)}`,
+  ].join("\n");
+}
+
+function shortHeadSha(headSha: string): string {
+  if (!/^[0-9a-f]{40}$/iu.test(headSha)) {
+    throw new Error("progress_start_notice_head_invalid");
+  }
+  return headSha.slice(0, 12);
+}
+
+function assertNoticeMinutes(minutes: number): void {
+  if (!Number.isSafeInteger(minutes) || minutes < 1) {
+    throw new Error("progress_start_notice_minutes_invalid");
+  }
+}
+
 function phaseLabel(phase: ProgressPhase, terminal: ProgressTerminal): string {
   if (phase !== "terminal") {
     return {

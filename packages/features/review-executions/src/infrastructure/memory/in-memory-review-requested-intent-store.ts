@@ -8,6 +8,7 @@ import {
   type CancelReviewRequestedPreAdmissionCommand,
   type DeferReviewRequestedResolutionCommand,
   type EnsureReviewRequestedRerunIntentCommand,
+  type ExtendReviewRequestedQueuedRunWaitCommand,
   type LinkReviewRequestedAdmissionCommand,
   type RecordReviewRequestedAdmissionDecisionCommand,
   type RecordReviewRequestedDispatchCommand,
@@ -16,6 +17,7 @@ import {
   type ReviewRequestedIntentCommandPort,
   type ReviewRequestedIntentPrunerPort,
   type ReviewRequestedIntentQueryPort,
+  type ReviewRequestedNewerRequestQueryPort,
 } from "../../application/ports/review-requested-intent-ports";
 import type { ReviewExecutionFencingTokenSourcePort } from "../../application/ports/review-execution-ports";
 import {
@@ -40,6 +42,7 @@ import {
   decideReviewRequestedDispatchRecovery,
   decideReviewRequestedRegistration,
   deferReviewRequestedResolution,
+  extendReviewRequestedQueuedRunWait,
   type ReviewRequestedIntent,
 } from "../../domain/review-requested-intent";
 import {
@@ -52,7 +55,8 @@ export class InMemoryReviewRequestedIntentStore
   implements
     ReviewRequestedIntentQueryPort,
     ReviewRequestedIntentCommandPort,
-    ReviewRequestedIntentPrunerPort
+    ReviewRequestedIntentPrunerPort,
+    ReviewRequestedNewerRequestQueryPort
 {
   private readonly intents = new Map<string, ReviewRequestedIntent>();
   private readonly deliveryIndex = new Map<string, string>();
@@ -87,6 +91,19 @@ export class InMemoryReviewRequestedIntentStore
     const requestId = this.pendingByScope.get(scopeKey(scope));
     const intent = requestId ? this.intents.get(requestId) : undefined;
     return intent ? cloneIntent(intent) : null;
+  }
+
+  async hasNewerRequestInScope(
+    intent: ReviewRequestedIntent,
+  ): Promise<boolean> {
+    await this.transactionTail;
+    return [...this.intents.values()].some(
+      (other) =>
+        other.requestId !== intent.requestId &&
+        scopeKey(other) === scopeKey(intent) &&
+        other.createdAt >= intent.createdAt &&
+        other.supersededByRequestId !== intent.requestId,
+    );
   }
 
   async findBySourceRunIdentity(input: {
@@ -615,6 +632,29 @@ export class InMemoryReviewRequestedIntentStore
         return { status: ReviewRequestedTransitionStatus.Missing };
       }
       const decision = deferReviewRequestedResolution({
+        intent,
+        ...command,
+      });
+      if (decision.status !== ReviewRequestedTransitionDecisionStatus.Applied) {
+        return { status: ReviewRequestedTransitionStatus.Conflict };
+      }
+      this.intents.set(intent.requestId, decision.intent);
+      return {
+        status: ReviewRequestedTransitionStatus.Applied,
+        intent: cloneIntent(decision.intent),
+      };
+    });
+  }
+
+  async extendQueuedRunWait(
+    command: ExtendReviewRequestedQueuedRunWaitCommand,
+  ) {
+    return this.atomic(() => {
+      const intent = this.intents.get(command.requestId);
+      if (!intent) {
+        return { status: ReviewRequestedTransitionStatus.Missing };
+      }
+      const decision = extendReviewRequestedQueuedRunWait({
         intent,
         ...command,
       });
