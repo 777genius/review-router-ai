@@ -14,6 +14,8 @@
 - Canonical contract and parallel plans: `agent-teams-ai/account-gateway`,
   `docs/reference/native-account-contracts.md` and
   `docs/reference/native-account-integration-plan.md`.
+- Production rollout plan: [bundle 6 plan](2026-11-21-bundle6-plan.md)
+  (native `14f500eb`, Gateway 116, Caddy SDK routes, migration 000160, image).
 - Last updated: `2026-11-21`.
 
 ## Environment status
@@ -189,7 +191,8 @@ rollback must not create a second facts store.
 
 ## Execution log
 
-| Time       | Target           | Step and observed result                                                                                                                                                                              | Next action                                                                                                                                                  |
-| ---------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 2026-11-19 | local source     | Additional plan review identified the final post-hydration privacy fence; canonical contract updated. No runtime checks claimed yet.                                                                  | Implement M1 and qualify the exact SDK integration.                                                                                                          |
-| 2026-11-19 | local / isolated | Source `43e475d455e2931b39adef2652c5b8fe921c693e`: strict scoped metadata typecheck, layout/profile and AST boundary checks passed; 92 focused runtime tests and 12 metadata PostgreSQL cases passed. | Final CI and exact paired native/CLI qualification are tracked in PR #914 and Gateway PR #116; no complete joined pass or deployment is claimed by this row. |
+| Time       | Target                 | Step and observed result                                                                                                                                                                                                              | Next action                                                                                                                                                  |
+| ---------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 2026-11-19 | local source           | Additional plan review identified the final post-hydration privacy fence; canonical contract updated. No runtime checks claimed yet.                                                                                                  | Implement M1 and qualify the exact SDK integration.                                                                                                          |
+| 2026-11-19 | local / isolated       | Source `43e475d455e2931b39adef2652c5b8fe921c693e`: strict scoped metadata typecheck, layout/profile and AST boundary checks passed; 92 focused runtime tests and 12 metadata PostgreSQL cases passed.                                 | Final CI and exact paired native/CLI qualification are tracked in PR #914 and Gateway PR #116; no complete joined pass or deployment is claimed by this row. |
+| 2026-11-21 | production (read-only) | Merged as `9c52c250`; main CI 44877576086 green. Read-only baseline: the Caddy management site answers 404 to `/v1/account-info/read` and `/v2/provider-connection-capabilities`; ledger 168, 33 personal operations, no import rows. | Follow the [bundle 6 plan](2026-11-21-bundle6-plan.md); production stays `pending`.                                                                          |
