@@ -216,11 +216,19 @@ export function reconciliationFailure(
       mutationFailure.metadata.retryNotBefore,
       observationFailure.metadata.retryNotBefore,
     );
+    // A typed server-side throttle may have landed even when the read fails.
+    // Only a definite 4xx rejection can clear a pre-existing landed marker.
+    const mutationMetadata = { ...mutationFailure.metadata };
+    if (isDefinitelyRejectedMutation(mutationFailure)) {
+      delete mutationMetadata.mutationMayHaveLanded;
+    } else {
+      mutationMetadata.mutationMayHaveLanded = true;
+    }
     return new ReviewProgressGitHubError(
       mutationFailure.kind,
       mutationFailure.message,
       {
-        ...mutationFailure.metadata,
+        ...mutationMetadata,
         ...(retryAt ? { retryAt } : {}),
         ...(retryNotBefore ? { retryNotBefore } : {}),
         ...(mutationFailure.metadata.retryAt

@@ -479,6 +479,43 @@ describe("Review progress GitHub retry policy", () => {
     }
   });
 
+  it("fences a typed server throttle when reconciliation also fails", () => {
+    const throttle = new ReviewProgressGitHubError(
+      "rate_limited",
+      "server_throttle",
+      {
+        status: 503,
+        retryable: true,
+        retryNotBefore: new Date("2026-08-12T12:01:00.000Z"),
+        retryAt: new Date("2026-08-12T12:01:00.250Z"),
+      },
+    );
+    const failure = reconciliationFailure(
+      throttle,
+      { status: 502 },
+      () => now,
+      () => 0,
+    );
+    expect(failure.kind).toBe("rate_limited");
+    expect(failure.metadata.mutationMayHaveLanded).toBe(true);
+    expect(failure.metadata.retryAt).toEqual(
+      new Date("2026-08-12T12:01:00.250Z"),
+    );
+
+    const rejected = new ReviewProgressGitHubError(
+      "rate_limited",
+      "client_throttle",
+      { status: 429, retryable: true },
+    );
+    const rejection = reconciliationFailure(
+      rejected,
+      { status: 502 },
+      () => now,
+      () => 0,
+    );
+    expect(rejection.metadata.mutationMayHaveLanded).toBeUndefined();
+  });
+
   it("keeps definite 4xx rejections distinct from uncertain writes", () => {
     const rejected = new ReviewProgressGitHubError(
       "ambiguous_mutation",
