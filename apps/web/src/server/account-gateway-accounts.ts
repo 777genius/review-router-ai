@@ -6,6 +6,7 @@ import {
   oauthMethodFor,
 } from "./legacy-oauth-credentials";
 import { createNativeConnectionAdapter } from "./native-connection-adapter";
+import { createNativeConnectionManagementClient } from "./native-connection-client";
 import {
   connectionMethodAllowed,
   type CredentialImportMethod,
@@ -13,7 +14,6 @@ import {
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import * as c from "@agent-teams/account-gateway/contracts";
 import {
-  createManagementClient,
   createConsumerControlClient,
   type ConsumerControlConfig,
   GatewayError,
@@ -2352,12 +2352,10 @@ export function accountGatewayProfilesConfiguration() {
 function configuration() {
   return {
     ...accountGatewayProfilesConfiguration(),
-    gateway: createManagementClient({
+    gateway: createNativeConnectionManagementClient({
       role: "management",
       origin: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "",
       token: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN ?? "",
-      timeoutMs: 10000,
-      responseBytes: 65536,
     }),
   };
 }

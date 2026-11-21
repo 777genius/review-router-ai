@@ -16,11 +16,11 @@ import {
   accountLimitsRefresher,
 } from "./account-limits-composition";
 import { createAccountLifecycleReader } from "./account-lifecycle-reader";
+import { createNativeConnectionConsumerControlClient } from "./native-connection-client";
 import { createHash } from "node:crypto";
 import * as c from "@agent-teams/account-gateway/contracts";
 import {
   createLifecycleV3Client,
-  createConsumerControlClient,
   createManagementClient,
 } from "@agent-teams/account-gateway/http";
 import {
@@ -106,7 +106,7 @@ export async function productionPersonalAccounts() {
     timeoutMs: 10000,
     responseBytes: accountModelCatalogResponseBytes,
   };
-  const control = createConsumerControlClient(controlSettings);
+  const control = createNativeConnectionConsumerControlClient(controlSettings);
   const lifecycleReader = createAccountLifecycleReader({
     contract: "account-lifecycle/v3",
     legacy: control,
