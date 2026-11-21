@@ -110,12 +110,16 @@ export function harden(path: string, before: string): string {
     case "engine/memory_engine.py":
       return replace(
         replace(
-          before,
-          '            full_error = f"{error_message}\\n\\nTraceback:\\n{error_traceback}"\n            truncated_error = full_error[:5000] if len(full_error) > 5000 else full_error',
-          '            truncated_error = "native_task_failed"',
+          replace(
+            before,
+            '            full_error = f"{error_message}\\n\\nTraceback:\\n{error_traceback}"\n            truncated_error = full_error[:5000] if len(full_error) > 5000 else full_error',
+            '            truncated_error = "native_task_failed"',
+          ),
+          'return {"status": "unhealthy", "database": "error", "error": repr(e)}',
+          'return {"status": "unhealthy", "database": "error", "error": type(e).__name__}',
         ),
-        'return {"status": "unhealthy", "database": "error", "error": repr(e)}',
-        'return {"status": "unhealthy", "database": "error", "error": type(e).__name__}',
+        "                ORDER BY created_at DESC\n                LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}",
+        "                ORDER BY created_at DESC, operation_id DESC\n                LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}",
       );
     case "engine/memories/pg/links.py":
       return replace(

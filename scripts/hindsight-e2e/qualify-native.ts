@@ -16,16 +16,16 @@ import { qualifyProductionCleanup } from "./production-cleanup-story.ts";
 import { qualifyNativeProvenance } from "./provenance-qualification.ts";
 import { installNativeProvenance } from "./native-provenance.ts";
 import { nativeSqlArguments } from "./operator-host.ts";
-import { terminalizeDrainedCleanupOperations } from "./cleanup-inventory.ts";
+import {
+  appendCleanupOperationPage,
+  leafFirstOperations,
+  terminalizeDrainedCleanupOperations,
+  type CleanupOperation,
+} from "./cleanup-inventory.ts";
 import { assertNativeOperationAbsent } from "./native-http.ts";
 
-type Operation = {
-  operation_id: string;
-  status: string;
-  task_payload?: unknown;
+type Operation = CleanupOperation & {
   error_message?: string | null;
-  child_operations?: Operation[];
-  result_metadata?: unknown;
 };
 type Fact = {
   id: string;
@@ -852,30 +852,69 @@ export async function qualifyNative() {
       undefined,
       404,
     );
+    // All executors are drained and the cleanup API cannot execute queued work.
+    // Force timestamp ties only in this disposable bank, without touching task
+    // state/payload, so actual API pagination must exercise its unique tie break.
+    await sql(
+      `UPDATE async_operations SET created_at = '2026-01-02T03:04:05Z' WHERE bank_id = '${bank}'`,
+    );
+    const expectedOperationIds: unknown = JSON.parse(
+      await sql(
+        `SELECT coalesce(json_agg(operation_id ORDER BY operation_id DESC), '[]'::json) FROM async_operations WHERE bank_id = '${bank}'`,
+      ),
+    );
+    assert(
+      Array.isArray(expectedOperationIds) &&
+        expectedOperationIds.length > 1 &&
+        expectedOperationIds.length <= 10_000 &&
+        expectedOperationIds.every(
+          (id: unknown) =>
+            typeof id === "string" &&
+            /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(
+              id,
+            ),
+        ),
+      "Native fixture operation inventory is invalid",
+    );
     const discovered = new Map<string, Operation>();
-    let offset = 0;
-    let total = Infinity;
-    while (offset < total) {
+    const listed: CleanupOperation[] = [];
+    let total: number | undefined;
+    do {
       const page = await request<{ operations: Operation[]; total: number }>(
-        path(`/operations?limit=1&offset=${offset}`),
+        path(`/operations?limit=1&offset=${listed.length}`),
       );
-      total = page.total;
+      total = appendCleanupOperationPage(listed, page, total);
       for (const operation of page.operations) {
         const full = await request<Operation>(
           path(`/operations/${operation.operation_id}?include_payload=true`),
         );
+        assert(
+          full.operation_id === operation.operation_id,
+          "Native operation readback changed the listed identity",
+        );
         discovered.set(full.operation_id, full);
       }
-      offset += page.operations.length;
-      assert(
-        page.operations.length || offset >= total,
-        "Native operation pagination stopped early",
-      );
-    }
+    } while (listed.length < total);
     assert(
-      discovered.size >= retainedIds.length,
+      discovered.size === total &&
+        total === expectedOperationIds.length &&
+        listed.every(
+          (operation, index) =>
+            operation.operation_id === expectedOperationIds[index],
+        ) &&
+        retainedIds.every((id) => discovered.has(id)) &&
+        discovered.has(late) &&
+        discovered.has(sentinel),
       "Historical/queued operation discovery incomplete",
     );
+    const operationPagination = {
+      pageSize: 1,
+      pages: listed.length,
+      uniqueOperations: discovered.size,
+      exactDatabaseInventory: true,
+      timestampTies: true,
+      allSubmittedOperationsIncluded: true,
+    };
     await terminalizeDrainedCleanupOperations(
       [...discovered.keys()],
       async (operationId) =>
@@ -887,16 +926,9 @@ export async function qualifyNative() {
       },
     );
     await request(path(`/documents/${document}`), "DELETE");
-    const ordered = [...discovered.values()].sort(
-      (a, b) =>
-        Number(Boolean(a.child_operations?.length)) -
-        Number(Boolean(b.child_operations?.length)),
-    );
-    for (const operation of ordered)
-      await request(
-        path(`/operations/${operation.operation_id}/delete`),
-        "DELETE",
-      );
+    const ordered = leafFirstOperations(discovered, new Set(discovered.keys()));
+    for (const operationId of ordered)
+      await request(path(`/operations/${operationId}/delete`), "DELETE");
     for (const operation of discovered.values())
       assertNativeOperationAbsent(
         await request(
@@ -944,6 +976,7 @@ export async function qualifyNative() {
     checkpoints.push(
       "all-executor-exit-and-db-session-closure",
       "same-image-resolved-maintenance-off-no-execution",
+      "timestamp-tied-native-pagination-exact-complete-database-inventory",
       "paginated-historical-parent-leaf-payload-cleanup",
       "forget-absence-after-native-worker-restart",
     );
@@ -1008,6 +1041,7 @@ export async function qualifyNative() {
       nativeRevision,
       imageId,
       postgresImage,
+      operationPagination,
       checkpoints,
       providerCalls: stub.calls,
       safeSinkCounts: counts,

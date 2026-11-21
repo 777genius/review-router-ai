@@ -11,6 +11,8 @@ remains authoritative for release gates, migration order, approvals, and tags.
 Task files add feature-specific instructions and actual environment evidence.
 They do not grant deployment permission or replace existing operational runbooks.
 
+Hindsight cleanup pagination: [native operation pages now use a unique timestamp tie breaker, and qualification verifies the complete inventory before deletion](2026-11-21-hindsight-operation-pagination.md), [PR #914](https://github.com/777genius/review-router-ai/pull/914) — private Hindsight image rollout; staging and production `pending`. No schema migration, user-data conversion or new configuration.
+
 <a id="current-coordinated-rollout-reconciliation-2026-11-14"></a>
 
 ## Current coordinated rollout reconciliation (2026-11-15)

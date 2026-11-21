@@ -44,6 +44,30 @@ model/mission/source-fidelity quality and product admission profile have their
 own qualification receipts. The portable adapter requires that deployment binding;
 a source fixture or a configuration flag alone never qualifies it.
 
+## Scoped operation-pagination correction
+
+The same pinned derivative also gives `list_operations` a unique ordering:
+`created_at DESC, operation_id DESC`. The upstream query orders only by
+`created_at`; native batch parents and children can share that timestamp, so
+different `LIMIT`/`OFFSET` pages can overlap or omit a row. This correction only
+orders equal-timestamp results. It does not change operation identity, filters,
+status, payload, cancellation, deletion, worker scheduling or retention.
+
+Preparation verifies the unchanged upstream preimage and applies one exact
+query anchor. A local regression executes the actual generated native SELECT
+against tied timestamps. The real API/PostgreSQL qualification additionally
+forces ties in its disposable bank only after executor drain, keeps one-row
+pages, and compares every returned ID with an independent database inventory.
+The qualifier reuses the production page validator and leaf-first traversal;
+overlap, changing totals, identity mismatches and omitted submitted operations
+fail before deletion. The exact `not_found` and empty-payload assertions remain
+unchanged, including the readback after worker restart.
+
+This is a bounded enumeration correction, separate from the diagnostic and
+strict-preview patches. It does not qualify live provider models or a deployed
+image. Remove it when a pinned upstream version provides a deterministic total
+order and passes the same tied-timestamp native qualification.
+
 ## Sinks covered
 
 | Sink                                                   | Qualified profile treatment                                                                                                                      |

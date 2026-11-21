@@ -195,6 +195,54 @@ except RuntimeError as error:
 });
 
 test(
+  "pinned native operation listing keeps timestamp ties stable across one-row pages",
+  { skip: !process.env.HINDSIGHT_SOURCE_CHECKOUT },
+  async () => {
+    const { files } = await prepare(process.env.HINDSIGHT_SOURCE_CHECKOUT!);
+    // Execute the exact patched native SELECT, not a copy of its ordering.
+    // SQLite supplies a local SQL regression; the native qualification repeats
+    // this boundary through the actual API and PostgreSQL after executor drain.
+    const code = String.raw`
+import ast, sqlite3, sys
+tree = ast.parse(sys.stdin.read())
+methods = [node for node in ast.walk(tree) if isinstance(node, ast.AsyncFunctionDef) and node.name == 'list_operations']
+assert len(methods) == 1
+queries = [node.value.value.args[0] for node in ast.walk(methods[0])
+           if isinstance(node, ast.Assign)
+           and any(isinstance(target, ast.Name) and target.id == 'operations' for target in node.targets)
+           and isinstance(node.value, ast.Await)
+           and isinstance(node.value.value, ast.Call)]
+assert len(queries) == 1
+query = eval(compile(ast.Expression(queries[0]), '<pinned-native-query>', 'eval'),
+             {'fq_table': lambda name: name, 'params': ['fixture-bank'], 'where_clause': 'bank_id = $1'})
+db = sqlite3.connect(':memory:')
+db.execute('CREATE TABLE async_operations (operation_id TEXT PRIMARY KEY, bank_id TEXT, operation_type TEXT, created_at TEXT, updated_at TEXT, status TEXT, error_message TEXT, result_metadata TEXT, retry_count INTEGER, next_retry_at TEXT)')
+ids = [f'00000000-0000-4000-8000-{number:012d}' for number in range(1, 6)]
+for number in [1, 3, 2, 4, 5]:
+    created_at = '2026-01-03' if number >= 4 else '2026-01-02'
+    db.execute('INSERT INTO async_operations (operation_id, bank_id, created_at) VALUES (?, ?, ?)', (ids[number - 1], 'fixture-bank', created_at))
+db.execute('INSERT INTO async_operations (operation_id, bank_id, created_at) VALUES (?, ?, ?)', ('ffffffff-ffff-4fff-8fff-ffffffffffff', 'other-bank', '2026-01-04'))
+actual = [db.execute(query, ('fixture-bank', 1, offset)).fetchone()[0] for offset in range(5)]
+assert actual == list(reversed(ids)), 'Native operation timestamp ties lack a deterministic total order'
+assert db.execute(query, ('fixture-bank', 1, 5)).fetchone() is None
+assert [row[0] for row in db.execute(query, ('fixture-bank', 100, 0))] == actual
+print('native_operation_pagination_verified')
+`;
+    const result = spawnSync("python3", ["-c", code], {
+      input: files["engine/memory_engine.py"]!.after,
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+    assert.equal(
+      result.status,
+      0,
+      "Pinned native operation pagination SQL regression failed",
+    );
+    assert.equal(result.stdout.trim(), "native_operation_pagination_verified");
+  },
+);
+
+test(
   "pinned native readiness error exposes its class without the poisoned DB message",
   { skip: !process.env.HINDSIGHT_SOURCE_CHECKOUT },
   async () => {
