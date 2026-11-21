@@ -67,6 +67,19 @@ imports, a new operations engine and production activation are outside scope.
 
 No rollout, activation or live-provider call has been performed by this task.
 
+### How the bundle 6 plan maps these steps (proposed, owner decision D2)
+
+The [bundle 6 plan](2026-11-21-bundle6-plan.md) runs steps 1-4 as: Caddy
+SDK routes, native `14f500eb`, Gateway 116, migration `000160`, then one image
+for all four roles. There is no switch that keeps import submissions off:
+native advertises the Codex import methods whenever Codex OAuth connect and
+dispatch are configured. Step 4 still holds because `fleet-overlay` stops every
+old container before any new one starts and only Web writes import rows, so no
+pre-M2 reader ever runs next to the new writer. The exact rollback revision is
+`a02b1607` only while the RR, Gateway kernel and native import counts are all
+zero, counted with writers stopped; after the first import the rollback target
+is `9c52c250` or a descendant of the reader boundary above, that is fix-forward.
+
 ## Qualification tooling maintenance
 
 The consumer now pins the merged runtime compiler maintenance revision

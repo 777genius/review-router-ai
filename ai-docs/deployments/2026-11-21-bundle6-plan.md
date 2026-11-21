@@ -70,13 +70,13 @@
   требует. Web уже имеет `REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN/TOKEN`,
   нового env #914 не вводит.
 - Native: процесс `native-ttl-f10a380-20261120/bin/account-gateway-native`,
-  SHA256 `d6ecc3d2633a44dc`. БД `ag_service_entry_native_484307d1` в
-  контейнере `review-router-account-gateway-pg17-484307d1` (PostgreSQL
+  SHA256 `d6ecc3d2633a44dc`. БД `ag_service_entry_native_484307d1867ab37b69a3d388adb9dc29` в
+  контейнере `review-router-account-gateway-pg17-484307d1867ab37b69a3d388adb9dc29` (PostgreSQL
   17.10): 19 MB, ledger 318 (последний `259_gateway_nvidia_build_chat_profile.sql`),
   28 аккаунтов (13 живых), `usage_logs` 0 строк, 17 OAuth connect intents
   (только `browser`/`device_code`: 5 completed, 4 expired, 8 unknown),
   таблиц 260 ещё нет.
-- Gateway kernel (`ag_service_entry_kernel_`, схема `ag_kernel`): 13 active,
+- Gateway kernel (`ag_service_entry_kernel_484307d1867ab37b69a3d388adb9dc29`, схема `ag_kernel`): 13 active,
   4 disabled, 9 quarantined аккаунтов; 12 операций `unknown` (9 create,
   3 reconnect, исторические); операций с `credentialImportMethod`: 0.
 - RR БД: 1 778 MB, 11 соединений, долгих транзакций нет; ledger 168; 70
@@ -101,6 +101,8 @@
   `777genius/platform-infra:deploy/review-router/apply-domain.sh`
   (`9f32a88c`, 4 170 байт) ровно строкой 90: в репозитории нет восьми путей
   capabilities/limits/models, которые прод уже использует.
+- Владелец всех 119 таблиц native и роль, под которой native работает: `rr_dmin`
+  (сессия native идёт под ней же).
 - Диск прода: 34 GB свободно (97 %), 246 образов. Worker host: 19 GB свободно.
 
 ## Компоненты: что, откуда и как (вопрос 1)
@@ -185,9 +187,11 @@
 - `git log a02b1607..origin/main` = только `9c52c250` (#914). Миграций в
   диапазоне одна, `000160`. Dockerfile, `deploy/hetzner`, ACL-генератор
   `scripts/run-codex-rotating-release-migration.mjs` и
-  `scripts/check-runtime-db-privileges.mjs` не менялись. API/worker runtime
-  в #914 не менялся (только тесты и версия SDK), меняются Web и пакет
-  `provider-accounts`.
+  `scripts/check-runtime-db-privileges.mjs` не менялись. Код `apps/api` и
+  `apps/worker` в #914 не менялся (только тесты), но API, worker и scan
+  получают новый архив SDK (в нём, например, свои лимиты ответа по методам в
+  `transport.ts`) и runtime `ar`, пересобранный TS 7. Основная смена в Web и
+  пакете `provider-accounts`.
 - Main CI на `9c52c250` (run 44877576086) зелёный целиком: Quality, Static,
   Source and Certification, DB Contract and Migration Checks, Self-hosted E2E,
   Dedicated Release Authority PG17, Managed migration PG17 (три варианта),
@@ -247,10 +251,16 @@
   образа; он отзывает у ролей EXECUTE на функциях, но триггерной функции это
   не нужно (так же работает `rr_personal_oauth_method_guard` из 000140).
 - Граница отката: как только появится строка с `credentialImportMethod IS NOT NULL`,
-  старый образ уже нельзя ставить: `a02b1607` разбирает ingress через
-  `z.enum(["api-key-create", "oauth-begin"])`
-  (`apps/web/src/server/account-gateway-accounts.ts:1701` в `a02b1607`) и
-  упадёт на такой строке, а reconnect-импорт примет за обычный reconnect.
+  старый образ уже нельзя ставить: в `a02b1607` `toIntent`
+  (`prisma-personal-account-operations.ts:49-52`) вызывает
+  `snapshotPersonalIntent`, который отвергает всё кроме `api-key-create` и
+  `oauth-begin` (`personal-account-operations.ts:78`), а reconnect-импорт
+  (у него `ingress IS NULL`) старый код примет за обычный reconnect.
+- Staging: правило базы данных в
+  [release process](../operations/07-environments-and-release-management.md#database-release-rule)
+  просит migrate и smoke на staging. Как и в выкатах 2026-11-17, его заменяют
+  CI-репетиции на точном `9c52c250`: DB Contract and Migration Checks, Full
+  private PG16 to PG17 rehearsal и Managed migration PG17.
 
 ### Нативные миграции 260, 261, 262
 
@@ -263,14 +273,26 @@
   удаляемые именованные CHECK существуют.
 - 262: `CREATE OR REPLACE FUNCTION gateway_native_account_guard()` с двумя
   новыми кортежами официальных API; для текущих профилей правила те же.
-- Как применяются: native при старте прогоняет встроенные файлы по
-  `schema_migrations` (`backend/internal/repository/migrations_runner.go:176-231`),
-  неизвестные ему строки не проверяет. Раннер в `f10a3801` и `14f500eb` один и
-  тот же (пустой diff), значит native 105 стартует на ledger 321.
-- Работа старого native 105 на схеме 321 ожидаемо безопасна (добавочные
-  объекты, старые писатели удовлетворяют новым CHECK), но запуском не
-  доказана. Как у native 95 (`gateway106-native95-20261114`): после миграции
-  откат native считается fix-forward под gate, дамп до миграции хранится.
+- Как применяются: **native-бинарь Gateway сам миграции не выполняет**
+  (`backend/internal/gatewaybootstrap/server_linux.go:140` в `14f500eb`: "Never
+  migrate native SQL"; `ApplyMigrations` вызывается только из `InitEnt`, то
+  есть из `cmd/server` и утилит, не из `cmd/account-gateway`). Поэтому
+  оператор сам запускает `repository.ApplyMigrations` из исходника `14f500eb`
+  на остановленном native, как для 259 у native 95, под ролью `rr_dmin`
+  (владелец таблиц и роль runtime), и до старта нового бинаря требует ledger
+  321 и checksum трёх файлов. Без этого `14f500eb` молча стартует на 318 и
+  упадёт на первом чтении сведений или импорте. Раннер
+  (`migrations_runner.go:176-231`) идёт по встроенным файлам и чужие строки
+  ledger не проверяет; после миграции сверить, что новая таблица и sequence
+  принадлежат `rr_dmin`.
+- Native 105 ledger не смотрит вообще, поэтому стартует на схеме 321; его SQL
+  ожидаемо совместим (добавочные объекты, старые писатели удовлетворяют новым
+  CHECK), но запуском не доказан. Дешёвая проверка в подготовке (рекомендую,
+  30-45 мин): на worker host в пустой PostgreSQL 17 применить все 321 миграцию
+  `14f500eb`, затем прогнать интеграционные тесты репозитория native 105
+  (`native_gateway_oauth*`, `native_gateway_account*`) на этой базе. Если не
+  сделано, откат native после миграции считается fix-forward под gate, как у
+  native 95 (`gateway106-native95-20261114`); дамп до миграции хранится.
 
 ## Порядок и совместимость (вопрос 3)
 
@@ -325,18 +347,29 @@ native рекламирует импорт Codex, если настроены OA
 - Gateway 115 нельзя вернуть (JSON intent с `credentialImportMethod`);
 - native 105 нельзя вернуть (intents `refresh_token`/`auth_json`).
 
-Перед любым откатом проверить, что импортов не было:
+Перед любым откатом проверить, что импортов не было ("три нуля"):
 
 ```sql
--- RR
+-- RR (review_router_dimy)
 SELECT count(*) FROM "PersonalAccountOperation" WHERE "credentialImportMethod" IS NOT NULL;
--- Gateway kernel (ag_service_entry_kernel_)
+-- Gateway kernel (ag_service_entry_kernel_484307d1867ab37b69a3d388adb9dc29)
 SELECT count(*) FROM ag_kernel.operations WHERE intent ? 'credentialImportMethod';
--- native (ag_service_entry_native_)
+-- native (ag_service_entry_native_484307d1867ab37b69a3d388adb9dc29)
 SELECT count(*) FROM gateway_oauth_connect_intents WHERE method IN ('refresh_token','auth_json');
 ```
 
-Все три `0`: откат по шагам ниже. Иначе только fix-forward.
+Считать при остановленных писателях, иначе между замером и откатом кто-то
+успеет начать импорт: для Gateway и native под gate (admission закрыт), для
+образа после остановки новых ролей и до старта старых (импорт пишет только
+Web). Все три `0`: откат по шагам ниже. Иначе только fix-forward на
+`9c52c250` или его потомке (граница reader из task record, `19ef44c0`).
+
+Почему это не противоречит task record #914 ("reader first, writer later"):
+fleet-overlay останавливает все старые контейнеры до старта любого нового
+([fleet-overlay README](../../deploy/hetzner/fleet-overlay/README.md), строка 5),
+а импорт пишет только Web. Старый читатель рядом с новым писателем не
+работает ни секунды, поэтому отдельная фаза "читатель есть, импорт выключен"
+сводится к нулю и флаг не нужен. Это решение D2 записано и в task record.
 
 ## Правило тихого окна
 
@@ -364,9 +397,9 @@ Custody под `/srv/platform/projects/review-router/releases/` (root, 0700).
 
 1. Заморозка состава: `git log a02b1607..origin/main`. Если к этому моменту
    смержен [#955](https://github.com/777genius/review-router-ai/pull/955)
-   (сейчас Draft) и он проверен, целевой SHA = новый `main`, иначе
-   `9c52c250`. Миграций кроме `000160` в диапазоне быть не должно
-   (`git log -- '**/migrations/**'`).
+   (на 13:48 UTC открыт, уже не Draft) и решение D5 = брать, целевой SHA =
+   новый `main`, иначе `9c52c250`. Миграций кроме `000160` в диапазоне быть
+   не должно (`git log -- '**/migrations/**'`).
 2. RR на worker host (чистый clone, Node 26.11.1, pnpm 11.28.7,
    `--frozen-lockfile`): `pnpm typecheck`; Vitest для `packages/features/provider-accounts`,
    `apps/web/src/server/account-*`, `personal-*`, `credential-import-fields`,
@@ -394,23 +427,42 @@ Custody под `/srv/platform/projects/review-router/releases/` (root, 0700).
      gateway116, start, `READY_FENCED`). Проверки как раньше: profiles (8),
      native accounts (28), kernel rows, autorestart, `NRestarts`;
    - `prepare` и `plan` без эффектов.
-8. Свап-контроллер: `release.sh swap <sha>` без `--apply` (только три ключа
-   идентичности релиза, ExtraHosts те же).
+8. Ожидаемые отличия v1 и v2 посчитать заранее по сохранённому эталону
+   `73728bd5` и коду `44bf7ae`/`14f500eb`, записать в custody. Уже известно
+   по коду: у MiMo `tools` было `function`+`function_and_custom`, станет
+   `function`; у OpenRouter было `none`, станет `function`
+   (`provider-connection-capabilities.ts:13-27` в `1dce5c3` против
+   `native_gateway_account_capabilities.go:42` в `14f500eb`); порядок
+   `authMethods` у Codex другой. RR использует `tools` из capabilities только в
+   UI (`provider-model-options.ts:93-97`: есть ли вызов инструментов), запуск
+   ревью читает модели аккаунта, не capabilities (проверить канарейкой).
+   Профиль пропадает из v1/v2, если его модели нет у native
+   (`provider-connection-capabilities.ts:24` в `44bf7ae`): это уже стоп.
+9. Свап-контроллер: `release.sh swap <sha>` без `--apply` **после шага 1**
+   (только три ключа идентичности релиза, ExtraHosts те же): контроллер
+   снимает SHA256 env-файлов ролей, а `apply-domain.sh` в шаге 1 их
+   переписывает.
 
 ### 1. Caddy allowlist (окно A, короткое)
 
 Тихое окно желательно (reload Caddy мягкий, но через этот site идут живые
-ревью). Custody `caddy-sdk-routes-<дата>`: копии `apply-domain.sh` и трёх
-генерируемых файлов. Поменять строку 90 на хосте, запустить
-`/etc/platform/projects/review-router/apply-domain.sh` (без `--recreate`).
+ревью). Custody `caddy-sdk-routes-<дата>` (root, 0700): копии
+`apply-domain.sh`, трёх генерируемых Caddy файлов и трёх
+`/etc/platform/projects/review-router/runtime-env/runtime-{web,api,worker}.env`
+(в них секреты, только копия и SHA256). Скрипт делает `sed -i` по этим
+env-файлам (строки 12-22): при неизменном `domain.env` байты должны остаться
+теми же, но это проверяется, а не предполагается. Поменять строку 90 на
+хосте, запустить `/etc/platform/projects/review-router/apply-domain.sh`
+(без `--recreate`).
 
-Проверки: `review-router.caddy` и `review-router-www.caddy` с прежними
-SHA256, management файл равен кандидату, `caddy validate` прошёл, reload ok.
+Проверки: три env-файла, `review-router.caddy` и `review-router-www.caddy` с
+прежними SHA256 (иначе стоп и откат), management файл равен кандидату,
+`caddy validate` прошёл, reload ok.
 Из Web-контейнера через установленный SDK: profiles 8, v1 SHA256 =
 `73728bd5` (Gateway 115 не изменился); `/v2/provider-connection-capabilities`
 теперь отвечает JSON-ошибкой Gateway 115, а не пустым `404` Caddy.
 
-Откат: вернуть четыре файла из custody, `caddy validate`, `systemctl reload caddy`.
+Откат: вернуть файлы из custody, `caddy validate`, `systemctl reload caddy`.
 
 Важно: **не** запускать `apply-domain.sh` из `platform-infra` до
 выравнивания: его строка 90 удалит восемь путей, которыми прод пользуется
@@ -424,8 +476,9 @@ Caddy файлов (оператор gate восстанавливает "origin
 с новым original.
 
 1. Строгое окно + kernel idle, gate apply.
-2. Native: stop, дамп, migrate (318 -> 321), switch config, start,
-   `READY_FENCED`.
+2. Native: stop, свежий дамп, `ApplyMigrations` под `rr_dmin`, проверка до
+   старта (ledger 321, ровно три новых файла с checksum, владелец новых
+   объектов `rr_dmin`), switch config, start, `READY_FENCED`.
 3. Gateway: stop, drop-in gateway116, `daemon-reload`, start, `READY_FENCED`.
 4. Внутри gate оператор читает на `127.0.0.1` `/v1/profiles` (8),
    v1 и v2 capabilities: в v2 у Codex методы `browser`, `device_code` и два
@@ -435,10 +488,12 @@ Caddy файлов (оператор gate восстанавливает "origin
 
 Проверки после gate:
 
-- v1 из Web-контейнера (старый SDK) через Caddy: набор из 8 профилей, у
-  каждого `authMethods`, `availability`, `completionInputKind`,
-  `limitsContract`, `reconnect` и число моделей равны эталону. Допустимы
-  только отличия подписей (label). Иначе откат Gateway.
+- v1 из Web-контейнера (старый SDK) через Caddy: тот же набор из 8
+  профилей; у каждого `authMethods` как множество, `availability`,
+  `completionInputKind`, `limitsContract`, `reconnect` и id моделей равны
+  эталону. Допустимы подписи и заранее записанные отличия из шага 0.8
+  (`tools` у MiMo и OpenRouter, порядок методов). Любое другое отличие или
+  пропавший профиль: откат Gateway.
 - v2 и `/v1/account-info/read` через Caddy из одноразового контейнера нового
   образа (`--add-host api.reviewrouter.org:172.19.0.1`, env только через
   root-only файл на хосте, удалить сразу): v2 `200`,
@@ -449,7 +504,7 @@ Caddy файлов (оператор gate восстанавливает "origin
 - `/ready` 200, Gateway active, `NRestarts` 0, нет новых классов ошибок в
   журнале Gateway.
 
-Откат (только при трёх нулях импорта): под свежим gate сначала Gateway
+Откат (только при трёх нулях, посчитанных под gate): под свежим gate сначала Gateway
 (`dropin.before`, `daemon-reload`, start), затем native (`config.before`,
 start). БД native не откатывается; если native 105 не поднимется на ledger
 321, это fix-forward на `14f500eb` под gate, восстановление из дампа только
@@ -463,14 +518,19 @@ start). БД native не откатывается; если native 105 не по
    canonical ACL, worker grant (`worker can update fullName = t`).
 4. Сразу apply спланированного контроллера (`fleet-overlay apply`, detached,
    как в bundle 5). Старые контейнеры станут `*-before-ovl-<ts>`.
-5. Проверки: четыре роли на новой ревизии, 0 рестартов, FILE 73 и refs 245
-   прежние, `/ready` и Web 200, нет строк ошибок; в логе Web нет
-   `accounts_unavailable`; в журнале Gateway видны чтения
-   `/v2/provider-connection-capabilities` и `/v1/account-info/read` без
-   отказов.
+5. `release.sh verify <sha>`: роли, ревизия, рестарты, права БД через
+   worker, `/ready`. Как 2026-11-17, он может остановиться на старых
+   `installation.sync_requested` dead letters с ошибкой прав (до этого
+   выката); это не стоп, если новых нет.
+6. Проверки: четыре роли на новой ревизии, 0 рестартов, FILE 73 и refs 245
+   прежние, `/ready` и Web 200, нет строк ошибок; в логе Web нет ошибок
+   чтения capabilities и `accounts_unavailable`; в журнале Gateway видны
+   чтения `/v2/provider-connection-capabilities` и `/v1/account-info/read`
+   без отказов.
 
-Откат (только при трёх нулях импорта): rollback preflight из целевого образа
-(`a02b1607` поддерживает канал 245), stop новых, вернуть
+Откат (три нуля считать после остановки новых ролей и до старта старых):
+rollback preflight из целевого образа (`a02b1607` поддерживает канал 245),
+stop новых, вернуть
 `*-before-ovl-<ts>` (образ `8d9dd8f3`, FILE 73, refs 245), env из
 `snapshot.json` контроллера. Миграция остаётся.
 
@@ -493,8 +553,8 @@ start). БД native не откатывается; если native 105 не по
 Сверено 2026-11-21 13:40 UTC:
 
 - review-router-ai: `a02b1607..origin/main` = только #914. Открыты и не
-  смержены: #955 (runner starvation, Draft; только worker, без миграции;
-  берём, если смержен и проверен до сборки образа, не ждём), #956 (запись
+  смержены: #955 (runner starvation, открыт, не Draft с 13:47; worker и
+  пакеты review-executions/review-progress, без миграции; см. D5), #956 (запись
   bundle 5, docs; смержить до этого плана не обязательно), #920 и другие
   Draft. Dependabot PR нет.
 - account-gateway: #116 (runtime), #117, #118 (CI/доки). Dependabot #76
@@ -537,6 +597,14 @@ start). БД native не откатывается; если native 105 не по
     5-40 минут); релиза Action нет.
 11. **Сведения появляются не сразу** (`unknown` до maintenance) и видимость
     для заёмщика живьём не проверить без второго пользователя.
+12. **Первый живой обмен refresh token пройдёт на проде.** Если OpenAI
+    ротирует RT при обмене, импорт токена, которым пользуется локальный
+    Codex CLI, может разлогинить этот CLI. Это продуктовое поведение, не
+    сбой выката: сказать об этом в UI-тексте позже; приёмочный импорт
+    владелец делает на одноразовом аккаунте сразу после замены образа.
+13. **Изменения `apply-domain.sh` касаются env ролей** (`sed -i` по
+    `runtime-*.env`): если байты изменятся, fleet-overlay откажет на CAS.
+    Снимается проверкой SHA256 и планом свап-контроллера после шага 1.
 
 ## Решения владельца
 
@@ -581,10 +649,19 @@ D4. Anthropic/Gemini API-профили.
   Надёжность 9/10, уверенность 9/10.
 - Включить сейчас без реального ключа. Надёжность 5/10, уверенность 7/10.
 
-D5. #955.
+D5. #955 (runner starvation, plan 88), если он смержен до заморозки.
 
-- (Рекомендую) Берём, только если смержен и проверен до сборки образа; не
-  ждём. Надёжность 8/10, уверенность 8/10.
+- (Рекомендую) Брать, если смержен до шага 0.1, и добавить его проверки:
+  тесты `apps/worker/src/review-v2-*` и review-executions, а в приёмке
+  отметить, что очередь без runner канарейка воспроизвести не может.
+  Откат у него мягкий: старый worker не берёт события
+  `review.requested_start_notice`, они остаются pending
+  ([его record](https://github.com/777genius/review-router-ai/pull/955)).
+  Надёжность 7/10, уверенность 7/10.
+- Не брать в этот пакет, оставить следующему вместе с апстримом native: меньше
+  изменений в одном окне. Надёжность 8/10, уверенность 7/10.
+- Ждать его merge, если не успел: против правила "не ждать мелочей".
+  Надёжность 7/10, уверенность 6/10.
 
 ## Оценка времени
 
@@ -613,8 +690,11 @@ D5. #955.
       статусами.
 - [ ] Свежий pgBackRest full без ошибки перед migrate.
 - [ ] Rollback sets bundle 5 и custody на месте.
+- [ ] Env-файлы ролей после шага 1 с прежними SHA256; свап-контроллер
+      спланирован после шага 1.
 - [ ] No-go: любой отказ `READY_FENCED`, ledger не 321/169, v1 отличается
-      не только подписями, v2 не 200, рестарты ролей, новые классы ошибок.
+      сверх записанных в шаге 0.8 отличий, v2 не 200, рестарты ролей, новые
+      классы ошибок.
 
 ## Что хранить
 
@@ -635,13 +715,14 @@ D5. #955.
 безопасным"). Producers 245 и 244 остаются зарегистрированными, каналы не
 трогаются.
 
-1. Образ `9c52c250` -> `a02b1607`: rollback preflight, stop, вернуть
-   `*-before-ovl-<ts>`, env из `snapshot.json`. Миграция 000160 остаётся.
+1. Образ `9c52c250` -> `a02b1607`: rollback preflight, stop новых, три нуля,
+   вернуть `*-before-ovl-<ts>`, env из `snapshot.json`. Миграция 000160
+   остаётся.
 2. Gateway 116 -> 115: под свежим gate `dropin.before`
    (`gateway115-1dce5c3-native102-20261117`), `daemon-reload`, start.
 3. Native `14f500eb` -> 105: под gate `config.before`
    (`native-ttl-f10a380-20261120`, `d6ecc3d2`). БД native не откатывается;
    fix-forward, если 105 не поднимется.
-4. Caddy: вернуть четыре файла из `caddy-sdk-routes-<дата>`, validate,
-   reload. Можно не откатывать: лишние пути старому RR не мешают.
+4. Caddy: вернуть файлы из `caddy-sdk-routes-<дата>`, validate, reload.
+   Можно не откатывать: лишние пути старому RR не мешают.
 5. Ниже действуют пины [bundle 5](https://github.com/777genius/review-router-ai/pull/956) (раздел Rollback pins).
