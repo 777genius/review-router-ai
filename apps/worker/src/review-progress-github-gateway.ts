@@ -7,6 +7,7 @@ import {
   ownsMarker,
   parseComment,
   parseCommentOrNull,
+  verifiedKnownComment,
   type ReviewProgressComment,
 } from "./review-progress-github-comment-policy";
 import { commentPageLinks } from "./review-progress-github-link-policy";
@@ -147,33 +148,8 @@ export class ReviewProgressGitHubGateway {
       throw classified;
     }
 
-    const data = response.data;
-    if (typeof data !== "object" || data === null) {
-      throw failure("invalid_response", "github_known_comment_invalid", false);
-    }
-    const issueUrl = (data as { issue_url?: unknown }).issue_url;
-    if (typeof issueUrl !== "string") {
-      throw failure(
-        "invalid_response",
-        "github_known_comment_issue_missing",
-        false,
-      );
-    }
-    const expectedIssueUrl = [
-      "https://api.github.com/repos",
-      input.owner,
-      input.repo,
-      "issues",
-      input.pullNumber,
-    ].join("/");
-    if (issueUrl.toLowerCase() !== expectedIssueUrl.toLowerCase()) {
-      return scanned;
-    }
-    const known = parseCommentOrNull(data);
-    if (!known || known.id !== knownId) {
-      throw failure("invalid_response", "github_known_comment_mismatch", false);
-    }
-    if (!ownsMarker(known, input)) return scanned;
+    const known = verifiedKnownComment(response.data, input, knownId);
+    if (!known) return scanned;
     return [...scanned, known].sort((left, right) => left.id - right.id);
   }
 

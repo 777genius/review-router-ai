@@ -129,3 +129,49 @@ export function isCapacityLimitedScan(
     error.message === CAPACITY_LIMIT_SCAN
   );
 }
+
+/** Trust a recovered known comment only when it belongs to this PR and bot. */
+export function verifiedKnownComment(
+  data: unknown,
+  input: Pick<
+    UpsertReviewProgressCommentInput,
+    "owner" | "repo" | "pullNumber" | "expectedBotLogin" | "marker"
+  >,
+  knownId: number,
+): ReviewProgressComment | null {
+  if (typeof data !== "object" || data === null) {
+    throw new ReviewProgressGitHubError(
+      "invalid_response",
+      "github_known_comment_invalid",
+      { retryable: false },
+    );
+  }
+  const issueUrl = (data as { issue_url?: unknown }).issue_url;
+  if (typeof issueUrl !== "string") {
+    throw new ReviewProgressGitHubError(
+      "invalid_response",
+      "github_known_comment_issue_missing",
+      { retryable: false },
+    );
+  }
+  const expectedIssueUrl = [
+    "https://api.github.com/repos",
+    input.owner,
+    input.repo,
+    "issues",
+    input.pullNumber,
+  ].join("/");
+  if (issueUrl.toLowerCase() !== expectedIssueUrl.toLowerCase()) {
+    return null;
+  }
+  const known = parseCommentOrNull(data);
+  if (!known || known.id !== knownId) {
+    throw new ReviewProgressGitHubError(
+      "invalid_response",
+      "github_known_comment_mismatch",
+      { retryable: false },
+    );
+  }
+  if (!ownsMarker(known, input)) return null;
+  return known;
+}

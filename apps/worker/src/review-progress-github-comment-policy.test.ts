@@ -9,6 +9,7 @@ import {
   ownsMarker,
   parseComment,
   parseCommentOrNull,
+  verifiedKnownComment,
 } from "./review-progress-github-comment-policy";
 import { commentPageLinks } from "./review-progress-github-link-policy";
 
@@ -388,6 +389,69 @@ describe("Review progress GitHub comment policy", () => {
           new ReviewProgressGitHubError(kind, message, { retryable: true }),
         ),
       ).toBe(false);
+    }
+  });
+
+  it("trusts only the expected known comment and target issue", () => {
+    const marker = "<!-- review-router:progress:review -->";
+    const input = {
+      owner: "acme",
+      repo: "rocket",
+      pullNumber: 42,
+      expectedBotLogin: "review-router[bot]",
+      marker,
+    };
+    const row = {
+      id: 900,
+      body: `working\n${marker}`,
+      user: { login: "review-router[bot]" },
+      issue_url: "https://api.github.com/repos/acme/rocket/issues/42",
+    };
+    expect(verifiedKnownComment(row, input, 900)).toEqual(marked(900, row.body));
+    expect(
+      verifiedKnownComment(
+        {
+          ...row,
+          issue_url: "https://api.github.com/repos/acme/rocket/issues/43",
+        },
+        input,
+        900,
+      ),
+    ).toBeNull();
+    expect(
+      verifiedKnownComment({ ...row, body: "unrelated" }, input, 900),
+    ).toBeNull();
+    expect(
+      verifiedKnownComment(
+        { ...row, user: { login: "foreign[bot]" } },
+        input,
+        900,
+      ),
+    ).toBeNull();
+  });
+
+  it("fails closed on malformed known-comment responses", () => {
+    const input = {
+      owner: "acme",
+      repo: "rocket",
+      pullNumber: 42,
+      expectedBotLogin: "review-router[bot]",
+      marker: "<!-- review-router:progress:review -->",
+    };
+    const row = {
+      id: 900,
+      body: input.marker,
+      user: { login: input.expectedBotLogin },
+      issue_url: "https://api.github.com/repos/acme/rocket/issues/42",
+    };
+    for (const [value, errorMessage] of [
+      [null, "github_known_comment_invalid"],
+      [{ ...row, issue_url: undefined }, "github_known_comment_issue_missing"],
+      [{ ...row, id: 901 }, "github_known_comment_mismatch"],
+    ] as const) {
+      expect(() => verifiedKnownComment(value, input, 900)).toThrowError(
+        errorMessage,
+      );
     }
   });
 });
