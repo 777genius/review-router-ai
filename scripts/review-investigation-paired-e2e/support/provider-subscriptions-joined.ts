@@ -285,11 +285,15 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
       };
       response.once("close", disconnected);
       try {
-        relayPhase = "ingress";
+        relayPhase = "ingress-method";
         assert.equal(request.method, "POST");
+        relayPhase = "ingress-path";
         assert.equal(request.url, "/v1/responses");
+        relayPhase = "ingress-authority";
         assert.equal(request.headers.authorization, "Bearer " + relayKey);
+        relayPhase = "ingress-request-bound";
         assert.ok(++entries <= 2, "joined maximum two provider entries");
+        relayPhase = "ingress-body";
         const bytes = await bodyBytes(request, input.limits.requestBytes);
         const raw = JSON.parse(bytes.toString("utf8")) as Record<
           string,
@@ -377,6 +381,39 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
               item.output.length > 0,
           ).length;
           assert.ok(returnedFunctionTools > 0, "real function output required");
+          // Observe only fixed predicates of the controlled `pwd` reply. The
+          // raw tool output may contain paths or other private process data.
+          const outputs = (raw.input as Record<string, unknown>[])
+            .filter((item) => item.type === "function_call_output")
+            .flatMap((item) =>
+              typeof item.output === "string" ? [item.output] : [],
+            );
+          process.stdout.write(
+            JSON.stringify({
+              phase: "actual-cli-tool-output-shape",
+              profileId: input.profileId,
+              functionOutputs: outputs.length,
+              workspaceObserved: outputs.some((output) =>
+                output.includes(checkout),
+              ),
+              exitZeroObserved: outputs.some((output) =>
+                /(?:Process exited with code|Exit code:) 0(?:\s|$)/u.test(
+                  output,
+                ),
+              ),
+              unknownToolObserved: outputs.some((output) =>
+                /(?:unknown|unsupported|unrecognized) tool/iu.test(output),
+              ),
+              invalidArgumentsObserved: outputs.some((output) =>
+                /(?:invalid|failed to parse) (?:tool )?arguments/iu.test(
+                  output,
+                ),
+              ),
+              sandboxFailureObserved: outputs.some((output) =>
+                /sandbox.*(?:failed|denied|unavailable)/iu.test(output),
+              ),
+            }) + "\n",
+          );
           if (declaredCustomTools > 0)
             assert.ok(
               returnedCustomTools > 0,
@@ -476,6 +513,16 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
         for (const bytes of terminalGate.finish()) await write(bytes);
         response.end();
       } catch (error) {
+        process.stdout.write(
+          JSON.stringify({
+            phase: "actual-cli-relay-error",
+            profileId: input.profileId,
+            at: relayPhase,
+            providerEntries: entries,
+            streamCompletions: completions,
+            toolOutputObserved: toolOutput,
+          }) + "\n",
+        );
         if (error instanceof sdk.GatewayError)
           process.stdout.write(
             JSON.stringify({
