@@ -116,3 +116,19 @@ Round 2 (source identity): extracted block and unchanged builder compared exactl
 Round 3 (boundary tests): malformed/extra contract exports and direct eager-root consumer imports are rejected by fixtures; a runtime identity/strict parse regression test has been added, but execution is still pending.
 Round 4 (integration scope): no overlapping paths with current #959, #976, #970; do not claim cross-version runtime compatibility or finished CI solely from this static inspection.
 
+
+## P3 first bounded policy extraction (2026-11-23)
+
+Commit `bafdf7b2165454439df685044d651d489b33d024` immediately pushed. `workflow-provisioning` now owns the pure managed workflow option admission predicate in `src/domain/managed-workflow-setup-options.ts`; the existing `createSetupPullRequestMutation` invokes it at the same position **after** host-qualified runtime/entitlement/rate-limit reads and **before** provisioning. No authorization, source selection, GitHub request, database transaction, audit or external side effect moved. Existing transport and workflow style types reused. Root feature export is additive, and there is no new package, container, config flag or framework.
+
+Regression suite added as `packages/features/workflow-provisioning/src/tests/managed-workflow-setup-options.test.ts` (12 named positive/negative cases covering Gateway provider API, rotating, hosted and CI-secret modes). A separate in-memory V8 comparison of the legacy expression vs extracted expression exhaustively checked all 40 transport/style/discussion/runtime-available combinations: zero mismatches. **This is expression-level simulation only, NOT a Vitest, TypeScript, local integration, or browser E2E PASS.** Open #959 and #976 changed-path intersection remained empty after the commit. Avoid moving the entire `actions.ts` function before source-marker tests are replaced by equivalent executables.
+
+### Remaining gates (not performed)
+
+- Affected Vitest tests, real TypeScript build, production condition import and standalone emitted contract ABI checks.
+- `architecture:check` and rejected-mutant qualification.
+- Exact GitHub commit CI and applicable PostgreSQL/Next browser E2E.
+- Safe, real registry-verified Foundation 3.1.0 and Get Modular 0.8.0 upgrade, integrity and real pnpm-generated frozen lockfile.
+- Substantive high-risk ownership extraction of the much larger workflow/admission slice, final reviews, merge. Current Git diff is far below the intended 12–22k lines; no completion or merge claim.
+
+The user explicitly prefers pushing every cohesive change immediately and postponing broad CI checks until the end of coding instead of repeatedly polling queued runners. Preserve this order, but do not drop required final E2E or branch protections.
