@@ -5,9 +5,9 @@
   compilation and the root spikes, one-shot handoff, tooling and lint/format
   noEmit projects, preserving their strict configuration and source coverage.
 - Affected targets: build/CI; logger artifacts consumed by API and worker.
-- Implementation PR: not opened; isolated worktree patch prepared.
-- Implementation reference: patch based on main
-  `06aae0faf17687e52b9d0be63717c8ccc16d1458`; no implementation commit yet.
+- Implementation PR: [#969](https://github.com/777genius/review-router-ai/pull/969).
+- Implementation reference: `838d5bad4a3398abd135b4f0c247966f0fba6015`, based on
+  main `06aae0faf17687e52b9d0be63717c8ccc16d1458`; not merged or deployed.
 - Dependencies: existing root `compiler:prepare`; the root typecheck's existing
   shared-build prerequisite. The [shared compiler task](https://github.com/777genius/review-router-ai/blob/799ab5edf653f435cedaaa179e20966a07fa7b8a/ai-docs/deployments/2026-11-22-shared-native-compiler.md)
   is independently tracked by [PR #967](https://github.com/777genius/review-router-ai/pull/967).
@@ -72,5 +72,6 @@ through the normal release process. No data rollback is involved.
 
 ## Execution log
 
-Local qualification only. No PR, release or deployment has been performed for
-this patch; required exact-commit CI is pending.
+PR #969 was opened as a draft after local qualification and independent review.
+Required exact-commit CI remains pending. No release or deployment has been
+performed for this patch.
