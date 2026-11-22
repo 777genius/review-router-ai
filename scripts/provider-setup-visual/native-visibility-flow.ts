@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import type { PrismaClient } from "@prisma/client";
 import type { Locator, Page } from "playwright-core";
 import type { FlowRun, VisualFlow } from "./flows.js";
 import {
@@ -100,6 +101,20 @@ async function finishPage(flow: FlowRun, page: Page, screenshot: string) {
   await page.close();
 }
 
+export async function prepareNativeVisibilityAccounts(prisma: PrismaClient) {
+  for (const value of Object.values(NATIVE_VISIBILITY)) {
+    await prisma.providerAccountConnection.update({
+      where: { id: value.connection.id },
+      data: {
+        profileRef: VISUAL_NATIVE_PROFILE,
+        displayName: value.label,
+        // SQL117 requires a new local revision for every account projection.
+        metadataRevision: { increment: 1 },
+      },
+    });
+  }
+}
+
 export const nativeVisibilityFlow: VisualFlow = {
   id: "flow-native-visibility",
   title:
@@ -108,12 +123,7 @@ export const nativeVisibilityFlow: VisualFlow = {
   run: async (flow) => {
     const fixture = flow.env.nativeVisibility;
     assert.ok(fixture, "native role-visibility HTTP fixture required");
-    for (const value of Object.values(NATIVE_VISIBILITY)) {
-      await flow.prisma.providerAccountConnection.update({
-        where: { id: value.connection.id },
-        data: { profileRef: VISUAL_NATIVE_PROFILE, displayName: value.label },
-      });
-    }
+    await prepareNativeVisibilityAccounts(flow.prisma);
     const binding = await flow.prisma.workspaceAccountBinding.findUniqueOrThrow(
       { where: { id: personal.connection.bindingId } },
     );

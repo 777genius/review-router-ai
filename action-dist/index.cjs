@@ -138235,6 +138235,20 @@ function validateUsagePriceSnapshot(value) {
   }
 }
 
+// packages/protocol-review-action-v2/src/generated/native-usage-context.ts
+function validNativeUsageContext(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  if (Object.keys(value).length !== 6 || value.schemaVersion !== 1 || ![value.providerId, value.productId, value.profileId].every(
+    (id) => typeof id === "string" && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(id)
+  ) || typeof value.modelId !== "string" || !value.modelId.length || value.modelId.length > 256 || [...value.modelId].some(
+    (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127
+  ) || !value.billing || typeof value.billing !== "object" || Array.isArray(value.billing))
+    return false;
+  return value.billing.status === "unknown" ? Object.keys(value.billing).length === 1 : value.billing.status === "known" && Object.keys(value.billing).length === 2 && ["subscription", "credits", "free", "payg", "mixed"].includes(
+    value.billing.kind
+  );
+}
+
 // packages/protocol-review-action-v2/src/generated/usage-v1.ts
 var UsageError = class extends Error {
   constructor(code) {
@@ -138288,9 +138302,13 @@ function validateUsageFact(f2) {
       "correctionReason",
       "childCallIds"
     ],
-    ["serviceTier", "priceSnapshot"]
+    ["serviceTier", "priceSnapshot", "nativeContext", "nativeEvidenceVersion"]
   );
   if (Object.hasOwn(f2, "serviceTier")) text(f2.serviceTier, true);
+  if (Object.hasOwn(f2, "nativeEvidenceVersion") && (f2.nativeEvidenceVersion !== 2 || f2.authority !== "native" || f2.identity?.route !== "gateway"))
+    invalid();
+  if (Object.hasOwn(f2, "nativeContext") && (f2.authority !== "native" || f2.identity?.route !== "gateway" || f2.nativeEvidenceVersion !== 2 || !validNativeUsageContext(f2.nativeContext)))
+    invalid();
   if (Object.hasOwn(f2, "priceSnapshot") && f2.priceSnapshot !== null) {
     try {
       validateUsagePriceSnapshot(f2.priceSnapshot);

@@ -5,6 +5,7 @@ import {
 } from "../../packages/platform/db/src/index";
 import {
   entriesOf,
+  VISUAL_CONNECTIONS,
   VISUAL_PROFILES,
   VISUAL_REPOSITORIES,
   VISUAL_USERS,
@@ -12,6 +13,7 @@ import {
 } from "./fixture-contract";
 import { resetFixtureRows, seedProviderSetupVisualFixtures } from "./seed";
 import { VISUAL_NATIVE_PROFILE } from "./native-catalog-fixture";
+import { prepareNativeVisibilityAccounts } from "./native-visibility-flow";
 
 const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
 const databaseTests = databaseUrl ? describe : describe.skip;
@@ -174,6 +176,54 @@ databaseTests("provider setup visual seed", () => {
         where: { id: VISUAL_REPOSITORIES.mainRotating.id },
       }),
     ).toBe(0);
+  }, 120_000);
+
+  it("prepares native visibility through the SQL revision guard without changing ownership or bindings", async () => {
+    await seedProviderSetupVisualFixtures(prisma, {
+      rotating: false,
+      personalSharing: true,
+    });
+    const before = await prisma.providerAccountConnection.findMany({
+      orderBy: { id: "asc" },
+    });
+    expect(
+      before.filter(
+        (row) =>
+          row.id === VISUAL_CONNECTIONS.adminPersonal.id ||
+          row.id === VISUAL_CONNECTIONS.mainOrg.id,
+      ),
+    ).toHaveLength(2);
+    const bindings = await prisma.workspaceAccountBinding.findMany({
+      orderBy: { id: "asc" },
+    });
+    await prepareNativeVisibilityAccounts(prisma);
+    const after = await prisma.providerAccountConnection.findMany({
+      orderBy: { id: "asc" },
+    });
+    expect(after).toEqual(
+      before.map((row) => {
+        const label =
+          row.id === VISUAL_CONNECTIONS.adminPersonal.id
+            ? "Native personal connection"
+            : row.id === VISUAL_CONNECTIONS.mainOrg.id
+              ? "Native workspace connection"
+              : undefined;
+        return label
+          ? {
+              ...row,
+              profileRef: VISUAL_NATIVE_PROFILE,
+              displayName: label,
+              metadataRevision: row.metadataRevision + 1,
+              updatedAt: expect.any(Date),
+            }
+          : row;
+      }),
+    );
+    expect(
+      await prisma.workspaceAccountBinding.findMany({
+        orderBy: { id: "asc" },
+      }),
+    ).toEqual(bindings);
   }, 120_000);
 
   it("reruns after dynamic fixture-owned accounts without touching other owners", async () => {

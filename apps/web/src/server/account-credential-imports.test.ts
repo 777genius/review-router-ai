@@ -172,6 +172,7 @@ it("uses the pinned SDK transport for Codex imports and native-only direct APIs,
   });
   const adapter = createAccountsAdapter({
     gateway,
+    connectionContract: "provider-connections/v2",
     authorize: async () => {
       if (!authorized) throw new Error("denied");
       return {

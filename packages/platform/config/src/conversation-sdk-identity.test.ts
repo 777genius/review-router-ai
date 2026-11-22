@@ -8,11 +8,11 @@ import { assertInstalledConversationSdk } from "./conversation-sdk-identity.js";
 it("binds the active SDK receipt to its manifest and exact bytes while rejecting historical identities", async () => {
   const root = await mkdtemp(join(tmpdir(), "rr-conversation-sdk-identity-"));
   const archive =
-    "agent-teams-account-gateway-0.1.0-native-imports-f2690a3c9cfd.tgz";
+    "agent-teams-account-gateway-0.1.0-native-parity-83c18fd090e7.tgz";
   const provenancePath = "vendor/account-gateway/provenance.json";
   const bytes = Buffer.from("controlled archive integrity fixture");
   const provenance = {
-    contract: "native-account-info-sdk-provenance/v1",
+    contract: "native-provider-parity-sdk-provenance/v1",
     archive,
     sha256: createHash("sha256").update(bytes).digest("hex"),
   };
@@ -34,6 +34,12 @@ it("binds the active SDK receipt to its manifest and exact bytes while rejecting
     ).resolves.toBeUndefined();
 
     for (const historical of [
+      { ...provenance, contract: "native-account-info-sdk-provenance/v1" },
+      {
+        ...provenance,
+        archive:
+          "agent-teams-account-gateway-0.1.0-native-imports-f2690a3c9cfd.tgz",
+      },
       { ...provenance, contract: "nvidia-sandbox-sdk-provenance/v1" },
       {
         ...provenance,
