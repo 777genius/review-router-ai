@@ -244,6 +244,8 @@ test("PostgreSQL and memory E2E defer Draft but qualify Ready/main", () => {
     const [trigger, jobs] = source.split("\njobs:");
     assert.ok(jobs, filename + ": job graph missing");
     assert.match(trigger, /pull_request:\n    types: \[opened, synchronize, reopened, ready_for_review\]/);
+    assert.equal((trigger.match(/^    types:/gm) || []).length, 1,
+      filename + ": duplicate PR event types are invalid YAML");
     assert.equal(trigger.includes("  push:"), hasPush, filename + ": main/feature push changed");
     assert.equal(trigger.includes("  workflow_dispatch:"), hasDispatch,
       filename + ": manual qualification changed");
