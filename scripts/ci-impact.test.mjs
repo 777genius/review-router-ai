@@ -228,3 +228,39 @@ test("marketing-only E2E filters keep real dashboard and shared contracts", () =
     assert.match(source, /workflow_dispatch:/);
   }
 });
+
+test("PostgreSQL and memory E2E defer Draft but qualify Ready/main", () => {
+  const files = [
+    ["provider-accounts-c1.yml", "qualify", true, false],
+    ["account-gateway-long-run.yml", "qualify", true, false],
+    ["account-gateway-operator-grants.yml", "qualify", true, false],
+    ["hindsight-memory-qualification.yml", "native", true, true],
+    ["memory-quality-evals.yml", "contracts", false, true],
+  ];
+  for (const [filename, job, hasPush, hasDispatch] of files) {
+    const source = readFileSync(
+      new URL("../.github/workflows/" + filename, import.meta.url), "utf8",
+    );
+    const [trigger, jobs] = source.split("\njobs:");
+    assert.ok(jobs, filename + ": job graph missing");
+    assert.match(trigger, /pull_request:\n    types: \[opened, synchronize, reopened, ready_for_review\]/);
+    assert.equal((trigger.match(/^    types:/gm) || []).length, 1,
+      filename + ": duplicate PR event types are invalid YAML");
+    assert.equal(trigger.includes("  push:"), hasPush, filename + ": main/feature push changed");
+    assert.equal(trigger.includes("  workflow_dispatch:"), hasDispatch,
+      filename + ": manual qualification changed");
+    const start = jobs.indexOf("\n  " + job + ":\n");
+    assert.ok(start >= 0, filename + ": missing original E2E");
+    const afterHeader = jobs.slice(start + job.length + 5);
+    const nextJob = afterHeader.search(/\n  [a-z][\w-]*:\n/);
+    const body = nextJob < 0 ? afterHeader : afterHeader.slice(0, nextJob);
+    assert.match(body, /^    if: github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.draft != true$/m,
+      filename + ": Draft must not start native/database E2E");
+    assert.doesNotMatch(body, /continue-on-error:\s*true/);
+    assert.match(body, /    timeout-minutes: /);
+  }
+  const quality = readFileSync(
+    new URL("../.github/workflows/memory-quality-evals.yml", import.meta.url), "utf8",
+  );
+  assert.match(quality, /live-tuning:[\s\S]*?inputs\.mode == 'live-tuning' && github\.ref == 'refs\/heads\/main'/);
+});
