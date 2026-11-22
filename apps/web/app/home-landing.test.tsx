@@ -32,7 +32,6 @@ describe("ReviewRouter landing presentation", () => {
     const headings = [...html.matchAll(/<h[2-6][^>]*>(.*?)<\/h[2-6]>/gs)];
     expect(headings.length).toBeGreaterThan(0);
     for (const [, heading] of headings) {
-      if (heading === undefined) throw new Error("Missing heading capture");
       expect(heading.replace(/<[^>]*>/g, "").trim()).not.toMatch(/\.$/);
     }
   });
