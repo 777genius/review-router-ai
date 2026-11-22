@@ -597,7 +597,11 @@ function checkActionConflictRuntimePublishedContract(
   packageJson,
   violations,
 ) {
-  const facade = join(actionControlPlaneRoot, "src", "conflict-runtime-contract.ts");
+  const facade = join(
+    actionControlPlaneRoot,
+    "src",
+    "conflict-runtime-contract.ts",
+  );
   const condition = packageJson.exports?.["./conflict-runtime-contract"];
   const expectedCondition = {
     types: "./src/conflict-runtime-contract.ts",
@@ -611,7 +615,8 @@ function checkActionConflictRuntimePublishedContract(
     violations.push({
       file: join(actionControlPlaneRoot, "package.json"),
       imported: "./conflict-runtime-contract",
-      reason: "conflict-runtime domain contract must have exact source, types and production exports",
+      reason:
+        "conflict-runtime domain contract must have exact source, types and production exports",
     });
   }
   if (!existsSync(facade)) {
@@ -693,12 +698,15 @@ function checkActionConflictRuntimePublishedContract(
       reason: "conflict-runtime published contract needs its standalone domain owner",
     });
   } else {
-    for (const imported of extractImportSpecifiers(readFileSync(owned, "utf8"))) {
+    for (const imported of extractImportSpecifiers(
+      readFileSync(owned, "utf8"),
+    )) {
       if (imported !== "zod" && imported !== "@reviewrouter/shared") {
         violations.push({
           file: owned,
           imported,
-          reason: "conflict-runtime domain contract may depend only on zod and shared validation",
+          reason:
+            "conflict-runtime domain contract may depend only on zod and shared validation",
         });
       }
     }
@@ -717,7 +725,8 @@ function checkActionConflictRuntimePublishedContract(
     violations.push({
       file: consumer,
       imported: "@reviewrouter/features-action-control-plane",
-      reason: "conflict-runtime domain must import the narrow published contract, not the mixed root",
+      reason:
+        "conflict-runtime domain must import the narrow published contract, not the mixed root",
     });
   }
 }

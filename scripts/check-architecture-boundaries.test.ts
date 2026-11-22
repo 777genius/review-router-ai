@@ -427,16 +427,19 @@ describe("usage producer protocol transport boundary", () => {
     'export type { PrismaActionControlPlaneRepository } from "./infrastructure/prisma/prisma-action-control-plane-repository.js";\n',
     'export * from "./domain/conflict-review-runtime-contract.js";\n',
     'import { PrismaClient } from "@prisma/client";\n',
-  ])("rejects extra exports and infrastructure in the conflict runtime facade", (leak) => {
-    const root = protocolFixture();
-    writeFile(
-      root,
-      "packages/features/action-control-plane/src/conflict-runtime-contract.ts",
-      'export { actionConflictReviewRuntimeConfigSchema, conflictReviewAdvisoryStatusContext, conflictReviewSummaryMaxBytes } from "./domain/conflict-review-runtime-contract.js";\nexport type { ActionConflictReviewRuntimeConfig } from "./domain/conflict-review-runtime-contract.js";\n' +
-        leak,
-    );
-    expect(() => runChecker(root)).toThrow(/pure published domain contract/);
-  });
+  ])(
+    "rejects extra exports and infrastructure in the conflict runtime facade",
+    (leak) => {
+      const root = protocolFixture();
+      writeFile(
+        root,
+        "packages/features/action-control-plane/src/conflict-runtime-contract.ts",
+        'export { actionConflictReviewRuntimeConfigSchema, conflictReviewAdvisoryStatusContext, conflictReviewSummaryMaxBytes } from "./domain/conflict-review-runtime-contract.js";\nexport type { ActionConflictReviewRuntimeConfig } from "./domain/conflict-review-runtime-contract.js";\n' +
+          leak,
+      );
+      expect(() => runChecker(root)).toThrow(/pure published domain contract/);
+    },
+  );
 
   it("rejects consuming the eager action control plane root from conflict runtime", () => {
     const root = protocolFixture();
@@ -456,7 +459,9 @@ describe("usage producer protocol transport boundary", () => {
       default: "./src/index.ts",
     };
     writeFile(root, manifestPath, JSON.stringify(manifest));
-    expect(() => runChecker(root)).toThrow(/exact source, types and production exports/);
+    expect(() => runChecker(root)).toThrow(
+      /exact source, types and production exports/,
+    );
   });
 
   it.each([
@@ -490,11 +495,11 @@ describe("usage producer protocol transport boundary", () => {
             },
             "./v2": {},
             "./v2/contract-source": {},
-          "./conflict-runtime-contract": {
-            types: "./src/conflict-runtime-contract.ts",
-            production: "./dist/conflict-runtime-contract.js",
-            default: "./src/conflict-runtime-contract.ts",
-          },
+            "./conflict-runtime-contract": {
+              types: "./src/conflict-runtime-contract.ts",
+              production: "./dist/conflict-runtime-contract.js",
+              default: "./src/conflict-runtime-contract.ts",
+            },
             [subpath]: "./src/index.ts",
           },
         }),
