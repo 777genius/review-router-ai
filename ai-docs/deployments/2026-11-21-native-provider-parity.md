@@ -13,7 +13,7 @@
   [native ownership](../architecture/64-gateway-native-ownership-and-model-catalog.md),
   and the producer/SDK revisions in
   [SDK provenance](../../vendor/account-gateway/native-provider-parity-sdk-provenance.json).
-- Last updated: `2026-11-21`.
+- Last updated: `2026-11-22`.
 
 ## Environment status
 
@@ -75,6 +75,13 @@ not just a successful credential submission.
   live-provider evidence must be recorded separately.
 - Runtime selection and usage retain native profile/policy identity and the
   existing live authorization/epoch fences. Private metadata never grants admission.
+- Existing account identity uses the current lifecycle credential kind before a
+  legacy catalog hint. Explicit unknown/native kinds never become API key or
+  OAuth labels; native credential policy remains visible from its attestation.
+- Browser model fixtures serve native v2 snapshots only for their enrolled
+  owner/profile/authorization epoch. Unsupported v1 discovery remains explicit;
+  browser selection uses current catalog labels and checks the distinct
+  completed enrollment and reconnect receipts.
 
 ## Retry, partial completion and rollback
 

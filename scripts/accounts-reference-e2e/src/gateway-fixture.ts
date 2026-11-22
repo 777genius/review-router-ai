@@ -668,7 +668,8 @@ export async function startGatewayFixture(input: {
             native && nativeConnections.credential(account.accountRef)
               ? nativeConnections.credential(account.accountRef)!.credentialKind
               : account.profileId === "grok-subscription-responses-oauth-v1" ||
-                  account.profileId === CODEX_MODEL_PROFILE
+                  account.profileId === CODEX_MODEL_PROFILE ||
+                  account.profileId === FIXTURES.gateway.claudeProfileId
                 ? "oauth"
                 : "api_key",
           resumeCustody:

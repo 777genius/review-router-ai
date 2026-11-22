@@ -279,22 +279,28 @@ test("Add provider resets unsubmitted credentials when switching providers and p
 
   // Neither of these profiles has an account here, so the same embedded host
   // stays mounted across the provider change. Each provider needs a fresh form.
-  await choose(page, "Provider", "Kimi Code");
+  const kimi = apiKeyStorageProfiles.find(
+    (profile) => profile.provider === "kimi",
+  )!;
+  const mimo = apiKeyStorageProfiles.find(
+    (profile) => profile.provider === "mimo",
+  )!;
+  await choose(page, "Provider", kimi.label);
   const kimiForm = dialog.getByRole("region", {
-    name: "Connect Kimi Code",
+    name: `Connect ${kimi.label}`,
     exact: true,
   });
   const kimiKey = kimiForm.getByLabel("API key", { exact: true });
   await expect(kimiKey).toBeVisible();
   await kimiKey.fill(secret);
-  await choose(page, "Provider", "MiMo Token Plan");
+  await choose(page, "Provider", mimo.label);
   const mimoKey = dialog
-    .getByRole("region", { name: "Connect MiMo Token Plan", exact: true })
+    .getByRole("region", { name: `Connect ${mimo.label}`, exact: true })
     .getByLabel("API key", { exact: true });
   await expect(mimoKey).toBeVisible();
   await expect(mimoKey).toHaveValue("");
   await expect(kimiForm).toHaveCount(0);
-  await choose(page, "Provider", "Kimi Code");
+  await choose(page, "Provider", kimi.label);
   await expect(kimiKey).toBeVisible();
   await expect(kimiKey).toHaveValue("");
   await noSecrets(page, [secret]);

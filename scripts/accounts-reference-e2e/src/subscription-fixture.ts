@@ -295,7 +295,12 @@ export function createSubscriptionFixture(
             },
           };
         }
-        if (!account || profile?.provider !== "openrouter")
+        // Native v2 names each enrolled profile as its model source. The old
+        // v1 contract keeps its closed source vocabulary.
+        if (
+          !profile ||
+          (!path.startsWith("/v2/") && profile.provider !== "openrouter")
+        )
           return { status: 200, body: { status: "unsupported" } };
         const now = Date.now();
         return {

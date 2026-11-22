@@ -5,6 +5,7 @@ import type {
 } from "@agent-teams/account-gateway/http";
 export type AccountLifecycleRead = Omit<c.Account, "state"> & {
   state: c.Account["state"] | "suspended";
+  authKind?: c.LifecycleAccountV3["authKind"];
   resumeCustody?: "not_applicable" | "verified" | "attention_required";
   credential?: c.CredentialAttestation | undefined;
 };

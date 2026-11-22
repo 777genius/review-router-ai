@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import {
   createConsumerControlClient,
+  createLifecycleV3Client,
   createManagementClient,
 } from "@agent-teams/account-gateway/http";
 import {
@@ -32,7 +33,7 @@ const secrets = {
 };
 
 async function withFixture(
-  flag: string,
+  flag: string | readonly string[],
   work: (fixture: {
     url: string;
     management: ReturnType<typeof createManagementClient>;
@@ -41,7 +42,7 @@ async function withFixture(
 ) {
   const previous = [...process.argv];
   const workDir = await mkdtemp(join(tmpdir(), "rr-connection-fixture-"));
-  if (flag) process.argv.push(flag);
+  if (flag) process.argv.push(...(typeof flag === "string" ? [flag] : flag));
   let fixture: Awaited<ReturnType<typeof startGatewayFixture>> | undefined;
   try {
     fixture = await startGatewayFixture({
@@ -169,6 +170,27 @@ test("v2 fixture preserves Codex account-model qualification and real SDK refres
       });
     },
   );
+});
+
+test("native limits fixture preserves the existing Claude OAuth account identity", async () => {
+  await withFixture("--limits-fixture", async ({ url }) => {
+    const lifecycle = createLifecycleV3Client({
+      role: "consumer-control",
+      origin: url,
+      token: secrets.personalControlToken,
+      capability: "account-gateway/account-lifecycle/v3",
+      clientContract: "account-gateway-client/account-lifecycle/v3",
+    });
+    expect(
+      await lifecycle.get(FIXTURES.gateway.accounts.viewerClaude),
+    ).toMatchObject({
+      profileId: FIXTURES.gateway.claudeProfileId,
+      authKind: "oauth",
+    });
+    expect(
+      await lifecycle.get(FIXTURES.gateway.accounts.viewerPrimary),
+    ).toMatchObject({ authKind: "api_key" });
+  });
 });
 
 test.each([
@@ -355,74 +377,120 @@ test("native fixture pins Codex import and reconnect intent without retaining cr
   });
 });
 
-test("native subscription fixture preserves key custody and owner-bound browser recovery", async () => {
-  await withFixture("--subscription-fixture", async ({ url, control }) => {
-    const profiles = (await control.getProviderConnectionCapabilitiesV3())
-      .capabilities;
-    const owner = await control.get(FIXTURES.gateway.accounts.viewerPrimary);
-    const select = (provider: string) => {
-      const profile = profiles.find((item) => item.provider.id === provider)!;
-      const method = profile.methods[0]!;
-      return {
-        profileId: profile.profileId,
-        methodId: method.methodId,
-        methodRevision: method.revision,
-        configurationGeneration: method.configurationGeneration,
+test.each([
+  { scenario: "subscription", flags: ["--subscription-fixture"] },
+  {
+    scenario: "combined provider models",
+    flags: [
+      "--subscription-fixture",
+      "--account-models-fixture",
+      "--api-key-storage-fixture",
+    ],
+  },
+])(
+  "native subscription fixture preserves key custody, models and owner-bound browser recovery ($scenario)",
+  async ({ flags }) => {
+    await withFixture(flags, async ({ url, control }) => {
+      const profiles = (await control.getProviderConnectionCapabilitiesV3())
+        .capabilities;
+      const owner = await control.get(FIXTURES.gateway.accounts.viewerPrimary);
+      const select = (provider: string) => {
+        const profile = profiles.find((item) => item.provider.id === provider)!;
+        const method = profile.methods[0]!;
+        return {
+          profileId: profile.profileId,
+          methodId: method.methodId,
+          methodRevision: method.revision,
+          configurationGeneration: method.configurationGeneration,
+        };
       };
-    };
-    const key = await control.beginConnection({
-      operationId: "fixture-native-kimi",
-      ownerRef: owner.ownerRef,
-      displayName: "Native Kimi",
-      connection: select("kimi"),
-      inputFields: { credential: "synthetic-kimi-subscription-key" },
-    });
-    expect(key.operation.state).toBe("applied");
-    expect(key.connection.credential).toEqual({
-      credentialKind: "api_key",
-      credentialPolicy: "provider_key",
-      refreshPolicy: "none",
-    });
-    const browser = await control.beginConnection({
-      operationId: "fixture-native-grok",
-      ownerRef: owner.ownerRef,
-      displayName: "Native Grok",
-      connection: select("grok"),
-    });
-    expect(browser.challenge?.kind).toBe("browser");
-    const retained = await control.readConnection("fixture-native-grok");
-    expect(retained.connection).toEqual(browser.connection);
-    expect(retained).not.toHaveProperty("challenge");
-    expect(JSON.stringify(retained)).not.toContain("authorizationURL");
-    const stats = () =>
-      fetch(`${url}/__subscription-fixture`).then((response) =>
-        response.json(),
-      );
-    const before = await stats();
-    await expect(
-      control.submitConnection({
+      const key = await control.beginConnection({
+        operationId: "fixture-native-kimi",
+        ownerRef: owner.ownerRef,
+        displayName: "Native Kimi",
+        connection: select("kimi"),
+        inputFields: { credential: "synthetic-kimi-subscription-key" },
+      });
+      expect(key.operation.state).toBe("applied");
+      expect(key.connection.credential).toEqual({
+        credentialKind: "api_key",
+        credentialPolicy: "provider_key",
+        refreshPolicy: "none",
+      });
+      const browser = await control.beginConnection({
         operationId: "fixture-native-grok",
-        ownerRef: "foreign-owner",
+        ownerRef: owner.ownerRef,
+        displayName: "Native Grok",
+        connection: select("grok"),
+      });
+      expect(browser.challenge?.kind).toBe("browser");
+      const retained = await control.readConnection("fixture-native-grok");
+      expect(retained.connection).toEqual(browser.connection);
+      expect(retained).not.toHaveProperty("challenge");
+      expect(JSON.stringify(retained)).not.toContain("authorizationURL");
+      const stats = () =>
+        fetch(`${url}/__subscription-fixture`).then((response) =>
+          response.json(),
+        );
+      const before = await stats();
+      await expect(
+        control.submitConnection({
+          operationId: "fixture-native-grok",
+          ownerRef: "foreign-owner",
+          inputFields: { completion: "synthetic-browser-grok-code" },
+        }),
+      ).rejects.toThrow();
+      expect(await stats()).toEqual(before);
+      const applied = await control.submitConnection({
+        operationId: "fixture-native-grok",
+        ownerRef: owner.ownerRef,
         inputFields: { completion: "synthetic-browser-grok-code" },
-      }),
-    ).rejects.toThrow();
-    expect(await stats()).toEqual(before);
-    const applied = await control.submitConnection({
-      operationId: "fixture-native-grok",
-      ownerRef: owner.ownerRef,
-      inputFields: { completion: "synthetic-browser-grok-code" },
+      });
+      expect(applied.operation.state).toBe("applied");
+      expect(applied.connection?.credential).toEqual({
+        credentialKind: "oauth",
+        credentialPolicy: "subscription_session",
+        refreshPolicy: "native",
+      });
+      expect(await control.readConnection("fixture-native-grok")).toEqual(
+        applied,
+      );
+      if (
+        applied.operation.state !== "applied" ||
+        applied.operation.result?.kind !== "account"
+      )
+        throw new Error("Expected an applied native Grok account receipt");
+      const account = applied.operation.result;
+      const request = {
+        ownerRef: owner.ownerRef,
+        accountRef: account.accountRef,
+        profileId: select("grok").profileId,
+        expectedAuthorizationEpoch: account.authorizationEpoch,
+      };
+      expect(await control.readAccountModelsV2(request)).toMatchObject({
+        status: "snapshot",
+        sourceId: request.profileId,
+        profileId: request.profileId,
+        admission: { unavailableFallback: "qualified_anchor" },
+        models: [{ modelId: "grok-4.7" }],
+      });
+      expect(await control.readAccountModels(request)).toEqual({
+        status: "unsupported",
+      });
+      const beforeModels = await stats();
+      for (const changed of [
+        { ownerRef: "foreign-owner" },
+        { profileId: "foreign-profile" },
+        { expectedAuthorizationEpoch: account.authorizationEpoch + 1 },
+      ])
+        await expect(
+          control.readAccountModelsV2({ ...request, ...changed }),
+        ).rejects.toThrow();
+      expect(await stats()).toEqual(beforeModels);
+      expect(beforeModels).toMatchObject({ inference: 0, refresh: 0 });
     });
-    expect(applied.operation.state).toBe("applied");
-    expect(applied.connection?.credential).toEqual({
-      credentialKind: "oauth",
-      credentialPolicy: "subscription_session",
-      refreshPolicy: "native",
-    });
-    expect(await control.readConnection("fixture-native-grok")).toEqual(
-      applied,
-    );
-  });
-});
+  },
+);
 
 test("native NVIDIA fixture fences model identity before refresh effects", async () => {
   await withFixture("--api-key-storage-fixture", async ({ url, control }) => {

@@ -206,10 +206,15 @@ test("subscription connections use real server actions for all four providers an
   await noSecrets(page, [...secrets, reconnectCode]);
   await expect(grokRow).toContainText("Ready");
   await expect(grokRow.getByRole("progressbar")).toHaveCount(2);
-  const glmReceipt = page.getByRole("status").filter({
+  const glmReceipts = page.getByRole("status").filter({
     hasText: "Browser GLM subscription",
   });
-  await expect(glmReceipt).not.toContainText("Personal use");
+  // Enrollment and reconnect each retain their own completed receipt.
+  await expect(glmReceipts).toHaveCount(2);
+  for (const receipt of await glmReceipts.all()) {
+    await expect(receipt).toContainText("Completed");
+    await expect(receipt).not.toContainText("Personal use");
+  }
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({
     path: testInfo.outputPath("subscriptions-desktop.png"),

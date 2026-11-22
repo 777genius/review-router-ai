@@ -10,7 +10,7 @@ import {
   oauthCompletionMatchesProfile,
 } from "./legacy-oauth-credentials";
 import { createPersonalNativeConnections } from "./personal-native-connections";
-import { nativeCredentialView } from "./native-connection-view";
+import { accountCredentialView } from "./native-connection-view";
 import {
   snapshotNativeConnectionRequest,
   type AccountNativeConnectionIntent,
@@ -304,10 +304,7 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
         profileId: account.profileId,
         profileLabel: profile.label,
         provider: profile.provider,
-        ...(profile.authKind ? { authKind: profile.authKind } : {}),
-        ...(account.credential
-          ? { nativeCredential: nativeCredentialView(account.credential) }
-          : {}),
+        ...accountCredentialView(account, profile.authKind),
         connection: profile.connection,
         state: account.state,
         readiness: current.pendingSourceOperationId

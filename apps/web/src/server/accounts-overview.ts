@@ -2,7 +2,7 @@ import type { AccountLimitsService } from "./account-limits-service";
 import type { AccountMetadataService } from "./account-metadata-service";
 import { lifecycleProjection } from "./account-lifecycle";
 import type { AccountLifecycleRead } from "./account-lifecycle-reader";
-import { nativeCredentialView } from "./native-connection-view";
+import { accountCredentialView } from "./native-connection-view";
 import {
   createCipheriv,
   createDecipheriv,
@@ -295,10 +295,7 @@ export function createAccountsOverview(input: {
             profileLabel: profile.label,
             ...(profile.provider ? { provider: profile.provider } : {}),
             ...(profile.connection ? { connection: profile.connection } : {}),
-            ...(profile.authKind ? { authKind: profile.authKind } : {}),
-            ...(remote?.credential
-              ? { nativeCredential: nativeCredentialView(remote.credential) }
-              : {}),
+            ...accountCredentialView(remote, profile.authKind),
             state: remote?.state ?? "quarantined",
             readiness:
               source.pendingSourceOperationId || source.state === "pending"

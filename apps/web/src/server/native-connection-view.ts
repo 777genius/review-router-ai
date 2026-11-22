@@ -12,7 +12,11 @@ import type {
   NativeCredentialAttestation,
 } from "../features/account-gateway/domain/native-connection";
 import { nativeConnectionMethodAllowed } from "../features/account-gateway/domain/native-connection";
-import type { AccountProfileView } from "./account-gateway-accounts";
+import type {
+  AccountProfileView,
+  AccountView,
+} from "./account-gateway-accounts";
+import type { AccountLifecycleRead } from "./account-lifecycle-reader";
 
 export function nativeCredentialView(
   value: CredentialAttestation,
@@ -21,6 +25,23 @@ export function nativeCredentialView(
     credentialKind: value.credentialKind,
     credentialPolicy: value.credentialPolicy,
     refreshPolicy: value.refreshPolicy,
+  };
+}
+
+/** Current account facts take precedence over a legacy catalog hint. */
+export function accountCredentialView(
+  account:
+    | Pick<AccountLifecycleRead, "authKind" | "credential">
+    | null
+    | undefined,
+  legacyAuthKind?: AccountProfileView["authKind"],
+): Pick<AccountView, "authKind" | "nativeCredential"> {
+  const kind = account?.authKind ?? legacyAuthKind;
+  return {
+    ...(kind === "api_key" || kind === "oauth" ? { authKind: kind } : {}),
+    ...(account?.credential
+      ? { nativeCredential: nativeCredentialView(account.credential) }
+      : {}),
   };
 }
 

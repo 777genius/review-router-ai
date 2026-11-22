@@ -485,6 +485,7 @@ function fixture(
     gatewayRevision: 999,
   };
   return {
+    input,
     api,
     canonical,
     request,
@@ -535,6 +536,46 @@ function fixture(
 }
 
 describe("personal canonical UI server boundary", () => {
+  it.each(["api_key", "oauth", "unknown"] as const)(
+    "preserves account %s identity when the native catalog has no auth kind",
+    async (authKind) => {
+      const f = fixture();
+      const account = await f.control.get();
+      const api = createPersonalCanonicalAccounts({
+        ...f.input,
+        lifecycleReader: {
+          get: async () => ({ ...account, authKind }),
+          compatible: async () => true,
+          writable: async () => false,
+        },
+        catalogue: async () => [
+          {
+            id: f.profileId,
+            label: "Native account",
+            protocol: "openai-responses",
+            models: [],
+            connection: {
+              provider: "mimo",
+              planLabel: "Native plan",
+              regionLabel: "Global",
+              completionInputKind: "none",
+              limitsContract: "none",
+              modelSettings: [],
+              nativeMethods: [],
+            },
+          },
+        ],
+      });
+      const page = await api.listGatewayAccounts("", null);
+      expect(page.status).toBe("ok");
+      if (page.status !== "ok") throw new Error("expected account inventory");
+      expect(page.value.accounts).toHaveLength(1);
+      expect(page.value.accounts[0]?.authKind).toBe(
+        authKind === "unknown" ? undefined : authKind,
+      );
+    },
+  );
+
   it("denies fresh unqualified NVIDIA enrollment but preserves existing account lifecycle", async () => {
     const f = fixture({ nvidia: "unqualified" });
     expect(

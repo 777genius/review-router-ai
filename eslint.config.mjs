@@ -33,7 +33,7 @@ const webMaxLinesCeilings = {
   "apps/web/src/server/account-gateway-accounts.ts": 2530,
   "apps/web/src/server/dashboard-mutations.ts": 1105,
   "apps/web/src/server/personal-account-composition.ts": 848,
-  "apps/web/src/server/personal-canonical-accounts.ts": 1157,
+  "apps/web/src/server/personal-canonical-accounts.ts": 1154,
 };
 
 export default [
