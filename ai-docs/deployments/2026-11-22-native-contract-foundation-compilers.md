@@ -4,9 +4,9 @@
 - Goal: compile/typecheck the seven protocol, capability, lock and review-state
   foundation packages through the existing isolated TypeScript 7.0.2 helper.
 - Affected targets: build/CI and artifacts consumed by API/worker/protocol callers.
-- Implementation PR: not opened; isolated qualified worktree patch prepared.
-- Implementation reference: patch based on main
-  `06aae0faf17687e52b9d0be63717c8ccc16d1458`; no implementation commit yet.
+- Implementation PR: [#971](https://github.com/777genius/review-router-ai/pull/971).
+- Implementation reference: `c4d4c3c3ecba533b2be9528d04bb1c68dd3a3b09`, based on
+  main `06aae0faf17687e52b9d0be63717c8ccc16d1458`; not merged or deployed.
 - Dependencies: existing native preparation, shared build and protocol contract
   bootstrap. Shared [#967](https://github.com/777genius/review-router-ai/pull/967)
   and logger/root [#969](https://github.com/777genius/review-router-ai/pull/969) are
@@ -75,5 +75,6 @@ involved. Preserve queued checks for unrelated PRs.
 
 ## Execution log
 
-Local qualification only. No PR, release or deployment has been performed for
-this patch; required exact-commit CI remains pending.
+PR #971 was opened as a draft after local qualification and independent review.
+Required exact-commit CI remains pending. No release or deployment has been
+performed for this patch.
