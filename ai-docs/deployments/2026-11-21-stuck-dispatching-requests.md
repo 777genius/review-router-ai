@@ -3,9 +3,9 @@
 - Task ID: `2026-11-21-stuck-dispatching-requests`
 - Goal: stop obsolete and abandoned pre-submission requests without touching a newer request or replaying an uncertain workflow dispatch.
 - Affected target: ReviewRouter worker. Plan: [89](../architecture/89-stuck-dispatching-requests.md).
-- Implementation reference: pending review and merge.
+- Implementation reference: [PR #960](https://github.com/777genius/review-router-ai/pull/960), pending merge.
 - Dependencies: none. No migration, configuration, public Action, Gateway or native change.
-- Last updated: 2026-11-21.
+- Last updated: 2026-11-22.
 
 ## Environment status
 
@@ -24,7 +24,7 @@ After rollout use a fresh read-only state census and compare request identities 
 
 ## Qualification before deployment
 
-The isolated worker run passed 177 focused unit/adapter tests, including early independent POST recording, a seven-second success, late responses after terminalization or competing recovery at ten minutes, and ignored late no-effect results, both review-executions and worker typechecks, and scoped ESLint. Four targeted tests passed against disposable PostgreSQL 17 with schema through 000079; 41 other tests in that file were deliberately filtered. A separate three-case history policy check maps superseded to Stopped, dispatch_failed_no_effect to Failed, and an unknown POST outcome to Unconfirmed. An additional targeted test in the existing history PostgreSQL suite passed on a separate fresh disposable PG17 with the full migration chain: source transaction → outbox event → projector → persisted Stopped/Failed status. It selected 1 test and intentionally filtered the other 7 because only this changed transition was under review. It does not prove production delivery or a specific reason in the UI. A synthetic EXPLAIN on disposable PG17 used 100,000 narrow temporary rows, 20,000 due and 16 excluded IDs: bitmap scan plus top-N sort processed 20,000 rows in 8.551 ms. This single synthetic run is not representative of production row width or distribution; large due sets still require performance assessment. The unrelated existing web test typecheck failure is separately guarded in `home-landing.test.tsx`, matching pending PR #956; its four focused tests passed. Exact-commit CI and independent technical review remain pending.
+The isolated worker run passed 177 focused unit/adapter tests, including early independent POST recording, a seven-second success, late responses after terminalization or competing recovery at ten minutes, and ignored late no-effect results, both review-executions and worker typechecks, and scoped ESLint. Four targeted tests passed against disposable PostgreSQL 17 with schema through 000079; 41 other tests in that file were deliberately filtered. A separate three-case history policy check maps superseded to Stopped, dispatch_failed_no_effect to Failed, and an unknown POST outcome to Unconfirmed. An additional targeted test in the existing history PostgreSQL suite passed on a separate fresh disposable PG17 with the full migration chain: source transaction → outbox event → projector → persisted Stopped/Failed status. It selected 1 test and intentionally filtered the other 7 because only this changed transition was under review. It does not prove production delivery or a specific reason in the UI. A synthetic EXPLAIN on disposable PG17 used 100,000 narrow temporary rows, 20,000 due and 16 excluded IDs: bitmap scan plus top-N sort processed 20,000 rows in 8.551 ms. This single synthetic run is not representative of production row width or distribution; large due sets still require performance assessment. An independent technical review found no confirmed blockers in the worker changes at `7095f4cdd`; subsequent commits changed tests and documentation, not worker behavior. Exact-head CI has failures and remains incomplete. The existing `home-landing.test.tsx` typecheck error is outside this PR and is also being addressed in [PR #961](https://github.com/777genius/review-router-ai/pull/961); do not count that proposed fix or its pending CI as complete.
 
 ## Known user-visible gaps
 
