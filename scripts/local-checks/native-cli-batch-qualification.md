@@ -56,6 +56,26 @@ these configs emit no maps. All 180 focused fixtures and both API/worker native
 typechecks passed. The complete selected package trees have no overlap with the
 172-file provider #959 snapshot at `fd0e0c6dfeca24934a60318bdc2b491d32d86b12`.
 
+## Independent runtime cohort (stacked on #973)
+
+`packages/context-memory` and feature packages `conversations`,
+`sdk-growth-authority`, `hosted-account-pool`, and `gitlab-integration` select
+native build/typecheck for ten routes and five emitting projects. The exact base
+is service PR #973 at `fb1782717ba4b50d8907586e115700edeb02b57c`.
+All 128 JavaScript comparisons are byte-identical and all 128 complete declaration
+surfaces equivalent; these selected configs emit no maps. Focused fixtures passed
+259 cases with two existing persistence cases skipped; both native host checks
+passed. Source, configs, exports and dependency pins are unchanged.
+
+Two candidates were deliberately deferred. `codex-oauth-rotating` declaration
+maps now map inferred tuple literals to their individual original literals, where
+TS6 used the initializer start; the constructor-only map profile rejects that
+unqualified class of differences. `conflict-runtime` requires the complete
+`action-control-plane` production barrel, whose wider provider/auth closure
+remains outside the bounded runtime evidence. Their manifests retain original
+scripts. Qualify the tuple mapping with rejecting fixtures, and finish the actual
+production closure after provider integration, before migrating those routes.
+
 ## Reusable bounded qualification procedure
 
 1. Freeze an explicit manifest/route inventory at an exact source commit. Include
@@ -91,7 +111,7 @@ typechecks passed. The complete selected package trees have no overlap with the
 ## Finish the remaining CLI migration without one PR per package
 
 Accounting for the separately qualified shared/logger/root work and these cohorts,
-the inventory retains 20 package manifests and 40 bare compiler script routes.
+the inventory retains 15 package manifests and 30 bare compiler script routes.
 Specialized root scripts, protocol bootstrap and packed-consumer compilers also
 need their own exact-command inventory; explicit compatibility baselines remain
 separate from ordinary routes.
