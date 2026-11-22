@@ -67,7 +67,7 @@ surfaces equivalent; these selected configs emit no maps. Focused fixtures passe
 259 cases with two existing persistence cases skipped; both native host checks
 passed. Source, configs, exports and dependency pins are unchanged.
 
-Two candidates were deliberately deferred. `codex-oauth-rotating` declaration
+At that checkpoint two candidates were deliberately deferred. `codex-oauth-rotating` declaration
 maps now map inferred tuple literals to their individual original literals, where
 TS6 used the initializer start; the constructor-only map profile rejects that
 unqualified class of differences. `conflict-runtime` requires the complete
@@ -75,6 +75,32 @@ unqualified class of differences. `conflict-runtime` requires the complete
 remains outside the bounded runtime evidence. Their manifests retain original
 scripts. Qualify the tuple mapping with rejecting fixtures, and finish the actual
 production closure after provider integration, before migrating those routes.
+
+## UI, installation and Codex cohort (stacked on #974)
+
+`ui`, `features/github-installations`, and `features/codex-oauth-rotating` select
+native build/typecheck for six routes, based on #974 exact head
+`02df99012d854c42abee5e25ef92f15905376c46`. Source/config/dependency/export
+contracts are unchanged. All 62 JavaScript comparisons are byte-identical and
+62 complete declaration surfaces equivalent. UI qualification resolves Base UI
+1.4.1's actual ESM import/types entry and follows its declaration reexports:
+`AlertDialogCloseProps`/`DialogCloseProps` and the Portal pair each denote the same
+canonical interface. Only these two verified imported aliases are normalized;
+unrelated modules, local names and distinct props remain different.
+
+The earlier Codex map deferral is resolved by a finite profile: ten maps are
+byte-identical; five retain every old segment exactly and add exactly 84
+independently derived AST anchors (70 tuple-literal endpoints, six method/body
+ends and eight inferred-object property/value anchors). Mapped generated lines
+remain byte-identical. Reordered declaration lines have no mappings in either
+map, the line count stays exact, and the complete declaration surface is checked.
+This does not permit arbitrary points in a source range or blanket map changes.
+Ten wrong/missing-map mutants and six alias mutants reject.
+
+78 focused cases, API/Web/Worker native checks, strict emitted declarations in
+both compilers, ten runtime target imports and emitted JSX SSR passed. The DB
+prerequisite is compilation only; no database/container/live query was started.
+The conflict-runtime production closure and provider owners remain deferred.
 
 ## Reusable bounded qualification procedure
 
@@ -111,7 +137,7 @@ production closure after provider integration, before migrating those routes.
 ## Finish the remaining CLI migration without one PR per package
 
 Accounting for the separately qualified shared/logger/root work and these cohorts,
-the inventory retains 15 package manifests and 30 bare compiler script routes.
+the inventory retains 12 package manifests and 24 bare compiler script routes.
 Specialized root scripts, protocol bootstrap and packed-consumer compilers also
 need their own exact-command inventory; explicit compatibility baselines remain
 separate from ordinary routes.
