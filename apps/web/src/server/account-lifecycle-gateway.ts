@@ -120,7 +120,7 @@ export function createAccountLifecycleGateway(input: {
           ? c.lifecycleOperationV3
           : c.lifecycleOperation
       ).parse(
-        await checked(() => input.lifecycle.operation(command.operationId)),
+        await checked<unknown>(() => input.lifecycle.operation(command.operationId)),
       );
       const intent = operation.intent;
       if (
