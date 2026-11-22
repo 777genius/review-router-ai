@@ -36,10 +36,10 @@ test(
       if (route) route(reply);
       else reply.writeHead(200, { "content-type": "text/html" }).end("ready");
     });
-    let ownedBrowser: Browser | undefined;
+    const owned: { browser?: Browser } = {};
     const secret = "synthetic-capture-regression-secret";
     t.after(async () => {
-      await ownedBrowser?.close();
+      await owned.browser?.close();
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       if (previousResult === undefined)
@@ -58,7 +58,7 @@ test(
       headless: true,
       ...(executablePath ? { executablePath } : {}),
     });
-    ownedBrowser = browser;
+    owned.browser = browser;
     for (const failRequest of [false, true]) {
       await t.test(
         failRequest
@@ -91,8 +91,24 @@ test(
               false,
               "in-flight POST must reserve the drain before requestfinished",
             );
-            if (failRequest) reply.destroy();
-            else
+            if (failRequest) {
+              const responded = page.waitForEvent("response", (response) =>
+                response.url().endsWith("/action"),
+              );
+              const failed = page.waitForEvent("requestfailed", (request) =>
+                request.url().endsWith("/action"),
+              );
+              // A socket closed before headers can be transparently retried.
+              // Start a response, then fail its body after Chromium sees it.
+              reply.writeHead(200, {
+                "content-type": "application/json",
+                "content-length": "11",
+              });
+              reply.flushHeaders();
+              await responded;
+              reply.destroy();
+              await failed;
+            } else
               reply
                 .writeHead(200, { "content-type": "application/json" })
                 .end('{"ok":true}');
