@@ -4,8 +4,9 @@
 - Goal: use the existing isolated TypeScript 7.0.2 helper for six build/typecheck
   routes in UI, GitHub installations and Codex rotating packages.
 - Affected targets: compiled UI/library and API/worker build artifacts.
-- Implementation PR: pending.
-- Implementation reference: pending; stack on runtime
+- Implementation PR: [#975](https://github.com/777genius/review-router-ai/pull/975).
+- Implementation reference: `7df34c5c1b3c2edd1a11eb47cdf46645168f6cab`;
+  stack on runtime
   [#974](https://github.com/777genius/review-router-ai/pull/974) exact head
   `02df99012d854c42abee5e25ef92f15905376c46`; merge prerequisite stack first.
 - Dependencies: existing native preparation and unchanged prior stack outputs.
@@ -105,5 +106,6 @@ normally. No data rollback is involved. Do not weaken checks or reset unrelated 
 
 ## Execution log
 
-Local qualification and scoped profile review passed; independent final review
-and required final-commit CI remain pending. No merge, release or deployment.
+Local qualification, scoped profile review and independent final review passed.
+PR #975 is a draft stacked on #974. Prerequisite merge and required final-commit
+CI remain pending. No merge, release or deployment.
