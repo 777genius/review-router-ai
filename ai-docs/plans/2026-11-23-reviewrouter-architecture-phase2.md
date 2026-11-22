@@ -90,3 +90,29 @@ P8. Only at the end, inspect exact-HEAD CI once, resolve actual failures, ensure
 - Existing #810 main and #914 main integrations confirmed. Open #976/#959/file-level overlaps inventoried.
 - Current GitHub connector can write code, but the current execution container cannot resolve github.com and has no gh/pnpm/Node 26 repository checkout. **Until an actual checkout is available, local or E2E tests cannot truthfully be claimed PASS.**
 - Completion requires (1) coherent feature-owned policy, (2) guarded source/production public ABI, (3) verified compatible exact dependency pins/frozen lock if available, (4) measured substantive diff without padding, (5) focused + integration + affected end-to-end evidence on the exact final SHA, (6) resolved critical/high review findings, (7) final review and merge protection, (8) merged-main verification. Draft PR or documentation commit alone is NOT completion.
+
+## Executed checkpoint P2 (2026-11-23): source-level proof, not E2E
+
+Commits pushed as they were prepared:
+- d3af7256: plan + opened draft #977.
+- a609ff34: new narrow Action Control Plane conflict-runtime subpath, explicit package conditions, architecture guard and rejecting fixtures.
+- 02e9ae6b: move the 72-line schema/constant owner out of the eager domain aggregate; the facade now re-exports only that pure owner.
+- 74306562: format narrow checker and fixtures.
+- 8e5049a9: runtime identity/strict parsing regression tests.
+
+Read-only comparison against main verifies that the extracted source block is byte-identical after trimming; the original public builder function body is byte-identical; the consuming domain resolves only the narrow public subpath, and its facade imports exclusively the new domain owner. Conditional package exports target real source and emitted production paths. PR file-path intersection is empty with current #959, #976, #970. These are STATIC SOURCE proofs, not build/test assertions.
+
+### Important P3 characterization discovery before any large source move
+
+- apps/web/app/dashboard/actions-codex-rotating-contract.test.ts reads actions.ts verbatim and slices exact function markers, including provisionPendingRepositoryOwnedWorkflow, createSetupPullRequestMutation, confirmSetupPullRequestMergedMutation and resolveCodexRotatingProvisioningActionRef. These source-bound checks assert active vs candidate SHA selection, attestation ordering and the unique writer-policy callsites. A blind extraction would silently break the oracle or require weakening it. Do not simply delete these markers; first replace them with equivalent executable owner/host contract tests and retain the original tested semantics.
+- Existing test owners: actions-workflow-provisioning-recovery.test.ts (1,437 lines), actions-hosted-workflow-recovery.test.ts (2,303 lines), actions-codex-rotating-contract.test.ts (263 lines). They cover authorization-before-side-effects, unknown/head-changed/wrong-base, hosted/repository-owned activation, writer version and workflow attestation. Reuse these instead of a fresh E2E framework. Any source-marker fixture migration must be reviewed as a semantic test change, not automatic textual replacement.
+- No production actions.ts source edited yet. The target for P3 remains one coherent use case only once the exact external effect order and PostgreSQL/browser oracles can actually be executed.
+- Exact dependency upgrade not committed: npm registry and a real pnpm install/frozen lockfile are unavailable in the current execution container. Upstream source versions are noted but are not npm artifact evidence. Do not present this as an updated dependency set or a successful local test.
+
+### P2 review observations
+
+Round 1 (public API): a pure facade pointing at the legacy aggregate still loaded unnecessary feature roots — repaired by moving the owned schema itself.
+Round 2 (source identity): extracted block and unchanged builder compared exactly against baseline; no new parser/serializer behavior introduced.
+Round 3 (boundary tests): malformed/extra contract exports and direct eager-root consumer imports are rejected by fixtures; a runtime identity/strict parse regression test has been added, but execution is still pending.
+Round 4 (integration scope): no overlapping paths with current #959, #976, #970; do not claim cross-version runtime compatibility or finished CI solely from this static inspection.
+
