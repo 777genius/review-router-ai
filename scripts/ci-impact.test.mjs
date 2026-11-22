@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, matchesGlob } from "node:path";
 import test from "node:test";
 import { changedPaths, classifyChangedPaths } from "./ci-impact.mjs";
 
@@ -153,4 +153,125 @@ test("CI impact selector runs outside native Linux runner pool", () => {
   assert.doesNotMatch(block, /CI_LINUX_(?:CHECKS_)?RUNNER/);
   assert.match(block, /git show "\$\{CI_BASE_SHA\}:scripts\/ci-impact\.mjs"/);
   assert.match(workflow, /^ {2}quality-gates:$/m);
+});
+
+/**
+ * GitHub evaluates paths filters in order: matching later ! patterns negate
+ * an earlier include. Test the exact trigger declarations, not an independent
+ * manually maintained marketing allowlist.
+ */
+function workflowPaths(yaml, event) {
+  const lines = yaml.split("\n");
+  const start = lines.indexOf("  " + event + ":");
+  assert.ok(start >= 0, "Missing " + event + " trigger");
+  const next = lines.findIndex(
+    (line, i) => i > start && /^ {2}[a-z][\w-]*:\s*$/.test(line),
+  );
+  const block = lines.slice(start + 1, next < 0 ? lines.length : next);
+  const pathsIndex = block.indexOf("    paths:");
+  assert.ok(pathsIndex >= 0, "Missing path filter on " + event);
+  const patterns = [];
+  for (const line of block.slice(pathsIndex + 1)) {
+    if (/^\s*#/.test(line)) continue;
+    const match = /^ {6}- (.+)$/.exec(line);
+    if (!match) break;
+    const literal = match[1].trim();
+    patterns.push(literal.replace(/^(['"])(.*)\1$/, "$2"));
+  }
+  return patterns;
+}
+
+function matchingPath(patterns, path) {
+  let selected = false;
+  for (const token of patterns) {
+    const excluded = token.startsWith("!");
+    if (matchesGlob(path, excluded ? token.slice(1) : token))
+      selected = !excluded;
+  }
+  return selected;
+}
+
+test("marketing-only E2E filters keep real dashboard and shared contracts", () => {
+  const workflows = [
+    [
+      "skills-browser.yml",
+      ["pull_request"],
+      "packages/features/review-skills/src/index.ts",
+    ],
+    [
+      "memory-projections.yml",
+      ["pull_request", "push"],
+      "packages/features/memory/src/index.ts",
+    ],
+    [
+      "unified-ocr-ui.yml",
+      ["pull_request"],
+      "packages/features/review-run-control/src/index.ts",
+    ],
+  ];
+  const marketing = [
+    "apps/web/app/home-hero.tsx",
+    "apps/web/app/home-landing.module.css",
+    "apps/web/app/page.tsx",
+    "apps/web/app/pricing/page.tsx",
+    "apps/web/app/privacy/page.tsx",
+    "apps/web/app/terms/page.tsx",
+    "apps/web/app/security/page.tsx",
+    "apps/web/app/robots.ts",
+    "apps/web/app/sitemap.ts",
+  ];
+  const shared = [
+    "apps/web/app/layout.tsx",
+    "apps/web/app/primary-nav.tsx",
+    "apps/web/app/globals.css",
+    "apps/web/app/dashboard/review-skills-section.tsx",
+    "apps/web/src/server/review-skills-reader.ts",
+    "apps/web/app/api/dashboard/skills/route.ts",
+  ];
+  for (const [workflow, events, ownFeature] of workflows) {
+    const source = readFileSync(
+      new URL("../.github/workflows/" + workflow, import.meta.url),
+      "utf8",
+    );
+    for (const event of events) {
+      const patterns = workflowPaths(source, event);
+      const include = patterns.indexOf("apps/web/**");
+      assert.ok(include >= 0, workflow + ": broad shared-web admission lost");
+      const exclusions = patterns.filter((pattern) => pattern.startsWith("!"));
+      assert.ok(
+        exclusions.length >= 10,
+        workflow + ": missing narrow marketing exclusions",
+      );
+      assert.ok(
+        patterns.indexOf(exclusions[0]) > include,
+        workflow + ": exclusions must follow inclusion",
+      );
+      for (const path of marketing) {
+        assert.equal(
+          matchingPath(patterns, path),
+          false,
+          workflow + " " + event + " should omit " + path,
+        );
+      }
+      for (const path of [
+        ...shared,
+        ownFeature,
+        ".github/workflows/" + workflow,
+      ]) {
+        assert.equal(
+          matchingPath(patterns, path),
+          true,
+          workflow + " " + event + " must test " + path,
+        );
+      }
+      assert.equal(
+        ["apps/web/app/home-hero.tsx", "apps/web/app/layout.tsx"].some((path) =>
+          matchingPath(patterns, path),
+        ),
+        true,
+        workflow + ": mixed marketing and shared change must run",
+      );
+    }
+    assert.match(source, /workflow_dispatch:/);
+  }
 });
