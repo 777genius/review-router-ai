@@ -4,7 +4,7 @@ import {
   conflictReviewAdvisoryStatusContext,
   conflictReviewSummaryMaxBytes,
   type ActionConflictReviewRuntimeConfig,
-} from "@reviewrouter/features-action-control-plane";
+} from "@reviewrouter/features-action-control-plane/conflict-runtime-contract";
 import { z } from "zod";
 
 export const conflictRuntimeProviderEnvAllowlist = [

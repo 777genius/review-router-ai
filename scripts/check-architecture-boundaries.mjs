@@ -565,13 +565,137 @@ async function checkReviewActionV2ProtocolBoundaries(violations) {
     });
   }
   const publicExports = Object.keys(packageJson.exports ?? {}).sort();
-  const expectedExports = [".", "./oidc", "./v2", "./v2/contract-source"];
+  const expectedExports = [
+    ".",
+    "./conflict-runtime-contract",
+    "./oidc",
+    "./v2",
+    "./v2/contract-source",
+  ];
   if (JSON.stringify(publicExports) !== JSON.stringify(expectedExports)) {
     violations.push({
       file: join(actionControlPlaneRoot, "package.json"),
       imported: publicExports.join(","),
       reason:
-        "action-control-plane exports must keep only the v1 root and reviewed oidc, v2 interface and contract-source subpaths",
+        "action-control-plane exports must keep only the v1 root and reviewed oidc, v2 interface, contract-source and conflict-runtime domain subpaths",
+    });
+  }
+  checkActionConflictRuntimePublishedContract(
+    actionControlPlaneRoot,
+    packageJson,
+    violations,
+  );
+}
+
+/**
+ * This is a published-language seam, not an alternative eager feature root.
+ * Keep both the conditional exports and the re-export declarations exact.
+ * No extra import or adapter symbol can be made available to domain consumers.
+ */
+function checkActionConflictRuntimePublishedContract(
+  actionControlPlaneRoot,
+  packageJson,
+  violations,
+) {
+  const facade = join(actionControlPlaneRoot, "src", "conflict-runtime-contract.ts");
+  const condition = packageJson.exports?.["./conflict-runtime-contract"];
+  const expectedCondition = {
+    types: "./src/conflict-runtime-contract.ts",
+    production: "./dist/conflict-runtime-contract.js",
+    default: "./src/conflict-runtime-contract.ts",
+  };
+  if (
+    !condition ||
+    JSON.stringify(condition) !== JSON.stringify(expectedCondition)
+  ) {
+    violations.push({
+      file: join(actionControlPlaneRoot, "package.json"),
+      imported: "./conflict-runtime-contract",
+      reason: "conflict-runtime domain contract must have exact source, types and production exports",
+    });
+  }
+  if (!existsSync(facade)) {
+    violations.push({
+      file: facade,
+      imported: "missing contract",
+      reason: "conflict-runtime needs an explicit pure published domain contract",
+    });
+  } else {
+    const source = ts.createSourceFile(
+      facade,
+      readFileSync(facade, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    const exports = source.statements.map((statement) => {
+      if (
+        !ts.isExportDeclaration(statement) ||
+        !statement.moduleSpecifier ||
+        !ts.isStringLiteral(statement.moduleSpecifier) ||
+        !statement.exportClause ||
+        !ts.isNamedExports(statement.exportClause)
+      ) {
+        return null;
+      }
+      return {
+        from: statement.moduleSpecifier.text,
+        typeOnly: statement.isTypeOnly,
+        names: statement.exportClause.elements.map((element) => ({
+          name: element.name.text,
+          source: element.propertyName?.text ?? element.name.text,
+          typeOnly: element.isTypeOnly,
+        })),
+      };
+    });
+    const expected = [
+      {
+        from: "./domain/action-control-plane.js",
+        typeOnly: false,
+        names: [
+          "actionConflictReviewRuntimeConfigSchema",
+          "conflictReviewAdvisoryStatusContext",
+          "conflictReviewSummaryMaxBytes",
+        ].map((name) => ({ name, source: name, typeOnly: false })),
+      },
+      {
+        from: "./domain/action-control-plane.js",
+        typeOnly: true,
+        names: [
+          {
+            name: "ActionConflictReviewRuntimeConfig",
+            source: "ActionConflictReviewRuntimeConfig",
+            typeOnly: false,
+          },
+        ],
+      },
+    ];
+    if (
+      source.parseDiagnostics.length > 0 ||
+      JSON.stringify(exports) !== JSON.stringify(expected)
+    ) {
+      violations.push({
+        file: facade,
+        imported: "contract statements",
+        reason:
+          "conflict-runtime needs an explicit pure published domain contract; no adapters, aliases or extra exports",
+      });
+    }
+  }
+
+  const consumer = join(
+    root,
+    "packages/features/conflict-runtime/src/domain/conflict-runtime.ts",
+  );
+  if (
+    existsSync(consumer) &&
+    extractImportSpecifiers(readFileSync(consumer, "utf8")).has(
+      "@reviewrouter/features-action-control-plane"
+    )
+  ) {
+    violations.push({
+      file: consumer,
+      imported: "@reviewrouter/features-action-control-plane",
+      reason: "conflict-runtime domain must import the narrow published contract, not the mixed root",
     });
   }
 }

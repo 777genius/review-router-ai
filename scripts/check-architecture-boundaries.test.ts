@@ -391,11 +391,69 @@ describe("usage producer protocol transport boundary", () => {
           },
           "./v2": {},
           "./v2/contract-source": {},
+          "./conflict-runtime-contract": {
+            types: "./src/conflict-runtime-contract.ts",
+            production: "./dist/conflict-runtime-contract.js",
+            default: "./src/conflict-runtime-contract.ts",
+          },
         },
       }),
     );
+    writeFile(
+      root,
+      "packages/features/action-control-plane/src/conflict-runtime-contract.ts",
+      'export { actionConflictReviewRuntimeConfigSchema, conflictReviewAdvisoryStatusContext, conflictReviewSummaryMaxBytes } from "./domain/action-control-plane.js";\nexport type { ActionConflictReviewRuntimeConfig } from "./domain/action-control-plane.js";\n',
+    );
     return root;
   }
+
+  it("accepts the pure published conflict runtime contract", () => {
+    const root = protocolFixture();
+    writeFile(
+      root,
+      "packages/features/conflict-runtime/src/domain/conflict-runtime.ts",
+      'import { actionConflictReviewRuntimeConfigSchema } from "@reviewrouter/features-action-control-plane/conflict-runtime-contract";\n',
+    );
+    expect(runChecker(root)).toContain("Architecture boundary check passed");
+  });
+
+  it.each([
+    'export { PrismaActionControlPlaneRepository } from "./infrastructure/prisma/prisma-action-control-plane-repository.js";\n',
+    'export type { PrismaActionControlPlaneRepository } from "./infrastructure/prisma/prisma-action-control-plane-repository.js";\n',
+    'export * from "./domain/action-control-plane.js";\n',
+    'import { PrismaClient } from "@prisma/client";\n',
+  ])("rejects extra exports and infrastructure in the conflict runtime facade", (leak) => {
+    const root = protocolFixture();
+    writeFile(
+      root,
+      "packages/features/action-control-plane/src/conflict-runtime-contract.ts",
+      'export { actionConflictReviewRuntimeConfigSchema, conflictReviewAdvisoryStatusContext, conflictReviewSummaryMaxBytes } from "./domain/action-control-plane.js";\nexport type { ActionConflictReviewRuntimeConfig } from "./domain/action-control-plane.js";\n' +
+        leak,
+    );
+    expect(() => runChecker(root)).toThrow(/pure published domain contract/);
+  });
+
+  it("rejects consuming the eager action control plane root from conflict runtime", () => {
+    const root = protocolFixture();
+    writeFile(
+      root,
+      "packages/features/conflict-runtime/src/domain/conflict-runtime.ts",
+      'import type { ActionConflictReviewRuntimeConfig } from "@reviewrouter/features-action-control-plane";\n',
+    );
+    expect(() => runChecker(root)).toThrow(/narrow published contract/);
+  });
+
+  it("rejects redirecting the domain contract to the eager root or a source-only entrypoint", () => {
+    const root = protocolFixture();
+    const manifestPath = "packages/features/action-control-plane/package.json";
+    const manifest = JSON.parse(readFileSync(join(root, manifestPath), "utf8"));
+    manifest.exports["./conflict-runtime-contract"] = {
+      default: "./src/index.ts",
+    };
+    writeFile(root, manifestPath, JSON.stringify(manifest));
+    expect(() => runChecker(root)).toThrow(/exact source, types and production exports/);
+  });
+
   it.each(["./internal", "./*"])(
     "rejects an unreviewed export %s",
     (subpath) => {
@@ -413,6 +471,11 @@ describe("usage producer protocol transport boundary", () => {
             },
             "./v2": {},
             "./v2/contract-source": {},
+          "./conflict-runtime-contract": {
+            types: "./src/conflict-runtime-contract.ts",
+            production: "./dist/conflict-runtime-contract.js",
+            default: "./src/conflict-runtime-contract.ts",
+          },
             [subpath]: "./src/index.ts",
           },
         }),
@@ -436,6 +499,11 @@ describe("usage producer protocol transport boundary", () => {
           },
           "./v2": {},
           "./v2/contract-source": {},
+          "./conflict-runtime-contract": {
+            types: "./src/conflict-runtime-contract.ts",
+            production: "./dist/conflict-runtime-contract.js",
+            default: "./src/conflict-runtime-contract.ts",
+          },
         },
       }),
     );
