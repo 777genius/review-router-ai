@@ -43,6 +43,19 @@ All 427 JavaScript comparisons are byte-identical and all 427 complete declarati
 surfaces equivalent. These projects emit no source maps. Focused fixtures passed
 320 cases with one existing skipped case; both API/worker native typechecks passed.
 
+## Service foundation cohort (stacked on #972)
+
+Ten independent service packages select native `build` and `typecheck`:
+`audit-log`, `auth`, `outbox`, `entitlements`, `rate-limits`, `api-demo`,
+`system-health`, `review-context-tools`, `review-skills`, and `review-progress`
+under `packages/features/`. These 20 routes and ten emitting projects are based
+on authority PR #972 at `d80b9797435dea1f83e8db1e9980b76e1fec75d3`.
+No source, config, dependency or export changes were needed. All 100 JavaScript
+comparisons are byte-identical and all 100 declaration surfaces equivalent;
+these configs emit no maps. All 180 focused fixtures and both API/worker native
+typechecks passed. The complete selected package trees have no overlap with the
+172-file provider #959 snapshot at `fd0e0c6dfeca24934a60318bdc2b491d32d86b12`.
+
 ## Reusable bounded qualification procedure
 
 1. Freeze an explicit manifest/route inventory at an exact source commit. Include
@@ -77,8 +90,8 @@ surfaces equivalent. These projects emit no source maps. Focused fixtures passed
 
 ## Finish the remaining CLI migration without one PR per package
 
-Accounting for the separately qualified shared/logger/root work and both cohorts,
-the inventory retains 30 package manifests and 60 bare compiler script routes.
+Accounting for the separately qualified shared/logger/root work and these cohorts,
+the inventory retains 20 package manifests and 40 bare compiler script routes.
 Specialized root scripts, protocol bootstrap and packed-consumer compilers also
 need their own exact-command inventory; explicit compatibility baselines remain
 separate from ordinary routes.
