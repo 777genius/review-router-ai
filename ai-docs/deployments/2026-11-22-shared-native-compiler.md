@@ -4,9 +4,9 @@
 - Goal: compile and typecheck shared through the existing isolated TypeScript
   7.0.2 helper in normal builds, preserving its runtime and type contracts.
 - Affected targets: build/CI; shared artifacts consumed by Web, API and worker.
-- Implementation PR/issue: not opened; local isolated worktree only.
-- Implementation reference: patch based on main
-  `cc8ab361d1fcb22140037d20380e02eb2ba1e2d5`; no implementation commit yet.
+- Implementation PR: [#967](https://github.com/777genius/review-router-ai/pull/967), draft.
+- Implementation reference: `3495ca84c6e4e1162ae4dc4b77aa32fa24729578`, based on
+  main `cc8ab361d1fcb22140037d20380e02eb2ba1e2d5`; not merged or deployed.
 - Dependencies: existing `compiler:prepare` installation of the pinned native
   compiler; no dependency, lockfile, schema or configuration changes.
 - Last updated: `2026-11-22`.
@@ -15,7 +15,7 @@
 
 | Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                                    |
 | -------------------- | --------- | ------------------------------- | ------------------- | ----------------------------------------------------------------------- |
-| CI                   | `pending` | Not merged or run in CI         | Not verified        | Run required exact-commit checks after delivery is authorized.          |
+| CI                   | `pending` | Required checks not verified    | Not verified        | Run required exact-commit checks before merging.                        |
 | staging              | `pending` | Not verified                    | Not verified        | Include in a later authorized coherent build; no standalone activation. |
 | production           | `pending` | Not verified                    | Not verified        | Include in a later authorized coherent build; no standalone activation. |
 
@@ -62,4 +62,5 @@ the normal release process. No data rollback is involved.
 
 ## Execution log
 
-No CI, release or deployment has been executed for this patch.
+Draft PR #967 is open; draft CI was queued. Required exact-commit CI remains
+pending. No release or deployment has been executed for this patch.
