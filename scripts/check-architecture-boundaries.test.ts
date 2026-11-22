@@ -402,7 +402,12 @@ describe("usage producer protocol transport boundary", () => {
     writeFile(
       root,
       "packages/features/action-control-plane/src/conflict-runtime-contract.ts",
-      'export { actionConflictReviewRuntimeConfigSchema, conflictReviewAdvisoryStatusContext, conflictReviewSummaryMaxBytes } from "./domain/action-control-plane.js";\nexport type { ActionConflictReviewRuntimeConfig } from "./domain/action-control-plane.js";\n',
+      'export { actionConflictReviewRuntimeConfigSchema, conflictReviewAdvisoryStatusContext, conflictReviewSummaryMaxBytes } from "./domain/conflict-review-runtime-contract.js";\nexport type { ActionConflictReviewRuntimeConfig } from "./domain/conflict-review-runtime-contract.js";\n',
+    );
+    writeFile(
+      root,
+      "packages/features/action-control-plane/src/domain/conflict-review-runtime-contract.ts",
+      'import { z } from "zod";\nexport const schema = z.string();\n',
     );
     return root;
   }
@@ -420,14 +425,14 @@ describe("usage producer protocol transport boundary", () => {
   it.each([
     'export { PrismaActionControlPlaneRepository } from "./infrastructure/prisma/prisma-action-control-plane-repository.js";\n',
     'export type { PrismaActionControlPlaneRepository } from "./infrastructure/prisma/prisma-action-control-plane-repository.js";\n',
-    'export * from "./domain/action-control-plane.js";\n',
+    'export * from "./domain/conflict-review-runtime-contract.js";\n',
     'import { PrismaClient } from "@prisma/client";\n',
   ])("rejects extra exports and infrastructure in the conflict runtime facade", (leak) => {
     const root = protocolFixture();
     writeFile(
       root,
       "packages/features/action-control-plane/src/conflict-runtime-contract.ts",
-      'export { actionConflictReviewRuntimeConfigSchema, conflictReviewAdvisoryStatusContext, conflictReviewSummaryMaxBytes } from "./domain/action-control-plane.js";\nexport type { ActionConflictReviewRuntimeConfig } from "./domain/action-control-plane.js";\n' +
+      'export { actionConflictReviewRuntimeConfigSchema, conflictReviewAdvisoryStatusContext, conflictReviewSummaryMaxBytes } from "./domain/conflict-review-runtime-contract.js";\nexport type { ActionConflictReviewRuntimeConfig } from "./domain/conflict-review-runtime-contract.js";\n' +
         leak,
     );
     expect(() => runChecker(root)).toThrow(/pure published domain contract/);
@@ -452,6 +457,20 @@ describe("usage producer protocol transport boundary", () => {
     };
     writeFile(root, manifestPath, JSON.stringify(manifest));
     expect(() => runChecker(root)).toThrow(/exact source, types and production exports/);
+  });
+
+  it.each([
+    'export { PrismaActionControlPlaneRepository } from "../infrastructure/prisma/prisma-action-control-plane-repository.js";\n',
+    'import type { GatewaySession } from "@reviewrouter/features-review-context-attestation";\n',
+    'export * from "../index.js";\n',
+  ])("rejects leaking dependencies from the standalone domain owner", (leak) => {
+    const root = protocolFixture();
+    writeFile(
+      root,
+      "packages/features/action-control-plane/src/domain/conflict-review-runtime-contract.ts",
+      'import { z } from "zod";\nexport const schema = z.string();\n' + leak,
+    );
+    expect(() => runChecker(root)).toThrow(/domain contract may depend only/);
   });
 
   it.each(["./internal", "./*"])(

@@ -649,7 +649,7 @@ function checkActionConflictRuntimePublishedContract(
     });
     const expected = [
       {
-        from: "./domain/action-control-plane.js",
+        from: "./domain/conflict-review-runtime-contract.js",
         typeOnly: false,
         names: [
           "actionConflictReviewRuntimeConfigSchema",
@@ -658,7 +658,7 @@ function checkActionConflictRuntimePublishedContract(
         ].map((name) => ({ name, source: name, typeOnly: false })),
       },
       {
-        from: "./domain/action-control-plane.js",
+        from: "./domain/conflict-review-runtime-contract.js",
         typeOnly: true,
         names: [
           {
@@ -679,6 +679,28 @@ function checkActionConflictRuntimePublishedContract(
         reason:
           "conflict-runtime needs an explicit pure published domain contract; no adapters, aliases or extra exports",
       });
+    }
+  }
+
+  const owned = join(
+    actionControlPlaneRoot,
+    "src/domain/conflict-review-runtime-contract.ts",
+  );
+  if (!existsSync(owned)) {
+    violations.push({
+      file: owned,
+      imported: "missing domain owner",
+      reason: "conflict-runtime published contract needs its standalone domain owner",
+    });
+  } else {
+    for (const imported of extractImportSpecifiers(readFileSync(owned, "utf8"))) {
+      if (imported !== "zod" && imported !== "@reviewrouter/shared") {
+        violations.push({
+          file: owned,
+          imported,
+          reason: "conflict-runtime domain contract may depend only on zod and shared validation",
+        });
+      }
     }
   }
 
