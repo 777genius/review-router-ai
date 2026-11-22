@@ -712,10 +712,7 @@ async function checkActionConflictRuntimePublishedContract(
     }
   }
 
-  const conflictSource = join(
-    root,
-    "packages/features/conflict-runtime/src",
-  );
+  const conflictSource = join(root, "packages/features/conflict-runtime/src");
   if (existsSync(conflictSource)) {
     const allowedLegacyAdapters = new Set([
       "infrastructure/action-control-plane-runtime-config-client.ts",
