@@ -103,7 +103,7 @@ try {
         );
         assert.match(
           await page.locator("main h1").innerText(),
-          /Full control and security/,
+          /Full control and security\./,
         );
         assert.equal(await page.locator(".rr-home-providers li").count(), 9);
         assert.equal(await page.locator(".rr-home-carousel__slide").count(), 5);
