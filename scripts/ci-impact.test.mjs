@@ -162,6 +162,7 @@ function workflowPaths(yaml, event) {
   assert.ok(pathsIndex >= 0, "Missing path filter on " + event);
   const patterns = [];
   for (const line of block.slice(pathsIndex + 1)) {
+    if (/^\s*#/.test(line)) continue;
     const match = /^      - (.+)$/.exec(line);
     if (!match) break;
     const literal = match[1].trim();
