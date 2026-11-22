@@ -1,5 +1,82 @@
 import assert from "node:assert/strict";
 
+/** Fixed facts from the controlled `pwd` reply. Raw output stays in memory. */
+export function inspectJoinedToolOutput(
+  outputs: readonly string[],
+  checkout: string,
+) {
+  return {
+    functionOutputs: outputs.length,
+    workspaceObserved: outputs.some((output) =>
+      output.split(/\r?\n/u).includes(checkout),
+    ),
+    exitZeroObserved: outputs.some((output) =>
+      /^(?:Process exited with code|Exit code:) 0[\t ]*$/mu.test(output),
+    ),
+    unknownToolObserved: outputs.some((output) =>
+      /(?:unknown|unsupported|unrecognized) tool/iu.test(output),
+    ),
+    invalidArgumentsObserved: outputs.some((output) =>
+      /(?:invalid|failed to parse) (?:(?:tool|function) )?arguments/iu.test(
+        output,
+      ),
+    ),
+    sandboxFailureObserved: outputs.some((output) =>
+      /sandbox.*(?:failed|denied|unavailable)/iu.test(output),
+    ),
+    runningSessionObserved: outputs.some((output) =>
+      /Process running with session ID\b/iu.test(output),
+    ),
+    execCommandFailureObserved: outputs.some((output) =>
+      /(?:exec_command failed|unified exec is unavailable in this session|unknown turn environment id)\b/iu.test(
+        output,
+      ),
+    ),
+    createProcessFailureObserved: outputs.some((output) =>
+      /\bCreateProcess\b/u.test(output),
+    ),
+    resourceExhaustionObserved: outputs.some((output) =>
+      /\b(?:Resource temporarily unavailable|Cannot allocate memory|Too many open files|No space left on device|Resource exhausted|EAGAIN|ENOMEM|EMFILE|ENFILE|ENOSPC)\b/iu.test(
+        output,
+      ),
+    ),
+    approvalFailureObserved: outputs.some((output) =>
+      /\b(?:approval (?:required|denied|rejected|refused|failed|unavailable)|requires? approval|not approved|rejected by user)\b/iu.test(
+        output,
+      ),
+    ),
+    nonzeroExitObserved: outputs.some((output) =>
+      /^(?:Process exited with code|Exit code:) -?[1-9]\d*[\t ]*$/mu.test(
+        output,
+      ),
+    ),
+  };
+}
+
+export function requireJoinedToolCompletion(
+  shape: ReturnType<typeof inspectJoinedToolOutput>,
+): void {
+  assert.equal(
+    shape.functionOutputs,
+    1,
+    "joined review must return exactly one controlled command output",
+  );
+  assert.ok(
+    shape.workspaceObserved &&
+      shape.exitZeroObserved &&
+      !shape.unknownToolObserved &&
+      !shape.invalidArgumentsObserved &&
+      !shape.sandboxFailureObserved &&
+      !shape.runningSessionObserved &&
+      !shape.execCommandFailureObserved &&
+      !shape.createProcessFailureObserved &&
+      !shape.resourceExhaustionObserved &&
+      !shape.approvalFailureObserved &&
+      !shape.nonzeroExitObserved,
+    "controlled pwd must complete successfully before provider continuation",
+  );
+}
+
 /** An explicit native capability case, separate from the default CLI policy. */
 export type JoinedReasoningReviewProof = Readonly<{
   reasoningEffort: "medium";

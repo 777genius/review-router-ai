@@ -22,6 +22,8 @@ import {
 } from "./provider-subscriptions-sandbox";
 import {
   createJoinedReviewProof,
+  inspectJoinedToolOutput,
+  requireJoinedToolCompletion,
   type JoinedReasoningReviewProof,
 } from "./provider-subscriptions-review-proof";
 import type { JoinedDispatchTrace } from "./provider-subscriptions-dispatch-trace";
@@ -388,32 +390,15 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
             .flatMap((item) =>
               typeof item.output === "string" ? [item.output] : [],
             );
+          const outputShape = inspectJoinedToolOutput(outputs, checkout);
           process.stdout.write(
             JSON.stringify({
               phase: "actual-cli-tool-output-shape",
               profileId: input.profileId,
-              functionOutputs: outputs.length,
-              workspaceObserved: outputs.some((output) =>
-                output.includes(checkout),
-              ),
-              exitZeroObserved: outputs.some((output) =>
-                /(?:Process exited with code|Exit code:) 0(?:\s|$)/u.test(
-                  output,
-                ),
-              ),
-              unknownToolObserved: outputs.some((output) =>
-                /(?:unknown|unsupported|unrecognized) tool/iu.test(output),
-              ),
-              invalidArgumentsObserved: outputs.some((output) =>
-                /(?:invalid|failed to parse) (?:tool )?arguments/iu.test(
-                  output,
-                ),
-              ),
-              sandboxFailureObserved: outputs.some((output) =>
-                /sandbox.*(?:failed|denied|unavailable)/iu.test(output),
-              ),
+              ...outputShape,
             }) + "\n",
           );
+          requireJoinedToolCompletion(outputShape);
           if (declaredCustomTools > 0)
             assert.ok(
               returnedCustomTools > 0,

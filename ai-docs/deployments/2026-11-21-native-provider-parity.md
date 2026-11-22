@@ -82,6 +82,10 @@ not just a successful credential submission.
   owner/profile/authorization epoch. Unsupported v1 discovery remains explicit;
   browser selection uses current catalog labels and checks the distinct
   completed enrollment and reconnect receipts.
+- Joined CLI qualification requires one completed controlled `pwd` reply before
+  forwarding the continuation. It verifies the exact checkout and zero exit,
+  rejects running sessions and execution failures, and records only fixed
+  diagnostic booleans. The two-request bound and strict Action audit remain.
 
 ## Retry, partial completion and rollback
 
