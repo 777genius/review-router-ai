@@ -4,8 +4,9 @@
 - Goal: use the existing isolated TypeScript 7.0.2 compiler for ten service feature
   packages and their 20 normal build/typecheck routes.
 - Affected targets: build/CI artifacts consumed by API and worker.
-- Implementation PR: pending.
-- Implementation reference: pending; isolated stack on authority
+- Implementation PR: [#973](https://github.com/777genius/review-router-ai/pull/973).
+- Implementation reference: `b156c899dfa0820771d3f447588d0348cc08ea52`;
+  isolated stack on authority
   [#972](https://github.com/777genius/review-router-ai/pull/972) exact head
   `d80b9797435dea1f83e8db1e9980b76e1fec75d3`; merge prerequisite stack first.
 - Dependencies: existing native preparation and unchanged shared/foundation/
@@ -81,5 +82,6 @@ No data rollback is involved. Preserve unrelated queued checks.
 
 ## Execution log
 
-Local compiler/fixture qualification passed; independent review and required
-final-commit CI remain pending. No merge, release or deployment performed.
+Local compiler/fixture qualification and independent review passed. PR #973
+is a draft stacked on #972. Prerequisite merge and required final-commit CI
+remain pending. No merge, release or deployment performed.
