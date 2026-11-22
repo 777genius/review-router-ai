@@ -249,8 +249,9 @@ test("PostgreSQL and memory E2E defer Draft but qualify Ready/main", () => {
       filename + ": manual qualification changed");
     const start = jobs.indexOf("\n  " + job + ":\n");
     assert.ok(start >= 0, filename + ": missing original E2E");
-    const next = jobs.indexOf("\n  ", start + 5);
-    const body = jobs.slice(start, next < 0 ? undefined : next);
+    const afterHeader = jobs.slice(start + job.length + 5);
+    const nextJob = afterHeader.search(/\n  [a-z][\w-]*:\n/);
+    const body = nextJob < 0 ? afterHeader : afterHeader.slice(0, nextJob);
     assert.match(body, /^    if: github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.draft != true$/m,
       filename + ": Draft must not start native/database E2E");
     assert.doesNotMatch(body, /continue-on-error:\s*true/);
