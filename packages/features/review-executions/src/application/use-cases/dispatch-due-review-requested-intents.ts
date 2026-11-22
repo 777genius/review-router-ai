@@ -215,6 +215,12 @@ export class DispatchDueReviewRequestedIntents {
         continue;
       }
 
+      // Another pass may have reclaimed this request while the current pass
+      // was waiting for other preparations. Never overwrite its reservation.
+      if (this.inFlightSubmissions.has(claim.intent.requestId)) {
+        busy += 1;
+        continue;
+      }
       if (this.inFlightSubmissions.size >= maximumSubmissionsInFlight) {
         if (!submissionSaturated) failed += 1;
         submissionSaturated = true;

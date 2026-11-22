@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   DispatchDueReviewRequestedIntents,
+  ReviewRequestedClaimStatus,
   ReviewRequestedDispatchLookupStatus,
   ReviewRequestedDispatchRunStatus,
   ReviewRequestedDispatchSubmissionStatus,
@@ -63,6 +64,98 @@ async function claim(
 }
 
 describe("pre-submission preparation recovery", () => {
+  it("keeps a newer pass's POST slot when an older pass resumes", async () => {
+    vi.useFakeTimers();
+    try {
+      const store = new InMemoryReviewRequestedIntentStore();
+      await store.registerIntent({ candidate: candidate("a-slow-pass", "1") });
+      await store.registerIntent({
+        candidate: {
+          ...candidate("b-blocking-claim", "2"),
+          pullRequestNumber: 43,
+        },
+      });
+      let enteredClaim!: () => void;
+      let releaseClaim!: () => void;
+      const claimEntered = new Promise<void>((resolve) => {
+        enteredClaim = resolve;
+      });
+      const claimReleased = new Promise<void>((resolve) => {
+        releaseClaim = resolve;
+      });
+      const originalClaim = store.claimIntent.bind(store);
+      vi.spyOn(store, "claimIntent").mockImplementation(async (command) => {
+        if (command.requestId === "b-blocking-claim") {
+          enteredClaim();
+          await claimReleased;
+          return { status: ReviewRequestedClaimStatus.Busy };
+        }
+        return originalClaim(command);
+      });
+      const originalList = store.listDue.bind(store);
+      let listCalls = 0;
+      vi.spyOn(store, "listDue").mockImplementation(async (input) => {
+        const due = await originalList(input);
+        listCalls += 1;
+        return listCalls === 1
+          ? due
+          : due.filter((item) => item.requestId === "a-slow-pass");
+      });
+      let now = initial;
+      let sequence = 0;
+      const post = vi.fn(() => new Promise<never>(() => {}));
+      const dispatcher = new DispatchDueReviewRequestedIntents(
+        store,
+        store,
+        {
+          async prepare() {
+            return { submit: post };
+          },
+          async findByRequestIdentity() {
+            return { status: ReviewRequestedDispatchLookupStatus.Absent };
+          },
+          async inspectKnownRun() {
+            return { status: ReviewRequestedDispatchRunStatus.Pending };
+          },
+          async inspectRunnerWait() {
+            return {
+              waitingForRunner: false,
+              neverStarted: false,
+              revisionCurrent: true,
+            };
+          },
+          async cancelKnownRun() {},
+        },
+        { now: () => now },
+        {
+          nextClaimId: () => `claim-${sequence++}`,
+          nextRequestId: () => `next-${sequence++}`,
+        },
+        { digestUtf8: async () => "a".repeat(64) },
+      );
+      const oldPass = dispatcher.execute({
+        ownerIdHash: "a".repeat(64),
+        limit: 10,
+      });
+      await claimEntered;
+      await vi.advanceTimersByTimeAsync(0);
+      now = after(60_001);
+      const newPass = dispatcher.execute({
+        ownerIdHash: "a".repeat(64),
+        limit: 10,
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(newPass).resolves.toMatchObject({ submissionsInFlight: 1 });
+      expect(post).toHaveBeenCalledTimes(1);
+      releaseClaim();
+      await vi.advanceTimersByTimeAsync(0);
+      await expect(oldPass).resolves.toMatchObject({ submissionsInFlight: 1 });
+      expect(post).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each(["accepted", "no-effect", "terminal"] as const)(
     "handles a POST result after observation ends (%s)",
     async (outcome) => {

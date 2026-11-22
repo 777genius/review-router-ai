@@ -1617,10 +1617,11 @@ if (databaseUrl) {
         fencingToken: first.intent!.claim!.fencingToken,
         now,
       };
+      const newerRequestId = `new-${randomUUID()}`;
       await store.registerIntent({
         candidate: {
           ...candidate,
-          requestId: `new-${randomUUID()}`,
+          requestId: newerRequestId,
           deliveryIdentityHash: hashFromText(randomUUID()),
           canonicalRequestHash: hashFromText(randomUUID()),
         },
@@ -1634,7 +1635,7 @@ if (databaseUrl) {
         status: ReviewRequestedTransitionStatus.Applied,
       });
       const pending = await store.findPendingByScope(harness.scope);
-      expect(pending?.requestId).not.toBe(candidate.requestId);
+      expect(pending?.requestId).toBe(newerRequestId);
       expect(changes).toContain(ReviewRequestedIntentState.Superseded);
       await expect(
         store.beginSubmission({
