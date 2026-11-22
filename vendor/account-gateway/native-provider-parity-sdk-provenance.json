@@ -62,11 +62,7 @@
     "installedConsumer": {
       "frozenInstall": "passed supply-chain validation, 1089 entries",
       "exactArchiveFiles": 66,
-      "consumers": [
-        "web",
-        "api",
-        "provider-usage"
-      ],
+      "consumers": ["web", "api", "provider-usage"],
       "focusedTests": {
         "passed": 13,
         "postgresCaseVerifiedSeparately": true

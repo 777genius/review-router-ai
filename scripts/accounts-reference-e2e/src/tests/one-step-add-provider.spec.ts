@@ -277,8 +277,8 @@ test("Add provider resets unsubmitted credentials when switching providers and p
     dialog.getByRole("button", { name: "New connection", exact: true }),
   ).toHaveCount(0);
 
-  // Neither of these profiles has an account here, so the same embedded host
-  // stays mounted across the provider change. Each provider needs a fresh form.
+  // Each provider needs a fresh form. MiMo already has a shared account here,
+  // so its credentials form opens only after choosing a new connection.
   const kimi = apiKeyStorageProfiles.find(
     (profile) => profile.provider === "kimi",
   )!;
@@ -294,6 +294,12 @@ test("Add provider resets unsubmitted credentials when switching providers and p
   await expect(kimiKey).toBeVisible();
   await kimiKey.fill(secret);
   await choose(page, "Provider", mimo.label);
+  await expect(
+    dialog.getByRole("combobox", { name: /^Account\b/ }),
+  ).toContainText(FIXTURES.sourceLabels.otherPrimary);
+  await dialog
+    .getByRole("button", { name: "New connection", exact: true })
+    .click();
   const mimoKey = dialog
     .getByRole("region", { name: `Connect ${mimo.label}`, exact: true })
     .getByLabel("API key", { exact: true });
