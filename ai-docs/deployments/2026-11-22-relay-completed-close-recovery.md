@@ -3,7 +3,8 @@
 - Task ID: `2026-11-22-relay-completed-close-recovery`.
 - Goal: a lost or unknown acknowledgement while completing a v4 review does not leave its relay slot waiting for a failed source workflow before retrying the same close.
 - Affected target: API process memory and Gateway close calls.
-- Implementation PR/issue: pending delivery; source base `06aae0faf17687e52b9d0be63717c8ccc16d1458`.
+- Implementation PR: [#970](https://github.com/777genius/review-router-ai/pull/970).
+- Implementation reference: `ddec400c9b98b1b042b524e83f56b9cc90588fe0`; this identifies source and is not proof of deployment.
 - Dependencies: existing Gateway idempotent close-operation contract; no Gateway deployment required.
 - Last updated: `2026-11-22`.
 
