@@ -89,6 +89,7 @@ import {
   type WorkflowSetupGatewayPort,
   ciSecretsWorkflowProviderKind,
   defaultReviewDiscussionMode,
+  assertManagedWorkflowSetupOptions,
   isClaudeSubscriptionConfiguration,
   readManagedReviewRouterCallerSource,
   requiredWorkflowTransport,
@@ -1275,18 +1276,12 @@ async function createSetupPullRequestMutation(
       ? providerApiConfigurationMode(resolvedRuntime.config)
       : undefined;
     const managedReview = accountGateway || openRouterDirect;
-    if (
-      managedReview &&
-      (workflowStyle === "explicit" ||
-        (discussionMode === "suggest" &&
-          !(accountGateway && gatewayInteractionRuntimeSha)))
-    ) {
-      throw new Error(
-        openRouterDirect
-          ? "openrouter_direct_workflow_options_not_supported"
-          : "account_gateway_workflow_options_not_supported",
-      );
-    }
+    assertManagedWorkflowSetupOptions({
+      transport,
+      workflowStyle,
+      discussionMode,
+      gatewayInteractionRuntimeAvailable: Boolean(gatewayInteractionRuntimeSha),
+    });
     const gatewayActionRef = accountGateway
       ? validateAccountGatewayActionRef(
           process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ACTION_REF,
