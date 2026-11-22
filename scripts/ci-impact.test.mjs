@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, matchesGlob } from "node:path";
 import test from "node:test";
@@ -136,16 +142,18 @@ test("complete Git diff includes both sides of a cross-tier rename", () => {
 
 test("CI impact selector runs outside native Linux runner pool", () => {
   const workflow = readFileSync(
-    new URL("../.github/workflows/ci.yml", import.meta.url), "utf8",
+    new URL("../.github/workflows/ci.yml", import.meta.url),
+    "utf8",
   );
-  const block = workflow.match(/^  impact:\n([\s\S]*?)(?=^  [a-z][\w-]+:\s*$)/m)?.[1];
+  const block = workflow.match(
+    /^ {2}impact:\n([\s\S]*?)(?=^ {2}[a-z][\w-]+:\s*$)/m,
+  )?.[1];
   assert.ok(block, "CI impact job is missing");
-  assert.match(block, /^    runs-on: ubuntu-latest$/m);
+  assert.match(block, /^ {4}runs-on: ubuntu-latest$/m);
   assert.doesNotMatch(block, /CI_LINUX_(?:CHECKS_)?RUNNER/);
   assert.match(block, /git show "\$\{CI_BASE_SHA\}:scripts\/ci-impact\.mjs"/);
-  assert.match(workflow, /^  quality-gates:$/m);
+  assert.match(workflow, /^ {2}quality-gates:$/m);
 });
-
 
 /**
  * GitHub evaluates paths filters in order: matching later ! patterns negate
@@ -156,14 +164,16 @@ function workflowPaths(yaml, event) {
   const lines = yaml.split("\n");
   const start = lines.indexOf("  " + event + ":");
   assert.ok(start >= 0, "Missing " + event + " trigger");
-  const next = lines.findIndex((line, i) => i > start && /^  [a-z][\w-]*:\s*$/.test(line));
+  const next = lines.findIndex(
+    (line, i) => i > start && /^ {2}[a-z][\w-]*:\s*$/.test(line),
+  );
   const block = lines.slice(start + 1, next < 0 ? lines.length : next);
   const pathsIndex = block.indexOf("    paths:");
   assert.ok(pathsIndex >= 0, "Missing path filter on " + event);
   const patterns = [];
   for (const line of block.slice(pathsIndex + 1)) {
     if (/^\s*#/.test(line)) continue;
-    const match = /^      - (.+)$/.exec(line);
+    const match = /^ {6}- (.+)$/.exec(line);
     if (!match) break;
     const literal = match[1].trim();
     patterns.push(literal.replace(/^(['"])(.*)\1$/, "$2"));
@@ -175,16 +185,29 @@ function matchingPath(patterns, path) {
   let selected = false;
   for (const token of patterns) {
     const excluded = token.startsWith("!");
-    if (matchesGlob(path, excluded ? token.slice(1) : token)) selected = !excluded;
+    if (matchesGlob(path, excluded ? token.slice(1) : token))
+      selected = !excluded;
   }
   return selected;
 }
 
 test("marketing-only E2E filters keep real dashboard and shared contracts", () => {
   const workflows = [
-    ["skills-browser.yml", ["pull_request"], "packages/features/review-skills/src/index.ts"],
-    ["memory-projections.yml", ["pull_request", "push"], "packages/features/memory/src/index.ts"],
-    ["unified-ocr-ui.yml", ["pull_request"], "packages/features/review-run-control/src/index.ts"],
+    [
+      "skills-browser.yml",
+      ["pull_request"],
+      "packages/features/review-skills/src/index.ts",
+    ],
+    [
+      "memory-projections.yml",
+      ["pull_request", "push"],
+      "packages/features/memory/src/index.ts",
+    ],
+    [
+      "unified-ocr-ui.yml",
+      ["pull_request"],
+      "packages/features/review-run-control/src/index.ts",
+    ],
   ];
   const marketing = [
     "apps/web/app/home-hero.tsx",
@@ -206,23 +229,47 @@ test("marketing-only E2E filters keep real dashboard and shared contracts", () =
     "apps/web/app/api/dashboard/skills/route.ts",
   ];
   for (const [workflow, events, ownFeature] of workflows) {
-    const source = readFileSync(new URL("../.github/workflows/" + workflow, import.meta.url), "utf8");
+    const source = readFileSync(
+      new URL("../.github/workflows/" + workflow, import.meta.url),
+      "utf8",
+    );
     for (const event of events) {
       const patterns = workflowPaths(source, event);
       const include = patterns.indexOf("apps/web/**");
       assert.ok(include >= 0, workflow + ": broad shared-web admission lost");
       const exclusions = patterns.filter((pattern) => pattern.startsWith("!"));
-      assert.ok(exclusions.length >= 10, workflow + ": missing narrow marketing exclusions");
-      assert.ok(patterns.indexOf(exclusions[0]) > include, workflow + ": exclusions must follow inclusion");
+      assert.ok(
+        exclusions.length >= 10,
+        workflow + ": missing narrow marketing exclusions",
+      );
+      assert.ok(
+        patterns.indexOf(exclusions[0]) > include,
+        workflow + ": exclusions must follow inclusion",
+      );
       for (const path of marketing) {
-        assert.equal(matchingPath(patterns, path), false, workflow + " " + event + " should omit " + path);
+        assert.equal(
+          matchingPath(patterns, path),
+          false,
+          workflow + " " + event + " should omit " + path,
+        );
       }
-      for (const path of [...shared, ownFeature, ".github/workflows/" + workflow]) {
-        assert.equal(matchingPath(patterns, path), true, workflow + " " + event + " must test " + path);
+      for (const path of [
+        ...shared,
+        ownFeature,
+        ".github/workflows/" + workflow,
+      ]) {
+        assert.equal(
+          matchingPath(patterns, path),
+          true,
+          workflow + " " + event + " must test " + path,
+        );
       }
       assert.equal(
-        ["apps/web/app/home-hero.tsx", "apps/web/app/layout.tsx"].some((path) => matchingPath(patterns, path)),
-        true, workflow + ": mixed marketing and shared change must run",
+        ["apps/web/app/home-hero.tsx", "apps/web/app/layout.tsx"].some((path) =>
+          matchingPath(patterns, path),
+        ),
+        true,
+        workflow + ": mixed marketing and shared change must run",
       );
     }
     assert.match(source, /workflow_dispatch:/);
@@ -239,28 +286,49 @@ test("PostgreSQL and memory E2E defer Draft but qualify Ready/main", () => {
   ];
   for (const [filename, job, hasPush, hasDispatch] of files) {
     const source = readFileSync(
-      new URL("../.github/workflows/" + filename, import.meta.url), "utf8",
+      new URL("../.github/workflows/" + filename, import.meta.url),
+      "utf8",
     );
     const [trigger, jobs] = source.split("\njobs:");
     assert.ok(jobs, filename + ": job graph missing");
-    assert.match(trigger, /pull_request:\n    types: \[opened, synchronize, reopened, ready_for_review\]/);
-    assert.equal((trigger.match(/^    types:/gm) || []).length, 1,
-      filename + ": duplicate PR event types are invalid YAML");
-    assert.equal(trigger.includes("  push:"), hasPush, filename + ": main/feature push changed");
-    assert.equal(trigger.includes("  workflow_dispatch:"), hasDispatch,
-      filename + ": manual qualification changed");
+    assert.match(
+      trigger,
+      /pull_request:\n {4}types: \[opened, synchronize, reopened, ready_for_review\]/,
+    );
+    assert.equal(
+      (trigger.match(/^ {4}types:/gm) || []).length,
+      1,
+      filename + ": duplicate PR event types are invalid YAML",
+    );
+    assert.equal(
+      trigger.includes("  push:"),
+      hasPush,
+      filename + ": main/feature push changed",
+    );
+    assert.equal(
+      trigger.includes("  workflow_dispatch:"),
+      hasDispatch,
+      filename + ": manual qualification changed",
+    );
     const start = jobs.indexOf("\n  " + job + ":\n");
     assert.ok(start >= 0, filename + ": missing original E2E");
     const afterHeader = jobs.slice(start + job.length + 5);
-    const nextJob = afterHeader.search(/\n  [a-z][\w-]*:\n/);
+    const nextJob = afterHeader.search(/\n {2}[a-z][\w-]*:\n/);
     const body = nextJob < 0 ? afterHeader : afterHeader.slice(0, nextJob);
-    assert.match(body, /^    if: github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.draft != true$/m,
-      filename + ": Draft must not start native/database E2E");
+    assert.match(
+      body,
+      /^ {4}if: github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.draft != true$/m,
+      filename + ": Draft must not start native/database E2E",
+    );
     assert.doesNotMatch(body, /continue-on-error:\s*true/);
-    assert.match(body, /    timeout-minutes: /);
+    assert.match(body, / {4}timeout-minutes: /);
   }
   const quality = readFileSync(
-    new URL("../.github/workflows/memory-quality-evals.yml", import.meta.url), "utf8",
+    new URL("../.github/workflows/memory-quality-evals.yml", import.meta.url),
+    "utf8",
   );
-  assert.match(quality, /live-tuning:[\s\S]*?inputs\.mode == 'live-tuning' && github\.ref == 'refs\/heads\/main'/);
+  assert.match(
+    quality,
+    /live-tuning:[\s\S]*?inputs\.mode == 'live-tuning' && github\.ref == 'refs\/heads\/main'/,
+  );
 });
