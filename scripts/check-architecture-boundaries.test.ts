@@ -448,7 +448,32 @@ describe("usage producer protocol transport boundary", () => {
       "packages/features/conflict-runtime/src/domain/conflict-runtime.ts",
       'import type { ActionConflictReviewRuntimeConfig } from "@reviewrouter/features-action-control-plane";\n',
     );
-    expect(() => runChecker(root)).toThrow(/narrow published contract/);
+    expect(() => runChecker(root)).toThrow(/narrow published contracts/);
+  });
+
+  it("rejects a new application or adapter importing the eager Action root", () => {
+    const root = protocolFixture();
+    writeFile(
+      root,
+      "packages/features/conflict-runtime/src/application/leaked.ts",
+      'import type { ActionConflictReviewRuntimeConfig } from "@reviewrouter/features-action-control-plane";\n',
+    );
+    expect(() => runChecker(root)).toThrow(/narrow published contracts/);
+  });
+
+  it("permits the two pre-existing outer adapters to consume unrelated legacy Action APIs", () => {
+    const root = protocolFixture();
+    writeFile(
+      root,
+      "packages/features/conflict-runtime/src/infrastructure/action-control-plane-runtime-config-client.ts",
+      'import { actionRuntimeConfigResponseSchema } from "@reviewrouter/features-action-control-plane";\n',
+    );
+    writeFile(
+      root,
+      "packages/features/conflict-runtime/src/infrastructure/github-actions-oidc-token-provider.ts",
+      'import { defaultActionOidcAudience } from "@reviewrouter/features-action-control-plane";\n',
+    );
+    expect(runChecker(root)).toContain("Architecture boundary check passed");
   });
 
   it("rejects redirecting the domain contract to the eager root or a source-only entrypoint", () => {

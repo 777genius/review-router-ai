@@ -712,22 +712,31 @@ function checkActionConflictRuntimePublishedContract(
     }
   }
 
-  const consumer = join(
+  const conflictSource = join(
     root,
-    "packages/features/conflict-runtime/src/domain/conflict-runtime.ts",
+    "packages/features/conflict-runtime/src",
   );
-  if (
-    existsSync(consumer) &&
-    extractImportSpecifiers(readFileSync(consumer, "utf8")).has(
-      "@reviewrouter/features-action-control-plane"
-    )
-  ) {
-    violations.push({
-      file: consumer,
-      imported: "@reviewrouter/features-action-control-plane",
-      reason:
-        "conflict-runtime domain must import the narrow published contract, not the mixed root",
-    });
+  if (existsSync(conflictSource)) {
+    const allowedLegacyAdapters = new Set([
+      "infrastructure/action-control-plane-runtime-config-client.ts",
+      "infrastructure/github-actions-oidc-token-provider.ts",
+    ]);
+    for (const file of await collectAllSourceFiles(conflictSource)) {
+      const relativePath = relative(conflictSource, file).replaceAll("\\", "/");
+      if (allowedLegacyAdapters.has(relativePath)) continue;
+      if (
+        extractImportSpecifiers(readFileSync(file, "utf8")).has(
+          "@reviewrouter/features-action-control-plane"
+        )
+      ) {
+        violations.push({
+          file,
+          imported: "@reviewrouter/features-action-control-plane",
+          reason:
+            "conflict-runtime must use narrow published contracts rather than the eager Action root",
+        });
+      }
+    }
   }
 }
 
