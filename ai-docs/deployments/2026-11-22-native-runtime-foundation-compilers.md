@@ -4,8 +4,9 @@
 - Goal: select the existing isolated TypeScript 7.0.2 helper for ten build/typecheck
   routes in five independent memory, conversation, authority, pool and GitLab packages.
 - Affected targets: build/CI artifacts consumed by API and worker.
-- Implementation PR: pending.
-- Implementation reference: pending; isolated stack on service
+- Implementation PR: [#974](https://github.com/777genius/review-router-ai/pull/974).
+- Implementation reference: `1e054e433eacac6a4949d2c7224a4c86efe02ea8`;
+  isolated stack on service
   [#973](https://github.com/777genius/review-router-ai/pull/973) exact head
   `fb1782717ba4b50d8907586e115700edeb02b57c`; merge prerequisite stack first.
 - Dependencies: existing native preparation and unchanged prior stack outputs.
@@ -104,5 +105,6 @@ rollback is involved. Preserve unrelated queued checks.
 
 ## Execution log
 
-Local selected qualification passed; independent review and required final-commit
-CI remain pending. No merge, release or deployment performed.
+Local selected qualification and independent review passed. PR #974 is a draft
+stacked on #973. Prerequisite merge and required final-commit CI remain pending.
+No merge, release or deployment performed.
