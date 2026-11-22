@@ -9,6 +9,18 @@ on:
       - .github/workflows/ci.yml
       - apps/api/**
       - apps/web/**
+      # Public marketing-only paths do not execute dashboard, memory or OCR.
+      - '!apps/web/app/home-*'
+      - '!apps/web/app/page.tsx'
+      - '!apps/web/app/opengraph-image.tsx'
+      - '!apps/web/app/robots.ts'
+      - '!apps/web/app/sitemap.ts'
+      - '!apps/web/app/favicon.ico'
+      - '!apps/web/app/pricing/**'
+      - '!apps/web/app/privacy/**'
+      - '!apps/web/app/terms/**'
+      - '!apps/web/app/refund-policy/**'
+      - '!apps/web/app/security/**'
       - apps/worker/**
       - packages/features/action-control-plane/**
       - packages/features/provider-setup/**
