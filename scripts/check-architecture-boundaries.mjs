@@ -580,7 +580,7 @@ async function checkReviewActionV2ProtocolBoundaries(violations) {
         "action-control-plane exports must keep only the v1 root and reviewed oidc, v2 interface, contract-source and conflict-runtime domain subpaths",
     });
   }
-  checkActionConflictRuntimePublishedContract(
+  await checkActionConflictRuntimePublishedContract(
     actionControlPlaneRoot,
     packageJson,
     violations,
@@ -592,7 +592,7 @@ async function checkReviewActionV2ProtocolBoundaries(violations) {
  * Keep both the conditional exports and the re-export declarations exact.
  * No extra import or adapter symbol can be made available to domain consumers.
  */
-function checkActionConflictRuntimePublishedContract(
+async function checkActionConflictRuntimePublishedContract(
   actionControlPlaneRoot,
   packageJson,
   violations,
