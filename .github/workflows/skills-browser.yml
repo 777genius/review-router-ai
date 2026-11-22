@@ -263,6 +263,9 @@ jobs:
           pnpm --dir scripts/local-checks/native install --ignore-workspace --ignore-scripts --frozen-lockfile
           node scripts/local-checks/compiler-cli.ts --native --noEmit -p scripts/accounts-reference-e2e/tsconfig.json
 
+      - name: Verify HTTP response inspection across navigation
+        run: node --test scripts/accounts-reference-e2e/src/secret-leak-capture.spec.ts
+
       - name: Run all catalog browser scenarios
         run: |
           test "$(git rev-parse HEAD)" = "$EXPECTED_REVISION"
