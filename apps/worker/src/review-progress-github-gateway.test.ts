@@ -361,6 +361,39 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
+  it("blocks deletion when the PR head changes after both comment GETs", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture([
+      { id: 4, body: desired },
+      { id: 7, body: `duplicate\n${marker}` },
+    ]);
+    const knownRoute = "GET /repos/{owner}/{repo}/issues/comments/{comment_id}";
+    const pullRoute = "GET /repos/{owner}/{repo}/pulls/{pull_number}";
+    let knownReads = 0;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (route === knownRoute) knownReads += 1;
+      if (route !== pullRoute || knownReads < 2) return response;
+      return {
+        ...response,
+        data: {
+          ...(response.data as Record<string, unknown>),
+          head: { sha: "b".repeat(40) },
+        },
+      };
+    };
+
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "stale_head",
+      metadata: { retryable: false },
+    });
+    expect(knownReads).toBe(2);
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("rechecks the PR head before deleting a duplicate", async () => {
     const desired = formatReviewProgressComment("working", marker);
     const fixture = githubFixture(

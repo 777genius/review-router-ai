@@ -261,6 +261,8 @@ export class ReviewProgressGitHubGateway {
         true,
       );
     }
+    // The PR can advance during either known-comment read.
+    await this.assertCurrentPullRequest(input);
     try {
       await this.request(
         "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",
