@@ -12,7 +12,7 @@ const setupNonceFragment = "short-lived setup nonce";
 const gettingStartedNamespaceFragment = "Server-issued versioned namespace";
 const securityNamespaceFragment = "server-issued versioned namespace";
 const commonTexts = ["ReviewRouter", "Security", "Support"];
-const landingHeroText = "Full control and security.";
+const landingHeroText = "Full control and security";
 // Signed-out dashboard visits stream a redirect to the landing page.
 const signedOutHomeRedirect = "NEXT_REDIRECT;replace;/;307;";
 const githubSignInText = isGitHubAuthConfigured(process.env)
