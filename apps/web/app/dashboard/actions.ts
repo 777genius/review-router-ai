@@ -91,6 +91,7 @@ import {
   defaultReviewDiscussionMode,
   assertManagedWorkflowSetupOptions,
   classifySetupPullRequestHead,
+  isCurrentWorkflowSetupAuthority,
   isClaudeSubscriptionConfiguration,
   readManagedReviewRouterCallerSource,
   requiredWorkflowTransport,
@@ -2322,8 +2323,8 @@ async function confirmSetupPullRequestMergedMutation(
       readonly workflowStyle: ReviewRouterWorkflowStyle;
       readonly actionVersion: string;
     }) => {
-      // Probes can outlive a transfer or replacement attempt. Refuse activation
-      // for stale recovery evidence; the authority still fences the final write.
+      // Probes may outlive transfer/replacement. Read the same authoritative
+      // state in the same order; the final write still uses its existing CAS.
       const currentRepository = await prisma.repositoryConnection.findFirst({
         where: {
           id: repositoryId,
@@ -2340,27 +2341,20 @@ async function confirmSetupPullRequestMergedMutation(
         where: { repositoryId },
       });
       if (
-        currentRepository?.defaultBranch !== setupBaseBranch ||
-        (setupProvisioning === null
-          ? currentProvisioning !== null
-          : !currentProvisioning ||
-            currentProvisioning.workspaceId !== workspaceId ||
-            currentProvisioning.installationId !== repository.installationId ||
-            currentProvisioning.attemptId !== setupProvisioning.attemptId ||
-            currentProvisioning.revision !== setupProvisioning.revision ||
-            currentProvisioning.pullRequestHeadSha !==
-              setupProvisioning.pullRequestHeadSha ||
-            currentProvisioning.branch !== setupProvisioning.branch ||
-            currentProvisioning.pullRequestUrl !==
-              setupProvisioning.pullRequestUrl ||
-            ((historicalMergedSetupPullRequest ||
-              setupProvisioning.pullRequestHeadSha !== null) &&
-              (currentProvisioning.workflowPath !== artifact.workflowPath ||
-                currentProvisioning.workflowStyle !== artifact.workflowStyle ||
-                currentProvisioning.actionVersion !== artifact.actionVersion)))
+        !isCurrentWorkflowSetupAuthority({
+          observedRepositoryDefaultBranch: currentRepository?.defaultBranch,
+          expectedBaseBranch: setupBaseBranch,
+          expectedAttempt: setupProvisioning,
+          currentAttempt: currentProvisioning,
+          workspaceId,
+          installationId: repository.installationId,
+          historicalMergedSetupPullRequest,
+          verifiedArtifact: artifact,
+        })
       )
         throw new Error("workflow_provisioning_match_not_found");
     };
+
     const assertCurrentBinding = async () => {
       if (!hostedBinding) return;
       const currentBinding =

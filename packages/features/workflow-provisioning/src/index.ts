@@ -3,6 +3,7 @@ export * from "./domain/workflow-provisioning";
 export * from "./domain/workflow-transport";
 export * from "./domain/managed-workflow-setup-options";
 export * from "./domain/setup-pull-request-head";
+export * from "./domain/workflow-setup-authority";
 export * from "./domain/hosted-pool-workflow-template";
 export {
   renderCodexRotatingAdvisoryWorkflow,
