@@ -4,8 +4,9 @@
 - Goal: select the existing isolated TypeScript 7.0.2 compiler for eight authority,
   evidence, investigation, snapshot, publishing and action-control packages.
 - Affected targets: build/CI artifacts consumed by API and worker.
-- Implementation PR: pending.
-- Implementation reference: pending; isolated stack on foundation
+- Implementation PR: [#972](https://github.com/777genius/review-router-ai/pull/972).
+- Implementation reference: `1c851e293f0bb188c04e7646e8efc82d4f73b43a`;
+  isolated stack on foundation
   [#971](https://github.com/777genius/review-router-ai/pull/971) exact head
   `84bad00de58eee29d59e485c1863f18e3867ec09`; merge that prerequisite first.
 - Dependencies: unchanged native preparation, shared and foundation outputs.
@@ -88,5 +89,6 @@ No data rollback is involved. Preserve unrelated queued checks.
 
 ## Execution log
 
-Local qualification completed; independent review and final-commit CI pending.
+Local qualification and independent review passed. PR #972 is a draft stacked on
+#971; prerequisite merge and required final-commit CI remain pending.
 No merge, release or deployment performed.
