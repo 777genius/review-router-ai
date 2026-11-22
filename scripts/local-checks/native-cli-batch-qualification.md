@@ -2,8 +2,8 @@
 
 Compiler CLI coverage is separate from classic parser/API migration. The root
 ordinary TypeScript package, Next, ESLint, architecture/layout/memory AST tools,
-and source-analysis/transpilation tests still have classic consumers. Do not
-replace their imports with native enums or present CLI qualification as TS7-only
+source-analysis/transpilation tests, and the pinned Prettier embedded parser
+still have classic consumers. Do not replace their imports with native enums or present CLI qualification as TS7-only
 conformance. The isolated native compiler remains exactly TypeScript 7.0.2.
 
 ## Dependency-coherent foundation cohort
@@ -25,6 +25,23 @@ These seven manifests own 15 routes and eight emitting projects. Shared output
 is an existing prerequisite. The protocol fixtures also need the existing
 compiled contract-source bootstrap from `protocol:check`; preparing those
 unchanged inputs does not migrate their other package scripts.
+
+## Authority contract cohort (stacked on #971)
+
+Eight further packages select native build/typecheck and, where present,
+contract-source compilation: `review-context-attestation`, `review-evidence`,
+`review-investigation-operations`, `review-investigations`, `review-snapshots`,
+`review-publishing`, `review-run-control`, and `action-control-plane` under
+`packages/features/`. This is 23 routes and 15 emitting projects, based on
+foundation PR #971 at `84bad00de58eee29d59e485c1863f18e3867ec09`.
+
+Native inference initially dropped readonly from two optional-never branches of
+concrete in-memory run-control methods. Explicit return annotations preserve the
+original TS6 class declarations without changing runtime bodies. Comparison uses
+the original pre-annotation baseline; readonly normalization was not relaxed.
+All 427 JavaScript comparisons are byte-identical and all 427 complete declaration
+surfaces equivalent. These projects emit no source maps. Focused fixtures passed
+320 cases with one existing skipped case; both API/worker native typechecks passed.
 
 ## Reusable bounded qualification procedure
 
@@ -60,8 +77,8 @@ unchanged inputs does not migrate their other package scripts.
 
 ## Finish the remaining CLI migration without one PR per package
 
-Accounting for the separately qualified shared/logger/root work and this cohort,
-the inventory retains 38 package manifests and 83 bare compiler script routes.
+Accounting for the separately qualified shared/logger/root work and both cohorts,
+the inventory retains 30 package manifests and 60 bare compiler script routes.
 Specialized root scripts, protocol bootstrap and packed-consumer compilers also
 need their own exact-command inventory; explicit compatibility baselines remain
 separate from ordinary routes.
