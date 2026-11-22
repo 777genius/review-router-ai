@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -132,4 +132,16 @@ test("complete Git diff includes both sides of a cross-tier rename", () => {
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
+});
+
+test("CI impact selector runs outside native Linux runner pool", () => {
+  const workflow = readFileSync(
+    new URL("../.github/workflows/ci.yml", import.meta.url), "utf8",
+  );
+  const block = workflow.match(/^  impact:\n([\s\S]*?)(?=^  [a-z][\\w-]+:\s*$)/m)?.[1];
+  assert.ok(block, "CI impact job is missing");
+  assert.match(block, /^    runs-on: ubuntu-latest$/m);
+  assert.doesNotMatch(block, /CI_LINUX_(?:CHECKS_)?RUNNER/);
+  assert.match(block, /git show "\$\{CI_BASE_SHA\}:scripts\/ci-impact\.mjs"/);
+  assert.match(workflow, /^  quality-gates:$/m);
 });
