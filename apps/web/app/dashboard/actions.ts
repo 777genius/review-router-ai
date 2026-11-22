@@ -90,6 +90,7 @@ import {
   ciSecretsWorkflowProviderKind,
   defaultReviewDiscussionMode,
   assertManagedWorkflowSetupOptions,
+  classifySetupPullRequestHead,
   isClaudeSubscriptionConfiguration,
   readManagedReviewRouterCallerSource,
   requiredWorkflowTransport,
@@ -1775,19 +1776,13 @@ async function confirmSetupPullRequestMergedMutation(
         )
       : null;
     const setupPullRequestStatus = setupPullRequestInspection?.status ?? null;
-    // Missing or changed PR heads cannot establish the original artifact.
-    // Recover only through independent installed-workflow verification and CAS.
-    const historicalMergedSetupPullRequest =
-      setupPullRequestInspection?.merged === true &&
-      (setupProvisioning?.pullRequestHeadSha === null ||
-        (setupPullRequestStatus === "merged" &&
-          setupProvisioning?.pullRequestHeadSha !==
-            setupPullRequestInspection.headSha));
-    const setupPullRequestMerged =
-      setupPullRequestStatus === "merged" &&
-      setupProvisioning?.pullRequestHeadSha != null &&
-      setupProvisioning.pullRequestHeadSha ===
-        setupPullRequestInspection?.headSha;
+    // Missing/changed PR heads are not authorization; independent installed
+    // workflow verification and the attempt CAS remain mandatory.
+    const { historicalMergedSetupPullRequest, setupPullRequestMerged } =
+      classifySetupPullRequestHead({
+        persistedHeadSha: setupProvisioning?.pullRequestHeadSha,
+        inspection: setupPullRequestInspection,
+      });
     const setupBaseBranch = historicalMergedSetupPullRequest
       ? repository.defaultBranch
       : (setupPullRequestInspection?.baseBranch ??
