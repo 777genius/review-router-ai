@@ -67,3 +67,11 @@ also invoke native explicitly. Web normal typecheck and build preflight check
 the actual web tsconfig with native before Next uses its separate TS6 compiler
 API; existing web declaration-check settings remain unchanged.
 The root compiler API and explicit legacy tooling check remain TypeScript 6.0.3.
+
+## Shared package compiler
+
+`packages/shared` explicitly uses the same isolated native TypeScript 7.0.2
+helper for its normal build and typecheck. Its tsconfigs, exports and Turbo
+dependency ordering are unchanged. This advances the shared package's compiler
+route; Next, ESLint and source-analysis tools retain their separate classic API
+dependency. It does not establish a TypeScript 7-only toolchain.
