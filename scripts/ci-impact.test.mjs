@@ -138,7 +138,7 @@ test("CI impact selector runs outside native Linux runner pool", () => {
   const workflow = readFileSync(
     new URL("../.github/workflows/ci.yml", import.meta.url), "utf8",
   );
-  const block = workflow.match(/^  impact:\n([\s\S]*?)(?=^  [a-z][\\w-]+:\s*$)/m)?.[1];
+  const block = workflow.match(/^  impact:\n([\s\S]*?)(?=^  [a-z][\w-]+:\s*$)/m)?.[1];
   assert.ok(block, "CI impact job is missing");
   assert.match(block, /^    runs-on: ubuntu-latest$/m);
   assert.doesNotMatch(block, /CI_LINUX_(?:CHECKS_)?RUNNER/);
