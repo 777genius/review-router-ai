@@ -243,13 +243,19 @@ export function createSubscriptionFixture(
       if (method === "GET" && path === "/v1/profiles") return null;
       // The account's own model list, which a new connection is chosen from.
       // Only the discovery sources this fixture enrolls; others stay unsupported.
-      if (method === "POST" && path === "/v1/account-models/read") {
+      if (
+        method === "POST" &&
+        ["/v1/account-models/read", "/v2/account-models/read"].includes(path)
+      ) {
         const input = await read();
         const account = accounts.find(
           (row) =>
             row.accountRef === input.accountRef &&
-            row.ownerRef === input.ownerRef,
+            row.ownerRef === input.ownerRef &&
+            row.profileId === input.profileId &&
+            row.authorizationEpoch === input.expectedAuthorizationEpoch,
         );
+        if (!account) return denied();
         const profile = profiles.find(
           (row) => row.profileId === account?.profileId,
         );
@@ -269,7 +275,13 @@ export function createSubscriptionFixture(
               status: "snapshot",
               physicalGeneration: "fixture-subscription-generation",
               principalVersion: "fixture-subscription-principal",
-              source: "nvidia",
+              ...(path.startsWith("/v2/")
+                ? {
+                    sourceId: profile.profileId,
+                    profileId: profile.profileId,
+                    admission: { unavailableFallback: "deny" },
+                  }
+                : { source: "nvidia" }),
               fetchedAt: new Date(now).toISOString(),
               expiresAt: new Date(now + nvidiaModels.ttlMs).toISOString(),
               models: [
@@ -292,7 +304,13 @@ export function createSubscriptionFixture(
             status: "snapshot",
             physicalGeneration: "fixture-subscription-generation",
             principalVersion: "fixture-subscription-principal",
-            source: "openrouter",
+            ...(path.startsWith("/v2/")
+              ? {
+                  sourceId: profile.profileId,
+                  profileId: profile.profileId,
+                  admission: { unavailableFallback: "qualified_anchor" },
+                }
+              : { source: "openrouter" }),
             fetchedAt: new Date(now).toISOString(),
             expiresAt: new Date(now + 300_000).toISOString(),
             models: [

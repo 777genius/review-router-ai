@@ -89,9 +89,11 @@ test("Add provider connects an API-key account in place and saves it with its mo
   });
 
   const name = `One step ${Date.now()}`;
-  await form.getByLabel("Connection name (optional)").fill(name);
-  await form.locator('input[name="credential"]').fill(secret);
-  await form.getByRole("button", { name: "Connect account" }).click();
+  await form.getByLabel("Connection name", { exact: true }).fill(name);
+  await form.getByLabel("API key", { exact: true }).fill(secret);
+  await form
+    .getByRole("button", { name: "Connect OpenRouter", exact: true })
+    .click();
 
   await expect(
     dialog.getByText("Connected and added to this workspace."),
@@ -179,7 +181,7 @@ test("Add provider signs in to Grok in place and selects the new account", async
   await expect(form).toBeVisible();
   await form.getByLabel("Connection name").fill(`One step Grok ${Date.now()}`);
   const popup = page.waitForEvent("popup");
-  await form.getByRole("button", { name: "Sign in to Grok" }).click();
+  await form.getByRole("button", { name: "Connect Grok", exact: true }).click();
   const authorization = await popup;
   const code = await authorization.locator("code").innerText();
   await authorization.close();
@@ -282,13 +284,13 @@ test("Add provider resets unsubmitted credentials when switching providers and p
     name: "Connect Kimi Code",
     exact: true,
   });
-  const kimiKey = kimiForm.locator('input[name="credential"]');
+  const kimiKey = kimiForm.getByLabel("API key", { exact: true });
   await expect(kimiKey).toBeVisible();
   await kimiKey.fill(secret);
   await choose(page, "Provider", "MiMo Token Plan");
   const mimoKey = dialog
     .getByRole("region", { name: "Connect MiMo Token Plan", exact: true })
-    .locator('input[name="credential"]');
+    .getByLabel("API key", { exact: true });
   await expect(mimoKey).toBeVisible();
   await expect(mimoKey).toHaveValue("");
   await expect(kimiForm).toHaveCount(0);
