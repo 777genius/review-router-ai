@@ -4,12 +4,12 @@
 - Goal: compile and typecheck shared through the existing isolated TypeScript
   7.0.2 helper in normal builds, preserving its runtime and type contracts.
 - Affected targets: build/CI; shared artifacts consumed by Web, API and worker.
-- Implementation PR: [#967](https://github.com/777genius/review-router-ai/pull/967), draft.
+- Implementation PR: [#967](https://github.com/777genius/review-router-ai/pull/967), ready.
 - Implementation reference: `3495ca84c6e4e1162ae4dc4b77aa32fa24729578`, based on
   main `cc8ab361d1fcb22140037d20380e02eb2ba1e2d5`; not merged or deployed.
 - Dependencies: existing `compiler:prepare` installation of the pinned native
   compiler; no dependency, lockfile, schema or configuration changes.
-- Last updated: `2026-11-22`.
+- Last updated: `2026-11-23`.
 
 ## Environment status
 
@@ -53,6 +53,60 @@ All four production exports imported after the unchanged ESM rewriting step;
 passed their existing typecheck commands against this worktree's shared package.
 Required exact-commit CI remains pending.
 
+## Browser fixture follow-up (2026-11-23)
+
+Main `06aae0faf17687e52b9d0be63717c8ccc16d1458` was merged normally as
+`0731105f41c1e035ca4943eab83598e7fe51a44d`. This includes the independently
+fixed static-lint failures from the previous CI attempt. The Skills generation
+case now reacquires its second-tab mutation actor immediately before removal.
+The first tab retains its stale draft in its original document; generation,
+version, conflict, draft-retention and final persisted-value assertions remain
+unchanged. The original CI timeout's underlying cause has not been proven.
+
+The browser harness's existing frozen lockfile was installed into its own
+`scripts/accounts-reference-e2e/node_modules`, with a worktree-owned pnpm store
+and cache. Shared root dependencies were not modified. The existing native
+harness project passed:
+
+```sh
+node scripts/local-checks/compiler-cli.ts --native --noEmit -p scripts/accounts-reference-e2e/tsconfig.json
+```
+
+The exact previously failing case passed on Node 26.11.1, PostgreSQL 17.11,
+locked Playwright 1.64.1 and its Chromium revision 1248. A fresh disposable local
+database was migrated before this command; the runtime retained its loopback
+network guard, existing timeouts and zero-retry policy:
+
+```sh
+PLAYWRIGHT_BROWSERS_PATH="$PWD/tmp/typescript7-skills-browser-cache" \
+ACCOUNTS_REFERENCE_E2E_GREP='Skills generation rejects an old Paths editor after remove and re-add at version one' \
+ACCOUNTS_REFERENCE_E2E_TRACE=on \
+node --import ./scripts/accounts-reference-e2e/node_modules/tsx/dist/loader.mjs \
+  scripts/accounts-reference-e2e/src/run.ts \
+  --repo-root "$PWD" \
+  --database-url 'postgresql://fixture_owner@127.0.0.1:35437/review_router_accounts_reference_e2e_test?schema=public' \
+  --work-dir tmp/accounts-reference-e2e/runs/ts7-generation-postgres17 \
+  --skills-fixture
+```
+
+Recorded result: exit 0, `outcome: done`, `boot.ok: true`, one passed in 23.9s,
+zero failed, zero skipped, `databaseMode: explicit-test-url`,
+`databaseBaseline: fresh migrated`, `externalNetworkAllowed: false`.
+The run used commit `0731105f41c1e035ca4943eab83598e7fe51a44d` plus source-delta
+SHA256 `7aaf59bf280c38279ae0d0d08dad61f644505e5c091992bb2e14f34dd3afe69b`;
+the tested `skills-ux.spec.ts` SHA256 was
+`1ecd915e9a6638262867fb8edcd5d461004195ee069ecd7fe270709423ecdd8f`.
+The disposable server was stopped afterward. Ignored run receipts and trace are
+retained under the work directory as supplementary evidence.
+
+An earlier isolated-PGlite attempt failed before the target scenario because
+the socket returned PostgreSQL protocol error `08P01` (126 bind parameters for
+a prepared statement requiring 3). That failed run is retained separately; it
+does not qualify the browser change. Local PostgreSQL 17.11 and Node 26.11.1
+also differ from the current CI's PostgreSQL 17.10 and Node 26.12.1 pins. This
+one-case local result does not replace all 24 browser scenarios or required
+exact-commit CI. No deployment or release is claimed.
+
 ## Retry, partial completion, and rollback
 
 Inspect the failed command and exact source before retrying only the failed
@@ -62,5 +116,6 @@ the normal release process. No data rollback is involved.
 
 ## Execution log
 
-Draft PR #967 is open; draft CI was queued. Required exact-commit CI remains
-pending. No release or deployment has been executed for this patch.
+PR #967 is ready after local qualification and technical review. Required
+exact-commit CI remains pending. No release or deployment has been executed for
+this patch.

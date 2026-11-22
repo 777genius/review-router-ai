@@ -31,7 +31,7 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
-Shared native compiler: [shared build/typecheck explicitly select the isolated TypeScript 7.0.2 helper](2026-11-22-shared-native-compiler.md), [draft PR #967](https://github.com/777genius/review-router-ai/pull/967) - local qualification only; CI, staging and production `pending`. No dependency, schema, configuration or activation change; Next/ESLint retain classic APIs. Include in a later authorized coherent build.
+Shared native compiler: [shared build/typecheck explicitly select the isolated TypeScript 7.0.2 helper](2026-11-22-shared-native-compiler.md), [PR #967](https://github.com/777genius/review-router-ai/pull/967) - local compiler qualification and the stale-generation browser case passed; complete exact-commit CI, staging and production remain `pending`. No dependency, schema, configuration or activation change; Next/ESLint retain classic APIs. Include in a later authorized coherent build.
 
 A review without a GitHub runner keeps its place in the queue: [a review whose GitHub Actions job has no runner is no longer cancelled after 30 minutes; the same run waits up to 90 minutes after dispatch, the progress comment says it is waiting, and if no runner comes it says once that the review did not start and how to retry](2026-11-21-runner-starvation-requeue.md), [PR #955](https://github.com/777genius/review-router-ai/pull/955), analysis in [plan 88](../architecture/88-runner-starvation-requeue.md) - worker-only ordinary rollout, rides in the next bundle; staging and production `pending`. No migration, configuration, Web, API, Gateway, native or public Action change.
 
