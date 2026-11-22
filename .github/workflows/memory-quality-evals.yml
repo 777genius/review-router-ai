@@ -33,6 +33,7 @@ concurrency:
 
 jobs:
   contracts:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft != true
     name: Corpus, scorer and fail-closed memory E2E contracts
     runs-on: ubuntu-24.04
     timeout-minutes: 25
