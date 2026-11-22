@@ -7,7 +7,7 @@ import tseslint from "typescript-eslint";
 // See ai-docs/architecture/83-file-size-governance.md.
 const webMaxLines = 600;
 const webMaxLinesCeilings = {
-  "apps/web/app/dashboard/account-gateway-account-controls.tsx": 2923,
+  "apps/web/app/dashboard/account-gateway-account-controls.tsx": 2910,
   "apps/web/app/dashboard/account-lifecycle-controls.tsx": 812,
   "apps/web/app/dashboard/actions.ts": 3979,
   "apps/web/app/dashboard/dashboard-copy.ts": 921,

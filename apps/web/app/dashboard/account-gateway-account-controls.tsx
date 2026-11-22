@@ -96,6 +96,8 @@ import {
 } from "../../src/features/account-gateway/connection-options";
 import {
   oauthCompletionPresentation,
+  operationStateText,
+  validAuthorizationURL,
   type OAuthCompletionPresentation,
 } from "./account-connection-presentation";
 import type {
@@ -231,33 +233,6 @@ function statusText(
       : status === "invalid"
         ? "Check the account fields."
         : "Account management is unavailable. Refresh or check the connection later.";
-}
-function operationStateText(
-  state: AccountOperationView["state"] | "unresolved",
-) {
-  return state === "pending"
-    ? "Waiting for completion"
-    : state === "applied"
-      ? "Completed"
-      : state === "rejected"
-        ? "Declined"
-        : state === "unresolved"
-          ? "Checking status"
-          : "Status unavailable";
-}
-function validAuthorizationURL(value: string | undefined): value is string {
-  if (!value) return false;
-  try {
-    const url = new URL(value);
-    return (
-      url.protocol === "https:" &&
-      Boolean(url.host) &&
-      url.username === "" &&
-      url.password === ""
-    );
-  } catch {
-    return false;
-  }
 }
 
 const ConnectWorkspaceContext = createContext<{
