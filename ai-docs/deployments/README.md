@@ -31,6 +31,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+Native-only compiler entrypoint: [CLI and manual pilot migration](2026-11-23-native-only-compiler-pilot.md) — planning; local qualification and main CI `pending`. Preserve real strict/emission/consumer checks and historical source-bound comparison receipts; no application rollout.
+
 Updated landing walkthrough: [the hero video uses the new 48.2-second 1080p Mux asset](2026-11-23-hero-video-v96.md) — Web-only ordinary rollout; staging and production `pending`. No migration, configuration, API, worker, Gateway, native or public Action change.
 
 A review without a GitHub runner keeps its place in the queue: [a review whose GitHub Actions job has no runner is no longer cancelled after 30 minutes; the same run waits up to 90 minutes after dispatch, the progress comment says it is waiting, and if no runner comes it says once that the review did not start and how to retry](2026-11-21-runner-starvation-requeue.md), [PR #955](https://github.com/777genius/review-router-ai/pull/955), analysis in [plan 88](../architecture/88-runner-starvation-requeue.md) - worker-only ordinary rollout, rides in the next bundle; staging and production `pending`. No migration, configuration, Web, API, Gateway, native or public Action change.
