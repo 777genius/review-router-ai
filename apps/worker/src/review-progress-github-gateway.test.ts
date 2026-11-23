@@ -35,7 +35,6 @@ describe("ReviewProgressGitHubGateway", () => {
     });
   });
 
-
   it("refuses PATCH after the repository switches following the scan", async () => {
     const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
     const pullRoute = "GET /repos/{owner}/{repo}/pulls/{pull_number}";
@@ -150,7 +149,6 @@ describe("ReviewProgressGitHubGateway", () => {
       fixture.calls.filter(({ route }) => route.startsWith("GET ")),
     ).toHaveLength(6);
   });
-
 
   it("does not reconcile a landed POST after the repository changes", async () => {
     const fixture = githubFixture([], { throwAfterPost: true });
@@ -387,7 +385,6 @@ describe("ReviewProgressGitHubGateway", () => {
       }),
     ]);
   });
-
 
   it("refuses DELETE when repository ID changes after the scan", async () => {
     const desired = formatReviewProgressComment("working", marker);
@@ -866,12 +863,38 @@ describe("ReviewProgressGitHubGateway", () => {
       ],
     });
 
+    const listRoute =
+      "GET /repos/{owner}/{repo}/issues/{issue_number}/comments";
+    let firstPageReads = 0;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (route !== listRoute || parameters?.page !== 1) return response;
+      firstPageReads += 1;
+      if (firstPageReads !== 2) return response;
+      return {
+        ...response,
+        data: [
+          ...(response.data as unknown[]).slice(1),
+          {
+            id: 101,
+            body: `hidden\n${marker}`,
+            user: { login: "review-router[bot]" },
+          },
+        ],
+      };
+    };
+
     await expect(
-      gateway(fixture.request, { maxCommentPages: 2 }).upsert(input()),
+      gateway(request, { maxCommentPages: 2 }).upsert(input()),
     ).rejects.toMatchObject({
       kind: "pagination_inconclusive",
+      message: "github_issue_comments_offset_changed",
       metadata: { retryable: true },
     });
+    expect(firstPageReads).toBe(2);
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
