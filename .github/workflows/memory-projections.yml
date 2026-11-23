@@ -18,6 +18,11 @@ on:
       - "!apps/web/app/terms/**"
       - "!apps/web/app/refund-policy/**"
       - "!apps/web/app/security/**"
+      # Statistics-only UI routes are qualified by statistics-followthrough-browser.
+      - "!apps/web/app/dashboard/provider-usage-*"
+      - "!apps/web/app/dashboard/review-statistics-*"
+      - "!apps/web/app/api/dashboard/provider-usage/**"
+      - "!apps/web/app/api/dashboard/review-statistics/**"
       - packages/ui/**
       - scripts/memory-ui-e2e/**
       - apps/api/**
@@ -59,6 +64,11 @@ on:
       - "!apps/web/app/terms/**"
       - "!apps/web/app/refund-policy/**"
       - "!apps/web/app/security/**"
+      # Statistics-only UI routes are qualified by statistics-followthrough-browser.
+      - "!apps/web/app/dashboard/provider-usage-*"
+      - "!apps/web/app/dashboard/review-statistics-*"
+      - "!apps/web/app/api/dashboard/provider-usage/**"
+      - "!apps/web/app/api/dashboard/review-statistics/**"
       - packages/ui/**
       - scripts/memory-ui-e2e/**
       - apps/api/**
@@ -90,8 +100,8 @@ permissions:
 
 concurrency:
   # Manual qualification must not cancel branch/PR checks or another manual mode.
-  group: memory-authority-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+  group: memory-authority-${{ github.event_name }}-${{ github.event_name == 'pull_request' && (github.event.pull_request.number || github.ref) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   browser-ui:
