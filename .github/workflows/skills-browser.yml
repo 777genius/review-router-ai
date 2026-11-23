@@ -19,6 +19,11 @@ on:
       - "!apps/web/app/terms/**"
       - "!apps/web/app/refund-policy/**"
       - "!apps/web/app/security/**"
+      # Statistics-only UI routes are qualified by statistics-followthrough-browser.
+      - "!apps/web/app/dashboard/provider-usage-*"
+      - "!apps/web/app/dashboard/review-statistics-*"
+      - "!apps/web/app/api/dashboard/provider-usage/**"
+      - "!apps/web/app/api/dashboard/review-statistics/**"
       - apps/worker/**
       - apps/api/src/review-action-v2-production-composition.ts
       - apps/api/src/review-run-runtime-snapshot*
