@@ -593,6 +593,82 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
+  it("rejects unchanged when the canonical was deleted", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture([{ id: 4, body: desired }]);
+    const knownRoute = "GET /repos/{owner}/{repo}/issues/comments/{comment_id}";
+    let knownReads = 0;
+    const request: ReviewProgressGitHubRequester = async (route, parameters) => {
+      if (route === knownRoute && parameters?.comment_id === 4) {
+        knownReads += 1;
+        throw { status: 404 };
+      }
+      return fixture.request(route, parameters);
+    };
+
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      message: "github_canonical_comment_changed_before_delete",
+      metadata: { retryable: true },
+    });
+    expect(knownReads).toBe(1);
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("rejects unchanged when the canonical body was edited", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture([{ id: 4, body: desired }]);
+    const knownRoute = "GET /repos/{owner}/{repo}/issues/comments/{comment_id}";
+    let knownReads = 0;
+    const request: ReviewProgressGitHubRequester = async (route, parameters) => {
+      const response = await fixture.request(route, parameters);
+      if (route !== knownRoute || parameters?.comment_id !== 4) return response;
+      knownReads += 1;
+      return {
+        ...response,
+        data: {
+          ...(response.data as Record<string, unknown>),
+          body: `changed\n${marker}`,
+        },
+      };
+    };
+
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      message: "github_canonical_comment_changed_before_delete",
+      metadata: { retryable: true },
+    });
+    expect(knownReads).toBe(1);
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("rejects unchanged when the PR head changes during verification", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture([{ id: 4, body: desired }]);
+    const knownRoute = "GET /repos/{owner}/{repo}/issues/comments/{comment_id}";
+    const pullRoute = "GET /repos/{owner}/{repo}/pulls/{pull_number}";
+    let knownReads = 0;
+    const request: ReviewProgressGitHubRequester = async (route, parameters) => {
+      const response = await fixture.request(route, parameters);
+      if (route === knownRoute) knownReads += 1;
+      if (route !== pullRoute || knownReads === 0) return response;
+      return {
+        ...response,
+        data: {
+          ...(response.data as Record<string, unknown>),
+          head: { sha: "b".repeat(40) },
+        },
+      };
+    };
+
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "stale_head",
+      metadata: { retryable: false },
+    });
+    expect(knownReads).toBe(1);
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("does not clean up duplicates while reconciling an ambiguous PATCH", async () => {
     const fixture = githubFixture(
       [
@@ -673,6 +749,19 @@ describe("ReviewProgressGitHubGateway", () => {
       ) {
         return { data: pages[Number(parameters.page) - 1] ?? [] };
       }
+      if (
+        route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}" &&
+        parameters.comment_id === 701
+      ) {
+        return {
+          data: {
+            id: 701,
+            body: desired,
+            user: { login: "review-router[bot]" },
+            issue_url: "https://api.github.com/repos/acme/rocket/issues/42",
+          },
+        };
+      }
       throw new Error(`unexpected_route:${route}`);
     };
 
@@ -701,7 +790,7 @@ describe("ReviewProgressGitHubGateway", () => {
       id: index + 1,
       body: "unrelated",
     }));
-    const fixture = githubFixture([], {
+    const fixture = githubFixture([{ id: 701, body: desired }], {
       pagedComments: [firstPage, [{ id: 701, body: desired }]],
       pageLinks: [
         '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="first"',
@@ -753,7 +842,7 @@ describe("ReviewProgressGitHubGateway", () => {
       body: "unrelated",
     }));
     const desired = formatReviewProgressComment("working", marker);
-    const fixture = githubFixture([], {
+    const fixture = githubFixture([{ id: 701, body: desired }], {
       pagedComments: [full, [{ id: 701, body: desired }]],
       pageLinks: [
         '<https://api.github.com/repositories/1300192/issues/42/comments?page=2&per_page=100>; rel="next"',
@@ -791,7 +880,7 @@ describe("ReviewProgressGitHubGateway", () => {
       body: "unrelated",
     }));
     const desired = formatReviewProgressComment("working", marker);
-    const fixture = githubFixture([], {
+    const fixture = githubFixture([{ id: 701, body: desired }], {
       pagedComments: [full, full, [{ id: 701, body: desired }]],
       pageLinks: [
         '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',

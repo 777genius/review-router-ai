@@ -239,15 +239,8 @@ export class ReviewProgressGitHubGateway {
     scannedRepositoryId?: number,
   ): Promise<UpsertReviewProgressCommentResult> {
     const duplicate = duplicates[0];
-    if (!duplicate) {
-      return {
-        commentId: canonicalId,
-        operation: "unchanged",
-        duplicateCommentIds: [],
-      };
-    }
     await this.assertRepositoryId(input, scannedRepositoryId);
-    // An offset scan cannot prove the canonical still exists at deletion time.
+    // The scanned canonical may have been deleted or repurposed before settling.
     const verified = await this.includeVerifiedKnownComment(
       { ...input, knownCommentId: canonicalId },
       [],
@@ -258,6 +251,15 @@ export class ReviewProgressGitHubGateway {
         "github_canonical_comment_changed_before_delete",
         true,
       );
+    }
+    if (!duplicate) {
+      // A new PR head or repository may have appeared during the by-ID read.
+      await this.assertRepositoryId(input, scannedRepositoryId);
+      return {
+        commentId: canonicalId,
+        operation: "unchanged",
+        duplicateCommentIds: [],
+      };
     }
     // Do not delete a once-marked comment repurposed since the offset scan.
     const duplicateNow = await this.includeVerifiedKnownComment(
