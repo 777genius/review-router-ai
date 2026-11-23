@@ -206,7 +206,8 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          rm .github/workflows/refactor977-dependency-upgrade.yml
+          # Commit only verified dependency files; workflow cleanup is a separate
+          # owner action because the Actions token has no workflow-edit scope.
           git add -- package.json pnpm-lock.yaml pnpm-workspace.yaml \
             scripts/review-skills-tooling/package.json \
             scripts/review-skills-tooling/pnpm-lock.yaml \
@@ -217,8 +218,7 @@ jobs:
             architecture/review-skills/consumer-module-profile.json \
             architecture/review-history/consumer-module-profile.json \
             architecture/account-metadata/consumer-module-profile.json \
-            packages/features/*/package.json \
-            .github/workflows/refactor977-dependency-upgrade.yml
+            packages/features/*/package.json
           git diff --cached --check
           test -n "$(git diff --cached --name-only)"
           git commit -m "build(deps): qualify current Foundation 3.1 and Get Modular 0.8 artifacts"
