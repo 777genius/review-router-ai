@@ -1,0 +1,104 @@
+name: PR 977 strict TS7 workspace toolchain dry run
+
+on:
+  push:
+    branches:
+      - build/rr977-ts7-workspace-qualification-20261123
+    paths:
+      - .github/workflows/refactor977-ts7-workspace.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rr977-native-ts7-workspace-dry-run
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      NODE_OPTIONS: "--max-old-space-size=6144"
+    steps:
+      - name: Checkout exact reviewed source, read-only
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Select CI Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "26.11.1"
+      - name: Select pnpm 11
+        run: npm install -g --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - name: Verify published toolchain identities and prepare a disposable manifest candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          for coordinate in 'typescript@7.0.2' 'oxc-parser@0.159.0' 'next@16.2.12'; do
+            npm view "$coordinate" dist.integrity --json | grep -Eq 'sha512-'
+          done
+          node <<'JS'
+          const fs = require("node:fs");
+          function exactReplace(path, group, name, expected, next) {
+            const doc = JSON.parse(fs.readFileSync(path, "utf8"));
+            if (doc[group]?.[name] !== expected) throw new Error(
+              path + " pin drifted: " + name + "=" + doc[group]?.[name]
+            );
+            doc[group][name] = next;
+            fs.writeFileSync(path, JSON.stringify(doc, null, 2) + "\n");
+          }
+          exactReplace("package.json", "devDependencies", "typescript", "^6.0.3", "7.0.2");
+          exactReplace("apps/web/package.json", "dependencies", "next", "^16.2.11", "16.2.12");
+          const root = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          if (root.devDependencies["oxc-parser"] !== undefined) throw new Error("oxc-parser has a new owner");
+          root.devDependencies["oxc-parser"] = "0.159.0";
+          fs.writeFileSync("package.json", JSON.stringify(root, null, 2) + "\n");
+          JS
+          echo "Only runner-local candidate files changed; repository HEAD and lock remain untouched"
+      - name: Produce genuine pnpm 11 lockfile and frozen install without lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm install --lockfile-only --ignore-scripts
+          pnpm install --frozen-lockfile --ignore-scripts
+          test "$(node -p 'require("./node_modules/typescript/package.json").version')" = "7.0.2"
+          test "$(node -p 'require("./node_modules/oxc-parser/package.json").version')" = "0.159.0"
+          test "$(node -p 'require("./apps/web/node_modules/next/package.json").version')" = "16.2.12"
+          pnpm why typescript
+      - name: Run existing architecture and rejecting guards with only native parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/check-architecture-boundaries.mjs
+          pnpm exec vitest run \
+            scripts/check-architecture-boundaries.test.ts \
+            scripts/lib/collect-feature-layout.test.ts \
+            scripts/memory-foundation/host-boundaries.test.ts
+      - name: Run strict maintained-tooling TS7 typecheck without classic compiler fallback
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/tsc --version
+          ./node_modules/.bin/tsc --noEmit -p tsconfig.tooling.json
+      - name: Inspect current Next CLI against TS7 without a production deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --dir apps/web exec next --version
+          node -e '
+            const fs=require("node:fs");
+            const p="apps/web/next.config.ts";
+            if(!fs.readFileSync(p,"utf8").includes("export default nextConfig"))process.exit(1);
+          '
+          echo "Next version admissible; full Next production build still requires normal workspace build/runtime fixtures"
+      - name: Validate reproducible lockfile and show a bounded candidate diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm install --lockfile-only --ignore-scripts --frozen-lockfile
+          git diff --check -- package.json apps/web/package.json pnpm-lock.yaml
+          git diff --stat -- package.json apps/web/package.json pnpm-lock.yaml
+          echo "Candidate is intentionally not committed, submitted or merged by this read-only job."
