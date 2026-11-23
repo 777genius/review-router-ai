@@ -2985,6 +2985,91 @@ describe("durable ReviewRequested ingress", () => {
     });
   });
 
+  it("isolates due blockers by every field of the PR scope", async () => {
+    const store = new InMemoryReviewRequestedIntentStore();
+    const first = intentCandidate("scope-owner", "0", scope, revision);
+    await store.registerIntent({ candidate: first });
+    expect(
+      (
+        await store.claimIntent(
+          claimIntent(first.requestId, "scope-claim", "scope-owner"),
+        )
+      ).status,
+    ).toBe(ReviewRequestedClaimStatus.Claimed);
+    const variants = [
+      { ...scope, workspaceId: `${scope.workspaceId}-other` },
+      {
+        ...scope,
+        repositoryConnectionId: `${scope.repositoryConnectionId}-other`,
+      },
+      {
+        ...scope,
+        scmRepositoryIdentityId: `${scope.scmRepositoryIdentityId}-other`,
+      },
+      { ...scope, pullRequestNumber: scope.pullRequestNumber + 1 },
+    ];
+    for (const [index, variant] of variants.entries()) {
+      await store.registerIntent({
+        candidate: intentCandidate(
+          `different-scope-${index}`,
+          String(index + 1),
+          variant,
+          revision,
+        ),
+      });
+    }
+    expect(
+      new Set(
+        (await store.listDue({ now: baseTime, limit: 10 })).map(
+          (intent) => intent.requestId,
+        ),
+      ),
+    ).toEqual(new Set(variants.map((_, index) => `different-scope-${index}`)));
+  });
+
+  it("unblocks a same-scope due intent exactly when the claim expires", async () => {
+    const store = new InMemoryReviewRequestedIntentStore();
+    const first = intentCandidate("boundary-first", "1", scope, revision);
+    await store.registerIntent({ candidate: first });
+    expect(
+      (
+        await store.claimIntent({
+          ...claimIntent(first.requestId, "boundary-owner", "boundary-hash"),
+          claimUntil: plus(1000),
+        })
+      ).status,
+    ).toBe(ReviewRequestedClaimStatus.Claimed);
+    const next = {
+      ...intentCandidate("boundary-next", "2", scope, revision),
+      triggerKind: ReviewRequestedTriggerKind.ManualCommand,
+    };
+    await store.registerIntent({ candidate: next });
+    expect(await store.listDue({ now: plus(999), limit: 10 })).toEqual([]);
+    expect(
+      (await store.listDue({ now: plus(1000), limit: 10 })).map(
+        (intent) => intent.requestId,
+      ),
+    ).toEqual(expect.arrayContaining([first.requestId, next.requestId]));
+    expect(
+      (
+        await store.claimIntent({
+          ...claimIntent(
+            next.requestId,
+            "boundary-next-claim",
+            "boundary-next-owner",
+          ),
+          now: plus(1000),
+          claimUntil: plus(2000),
+        })
+      ).status,
+    ).toBe(ReviewRequestedClaimStatus.Claimed);
+    expect(
+      (await store.listDue({ now: plus(1000), limit: 10 })).map(
+        (intent) => intent.requestId,
+      ),
+    ).not.toContain(first.requestId);
+  });
+
   it("orders and bounds due intents", async () => {
     const store = new InMemoryReviewRequestedIntentStore();
     await store.registerIntent({

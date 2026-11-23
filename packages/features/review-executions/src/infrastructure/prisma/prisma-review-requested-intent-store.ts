@@ -204,17 +204,41 @@ export class PrismaReviewRequestedIntentStore
   }): Promise<readonly ReviewRequestedIntent[]> {
     assertLimit(input.limit);
     void input.now;
+    // Mirror claimIntent's scope blocker before LIMIT. This is advisory only:
+    // scope state may change before the transactional claim and its fencing.
     const records = await this.prisma.$queryRaw<
       Awaited<ReturnType<PrismaClient["reviewRequestedIntent"]["findMany"]>>
     >(Prisma.sql`
       SELECT intent.*
       FROM "ReviewRequestedIntent" AS intent
       WHERE (
-        intent."state" = 'pending_dispatch'::"ReviewRequestedIntentStateV2"
-        AND intent."notBefore" <= (statement_timestamp() AT TIME ZONE 'UTC')
-      ) OR (
-        intent."state" = 'dispatching'::"ReviewRequestedIntentStateV2"
-        AND intent."claimUntil" <= (statement_timestamp() AT TIME ZONE 'UTC')
+        (
+          intent."state" = 'pending_dispatch'::"ReviewRequestedIntentStateV2"
+          AND intent."notBefore" <= (statement_timestamp() AT TIME ZONE 'UTC')
+        ) OR (
+          intent."state" = 'dispatching'::"ReviewRequestedIntentStateV2"
+          AND intent."claimUntil" <= (statement_timestamp() AT TIME ZONE 'UTC')
+        )
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM "ReviewRequestedIntent" AS blocker
+        WHERE blocker."workspaceId" = intent."workspaceId"
+          AND blocker."repositoryConnectionId" = intent."repositoryConnectionId"
+          AND blocker."scmRepositoryIdentityId" = intent."scmRepositoryIdentityId"
+          AND blocker."pullRequestNumber" = intent."pullRequestNumber"
+          AND blocker."requestId" <> intent."requestId"
+          AND (
+            (
+              blocker."state" IN (
+                'reconciling_dispatch'::"ReviewRequestedIntentStateV2",
+                'awaiting_authorization'::"ReviewRequestedIntentStateV2"
+              )
+              AND blocker."resolutionDeadlineAt" > (statement_timestamp() AT TIME ZONE 'UTC')
+            ) OR (
+              blocker."state" = 'dispatching'::"ReviewRequestedIntentStateV2"
+              AND blocker."claimUntil" > (statement_timestamp() AT TIME ZONE 'UTC')
+            )
+          )
       )
       ORDER BY intent."notBefore", intent."createdAt", intent."requestId"
       LIMIT ${input.limit}

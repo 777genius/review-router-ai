@@ -177,14 +177,19 @@ export class InMemoryReviewRequestedIntentStore
     ) {
       throw new Error("review_requested_invalid_due_limit");
     }
-    return [...this.intents.values()]
+    const intents = [...this.intents.values()];
+    const busyScopes = new Set(
+      intents.filter((intent) => blocksScope(intent, input.now)).map(scopeKey),
+    );
+    return intents
       .filter(
         (intent) =>
-          (intent.state === ReviewRequestedIntentState.PendingDispatch &&
+          !busyScopes.has(scopeKey(intent)) &&
+          ((intent.state === ReviewRequestedIntentState.PendingDispatch &&
             intent.notBefore <= input.now) ||
-          (intent.state === ReviewRequestedIntentState.Dispatching &&
-            intent.claim !== null &&
-            intent.claim.claimUntil <= input.now),
+            (intent.state === ReviewRequestedIntentState.Dispatching &&
+              intent.claim !== null &&
+              intent.claim.claimUntil <= input.now)),
       )
       .sort(
         (left, right) =>
@@ -345,15 +350,7 @@ export class InMemoryReviewRequestedIntentStore
         (candidate) =>
           candidate.requestId !== intent.requestId &&
           scopeKey(candidate) === scopeKey(intent) &&
-          ((candidate.state === ReviewRequestedIntentState.Dispatching &&
-            candidate.claim !== null &&
-            candidate.claim.claimUntil > command.now) ||
-            ((candidate.state ===
-              ReviewRequestedIntentState.ReconcilingDispatch ||
-              candidate.state ===
-                ReviewRequestedIntentState.AwaitingAuthorization) &&
-              candidate.resolutionDeadlineAt !== null &&
-              candidate.resolutionDeadlineAt > command.now)),
+          blocksScope(candidate, command.now),
       );
       if (laneBusy) {
         return { status: ReviewRequestedClaimStatus.Busy };
@@ -792,4 +789,18 @@ function requiredResolutionDate(intent: ReviewRequestedIntent): Date {
     throw new Error("review_requested_resolution_date_missing");
   }
   return intent.nextResolutionAt;
+}
+
+// Mirrors Prisma claimIntent's scope blocker predicate. A due candidate is
+// never itself an active blocker: dispatching claims must have expired.
+function blocksScope(intent: ReviewRequestedIntent, now: Date): boolean {
+  return (
+    (intent.state === ReviewRequestedIntentState.Dispatching &&
+      intent.claim !== null &&
+      intent.claim.claimUntil > now) ||
+    ((intent.state === ReviewRequestedIntentState.ReconcilingDispatch ||
+      intent.state === ReviewRequestedIntentState.AwaitingAuthorization) &&
+      intent.resolutionDeadlineAt !== null &&
+      intent.resolutionDeadlineAt > now)
+  );
 }
