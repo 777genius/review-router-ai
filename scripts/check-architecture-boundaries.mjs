@@ -421,7 +421,8 @@ function checkAccountMetadataHostBoundaries(violations) {
         node.type === "CallExpression" &&
         node.callee?.type === "Identifier" &&
         node.callee.name === "fetch"
-      ) reject("direct fetch");
+      )
+        reject("direct fetch");
     });
   }
 }
@@ -612,7 +613,8 @@ async function checkActionConflictRuntimePublishedContract(
         !statement.source ||
         typeof statement.source.value !== "string" ||
         !Array.isArray(statement.specifiers)
-      ) return null;
+      )
+        return null;
       return {
         from: statement.source.value,
         typeOnly: statement.exportKind === "type",
@@ -771,7 +773,10 @@ function concurrentPrismaTransactionAliases(parsed) {
   visit(parsed.root, (node, parent) => {
     if (!isFunctionNode(node) || !node.body) return;
     const aliases = transactionAliasesForFunction(
-      node, parent, parsed.source, transactionCallbackNames,
+      node,
+      parent,
+      parsed.source,
+      transactionCallbackNames,
     );
     if (aliases.size === 0) return;
     collectDirectAliases(node.body, aliases);
@@ -783,9 +788,13 @@ function concurrentPrismaTransactionAliases(parsed) {
         if (
           input &&
           nodeOrBoundInitializerReferencesIdentifier(
-            input, alias, bindings, new Set(),
+            input,
+            alias,
+            bindings,
+            new Set(),
           )
-        ) unsafeAliases.add(alias);
+        )
+          unsafeAliases.add(alias);
       }
     });
   });
@@ -801,7 +810,10 @@ function isFunctionNode(node) {
 }
 
 function transactionAliasesForFunction(
-  node, parent, source, transactionCallbackNames,
+  node,
+  parent,
+  source,
+  transactionCallbackNames,
 ) {
   const aliases = new Set();
   const bindingName = functionBindingName(node, parent);
@@ -821,7 +833,8 @@ function transactionAliasesForFunction(
       parameter.name === "transaction" ||
       /(?:^|\\.)TransactionClient\\b/u.test(type) ||
       (index === 0 && (inlineCallback || namedCallback))
-    ) aliases.add(parameter.name);
+    )
+      aliases.add(parameter.name);
   }
   return aliases;
 }
@@ -832,7 +845,8 @@ function functionBindingName(node, parent) {
     parent?.type === "VariableDeclarator" &&
     parent.init === node &&
     parent.id?.type === "Identifier"
-  ) return parent.id.name;
+  )
+    return parent.id.name;
   return null;
 }
 
@@ -847,7 +861,8 @@ function collectDirectAliases(node, aliases) {
         candidate.init?.type !== "Identifier" ||
         !aliases.has(candidate.init.name) ||
         aliases.has(candidate.id.name)
-      ) return;
+      )
+        return;
       aliases.add(candidate.id.name);
       changed = true;
     });
@@ -891,21 +906,29 @@ function variableInitializers(node) {
       candidate.type === "VariableDeclarator" &&
       candidate.id?.type === "Identifier" &&
       candidate.init
-    ) bindings.set(candidate.id.name, candidate.init);
+    )
+      bindings.set(candidate.id.name, candidate.init);
   });
   return bindings;
 }
 
 function nodeOrBoundInitializerReferencesIdentifier(
-  node, identifier, bindings, visitedBindings,
+  node,
+  identifier,
+  bindings,
+  visitedBindings,
 ) {
   if (nodeReferencesIdentifier(node, identifier)) return true;
-  if (node.type !== "Identifier" || visitedBindings.has(node.name)) return false;
+  if (node.type !== "Identifier" || visitedBindings.has(node.name))
+    return false;
   const initializer = bindings.get(node.name);
   if (!initializer) return false;
   visitedBindings.add(node.name);
   return nodeOrBoundInitializerReferencesIdentifier(
-    initializer, identifier, bindings, visitedBindings,
+    initializer,
+    identifier,
+    bindings,
+    visitedBindings,
   );
 }
 

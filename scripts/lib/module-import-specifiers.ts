@@ -54,7 +54,8 @@ function moduleString(node: unknown): string {
   if (
     (node.type === "Literal" || node.type === "StringLiteral") &&
     typeof node.value === "string"
-  ) return node.value;
+  )
+    return node.value;
   if (node.type === "TSLiteralType") return moduleString(node.literal);
   if (
     node.type === "TemplateLiteral" &&
@@ -95,7 +96,8 @@ export function collectModuleImportSpecifiers(
         if (
           syntaxNode(node.moduleReference) &&
           node.moduleReference.type === "TSExternalModuleReference"
-        ) specifiers.add(moduleString(node.moduleReference.expression));
+        )
+          specifiers.add(moduleString(node.moduleReference.expression));
         break;
       case "ImportExpression":
         specifiers.add(moduleString(node.source));
