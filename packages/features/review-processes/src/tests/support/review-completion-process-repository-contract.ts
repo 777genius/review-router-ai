@@ -218,7 +218,10 @@ export function reviewCompletionProcessRepositoryContract(
       const inputs = [
         processInput(contractId("due-b"), dueAt),
         processInput(contractId("due-a"), dueAt),
-        processInput(contractId("due-0-later"), new Date(dueAt.getTime() + 1_000)),
+        processInput(
+          contractId("due-0-later"),
+          new Date(dueAt.getTime() + 1_000),
+        ),
       ] as const;
       for (const input of inputs) {
         await harness.prepare(input);
@@ -241,7 +244,8 @@ export function reviewCompletionProcessRepositoryContract(
       expect(second.map((claim) => claim.executionId)).toEqual([
         inputs[2].executionId,
       ]);
-      await expect(harness.repository.claimDue(claimInput)).resolves.toEqual([]);
+      const remaining = await harness.repository.claimDue(claimInput);
+      expect(remaining).toEqual([]);
     });
 
     it("claims every due row once across concurrent workers", async () => {
@@ -250,7 +254,10 @@ export function reviewCompletionProcessRepositoryContract(
       const inputs = [
         processInput(contractId("due-b"), dueAt),
         processInput(contractId("due-a"), dueAt),
-        processInput(contractId("due-0-later"), new Date(dueAt.getTime() + 1_000)),
+        processInput(
+          contractId("due-0-later"),
+          new Date(dueAt.getTime() + 1_000),
+        ),
       ] as const;
       for (const input of inputs) {
         await harness.prepare(input);
@@ -297,6 +304,7 @@ export function reviewCompletionProcessRepositoryContract(
         expect(ids).toEqual(expectedIds.filter((id) => ids.includes(id)));
         for (const claim of batch) {
           expect(claim.ownerIdHash).toBe(owner);
+          expect(claim.claimUntil).toEqual(claimUntil);
           expect(claim.claimId).toBe(`${claim.executionId}-${suffix}`);
           await expect(
             harness.repository.findByExecutionId(claim.executionId),
