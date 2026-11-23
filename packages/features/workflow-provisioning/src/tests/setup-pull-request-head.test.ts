@@ -19,8 +19,24 @@ describe("setup PR head classification (observation only)", () => {
       false,
       false,
     ],
-    ["closed with matching head", oldHead, "closed", false, oldHead, false, false],
-    ["wrong branch", oldHead, "wrong_base_branch", false, oldHead, false, false],
+    [
+      "closed with matching head",
+      oldHead,
+      "closed",
+      false,
+      oldHead,
+      false,
+      false,
+    ],
+    [
+      "wrong branch",
+      oldHead,
+      "wrong_base_branch",
+      false,
+      oldHead,
+      false,
+      false,
+    ],
     [
       "merged wrong branch with stored head",
       oldHead,
@@ -51,7 +67,15 @@ describe("setup PR head classification (observation only)", () => {
     ],
   ] as const)(
     "%s",
-    (_name, persistedHeadSha, status, merged, headSha, historical, matching) => {
+    (
+      _name,
+      persistedHeadSha,
+      status,
+      merged,
+      headSha,
+      historical,
+      matching,
+    ) => {
       expect(
         classifySetupPullRequestHead({
           persistedHeadSha,

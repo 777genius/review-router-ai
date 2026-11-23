@@ -36,12 +36,12 @@ const input: AssertCurrentWorkflowSetupInput = {
 
 function queryFixture() {
   return {
-    findEligibleRepository:
-      vi.fn<CurrentWorkflowSetupQueryPort["findEligibleRepository"]>()
-        .mockResolvedValue({ defaultBranch: "main" }),
-    findCurrentAttempt:
-      vi.fn<CurrentWorkflowSetupQueryPort["findCurrentAttempt"]>()
-        .mockResolvedValue(current),
+    findEligibleRepository: vi
+      .fn<CurrentWorkflowSetupQueryPort["findEligibleRepository"]>()
+      .mockResolvedValue({ defaultBranch: "main" }),
+    findCurrentAttempt: vi
+      .fn<CurrentWorkflowSetupQueryPort["findCurrentAttempt"]>()
+      .mockResolvedValue(current),
   };
 }
 
@@ -51,9 +51,9 @@ describe("current workflow setup application authority", () => {
     let releaseRepository!: (
       value: Readonly<{ defaultBranch: string }> | null,
     ) => void;
-    const repositoryRead = new Promise<
-      Readonly<{ defaultBranch: string }> | null
-    >((resolve) => {
+    const repositoryRead = new Promise<Readonly<{
+      defaultBranch: string;
+    }> | null>((resolve) => {
       releaseRepository = resolve;
     });
     query.findEligibleRepository.mockReturnValueOnce(repositoryRead);
@@ -65,7 +65,9 @@ describe("current workflow setup application authority", () => {
     releaseRepository({ defaultBranch: "main" });
     await expect(result).resolves.toBeUndefined();
     expect(query.findCurrentAttempt).toHaveBeenCalledTimes(1);
-    expect(query.findCurrentAttempt).toHaveBeenCalledWith(input.scope.repositoryId);
+    expect(query.findCurrentAttempt).toHaveBeenCalledWith(
+      input.scope.repositoryId,
+    );
   });
 
   it("denies a vanished or ineligible repository after the same two reads", async () => {
@@ -76,7 +78,9 @@ describe("current workflow setup application authority", () => {
       "workflow_provisioning_match_not_found",
     );
     expect(query.findCurrentAttempt).toHaveBeenCalledTimes(1);
-    expect(query.findCurrentAttempt).toHaveBeenCalledWith(input.scope.repositoryId);
+    expect(query.findCurrentAttempt).toHaveBeenCalledWith(
+      input.scope.repositoryId,
+    );
   });
 
   it("rejects an attempt from another workspace even when the repository exists", async () => {
