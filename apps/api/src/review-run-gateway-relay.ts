@@ -2003,6 +2003,8 @@ export function createReviewRunGatewayRelay(input: {
         ),
       ])
         await closeRun(id, "cancelled").catch(() => {});
+      // Cleanup may restore additional allocations after the first timer sweep.
+      for (const session of sessions.values()) clearTimeout(session.timer);
     },
   });
 }

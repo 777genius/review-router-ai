@@ -4924,3 +4924,52 @@ it("v4 restored completed close clears deadline and retry timers at shutdown", a
     vi.useRealTimers();
   }
 });
+
+it("shutdown clears timers for additional allocations restored during cleanup", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  const f = await fixture(
+    32768,
+    0,
+    2,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    {
+      models: ["gpt-5.6-sol", "gpt-5.5"],
+      independentAllocations: true,
+    },
+  );
+  const restored = f.restartRelay(2);
+  try {
+    for (const [relay, reviewerId] of [
+      [restored, "reviewer-0"],
+      [f.relay, "reviewer-1"],
+    ] as const) {
+      const response = await relay.responses(
+        "authorization-1",
+        Buffer.from("{}"),
+        new AbortController(),
+        undefined,
+        undefined,
+        reviewerId,
+      );
+      if (response.kind !== "stream") throw Error("stream_expected");
+      for await (const chunk of response.body) void chunk;
+    }
+    vi.clearAllTimers();
+    f.setCloseState("unknown");
+    await restored.shutdown();
+    expect(f.nativeCloses).toHaveLength(2);
+    expect(f.requestModels).toHaveLength(2);
+    // A request-timeout timer remains in the fixture transport.
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(f.nativeCloses).toHaveLength(2);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    await f.relay.shutdown();
+    vi.useRealTimers();
+  }
+});
