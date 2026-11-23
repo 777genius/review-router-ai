@@ -31,7 +31,7 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
-Review dispatch past busy pull requests: [filter already occupied scopes before limiting due work](2026-11-23-review-requested-busy-scopes.md) - API/worker ordinary rollout; staging and production `pending`. No migration; transactional claim and fencing remain authoritative.
+Review dispatch past busy pull requests: [filter already occupied scopes before limiting due work](2026-11-23-review-requested-busy-scopes.md), [PR #994](https://github.com/777genius/review-router-ai/pull/994) - API/worker ordinary rollout; staging and production `pending`. No migration; transactional claim and fencing remain authoritative.
 
 Updated landing walkthrough: [the hero video uses the new 48.2-second 1080p Mux asset](2026-11-23-hero-video-v96.md) — Web-only ordinary rollout; staging and production `pending`. No migration, configuration, API, worker, Gateway, native or public Action change.
 

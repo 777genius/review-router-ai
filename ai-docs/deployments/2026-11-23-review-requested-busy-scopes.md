@@ -3,7 +3,7 @@
 - Task ID: `2026-11-23-review-requested-busy-scopes`
 - Goal: a full dispatch batch of reviews waiting behind already busy pull requests cannot hide an eligible review later in the queue.
 - Affected services/targets: worker and API deployments using the review-requested dispatcher and store.
-- Implementation PR/issue: pending publication; relates to the [`relay_saturated` review-reliability investigation](https://github.com/777genius/agent-teams-ai/pull/1266#issuecomment-7078993822).
+- Implementation PR: [#994](https://github.com/777genius/review-router-ai/pull/994); relates to the [`relay_saturated` review-reliability investigation](https://github.com/777genius/agent-teams-ai/pull/1266#issuecomment-7078993822).
 - Implementation reference: `734212fa3` contains the reviewed implementation; local source and tests are not deployment evidence.
 - Dependencies: none beyond the ordinary release and existing ReviewRequested schema. Existing scope index supports the blocker lookup; no migration, new configuration or flag.
 - Last updated: `2026-11-23`.
