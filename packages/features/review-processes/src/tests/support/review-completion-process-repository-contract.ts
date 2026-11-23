@@ -212,14 +212,46 @@ export function reviewCompletionProcessRepositoryContract(
       });
     });
 
-    it("claims due rows in stable keyset order without double ownership", async () => {
+    it("claims due rows in stable keyset order across sequential batches", async () => {
       const harness = await createHarness();
       const dueAt = new Date(contractNow.getTime() - 5_000);
       const inputs = [
         processInput(contractId("due-b"), dueAt),
         processInput(contractId("due-a"), dueAt),
-        processInput(contractId("due-c"), new Date(dueAt.getTime() + 1_000)),
-      ];
+        processInput(contractId("due-0-later"), new Date(dueAt.getTime() + 1_000)),
+      ] as const;
+      for (const input of inputs) {
+        await harness.prepare(input);
+        await harness.repository.createOrWake(input);
+      }
+
+      const claimInput = {
+        now: contractNow,
+        limit: 2,
+        ownerIdHash: "due-owner-serial",
+        claimIdForExecution: (executionId: string) => `${executionId}-serial`,
+        claimUntil: new Date(contractNow.getTime() + 10_000),
+      };
+      const first = await harness.repository.claimDue(claimInput);
+      expect(first.map((claim) => claim.executionId)).toEqual([
+        inputs[1].executionId,
+        inputs[0].executionId,
+      ]);
+      const second = await harness.repository.claimDue(claimInput);
+      expect(second.map((claim) => claim.executionId)).toEqual([
+        inputs[2].executionId,
+      ]);
+      await expect(harness.repository.claimDue(claimInput)).resolves.toEqual([]);
+    });
+
+    it("claims every due row once across concurrent workers", async () => {
+      const harness = await createHarness();
+      const dueAt = new Date(contractNow.getTime() - 5_000);
+      const inputs = [
+        processInput(contractId("due-b"), dueAt),
+        processInput(contractId("due-a"), dueAt),
+        processInput(contractId("due-0-later"), new Date(dueAt.getTime() + 1_000)),
+      ] as const;
       for (const input of inputs) {
         await harness.prepare(input);
         await harness.repository.createOrWake(input);
@@ -246,13 +278,46 @@ export function reviewCompletionProcessRepositoryContract(
       expect(claimed).toHaveLength(3);
       expect(new Set(claimed.map((claim) => claim.executionId)).size).toBe(3);
 
-      const firstBatch = left.length === 2 ? left : right;
-      expect(firstBatch.map((claim) => claim.executionId)).toEqual(
-        inputs
-          .slice(0, 2)
-          .map((input) => input.executionId)
-          .sort((a, b) => a.localeCompare(b)),
+      // SKIP LOCKED may split the earliest rows across transactions.
+      // Ordering is per returned batch, using the original due-row keyset.
+      const expectedIds = [
+        inputs[1].executionId,
+        inputs[0].executionId,
+        inputs[2].executionId,
+      ];
+      expect(claimed.map((claim) => claim.executionId).sort()).toEqual(
+        [...expectedIds].sort(),
       );
+      for (const [batch, owner, suffix] of [
+        [left, "due-owner-left", "left"],
+        [right, "due-owner-right", "right"],
+      ] as const) {
+        expect(batch.length).toBeLessThanOrEqual(2);
+        const ids = batch.map((claim) => claim.executionId);
+        expect(ids).toEqual(expectedIds.filter((id) => ids.includes(id)));
+        for (const claim of batch) {
+          expect(claim.ownerIdHash).toBe(owner);
+          expect(claim.claimId).toBe(`${claim.executionId}-${suffix}`);
+          await expect(
+            harness.repository.findByExecutionId(claim.executionId),
+          ).resolves.toMatchObject({
+            activeClaimId: claim.claimId,
+            claimOwnerHash: claim.ownerIdHash,
+            claimFencingToken: claim.fencingToken,
+            processVersion: claim.processVersion,
+            claimUntil: claim.claimUntil,
+          });
+        }
+      }
+      await expect(
+        harness.repository.claimDue({
+          now: contractNow,
+          limit: 2,
+          ownerIdHash: "due-owner-after",
+          claimIdForExecution: (executionId) => `${executionId}-after`,
+          claimUntil,
+        }),
+      ).resolves.toEqual([]);
     });
 
     it.each([
