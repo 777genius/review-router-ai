@@ -68,6 +68,18 @@ not just a successful credential submission.
 - PostgreSQL preserves the selected profile, method revision and configuration
   generation across a fresh reader; changed selections and raw SQL retargeting
   are rejected. The complete migration chain preserves legacy configuration.
+- The immutable RR reader at `38eb54a1706658fc005eba99d5c774c50005df90`
+  uses its exact admitted SQL runtime closure. Qualification compares all 23
+  selected lock snapshots, dependency edges and package integrities, then copies
+  and checks complete package bytes and the previously qualified generated
+  Prisma client. Unrelated application lockfile changes do not substitute a new
+  reader dependency graph. The fresh reader process verifies the copies and
+  their links before imports and rejects module resolution outside those copies
+  and the exact old production bundle. The current Prisma schema formatter is
+  recorded separately from the historical reader runtime; it is not described
+  as an old generator. Source/schema checks, read-only PostgreSQL, three operation
+  states and unchanged persisted rows remain required. This is test tooling and
+  adds no production dependency, migration, configuration or activation step.
 - A pinned receipt remains readable and continuable after catalog loss without
   rediscovering or substituting a method. An ambiguous effect stays readback-only.
 - Browser qualification uses the real authenticated Next app, real PostgreSQL

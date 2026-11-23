@@ -23,7 +23,7 @@ export async function conversationVerifierOutputs() {
   const zod = JSON.parse(await readFile(zodPackage, "utf8")) as {
     version: string;
   };
-  if (zod.version !== "4.4.2")
+  if (zod.version !== "4.6.7")
     throw new Error("conversation_verifier_zod_pin_mismatch");
   const result = await build({
     absWorkingDir: root,

@@ -24,6 +24,14 @@ import {
   canonicalIntentHash,
   type PersonalCanonicalIntent,
 } from "../src/domain/personal-canonical-operation";
+import {
+  prepareReaderRuntime,
+  readerBuildToolProvenance,
+} from "./native-connection-rollback-dependencies.ts";
+import {
+  equalBytes,
+  verifyReaderRuntime,
+} from "./native-connection-rollback-runtime.ts";
 
 const floor = "38eb54a1706658fc005eba99d5c774c50005df90";
 const entrypoint =
@@ -59,6 +67,8 @@ export type RollbackReaderInput = {
   bundleSHA256: string;
   client: string;
   adapter: string;
+  runtimeManifest: string;
+  runtimeSHA256: string;
   databaseURL: string;
   output: string;
   cases: {
@@ -171,9 +181,18 @@ const sql = new Client(target);
 let db: PrismaClient | undefined;
 try {
   const lock = await readFile(join(writerRoot, "pnpm-lock.yaml"));
+  const readerLock = await readFile(join(readerRoot, "pnpm-lock.yaml"));
   const schema = await readFile(join(writerRoot, schemaRelative));
-  assert.deepEqual(await readFile(join(readerRoot, "pnpm-lock.yaml")), lock);
-  assert.deepEqual(await readFile(join(readerRoot, schemaRelative)), schema);
+  equalBytes(
+    await readFile(join(readerRoot, schemaRelative)),
+    schema,
+    "old source schema",
+  );
+  const buildTools = await readerBuildToolProvenance(
+    readerLock.toString("utf8"),
+    lock.toString("utf8"),
+    writerRoot,
+  );
   const clientPath = require.resolve("@prisma/client");
   const generated = dirname(
     createRequire(clientPath).resolve(".prisma/client/default"),
@@ -206,12 +225,23 @@ try {
       stdio: "pipe",
     },
   );
-  assert.deepEqual(
+  equalBytes(
     await readFile(oldSchemaCopy),
     generatedSchema,
     "pinned formatter must reproduce the installed generated schema from the old source",
   );
   const generatedClientSHA256 = await treeDigest(generated);
+  const { runtime, closure } = await prepareReaderRuntime({
+    oldLock: readerLock.toString("utf8"),
+    currentLock: lock.toString("utf8"),
+    writerRoot,
+    generated,
+    destination: join(temporary, "reader-runtime"),
+  });
+  const runtimeManifest = join(output, "old-reader-runtime.json");
+  const runtimeBytes = JSON.stringify(runtime, null, 2) + "\n";
+  await writeFile(runtimeManifest, runtimeBytes, { mode: 0o600, flag: "wx" });
+  const runtimeSHA256 = digest(runtimeBytes);
   const oldSources: Record<string, string> = {};
   for (const file of productionFiles)
     oldSources[file] = digest(await readFile(join(readerRoot, file)));
@@ -232,7 +262,7 @@ try {
         name: "exact-old-production-reader",
         setup(builder) {
           builder.onResolve({ filter: /^@prisma\/client$/ }, () => ({
-            path: clientPath,
+            path: runtime.client,
             external: true,
           }));
           builder.onResolve({ filter: /^@reviewrouter\// }, () => ({
@@ -271,6 +301,10 @@ try {
         oldSources,
         bundleSHA256,
         lockfileSHA256: digest(lock),
+        readerLockfileSHA256: digest(readerLock),
+        selectedRuntimeClosure: closure,
+        runtimeSHA256,
+        buildTools,
         sourceSchemaSHA256: digest(schema),
         formattedGeneratedSchemaSHA256: digest(generatedSchema),
         generatedClientSHA256,
@@ -420,8 +454,10 @@ try {
     readerSHA: floor,
     bundle,
     bundleSHA256,
-    client: clientPath,
-    adapter: require.resolve("@prisma/adapter-pg"),
+    client: runtime.client,
+    adapter: runtime.adapter,
+    runtimeManifest,
+    runtimeSHA256,
     databaseURL: readerURL.href,
     output: readerOutput,
     cases,
@@ -454,6 +490,7 @@ try {
     assert.equal(digest(persisted.rows[0]!.body), entry.rowSHA256);
   }
   assert.equal(await treeDigest(generated), generatedClientSHA256);
+  await verifyReaderRuntime(runtime);
   cleanSource(writerRoot, args["writer-sha"]);
   cleanSource(readerRoot, floor);
   await writeFile(
@@ -474,6 +511,9 @@ try {
         persistedRowsUnchanged: true,
         rediscoveryCalls: 0,
         effects: 0,
+        isolatedReaderRuntime: true,
+        runtimeSHA256,
+        selectedRuntimeClosureSHA256: closure.sha256,
         oldReader: readerReceipt,
       },
       null,

@@ -6,7 +6,8 @@
   },
   "include": [
     "packages/features/provider-accounts/tests/native-connection-rollback.ts",
-    "packages/features/provider-accounts/tests/native-connection-rollback-reader.ts"
+    "packages/features/provider-accounts/tests/native-connection-rollback-reader.ts",
+    "packages/features/provider-accounts/tests/native-connection-rollback-dependencies.node-test.ts"
   ],
   "exclude": ["node_modules", "dist", ".next"]
 }

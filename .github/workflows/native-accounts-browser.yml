@@ -128,6 +128,7 @@ jobs:
           reader_root="$RUNNER_TEMP/rr-native-rollback-source"
           git fetch --no-tags origin "$reader_sha"
           git worktree add --detach "$reader_root" "$reader_sha"
+          node --test packages/features/provider-accounts/tests/native-connection-rollback-dependencies.node-test.ts
           rollback_bin="$RUNNER_TEMP/rr-native-rollback-bin"
           mkdir "$rollback_bin"
           ROLLBACK_BIN="$rollback_bin" python3 - <<'PY'
@@ -316,6 +317,7 @@ jobs:
           name: native-rr-rollback-reader-${{ env.EXPECTED_REVISION }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/rr-native-rollback-output/old-reader-build.json
+            ${{ runner.temp }}/rr-native-rollback-output/old-reader-runtime.json
             ${{ runner.temp }}/rr-native-rollback-output/old-reader-receipt.json
             ${{ runner.temp }}/rr-native-rollback-output/rollback-receipt.json
           if-no-files-found: warn
