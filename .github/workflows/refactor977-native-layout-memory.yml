@@ -1,0 +1,123 @@
+name: PR 977 native layout and memory AST qualification
+
+on:
+  push:
+    branches:
+      - build/refactor977-native-layout-memory-20261123
+    paths:
+      - .github/workflows/refactor977-native-layout-memory.yml
+      - scripts/lib/module-import-specifiers.ts
+      - scripts/lib/collect-feature-layout.ts
+      - scripts/lib/collect-feature-layout.test.ts
+      - scripts/memory-foundation/host-boundaries.ts
+      - scripts/memory-foundation/host-boundaries.test.ts
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rr977-native-layout-memory
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "26.11.1"
+      - name: Prepare exact isolated TS7 parser subject
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          subject="$RUNNER_TEMP/rr977-native-layout-memory"
+          mkdir -p "$subject/scripts/lib" "$subject/scripts/memory-foundation"
+          cp scripts/lib/{module-import-specifiers,collect-feature-layout,collect-feature-layout.test}.ts "$subject/scripts/lib/"
+          cp scripts/memory-foundation/{host-boundaries,host-boundaries.test}.ts "$subject/scripts/memory-foundation/"
+          cat > "$subject/package.json" <<'JSON'
+          {
+            "private": true,
+            "type": "module",
+            "devDependencies": {
+              "@types/node": "22.19.17",
+              "@get-modular/conformance": "0.5.0",
+              "oxc-parser": "0.159.0",
+              "oxfmt": "0.72.0",
+              "typescript": "7.0.2",
+              "vitest": "4.1.10"
+            }
+          }
+          JSON
+          npm install --prefix "$subject" --ignore-scripts --no-audit --no-fund
+          test "$(node -p 'require(process.argv[1]).version' "$subject/node_modules/typescript/package.json")" = "7.0.2"
+          cat > "$subject/tsconfig.json" <<'JSON'
+          {
+            "compilerOptions": {
+              "target": "ES2022",
+              "module": "ESNext",
+              "moduleResolution": "Bundler",
+              "strict": true,
+              "exactOptionalPropertyTypes": true,
+              "noUncheckedIndexedAccess": true,
+              "skipLibCheck": false,
+              "allowImportingTsExtensions": true,
+              "noEmit": true,
+              "types": ["node"]
+            },
+            "files": [
+              "scripts/lib/module-import-specifiers.ts",
+              "scripts/lib/collect-feature-layout.ts",
+              "scripts/lib/collect-feature-layout.test.ts",
+              "scripts/memory-foundation/host-boundaries.ts",
+              "scripts/memory-foundation/host-boundaries.test.ts"
+            ]
+          }
+          JSON
+      - name: Effective strict TS7 check including both owning test suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/rr977-native-layout-memory/node_modules/.bin/tsc" -p "$RUNNER_TEMP/rr977-native-layout-memory/tsconfig.json"
+      - name: Execute original memory host and independent layout rejection suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/rr977-native-layout-memory"
+          ./node_modules/.bin/vitest run scripts/lib/collect-feature-layout.test.ts scripts/memory-foundation/host-boundaries.test.ts
+      - name: Execute both migrated owners against real repository source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/rr977-native-layout-memory"
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import { collectFeatureLayout } from "./scripts/lib/collect-feature-layout.ts";
+          import { checkMemoryHostBoundaries } from "./scripts/memory-foundation/host-boundaries.ts";
+          const root = process.env.GITHUB_WORKSPACE;
+          const layout = await collectFeatureLayout(root, "packages/features/review-history/src", "review-history");
+          assert(layout.files.length > 0, "real review history files missing");
+          assert(Object.keys(layout.useCaseExports).length > 0, "actual feature use cases missing");
+          const diagnostics = await checkMemoryHostBoundaries(root);
+          assert.deepEqual(diagnostics, [], JSON.stringify(diagnostics));
+          console.log(JSON.stringify({ head: process.env.GITHUB_SHA, layoutFiles: layout.files.length, memoryDiagnostics: diagnostics.length }));
+          JS
+      - name: Verify tracked formatter parity without mutating source
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(
+            scripts/lib/module-import-specifiers.ts
+            scripts/lib/collect-feature-layout.ts
+            scripts/lib/collect-feature-layout.test.ts
+            scripts/memory-foundation/host-boundaries.ts
+          )
+          "$RUNNER_TEMP/rr977-native-layout-memory/node_modules/.bin/oxfmt" --config .oxfmtrc.json --write "${files[@]}"
+          git diff --check -- "${files[@]}"
+          git diff --exit-code -- "${files[@]}"
