@@ -132,3 +132,54 @@ Regression suite added as `packages/features/workflow-provisioning/src/tests/man
 - Substantive high-risk ownership extraction of the much larger workflow/admission slice, final reviews, merge. Current Git diff is far below the intended 12–22k lines; no completion or merge claim.
 
 The user explicitly prefers pushing every cohesive change immediately and postponing broad CI checks until the end of coding instead of repeatedly polling queued runners. Preserve this order, but do not drop required final E2E or branch protections.
+
+## Direct-session continuation, source review and remaining E2E (2026-11-23)
+
+Owner explicitly disabled the scheduled automation: implement and push directly; do not treat automation status as evidence. The automation was disabled through the task API. Keep Draft #977 until exact-HEAD checks and artifact qualification pass.
+
+Additional pushed slices:
+- `c4bc58ee`: feature-owned classifySetupPullRequestHead() preserving null/missing/changed/historical merged observation; 12 focused cases, with the API still responsible for independently verifying the actual installed workflow and current database attempt.
+- `e85abb7c`: feature-owned isCurrentWorkflowSetupAuthority() preserving all current-repository/attempt/head/branch/URL/workflow predicates; all existing reads and final CAS stay in Next/Prisma; 17 focused cases including transfer and revision mismatch.
+- `4ce5ddab` + `438205e9`: type-only conflict-runtime consumers no longer import the mixed Action root except two explicitly allowed legacy runtime adapters; additional source boundary negatives; fix the checker to await its async scan.
+- `ecf0f92a`: format focused recovery fixtures.
+- `16bae4ad` + `7eeb482d`: context-gateway lifetime/key configuration admission moved to existing feature domain with invalid-key/TTL matrix, API wrapper and error identifier unchanged.
+
+### Source-level review pass A: semantics
+
+The dashboard head and workflow-attempt predicates are exact logical extractions: host still obtains identity and session authority first, reads Prisma in the same order, checks the same fields before activation, and uses its existing atomic final settlement. The owner returns Boolean/classification only. There are no new externally visible errors, provider policies, database queries, migrations, feature flags or retry paths in these helpers. The context gateway receives the same numeric/key-size checks and error code before effects. This is a source review, **not** recorded passing test execution.
+
+### Source-level review pass B: authorization, secrets, concurrency
+
+- Do not move the dashboard actor/entitlements before repository resolution; do not bypass the installation/tenant selection or `assertCurrentBinding()`.
+- The workflow authority helper is a precondition, **not** the final authority; Prisma compare-and-swap remains mandatory. Its observed current attempt is passed by the trusted database adapter, never directly by the browser.
+- Do not convert historical PR observation into proof of installed workflow. Continue independently checking exact content/SHA, source and actor before the final write.
+- Do not move context gateway crypto/session secret or lease/receipt checks into a general shared package; no provider secret or token logged in tests.
+- Negative cases require unexpected workspace, installation transfer, stale attempt/revision, changed PR head/base, artifact mismatch and expired/invalid context configuration to fail closed.
+
+### Source-level review pass C: artifact, source/build and strict version migration
+
+**New blocking discovery:** `action-dist/conflict-runtime.cjs` is a committed generated bundle (~530 kB at the baseline) with byte-level source parity checked by `scripts/build-conflict-runtime.ts --check` and CI `pnpm action:artifact:check:smoke`. Lane A changes runtime source imports, so this bundle is **not yet qualified and must be rebuilt** with exactly the pinned esbuild/Node/pnpm toolchain. Do NOT claim that the unchanged artifact matches, and never manually edit its minified contents. Required procedure:
+1. Build a clean checkout of the full branch with CI pinned Node 26.11.1, pnpm 11.28.7 and approved frozen dependencies.
+2. Run `pnpm action:build` twice; verify deterministic identical `action-dist/conflict-runtime.cjs` bytes, unchanged and approved `action-dist/index.cjs` when appropriate, and absence of machine paths or secrets.
+3. Commit source-generated bundle bytes and immediately push. Run `pnpm action:artifact:check` and the existing bundle's preflight-fail-closed tests, then all affected E2E.
+4. Do not attempt to fabricate the bundle via source string changes, a manual base64 paste, ad hoc GitHub write-token CI, or a stale artifact from another HEAD.
+
+**Runtime constraint:** this session has read/write GitHub connector access but the terminal lacks a checkout of this repository, Node 26/pnpm 11, npm/GitHub DNS, and its installed 1,000+ workspace dependencies. The installed system Node is 22.16.0. Consequently no local `pnpm`, test, emitted bundle or PostgreSQL E2E verdict can be asserted. GitHub CI triggered by pushes was QUEUED when inspected; skipped auxiliary workflows are explicitly not PASS. Do not turn draft into ready or merge based solely on these source reviews.
+
+### Final exact-HEAD acceptance sequence once a qualified checkout is accessible
+
+Required in order, using the final actual source and lockfile:
+1. `pnpm install --frozen-lockfile` under the exact pinned Node/pnpm and no untrusted script changes.
+2. `pnpm --filter @reviewrouter/features-action-control-plane build`, `pnpm --filter @reviewrouter/features-conflict-runtime typecheck`, `pnpm --filter @reviewrouter/features-workflow-provisioning typecheck`, `pnpm --filter @reviewrouter/features-review-context-attestation typecheck` and actual API/Web/worker typecheck.
+3. `pnpm architecture:check` including negative boundary mutants, applicable feature/GM/Foundation qualifications, and exact public exports in production mode.
+4. `pnpm vitest run scripts/check-architecture-boundaries.test.ts packages/features/action-control-plane/src/tests/conflict-runtime-contract.test.ts packages/features/workflow-provisioning/src/tests/managed-workflow-setup-options.test.ts packages/features/workflow-provisioning/src/tests/setup-pull-request-head.test.ts packages/features/workflow-provisioning/src/tests/workflow-setup-authority.test.ts packages/features/review-context-attestation/src/tests/gateway-session-configuration.test.ts`.
+5. `pnpm vitest run apps/web/app/dashboard/actions-workflow-provisioning-recovery.test.ts apps/web/app/dashboard/actions-hosted-workflow-recovery.test.ts apps/web/app/dashboard/actions-codex-rotating-contract.test.ts scripts/build-conflict-runtime.test.ts`. These exercise the actual Next actions, GitHub fixtures, stale attempts and checked-in CLI bundle.
+6. Real PostgreSQL/HTTP/browser and selected Review Action v2 context gateway E2E under existing controlled fixtures. No synthetic fixture may be described as live GitHub/provider qualification.
+7. Full affected `pnpm build`, `pnpm lint`, `pnpm format:check`, artifact checks, protocol checks and any required dependency/CodeQL/security checks. Count *only* real test passes, no skips/queues.
+8. Final independent review, fix all high/critical findings, confirm no #959/#976 overlap, merge latest main, run final exact-HEAD CI/required gates, squash-merge and verify merged-main. Never override release/deployment policy. Merge is not deployment.
+
+### Dependency upgrade still pending, not silently omitted
+
+Upstream GitHub manifests show Foundation 3.1.0 and Get Modular Core/Assembly 0.8.0, Conformance 0.5.2, Resources 0.2.2. Public jsDelivr additionally lists Foundation 3.1.0, but neither that nor GitHub source proves the exact npm tarball integrity and full compatibility. Current root manifest + lockfile remain pinned to old versions. The upgraded set needs a genuine pnpm-generated frozen lockfile and the precise Foundation bounded policy and Get Modular current-consumer contract qualification. The existing #976 consumer fixture must be preserved/updated in coordination; do not bypass it or disable the failing tests.
+
+Plan state at this checkpoint: **P1 complete, P2 code pushed but E2E and bundle build incomplete, P3 selected pure recovery policies pushed but full real-host acceptance incomplete, P4 one bounded context gateway policy pushed but real API E2E incomplete, P5–P8 pending.**
