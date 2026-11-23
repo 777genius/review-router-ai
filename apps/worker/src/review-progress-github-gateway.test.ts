@@ -386,6 +386,33 @@ describe("ReviewProgressGitHubGateway", () => {
     ]);
   });
 
+  it("does not confirm cleanup if canonical disappears after DELETE", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture([
+      { id: 4, body: desired },
+      { id: 7, body: `duplicate\n${marker}` },
+    ]);
+    const byId = "GET /repos/{owner}/{repo}/issues/comments/{comment_id}";
+    let canonicalReads = 0;
+    const request: ReviewProgressGitHubRequester = async (route, parameters) => {
+      if (route === byId && parameters?.comment_id === 4) {
+        canonicalReads += 1;
+        if (canonicalReads === 2) throw { status: 404 };
+      }
+      return fixture.request(route, parameters);
+    };
+
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      message: "github_canonical_comment_changed_after_delete",
+      metadata: { retryable: true },
+    });
+    expect(canonicalReads).toBe(2);
+    expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
+      "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",
+    ]);
+  });
+
   it("refuses DELETE when repository ID changes after the scan", async () => {
     const desired = formatReviewProgressComment("working", marker);
     const fixture = githubFixture([
@@ -1485,6 +1512,36 @@ describe("ReviewProgressGitHubGateway", () => {
       });
       expect(mutations(fixture.calls)).toEqual([]);
     }
+  });
+
+  it("resolves query-only next links on the scoped comment collection", async () => {
+    const canonical = {
+      id: 19,
+      body: formatReviewProgressComment("working", marker),
+    };
+    const duplicate = { id: 20, body: `duplicate\n${marker}` };
+    const fixture = githubFixture([canonical, duplicate], {
+      pagedComments: [[canonical, duplicate], []],
+      pageLinks: ['<?page=2&per_page=100>; rel="next"'],
+    });
+
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 2 }).upsert(input()),
+    ).resolves.toEqual({
+      commentId: 19,
+      operation: "duplicate_deleted",
+      duplicateCommentIds: [],
+    });
+    expect(
+      fixture.calls
+        .filter(({ route }) =>
+          route.includes("/issues/{issue_number}/comments"),
+        )
+        .map(({ parameters }) => parameters.page),
+    ).toEqual([1, 2, 1]);
+    expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
+      "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",
+    ]);
   });
 
   it("accepts a same-origin next page before duplicate deletion", async () => {

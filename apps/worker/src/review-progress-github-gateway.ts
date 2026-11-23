@@ -285,6 +285,19 @@ export class ReviewProgressGitHubGateway {
       if (classified.kind === "revoked_app") throw classified;
       throw unconfirmedMutation(classified);
     }
+    // DELETE can succeed as another worker removes or changes the canonical.
+    const canonicalAfterDelete = await this.includeVerifiedKnownComment(
+      { ...input, knownCommentId: canonicalId },
+      [],
+    );
+    if (canonicalAfterDelete[0]?.body !== desiredBody) {
+      throw failure(
+        "pagination_inconclusive",
+        "github_canonical_comment_changed_after_delete",
+        true,
+      );
+    }
+    await this.assertRepositoryId(input, scannedRepositoryId);
     return {
       commentId: canonicalId,
       operation: "duplicate_deleted",

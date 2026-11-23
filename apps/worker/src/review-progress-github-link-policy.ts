@@ -18,6 +18,8 @@ export function commentPageLinks(
   if (link === undefined) return { hasNextPage: undefined };
   if (typeof link !== "string" || !link.trim()) return invalid;
   const entries = link.split(/,\s*(?=<)/u);
+  // Resolve query-only Link targets against this issue-comment collection.
+  const baseUrl = `https://api.github.com${expectedCollectionPaths?.[0] ?? "/"}`;
   if (
     !entries.every((entry) =>
       /^\s*<[^>]+>\s*;\s*rel=(?:"(?:next|prev|first|last)"|(?:next|prev|first|last))\s*$/iu.test(
@@ -38,7 +40,7 @@ export function commentPageLinks(
       if (code <= 0x20 || code === 0x7f) return invalid;
     }
     try {
-      const target = new URL(href, "https://api.github.com");
+      const target = new URL(href, baseUrl);
       // Link hints must describe the same unfiltered 100-comment window.
       // Different page sizes or filters cannot certify a complete scan.
       const pageSizes = target.searchParams.getAll("per_page");
@@ -75,7 +77,7 @@ export function commentPageLinks(
   if (previousEntries.length > 1) return invalid;
   const previousHref = previousEntries[0]?.match(/^\s*<([^>]+)>/u)?.[1];
   if (previousHref) {
-    const previousUrl = new URL(previousHref, "https://api.github.com");
+    const previousUrl = new URL(previousHref, baseUrl);
     const previousPageValue = previousUrl.searchParams.get("page");
     if (!previousPageValue || !/^[1-9]\d*$/u.test(previousPageValue)) {
       return invalid;
@@ -93,7 +95,7 @@ export function commentPageLinks(
   if (firstEntries.length > 1) return invalid;
   const firstHref = firstEntries[0]?.match(/^\s*<([^>]+)>/u)?.[1];
   if (firstHref) {
-    const firstTarget = new URL(firstHref, "https://api.github.com");
+    const firstTarget = new URL(firstHref, baseUrl);
     if (firstTarget.searchParams.get("page") !== "1") return invalid;
   }
 
@@ -107,7 +109,7 @@ export function commentPageLinks(
   if (hasNext) {
     const nextHref = nextEntries[0]?.match(/^\s*<([^>]+)>/u)?.[1];
     if (!nextHref) return invalid;
-    const nextTarget = new URL(nextHref, "https://api.github.com");
+    const nextTarget = new URL(nextHref, baseUrl);
     const pageValue = nextTarget.searchParams.get("page");
     if (!pageValue || !/^[1-9]\d*$/u.test(pageValue)) return invalid;
     nextPage = Number(pageValue);
@@ -130,7 +132,7 @@ export function commentPageLinks(
   const href = last.match(/^\s*<([^>]+)>/u)?.[1];
   if (!href) return invalid;
   try {
-    const value = new URL(href, "https://api.github.com");
+    const value = new URL(href, baseUrl);
     const pageValue = value.searchParams.get("page");
     if (!pageValue || !/^[1-9]\d*$/u.test(pageValue)) return invalid;
     const lastPage = Number(pageValue);
