@@ -11,6 +11,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -279,19 +280,72 @@ describe("pinned native compiler boundary", () => {
       copyFileSync(source, destination);
       chmodSync(destination, 0o600);
     }
+    // Workspace imports and relative imports must resolve to the same copied
+    // declarations, including nominal identities such as private class members.
+    const workspaceLinks: { installed: string; copied: string }[] = [];
+    const linkDependency = (installed: string, destination: string) => {
+      const resolved = realpathSync(installed);
+      const local = relative(root, resolved);
+      const workspacePackage =
+        resolved.startsWith(root + sep) &&
+        !local.split(sep).includes("node_modules");
+      let target = installed;
+      if (workspacePackage) {
+        target = join(subject, local);
+        mkdirSync(target, { recursive: true });
+        const manifest = join(resolved, "package.json");
+        if (!inputs.has(manifest)) {
+          inputs.add(manifest);
+          copyFileSync(manifest, join(target, "package.json"));
+          chmodSync(join(target, "package.json"), 0o600);
+        }
+        workspaceLinks.push({ installed, copied: target });
+      }
+      symlinkSync(
+        target,
+        destination,
+        statSync(installed).isDirectory() ? "junction" : "file",
+      );
+    };
     for (const installed of dependencies) {
       const destination = join(subject, relative(root, installed));
-      mkdirSync(dirname(destination), { recursive: true });
-      symlinkSync(installed, destination, "junction");
+      mkdirSync(destination, { recursive: true });
+      for (const entry of readdirSync(installed)) {
+        const source = join(installed, entry);
+        const copied = join(destination, entry);
+        if (entry.startsWith("@") && statSync(source).isDirectory()) {
+          mkdirSync(copied);
+          for (const name of readdirSync(source))
+            linkDependency(join(source, name), join(copied, name));
+        } else {
+          linkDependency(source, copied);
+        }
+      }
     }
     record({
       kind: "native-tooling-fixture-inputs",
       files: [...inputs],
       dependencies: [...dependencies],
+      workspaceLinks,
     });
     const selected = join(subject, "tsconfig.tooling.json");
     const fixtureValid = compile(subject, ["-p", selected]);
     expect(fixtureValid.status, fixtureValid.output).toBe(0);
+    const fixtureListed = compile(subject, ["--listFilesOnly", "-p", selected]);
+    expect(fixtureListed.status, fixtureListed.output).toBe(0);
+    const fixtureFiles = fixtureListed.output
+      .trim()
+      .split(/\r?\n/u)
+      .map((file) => resolve(subject, file));
+    for (const original of localClosure)
+      expect(fixtureFiles).toContain(join(subject, relative(root, original)));
+    for (const file of fixtureFiles)
+      expect(
+        file.startsWith(root + sep) &&
+          !file.split(sep).includes("node_modules"),
+        `uncopied workspace source: ${file}`,
+      ).toBe(false);
+    record({ kind: "native-tooling-fixture-closure", files: fixtureFiles });
     const heading = join(subject, "scripts/lib/server-rendered-heading.ts");
     appendFileSync(heading, "\nconst compilerNativeInvalid: string = 42;\n");
     const invalid = compile(subject, ["-p", selected]);
