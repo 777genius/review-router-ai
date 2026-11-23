@@ -4,9 +4,12 @@
 - Goal: retain the provider fixture's dedicated-database and restricted-authority
   regression checks without initializing the classic TypeScript compiler.
 - Affected targets: repository test and strict tooling gates.
-- Implementation PR: pending; branch `fix/provider-fixture-native-ast-20261123`.
-- Implementation reference: not yet implemented; base
-  `8b63574eeaee32fa081cadc83d40bfc526d17ce4`.
+- Implementation PR: [Draft #986](https://github.com/777genius/review-router-ai/pull/986);
+  branch `fix/provider-fixture-native-ast-20261123`.
+- Implementation reference: the exact source hashes in the
+  [qualification record](evidence/2026-11-23-provider-fixture-native-ast.json),
+  based on `8b63574eeaee32fa081cadc83d40bfc526d17ce4` and published plan
+  `1eec9552a4beb01bc4ba64abd7d33087aebc42eb`; final shipping commit is pending.
 - Dependencies: [#983](https://github.com/777genius/review-router-ai/pull/983)
   exact Oxc 0.159.0 root dependency and frozen lockfile; effective native
   TypeScript 7.0.2 tooling route.
@@ -14,10 +17,10 @@
 
 ## Environment status
 
-| Target                             | Status    | Actual installed source | Last verified (UTC) | Evidence / next step                                            |
-| ---------------------------------- | --------- | ----------------------- | ------------------- | --------------------------------------------------------------- |
-| Local implementation qualification | `pending` | Not yet implemented     | Not verified        | Implement the bounded plan and run strict/test checks.          |
-| Main CI                            | `pending` | Not verified            | Not verified        | Integrate prerequisites, review, run required checks and merge. |
+| Target                             | Status        | Actual installed source                   | Last verified (UTC) | Evidence / next step                                                                                                          |
+| ---------------------------------- | ------------- | ----------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Local implementation qualification | `in_progress` | Source hashes in the qualification record | 2026-11-23          | Complete provider test 38/38, bounded strict TS7, type negatives and formatting passed; full workspace check remains pending. |
+| Main CI                            | `pending`     | Not verified                              | Not verified        | Integrate prerequisites, review, run required checks and merge.                                                               |
 
 This changes test infrastructure only. It requires no application service
 deployment, database migration, fleet activation, credentials, or public Action
@@ -49,6 +52,17 @@ independent expected values and the real JavaScript operator runtime test.
 Record source hashes and exact commands/results, distinguishing bounded local
 proof from full workspace verification.
 
+The bounded local result is **38/38 PASS** (36 preserved cases and two new
+rejecting cases), with strict TypeScript **7.0.2 PASS** and four independently
+expected type-error diagnostics. The real tooling configuration includes the
+complete changed test, but its full 55-source check has not been claimed.
+Existing `.mjs` implementations are unchanged and are not described as strictly
+typechecked. Their precise declaration boundaries do not replace runtime tests.
+
+See the [durable evidence](evidence/2026-11-23-provider-fixture-native-ast.json)
+for exact commands, source hashes, output, audit and effective configuration.
+The normal test run loads public Oxc 0.159.0 Visitor modules under the guard.
+
 ## Retry, partial completion, and rollback
 
 Inspect current branch, prerequisite and CI state before retrying. These local
@@ -65,6 +79,7 @@ do not restore an old compiler execution path as a qualification bypass.
 
 ## Execution log
 
-| Time (UTC) | Target         | Source    | Step and observed result                                                             | Next action                                        |
-| ---------- | -------------- | --------- | ------------------------------------------------------------------------------------ | -------------------------------------------------- |
-| 2026-11-23 | Local planning | `8b63574` | Current instructions and owner overlaps inspected; no implementation checks claimed. | Implement and qualify the provider fixture oracle. |
+| Time (UTC) | Target              | Source                         | Step and observed result                                                                                                          | Next action                                                                |
+| ---------- | ------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| 2026-11-23 | Local planning      | `8b63574`                      | Current instructions and owner overlaps inspected; no implementation checks claimed.                                              | Implement and qualify the provider fixture oracle.                         |
+| 2026-11-23 | Local qualification | Evidence-bound source snapshot | 38/38 tests, bounded strict TS7 and formatting passed; four expected type-boundary errors confirmed. No old compiler initialized. | Integrate dependency prerequisite and complete required final-head checks. |

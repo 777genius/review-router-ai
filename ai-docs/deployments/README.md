@@ -31,7 +31,7 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
-Provider fixture native AST: [dedicated-database oracle migration](2026-11-23-provider-fixture-native-ast.md) — local implementation and main CI `pending`; depends on the exact native parser/toolchain prerequisite. Test infrastructure only, with no application deployment or database migration.
+Provider fixture native AST: [dedicated-database oracle migration](2026-11-23-provider-fixture-native-ast.md) — [Draft #986](https://github.com/777genius/review-router-ai/pull/986), local provider suite **38/38** and bounded strict TS7 passed; main CI `pending` until the exact native parser/toolchain prerequisite and full required checks are integrated. Test infrastructure only, with no application deployment or database migration.
 
 Updated landing walkthrough: [the hero video uses the new 48.2-second 1080p Mux asset](2026-11-23-hero-video-v96.md) — Web-only ordinary rollout; staging and production `pending`. No migration, configuration, API, worker, Gateway, native or public Action change.
 

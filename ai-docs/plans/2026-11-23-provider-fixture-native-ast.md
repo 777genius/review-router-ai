@@ -3,7 +3,8 @@
 - Owner: CI provider-scope fixture checks in ReviewRouter.
 - Base: `8b63574eeaee32fa081cadc83d40bfc526d17ce4` (`main`, 2026-11-23).
 - Branch: `fix/provider-fixture-native-ast-20261123`.
-- Status: planned; implementation and checks are not yet complete.
+- Status: bounded local implementation qualified; dependency integration and
+  final required CI remain pending in [Draft #986](https://github.com/777genius/review-router-ai/pull/986).
 - Rollout record: [provider fixture native AST](../deployments/2026-11-23-provider-fixture-native-ast.md).
 
 ## Guarantee and scope
@@ -31,7 +32,8 @@ options remain required.
    criteria and negative tables.
 2. Add an independent rejecting case for a quoted duplicate `databaseUrl` key.
    The old source-text property filter misses that override; this is an explicit
-   strengthening of the dedicated-URL oracle.
+   strengthening of the dedicated-URL oracle. Also require malformed source to
+   fail parsing before a valid-looking binding can be accepted.
 3. Enroll the complete test in `tsconfig.tooling.json`. Add precise declarations
    for its two unchanged `.mjs` imports, without unchecked `any` or weakening
    compiler options. The `.d.mts` suffix matches those existing ESM module
@@ -84,3 +86,26 @@ typed and their existing runtime tests remain required.
   Quality Standard and development-tools catalog. Fetched and verified base
   main. Inspected current owner PR file lists and the public Oxc 0.159.0 API.
   This first commit records the plan before implementation.
+- 2026-11-23: implemented the four scoped files and qualified their final source
+  snapshot. The complete provider fixture file passed **38/38** tests: all 36
+  existing cases plus quoted-duplicate and malformed-source rejection. All
+  previous test sections outside the replaced AST helpers/import remain
+  byte-identical; both JavaScript implementations, the real provider suite and
+  the CI workflow are unchanged from base.
+- Native TypeScript **7.0.2** strictly checked the complete changed test and its
+  two declarations using the actual tooling project's inherited options.
+  Native `--showConfig` confirmed enrollment in the real 55-source project with
+  every previous include entry and compiler option preserved. This is **not** a
+  whole-project typecheck result. Four independent invalid call-boundary cases
+  produced exactly the expected compiler diagnostics; none were executed.
+- Native formatting and whitespace checks passed. Pre-init audit records show
+  Oxc **0.159.0** public Visitor modules and its GNU binding package during the
+  test run, TypeScript **7.0.2** during compilation, and no legacy compiler load.
+  The qualified guard and formatter are reused from #984; no package install or
+  dependency manifest change was performed for this branch.
+- [Durable source-bound evidence](../deployments/evidence/2026-11-23-provider-fixture-native-ast.json)
+  contains exact commands, output, source hashes, guard observations, the native
+  effective configuration and the independent type-negative fixture. The earlier
+  intermediate 37-pass result is retained locally and is not relabeled as proof
+  for the final source. Full required workspace checks and main CI still need
+  the owning dependency and compiler-stack prerequisites.
