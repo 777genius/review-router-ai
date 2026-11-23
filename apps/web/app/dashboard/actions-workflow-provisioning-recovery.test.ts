@@ -841,6 +841,23 @@ describe("dashboard setup PR recovery", () => {
         }),
       }),
     );
+    expect(
+      transactionClient.repositoryConnection.findFirst,
+    ).toHaveBeenCalledWith({
+      where: {
+        id: "repository_1",
+        workspaceId: "workspace_1",
+        installationId: "installation_1",
+        provider: "github",
+        selected: true,
+        archived: false,
+        installation: { status: "active" },
+      },
+      select: { defaultBranch: true },
+    });
+    expect(workflowProvisioning.findUnique).toHaveBeenCalledWith({
+      where: { repositoryId: "repository_1" },
+    });
     expect(workflowProvisioning.updateMany).toHaveBeenCalledTimes(1);
 
     await expect(

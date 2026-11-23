@@ -91,7 +91,7 @@ import {
   defaultReviewDiscussionMode,
   assertManagedWorkflowSetupOptions,
   classifySetupPullRequestHead,
-  isCurrentWorkflowSetupAuthority,
+  assertCurrentWorkflowSetup,
   isClaudeSubscriptionConfiguration,
   readManagedReviewRouterCallerSource,
   requiredWorkflowTransport,
@@ -102,6 +102,7 @@ import {
 import {
   OctokitWorkflowSetupGateway,
   PrismaWorkflowProvisioningRepository,
+  PrismaCurrentWorkflowSetupQuery,
   PrismaWorkflowProvisioningStatusAuthority,
   PrismaWorkflowProvisioningTarget,
   createInstalledGatewayReviewConfirmation,
@@ -2318,41 +2319,26 @@ async function confirmSetupPullRequestMergedMutation(
         ? reviewRouterWorkflowContract.channel
         : verifiedWorkflowActionRef,
     };
+    const currentSetupQuery = new PrismaCurrentWorkflowSetupQuery(prisma);
     const assertCurrentSetup = async (artifact: {
       readonly workflowPath: string;
       readonly workflowStyle: ReviewRouterWorkflowStyle;
       readonly actionVersion: string;
     }) => {
-      // Probes may outlive transfer/replacement. Read the same authoritative
-      // state in the same order; the final write still uses its existing CAS.
-      const currentRepository = await prisma.repositoryConnection.findFirst({
-        where: {
-          id: repositoryId,
-          workspaceId,
-          installationId: repository.installationId,
-          provider: "github",
-          selected: true,
-          archived: false,
-          installation: { status: "active" },
-        },
-        select: { defaultBranch: true },
-      });
-      const currentProvisioning = await prisma.workflowProvisioning.findUnique({
-        where: { repositoryId },
-      });
-      if (
-        !isCurrentWorkflowSetupAuthority({
-          observedRepositoryDefaultBranch: currentRepository?.defaultBranch,
+      await assertCurrentWorkflowSetup(
+        {
+          scope: {
+            repositoryId,
+            workspaceId,
+            installationId: repository.installationId,
+          },
           expectedBaseBranch: setupBaseBranch,
           expectedAttempt: setupProvisioning,
-          currentAttempt: currentProvisioning,
-          workspaceId,
-          installationId: repository.installationId,
           historicalMergedSetupPullRequest,
           verifiedArtifact: artifact,
-        })
-      )
-        throw new Error("workflow_provisioning_match_not_found");
+        },
+        { query: currentSetupQuery },
+      );
     };
 
     const assertCurrentBinding = async () => {

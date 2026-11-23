@@ -6,7 +6,7 @@ import {
 const oldHead = "a".repeat(40);
 const matching = {
   attemptId: "attempt_1",
-  revision: 7n,
+  revision: 7,
   pullRequestHeadSha: oldHead,
   branch: "reviewrouter/setup",
   pullRequestUrl: "https://github.com/org/repo/pull/99",
@@ -45,7 +45,7 @@ describe("workflow setup durable authority", () => {
       "attempt replaced",
       { currentAttempt: { ...current, attemptId: "attempt_2" } },
     ],
-    ["stale revision", { currentAttempt: { ...current, revision: 8n } }],
+    ["stale revision", { currentAttempt: { ...current, revision: 8 } }],
     ["different workspace",
       { currentAttempt: { ...current, workspaceId: "workspace_2" } },
     ],
@@ -135,11 +135,15 @@ describe("workflow setup durable authority", () => {
     ).toBe(false);
   });
 
-  it("treats number and bigint revisions as different CAS identities", () => {
+  it("rejects a malformed bigint revision instead of coercing its CAS identity", () => {
     expect(
       isCurrentWorkflowSetupAuthority({
         ...input,
-        currentAttempt: { ...current, revision: 7 },
+        currentAttempt: {
+          ...current,
+          // @ts-expect-error Prisma WorkflowProvisioning.revision is an Int.
+          revision: 7n,
+        },
       }),
     ).toBe(false);
   });
