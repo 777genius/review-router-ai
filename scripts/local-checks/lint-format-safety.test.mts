@@ -73,10 +73,7 @@ test("wrong version refuses actual harness with no fixture writes or tool execut
   mkdirSync(output);
   const result = spawnSync(
     process.execPath,
-    [
-      "--test",
-      join(root, "scripts/local-checks/lint-format-qualification.mts"),
-    ],
+    ["--test", join(root, "scripts/local-checks/lint-format-qualification.ts")],
     {
       cwd: bad,
       encoding: "utf8",

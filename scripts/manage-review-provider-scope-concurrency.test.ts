@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import ts from "typescript";
+import { parseSync, Visitor, type CallExpression, type Node } from "oxc-parser";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { runProviderScopeConcurrencyOperation } from "./manage-review-provider-scope-concurrency.mjs";
@@ -104,73 +104,73 @@ function heredocBodies(run: unknown): string[] {
   );
 }
 
-function visitNodes(node: ts.Node, visit: (candidate: ts.Node) => void): void {
-  visit(node);
-  node.forEachChild((child) => visitNodes(child, visit));
+function isIdentifier(node: Node | null | undefined, text: string): boolean {
+  return node?.type === "Identifier" && node.name === text;
 }
 
-function isIdentifier(node: ts.Node | undefined, text: string): boolean {
-  return ts.isIdentifier(node) && node.text === text;
-}
-
-function isProcessEnv(node: ts.Node): boolean {
+function isProcessEnv(node: Node): boolean {
   return (
-    (ts.isPropertyAccessExpression(node) &&
-      isIdentifier(node.expression, "process") &&
-      node.name.text === "env") ||
-    (ts.isElementAccessExpression(node) &&
-      isIdentifier(node.expression, "process") &&
-      ts.isStringLiteral(node.argumentExpression) &&
-      node.argumentExpression.text === "env")
+    node.type === "MemberExpression" &&
+    isIdentifier(node.object, "process") &&
+    (node.computed
+      ? node.property.type === "Literal" && node.property.value === "env"
+      : isIdentifier(node.property, "env"))
   );
 }
 
 function assertProviderSuiteBinding(suiteSource: string): void {
-  const sourceFile = ts.createSourceFile(
+  const parsed = parseSync(
     "prisma-review-execution-store-real.test.ts",
     suiteSource,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
+    { lang: "ts", sourceType: "module" },
   );
-  const environmentAccesses: ts.Node[] = [];
-  const clientCalls: ts.CallExpression[] = [];
-  let databaseUrlIdentifiers = 0;
+  if (parsed.errors.length > 0) {
+    throw new Error("provider suite must have valid TypeScript syntax");
+  }
+  const clientCalls: CallExpression[] = [];
+  const databaseUrlIdentifiers = new Set<string>();
+  let environmentAccesses = 0;
   let validBindingCount = 0;
 
-  visitNodes(sourceFile, (node) => {
-    if (isIdentifier(node, "databaseUrl")) {
-      databaseUrlIdentifiers += 1;
-    }
-    if (isProcessEnv(node)) {
-      environmentAccesses.push(node);
-      const parent = node.parent;
-      const declaration = parent?.parent;
-      if (
-        ts.isPropertyAccessExpression(parent) &&
-        parent.expression === node &&
-        parent.name.text === "REVIEW_ROUTER_PROVIDER_SCOPE_TEST_DATABASE_URL" &&
-        ts.isVariableDeclaration(declaration) &&
-        declaration.initializer === parent &&
-        isIdentifier(declaration.name, "databaseUrl") &&
-        ts.isVariableDeclarationList(declaration.parent) &&
-        (declaration.parent.flags & ts.NodeFlags.Const) !== 0
-      ) {
-        validBindingCount += 1;
+  new Visitor({
+    Identifier(node) {
+      if (node.name === "databaseUrl") {
+        // ESTree shorthand key/value nodes share one lexical occurrence.
+        databaseUrlIdentifiers.add(`${node.start}:${node.end}`);
       }
-    }
-    if (
-      ts.isCallExpression(node) &&
-      isIdentifier(node.expression, "createPrismaClient")
-    ) {
-      clientCalls.push(node);
-    }
-  });
+    },
+    MemberExpression(node) {
+      if (isProcessEnv(node)) environmentAccesses += 1;
+    },
+    VariableDeclaration(node) {
+      if (node.kind !== "const") return;
+      for (const declaration of node.declarations) {
+        const initializer = declaration.init;
+        if (
+          isIdentifier(declaration.id, "databaseUrl") &&
+          initializer?.type === "MemberExpression" &&
+          !initializer.computed &&
+          isIdentifier(
+            initializer.property,
+            "REVIEW_ROUTER_PROVIDER_SCOPE_TEST_DATABASE_URL",
+          ) &&
+          isProcessEnv(initializer.object)
+        ) {
+          validBindingCount += 1;
+        }
+      }
+    },
+    CallExpression(node) {
+      if (isIdentifier(node.callee, "createPrismaClient")) {
+        clientCalls.push(node);
+      }
+    },
+  }).visit(parsed.program);
 
   if (
-    environmentAccesses.length !== 1 ||
+    environmentAccesses !== 1 ||
     validBindingCount !== 1 ||
-    databaseUrlIdentifiers !== 3
+    databaseUrlIdentifiers.size !== 3
   ) {
     throw new Error(
       "provider suite must have one direct dedicated URL binding",
@@ -180,23 +180,22 @@ function assertProviderSuiteBinding(suiteSource: string): void {
     throw new Error("provider suite must create exactly one Prisma client");
   }
   const [argument] = clientCalls[0]?.arguments ?? [];
-  if (!argument || !ts.isObjectLiteralExpression(argument)) {
+  if (argument?.type !== "ObjectExpression") {
     throw new Error("provider client must receive a literal options object");
   }
   const databaseUrlProperties = argument.properties.filter(
     (property) =>
-      (ts.isShorthandPropertyAssignment(property) &&
-        property.name.text === "databaseUrl") ||
-      ((ts.isPropertyAssignment(property) ||
-        ts.isMethodDeclaration(property) ||
-        ts.isGetAccessorDeclaration(property) ||
-        ts.isSetAccessorDeclaration(property)) &&
-        property.name.getText(sourceFile) === "databaseUrl"),
+      property.type === "Property" &&
+      (isIdentifier(property.key, "databaseUrl") ||
+        (property.key.type === "Literal" &&
+          property.key.value === "databaseUrl")),
   );
+  const [databaseUrlProperty] = databaseUrlProperties;
   if (
     databaseUrlProperties.length !== 1 ||
-    !ts.isShorthandPropertyAssignment(databaseUrlProperties[0] as ts.Node) ||
-    argument.properties.some(ts.isSpreadAssignment)
+    databaseUrlProperty?.type !== "Property" ||
+    !databaseUrlProperty.shorthand ||
+    argument.properties.some((property) => property.type === "SpreadElement")
   ) {
     throw new Error("provider client must use only the dedicated URL binding");
   }
@@ -731,6 +730,25 @@ describe("provider scope concurrency rollout control", () => {
       (mutatedSuite) =>
         assertProviderFixtureContract(qualityGatesWorkflow, mutatedSuite),
     );
+  });
+
+  it("rejects a quoted duplicate databaseUrl property overriding the dedicated binding", () => {
+    const mutatedSuite = realProviderScopeSuite.replace(
+      "createPrismaClient({ databaseUrl, poolMax: 8 })",
+      'createPrismaClient({ databaseUrl, "databaseUrl": "postgresql://forbidden.invalid/fallback", poolMax: 8 })',
+    );
+    expect(mutatedSuite).not.toBe(realProviderScopeSuite);
+    expect(() =>
+      assertProviderFixtureContract(qualityGatesWorkflow, mutatedSuite),
+    ).toThrow("provider client must use only the dedicated URL binding");
+  });
+
+  it("rejects malformed provider source before accepting a valid-looking binding", () => {
+    expect(() =>
+      assertProviderSuiteBinding(
+        realProviderScopeSuite + "\nfunction broken( {",
+      ),
+    ).toThrow("provider suite must have valid TypeScript syntax");
   });
 
   it("rejects a provider URL alias fallback", () => {

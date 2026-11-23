@@ -56,7 +56,7 @@ From the TEST root, run:
 ```sh
 TMPDIR="$PWD/output" RR_N1_TEST_ROOT="$PWD" RR_N1_SCRATCH="$PWD/output" \
   node --test scripts/local-checks/lint-format-safety.test.mts \
-  scripts/local-checks/lint-format-qualification.mts
+  scripts/local-checks/lint-format-qualification.ts
 node node_modules/typescript/bin/tsc --noEmit -p tsconfig.lint-format.json
 ```
 
@@ -88,7 +88,7 @@ Optional pilot script entries (qualification must run only in the TEST copy):
 ```json
 {
   "lint:native:files": "node scripts/local-checks/lint-format-lint.mts",
-  "test:lint-format:qualification": "node --test scripts/local-checks/lint-format-safety.test.mts scripts/local-checks/lint-format-qualification.mts",
+  "test:lint-format:qualification": "node --test scripts/local-checks/lint-format-safety.test.mts scripts/local-checks/lint-format-qualification.ts",
   "typecheck:lint-format": "tsc --noEmit -p tsconfig.lint-format.json"
 }
 ```
@@ -115,7 +115,7 @@ check without replacing the existing project typecheck:
 ```
 
 Actual tests are Node tests, not Vitest tests: `lint-format-safety.test.mts` and
-`lint-format-qualification.mts`. Register them through the designated Root
+`lint-format-qualification.ts`. Register them through the designated Root
 integrator if an inventory/gate needs wiring. The helper awaits the ESLint
 formatter's `string | Promise<string>` result, and resolves Oxlint from the
 TEST dependency closure so the fresh subject need not contain dependency links.

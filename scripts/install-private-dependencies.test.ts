@@ -300,7 +300,7 @@ describe("private dependency installer", () => {
     'minimumReleaseAgeExclude:\n  - "@get-modular/assembly@0.7.1"\n',
     'minimumReleaseAgeExclude:\n  - "@get-modular/conformance@0.5.1"\n',
     'minimumReleaseAgeExclude:\n  - "@get-modular/core@0.7.1"\n',
-    'minimumReleaseAgeExclude:\n  - "@get-modular/resources@0.2.2"\n',
+    'minimumReleaseAgeExclude:\n  - "@get-modular/resources@0.2.3"\n',
     'minimumReleaseAgeExclude:\n  - "@get-modular/unreviewed@0.7.0"\n',
     'minimumReleaseAgeExclude:\n  - "@get-modular/core@*"\n',
     'minimumReleaseAgeExclude:\n  - "@get-modular/core@https://example.test/core.tgz"\n',

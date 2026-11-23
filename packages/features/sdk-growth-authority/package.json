@@ -56,8 +56,8 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "node ../../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.build.json",
+    "typecheck": "node ../../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json",
     "test": "cd ../../.. && vitest run packages/features/sdk-growth-authority/src/tests && pnpm --filter @reviewrouter/features-sdk-growth-authority test:ef-v3",
     "test:ef-v3": "cd ../../.. && node --import tsx --test packages/features/sdk-growth-authority/src/tests/ef-v3-host-transport.node-test.mjs"
   },
