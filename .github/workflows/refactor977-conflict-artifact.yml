@@ -12,7 +12,8 @@ permissions:
 
 concurrency:
   group: refactor977-conflict-runtime-artifact
-  cancel-in-progress: false
+  # Keep only the newest exact-head qualification; older queued source is stale.
+  cancel-in-progress: true
 
 jobs:
   regenerate:
