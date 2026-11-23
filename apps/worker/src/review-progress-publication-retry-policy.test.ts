@@ -21,6 +21,39 @@ describe("Review progress publication retry policy", () => {
     );
   });
 
+  it("retries transient offset drift promptly without shortening hard boundaries", () => {
+    const drift = new ReviewProgressGitHubError(
+      "pagination_inconclusive",
+      "github_issue_comments_offset_changed",
+      { retryable: true },
+    );
+    expect(publicationRetryPlan(drift, now, 2_000)).toEqual({
+      safeCode: "review_progress_pagination_inconclusive",
+      retryAt: new Date("2026-11-12T12:00:02.000Z"),
+      countFailure: false,
+    });
+
+    const retryAt = new Date("2026-11-12T12:03:00.000Z");
+    const retryNotBefore = new Date("2026-11-12T12:04:00.000Z");
+    const installationCooldownUntil = new Date("2026-11-12T12:05:00.000Z");
+    const delayedDrift = new ReviewProgressGitHubError(
+      "pagination_inconclusive",
+      "github_issue_comments_offset_changed",
+      {
+        retryable: true,
+        retryAt,
+        retryNotBefore,
+        installationCooldownUntil,
+      },
+    );
+    expect(publicationRetryPlan(delayedDrift, now, 2_000)).toEqual({
+      safeCode: "review_progress_pagination_inconclusive",
+      retryAt: installationCooldownUntil,
+      installationCooldownUntil,
+      countFailure: false,
+    });
+  });
+
   it("never schedules a capped scan before its structural floor", () => {
     const earlyRetryAt = new Date("2026-11-12T12:00:10.000Z");
     const lateRetryAt = new Date("2026-11-12T14:00:00.000Z");

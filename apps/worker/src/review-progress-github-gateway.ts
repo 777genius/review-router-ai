@@ -508,12 +508,20 @@ export class ReviewProgressGitHubGateway {
     try {
       // A write may land just as the PR head changes. Do not reconcile it
       // against a stale publication identity, even after an earlier fence.
-      observed = await this.findMarkedComments(
-        input,
-        await this.assertCurrentPullRequest(input),
-      );
-      // The head can advance while reading comment pages after the first fence.
-      await this.assertCurrentPullRequest(input);
+      const scannedRepositoryId = await this.assertCurrentPullRequest(input);
+      observed = await this.findMarkedComments(input, scannedRepositoryId);
+      // The head or repository can change while reading the comment pages.
+      const currentRepositoryId = await this.assertCurrentPullRequest(input);
+      if (
+        scannedRepositoryId !== undefined &&
+        currentRepositoryId !== scannedRepositoryId
+      ) {
+        throw failure(
+          "repository_mismatch",
+          "github_pull_request_repository_identity_changed",
+          false,
+        );
+      }
     } catch (observationError) {
       if (
         expectedCommentId !== undefined &&

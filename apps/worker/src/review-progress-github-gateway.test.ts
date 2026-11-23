@@ -153,6 +153,46 @@ describe("ReviewProgressGitHubGateway", () => {
     ]);
   });
 
+  it("does not reconcile a landed POST after the repository ID changes", async () => {
+    const fixture = githubFixture([], { throwAfterPost: true });
+    const pullRoute = "GET /repos/{owner}/{repo}/pulls/{pull_number}";
+    let pullReads = 0;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (route !== pullRoute) return response;
+      pullReads += 1;
+      if (pullReads !== 4) return response;
+      return {
+        ...response,
+        data: {
+          ...(response.data as Record<string, unknown>),
+          base: { repo: { id: 1300193, full_name: "acme/rocket" } },
+        },
+      };
+    };
+
+    const caught = await gateway(request)
+      .upsert(input())
+      .catch((error: unknown) => error);
+    expect(caught).toMatchObject({
+      kind: "ambiguous_mutation",
+      metadata: { mutationMayHaveLanded: true, retryable: true },
+      cause: {
+        observationError: {
+          kind: "repository_mismatch",
+          message: "github_pull_request_repository_identity_changed",
+        },
+      },
+    });
+    expect(pullReads).toBe(4);
+    expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
+      "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
+    ]);
+  });
+
   it("does not confirm a possibly landed POST after the pull head changes", async () => {
     const fixture = githubFixture([], { throwAfterPost: true });
     let pullReads = 0;

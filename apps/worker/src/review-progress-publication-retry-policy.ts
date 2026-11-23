@@ -13,8 +13,11 @@ export function publicationRetryPlan(
 } {
   const githubError = error instanceof ReviewProgressGitHubError ? error : null;
   let retryAt = githubError?.metadata.retryAt;
-  if (githubError?.kind === "pagination_inconclusive") {
-    // A capped scan is structural, even when a failed mutation has retryAt.
+  if (
+    githubError?.kind === "pagination_inconclusive" &&
+    githubError.message !== "github_issue_comments_offset_changed"
+  ) {
+    // A capped or untrusted scan is structural; transient offset drift is not.
     const structuralRetryAt = new Date(
       now().getTime() + Math.max(retryDelayMs, 60 * 60_000),
     );
