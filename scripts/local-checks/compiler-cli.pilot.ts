@@ -26,6 +26,7 @@ import { compilerInvocation } from "./compiler-cli.ts";
 import {
   consumerTypeAssertions,
   emissionSubjects,
+  type EmissionSubject,
 } from "./compiler-pilot-fixtures.ts";
 import { publicModuleSurface } from "./compiler-public-surface.ts";
 
@@ -69,6 +70,7 @@ function compile(cwd: string, args: string[]) {
       cwd,
       encoding: "utf8",
       maxBuffer: 16 * 1024 * 1024,
+      timeout: 60_000,
     },
   );
   if (result.error) throw result.error;
@@ -100,6 +102,38 @@ function project(source: string, extraOptions: Record<string, unknown> = {}) {
     }),
   );
   return config;
+}
+
+function prepareRuntimeDependencies(
+  directory: string,
+  dependencies: EmissionSubject["runtimeDependencies"],
+) {
+  for (const dependency of dependencies) {
+    const source = join(root, dependency.path);
+    const copied = join(directory, dependency.path);
+    const out = join(copied, "dist");
+    const emitted = compile(source, ["-p", dependency.config, "--outDir", out]);
+    expect(emitted.status, emitted.output).toBe(0);
+    copyFileSync(join(source, "package.json"), join(copied, "package.json"));
+    // The actual package exposes source types and compiled production JavaScript.
+    // Keep that manifest and type identity while isolating every runtime output.
+    symlinkSync(join(source, "src"), join(copied, "src"), "junction");
+    const installed = join(directory, "node_modules", dependency.name);
+    mkdirSync(dirname(installed), { recursive: true });
+    symlinkSync(copied, installed, "junction");
+    for (const external of dependency.externalPackages) {
+      const target = join(copied, "node_modules", external);
+      mkdirSync(dirname(target), { recursive: true });
+      symlinkSync(join(root, "node_modules", external), target, "junction");
+    }
+    record({
+      kind: "native-runtime-dependency",
+      ...dependency,
+      outputs: readdirSync(out, { recursive: true, encoding: "utf8" })
+        .filter((file) => statSync(join(out, file)).isFile())
+        .sort(),
+    });
+  }
 }
 
 function toolingRootFiles(config: string): string[] {
@@ -351,7 +385,9 @@ describe("pinned native compiler boundary", () => {
     const invalid = compile(subject, ["-p", selected]);
     expect(invalid.status, invalid.output).not.toBe(0);
     expect(invalid.output).toContain("TS2322");
-  }, 60_000);
+    // Three full compilations plus independent source inventories share this
+    // case budget; each compiler process retains a 60-second deadline.
+  }, 180_000);
 
   it("rejects optional, indexed, null and aliased downstream type errors", () => {
     const dependency = join(scratch, "dependency.ts");
@@ -430,11 +466,9 @@ describe("pinned native compiler boundary", () => {
         config: subject.config,
         outputs,
       });
-      symlinkSync(
-        join(root, subject.path, "node_modules"),
-        join(directory, "node_modules"),
-        "junction",
-      );
+      // Production builds every workspace dependency before the maintained ESM
+      // rewrite. An existing shared/dist may instead come from typecheck alone.
+      prepareRuntimeDependencies(directory, subject.runtimeDependencies);
       const rewrite = runBoundary(
         process.execPath,
         [join(root, "scripts/rewrite-dist-esm-imports.mjs")],
