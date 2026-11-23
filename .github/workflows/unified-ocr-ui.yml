@@ -36,6 +36,8 @@ on:
       - packages/platform/db/**
       - packages/shared/**
       - scripts/accounts-reference-e2e/**
+      - scripts/check-unified-ocr-results.ts
+      - scripts/check-unified-ocr-results.test.ts
       - scripts/rewrite-dist-esm-imports.mjs
       - scripts/review-investigation-paired-e2e/**
       - scripts/review-action-v2-production-e2e/**
@@ -53,7 +55,7 @@ jobs:
   actual-next-readiness:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Actual Next UI and OCR lifecycle
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:github-hosted') && 'ubuntu-latest' || 'ubuntu-24.04' }}
     timeout-minutes: 25
     services:
       postgres:

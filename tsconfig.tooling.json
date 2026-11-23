@@ -5,6 +5,7 @@
     "allowImportingTsExtensions": true
   },
   "include": [
+    "scripts/ci-browser-routing.test.ts",
     "scripts/manage-review-provider-scope-concurrency.test.ts",
     "scripts/check-provider-setup-postgres-results.ts",
     "scripts/check-provider-setup-postgres-results.test.ts",
@@ -17,6 +18,8 @@
     "scripts/update-mcp-catalog.ts",
     "scripts/lib/module-import-specifiers.ts",
     "scripts/lib/module-import-specifiers.test.ts",
+    "scripts/lib/next-generated-env.ts",
+    "scripts/lib/next-generated-env.test.ts",
     "scripts/lib/collect-feature-layout.test.ts",
     "scripts/lib/server-rendered-heading.ts",
     "scripts/lib/server-rendered-heading.test.ts",
