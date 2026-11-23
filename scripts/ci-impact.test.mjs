@@ -333,33 +333,62 @@ test("PostgreSQL and memory E2E defer Draft but qualify Ready/main", () => {
   );
 });
 
-
 test("PR supersession does not cancel exact-main CI and database E2E evidence", () => {
   const names = [
     ["ci.yml", "ci-v2-${{ github.workflow }}"],
     ["account-gateway-long-run.yml", "account-gateway-long-run-p115"],
-    ["account-gateway-operator-grants.yml", "account-gateway-operator-grants-s"],
+    [
+      "account-gateway-operator-grants.yml",
+      "account-gateway-operator-grants-s",
+    ],
     ["hindsight-memory-qualification.yml", "hindsight-native"],
     ["memory-projections.yml", "memory-authority"],
     ["provider-accounts-c1.yml", "provider-accounts-c1"],
   ];
   for (const [file, prefix] of names) {
-    const source = readFileSync(new URL("../.github/workflows/" + file, import.meta.url), "utf8");
+    const source = readFileSync(
+      new URL("../.github/workflows/" + file, import.meta.url),
+      "utf8",
+    );
     const header = source.split("\njobs:")[0];
-    assert.match(header, /^  pull_request:/m, file + ": original PR trigger removed");
-    assert.match(header, /^  push:/m, file + ": original main/feature push removed");
-    const group = "  group: " + prefix + "-${{ github.event_name }}-${{ github.event_name == 'pull_request' && (github.event.pull_request.number || github.ref) || github.run_id }}";
-    assert.ok(header.includes(group), file + ": each push must have unique immutable run identity");
-    assert.ok(header.includes("  cancel-in-progress: ${{ github.event_name == 'pull_request' }}"),
-      file + ": only obsolete PR runs may be cancelled");
-    assert.doesNotMatch(header, /cancel-in-progress:.*github\.event_name == 'push'/);
+    assert.match(
+      header,
+      /^  pull_request:/m,
+      file + ": original PR trigger removed",
+    );
+    assert.match(
+      header,
+      /^  push:/m,
+      file + ": original main/feature push removed",
+    );
+    const group =
+      "  group: " +
+      prefix +
+      "-${{ github.event_name }}-${{ github.event_name == 'pull_request' && (github.event.pull_request.number || github.ref) || github.run_id }}";
+    assert.ok(
+      header.includes(group),
+      file + ": each push must have unique immutable run identity",
+    );
+    assert.ok(
+      header.includes(
+        "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
+      ),
+      file + ": only obsolete PR runs may be cancelled",
+    );
+    assert.doesNotMatch(
+      header,
+      /cancel-in-progress:.*github\.event_name == 'push'/,
+    );
   }
 });
 
-
 test("statistics-only routes use dedicated browser E2E, not Skills, Memory or OCR", () => {
   const statisticsFile = readFileSync(
-    new URL("../.github/workflows/statistics-followthrough-browser.yml", import.meta.url), "utf8",
+    new URL(
+      "../.github/workflows/statistics-followthrough-browser.yml",
+      import.meta.url,
+    ),
+    "utf8",
   );
   const statisticsPaths = workflowPaths(statisticsFile, "pull_request");
   const own = [
@@ -374,26 +403,50 @@ test("statistics-only routes use dedicated browser E2E, not Skills, Memory or OC
     "apps/web/app/dashboard/dashboard-workspace-page.tsx",
   ];
   for (const path of own) {
-    assert.equal(matchingPath(statisticsPaths, path), true,
-      "Dedicated Statistics browser must own: " + path);
+    assert.equal(
+      matchingPath(statisticsPaths, path),
+      true,
+      "Dedicated Statistics browser must own: " + path,
+    );
   }
   for (const [file, events] of [
     ["skills-browser.yml", ["pull_request"]],
     ["memory-projections.yml", ["pull_request", "push"]],
     ["unified-ocr-ui.yml", ["pull_request"]],
   ]) {
-    const src = readFileSync(new URL("../.github/workflows/" + file, import.meta.url), "utf8");
+    const src = readFileSync(
+      new URL("../.github/workflows/" + file, import.meta.url),
+      "utf8",
+    );
     for (const event of events) {
       const patterns = workflowPaths(src, event);
-      assert.ok(patterns.includes("apps/web/**"), file + ": retain broad shared-web admission");
+      assert.ok(
+        patterns.includes("apps/web/**"),
+        file + ": retain broad shared-web admission",
+      );
       for (const path of own)
-        assert.equal(matchingPath(patterns, path), false, file + " " + event + ": wrong Statistics owner");
+        assert.equal(
+          matchingPath(patterns, path),
+          false,
+          file + " " + event + ": wrong Statistics owner",
+        );
       for (const path of shared)
-        assert.equal(matchingPath(patterns, path), true, file + " " + event + ": shared path must run");
+        assert.equal(
+          matchingPath(patterns, path),
+          true,
+          file + " " + event + ": shared path must run",
+        );
       const mixed = [own[0], shared[0]];
-      assert.equal(mixed.some((path) => matchingPath(patterns, path)), true,
-        file + " " + event + ": mixed change must run native browser suite");
+      assert.equal(
+        mixed.some((path) => matchingPath(patterns, path)),
+        true,
+        file + " " + event + ": mixed change must run native browser suite",
+      );
     }
-    assert.match(src, /workflow_dispatch:/, file + ": manual qualification retained");
+    assert.match(
+      src,
+      /workflow_dispatch:/,
+      file + ": manual qualification retained",
+    );
   }
 });

@@ -14,10 +14,10 @@
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                               |
-| -------------------- | --------- | ------------------------------- | ------------------- | ------------------------------------------------------------------ |
-| Local qualification  | `pending` | Not qualified                   | Not verified        | Install exact candidate, implement and run the checks below.       |
-| GitHub CI            | `pending` | Not merged                      | Not verified        | Review the exact source, run normal checks, merge and verify main. |
+| Environment / target | Status      | Actual deployed version / image                 | Last verified (UTC) | Evidence / next step                                                            |
+| -------------------- | ----------- | ----------------------------------------------- | ------------------- | ------------------------------------------------------------------------------- |
+| Local qualification  | `installed` | Source `e3856967` and recorded baseline repairs | 2026-11-23 14:55    | Scoped formatter checks verified; full protocol compiler gate remains separate. |
+| GitHub CI            | `pending`   | Not merged                                      | Not verified        | Review the exact source, run normal checks, merge and verify main.              |
 
 This task requires ordinary repository delivery. It does not deploy application
 services, publish an Action, change the database, activate a feature, or modify
@@ -103,13 +103,13 @@ lint-format project, and that project with the repository's
 `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` options enabled.
 The existing tooling project already includes every new `lint-format-*.ts` file.
 
-The complete unchanged formatter command now reports exactly two baseline
+The first complete check of the corrected candidate reported two baseline
 whitespace failures: `ai-docs/deployments/2026-11-23-hero-video-v96.md` and
 `scripts/ci-impact.test.mjs`. The original Prettier 3.8.3 configuration without
-the native plugin independently reports both same failures. Full-gate success
-remains pending their ordinary integration; no exclusion or mass reformat is used.
-Both ignore-file hashes are unchanged, and the complete formatter audit records
-zero legacy TypeScript load attempts.
+the native plugin independently reported both same failures. The final complete
+`pnpm format:check` after the integration below passed with zero legacy TypeScript
+load attempts. Both ignore-file hashes remain unchanged; no exclusion or mass
+reformat was used.
 
 Ten native compiler invocations built the actual protocol prerequisites, followed
 by the existing dist-import rewrite. The real generator then ran twice: all 65
@@ -128,6 +128,29 @@ The [durable evidence record](evidence/2026-11-23-native-prettier.json) preserve
 the complete first failed corpus output, independent baseline failure, runtime
 versions, source and ignore hashes, load audits, and all protocol file digests.
 Ignored local scratch additionally retains the original commands and raw logs.
+
+### Baseline integration and final formatter result
+
+Merged main `0ced6f2666203f37825010afe5a999b1e229d81b` without conflicts before
+repairing the two independently confirmed formatting defects. The hero document's
+table whitespace reuses the exact existing patch from [PR #959](https://github.com/777genius/review-router-ai/pull/959),
+head `15806fc09c4f276b5ec546f27365b50c3abed9dc`. Its resulting Git blob is exactly
+`8477aae75d8e064ebcffe38392d6799c9aba13c5`; all Markdown table cell contents and
+non-table lines are unchanged. No provider implementation from that PR is copied.
+
+The second repair formats the current `scripts/ci-impact.test.mjs`, including the
+already merged #981 additions. Prettier's independent AST/debug checks pass for
+both files, and the actual CI-impact suite passes 40/40. The complete unchanged
+formatter command then passes across the repository under the pre-initialization
+guard. The first failing runs and exact baseline repair patches remain in the
+durable evidence record.
+
+An independent source/evidence review of `e38569670d4a2725564313ab99974ee930bf8e78`
+found no blocking implementation issue. It checked the public parser/printer
+boundary, guard negative controls, source enrollment/discovery, all eight source
+and two ignore hashes, raw audit counters, and all 65 protocol file digests.
+This is scoped implementation review; ordinary full CI, the owning compiler
+prerequisite and the final merge remain separate required evidence.
 
 ## Ordered implementation and verification
 
@@ -178,6 +201,7 @@ No application state, schema, deployment or remote publication is changed here.
 
 ## Execution log
 
-| Time (UTC) | Target             | Actual source / version   | Observed result                                                     | Next action                         |
-| ---------- | ------------------ | ------------------------- | ------------------------------------------------------------------- | ----------------------------------- |
-| 2026-11-23 | Design and package | Main `27c353d`, Oxc 0.2.4 | Two design reviews; archive integrity and distinct printer checked. | Commit plan, open draft, implement. |
+| Time (UTC)       | Target             | Actual source / version                                          | Observed result                                                                                                           | Next action                                                         |
+| ---------------- | ------------------ | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| 2026-11-23       | Design and package | Main `27c353d`, Oxc 0.2.4                                        | Two design reviews; archive integrity and distinct printer checked.                                                       | Commit plan, open draft, implement.                                 |
+| 2026-11-23 14:55 | Local formatting   | `e3856967`, integrated main `0ced6f2`, recorded baseline repairs | Complete formatter passed; 43 regressions, native strict checks and 65 unchanged deterministic protocol outputs verified. | Complete the separate compiler-owned gate and ordinary PR CI/merge. |

@@ -31,7 +31,7 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
-Native TypeScript formatting: [retain the full Prettier gate and protocol generator through the official Oxc parser and a typed public-API plugin](2026-11-23-native-prettier.md) — repository/CI delivery; local qualification and merge `pending`. No application rollout or production configuration change.
+Native TypeScript formatting: [retain the full Prettier gate and protocol generator through the official Oxc parser and the pinned public printer](2026-11-23-native-prettier.md), [PR #984](https://github.com/777genius/review-router-ai/pull/984) — full formatter corpus, 43 native regression checks, strict TS7 and 65 unchanged protocol outputs verified locally; full CI/compiler prerequisite and merge `pending`. The hero whitespace repair exactly reuses #959. No application rollout or production configuration change.
 
 Updated landing walkthrough: [the hero video uses the new 48.2-second 1080p Mux asset](2026-11-23-hero-video-v96.md) — Web-only ordinary rollout; staging and production `pending`. No migration, configuration, API, worker, Gateway, native or public Action change.
 
