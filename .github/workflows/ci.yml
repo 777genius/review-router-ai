@@ -39,8 +39,8 @@ permissions:
 
 concurrency:
   # Preserve the current namespace and isolate each manual qualification run.
-  group: ci-v2-${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+  group: ci-v2-${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && (github.event.pull_request.number || github.ref) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   NODE_VERSION: "26.11.1"
@@ -75,9 +75,8 @@ env:
 jobs:
   impact:
     name: CI impact selection
-    # Read-only trust-based diff classifier: keep it off the scarce Linux
-    # native build/E2E pool. Forks already used this hosted runner.
-    runs-on: ubuntu-latest
+    # Forks and explicit hosted fallback stay on GitHub-hosted runners.
+    runs-on: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:github-hosted') && 'ubuntu-latest' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_IMPACT_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
     outputs:
       tier: ${{ steps.select.outputs.tier }}
