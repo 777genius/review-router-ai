@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      NATIVE_QUALIFICATION_ROOT: ${{ runner.temp }}/reviewrouter-977-pure
+      NATIVE_QUALIFICATION_ROOT: ${{ github.workspace }}/tmp/refactor977-native-source
     steps:
       - name: Checkout exact source without persisted credentials
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
