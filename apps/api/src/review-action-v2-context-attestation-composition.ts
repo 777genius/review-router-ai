@@ -17,6 +17,7 @@ import {
   canonicalContextAttestationManifest,
   canonicalContextDependencyOperation,
   canonicalContextDependencyResult,
+  assertContextGatewaySessionConfiguration,
   contextGatewayV4PolicyVersion,
   createContextAttestationManifest,
   isContextGatewayV4ValidationIssue,
@@ -3630,18 +3631,10 @@ function contextIdentities(
 function validateConfig(
   d: ReviewActionV2ContextAttestationHandlerDependencies,
 ): void {
-  if (
-    d.sessionSecretKey.byteLength !== 32 ||
-    [
-      d.config.sessionLifetimeMs,
-      d.config.reuseTtlMs,
-      d.config.replayProofLifetimeMs,
-      d.config.replayCapabilityLifetimeMs,
-      d.config.attachmentCapabilityLifetimeMs,
-    ].some((value) => !Number.isSafeInteger(value) || value <= 0)
-  ) {
-    throw new Error("review_context_attestation_config_invalid");
-  }
+  assertContextGatewaySessionConfiguration(
+    d.config,
+    d.sessionSecretKey.byteLength,
+  );
 }
 
 function evidenceProviderKind(value: string): ReviewProviderKind {
