@@ -46,6 +46,7 @@ jobs:
           test "$first" = "$second"
           node scripts/build-conflict-runtime.ts --check
           echo "source=$source_sha bundle=$second"
+      # Includes latest domain-authority nullable Prisma compile correction.
       - name: Confirm bounded action-runtime tests and imports
         run: |
           pnpm exec vitest run packages/features/conflict-runtime/src/tests/action-control-plane-conflict-posting-client.test.ts packages/features/action-control-plane/src/tests/conflict-runtime-contract.test.ts scripts/check-architecture-boundaries.test.ts

@@ -26,7 +26,7 @@ export function isCurrentWorkflowSetupAuthority(input: {
   readonly expectedAttempt: ObservedSetupAttempt | null;
   readonly currentAttempt: CurrentSetupAttempt | null;
   readonly workspaceId: string;
-  readonly installationId: string;
+  readonly installationId: string | null;
   readonly historicalMergedSetupPullRequest: boolean;
   readonly verifiedArtifact: Readonly<{
     workflowPath: string;

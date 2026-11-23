@@ -111,6 +111,30 @@ describe("workflow setup durable authority", () => {
       }),
     ).toBe(false);
   });
+  it("preserves the nullable repository installation identity from Prisma", () => {
+    // RepositoryConnection.installationId is String? in the real schema.
+    // The previous in-host CAS comparison admitted two equal null values.
+    expect(
+      isCurrentWorkflowSetupAuthority({
+        ...input,
+        installationId: null,
+        currentAttempt: { ...current, installationId: null },
+      }),
+    ).toBe(true);
+    expect(
+      isCurrentWorkflowSetupAuthority({
+        ...input,
+        installationId: null,
+      }),
+    ).toBe(false);
+    expect(
+      isCurrentWorkflowSetupAuthority({
+        ...input,
+        currentAttempt: { ...current, installationId: null },
+      }),
+    ).toBe(false);
+  });
+
   it("treats number and bigint revisions as different CAS identities", () => {
     expect(
       isCurrentWorkflowSetupAuthority({
