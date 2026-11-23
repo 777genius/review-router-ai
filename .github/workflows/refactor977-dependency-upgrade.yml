@@ -152,8 +152,8 @@ jobs:
           // candidate so the fail-closed security oracle stays meaningful.
           const installerTests = "scripts/install-private-dependencies.test.ts";
           let guardedTests = fs.readFileSync(installerTests, "utf8");
-          const deniedOld = '"minimumReleaseAgeExclude:\\n  - \\"@get-modular/resources@0.2.2\\"\\n"';
-          const deniedNew = '"minimumReleaseAgeExclude:\\n  - \\"@get-modular/resources@0.2.3\\"\\n"';
+          const deniedOld = "@get-modular/resources@0.2.2";
+          const deniedNew = "@get-modular/resources@0.2.3";
           if (guardedTests.split(deniedOld).length !== 2)
             throw new Error("expected exact resources negative fixture");
           guardedTests = guardedTests.replace(deniedOld, deniedNew);
