@@ -140,7 +140,7 @@ test("complete Git diff includes both sides of a cross-tier rename", () => {
   }
 });
 
-test("CI impact selector runs outside native Linux runner pool", () => {
+test("CI impact selector preserves hosted fallback and trusted base", () => {
   const workflow = readFileSync(
     new URL("../.github/workflows/ci.yml", import.meta.url),
     "utf8",
@@ -149,7 +149,9 @@ test("CI impact selector runs outside native Linux runner pool", () => {
     /^ {2}impact:\n([\s\S]*?)(?=^ {2}[a-z][\w-]+:\s*$)/m,
   )?.[1];
   assert.ok(block, "CI impact job is missing");
-  assert.match(block, /^ {4}runs-on: ubuntu-latest$/m);
+  assert.match(block, /github\.event\.pull_request\.head\.repo\.full_name != github\.repository && 'ubuntu-latest'/);
+  assert.match(block, /ci:github-hosted/);
+  assert.match(block, /vars\.CI_IMPACT_RUNNER \|\| 'ubuntu-latest'/);
   assert.doesNotMatch(block, /CI_LINUX_(?:CHECKS_)?RUNNER/);
   assert.match(block, /git show "\$\{CI_BASE_SHA\}:scripts\/ci-impact\.mjs"/);
   assert.match(workflow, /^ {2}quality-gates:$/m);
