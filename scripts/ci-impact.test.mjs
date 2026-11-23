@@ -140,7 +140,7 @@ test("complete Git diff includes both sides of a cross-tier rename", () => {
   }
 });
 
-test("CI impact selector runs outside native Linux runner pool", () => {
+test("CI impact selector uses its dedicated runner with hosted fallbacks", () => {
   const workflow = readFileSync(
     new URL("../.github/workflows/ci.yml", import.meta.url),
     "utf8",
@@ -149,8 +149,13 @@ test("CI impact selector runs outside native Linux runner pool", () => {
     /^ {2}impact:\n([\s\S]*?)(?=^ {2}[a-z][\w-]+:\s*$)/m,
   )?.[1];
   assert.ok(block, "CI impact job is missing");
-  assert.match(block, /^ {4}runs-on: ubuntu-latest$/m);
-  assert.doesNotMatch(block, /CI_LINUX_(?:CHECKS_)?RUNNER/);
+  assert.equal(
+    block.match(/^ {4}runs-on: (.+)$/m)?.[1],
+    "${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:github-hosted') && 'ubuntu-latest' || " +
+      "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || " +
+      "vars.CI_IMPACT_RUNNER || 'ubuntu-latest' }}",
+  );
+  assert.doesNotMatch(block, /vars\.CI_LINUX_[A-Z_]+/u);
   assert.match(block, /git show "\$\{CI_BASE_SHA\}:scripts\/ci-impact\.mjs"/);
   assert.match(workflow, /^ {2}quality-gates:$/m);
 });
@@ -353,12 +358,12 @@ test("PR supersession does not cancel exact-main CI and database E2E evidence", 
     const header = source.split("\njobs:")[0];
     assert.match(
       header,
-      /^  pull_request:/m,
+      /^ {2}pull_request:/m,
       file + ": original PR trigger removed",
     );
     assert.match(
       header,
-      /^  push:/m,
+      /^ {2}push:/m,
       file + ": original main/feature push removed",
     );
     const group =

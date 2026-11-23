@@ -4,12 +4,36 @@ import {
   isSyntaxNode,
   parseSourceAst,
   walkSourceAst,
+  type ParsedSource,
+  type SyntaxNode,
 } from "./module-import-specifiers.ts";
 import type {
   ModuleLayoutRecords,
   LayoutImport,
   LayoutExport,
 } from "@get-modular/conformance";
+
+function bindingName(id: SyntaxNode, parsed: ParsedSource): string | undefined {
+  if (id.type === "Identifier" && typeof id.name === "string") return id.name;
+  if (typeof id.start !== "number" || typeof id.end !== "number")
+    return undefined;
+  const annotation = id.typeAnnotation;
+  if (!isSyntaxNode(annotation) || typeof annotation.start !== "number")
+    return parsed.source.slice(id.start, id.end);
+
+  // Oxc includes a binding pattern's annotation in its span. Keep the original
+  // pattern text, including internal comments, but exclude the trailing trivia.
+  let end =
+    id.start + parsed.source.slice(id.start, annotation.start).trimEnd().length;
+  for (let index = parsed.comments.length - 1; index >= 0; index--) {
+    const comment = parsed.comments[index];
+    if (!comment || comment.end > end) continue;
+    if (comment.end !== end) break;
+    end =
+      id.start + parsed.source.slice(id.start, comment.start).trimEnd().length;
+  }
+  return parsed.source.slice(id.start, end);
+}
 
 const isTest = (path: string) =>
   /(?:^|\/)(?:tests|testing)(?:\/|$)|\.(?:test|spec)\.ts$/u.test(path);
@@ -80,7 +104,8 @@ export async function collectFeatureLayout(
         parent?.type === "ExportDefaultDeclaration";
       if (useCase && exported) {
         if (
-          node.type === "FunctionDeclaration" &&
+          (node.type === "FunctionDeclaration" ||
+            node.type === "TSDeclareFunction") &&
           isSyntaxNode(node.id) &&
           typeof node.id.name === "string"
         ) {
@@ -92,13 +117,7 @@ export async function collectFeatureLayout(
           for (const declaration of node.declarations) {
             if (!isSyntaxNode(declaration) || !isSyntaxNode(declaration.id))
               continue;
-            const id = declaration.id;
-            const name =
-              id.type === "Identifier" && typeof id.name === "string"
-                ? id.name
-                : typeof id.start === "number" && typeof id.end === "number"
-                  ? text.slice(id.start, id.end)
-                  : undefined;
+            const name = bindingName(declaration.id, ast);
             if (!name) continue;
             exports.push({
               name,
