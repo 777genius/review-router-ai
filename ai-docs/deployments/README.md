@@ -31,6 +31,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+Runtime dependency remediation: [reviewed request-validation and subscription-runtime dependency versions](2026-11-23-runtime-dependency-remediation.md), [PR #959](https://github.com/777genius/review-router-ai/pull/959) — ordinary API, worker, Web and self-hosted image rollout; staging and production `pending`. Existing AR/Gateway source pins remain unchanged; no migration, configuration or activation step is added.
+
 Updated landing walkthrough: [the hero video uses the new 48.2-second 1080p Mux asset](2026-11-23-hero-video-v96.md) — Web-only ordinary rollout; staging and production `pending`. No migration, configuration, API, worker, Gateway, native or public Action change.
 
 Native provider parity: [catalog-driven connection forms, pinned recovery, native lifecycle and runtime identity](2026-11-21-native-provider-parity.md), [PR #959](https://github.com/777genius/review-router-ai/pull/959) — coordinated native/Gateway/SDK/RR implementation; apply additive migration `000161_native_connection_intent` and install compatible readers before native-method writers. Regenerated conversation source metadata follows the installed SDK; full-thread conversations require qualification against that source before rollout. Staging and production `pending`; no rollout is authorized by this task.

@@ -114,8 +114,9 @@ authority for v3 facts; v1 approvals retain their original shape.
 `PrismaG1V3ApprovedManifestCommand` is a private protected command. Its proposal
 port supplies exact owner-approved bytes. Its separate validation port must call
 EF `decodeRequest()` on the **same** request bytes and return the decoded value
-plus bound evidence. A fixture test builds the pinned EF 1.6.1 source archive
-from commit `243b99abbd89216fca55a1ffe4a1b83a1b7efc2e`, installs it, and
+plus bound evidence. The current fixture test builds the pinned EF 2.1.0 source
+archive from commit `145a3fb20392239fe4979c9e4f06684d6af08848`, using its documented
+Node build profile, installs it, and
 exercises the public decoder through the protected command and a disposable
 PostgreSQL commit. It checks exact stored bytes and rejects an EF-invalid
 request before another fact can be written. The focused database tests also
@@ -124,3 +125,11 @@ credential rotation, same-transaction version facts and v1 isolation.
 `promote-release` is rejected until an exact existing admission receipt can be
 checked. No production startup, route, candidate writer, verifier assignment,
 or publication path composes this command. G1 remains `hold`.
+
+EF 2.1.0 is already the repository's accepted tooling version. The current
+transport fixture uses its published archive with the exact lockfile integrity;
+the source-built decoder fixture records its own archive bytes and digests.
+Earlier EF 1.6.0 and source-built EF 1.6.1
+(`243b99abbd89216fca55a1ffe4a1b83a1b7efc2e`) results remain historical evidence,
+with their original identities. This update preserves the v3 transport and
+protected-command assertions and does not activate the dormant production seam.
