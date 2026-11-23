@@ -31,7 +31,7 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
-Web build native checking: [qualify Next's supported TypeScript 7 CLI route](2026-11-23-next-native-typecheck.md) — bounded dependency/build prerequisite; implementation and local/CI qualification are pending. Architecture/parser and compiler-cohort work stays with its existing PR owners. No production rollout is authorized by this record.
+Web build native checking: [qualify Next's supported TypeScript 7 CLI route](2026-11-23-next-native-typecheck.md) — Draft #983 publishes coherent dependencies and the contract-test loader; frozen setup, canonical Prisma generation, full production Web build, Next's own deliberate-error rejection, 180 contract scenarios and 8 compiled HTTP checks pass locally on inputs matching `cc455f2`. Browser scenarios remain pending after local Chromium socket denial and official installer HTTP 403; the existing CI Chromium lane is the ordinary continuation. Architecture/parser and compiler-cohort integration remains with its owners. No production rollout is authorized by this record.
 
 Updated landing walkthrough: [the hero video uses the new 48.2-second 1080p Mux asset](2026-11-23-hero-video-v96.md) — Web-only ordinary rollout; staging and production `pending`. No migration, configuration, API, worker, Gateway, native or public Action change.
 
