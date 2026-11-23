@@ -103,7 +103,7 @@ export class ReviewProgressGitHubGateway {
         desiredBody,
       );
     }
-    return this.createComment(input, desiredBody);
+    return this.createComment(input, desiredBody, repositoryId);
   }
 
   /**
@@ -283,8 +283,19 @@ export class ReviewProgressGitHubGateway {
   private async createComment(
     input: UpsertReviewProgressCommentInput,
     desiredBody: string,
+    scannedRepositoryId?: number,
   ): Promise<UpsertReviewProgressCommentResult> {
-    await this.assertCurrentPullRequest(input);
+    const currentRepositoryId = await this.assertCurrentPullRequest(input);
+    if (
+      scannedRepositoryId !== undefined &&
+      currentRepositoryId !== scannedRepositoryId
+    ) {
+      throw failure(
+        "repository_mismatch",
+        "github_pull_request_repository_identity_changed",
+        false,
+      );
+    }
     try {
       const response = await this.request(
         "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",

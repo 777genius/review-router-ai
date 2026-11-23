@@ -52,6 +52,38 @@ describe("ReviewProgressGitHubGateway", () => {
     });
   });
 
+  it("refuses a repository switch before creating a comment", async () => {
+    const fixture = githubFixture([]);
+    let pullReads = 0;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (route !== "GET /repos/{owner}/{repo}/pulls/{pull_number}") {
+        return response;
+      }
+      pullReads += 1;
+      if (pullReads !== 2) return response;
+      return {
+        ...response,
+        data: {
+          state: "open",
+          head: { sha: head },
+          base: { repo: { id: 1300193, full_name: "acme/rocket" } },
+        },
+      };
+    };
+
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "repository_mismatch",
+      message: "github_pull_request_repository_identity_changed",
+      metadata: { retryable: false },
+    });
+    expect(pullReads).toBe(2);
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("reconciles a foreign POST reply", async () => {
     const fixture = githubFixture([]);
     const request: ReviewProgressGitHubRequester = async (
