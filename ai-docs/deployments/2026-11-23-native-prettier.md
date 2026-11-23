@@ -5,7 +5,7 @@
   avoiding initialization of the bundled legacy TypeScript implementation.
 - Affected targets: repository formatting, local/CI qualification, and the existing
   protocol generator formatting boundary. Application services are unchanged.
-- Implementation PR: draft to be opened from
+- Implementation PR: [#984](https://github.com/777genius/review-router-ai/pull/984),
   `fix/ci-native-prettier-20261123`.
 - Implementation base: `27c353d2425abf56db66e902caaba86f756dee8d`.
 - Dependencies: existing Prettier 3.8.3, exact official
@@ -16,8 +16,8 @@
 
 | Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                               |
 | -------------------- | --------- | ------------------------------- | ------------------- | ------------------------------------------------------------------ |
-| Local qualification  | `pending` | Not qualified                   | Not verified        | Install exact candidate, implement and run the checks below.        |
-| GitHub CI            | `pending` | Not merged                      | Not verified        | Review the exact source, run normal checks, merge and verify main.  |
+| Local qualification  | `pending` | Not qualified                   | Not verified        | Install exact candidate, implement and run the checks below.       |
+| GitHub CI            | `pending` | Not merged                      | Not verified        | Review the exact source, run normal checks, merge and verify main. |
 
 This task requires ordinary repository delivery. It does not deploy application
 services, publish an Action, change the database, activate a feature, or modify
@@ -27,10 +27,12 @@ release gates and evidence.
 ## Design and scope
 
 Register one typed Prettier plugin through its public Plugin API. It maps the
-existing `typescript` parser ID to the official Oxc TypeScript parser and registers
-only that parser's distinct AST printer. Preserve built-in language inference and
-all other parser/printer selections. Keep `prettier --check .`, both ignore files,
-existing style defaults, and embedded-language formatting unchanged.
+existing `typescript` parser ID to the official Oxc TypeScript parser and pairs
+its ESTree AST with the already pinned Prettier 3.8.3 ESTree printer. A distinct
+`native-typescript-estree` registration prevents replacing the printer selected
+by Babel/JavaScript. Preserve built-in language inference and all other parser
+selections. Keep `prettier --check .`, both ignore files, existing style defaults,
+and embedded-language formatting unchanged.
 
 The CLI loads this plugin through a root configuration. The protocol generator
 loads the same plugin through a typed formatting helper; its existing explicit
@@ -73,6 +75,59 @@ by Babel/JavaScript. No custom AST conversion or fallback is required.
 
 These reviews establish a supported candidate design, not runtime qualification.
 The plugin carries its own printer, so corpus equivalence still needs observation.
+
+### First qualification and printer correction
+
+The initial direct Oxc-printer candidate passed 42 regression tests and the
+native TypeScript 7.0.2 strict lint-format project, but the complete formatter
+check reported 204 files. Representative differences were the newer printer's
+union wrapping, including a generated protocol contract. No source files were
+rewritten to accept that drift and no exclusions were added.
+
+The public Plugin API also permits associating a parser's AST format with an
+existing printer. The corrected candidate retains the official native parser,
+registers the public `prettier/plugins/estree` printer from the pinned 3.8.3 package
+under its own AST-format key, and changes no AST nodes. Three representative
+drifting files then matched committed bytes. Full repeated qualification is
+required before accepting that pairing; the original failure remains recorded.
+
+The first fixture run was 41/42: the hand-written HTML-template golden incorrectly
+expected outer newlines. The unchanged Prettier 3.8.3 Babel printer independently
+produced exactly the candidate's outer layout. Only that erroneous golden was
+corrected; embedded TypeScript formatting and its rejecting fixture were retained.
+
+### Observed implementation checks
+
+The corrected candidate passes 43/43 regressions, the native TS7 strict
+lint-format project, and that project with the repository's
+`noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` options enabled.
+The existing tooling project already includes every new `lint-format-*.ts` file.
+
+The complete unchanged formatter command now reports exactly two baseline
+whitespace failures: `ai-docs/deployments/2026-11-23-hero-video-v96.md` and
+`scripts/ci-impact.test.mjs`. The original Prettier 3.8.3 configuration without
+the native plugin independently reports both same failures. Full-gate success
+remains pending their ordinary integration; no exclusion or mass reformat is used.
+Both ignore-file hashes are unchanged, and the complete formatter audit records
+zero legacy TypeScript load attempts.
+
+Ten native compiler invocations built the actual protocol prerequisites, followed
+by the existing dist-import rewrite. The real generator then ran twice: all 65
+protocol files match their original SHA-256 values and both outputs are identical.
+The full `protocol:check` command separately stopped when its existing shared
+build selected TypeScript 6.0.3; the guard rejected `bin/tsc` before initialization.
+Its remaining compiler migration is not represented as a passing full gate.
+
+The guard's deliberate CommonJS initializer is a temporary syntax fixture: its
+`.js` form proves that both import and require are rejected before a side effect.
+It contains no old compiler implementation. Real installed bundled-parser ESM
+and CommonJS negative controls also pass. These checks qualify the guard, not a
+substitute compiler.
+
+The [durable evidence record](evidence/2026-11-23-native-prettier.json) preserves
+the complete first failed corpus output, independent baseline failure, runtime
+versions, source and ignore hashes, load audits, and all protocol file digests.
+Ignored local scratch additionally retains the original commands and raw logs.
 
 ## Ordered implementation and verification
 
@@ -123,6 +178,6 @@ No application state, schema, deployment or remote publication is changed here.
 
 ## Execution log
 
-| Time (UTC) | Target             | Actual source / version | Observed result                                                   | Next action                         |
-| ---------- | ------------------ | ----------------------- | ----------------------------------------------------------------- | ----------------------------------- |
+| Time (UTC) | Target             | Actual source / version   | Observed result                                                     | Next action                         |
+| ---------- | ------------------ | ------------------------- | ------------------------------------------------------------------- | ----------------------------------- |
 | 2026-11-23 | Design and package | Main `27c353d`, Oxc 0.2.4 | Two design reviews; archive integrity and distinct printer checked. | Commit plan, open draft, implement. |
