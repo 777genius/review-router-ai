@@ -14,7 +14,9 @@ const valid: ContextGatewaySessionConfiguration = {
 
 describe("gateway session configuration admission", () => {
   it("accepts a 32-byte key and safe positive TTLs", () => {
-    expect(() => assertContextGatewaySessionConfiguration(valid, 32)).not.toThrow();
+    expect(() =>
+      assertContextGatewaySessionConfiguration(valid, 32),
+    ).not.toThrow();
   });
 
   it.each([0, 1, 31, 33, 64, Number.NaN, Number.POSITIVE_INFINITY])(
