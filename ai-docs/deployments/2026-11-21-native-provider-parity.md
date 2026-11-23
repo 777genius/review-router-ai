@@ -13,7 +13,7 @@
   [native ownership](../architecture/64-gateway-native-ownership-and-model-catalog.md),
   and the producer/SDK revisions in
   [SDK provenance](../../vendor/account-gateway/native-provider-parity-sdk-provenance.json).
-- Last updated: `2026-11-22`.
+- Last updated: `2026-11-23`.
 
 ## Environment status
 
@@ -86,6 +86,26 @@ not just a successful credential submission.
   forwarding the continuation. It verifies the exact checkout and zero exit,
   rejects running sessions and execution failures, and records only fixed
   diagnostic booleans. The two-request bound and strict Action audit remain.
+
+## Installed SDK source coherence
+
+The current SDK provenance changed after the conversation source stamp was
+generated. Regenerate the stamp and standalone conversation verifier together
+with the owning `check-conversation-source-stamp.ts --write` and
+`check-conversation-release-verifier.ts --write` commands. The verifier's only
+code-byte change is the SDK provenance digest; parser behavior, declarations
+and bundled dependency license remain unchanged.
+
+On Node `26.11.1`, both source-coherence checks pass after regeneration. The
+existing memory bootstrap, setup and fleet-overlay tests pass 57 cases; two
+real Docker Compose cases remain skipped locally because Docker is unavailable.
+These local results do not replace the required CI gates.
+
+The stamp records installed source identity, not conversation qualification.
+Existing operator declarations remain intact, and a declaration for the old SDK
+does not authorize the new source. Before a future authorized rollout enables
+full-thread Gateway conversations, requalify them against the exact installed
+SDK and source profile as required by the existing native ownership rollout.
 
 ## Retry, partial completion and rollback
 
