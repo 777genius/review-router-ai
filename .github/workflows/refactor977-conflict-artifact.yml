@@ -23,7 +23,7 @@ jobs:
       - name: Checkout exact source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          persist-credentials: true
+          persist-credentials: false
           fetch-depth: 2
       - name: Select pinned Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -53,6 +53,8 @@ jobs:
           node scripts/check-architecture-boundaries.mjs
       - name: Commit only source-bound artifact and self-remove tooling
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -67,4 +69,5 @@ jobs:
             exit 1
           fi
           git commit -m "build(action): regenerate exact conflict runtime artifact and remove one-off runner"
-          git push origin HEAD:refs/heads/refactor/architecture-boundaries-phase2-20261123
+          header="$(printf "x-access-token:%s" "$GH_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $header" push origin HEAD:refs/heads/refactor/architecture-boundaries-phase2-20261123
