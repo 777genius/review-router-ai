@@ -348,8 +348,8 @@ test("PR supersession does not cancel exact-main CI and database E2E evidence", 
   for (const [file, prefix] of names) {
     const source = readFileSync(new URL("../.github/workflows/" + file, import.meta.url), "utf8");
     const header = source.split("\njobs:")[0];
-    assert.match(header, /^  pull_request:/m, file + ": original PR trigger removed");
-    assert.match(header, /^  push:/m, file + ": original main/feature push removed");
+    assert.match(header, /^ {2}pull_request:/m, file + ": original PR trigger removed");
+    assert.match(header, /^ {2}push:/m, file + ": original main/feature push removed");
     const group = "  group: " + prefix + "-${{ github.event_name }}-${{ github.event_name == 'pull_request' && (github.event.pull_request.number || github.ref) || github.run_id }}";
     assert.ok(header.includes(group), file + ": each push must have unique immutable run identity");
     assert.ok(header.includes("  cancel-in-progress: ${{ github.event_name == 'pull_request' }}"),
