@@ -534,6 +534,8 @@ describe("ReviewProgressPublisher", () => {
       botLogin: "review-router[bot]",
       request: async (route, parameters = {}) => {
         if (route.includes("/pulls/")) return pull();
+        const known = testKnownComment(route, parameters, canonicalBody);
+        if (known) return known;
         if (route.startsWith("GET")) {
           return {
             data: [
@@ -594,6 +596,8 @@ describe("ReviewProgressPublisher", () => {
         botLogin: "review-router[bot]",
         request: async (route, parameters = {}) => {
           if (route.includes("/pulls/")) return pull();
+        const known = testKnownComment(route, parameters, body);
+        if (known) return known;
           if (route.startsWith("GET")) {
             return {
               data: [77, 78].map((id) => ({
@@ -652,6 +656,8 @@ describe("ReviewProgressPublisher", () => {
         botLogin: "review-router[bot]",
         request: async (route, parameters = {}) => {
           if (route.includes("/pulls/")) return pull();
+        const known = testKnownComment(route, parameters, body);
+        if (known) return known;
           if (route.startsWith("GET")) {
             return {
               data: [77, 78].map((id) => ({
@@ -716,6 +722,8 @@ describe("ReviewProgressPublisher", () => {
       botLogin: "review-router[bot]",
       request: async (route, parameters = {}) => {
         if (route.includes("/pulls/")) return pull();
+        const known = testKnownComment(route, parameters, canonicalBody);
+        if (known) return known;
         if (route.startsWith("GET")) {
           return {
             data: [
@@ -1296,8 +1304,10 @@ describe("ReviewProgressPublisher", () => {
       const mutations: string[] = [];
       const publisher = createPublisher(store, async () => ({
         botLogin: "review-router[bot]",
-        request: async (route) => {
+        request: async (route, parameters = {}) => {
           if (route.includes("/pulls/")) return pull();
+        const known = testKnownComment(route, parameters, body);
+        if (known) return known;
           if (route.startsWith("GET")) return { data: rows };
           if (route.startsWith(operation)) {
             mutations.push(route);
@@ -1377,6 +1387,25 @@ describe("ReviewProgressPublisher", () => {
     expect(store.retry).not.toHaveBeenCalled();
   });
 });
+
+/** Model GitHub's single-comment REST GET, not the issue-comments list. */
+function testKnownComment(
+  route: string,
+  parameters: Readonly<Record<string, unknown>>,
+  body: string,
+) {
+  if (route !== "GET /repos/{owner}/{repo}/issues/comments/{comment_id}") {
+    return null;
+  }
+  return {
+    data: {
+      id: Number(parameters.comment_id),
+      body,
+      user: { login: "review-router[bot]" },
+      issue_url: targetIssueUrl,
+    },
+  };
+}
 
 function createPublisher(
   store: ReturnType<typeof fakeStore>,

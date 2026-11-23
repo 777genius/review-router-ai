@@ -13,9 +13,14 @@ export function publicationRetryPlan(
 } {
   const githubError = error instanceof ReviewProgressGitHubError ? error : null;
   let retryAt = githubError?.metadata.retryAt;
+  const transientPaginationRace =
+    githubError?.kind === "pagination_inconclusive" &&
+    (githubError.message === "github_issue_comments_offset_changed" ||
+      githubError.message === "github_canonical_comment_changed_before_delete" ||
+      githubError.message === "github_duplicate_comment_changed_before_delete");
   if (
     githubError?.kind === "pagination_inconclusive" &&
-    githubError.message !== "github_issue_comments_offset_changed"
+    !transientPaginationRace
   ) {
     // A capped or untrusted scan is structural; transient offset drift is not.
     const structuralRetryAt = new Date(

@@ -505,10 +505,11 @@ export class ReviewProgressGitHubGateway {
     // read failure must not promote this into an ambiguous landed write.
     if (classified.kind === "revoked_app") throw classified;
     let observed: ReviewProgressComment[];
+    let scannedRepositoryId: number | undefined;
     try {
       // A write may land just as the PR head changes. Do not reconcile it
       // against a stale publication identity, even after an earlier fence.
-      const scannedRepositoryId = await this.assertCurrentPullRequest(input);
+      scannedRepositoryId = await this.assertCurrentPullRequest(input);
       observed = await this.findMarkedComments(input, scannedRepositoryId);
       // The head or repository can change while reading the comment pages.
       const currentRepositoryId = await this.assertCurrentPullRequest(input);
@@ -533,6 +534,7 @@ export class ReviewProgressGitHubGateway {
           mutationError,
           expectedCommentId,
           classified,
+          scannedRepositoryId,
         );
       }
       throw reconciliationFailure(
@@ -561,6 +563,7 @@ export class ReviewProgressGitHubGateway {
     mutationError: unknown,
     commentId: number,
     classified: ReviewProgressGitHubError,
+    scannedRepositoryId?: number,
   ): Promise<ReviewProgressComment[]> {
     let known: ReviewProgressComment[];
     try {
@@ -568,8 +571,18 @@ export class ReviewProgressGitHubGateway {
         { ...input, knownCommentId: commentId },
         [],
       );
-      // A successful known-ID lookup must not confirm a stale-head mutation.
-      await this.assertCurrentPullRequest(input);
+      // Confirm both the head and the numeric repository identity after lookup.
+      const currentRepositoryId = await this.assertCurrentPullRequest(input);
+      if (
+        scannedRepositoryId !== undefined &&
+        currentRepositoryId !== scannedRepositoryId
+      ) {
+        throw failure(
+          "repository_mismatch",
+          "github_pull_request_repository_identity_changed",
+          false,
+        );
+      }
     } catch (lookupError) {
       throw reconciliationFailure(
         mutationError,

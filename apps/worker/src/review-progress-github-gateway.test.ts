@@ -2191,6 +2191,52 @@ describe("ReviewProgressGitHubGateway", () => {
     ]);
   });
 
+  it("rejects a PATCH after the repository ID changes", async () => {
+    const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }], {
+      throwAfterPatch: true,
+    });
+    let commentReads = 0;
+    let pullReads = 0;
+    const pullRoute = "GET /repos/{owner}/{repo}/pulls/{pull_number}";
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      if (
+        route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
+      ) {
+        commentReads += 1;
+        if (commentReads === 2) return { data: fullUnrelatedPage() };
+      }
+      const response = await fixture.request(route, parameters);
+      if (route !== pullRoute || ++pullReads !== 4) return response;
+      return {
+        ...response,
+        data: {
+          ...(response.data as Record<string, unknown>),
+          base: { repo: { id: 1300193, full_name: "acme/rocket" } },
+        },
+      };
+    };
+
+    await expect(
+      gateway(request, { maxCommentPages: 1 }).upsert(input()),
+    ).rejects.toMatchObject({
+      kind: "ambiguous_mutation",
+      metadata: { retryable: true, mutationMayHaveLanded: true },
+      cause: {
+        observationError: expect.objectContaining({
+          kind: "repository_mismatch",
+        }),
+      },
+    });
+    expect(pullReads).toBe(4);
+    expect(commentReads).toBe(2);
+    expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
+      "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+    ]);
+  });
+
   it("keeps PATCH 429 cooldown after reconciliation GET 502", async () => {
     const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
     let commentReads = 0;

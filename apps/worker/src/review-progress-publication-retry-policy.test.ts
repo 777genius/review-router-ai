@@ -54,6 +54,40 @@ describe("Review progress publication retry policy", () => {
     });
   });
 
+  it.each([
+    "github_canonical_comment_changed_before_delete",
+    "github_duplicate_comment_changed_before_delete",
+  ])(
+    "retries transient %s promptly without weakening hard bounds",
+    (message) => {
+      const error = new ReviewProgressGitHubError(
+        "pagination_inconclusive",
+        message,
+        { retryable: true },
+      );
+      expect(publicationRetryPlan(error, now, 2_000)).toEqual({
+        safeCode: "review_progress_pagination_inconclusive",
+        retryAt: new Date("2026-11-12T12:00:02.000Z"),
+        countFailure: false,
+      });
+
+      const retryAt = new Date("2026-11-12T12:03:00.000Z");
+      const retryNotBefore = new Date("2026-11-12T12:04:00.000Z");
+      const installationCooldownUntil = new Date("2026-11-12T12:05:00.000Z");
+      const delayedError = new ReviewProgressGitHubError(
+        "pagination_inconclusive",
+        message,
+        { retryable: true, retryAt, retryNotBefore, installationCooldownUntil },
+      );
+      expect(publicationRetryPlan(delayedError, now, 2_000)).toEqual({
+        safeCode: "review_progress_pagination_inconclusive",
+        retryAt: installationCooldownUntil,
+        installationCooldownUntil,
+        countFailure: false,
+      });
+    },
+  );
+
   it("never schedules a capped scan before its structural floor", () => {
     const earlyRetryAt = new Date("2026-11-12T12:00:10.000Z");
     const lateRetryAt = new Date("2026-11-12T14:00:00.000Z");
