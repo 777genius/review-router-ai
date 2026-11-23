@@ -10,17 +10,22 @@ on:
       - apps/api/**
       - apps/web/**
       # Public marketing-only paths do not execute dashboard, memory or OCR.
-      - '!apps/web/app/home-*'
-      - '!apps/web/app/page.tsx'
-      - '!apps/web/app/opengraph-image.tsx'
-      - '!apps/web/app/robots.ts'
-      - '!apps/web/app/sitemap.ts'
-      - '!apps/web/app/favicon.ico'
-      - '!apps/web/app/pricing/**'
-      - '!apps/web/app/privacy/**'
-      - '!apps/web/app/terms/**'
-      - '!apps/web/app/refund-policy/**'
-      - '!apps/web/app/security/**'
+      - "!apps/web/app/home-*"
+      - "!apps/web/app/page.tsx"
+      - "!apps/web/app/opengraph-image.tsx"
+      - "!apps/web/app/robots.ts"
+      - "!apps/web/app/sitemap.ts"
+      - "!apps/web/app/favicon.ico"
+      - "!apps/web/app/pricing/**"
+      - "!apps/web/app/privacy/**"
+      - "!apps/web/app/terms/**"
+      - "!apps/web/app/refund-policy/**"
+      - "!apps/web/app/security/**"
+      # Statistics-only UI routes are qualified by statistics-followthrough-browser.
+      - "!apps/web/app/dashboard/provider-usage-*"
+      - "!apps/web/app/dashboard/review-statistics-*"
+      - "!apps/web/app/api/dashboard/provider-usage/**"
+      - "!apps/web/app/api/dashboard/review-statistics/**"
       - apps/worker/**
       - packages/features/action-control-plane/**
       - packages/features/provider-setup/**
