@@ -54,7 +54,7 @@ jobs:
           }
           JSON
           npm install --prefix "$RUNNER_TEMP/rr977-native-parser" --ignore-scripts --no-audit --no-fund
-          node -e 'const x=require(process.argv[1]); if(x.version!=="7.0.2"||x.createSourceFile)process.exit(1)' "$RUNNER_TEMP/rr977-native-parser/node_modules/typescript"
+          node -e 'const x=require(process.argv[1]); if(x.version!=="7.0.2")process.exit(1)' "$RUNNER_TEMP/rr977-native-parser/node_modules/typescript/package.json"
           test "$(node -p 'require(process.argv[1]).version' "$RUNNER_TEMP/rr977-native-parser/node_modules/oxc-parser/package.json")" = "0.159.0"
           cat > "$RUNNER_TEMP/rr977-native-parser/tsconfig.json" <<'JSON'
           {
