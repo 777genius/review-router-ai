@@ -84,9 +84,9 @@ async function bootstrapContractSource() {
       force: true,
     },
   );
-  run("pnpm", [
-    "exec",
-    "tsc",
+  run(process.execPath, [
+    "scripts/local-checks/compiler-cli.ts",
+    "--native",
     "--ignoreConfig",
     "--target",
     "ES2022",
