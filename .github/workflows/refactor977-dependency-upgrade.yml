@@ -69,12 +69,24 @@ jobs:
             if (fs.existsSync(file)) rootPackages.push(file);
           }
           let edits = 0;
+          let preservedSdkPin = 0;
           for (const file of rootPackages) {
             const data = JSON.parse(fs.readFileSync(file, "utf8"));
             let changed = false;
             for (const group of ["dependencies", "devDependencies"]) {
               for (const [name, [before, after]] of Object.entries(targets)) {
                 if (!Object.hasOwn(data[group] || {}, name)) continue;
+                // SDK authority verifies a historical published EF archive by digest.
+                // Its separately owned fixture must keep its exact qualified pin.
+                if (file === "packages/features/sdk-growth-authority/package.json" &&
+                    group === "devDependencies" &&
+                    name === "@agent-teams/engineering-foundation") {
+                  if (data[group][name] !== "1.6.0") {
+                    throw new Error("SDK archive qualification pin drifted");
+                  }
+                  preservedSdkPin++;
+                  continue;
+                }
                 if (data[group][name] !== before) {
                   throw new Error(file + ": unexpected prior " + name + "=" + data[group][name]);
                 }
@@ -86,6 +98,9 @@ jobs:
               fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\n");
               edits++;
             }
+          }
+          if (preservedSdkPin !== 1) {
+            throw new Error("SDK archive qualification dependency is missing");
           }
           for (const file of [
             "architecture/review-skills/consumer-module-profile.json",
@@ -242,11 +257,23 @@ jobs:
         run: |
           node scripts/install-private-dependencies.mjs --frozen-lockfile
           REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA=1 node scripts/generate-prisma-offline.mjs
+      - name: Generate Next.js route types
+        working-directory: apps/web
+        run: pnpm exec next typegen
+      - name: Format only generated dependency edits
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only -z -- '*.json' '*.yaml' '*.ts' '*.mjs' '*.md' |
+            xargs -0 --no-run-if-empty pnpm exec prettier --write
       - name: Qualify packed consumer, source rules, composition, FMS and TypeScript
+        env:
+          TURBO_CONCURRENCY: "1"
         shell: bash
         run: |
           set -euo pipefail
           pnpm exec vitest run scripts/install-private-dependencies.test.ts
+          pnpm --filter @reviewrouter/features-sdk-growth-authority test:ef-v3
           pnpm foundation:qualify
           pnpm architecture:check
           pnpm modular:qualify
