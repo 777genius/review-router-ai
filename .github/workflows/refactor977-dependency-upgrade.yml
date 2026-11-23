@@ -127,6 +127,37 @@ jobs:
             ["@get-modular/conformance@0.5.0", "@get-modular/conformance@0.5.2"],
             ["@get-modular/resources@0.2.1", "@get-modular/resources@0.2.2"],
           ]) replaceCoordinate(root, before, after);
+          // The private-dependency install guard has an exact allowlist of
+          // reviewed minimumReleaseAgeExclude coordinates. Update it alongside
+          // the data-only workspace pins, never bypass its validation.
+          const guardedInstaller = "scripts/install-private-dependencies.mjs";
+          let guard = fs.readFileSync(guardedInstaller, "utf8");
+          for (const [before, after] of [
+            ["@agent-teams/document-authoring@0.3.4", "@agent-teams/document-authoring@0.3.6"],
+            ["@agent-teams/engineering-foundation@2.1.0", "@agent-teams/engineering-foundation@3.1.0"],
+            ["@agent-teams/repository-mutation@0.4.0", "@agent-teams/repository-mutation@0.4.2"],
+            ["@get-modular/core@0.7.0", "@get-modular/core@0.8.0"],
+            ["@get-modular/assembly@0.7.0", "@get-modular/assembly@0.8.0"],
+            ["@get-modular/conformance@0.5.0", "@get-modular/conformance@0.5.2"],
+            ["@get-modular/resources@0.2.1", "@get-modular/resources@0.2.2"],
+          ]) {
+            const quoted = JSON.stringify(before);
+            if (guard.split(quoted).length !== 2)
+              throw new Error("installer allowlist inventory changed: " + before);
+            guard = guard.replace(quoted, JSON.stringify(after));
+          }
+          fs.writeFileSync(guardedInstaller, guard);
+          // A formerly unreviewed resources version is now deliberately
+          // admitted. Replace the negative fixture with a still-unreviewed
+          // candidate so the fail-closed security oracle stays meaningful.
+          const installerTests = "scripts/install-private-dependencies.test.ts";
+          let guardedTests = fs.readFileSync(installerTests, "utf8");
+          const deniedOld = '"minimumReleaseAgeExclude:\\n  - \\"@get-modular/resources@0.2.2\\"\\n"';
+          const deniedNew = '"minimumReleaseAgeExclude:\\n  - \\"@get-modular/resources@0.2.3\\"\\n"';
+          if (guardedTests.split(deniedOld).length !== 2)
+            throw new Error("expected exact resources negative fixture");
+          guardedTests = guardedTests.replace(deniedOld, deniedNew);
+          fs.writeFileSync(installerTests, guardedTests);
           const document = "architecture/foundation/README.md";
           let readme = fs.readFileSync(document, "utf8");
           for (const [oldVersion, newVersion] of [
@@ -214,6 +245,8 @@ jobs:
             scripts/review-skills-tooling/pnpm-workspace.yaml \
             scripts/provider-foundation/current-consumer.ts \
             scripts/provider-foundation/current-registry-artifacts.json \
+            scripts/install-private-dependencies.mjs \
+            scripts/install-private-dependencies.test.ts \
             architecture/foundation/README.md \
             architecture/review-skills/consumer-module-profile.json \
             architecture/review-history/consumer-module-profile.json \
