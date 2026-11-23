@@ -1065,7 +1065,7 @@ describe("ReviewProgressGitHubGateway", () => {
           ...(response.data as unknown[]),
           {
             id: 102,
-            body: `another publication\\n${marker}`,
+            body: `another publication\n${marker}`,
             user: { login: "review-router[bot]" },
           },
         ],
