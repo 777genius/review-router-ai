@@ -53,7 +53,8 @@ for (const viewport of [
           .click(),
       ]);
       expect(response.ok()).toBe(true);
-      await response.finished();
+      // Next can keep the RSC response open after saving. Observe the user
+      // feedback here; the fresh navigations below verify persisted state.
       await expect(
         page.getByText("Memory settings saved", { exact: true }),
       ).toBeVisible();
