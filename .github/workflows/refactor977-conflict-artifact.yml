@@ -46,7 +46,7 @@ jobs:
           second="$(sha256sum action-dist/conflict-runtime.cjs | cut -d' ' -f1)"
           test "$first" = "$second"
           node scripts/build-conflict-runtime.ts --check
-          echo "source=$source_sha bundle=$second"
+          echo "source=$source_sha qualified_bundle=$second"
       # Includes latest domain-authority nullable Prisma compile correction.
       - name: Confirm bounded action-runtime tests and imports
         run: |
