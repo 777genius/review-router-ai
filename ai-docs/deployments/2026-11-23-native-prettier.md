@@ -152,6 +152,20 @@ and two ignore hashes, raw audit counters, and all 65 protocol file digests.
 This is scoped implementation review; ordinary full CI, the owning compiler
 prerequisite and the final merge remain separate required evidence.
 
+### Current-main integration
+
+Main `8b63574eeaee32fa081cadc83d40bfc526d17ce4` was merged without conflicts.
+Published candidate `7b335e54b91fa15b694ff930e15ede3f71909d29`, tree
+`3f5a9ba465fa4b3670f231b2468452334701ba0f`, passes the complete unchanged
+`pnpm format:check` again with zero legacy-load attempts. The formatter helpers,
+fixtures, parser configuration, lockfile, generator import and ignore file are
+byte-identical to the previously qualified candidate; their earlier fixture,
+strict-check and generated-output receipts retain their original source identity.
+
+The full protocol gate still needs the Shared compiler prerequisite and coherent
+root compiler integration. Source inspection confirms the pending shared build
+route, so the known rejected legacy attempt was not repeated.
+
 ## Ordered implementation and verification
 
 1. Commit this plan and registry entry, then open a draft PR through the owning
