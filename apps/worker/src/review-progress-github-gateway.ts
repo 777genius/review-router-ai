@@ -101,6 +101,7 @@ export class ReviewProgressGitHubGateway {
         canonical,
         duplicates,
         desiredBody,
+        repositoryId,
       );
     }
     return this.createComment(input, desiredBody, repositoryId);
@@ -160,6 +161,7 @@ export class ReviewProgressGitHubGateway {
     canonical: ReviewProgressComment,
     duplicates: readonly ReviewProgressComment[],
     desiredBody: string,
+    scannedRepositoryId?: number,
   ): Promise<UpsertReviewProgressCommentResult> {
     if (canonical.body !== desiredBody) {
       return this.patchChangedComment(
@@ -167,6 +169,7 @@ export class ReviewProgressGitHubGateway {
         canonical.id,
         duplicates,
         desiredBody,
+        scannedRepositoryId,
       );
     }
 
@@ -175,6 +178,7 @@ export class ReviewProgressGitHubGateway {
       canonical.id,
       duplicates,
       desiredBody,
+      scannedRepositoryId,
     );
   }
 
@@ -184,8 +188,12 @@ export class ReviewProgressGitHubGateway {
     canonicalId: number,
     duplicates: readonly ReviewProgressComment[],
     desiredBody: string,
+    scannedRepositoryId?: number,
   ): Promise<UpsertReviewProgressCommentResult> {
-    await this.assertCurrentPullRequest(input);
+    const currentRepositoryId = await this.assertRepositoryId(
+      input,
+      scannedRepositoryId,
+    );
     try {
       const response = await this.request(
         "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
@@ -206,6 +214,7 @@ export class ReviewProgressGitHubGateway {
         desiredBody,
         error,
         canonicalId,
+        currentRepositoryId,
       );
       return {
         commentId: canonicalId,
@@ -227,6 +236,7 @@ export class ReviewProgressGitHubGateway {
     canonicalId: number,
     duplicates: readonly ReviewProgressComment[],
     desiredBody: string,
+    scannedRepositoryId?: number,
   ): Promise<UpsertReviewProgressCommentResult> {
     const duplicate = duplicates[0];
     if (!duplicate) {
@@ -236,7 +246,7 @@ export class ReviewProgressGitHubGateway {
         duplicateCommentIds: [],
       };
     }
-    await this.assertCurrentPullRequest(input);
+    await this.assertRepositoryId(input, scannedRepositoryId);
     // An offset scan cannot prove the canonical still exists at deletion time.
     const verified = await this.includeVerifiedKnownComment(
       { ...input, knownCommentId: canonicalId },
@@ -261,8 +271,8 @@ export class ReviewProgressGitHubGateway {
         true,
       );
     }
-    // The PR can advance during either known-comment read.
-    await this.assertCurrentPullRequest(input);
+    // The PR or repository can change during either known-comment read.
+    await this.assertRepositoryId(input, scannedRepositoryId);
     try {
       await this.request(
         "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",
@@ -319,6 +329,8 @@ export class ReviewProgressGitHubGateway {
         input,
         desiredBody,
         error,
+        undefined,
+        currentRepositoryId,
       );
       return {
         commentId: reconciled[0]!.id,
@@ -326,6 +338,24 @@ export class ReviewProgressGitHubGateway {
         duplicateCommentIds: reconciled.slice(1).map(({ id }) => id),
       };
     }
+  }
+
+  private async assertRepositoryId(
+    input: UpsertReviewProgressCommentInput,
+    expectedRepositoryId?: number,
+  ): Promise<number | undefined> {
+    const currentRepositoryId = await this.assertCurrentPullRequest(input);
+    if (
+      expectedRepositoryId !== undefined &&
+      currentRepositoryId !== expectedRepositoryId
+    ) {
+      throw failure(
+        "repository_mismatch",
+        "github_pull_request_repository_identity_changed",
+        false,
+      );
+    }
+    return currentRepositoryId;
   }
 
   private async assertCurrentPullRequest(
@@ -499,6 +529,7 @@ export class ReviewProgressGitHubGateway {
     desiredBody: string,
     mutationError: unknown,
     expectedCommentId?: number,
+    originalRepositoryId?: number,
   ): Promise<ReviewProgressComment[]> {
     const classified = this.classify(mutationError, "ambiguous_mutation");
     // A definitive unthrottled 403 did not mutate the comment. An unrelated
@@ -509,7 +540,10 @@ export class ReviewProgressGitHubGateway {
     try {
       // A write may land just as the PR head changes. Do not reconcile it
       // against a stale publication identity, even after an earlier fence.
-      scannedRepositoryId = await this.assertCurrentPullRequest(input);
+      scannedRepositoryId = await this.assertRepositoryId(
+        input,
+        originalRepositoryId,
+      );
       observed = await this.findMarkedComments(input, scannedRepositoryId);
       // The head or repository can change while reading the comment pages.
       const currentRepositoryId = await this.assertCurrentPullRequest(input);

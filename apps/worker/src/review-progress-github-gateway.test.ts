@@ -35,6 +35,35 @@ describe("ReviewProgressGitHubGateway", () => {
     });
   });
 
+
+  it("refuses PATCH after the repository switches following the scan", async () => {
+    const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
+    const pullRoute = "GET /repos/{owner}/{repo}/pulls/{pull_number}";
+    let pullReads = 0;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (route !== pullRoute || ++pullReads !== 2) return response;
+      return {
+        ...response,
+        data: {
+          ...(response.data as Record<string, unknown>),
+          base: { repo: { id: 1300193, full_name: "acme/rocket" } },
+        },
+      };
+    };
+
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "repository_mismatch",
+      message: "github_pull_request_repository_identity_changed",
+      metadata: { retryable: false },
+    });
+    expect(pullReads).toBe(2);
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("creates a comment when the marker does not exist", async () => {
     const fixture = githubFixture([]);
 
@@ -120,6 +149,42 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(
       fixture.calls.filter(({ route }) => route.startsWith("GET ")),
     ).toHaveLength(6);
+  });
+
+
+  it("does not reconcile a landed POST after the repository changes", async () => {
+    const fixture = githubFixture([], { throwAfterPost: true });
+    const pullRoute = "GET /repos/{owner}/{repo}/pulls/{pull_number}";
+    let pullReads = 0;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (route !== pullRoute || ++pullReads !== 3) return response;
+      return {
+        ...response,
+        data: {
+          ...(response.data as Record<string, unknown>),
+          base: { repo: { id: 1300193, full_name: "acme/rocket" } },
+        },
+      };
+    };
+
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "ambiguous_mutation",
+      metadata: { mutationMayHaveLanded: true, retryable: true },
+      cause: {
+        observationError: {
+          kind: "repository_mismatch",
+          message: "github_pull_request_repository_identity_changed",
+        },
+      },
+    });
+    expect(pullReads).toBe(3);
+    expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
+      "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
+    ]);
   });
 
   it("does not confirm a landed POST when the head changes during the final scan", async () => {
@@ -321,6 +386,39 @@ describe("ReviewProgressGitHubGateway", () => {
         parameters: expect.objectContaining({ comment_id: 7 }),
       }),
     ]);
+  });
+
+
+  it("refuses DELETE when repository ID changes after the scan", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture([
+      { id: 4, body: desired },
+      { id: 7, body: `duplicate\n${marker}` },
+    ]);
+    const pullRoute = "GET /repos/{owner}/{repo}/pulls/{pull_number}";
+    let pullReads = 0;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (route !== pullRoute || ++pullReads !== 2) return response;
+      return {
+        ...response,
+        data: {
+          ...(response.data as Record<string, unknown>),
+          base: { repo: { id: 1300193, full_name: "acme/rocket" } },
+        },
+      };
+    };
+
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "repository_mismatch",
+      message: "github_pull_request_repository_identity_changed",
+      metadata: { retryable: false },
+    });
+    expect(pullReads).toBe(2);
+    expect(mutations(fixture.calls)).toEqual([]);
   });
 
   it("blocks deletion when canonical disappeared after scan", async () => {
