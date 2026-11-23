@@ -147,7 +147,7 @@
     "release:sync-major": "node scripts/sync-major-release-tag.mjs",
     "lint:native:files": "node scripts/local-checks/lint-format-lint.mts",
     "typecheck:lint-format": "node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.lint-format.json",
-    "compiler:pilot": "node scripts/local-checks/compiler-cli.ts --legacy --noEmit -p tsconfig.tooling.json && vitest run --config scripts/local-checks/compiler-vitest.config.ts",
+    "compiler:pilot": "node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.tooling.json && vitest run --config scripts/local-checks/compiler-vitest.config.ts",
     "compiler:prepare": "pnpm --dir scripts/local-checks/native install --ignore-workspace --ignore-scripts --frozen-lockfile",
     "foundation:check": "agent-teams-foundation check",
     "foundation:assert-dev-only": "agent-teams-foundation assert-dev-only",

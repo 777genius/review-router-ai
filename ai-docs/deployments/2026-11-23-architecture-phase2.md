@@ -10,11 +10,11 @@
 
 ## Environment status
 
-| Target | Status | Actual version / image | Last verified (UTC) | Evidence / next action |
-| --- | --- | --- | --- | --- |
-| Staging Web/API/worker | `pending` | Not verified | Not verified | No rollout requested; select an exact qualified main SHA in a future approved coherent batch |
-| Production Web/API/worker | `pending` | Not verified | Not verified | Reconcile existing fleet and unfinished deployments; do not deploy a Draft PR |
-| Public/source-bound conflict Action bundle | `pending` | Not verified | Not verified | Rebuild exact `action-dist/conflict-runtime.cjs`, prove byte parity and original workflow ownership before any separate Action publication |
+| Target                                     | Status    | Actual version / image | Last verified (UTC) | Evidence / next action                                                                                                                     |
+| ------------------------------------------ | --------- | ---------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Staging Web/API/worker                     | `pending` | Not verified           | Not verified        | No rollout requested; select an exact qualified main SHA in a future approved coherent batch                                               |
+| Production Web/API/worker                  | `pending` | Not verified           | Not verified        | Reconcile existing fleet and unfinished deployments; do not deploy a Draft PR                                                              |
+| Public/source-bound conflict Action bundle | `pending` | Not verified           | Not verified        | Rebuild exact `action-dist/conflict-runtime.cjs`, prove byte parity and original workflow ownership before any separate Action publication |
 
 `pending` records no completed qualification or deployment and does not assert absence of a deployed version. No environment rollout was attempted for this task.
 
@@ -48,6 +48,16 @@
 
 ## Execution log
 
-| Time (UTC) | Environment | Operator | Actual version / image | Observed result | Next step |
-| --- | --- | --- | --- | --- | --- |
+Local qualification on exact clean source `e3a2e9db87f052df68c21278f5dc96d7676e8aeb`
+completed 732/732 functional tests with zero skips under Node 26.11.1,
+TypeScript 7.0.2 and PostgreSQL 17.12. The maintained Prisma deploy created
+165 successful migration-ledger records. Two source-generated builds matched
+both committed Action bundles. See the
+[local E2E receipt](evidence/2026-11-23-architecture-phase2-local-e2e.json).
+Browser, offline-Prisma isolation, complete toolchain/build and final-head CI
+remain separate prerequisites. These are local qualification results; no
+environment deployment or public Action publication was performed.
+
+| Time (UTC)             | Environment | Operator                 | Actual version / image              | Observed result                                                                                                                                                                                           | Next step                                                                                                              |
+| ---------------------- | ----------- | ------------------------ | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | 2026-11-23 (pre-merge) | Source only | ChatGPT GitHub connector | Draft PR #977; no installed version | Scoped source changes and negative tests pushed; isolated exact-source Node22 smoke had 226 direct assertions PASS. This is **not** the pinned TS7 product build, PostgreSQL/browser E2E or deploy proof. | Finish qualified bundle, exact npm/lockfile, full product E2E and protected merge before any separate approved rollout |
