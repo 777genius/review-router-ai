@@ -1214,6 +1214,24 @@ jobs:
           pnpm --filter @reviewrouter/shared build
           node scripts/rewrite-dist-esm-imports.mjs
 
+      - name: Complete native compiler qualification
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/native-compiler-audit.jsonl
+          GOMAXPROCS: "2"
+          GOMEMLIMIT: "2048MiB"
+        run: |
+          pnpm --dir apps/web exec next typegen
+          pnpm compiler:pilot --maxWorkers=1
+
+      - name: Packed Foundation consumer and real workspace boundaries
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/foundation-consumer-audit.jsonl
+          GOMAXPROCS: "2"
+          GOMEMLIMIT: "2048MiB"
+        run: pnpm foundation:qualify
+
       - name: Review Action v2 protocol drift check
         run: pnpm protocol:check
 
