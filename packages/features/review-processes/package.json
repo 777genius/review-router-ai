@@ -27,8 +27,8 @@
     "@reviewrouter/platform-db": "workspace:*"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "node ../../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.build.json",
+    "typecheck": "node ../../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json",
     "test": "vitest run --root ../../.. packages/features/review-processes/src/tests"
   }
 }
