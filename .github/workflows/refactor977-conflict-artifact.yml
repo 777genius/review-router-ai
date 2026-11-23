@@ -57,8 +57,10 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          rm .github/workflows/refactor977-conflict-artifact.yml
-          git add -- action-dist/conflict-runtime.cjs .github/workflows/refactor977-conflict-artifact.yml
+          # The GitHub Actions token does not have workflow-edit authority.
+          # Commit only the generated artifact; the owner removes this temporary
+          # workflow through the existing GitHub connector after qualification.
+          git add -- action-dist/conflict-runtime.cjs
           git diff --cached --check
           if git diff --cached --quiet; then
             echo "Expected the one-time workflow self-removal to be staged" >&2
