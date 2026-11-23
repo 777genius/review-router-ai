@@ -158,6 +158,29 @@ jobs:
             throw new Error("expected exact resources negative fixture");
           guardedTests = guardedTests.replace(deniedOld, deniedNew);
           fs.writeFileSync(installerTests, guardedTests);
+          // Both maintained FMS/GM source qualification tools bind consumer
+          // profiles to precise package versions. Keep the assertions, change
+          // only the reviewed exact values; never disable those ratchets.
+          for (const file of [
+            "scripts/account-metadata-tooling/check.ts",
+            "scripts/review-history-tooling/check.ts",
+          ]) {
+            let checker = fs.readFileSync(file, "utf8");
+            for (const [before, after] of [
+              ['"@get-modular/core": "0.7.0"', '"@get-modular/core": "0.8.0"'],
+              ['"@get-modular/assembly": "0.7.0"', '"@get-modular/assembly": "0.8.0"'],
+              ['"@get-modular/conformance": "0.5.0"', '"@get-modular/conformance": "0.5.2"'],
+              ...(file.includes("review-history") ? [
+                ['"@get-modular/resources": "0.2.1"', '"@get-modular/resources": "0.2.2"'],
+              ] : []),
+            ]) {
+              if (checker.split(before).length !== 2) {
+                throw new Error("unreviewed owner-checker pin: " + file + ":" + before);
+              }
+              checker = checker.replace(before, after);
+            }
+            fs.writeFileSync(file, checker);
+          }
           const document = "architecture/foundation/README.md";
           let readme = fs.readFileSync(document, "utf8");
           for (const [oldVersion, newVersion] of [
@@ -249,6 +272,8 @@ jobs:
             scripts/provider-foundation/current-registry-artifacts.json \
             scripts/install-private-dependencies.mjs \
             scripts/install-private-dependencies.test.ts \
+            scripts/account-metadata-tooling/check.ts \
+            scripts/review-history-tooling/check.ts \
             architecture/foundation/README.md \
             architecture/review-skills/consumer-module-profile.json \
             architecture/review-history/consumer-module-profile.json \
