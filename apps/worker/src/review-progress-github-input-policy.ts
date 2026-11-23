@@ -117,7 +117,7 @@ export function repositoryParameters(
   input: Pick<UpsertReviewProgressCommentInput, "owner" | "repo">,
   extra: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, unknown>> {
-  return { owner: input.owner, repo: input.repo, ...extra };
+  return { ...extra, owner: input.owner, repo: input.repo };
 }
 
 /** Trust a numeric repository ID only after the pull identity was fenced. */

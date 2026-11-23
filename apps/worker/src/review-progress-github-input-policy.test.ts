@@ -5,6 +5,7 @@ import {
   formatReviewProgressComment,
   pullRequestIdentityViolation,
   repositoryIdFromValidatedPullRequest,
+  repositoryParameters,
   validateReviewProgressInput,
 } from "./review-progress-github-input-policy";
 
@@ -92,6 +93,16 @@ describe("Review progress GitHub input policy", () => {
         }),
       ).toThrow("review_progress_marker_invalid");
     }
+  });
+
+  it("keeps validated owner and repo when extra parameters conflict", () => {
+    expect(
+      repositoryParameters(validInput(), {
+        owner: "foreign",
+        repo: "other",
+        comment_id: 17,
+      }),
+    ).toEqual({ comment_id: 17, owner: "example", repo: "repo" });
   });
 
   it("trusts only safe numeric repository IDs", () => {
