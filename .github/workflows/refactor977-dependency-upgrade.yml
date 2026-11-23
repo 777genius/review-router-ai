@@ -246,6 +246,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          pnpm exec vitest run scripts/install-private-dependencies.test.ts
           pnpm foundation:qualify
           pnpm architecture:check
           pnpm modular:qualify
