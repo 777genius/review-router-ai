@@ -1,7 +1,8 @@
 # Native compiler pilot
 
-The default compiler remains the ordinary TypeScript 6.0.3 package, including
-its compiler API. Native TypeScript 7.0.2 is an explicit development CLI pilot.
+The ordinary TypeScript 6.0.3 package remains installed for classic compiler
+APIs and legacy routes. Qualified CLI routes explicitly select native TypeScript
+7.0.2 through the isolated helper.
 Both packages publish a bin named `tsc`; installing their aliases together can
 change the existing PATH command. The native alias therefore belongs in the
 separate private `scripts/local-checks/native` installation, outside the pnpm
@@ -28,7 +29,7 @@ dependencies. Version mismatches fail before compilation.
 
 `tsconfig.tooling.json` extends the existing strict base and covers the heading
 helper/test, compiler harness, and the agreed N1 `lint-format-*.ts/.mts` inputs.
-The authoritative typecheck script includes its explicit legacy invocation;
+The authoritative typecheck script includes its explicit native invocation;
 the existing root tsconfig alone does not establish coverage. One-shot
 NodeNext, spikes and hosted-pool operations retain their separate projects.
 
@@ -53,6 +54,13 @@ Turbo dependency ordering/output keys, Next build and plugin/API resolution,
 generated Next types, production exports, offline Prisma preparation and all
 workflow routes remain independent integration obligations. Native noEmit
 success does not qualify a Next production build.
+
+The root noEmit projects for spikes, one-shot handoff, tooling and lint/format
+select native explicitly, keeping their existing configs and shared-build
+prerequisite. `packages/platform/logger` also selects native for its normal
+build and typecheck. Dedicated legacy compatibility commands remain available;
+the helper's default selector is unchanged. Retained classic API integrations
+prevent a TypeScript 7-only toolchain claim.
 
 ## Required Get Modular consumer path
 
