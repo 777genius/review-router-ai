@@ -1,7 +1,8 @@
 # Native TypeScript checking in the Web build
 
 - Task ID: `2026-11-23-next-native-typecheck`.
-- Scope: the Web build's own TypeScript check and its exact dependencies.
+- Scope: the Web build's own TypeScript check and its exact dependencies,
+  including the declared parser dependency needed by its contract tests.
 - Base: `27c353d2425abf56db66e902caaba86f756dee8d`.
 - Status: planned qualification; no application deployment.
 
@@ -28,11 +29,21 @@ schema/output owner, copied clients, or package-resolution overrides. The root
 dependency change does not qualify the remaining classic compiler-API consumers
 or authorize their execution; integration with their existing owners is required.
 
+The full Web project also includes the hosted workflow recovery contract test.
+Its remaining classic-API loader is being migrated with the other test consumer
+by the existing native-toolchain workstream, preserving its production-behavior
+assertions. This task declares exact root development dependency
+`oxc-parser@0.159.0`, matching the public parser contract used by #980/#982; the
+existing `esbuild@0.28.1` supplies the loader's transpilation seam. Parser and
+test-loader source changes remain with their owners. An installed parser alone
+does not establish those gates or the complete Web build.
+
 ## Implementation plan
 
 1. Pin Next 16.4.6 at root and Web, and declare TypeScript 7.0.2 directly in both
-   packages. Generate the real pnpm lockfile, review the changed peer inventory
-   and verify exact published dependency integrity.
+   packages. Declare root `oxc-parser@0.159.0` for the integrated contract-test
+   loader and native AST gates. Generate the real pnpm lockfile, review the
+   changed peer inventory and verify exact published dependency integrity.
 2. Retain the existing native preflight, full Next build-time checking, strict
    project inputs and generated route types. Do not set `ignoreBuildErrors` or
    add an API compatibility shim.
