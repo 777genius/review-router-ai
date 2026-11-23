@@ -1166,23 +1166,58 @@ describe("ReviewProgressGitHubGateway", () => {
       "javascript:alert(1)",
       "blob:https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100",
       "data:text/plain,abc",
-      "ftp://api.github.com/comments?page=2&per_page=100",
-      "http://api.github.com/comments?page=2&per_page=100",
-      "https://untrusted.example/comments?page=2&per_page=100",
-      "//untrusted.example/comments?page=2&per_page=100",
+      "ftp://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100",
+      "http://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100",
+      "https://untrusted.example/repos/acme/rocket/issues/42/comments?page=2&per_page=100",
+      "//untrusted.example/repos/acme/rocket/issues/42/comments?page=2&per_page=100",
     ]) {
       const fixture = githubFixture([canonical, duplicate], {
         pagedComments: [[canonical, duplicate]],
-        pageLinks: [`<${href}>; rel="prev"`],
+        pageLinks: [`<${href}>; rel="next"`],
       });
       await expect(
-        gateway(fixture.request).upsert(input()),
+        gateway(fixture.request, { maxCommentPages: 2 }).upsert(input()),
       ).rejects.toMatchObject({
         kind: "pagination_inconclusive",
         metadata: { retryable: true },
       });
       expect(mutations(fixture.calls)).toEqual([]);
     }
+  });
+
+  it("accepts a same-origin next page before duplicate deletion", async () => {
+    const canonical = {
+      id: 19,
+      body: formatReviewProgressComment("working", marker),
+    };
+    const duplicate = { id: 20, body: `duplicate\n${marker}` };
+    const fixture = githubFixture([canonical, duplicate], {
+      pagedComments: [[canonical, duplicate], []],
+      pageLinks: [
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',
+      ],
+    });
+
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 2 }).upsert(input()),
+    ).resolves.toEqual({
+      commentId: 19,
+      operation: "duplicate_deleted",
+      duplicateCommentIds: [],
+    });
+    expect(
+      fixture.calls
+        .filter(({ route }) =>
+          route.includes("/issues/{issue_number}/comments"),
+        )
+        .map(({ parameters }) => parameters.page),
+    ).toEqual([1, 2, 1]);
+    expect(mutations(fixture.calls)).toEqual([
+      expect.objectContaining({
+        route: "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",
+        parameters: expect.objectContaining({ comment_id: 20 }),
+      }),
+    ]);
   });
 
   it("defers contradictory last-page links before mutating comments", async () => {
