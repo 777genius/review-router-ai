@@ -12,6 +12,7 @@
     "scripts/activate-review-history.ts",
     "scripts/context-tools-e2e/**/*.ts",
     "scripts/update-mcp-catalog.ts",
+    "scripts/lib/module-import-specifiers.ts",
     "scripts/lib/server-rendered-heading.ts",
     "scripts/lib/server-rendered-heading.test.ts",
     "scripts/lib/review-model-dispatch-release-profile.ts",
