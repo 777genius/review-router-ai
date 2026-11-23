@@ -1,0 +1,67 @@
+name: PR 977 one-time conflict artifact regeneration
+
+on:
+  push:
+    branches:
+      - refactor/architecture-boundaries-phase2-20261123
+    paths:
+      - .github/workflows/refactor977-conflict-artifact.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refactor977-conflict-runtime-artifact
+  cancel-in-progress: false
+
+jobs:
+  regenerate:
+    if: ${{ github.repository == '777genius/review-router-ai' && github.ref == 'refs/heads/refactor/architecture-boundaries-phase2-20261123' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: true
+          fetch-depth: 2
+      - name: Select pinned Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '26.11.1'
+      - name: Install pinned pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - name: Install reviewed lockfile
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+      - name: Generate bundle twice and assert byte identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          test -n "$source_sha"
+          node scripts/build-conflict-runtime.ts
+          first="$(sha256sum action-dist/conflict-runtime.cjs | cut -d' ' -f1)"
+          node scripts/build-conflict-runtime.ts
+          second="$(sha256sum action-dist/conflict-runtime.cjs | cut -d' ' -f1)"
+          test "$first" = "$second"
+          node scripts/build-conflict-runtime.ts --check
+          echo "source=$source_sha bundle=$second"
+      - name: Confirm bounded action-runtime tests and imports
+        run: |
+          pnpm exec vitest run packages/features/conflict-runtime/src/tests/action-control-plane-conflict-posting-client.test.ts packages/features/action-control-plane/src/tests/conflict-runtime-contract.test.ts scripts/check-architecture-boundaries.test.ts
+          node scripts/check-architecture-boundaries.mjs
+      - name: Commit only source-bound artifact and self-remove tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm .github/workflows/refactor977-conflict-artifact.yml
+          git add -- action-dist/conflict-runtime.cjs .github/workflows/refactor977-conflict-artifact.yml
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "Expected the one-time workflow self-removal to be staged" >&2
+            exit 1
+          fi
+          git commit -m "build(action): regenerate exact conflict runtime artifact and remove one-off runner"
+          git push origin HEAD:refs/heads/refactor/architecture-boundaries-phase2-20261123
