@@ -1,0 +1,99 @@
+name: PR 977 native parser migration qualification
+
+on:
+  push:
+    branches:
+      - build/refactor977-native-parser-toolchain-20261123
+    paths:
+      - .github/workflows/refactor977-native-parser.yml
+      - scripts/check-architecture-boundaries.mjs
+      - scripts/check-architecture-boundaries.test.ts
+      - scripts/lib/module-import-specifiers.ts
+      - scripts/lib/application-composition-boundaries.ts
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refactor977-native-parser
+  cancel-in-progress: true
+
+jobs:
+  parser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "26.11.1"
+      - name: Isolate exact parser, native compiler and test runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p "$RUNNER_TEMP/rr977-native-parser/scripts/lib"
+          cp scripts/check-architecture-boundaries.mjs "$RUNNER_TEMP/rr977-native-parser/scripts/"
+          cp scripts/check-architecture-boundaries.test.ts "$RUNNER_TEMP/rr977-native-parser/scripts/"
+          cp scripts/lib/{module-import-specifiers,application-composition-boundaries}.ts "$RUNNER_TEMP/rr977-native-parser/scripts/lib/"
+          cat > "$RUNNER_TEMP/rr977-native-parser/package.json" <<'JSON'
+          {
+            "name": "rr977-parser-qualification",
+            "private": true,
+            "type": "module",
+            "devDependencies": {
+              "@types/node": "22.19.17",
+              "oxc-parser": "0.159.0",
+              "oxfmt": "0.72.0",
+              "typescript": "7.0.2",
+              "vitest": "4.1.10"
+            }
+          }
+          JSON
+          npm install --prefix "$RUNNER_TEMP/rr977-native-parser" --ignore-scripts --no-audit --no-fund
+          node -e 'const x=require(process.argv[1]); if(x.version!=="7.0.2"||x.createSourceFile)process.exit(1)' "$RUNNER_TEMP/rr977-native-parser/node_modules/typescript"
+          test "$(node -p 'require(process.argv[1]).version' "$RUNNER_TEMP/rr977-native-parser/node_modules/oxc-parser/package.json")" = "0.159.0"
+          cat > "$RUNNER_TEMP/rr977-native-parser/tsconfig.json" <<'JSON'
+          {
+            "compilerOptions": {
+              "target": "ES2022",
+              "module": "ESNext",
+              "moduleResolution": "Bundler",
+              "strict": true,
+              "noUncheckedIndexedAccess": true,
+              "exactOptionalPropertyTypes": true,
+              "skipLibCheck": true,
+              "allowImportingTsExtensions": true,
+              "noEmit": true,
+              "types": ["node"]
+            },
+            "files": ["scripts/lib/module-import-specifiers.ts"]
+          }
+          JSON
+      - name: Strict TypeScript 7 check for native parser adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/rr977-native-parser/node_modules/.bin/tsc" -p "$RUNNER_TEMP/rr977-native-parser/tsconfig.json"
+      - name: Run existing architecture rejecting fixtures on native parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/rr977-native-parser"
+          ./node_modules/.bin/vitest run scripts/check-architecture-boundaries.test.ts
+      - name: Check complete real source boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          REVIEWROUTER_ARCHITECTURE_ROOT="$GITHUB_WORKSPACE" node "$RUNNER_TEMP/rr977-native-parser/scripts/check-architecture-boundaries.mjs"
+      - name: Identify pinned Oxfmt drift without committing from CI
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/rr977-native-parser/node_modules/.bin/oxfmt" --config "$GITHUB_WORKSPACE/.oxfmtrc.json" --write scripts/check-architecture-boundaries.mjs scripts/lib/module-import-specifiers.ts
+          git diff --check -- scripts/check-architecture-boundaries.mjs scripts/lib/module-import-specifiers.ts
+          git diff --exit-code -- scripts/check-architecture-boundaries.mjs scripts/lib/module-import-specifiers.ts
