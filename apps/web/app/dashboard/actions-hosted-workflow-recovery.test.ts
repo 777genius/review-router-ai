@@ -146,7 +146,8 @@ vi.mock(
 // the dashboard method, use case, Prisma adapters and configuration writes run.
 vi.mock("../../src/server/prisma-hosted-pool-mutations", async () => {
   const { readFileSync } = await import("node:fs");
-  const ts = await import("typescript");
+  const { parseSync } = await import("oxc-parser");
+  const { transformSync } = await import("esbuild");
   const configuration = await import("@reviewrouter/features-review-config");
   const { switchRepositoryConfigurationAuthMode } =
     await import("@reviewrouter/features-workflow-provisioning/composition");
@@ -159,34 +160,44 @@ vi.mock("../../src/server/prisma-hosted-pool-mutations", async () => {
     dependencies: Record<string, unknown>,
     names: string[],
   ) {
-    const parsed = ts.createSourceFile(
-      "production.ts",
-      source,
-      ts.ScriptTarget.Latest,
-      true,
-    );
-    const declarations = parsed.statements
-      .filter(
-        (statement) =>
-          (ts.isFunctionDeclaration(statement) ||
-            ts.isClassDeclaration(statement)) &&
-          statement.name &&
-          names.includes(statement.name.getText(parsed)),
-      )
-      .map((statement) => statement.getText(parsed))
+    // The evaluated production declarations remain the independent test
+    // subject. TS7 has no classic createSourceFile/transpileModule API.
+    const parsed = parseSync("production.ts", source, {
+      preserveParens: false,
+    });
+    if (parsed.errors.length > 0)
+      throw new Error(
+        "production_adapter_parse_failed:" +
+          parsed.errors.map((error) => error.message).join(";"),
+      );
+    const declarations = parsed.program.body
+      .filter((statement) => {
+        const node =
+          "declaration" in statement && statement.declaration
+            ? statement.declaration
+            : statement;
+        return (
+          (node.type === "FunctionDeclaration" ||
+            node.type === "ClassDeclaration") &&
+          node.id?.type === "Identifier" &&
+          names.includes(node.id.name)
+        );
+      })
+      .map((statement) => source.slice(statement.start, statement.end))
       .join("\n");
-    const js = ts.transpileModule(declarations, {
-      compilerOptions: {
-        module: ts.ModuleKind.CommonJS,
-        target: ts.ScriptTarget.ES2022,
-      },
-    }).outputText;
+    const js = transformSync(declarations, {
+      loader: "ts",
+      format: "cjs",
+      target: "es2022",
+    }).code;
     const exports = {};
+    const module = { exports };
     return new Function(
+      "module",
       "exports",
       ...Object.keys(dependencies),
       js + `\nreturn { ${names.join(", ")} };`,
-    )(exports, ...Object.values(dependencies));
+    )(module, exports, ...Object.values(dependencies));
   }
   const adapters = evaluate(
     readFileSync(
