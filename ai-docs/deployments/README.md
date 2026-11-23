@@ -31,6 +31,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+Native AST migration: [preserve transaction rejection and layout source edges](2026-11-23-native-ast-regressions.md) — planned dependent repair of #980/#982; native reproductions, strict checks, integration and CI remain pending.
+
 ReviewRouter architecture phase II: [narrow Action and workflow feature ownership, conflict-runtime bundle parity, qualified Foundation/Get Modular dependency adoption](2026-11-23-architecture-phase2.md), [Draft PR #977](https://github.com/777genius/review-router-ai/pull/977) — Web/API/worker and source-bound Action bundle; **staging/production pending** and no deploy authorized. No schema or activation changes; must join an approved coherent rollout only after full E2E and appropriate paired artifact qualification.
 
 Updated landing walkthrough: [the hero video uses the new 48.2-second 1080p Mux asset](2026-11-23-hero-video-v96.md) — Web-only ordinary rollout; staging and production `pending`. No migration, configuration, API, worker, Gateway, native or public Action change.
