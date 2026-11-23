@@ -204,6 +204,7 @@ jobs:
             ["Foundation 2.1's public", "The maintained public"],
             ["pinned to 0.7.0", "pinned to 0.8.0"],
             ["currently installed 0.7.0", "currently installed 0.8.0"],
+            ["same 0.7.0 generation", "same 0.8.0 generation"],
             ["0.7.0 packed artifacts", "0.8.0 packed artifacts"],
             ["Assembly 0.7 performs", "Assembly 0.8 performs"],
           ]) {
@@ -245,12 +246,68 @@ jobs:
           const source = fs.readFileSync(consumer, "utf8");
           fs.writeFileSync(consumer, source.replaceAll("0.7", "0.8"));
           NODE
+      - name: Qualify isolated packed Get Modular with TypeScript 7
+        env:
+          npm_config_ignore_scripts: "true"
+        run: node scripts/provider-foundation/qualify-packed.ts
+      - name: Require owning compiler migration before workspace execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("node:fs");
+          const root = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          const native = JSON.parse(fs.readFileSync(
+            "scripts/local-checks/native/package.json", "utf8",
+          ));
+          const compilerSource = fs.readFileSync(
+            "scripts/local-checks/compiler-cli.ts", "utf8",
+          );
+          const expected = compilerSource.match(
+            /const expected = legacy \? "([^"]+)" : "([^"]+)"/u,
+          );
+          const currentExactVersion = (version) => {
+            const match = /^(\d+)\.(\d+)\.(\d+)$/u.exec(version || "");
+            if (!match) return false;
+            const [major, minor, patch] = match.slice(1).map(Number);
+            return major > 7 || (major === 7 && (minor > 0 || patch >= 2));
+          };
+          const blockers = [];
+          if (!currentExactVersion(root.devDependencies?.typescript)) {
+            blockers.push({
+              owner: "package.json#devDependencies.typescript",
+              declared: root.devDependencies?.typescript,
+              affected: "workspace compiler, AST boundary guard and parser consumers",
+            });
+          }
+          if (!expected || !expected.slice(1).every(currentExactVersion)) {
+            blockers.push({
+              owner: "scripts/local-checks/compiler-cli.ts",
+              declared: expected?.slice(1) ?? "unrecognized owner contract",
+              affected: "shared application and tooling compiler gates",
+            });
+          }
+          console.log(JSON.stringify({
+            required: "Exact TypeScript compiler and parser 7.0.2 or newer",
+            source: process.env.GITHUB_SHA,
+            isolatedConsumerCompiler: "7.0.2",
+            nativeCompiler: native.dependencies?.["typescript-native"],
+            workspaceInstallationOrLifecycleStarted: false,
+            blockers,
+          }, null, 2));
+          if (blockers.length) {
+            console.error(
+              "COMPILER_UPGRADE_REQUIRED: resolve the owning compiler/parser migration before workspace install, lifecycle, SDK transport, Foundation, architecture or full typecheck. Published identities and isolated packed consumer are bounded evidence only; dependency source/lockfiles remain unqualified and are not committed.",
+            );
+            process.exit(1);
+          }
+          NODE
       - name: Generate both real pnpm 11 lockfiles, not reconstructed integrity
         shell: bash
         run: |
           set -euo pipefail
-          pnpm install --lockfile-only --ignore-scripts
-          pnpm --dir scripts/review-skills-tooling install --lockfile-only --ignore-scripts
+          pnpm install --lockfile-only --no-frozen-lockfile --ignore-scripts
+          pnpm --dir scripts/review-skills-tooling install --lockfile-only --no-frozen-lockfile --ignore-scripts
           pnpm install --frozen-lockfile --ignore-scripts
           pnpm --dir scripts/review-skills-tooling install --frozen-lockfile --ignore-scripts
       - name: Prepare actual product dependencies and generated Prisma
