@@ -332,3 +332,26 @@ test("PostgreSQL and memory E2E defer Draft but qualify Ready/main", () => {
     /live-tuning:[\s\S]*?inputs\.mode == 'live-tuning' && github\.ref == 'refs\/heads\/main'/,
   );
 });
+
+
+test("PR supersession does not cancel exact-main CI and database E2E evidence", () => {
+  const names = [
+    ["ci.yml", "ci-v2-${{ github.workflow }}"],
+    ["account-gateway-long-run.yml", "account-gateway-long-run-p115"],
+    ["account-gateway-operator-grants.yml", "account-gateway-operator-grants-s"],
+    ["hindsight-memory-qualification.yml", "hindsight-native"],
+    ["memory-projections.yml", "memory-authority"],
+    ["provider-accounts-c1.yml", "provider-accounts-c1"],
+  ];
+  for (const [file, prefix] of names) {
+    const source = readFileSync(new URL("../.github/workflows/" + file, import.meta.url), "utf8");
+    const header = source.split("\njobs:")[0];
+    assert.match(header, /^  pull_request:/m, file + ": original PR trigger removed");
+    assert.match(header, /^  push:/m, file + ": original main/feature push removed");
+    const group = "  group: " + prefix + "-${{ github.event_name }}-${{ github.event_name == 'pull_request' && (github.event.pull_request.number || github.ref) || github.run_id }}";
+    assert.ok(header.includes(group), file + ": each push must have unique immutable run identity");
+    assert.ok(header.includes("  cancel-in-progress: ${{ github.event_name == 'pull_request' }}"),
+      file + ": only obsolete PR runs may be cancelled");
+    assert.doesNotMatch(header, /cancel-in-progress:.*github\.event_name == 'push'/);
+  }
+});
