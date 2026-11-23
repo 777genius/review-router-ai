@@ -1,0 +1,225 @@
+name: PR 977 one-time verified foundation and modular upgrade
+
+on:
+  push:
+    branches:
+      - refactor/phase2-dependencies-qualification-20261123
+    paths:
+      - .github/workflows/refactor977-dependency-upgrade.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refactor977-exact-dependency-qualification
+  cancel-in-progress: false
+
+jobs:
+  upgrade:
+    if: ${{ github.repository == '777genius/review-router-ai' && github.ref == 'refs/heads/refactor/phase2-dependencies-qualification-20261123' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - name: Checkout existing qualified consumer source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: true
+          fetch-depth: 2
+      - name: Select approved Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '26.11.1'
+      - name: Select approved pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - name: Verify exact published versions and integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          for coordinate in \
+            '@agent-teams/engineering-foundation@3.1.0' \
+            '@agent-teams/feature-module-standard@0.3.2' \
+            '@agent-teams/document-authoring@0.3.6' \
+            '@agent-teams/repository-mutation@0.4.2' \
+            '@get-modular/core@0.8.0' \
+            '@get-modular/assembly@0.8.0' \
+            '@get-modular/conformance@0.5.2' \
+            '@get-modular/resources@0.2.2'; do
+            echo "Verify published exact artifact $coordinate"
+            npm view "$coordinate" dist.integrity --json | grep -Eq 'sha512-'
+          done
+      - name: Update only reviewed exact manifests, profiles and release age coordinates
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const targets = {
+            "@get-modular/core": ["0.7.0", "0.8.0"],
+            "@get-modular/assembly": ["0.7.0", "0.8.0"],
+            "@get-modular/conformance": ["0.5.0", "0.5.2"],
+            "@get-modular/resources": ["0.2.1", "0.2.2"],
+            "@agent-teams/engineering-foundation": ["2.1.0", "3.1.0"],
+            "@agent-teams/feature-module-standard": ["0.2.2", "0.3.2"],
+          };
+          const rootPackages = ["package.json", "scripts/review-skills-tooling/package.json"];
+          for (const name of fs.readdirSync("packages/features")) {
+            const file = path.join("packages/features", name, "package.json");
+            if (fs.existsSync(file)) rootPackages.push(file);
+          }
+          let edits = 0;
+          for (const file of rootPackages) {
+            const data = JSON.parse(fs.readFileSync(file, "utf8"));
+            let changed = false;
+            for (const group of ["dependencies", "devDependencies"]) {
+              for (const [name, [before, after]] of Object.entries(targets)) {
+                if (!Object.hasOwn(data[group] || {}, name)) continue;
+                if (data[group][name] !== before) {
+                  throw new Error(file + ": unexpected prior " + name + "=" + data[group][name]);
+                }
+                data[group][name] = after;
+                changed = true;
+              }
+            }
+            if (changed) {
+              fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\n");
+              edits++;
+            }
+          }
+          for (const file of [
+            "architecture/review-skills/consumer-module-profile.json",
+            "architecture/review-history/consumer-module-profile.json",
+            "architecture/account-metadata/consumer-module-profile.json",
+          ]) {
+            const data = JSON.parse(fs.readFileSync(file, "utf8"));
+            for (const [name, [before, after]] of Object.entries(targets)) {
+              if (!Object.hasOwn(data.packages || {}, name)) continue;
+              if (data.packages[name] !== before) {
+                throw new Error(file + ": unexpected profile prior " + name);
+              }
+              data.packages[name] = after;
+            }
+            fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\n");
+            edits++;
+          }
+          const replaceCoordinate = (file, before, after) => {
+            const source = fs.readFileSync(file, "utf8");
+            const needle = '"' + before + '"';
+            if (source.split(needle).length !== 2) {
+              throw new Error(file + ": expected one release-age exception " + needle);
+            }
+            fs.writeFileSync(file, source.replace(needle, '"' + after + '"'));
+          };
+          const root = "pnpm-workspace.yaml";
+          const nested = "scripts/review-skills-tooling/pnpm-workspace.yaml";
+          for (const [before, after] of [
+            ["@agent-teams/engineering-foundation@2.1.0", "@agent-teams/engineering-foundation@3.1.0"],
+            ["@agent-teams/document-authoring@0.3.4", "@agent-teams/document-authoring@0.3.6"],
+            ["@agent-teams/repository-mutation@0.4.0", "@agent-teams/repository-mutation@0.4.2"],
+          ]) {
+            replaceCoordinate(root, before, after);
+            replaceCoordinate(nested, before, after);
+          }
+          replaceCoordinate(nested, "@agent-teams/feature-module-standard@0.2.2", "@agent-teams/feature-module-standard@0.3.2");
+          for (const [before, after] of [
+            ["@get-modular/core@0.7.0", "@get-modular/core@0.8.0"],
+            ["@get-modular/assembly@0.7.0", "@get-modular/assembly@0.8.0"],
+            ["@get-modular/conformance@0.5.0", "@get-modular/conformance@0.5.2"],
+            ["@get-modular/resources@0.2.1", "@get-modular/resources@0.2.2"],
+          ]) replaceCoordinate(root, before, after);
+          const document = "architecture/foundation/README.md";
+          let readme = fs.readFileSync(document, "utf8");
+          for (const [oldVersion, newVersion] of [
+            ["Foundation 2.1.0", "Foundation 3.1.0"],
+            ["Foundation 2.1's public", "The maintained public"],
+            ["pinned to 0.7.0", "pinned to 0.8.0"],
+            ["currently installed 0.7.0", "currently installed 0.8.0"],
+            ["0.7.0 packed artifacts", "0.8.0 packed artifacts"],
+            ["Assembly 0.7 performs", "Assembly 0.8 performs"],
+          ]) {
+            readme = readme.replaceAll(oldVersion, newVersion);
+          }
+          fs.writeFileSync(document, readme);
+          if (edits < 8) throw new Error("Incomplete exact-package upgrade inventory: " + edits);
+          console.log("Updated " + edits + " exact dependency manifests/profiles");
+          NODE
+      - name: Rebind current packed GM consumer to published 0.8 artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("node:fs");
+          const { execFileSync } = require("node:child_process");
+          const path = "scripts/provider-foundation/current-registry-artifacts.json";
+          const receipt = JSON.parse(fs.readFileSync(path, "utf8"));
+          for (const artifact of receipt.artifacts) {
+            const newVersion = "0.8.0";
+            if (!["@get-modular/core", "@get-modular/assembly"].includes(artifact.name) || artifact.version !== "0.7.0") {
+              throw new Error("unexpected packed artifact " + artifact.name + "@" + artifact.version);
+            }
+            const metadata = JSON.parse(execFileSync("npm", [
+              "view", artifact.name + "@" + newVersion, "--json",
+            ], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 }));
+            if (metadata.version !== newVersion ||
+                typeof metadata.dist?.integrity !== "string" ||
+                !metadata.dist.integrity.startsWith("sha512-") ||
+                !metadata.exports || typeof metadata.exports !== "object") {
+              throw new Error("missing published package integrity or exports: " + artifact.name);
+            }
+            artifact.version = newVersion;
+            artifact.integrity = metadata.dist.integrity;
+            artifact.exports = metadata.exports;
+          }
+          fs.writeFileSync(path, JSON.stringify(receipt, null, 2) + "\n");
+          const consumer = "scripts/provider-foundation/current-consumer.ts";
+          const source = fs.readFileSync(consumer, "utf8");
+          fs.writeFileSync(consumer, source.replaceAll("0.7", "0.8"));
+          NODE
+      - name: Generate both real pnpm 11 lockfiles, not reconstructed integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm install --lockfile-only --ignore-scripts
+          pnpm --dir scripts/review-skills-tooling install --lockfile-only --ignore-scripts
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm --dir scripts/review-skills-tooling install --frozen-lockfile --ignore-scripts
+      - name: Prepare actual product dependencies and generated Prisma
+        run: |
+          node scripts/install-private-dependencies.mjs --frozen-lockfile
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA=1 node scripts/generate-prisma-offline.mjs
+      - name: Qualify packed consumer, source rules, composition, FMS and TypeScript
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm foundation:qualify
+          pnpm architecture:check
+          pnpm modular:qualify
+          pnpm skills:architecture
+          pnpm history:architecture
+          pnpm metadata:architecture
+          pnpm metadata:typecheck
+          pnpm typecheck
+          pnpm format:check
+      - name: Commit exactly verified source and lockfile changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm .github/workflows/refactor977-dependency-upgrade.yml
+          git add -- package.json pnpm-lock.yaml pnpm-workspace.yaml \
+            scripts/review-skills-tooling/package.json \
+            scripts/review-skills-tooling/pnpm-lock.yaml \
+            scripts/review-skills-tooling/pnpm-workspace.yaml \
+            scripts/provider-foundation/current-consumer.ts \
+            scripts/provider-foundation/current-registry-artifacts.json \
+            architecture/foundation/README.md \
+            architecture/review-skills/consumer-module-profile.json \
+            architecture/review-history/consumer-module-profile.json \
+            architecture/account-metadata/consumer-module-profile.json \
+            packages/features/*/package.json \
+            .github/workflows/refactor977-dependency-upgrade.yml
+          git diff --cached --check
+          test -n "$(git diff --cached --name-only)"
+          git commit -m "build(deps): qualify current Foundation 3.1 and Get Modular 0.8 artifacts"
+          git push origin HEAD:refs/heads/refactor/phase2-dependencies-qualification-20261123
