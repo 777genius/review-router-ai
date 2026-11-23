@@ -13,22 +13,34 @@ cannot establish a complete TypeScript 7 build. Next 16.4.6 has a supported CLI
 route that resolves the application's TypeScript package and checks the full
 configured project.
 
-This task owns the Next upgrade and application-local TypeScript dependency.
-Architecture parsing remains with #977/#980, compiler CLI cohorts with
+This task owns the Next upgrade and coherent root/Web TypeScript dependency.
+Architecture parsing remains with #977/#980/#982, compiler CLI cohorts with
 #967/#969/#971–#975, and the current modular consumer with #976. Their source and
 qualification are not replaced. Existing Skills and PostgreSQL contract repairs
 remain in #967 and #978.
 
+The initial Web-only TypeScript 7 pin exposed a concrete Prisma installation
+boundary: pnpm created separate root/DB and Web client peer contexts. Canonical
+`db:generate` prepares the client resolved from the schema's directory, leaving
+the Web context without generated types and runtime. The agreed minimal repair
+is the same exact TypeScript 7.0.2 dependency at root and Web. This avoids a new
+schema/output owner, copied clients, or package-resolution overrides. The root
+dependency change does not qualify the remaining classic compiler-API consumers
+or authorize their execution; integration with their existing owners is required.
+
 ## Implementation plan
 
-1. Pin Next 16.4.6 and declare TypeScript 7.0.2 directly for Web. Generate the
-   real pnpm lockfile and verify exact published dependency integrity.
+1. Pin Next 16.4.6 at root and Web, and declare TypeScript 7.0.2 directly in both
+   packages. Generate the real pnpm lockfile, review the changed peer inventory
+   and verify exact published dependency integrity.
 2. Retain the existing native preflight, full Next build-time checking, strict
    project inputs and generated route types. Do not set `ignoreBuildErrors` or
    add an API compatibility shim.
-3. Qualify the real Web project and production build on Node 26.11.1. Verify
-   which TypeScript implementation Next actually selects and reject a deliberate
-   type error through Next's own check, independently of the preflight.
+3. Verify a frozen install and canonical Prisma generation resolve one generated
+   client for root, DB and Web. Qualify the real Web project and production build
+   on Node 26.11.1. Verify which TypeScript implementation Next actually selects
+   and reject a deliberate type error through Next's own check, independently of
+   the preflight.
 4. Verify the compiled landing and dashboard boundaries, review the complete
    dependency/configuration diff and collect applicable final-source CI.
 5. Integrate with the remaining native toolchain prerequisites through the normal
