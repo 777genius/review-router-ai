@@ -147,7 +147,7 @@ describe("ReviewProgressGitHubGateway", () => {
     });
     expect(
       fixture.calls.filter(({ route }) => route.startsWith("GET ")),
-    ).toHaveLength(6);
+    ).toHaveLength(7);
   });
 
   it("does not reconcile a landed POST after the repository changes", async () => {
@@ -1033,6 +1033,58 @@ describe("ReviewProgressGitHubGateway", () => {
       metadata: { retryable: true },
     });
     expect(firstPageReads).toBe(2);
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("blocks POST when a marker appears on the terminal page during recheck", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const fixture = githubFixture([], {
+      pagedComments: [firstPage, [{ id: 101, body: "unrelated" }]],
+      pageLinks: [
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="prev"',
+      ],
+    });
+    const listRoute =
+      "GET /repos/{owner}/{repo}/issues/{issue_number}/comments";
+    let terminalReads = 0;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (route !== listRoute || parameters?.page !== 2) return response;
+      terminalReads += 1;
+      if (terminalReads !== 2) return response;
+      return {
+        ...response,
+        data: [
+          ...(response.data as unknown[]),
+          {
+            id: 102,
+            body: `another publication\\n${marker}`,
+            user: { login: "review-router[bot]" },
+          },
+        ],
+      };
+    };
+
+    await expect(
+      gateway(request, { maxCommentPages: 2 }).upsert(input()),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      message: "github_issue_comments_offset_changed",
+      metadata: { retryable: true },
+    });
+    expect(terminalReads).toBe(2);
+    expect(
+      fixture.calls
+        .filter(({ route }) => route === listRoute)
+        .map(({ parameters }) => parameters.page),
+    ).toEqual([1, 2, 1, 2]);
     expect(mutations(fixture.calls)).toEqual([]);
   });
 

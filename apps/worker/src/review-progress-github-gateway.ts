@@ -452,10 +452,13 @@ export class ReviewProgressGitHubGateway {
         );
       }
     }
+    // A stable earlier page cannot certify that the terminal page stayed
+    // empty while it was being rechecked. Fence new-comment creation too.
     await this.recheckObservedCommentPages(
       input,
       observedPages,
       verifiedRepositoryId,
+      matches.length === 0,
     );
     return matches.sort((left, right) => left.id - right.id);
   }
@@ -465,11 +468,14 @@ export class ReviewProgressGitHubGateway {
     input: UpsertReviewProgressCommentInput,
     observedPages: readonly string[],
     verifiedRepositoryId?: number,
+    includeTerminalPage = false,
   ): Promise<void> {
-    // GitHub offset pages are not snapshots: deleting an earlier comment can
-    // shift a marker into the gap even when the final page is short.
-    // Recheck earlier pages before authorizing any POST, PATCH or DELETE.
-    for (let page = 1; page < observedPages.length; page += 1) {
+    // GitHub offset pages are not snapshots. Recheck preceding pages for
+    // shifts; for an empty scan, also recheck the terminal page before POST.
+    const finalPage = includeTerminalPage
+      ? observedPages.length
+      : observedPages.length - 1;
+    for (let page = 1; page <= finalPage; page += 1) {
       const current = await this.fetchCommentPage(
         input,
         page,
