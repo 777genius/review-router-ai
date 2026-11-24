@@ -28,6 +28,8 @@ export {
   workflowDocumentSemanticSha256,
   type VersionedProviderSecretNamespace,
 } from "@reviewrouter/features-codex-oauth-rotating";
+export * from "./application/ports/current-workflow-setup-query-port";
+export * from "./application/use-cases/assert-current-workflow-setup";
 export * from "./application/ports/workflow-setup-gateway-port";
 export * from "./application/ports/workflow-provisioning-query-port";
 export * from "./application/ports/workflow-provisioning-repository-port";

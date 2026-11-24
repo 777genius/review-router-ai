@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import ts from "typescript";
+import { collectModuleImportSpecifiers } from "./lib/module-import-specifiers.ts";
 import { checkApplicationCompositionBoundaries } from "./lib/application-composition-boundaries.ts";
 
 const root = process.env.REVIEWROUTER_ARCHITECTURE_ROOT
@@ -414,34 +415,16 @@ function checkAccountMetadataHostBoundaries(violations) {
           "account metadata host must use only its declared public SDK, composition and authorization seams",
       });
     }
+    for (const imported of collectModuleImportSpecifiers(source)) {
+      if (!allowed.has(imported)) reject(imported);
+    }
     function visit(node) {
-      let specifier;
-      if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
-        specifier = node.moduleSpecifier;
-      else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument))
-        specifier = node.argument.literal;
-      else if (ts.isCallExpression(node)) {
-        if (
-          node.expression.kind === ts.SyntaxKind.ImportKeyword ||
-          (ts.isIdentifier(node.expression) &&
-            node.expression.text === "require")
-        ) {
-          specifier = node.arguments[0];
-          if (!specifier || !ts.isStringLiteralLike(specifier))
-            reject("computed module import");
-        }
-        if (
-          ts.isIdentifier(node.expression) &&
-          node.expression.text === "fetch"
-        )
-          reject("direct fetch");
-      }
       if (
-        specifier &&
-        ts.isStringLiteralLike(specifier) &&
-        !allowed.has(specifier.text)
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === "fetch"
       )
-        reject(specifier.text);
+        reject("direct fetch");
       ts.forEachChild(node, visit);
     }
     visit(source);
@@ -698,9 +681,13 @@ async function checkActionConflictRuntimePublishedContract(
       reason: "conflict-runtime published contract needs its standalone domain owner",
     });
   } else {
-    for (const imported of extractImportSpecifiers(
+    const source = ts.createSourceFile(
+      owned,
       readFileSync(owned, "utf8"),
-    )) {
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    for (const imported of collectModuleImportSpecifiers(source)) {
       if (imported !== "zod" && imported !== "@reviewrouter/shared") {
         violations.push({
           file: owned,
@@ -721,16 +708,24 @@ async function checkActionConflictRuntimePublishedContract(
     for (const file of await collectAllSourceFiles(conflictSource)) {
       const relativePath = relative(conflictSource, file).replaceAll("\\", "/");
       if (allowedLegacyAdapters.has(relativePath)) continue;
+      const source = ts.createSourceFile(
+        file,
+        readFileSync(file, "utf8"),
+        ts.ScriptTarget.Latest,
+        true,
+      );
+      const imports = collectModuleImportSpecifiers(source);
       if (
-        extractImportSpecifiers(readFileSync(file, "utf8")).has(
-          "@reviewrouter/features-action-control-plane"
-        )
+        imports.has("@reviewrouter/features-action-control-plane") ||
+        imports.has("computed module import")
       ) {
         violations.push({
           file,
-          imported: "@reviewrouter/features-action-control-plane",
+          imported: imports.has("computed module import")
+            ? "computed module import"
+            : "@reviewrouter/features-action-control-plane",
           reason:
-            "conflict-runtime must use narrow published contracts rather than the eager Action root",
+            "conflict-runtime must use statically known narrow published contracts rather than the eager Action root",
         });
       }
     }

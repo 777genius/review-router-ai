@@ -3,15 +3,15 @@
  * durable state. This is an authorization/recovery precondition, not a
  * substitute for the storage adapter's atomic compare-and-swap settlement.
  */
-type ObservedSetupAttempt = Readonly<{
+export type WorkflowSetupAttempt = Readonly<{
   attemptId: string;
-  revision: number | bigint;
+  revision: number;
   pullRequestHeadSha: string | null;
   branch: string | null;
   pullRequestUrl: string | null;
 }>;
 
-type CurrentSetupAttempt = ObservedSetupAttempt &
+export type CurrentWorkflowSetupAttempt = WorkflowSetupAttempt &
   Readonly<{
     workspaceId: string;
     installationId: string | null;
@@ -20,19 +20,21 @@ type CurrentSetupAttempt = ObservedSetupAttempt &
     actionVersion: string;
   }>;
 
+export type WorkflowSetupArtifact = Readonly<{
+  workflowPath: string;
+  workflowStyle: string;
+  actionVersion: string;
+}>;
+
 export function isCurrentWorkflowSetupAuthority(input: {
   readonly observedRepositoryDefaultBranch: string | null | undefined;
   readonly expectedBaseBranch: string;
-  readonly expectedAttempt: ObservedSetupAttempt | null;
-  readonly currentAttempt: CurrentSetupAttempt | null;
+  readonly expectedAttempt: WorkflowSetupAttempt | null;
+  readonly currentAttempt: CurrentWorkflowSetupAttempt | null;
   readonly workspaceId: string;
   readonly installationId: string | null;
   readonly historicalMergedSetupPullRequest: boolean;
-  readonly verifiedArtifact: Readonly<{
-    workflowPath: string;
-    workflowStyle: string;
-    actionVersion: string;
-  }>;
+  readonly verifiedArtifact: WorkflowSetupArtifact;
 }): boolean {
   if (input.observedRepositoryDefaultBranch !== input.expectedBaseBranch) {
     return false;
