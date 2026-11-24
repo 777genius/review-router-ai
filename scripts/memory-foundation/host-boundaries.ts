@@ -80,6 +80,8 @@ function staticText(
       if (typeof cooked === "string") return cooked;
     }
   }
+  if (node.type === "TSLiteralType")
+    return staticText(node.literal, constants);
   if (node.type === "Identifier" && typeof node.name === "string")
     return constants.get(node.name);
   if (
