@@ -221,6 +221,21 @@ not resolve its existing `.js` source imports. The harness refuses live dotenv
 files in either the repository root or app directory. NextAuth 4 fixture JWTs use
 its default empty salt; boot verifies own source HTML, not merely HTTP 200.
 
+For a constrained local executor, `--low-memory-webpack` explicitly selects the
+shared browser-test compiler profile already used by the Statistics harness.
+It enables Next's webpack memory optimization, disables webpack's persistent
+cache, removes only the debugger source-map plugin, and passes Next's official
+`--disable-source-maps` option. The genuine `next dev --webpack` CLI, its memory
+restart policy, the application's routes and authorization, and all browser
+assertions, timeouts and retries remain unchanged. Inherited `NODE_OPTIONS`,
+including native-load guards and heap limits, are preserved in the Next fork.
+The preload requires development mode and the exact disposable loopback test
+database. It logs each actual server/client compiler application; `runtime.json`
+and `result.json` record `compilerProfile: "low-memory-webpack"`. The default is
+unchanged and records `"default"`. This profile does not bound total RSS and is
+development browser qualification, not a production build or a default-profile
+run. The source-delta receipt includes the shared compiler helper.
+
 All screenshots, traces, browser request logs and geometry receipts live under
 the run directory in `tmp/`. Browser logs record method/origin/path, never request
 bodies, cookies or auth headers. All non-loopback browser requests are blocked.

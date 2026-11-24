@@ -124,6 +124,7 @@ export type CliOptions = {
   readonly runBrowserTests: boolean;
   readonly expectedRevision: string | null;
   readonly browserExecutable: string | null;
+  readonly lowMemoryWebpack: boolean;
 };
 
 export type FixtureSecrets = {
@@ -144,6 +145,7 @@ export type RuntimeDescriptor = {
   readonly repoRoot: string;
   readonly revision: string;
   readonly baselineExpected: string | null;
+  readonly compilerProfile: "default" | "low-memory-webpack";
   readonly secretsGenerated: true;
   readonly externalNetworkAllowed: false;
   readonly fixtureBoundary:

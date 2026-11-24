@@ -6,6 +6,9 @@
   },
   "include": [
     "scripts/ci-browser-routing.test.ts",
+    "scripts/accounts-reference-next-app.test.ts",
+    "scripts/accounts-reference-low-memory-webpack.test.ts",
+    "scripts/accounts-reference-source-revision.test.ts",
     "scripts/manage-review-provider-scope-concurrency.test.ts",
     "scripts/check-provider-setup-postgres-results.ts",
     "scripts/check-provider-setup-postgres-results.test.ts",
@@ -20,6 +23,8 @@
     "scripts/lib/module-import-specifiers.test.ts",
     "scripts/lib/next-generated-env.ts",
     "scripts/lib/next-generated-env.test.ts",
+    "scripts/lib/next-browser-test-compiler.ts",
+    "scripts/lib/next-browser-test-compiler.test.ts",
     "scripts/lib/collect-feature-layout.test.ts",
     "scripts/lib/server-rendered-heading.ts",
     "scripts/lib/server-rendered-heading.test.ts",

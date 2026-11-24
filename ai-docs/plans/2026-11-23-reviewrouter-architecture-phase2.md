@@ -72,10 +72,44 @@ not invoked by the maintained `typecheck` command. Paired fixtures still have a
 separate static-coverage gap, including snapshot-union narrowing and legacy release
 module declarations. No compiler options, exclusions or required gates were weakened.
 
-Current production E2E passed 17/17 on `43a69f34`, with unchanged recorded source
-inputs and verified PostgreSQL migration/cleanup evidence. Paired Action and
-browser E2E remain ongoing until their actual stable-source execution and
-cleanup are recorded; earlier interrupted attempts are not successful gates.
+The browser continuation produced two complete failed UI16 reports: 4/12 and
+7/9 passed/failed, with no skipped or retried cases. Next later received SIGKILL
+in both runs; the signal does not independently establish an OOM cause. The
+first layout-readiness failure coincided with undelivered client scripts, and
+the same layout and keyboard scenario passed in the next run. Source and trace
+review did not justify changing the product marker or its readiness deadline.
+An externally interrupted attempt remains separate, with original PostgreSQL
+shutdown and port closure unverified and its owned recovery data preserved.
+
+Accounts browser qualification now gains an explicit test-only low-memory
+Webpack option, sharing the existing Statistics compiler policy. It removes
+debugger source-map plugins and compilation caching while preserving
+the original configuration callback, application routes, authentication and
+module resolution. Accounts continues to use the real Next development CLI,
+its worker and memory watchdog, and the inherited native-load guard. The
+default compiler path is unchanged. Statistics retains its existing custom
+server, owned output directory, post-response collection and lifecycle.
+The selected compiler profile and its shared source enter the run evidence;
+all 16 scenario assertions, deadlines and zero-retry policy remain intact.
+The 30 focused launcher, source-revision, compiler and fixture-guard regressions
+pass. Both original native strict projects (`tsconfig.tooling.json` and the
+Accounts harness project) pass with the new helper and tests included. The
+shared helper uses explicit NodeNext module paths and the actual CommonJS
+loader export type; no compiler options or type assertions hide incompatibility.
+A direct guarded Node preload also loaded the real application configuration
+and preserved its webpack resolution aliases. This startup check is not UI16.
+
+Production E2E passed 17/17 on `43a69f34`, with unchanged production/runtime
+inputs and verified PostgreSQL migration/cleanup evidence. Its broad input
+snapshot includes the subsequently changed paired lifecycle test; that test
+does not participate in the production suite and was executed again in full.
+Paired Action E2E now qualifies all 45 exact cases from six complete file
+reports across three runs: 16 on `305cd9f4` and 29 on `00160cdf`, with reviewed
+source binding, three fresh 165-checksum migration ledgers and cleanup. This
+is a per-file composite, not a claim that one command passed all 45. Earlier
+aggregate failures and incomplete file reports remain failed or excluded.
+Browser UI16 remains ongoing until a complete passing report and cleanup are
+recorded; none of its failed or interrupted attempts is a successful gate.
 
 ## Priority expansion — 2026-11-24
 
