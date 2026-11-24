@@ -6,7 +6,7 @@
   "dependencies": {
     "@octokit/app": "^16.1.2",
     "@octokit/request": "^10.0.9",
-    "@prisma/client": "^7.8.0",
+    "@prisma/client": "7.9.0",
     "@reviewrouter/features-action-control-plane": "workspace:*",
     "@reviewrouter/features-api-demo": "workspace:*",
     "@reviewrouter/features-auth": "workspace:*",

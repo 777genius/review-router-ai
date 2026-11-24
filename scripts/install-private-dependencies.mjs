@@ -88,9 +88,9 @@ function validateDeployKeyInstallConfiguration() {
     if (section === "allowBuilds") {
       const match = /^ {2}"([^"]+)": true\s*$/u.exec(line);
       const reviewedBuilds = new Set([
-        "@prisma/engines@7.8.0",
+        "@prisma/engines@7.9.0",
         "esbuild@0.28.1",
-        "prisma@7.8.0",
+        "prisma@7.9.0",
         "@vioxen/subscription-runtime@https://codeload.github.com/777genius/ar/tar.gz/c7543bc716411a5f899a790a735d09ed2530f779",
       ]);
       if (!match || !reviewedBuilds.has(match[1]))

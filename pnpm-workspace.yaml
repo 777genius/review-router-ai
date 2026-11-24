@@ -18,9 +18,9 @@ minimumReleaseAgeExclude:
   - "@get-modular/resources@0.2.1"
 
 allowBuilds:
-  "@prisma/engines@7.8.0": true
+  "@prisma/engines@7.9.0": true
   "esbuild@0.28.1": true
-  "prisma@7.8.0": true
+  "prisma@7.9.0": true
   "@vioxen/subscription-runtime@https://codeload.github.com/777genius/ar/tar.gz/c7543bc716411a5f899a790a735d09ed2530f779": true
 
 overrides:

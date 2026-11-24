@@ -192,13 +192,15 @@ try {
     readerLock.toString("utf8"),
     lock.toString("utf8"),
     writerRoot,
+    readerRoot,
   );
-  const clientPath = require.resolve("@prisma/client");
+  const readerRequire = createRequire(join(readerRoot, "package.json"));
+  const clientPath = readerRequire.resolve("@prisma/client");
   const generated = dirname(
     createRequire(clientPath).resolve(".prisma/client/default"),
   );
   const generatedSchema = await readFile(join(generated, "schema.prisma"));
-  const prismaPackage = require.resolve("prisma/package.json");
+  const prismaPackage = readerRequire.resolve("prisma/package.json");
   const prismaMetadata = JSON.parse(await readFile(prismaPackage, "utf8")) as {
     version: string;
     bin: { prisma: string };
@@ -235,6 +237,7 @@ try {
     oldLock: readerLock.toString("utf8"),
     currentLock: lock.toString("utf8"),
     writerRoot,
+    readerRoot,
     generated,
     destination: join(temporary, "reader-runtime"),
   });

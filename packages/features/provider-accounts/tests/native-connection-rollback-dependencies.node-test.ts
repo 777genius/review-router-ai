@@ -35,7 +35,17 @@ const oldLock = execFileSync(
 );
 const currentLock = await readFile(join(writer, "pnpm-lock.yaml"), "utf8");
 const require = createRequire(import.meta.url);
-const client = require.resolve("@prisma/client");
+const readerRoot = process.env.RR_NATIVE_ROLLBACK_READER_ROOT;
+assert.ok(readerRoot);
+assert.equal(
+  execFileSync("git", ["-C", readerRoot, "rev-parse", "HEAD"], {
+    encoding: "utf8",
+  }).trim(),
+  compatibleReader,
+);
+const installedLock = await readFile(join(readerRoot, "pnpm-lock.yaml"), "utf8");
+const readerRequire = createRequire(join(readerRoot, "package.json"));
+const client = readerRequire.resolve("@prisma/client");
 let temporary: string;
 let runtime: ReaderRuntime;
 
@@ -45,6 +55,7 @@ before(async () => {
     oldLock,
     currentLock,
     writerRoot: writer,
+    readerRoot,
     generated: dirname(createRequire(client).resolve(".prisma/client/default")),
     destination: join(temporary, "runtime"),
   }));
@@ -53,9 +64,10 @@ after(async () => {
   await rm(temporary, { recursive: true, force: true });
 });
 
-test("actual changed monorepo lock preserves all 23 immutable reader snapshots", () => {
+test("isolated historical lock preserves all 23 immutable reader snapshots", () => {
   assert.notEqual(digest(currentLock), digest(oldLock));
-  const selected = selectReaderClosure(oldLock, currentLock);
+  assert.equal(digest(installedLock), digest(oldLock));
+  const selected = selectReaderClosure(oldLock, installedLock);
   assert.equal(selected.selected.length, 23);
   assert.ok(selected.selected.some((entry) => entry.name === "pg-cloudflare"));
   assert.equal(
@@ -118,7 +130,7 @@ for (const [name, mutate] of [
   ],
 ] as const) {
   test(`changed selected ${name} is rejected before runtime preparation`, () => {
-    const changed = parse(currentLock) as MutableLock;
+    const changed = parse(installedLock) as MutableLock;
     mutate(changed);
     assert.throws(() => selectReaderClosure(oldLock, stringify(changed)));
   });

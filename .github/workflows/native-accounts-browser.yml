@@ -128,7 +128,14 @@ jobs:
           reader_root="$RUNNER_TEMP/rr-native-rollback-source"
           git fetch --no-tags origin "$reader_sha"
           git worktree add --detach "$reader_root" "$reader_sha"
-          node --test packages/features/provider-accounts/tests/native-connection-rollback-dependencies.node-test.ts
+          (
+            cd "$reader_root"
+            pnpm --filter review-router --filter @reviewrouter/platform-db --filter @reviewrouter/features-provider-accounts install --ignore-scripts --ignore-pnpmfile --frozen-lockfile
+            pnpm rebuild @prisma/engines
+            REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA=1 node scripts/generate-prisma-offline.mjs
+            git diff --exit-code HEAD
+          )
+          RR_NATIVE_ROLLBACK_READER_ROOT="$reader_root" node --test packages/features/provider-accounts/tests/native-connection-rollback-dependencies.node-test.ts
           rollback_bin="$RUNNER_TEMP/rr-native-rollback-bin"
           mkdir "$rollback_bin"
           ROLLBACK_BIN="$rollback_bin" python3 - <<'PY'
