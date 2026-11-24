@@ -312,7 +312,9 @@ export class DispatchDueReviewRequestedIntents {
     return observed.then(
       (begun) =>
         begun
-          ? this.startSubmission(begun, prepared, reservation).catch(() => "failed" as const)
+          ? this.startSubmission(begun, prepared, reservation).catch(
+              () => "failed" as const,
+            )
           : ("failed" as const),
       () => "failed" as const,
     );
