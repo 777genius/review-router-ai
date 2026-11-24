@@ -1,0 +1,41 @@
+name: Native parity exact Prettier diagnostic
+on:
+  push:
+    branches: [diagnostics/native-parity-prettier-b771e44]
+    paths:
+      - .github/workflows/native-parity-prettier-diagnostic.yml
+permissions:
+  contents: read
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.11.1
+      - name: Generate exact two-file formatting patch
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "b771e44c1767fa10d9a8aa4d8759f6c9f79f891d"
+          npm install --global --ignore-scripts --no-audit --no-fund prettier@3.8.3
+          test "$(prettier --version)" = 3.8.3
+          files=(packages/features/provider-accounts/tests/native-connection-rollback-dependencies.node-test.ts packages/features/provider-accounts/tests/native-connection-rollback-dependencies.ts)
+          prettier --write "${files[@]}"
+          prettier --check "${files[@]}"
+          git diff --check
+          test "$(git diff --name-only | wc -l)" = 2
+          mkdir -p "$RUNNER_TEMP/native-parity-format"
+          git diff --binary -- "${files[@]}" > "$RUNNER_TEMP/native-parity-format/format.patch"
+          sha256sum "$RUNNER_TEMP/native-parity-format/format.patch"
+          git diff --stat
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-parity-prettier-patch
+          path: ${{ runner.temp }}/native-parity-format/format.patch
+          if-no-files-found: error
+          retention-days: 14
