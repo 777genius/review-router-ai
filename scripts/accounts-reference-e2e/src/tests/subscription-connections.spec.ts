@@ -283,7 +283,17 @@ test("subscription connections use real server actions for all four providers an
   await reloadAccounts(page);
   for (const provider of ["GLM", "MiniMax"]) {
     const row = sourceRow(page, `Browser ${provider} subscription`);
-    if (await row.count()) await expect(row).toContainText("Retired");
+    // Removal can finish while the reloaded inventory is being rendered.
+    // Check absence or the retired state in one locator snapshot per probe.
+    await expect
+      .poll(async () => {
+        const texts = await row.allTextContents();
+        return (
+          texts.length === 0 ||
+          (texts.length === 1 && texts[0]!.includes("Retired"))
+        );
+      })
+      .toBe(true);
   }
   await openAccounts(page, "rr-e2e-org-alpha");
   await page.getByRole("button", { name: "Add account", exact: true }).click();
