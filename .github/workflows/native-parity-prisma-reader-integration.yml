@@ -1,0 +1,121 @@
+name: Native parity Prisma writer and reader integration diagnostic
+on:
+  push:
+    branches: [diagnostics/native-parity-prisma-29719]
+    paths:
+      - .github/workflows/native-parity-prisma-reader-integration.yml
+permissions:
+  contents: read
+  actions: read
+jobs:
+  integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres_rollback:
+        image: postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: rr_gateway_test_native_rollback
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["127.0.0.1:5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d rr_gateway_test_native_rollback"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.11.1
+      - name: Apply independently verified writer candidate locally
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 8d95759f47863f9fa083ca70c213933fd7dacf47 HEAD
+          mkdir -p "$RUNNER_TEMP/writer-candidate"
+          gh run download 45382438302 --repo 777genius/review-router-ai --name prisma-7.9-writer-lock-candidate --dir "$RUNNER_TEMP/writer-candidate"
+          cd "$RUNNER_TEMP/writer-candidate"
+          echo '26e2a8e091e90540ee351f2530b121211b8d0be63ccefb27dadfd6ec2133f764  writer-upgrade.patch' | sha256sum -c -
+          echo '9b4396b182c5b3ca3e53405276b10231acc57dac64739477ff51fefe1965ad1d  pnpm-lock.yaml' | sha256sum -c -
+          cd "$GITHUB_WORKSPACE"
+          git apply --check "$RUNNER_TEMP/writer-candidate/writer-upgrade.patch"
+          git apply "$RUNNER_TEMP/writer-candidate/writer-upgrade.patch"
+          cmp pnpm-lock.yaml "$RUNNER_TEMP/writer-candidate/pnpm-lock.yaml"
+          git diff --check
+          git -c user.name='Prisma integration diagnostic' -c user.email='diagnostic@users.noreply.github.com' commit -am 'Local-only verified writer lock candidate'
+          echo "EXPECTED_REVISION=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          git diff --binary 8d95759f47863f9fa083ca70c213933fd7dacf47 HEAD -- . ':!.github/workflows/native-parity-prisma-*.yml' > "$RUNNER_TEMP/writer-candidate/integration.patch"
+          sha256sum "$RUNNER_TEMP/writer-candidate/integration.patch"
+      - name: Install pinned writer toolchain and generate Prisma 7.9
+        run: |
+          set -euo pipefail
+          npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+          test "$(pnpm --version)" = 11.28.7
+          node scripts/install-private-dependencies.mjs --frozen-lockfile
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA=1 node scripts/generate-prisma-offline.mjs
+          node -e "require('node:assert/strict').equal(require('@prisma/client').Prisma.prismaVersion.client, '7.9.0')"
+          pnpm compiler:prepare
+      - name: Qualify old RR reader against newly written native operation rows
+        env:
+          ROLLBACK_POSTGRES_CONTAINER: ${{ job.services.postgres_rollback.id }}
+          RR_PROVIDER_ACCOUNTS_DISPOSABLE_CLUSTER: "1"
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = v26.11.1
+          node scripts/local-checks/compiler-cli.ts --native --noEmit --incremental false -p tsconfig.provider-accounts-rollback.json
+          reader_sha=38eb54a1706658fc005eba99d5c774c50005df90
+          reader_root="$RUNNER_TEMP/rr-native-rollback-source"
+          git fetch --no-tags origin "$reader_sha"
+          git worktree add --detach "$reader_root" "$reader_sha"
+          (
+            cd "$reader_root"
+            pnpm --filter review-router --filter @reviewrouter/platform-db --filter @reviewrouter/features-provider-accounts install --ignore-scripts --ignore-pnpmfile --frozen-lockfile
+            pnpm rebuild @prisma/engines
+            REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA=1 node scripts/generate-prisma-offline.mjs
+            git diff --exit-code HEAD
+          )
+          RR_NATIVE_ROLLBACK_READER_ROOT="$reader_root" node --test packages/features/provider-accounts/tests/native-connection-rollback-dependencies.node-test.ts
+          rollback_bin="$RUNNER_TEMP/rr-native-rollback-bin"
+          mkdir "$rollback_bin"
+          ROLLBACK_BIN="$rollback_bin" python3 - <<'PY'
+          import json, os, pathlib, re
+          container = os.environ['ROLLBACK_POSTGRES_CONTAINER']
+          assert re.fullmatch(r'[a-f0-9]{64}', container)
+          script = pathlib.Path(os.environ['ROLLBACK_BIN']) / 'psql'
+          script.write_text(
+            '#!/usr/bin/env python3\n'
+            'import os, sys\n'
+            'args = sys.argv[1:]\n'
+            'assert args[args.index("-h") + 1] == "127.0.0.1"\n'
+            'assert args[args.index("-p") + 1] == "5433"\n'
+            'assert args[args.index("-U") + 1] == "postgres"\n'
+            'args[args.index("-p") + 1] = "5432"\n'
+            'os.execvp("docker", ["docker", "exec", "-i", "-e", "PGOPTIONS=-c search_path=public", '
+            '"-e", "PGSSLMODE=disable", "-e", "PGPASSFILE=/dev/null", '
+            + json.dumps(container) + ', "psql", *args])\n'
+          )
+          script.chmod(0o755)
+          PY
+          export PATH="$rollback_bin:$PATH"
+          node --import tsx packages/features/provider-accounts/tests/native-connection-rollback.ts \
+            --writer-root "$GITHUB_WORKSPACE" --writer-sha "$EXPECTED_REVISION" \
+            --reader-root "$reader_root" --reader-sha "$reader_sha" \
+            --database-url postgresql://postgres@127.0.0.1:5433/rr_gateway_test_native_rollback \
+            --output "$RUNNER_TEMP/rr-native-rollback-output"
+      - name: Retain integrated candidate and rollback receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: prisma-writer-reader-integration-diagnostic
+          path: |
+            ${{ runner.temp }}/writer-candidate/integration.patch
+            ${{ runner.temp }}/rr-native-rollback-output/
+          if-no-files-found: warn
+          retention-days: 14

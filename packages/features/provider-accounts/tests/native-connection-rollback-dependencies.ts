@@ -207,12 +207,28 @@ export async function prepareReaderRuntime(input: {
   oldLock: string;
   currentLock: string;
   writerRoot: string;
+  readerRoot: string;
   generated: string;
   destination: string;
 }) {
-  const closure = selectReaderClosure(input.oldLock, input.currentLock);
+  const readerRoot = await realpath(input.readerRoot);
+  const writerRoot = await realpath(input.writerRoot);
+  assert.notEqual(readerRoot, writerRoot);
+  assert.equal(
+    digest(input.oldLock),
+    "fbffed18bd3fff4c36c70cf9acfa43c1ab6f94f53ae09e39cc0cf15767d79ee9",
+    "exact immutable reader lock",
+  );
+  const installedLock = await readFile(join(readerRoot, "pnpm-lock.yaml"), "utf8");
+  equalBytes(installedLock, input.oldLock, "installed historical lock");
+  const closure = selectReaderClosure(input.oldLock, installedLock);
   const selected = new Map(closure.selected.map((entry) => [entry.key, entry]));
-  const managed = await realpath(join(input.writerRoot, "node_modules"));
+  const managed = await realpath(join(readerRoot, "node_modules"));
+  assert.ok(managed.startsWith(readerRoot + "/"));
+  assert.ok(
+    (await realpath(input.generated)).startsWith(managed + "/"),
+    "generated client must originate in the historical installation",
+  );
   const actual = new Map<
     string,
     { original: string; manifest: string; metadata: PackageMetadata }
@@ -254,7 +270,7 @@ export async function prepareReaderRuntime(input: {
       await collect(target, manifest);
   }
   for (const key of Object.values(closure.roots))
-    await collect(key, join(input.writerRoot, "package.json"));
+    await collect(key, join(readerRoot, "package.json"));
   assert.equal(actual.size, closure.selected.length);
   await mkdir(input.destination, { mode: 0o700 });
   const root = await realpath(input.destination);
@@ -294,7 +310,7 @@ export async function prepareReaderRuntime(input: {
   await linkDependency(generatedRoot, "@prisma/client", clientRoot);
   packages.find((item) => item.root === clientRoot)!.links[".prisma/client"] =
     generatedRoot;
-  const originalRequire = createRequire(join(input.writerRoot, "package.json"));
+  const originalRequire = createRequire(join(readerRoot, "package.json"));
   const runtime: ReaderRuntime = {
     contract: "rr-native-reader-runtime/v1",
     readerSHA: compatibleReader,
@@ -331,6 +347,7 @@ export async function readerBuildToolProvenance(
   oldBytes: string,
   currentBytes: string,
   writerRoot: string,
+  readerRoot: string,
 ) {
   const old = lock(oldBytes),
     current = lock(currentBytes);
@@ -359,7 +376,8 @@ export async function readerBuildToolProvenance(
       treeSHA256: digest(JSON.stringify(await packageFiles(dirname(manifest)))),
     };
   }
-  const formatterManifest = require.resolve("prisma/package.json");
+  const readerRequire = createRequire(join(readerRoot, "package.json"));
+  const formatterManifest = readerRequire.resolve("prisma/package.json");
   const formatter = JSON.parse(
     await readFile(formatterManifest, "utf8"),
   ) as PackageMetadata;
@@ -367,9 +385,9 @@ export async function readerBuildToolProvenance(
   return {
     esbuild: evidence,
     formatter: {
-      role: "current-writer schema formatter; not the historical reader runtime or historical generator",
+      role: "historical reader schema formatter from the immutable floor",
       version: formatter.version,
-      currentLockSHA256: digest(currentBytes),
+      readerLockSHA256: digest(oldBytes),
       packageSHA256: digest(await readFile(formatterManifest)),
       entrySHA256: digest(
         await readFile(join(dirname(formatterManifest), "build/index.js")),
