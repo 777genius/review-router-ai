@@ -34,8 +34,8 @@ export type DispatchDueReviewRequestedIntentsResult = Readonly<{
 export class DispatchDueReviewRequestedIntents {
   private readonly policy: ReviewRequestedDispatchPolicy;
   private readonly inFlightPreparations = new Set<string>();
-  private readonly inFlightSubmissions = new Set<string>();
-  private readonly inFlightBeginnings = new Set<string>();
+  private readonly inFlightSubmissions = new Map<string, symbol>();
+  private readonly inFlightBeginnings = new Map<string, symbol>();
   private dispatchTransitionTail: Promise<void> = Promise.resolve();
 
   constructor(
@@ -69,7 +69,7 @@ export class DispatchDueReviewRequestedIntents {
       now: this.clock.now(),
       limit: input.limit,
       excludeRequestIds: [...excludedAtQuery],
-      excludeAlwaysRequestIds: [...this.inFlightBeginnings],
+      excludeAlwaysRequestIds: [...this.inFlightBeginnings.keys()],
     });
     const claimedScopes = new Set<string>();
     let claimed = 0;
@@ -228,9 +228,10 @@ export class DispatchDueReviewRequestedIntents {
       }
       // Reserve before durable begin; a saturated pool must not create an
       // uncertain dispatch for which no POST can be started.
-      this.inFlightSubmissions.add(claim.intent.requestId);
-      this.inFlightBeginnings.add(claim.intent.requestId);
-      submissions.push(this.startBegin(claim.intent, prepared));
+      const reservation = Symbol();
+      this.inFlightSubmissions.set(claim.intent.requestId, reservation);
+      this.inFlightBeginnings.set(claim.intent.requestId, reservation);
+      submissions.push(this.startBegin(claim.intent, prepared, reservation));
     }
     // Timed-out POSTs remain unknown. A later confirmed run may still be
     // recorded by the same fenced transition; no second POST is issued.
@@ -255,6 +256,7 @@ export class DispatchDueReviewRequestedIntents {
   private startBegin(
     intent: ReviewRequestedIntent,
     prepared: ReviewRequestedPreparedDispatchPort,
+    reservation: symbol,
   ): Promise<"dispatched" | "failed" | "complete"> {
     const claim = intent.claim;
     if (!claim) throw new Error("review_requested_claim_term_missing");
@@ -292,8 +294,12 @@ export class DispatchDueReviewRequestedIntents {
           handedOff = true;
           return begun.intent;
         } finally {
-          this.inFlightBeginnings.delete(intent.requestId);
-          if (!handedOff) this.inFlightSubmissions.delete(intent.requestId);
+          if (this.inFlightBeginnings.get(intent.requestId) === reservation)
+            this.inFlightBeginnings.delete(intent.requestId);
+          if (
+            !handedOff &&
+            this.inFlightSubmissions.get(intent.requestId) === reservation
+          ) this.inFlightSubmissions.delete(intent.requestId);
         }
       },
       () => {
@@ -303,7 +309,7 @@ export class DispatchDueReviewRequestedIntents {
     return observed.then(
       (begun) =>
         begun
-          ? this.startSubmission(begun, prepared).catch(() => "failed" as const)
+          ? this.startSubmission(begun, prepared, reservation).catch(() => "failed" as const)
           : ("failed" as const),
       () => "failed" as const,
     );
@@ -378,6 +384,7 @@ export class DispatchDueReviewRequestedIntents {
   private startSubmission(
     intent: ReviewRequestedIntent,
     prepared: ReviewRequestedPreparedDispatchPort,
+    reservation: symbol,
   ) {
     let observationExpired = false;
     return withIoTimeout(
@@ -395,7 +402,8 @@ export class DispatchDueReviewRequestedIntents {
             return "failed" as const;
           return await this.completeSubmission(intent, submission);
         } finally {
-          this.inFlightSubmissions.delete(intent.requestId);
+          if (this.inFlightSubmissions.get(intent.requestId) === reservation)
+            this.inFlightSubmissions.delete(intent.requestId);
         }
       },
       () => {
