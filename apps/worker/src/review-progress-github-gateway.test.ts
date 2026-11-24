@@ -35,6 +35,36 @@ describe("ReviewProgressGitHubGateway", () => {
     });
   });
 
+  it.each(["removed", "edited", "deleted"] as const)(
+    "does not PATCH when the scanned canonical is %s",
+    async (change) => {
+      const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
+      const request: ReviewProgressGitHubRequester = async (
+        route,
+        parameters,
+      ) => {
+        const response = await fixture.request(route, parameters);
+        if (route !== "GET /repos/{owner}/{repo}/issues/comments/{comment_id}") {
+          return response;
+        }
+        if (change === "deleted") throw { status: 404 };
+        return {
+          data: {
+            ...(response.data as Record<string, unknown>),
+            body: change === "removed" ? "repurposed" : `edited\n${marker}`,
+          },
+        };
+      };
+
+      await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+        kind: "pagination_inconclusive",
+        message: "github_canonical_comment_changed_before_patch",
+        metadata: { retryable: true },
+      });
+      expect(mutations(fixture.calls)).toEqual([]);
+    },
+  );
+
   it("refuses a foreign marked list row before PATCH", async () => {
     const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
     const request: ReviewProgressGitHubRequester = async (
@@ -233,6 +263,7 @@ describe("ReviewProgressGitHubGateway", () => {
           reads += 1;
           if (method === "POST") throw { status: 404 };
           const response = await fixture.request(route, parameters);
+          if (reads === 1) return response;
           return {
             data: {
               ...(response.data as Record<string, unknown>),
@@ -247,7 +278,7 @@ describe("ReviewProgressGitHubGateway", () => {
         kind: "ambiguous_mutation",
         metadata: { retryable: true, mutationMayHaveLanded: true },
       });
-      expect(reads).toBe(1);
+      expect(reads).toBe(method === "PATCH" ? 2 : 1);
       expect(mutations(fixture.calls)).toHaveLength(1);
     },
   );
@@ -1357,6 +1388,7 @@ describe("ReviewProgressGitHubGateway", () => {
               id: 102,
               body: `duplicate\n${marker}`,
               user: { login: "review-router[bot]" },
+              issue_url: "https://api.github.com/repos/acme/rocket/issues/42",
             },
           ],
           headers: {
@@ -2175,7 +2207,7 @@ describe("ReviewProgressGitHubGateway", () => {
         ({ route }) =>
           route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}",
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
     expect(
       mutations(fixture.calls).map(({ route, parameters }) => ({
         route,

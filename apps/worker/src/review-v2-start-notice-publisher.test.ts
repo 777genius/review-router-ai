@@ -108,6 +108,9 @@ function fixture(options: {
           data: [comment(`old progress\n\n${githubProgressCommentMarker}`)],
         };
       }
+      if (route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}") {
+        return { data: comment(`old progress\n\n${githubProgressCommentMarker}`) };
+      }
       if (
         route === "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}"
       ) {

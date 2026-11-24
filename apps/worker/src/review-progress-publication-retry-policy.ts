@@ -16,6 +16,7 @@ export function publicationRetryPlan(
   const transientPaginationRace =
     githubError?.kind === "pagination_inconclusive" &&
     (githubError.message === "github_issue_comments_offset_changed" ||
+      githubError.message === "github_canonical_comment_changed_before_patch" ||
       githubError.message ===
         "github_canonical_comment_changed_before_delete" ||
       githubError.message ===

@@ -168,7 +168,7 @@ export class ReviewProgressGitHubGateway {
     if (canonical.body !== desiredBody) {
       return this.patchChangedComment(
         input,
-        canonical.id,
+        canonical,
         duplicates,
         desiredBody,
         scannedRepositoryId,
@@ -187,11 +187,23 @@ export class ReviewProgressGitHubGateway {
   /** Reconcile ambiguous PATCH failures without deleting duplicate comments. */
   private async patchChangedComment(
     input: UpsertReviewProgressCommentInput,
-    canonicalId: number,
+    canonical: ReviewProgressComment,
     duplicates: readonly ReviewProgressComment[],
     desiredBody: string,
     scannedRepositoryId?: number,
   ): Promise<UpsertReviewProgressCommentResult> {
+    const canonicalId = canonical.id;
+    const [current] = await this.includeVerifiedKnownComment(
+      { ...input, knownCommentId: canonicalId },
+      [],
+    );
+    if (current?.body !== canonical.body) {
+      throw failure(
+        "pagination_inconclusive",
+        "github_canonical_comment_changed_before_patch",
+        true,
+      );
+    }
     const currentRepositoryId = await this.assertRepositoryId(
       input,
       scannedRepositoryId,

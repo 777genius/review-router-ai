@@ -121,6 +121,16 @@ describe("ReviewProgressPublisher", () => {
         request: async (route, parameters = {}) => {
           routes.push(route);
           if (route.includes("/pulls/")) return pull();
+          if (route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}") {
+            return {
+              data: {
+                id: 77,
+                body: "<!-- review-router-live-progress -->",
+                user: { login: "review-router[bot]" },
+                issue_url: targetIssueUrl,
+              },
+            };
+          }
           if (route.startsWith("GET")) {
             return {
               data: [
@@ -162,6 +172,7 @@ describe("ReviewProgressPublisher", () => {
     expect(routes).toEqual([
       "GET /repos/{owner}/{repo}/pulls/{pull_number}",
       "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
+      "GET /repos/{owner}/{repo}/issues/comments/{comment_id}",
       "GET /repos/{owner}/{repo}/pulls/{pull_number}",
       "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
     ]);
@@ -428,6 +439,9 @@ describe("ReviewProgressPublisher", () => {
       botLogin: "review-router[bot]",
       request: async (route, parameters = {}) => {
         if (route.includes("/pulls/")) return pull();
+        if (route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}") {
+          return { data: firstComment };
+        }
         if (route.startsWith("GET")) {
           return { data: [firstComment, secondComment] };
         }
@@ -477,6 +491,9 @@ describe("ReviewProgressPublisher", () => {
       botLogin: "review-router[bot]",
       request: async (route, parameters = {}) => {
         if (route.includes("/pulls/")) return pull();
+        if (route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}") {
+          return { data: { ...comment, id: 77 } };
+        }
         if (route.startsWith("GET")) {
           return {
             data: [
@@ -912,6 +929,16 @@ describe("ReviewProgressPublisher", () => {
               response: { headers: { "retry-after": "60" } },
             };
           }
+          if (route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}") {
+            return {
+              data: {
+                id: 77,
+                body: "<!-- review-router-live-progress -->",
+                user: { login: "review-router[bot]" },
+                issue_url: targetIssueUrl,
+              },
+            };
+          }
           if (route.startsWith("PATCH")) {
             throw new Error("transport_outcome_unknown");
           }
@@ -1031,6 +1058,16 @@ describe("ReviewProgressPublisher", () => {
               ],
             };
           }
+          if (route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}") {
+            return {
+              data: {
+                id: 77,
+                body: "<!-- review-router-live-progress -->",
+                user: { login: "review-router[bot]" },
+                issue_url: targetIssueUrl,
+              },
+            };
+          }
           if (route.startsWith("PATCH")) {
             throw new Error("transport_outcome_unknown");
           }
@@ -1090,6 +1127,16 @@ describe("ReviewProgressPublisher", () => {
         botLogin: "review-router[bot]",
         request: async (route, parameters = {}) => {
           if (route.includes("/pulls/")) return pull();
+          if (route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}") {
+            return {
+              data: {
+                id: 77,
+                body: "<!-- review-router-live-progress -->",
+                user: { login: "review-router[bot]" },
+                issue_url: targetIssueUrl,
+              },
+            };
+          }
           if (route.startsWith("GET")) {
             return {
               data:
