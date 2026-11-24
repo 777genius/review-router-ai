@@ -76,6 +76,85 @@ export function createReviewRunGatewayPreparation(input: {
   let inFlight = false;
   let pending: Promise<ReviewRunGatewayPreparationResult> | undefined;
 
+  type ClosePhase =
+    | "prepare_wait"
+    | "recovery"
+    | "remote_close"
+    | "binding_cleanup";
+  type CloseCategory =
+    | "invalid_input"
+    | "transport"
+    | "invalid_response"
+    | "cancelled"
+    | "safe_error"
+    | "other"
+    | "no_capability"
+    | "pending"
+    | "rejected"
+    | "unknown";
+  const observedCloseFailures = new Set<string>();
+  function observeClose(
+    phase: ClosePhase,
+    category: CloseCategory,
+    detail?: { kind: "operation" | "exception"; value: unknown },
+  ) {
+    try {
+      const key = `${phase}:${category}`;
+      if (observedCloseFailures.has(key)) return;
+      const fields: Record<string, string | number> = { phase, category };
+      if (detail?.kind === "operation") {
+        const operation = detail.value as {
+          error?: { code?: unknown; effect?: unknown };
+        };
+        const diagnostic = operation.error;
+        const code = c.errorCode.safeParse(diagnostic?.code);
+        const effect = c.effectState.safeParse(diagnostic?.effect);
+        fields.code = code.success ? code.data : "unknown";
+        fields.effect = effect.success ? effect.data : "unknown";
+      } else if (
+        detail?.kind === "exception" &&
+        detail.value instanceof GatewayError
+      ) {
+        const error = detail.value;
+        const diagnostic = error.diagnostic;
+        const code = c.errorCode.safeParse(diagnostic?.code);
+        const effect = c.effectState.safeParse(diagnostic?.effect);
+        fields.code = code.success ? code.data : "unknown";
+        fields.effect = effect.success ? effect.data : "unknown";
+        const status: unknown = error.httpStatus;
+        fields.httpStatus =
+          typeof status === "number" &&
+          Number.isInteger(status) &&
+          status >= 100 &&
+          status <= 599
+            ? status
+            : "unknown";
+      }
+      console.warn("review_run_gateway_close_diagnostic", fields);
+      observedCloseFailures.add(key);
+    } catch {
+      // Observability cannot alter custody or close behavior.
+    }
+  }
+  function classifyCloseError(error: unknown): CloseCategory {
+    try {
+      if (error instanceof GatewayError) {
+        const code = error.code;
+        switch (code) {
+          case "invalid_input":
+          case "transport":
+          case "invalid_response":
+          case "cancelled":
+          case "safe_error":
+            return code;
+        }
+      }
+    } catch {
+      // Unexpected error accessors are not safe to log.
+    }
+    return "other";
+  }
+
   async function run(
     recovery: boolean,
   ): Promise<ReviewRunGatewayPreparationResult> {
@@ -521,53 +600,80 @@ export function createReviewRunGatewayPreparation(input: {
       return status;
     },
     close: async (reason: c.Close["reason"], options: CallOptions = {}) => {
-      closed = true; // Deny first, including in-flight preparation/dispatch.
-      const firstReason = (closeReason ??= reason); // Stable ID retains first intent.
-      const preparing = pending;
-      if (preparing) {
-        // A pressure cleanup must not wait indefinitely for an earlier prepare.
-        // Its eventual capability stays retained for exact same-close cleanup.
-        await new Promise<void>((resolve, reject) => {
-          const finish = (error?: GatewayError) => {
-            options.signal?.removeEventListener("abort", aborted);
-            if (error) reject(error);
-            else resolve();
-          };
-          const aborted = () =>
-            finish(new GatewayError("cancelled", "effect_unknown"));
-          if (options.signal?.aborted) {
-            aborted();
-            return;
-          }
-          options.signal?.addEventListener("abort", aborted, { once: true });
-          void preparing.then(
-            () => finish(),
-            () => finish(),
-          );
-        });
-      }
-      if (!session && !noExecutionProven) await recoverForCleanup(options);
-      const current = session;
-      if (!current) return { state: "unknown" as const };
-      const operation = await current.client.close(
-        current.binding.executionRef,
-        {
-          operationId: `rr-close-${createHash("sha256").update(current.binding.operationId).digest("hex")}`,
-          reason: firstReason,
-        },
-        options,
-      );
-      if (operation.state === "applied")
-        await bindings.completeCleanup?.(
+      let closePhase: ClosePhase = "prepare_wait";
+      try {
+        closed = true; // Deny first, including in-flight preparation/dispatch.
+        const firstReason = (closeReason ??= reason); // Stable ID retains first intent.
+        const preparing = pending;
+        if (preparing) {
+          // A pressure cleanup must not wait indefinitely for an earlier prepare.
+          // Its eventual capability stays retained for exact same-close cleanup.
+          await new Promise<void>((resolve, reject) => {
+            const finish = (error?: GatewayError) => {
+              options.signal?.removeEventListener("abort", aborted);
+              if (error) reject(error);
+              else resolve();
+            };
+            const aborted = () =>
+              finish(new GatewayError("cancelled", "effect_unknown"));
+            if (options.signal?.aborted) {
+              aborted();
+              return;
+            }
+            options.signal?.addEventListener("abort", aborted, { once: true });
+            void preparing.then(
+              () => finish(),
+              () => finish(),
+            );
+          });
+        }
+        closePhase = "recovery";
+        if (!session && !noExecutionProven) await recoverForCleanup(options);
+        const current = session;
+        if (!current) {
+          if (initialAttempted && !noExecutionProven)
+            observeClose("recovery", "no_capability");
+          return { state: "unknown" as const };
+        }
+        closePhase = "remote_close";
+        const operation = await current.client.close(
+          current.binding.executionRef,
           {
-            authorizationId,
-            ...(allocationId === undefined ? {} : { allocationId }),
-            identity,
-            runtimeSnapshotCanonicalJson: current.canonical,
+            operationId: `rr-close-${createHash("sha256").update(current.binding.operationId).digest("hex")}`,
+            reason: firstReason,
           },
-          current.binding,
+          options,
         );
-      return operation;
+        const state = operation.state;
+        if (state !== "applied") {
+          const category: CloseCategory =
+            state === "pending" || state === "rejected" || state === "unknown"
+              ? state
+              : "other";
+          observeClose("remote_close", category, {
+            kind: "operation",
+            value: operation,
+          });
+        }
+        closePhase = "binding_cleanup";
+        if (state === "applied")
+          await bindings.completeCleanup?.(
+            {
+              authorizationId,
+              ...(allocationId === undefined ? {} : { allocationId }),
+              identity,
+              runtimeSnapshotCanonicalJson: current.canonical,
+            },
+            current.binding,
+          );
+        return operation;
+      } catch (error) {
+        observeClose(closePhase, classifyCloseError(error), {
+          kind: "exception",
+          value: error,
+        });
+        throw error;
+      }
     },
   });
 }
