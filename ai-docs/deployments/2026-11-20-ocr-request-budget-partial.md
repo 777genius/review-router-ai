@@ -15,17 +15,17 @@
 - Implementation reference: `44f9b9ab2bcce84d597d73610efa5d48cfa4d208` on the
   public Action `main`; this is not proof that it is released.
 - Dependencies: none. No migration, configuration or feature flag.
-- Last updated: 2026-11-20.
+- Last updated: 2026-11-21.
 
 ## Environment status
 
-| Target                     | Status      | Actual version | Evidence                                                                         |
-| -------------------------- | ----------- | -------------- | -------------------------------------------------------------------------------- |
-| Public Action `main`       | `installed` | `44f9b9ab`     | review-router#407 merged (squash); CI `build` green on the final head `7a942861` |
-| Public Action release/tag  | `pending`   | Not verified   | Next bundled Action release                                                      |
-| RR `main` (progress line)  | `pending`   | Not verified   | Merge of review-router-ai#952                                                    |
-| RR staging worker image    | `pending`   | Not verified   | Next bundled image                                                               |
-| RR production worker image | `pending`   | Not verified   | Next bundled image                                                               |
+| Target                     | Status      | Actual version                       | Evidence                                                                                                                    |
+| -------------------------- | ----------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| Public Action `main`       | `installed` | `44f9b9ab`                           | review-router#407 merged (squash); CI `build` green on the final head `7a942861`                                            |
+| Public Action release/tag  | `installed` | `v1.0.245` = `e0e5f8fa`              | [Bundle 5](2026-11-21-bundle5.md): release run 44880824421, FILE 73, producer 245; the allowance case not observed live yet |
+| RR `main` (progress line)  | `installed` | `26f15db0`                           | review-router-ai#952 merged                                                                                                 |
+| RR staging worker image    | `pending`   | Not verified                         | Next bundled image                                                                                                          |
+| RR production worker image | `installed` | `a02b1607`, image `sha256:8d9dd8f3…` | [Bundle 5](2026-11-21-bundle5.md) at 12:28 UTC; the incomplete-with-accepted-parts comment not observed live yet            |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -76,8 +76,8 @@ not_dispatched}` instead of an unknown effect. Inference stays fenced exactly
 2. The two parts are independent and safe in either order. Users get the
    runtime part only with the next Action release in the
    [release procedure](../operations/07-environments-and-release-management.md)
-   (producer registration and Action ref alignment as usual). Rides in the
-   next bundled rollout; NOT deployed.
+   (producer registration and Action ref alignment as usual). Shipped in
+   [bundle 5](2026-11-21-bundle5.md) (`v1.0.245`, RR `a02b1607`).
 
 ## Verification and completion
 
@@ -103,10 +103,10 @@ partial reviews and comments stay as they are.
 
 ## Execution log
 
-| Time (UTC)       | Environment                | Operator   | Actual version / image | Step and observed result  | Evidence          | Next action                                |
-| ---------------- | -------------------------- | ---------- | ---------------------- | ------------------------- | ----------------- | ------------------------------------------ |
-| 2026-11-20 23:07 | public Action `main`       | N          | `44f9b9ab`             | #407 merged, not released | review-router#407 | Ship with the next bundled Action release. |
-| Not executed     | public Action release      | Unassigned | Not verified           | Not released.             | None              | Next bundled Action release.               |
-| Not executed     | RR `main`                  | Unassigned | Not verified           | Not merged yet.           | None              | Merge review-router-ai#952.                |
-| Not executed     | RR staging worker image    | Unassigned | Not verified           | Not deployed.             | None              | Next bundled image.                        |
-| Not executed     | RR production worker image | Unassigned | Not verified           | Not deployed.             | None              | Next bundled image.                        |
+| Time (UTC)       | Environment                | Operator   | Actual version / image               | Step and observed result                                                       | Evidence                          | Next action                                            |
+| ---------------- | -------------------------- | ---------- | ------------------------------------ | ------------------------------------------------------------------------------ | --------------------------------- | ------------------------------------------------------ |
+| 2026-11-20 23:07 | public Action `main`       | N          | `44f9b9ab`                           | #407 merged, not released                                                      | review-router#407                 | Ship with the next bundled Action release.             |
+| 2026-11-21 00:09 | RR `main`                  | N          | `26f15db0`                           | #952 merged                                                                    | review-router-ai#952              | Ship with the next bundled image.                      |
+| 2026-11-21 08:03 | public Action release      | D5         | `v1.0.245` = `e0e5f8fa`              | Released (review-router#408 on top of #407); FILE 73 and producer 245 at 12:32 | [Bundle 5](2026-11-21-bundle5.md) | Watch the first run that reaches the allowance.        |
+| Not executed     | RR staging worker image    | Unassigned | Not verified                         | Not deployed.                                                                  | None                              | Next bundled image.                                    |
+| 2026-11-21 12:28 | RR production worker image | D5         | `a02b1607`, image `sha256:8d9dd8f3…` | Installed with bundle 5                                                        | [Bundle 5](2026-11-21-bundle5.md) | Watch the first incomplete review with accepted parts. |
