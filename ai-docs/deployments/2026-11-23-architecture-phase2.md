@@ -10,11 +10,11 @@
 
 ## Environment status
 
-| Target                                     | Status    | Actual version / image | Last verified (UTC) | Evidence / next action                                                                                                                     |
-| ------------------------------------------ | --------- | ---------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Staging Web/API/worker                     | `pending` | Not verified           | Not verified        | No rollout requested; select an exact qualified main SHA in a future approved coherent batch                                               |
-| Production Web/API/worker                  | `pending` | Not verified           | Not verified        | Reconcile existing fleet and unfinished deployments; do not deploy a Draft PR                                                              |
-| Public/source-bound conflict Action bundle | `pending` | Not verified           | Not verified        | Rebuild exact `action-dist/conflict-runtime.cjs`, prove byte parity and original workflow ownership before any separate Action publication |
+| Target                                     | Status    | Actual version / image | Last verified (UTC) | Evidence / next action                                                                                     |
+| ------------------------------------------ | --------- | ---------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Staging Web/API/worker                     | `pending` | Not verified           | Not verified        | No rollout requested; select an exact qualified main SHA in a future approved coherent batch               |
+| Production Web/API/worker                  | `pending` | Not verified           | Not verified        | Reconcile existing fleet and unfinished deployments; do not deploy a Draft PR                              |
+| Public/source-bound conflict Action bundle | `pending` | Not verified           | Not verified        | Two independent source builds match the committed bundle; no public Action channel promotion was requested |
 
 `pending` records no completed qualification or deployment and does not assert absence of a deployed version. No environment rollout was attempted for this task.
 
@@ -54,8 +54,9 @@ TypeScript 7.0.2 and PostgreSQL 17.12. The maintained Prisma deploy created
 165 successful migration-ledger records. Two source-generated builds matched
 both committed Action bundles. See the
 [local E2E receipt](evidence/2026-11-23-architecture-phase2-local-e2e.json).
-Browser, offline-Prisma isolation, complete toolchain/build and final-head CI
-remain separate prerequisites. These are local qualification results; no
+The full source-bound workspace typecheck and architecture gates also passed.
+Browser, offline-Prisma isolation, remaining lint/build qualifications and
+final-head CI remain separate prerequisites. These are local qualification results; no
 environment deployment or public Action publication was performed.
 
 | Time (UTC)             | Environment | Operator                 | Actual version / image              | Observed result                                                                                                                                                                                           | Next step                                                                                                              |
