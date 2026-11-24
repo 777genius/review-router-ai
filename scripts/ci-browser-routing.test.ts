@@ -143,7 +143,7 @@ test("Catalog provisions and verifies exact Python before its hash-locked scanne
   assert.ok(catalog, "Catalog browser job is missing");
   assert.match(
     catalog,
-    /uses: actions\/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1\n        with:\n          python-version: "3\.12\.16"\n          architecture: x64/,
+    /uses: actions\/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1\n {8}with:\n {10}python-version: "3\.12\.16"\n {10}architecture: x64/,
   );
   assert.match(
     catalog,

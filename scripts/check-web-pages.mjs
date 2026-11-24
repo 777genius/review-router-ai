@@ -123,7 +123,9 @@ const waitForServer = async () => {
 
     try {
       const response = await fetch(baseUrl, {
-        signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+        signal: globalThis.AbortSignal.timeout(
+          Math.max(1, deadline - Date.now()),
+        ),
       });
       if (response.ok) return;
     } catch {
