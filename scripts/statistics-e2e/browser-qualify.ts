@@ -15,7 +15,7 @@ import {
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -30,6 +30,7 @@ import type {
   StatisticsReport,
   StatisticsIssuePage,
 } from "../../packages/features/review-statistics/src/domain/statistics.js";
+import { restoreOwnedNextEnv } from "../lib/next-generated-env.ts";
 import {
   seedHistoryFixtures,
   restoreHistoryCoverage,
@@ -750,23 +751,14 @@ try {
     async () => {
       const current = await readFile(nextEnvPath, "utf8");
       if (current === originalNextEnv) return;
-      const originalReference = originalNextEnv.match(
-        /^import ".*types\/routes\.d\.ts";$/mu,
-      )?.[0];
-      assert(
-        originalReference && current.includes(runId),
-        "Next metadata changed outside this owned run; refusing overwrite",
+      const ownedTypesDirectory = `./${relative(
+        dirname(nextEnvPath),
+        join(outputDir, "next-build", "dev", "types"),
+      ).replaceAll("\\", "/")}`;
+      await writeFile(
+        nextEnvPath,
+        restoreOwnedNextEnv(originalNextEnv, current, ownedTypesDirectory),
       );
-      const normalized = current.replace(
-        /^import ".*next-build\/dev\/types\/routes\.d\.ts";$/mu,
-        originalReference,
-      );
-      assert.equal(
-        normalized,
-        originalNextEnv,
-        "Next metadata has additional changes; refusing overwrite",
-      );
-      await writeFile(nextEnvPath, originalNextEnv);
     },
     async () => {
       await rm(join(outputDir, "next-build"), { recursive: true, force: true });

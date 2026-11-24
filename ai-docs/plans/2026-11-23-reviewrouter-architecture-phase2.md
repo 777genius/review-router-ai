@@ -6,9 +6,87 @@ Working branch: refactor/architecture-boundaries-phase2-20261123
 Status: IN PROGRESS — source-bound local E2E passed; final-head acceptance and merge pending
 Authority: AGENTS.md, Engineering Quality Standard, Feature Module Standard adopted profiles, current security/runtime protocols.
 
+## Paired lifecycle and browser cleanup checkpoint — 2026-11-23
+
+The complete maintained paired lifecycle ran on exact clean `6013a91a` and
+Action `1112a0f1`: **25/25 passed**, with no failed, skipped or todo cases. The
+maintained receipt checker also accepted all 25 cases. The run used PostgreSQL
+17.12 with all 165 Prisma migration-ledger entries and the verified maintained
+OCR `1.13.1-rr.6` release binary through all seven production routes. Controlled
+providers and synthetic GitHub transport do not establish live external
+publication. This qualifies the recorded paired execution, not the separate
+OCR source rebuild or final-head browser gate. The
+[paired receipt](../deployments/evidence/2026-11-23-architecture-phase2-paired-lifecycle.json)
+preserves the recorded results and their evidence-availability limitation.
+
+The ordinary [Statistics run 45255482669](https://github.com/777genius/review-router-ai/actions/runs/45255482669)
+checked out exact `6013a91a`, passed frozen installation, required offline Prisma
+generation, all 165 migrations and the full Web native typecheck. It completed
+18 authenticated journey records and 21 screenshots, with no browser errors or
+external requests. **The workflow failed** during cleanup because Next 16.4.6
+also rewrites `root-params.d.ts`; the previous cleanup admitted only `routes.d.ts`.
+Its final receipt assertion was skipped. The
+[Statistics receipt](../deployments/evidence/2026-11-23-architecture-phase2-statistics-browser.json)
+binds the recovered GitHub artifact and log to all 49 recorded source inputs.
+
+The reconstructed cleanup helper admits only the two known imports from the
+exact run-owned types directory, then requires the entire normalized file to
+equal its baseline before writing. Both original caller bodies reproduce the
+failure against the integrity-verified released Next writer. Both corrected
+callers pass; additional-source controls still reject without overwriting.
+All **13/13** helper cases pass, including CRLF, wrong-run and wrong-directory
+controls. The helper and tests are enrolled in the original tooling project.
+The complete original strict project passed in 9.373 seconds with its inherited
+strict options unchanged. On reviewed hosted-runner routing revision v3,
+all 40 unchanged CI-impact cases, 16 routing/cleanup cases and the complete
+original tooling project passed again with 4,816 source inputs unchanged and no
+legacy initialization. The subsequent v4 selector extension and final published
+graph still require their combined root check; corrected browser execution also
+remains pending. The
+[Next receipt](../deployments/evidence/2026-11-23-architecture-phase2-native-next.json)
+keeps these checks separate from the earlier failed production build attempts.
+
+The restored ordinary frozen graph then completed the actual **whole `pnpm build`**:
+56/56 tasks, zero cached tasks, all production Next phases, and 588 maintained
+emitted-file rewrites. The 157.430-second execution used Node 26.11.1, native
+TypeScript 7.0.2, Go2/2048MiB and serialized Turbo; all 4,815 captured source inputs
+remained unchanged. It produced `BUILD_ID=AA-TcjEF_ASr0li-DgkYK`. This new pass does
+not change the recorded result or cause attribution of the earlier SIGKILLs.
+
+The original production HTTP smoke exposed a separate startup defect in this
+executor: Next called the restricted network-interface enumeration without an
+explicit hostname, and an unbounded readiness fetch could exceed the loop's
+deadline. The localized existing-JavaScript correction passes the same loopback
+host explicitly and gives each readiness fetch its remaining deadline. All
+original page, discovery, structured-data and redirect assertions remain. The
+complete maintained `pnpm web:smoke` passed against the actual build in 4.342 seconds
+(12 pages and two redirects), with unchanged inputs, no legacy loads and its owned
+server fully stopped. This is HTTP acceptance, not authenticated browser evidence.
+
+The complete maintained Action check also passed again, including its original
+native strict project, both source-generated bundle comparisons and the required
+binary archive/manifest. All 4,816 source inputs and committed bundle bytes stayed
+unchanged. Ordinary Self-hosted E2E job
+[138022980855](https://github.com/777genius/review-router-ai/actions/runs/45255482350/job/138022980855)
+independently completed its filtered production Docker build, network-isolated
+Prisma and 17+2 actual database E2Es. Its checkout was merge `6aeb2203`, whose tree
+equals `6013`, and its bootstrap retained one optional skipped control (36 passed).
+Neither that skip, historical source tree nor partial native-memory scope is
+represented as final-head or full browser acceptance.
+
+The executor reset preceded the restored build, smoke and tooling checks above.
+It removed the older local work and raw evidence; the fresh restored packets
+remain available. The branch remains recoverable at `6013a91a`; recovered original
+GitHub logs and artifacts match their recorded hashes. Historical local packets
+that could not be recovered are identified as such, without fabricating their
+contents or calling them new runs. The current full baseline frozen installation
+passed with ordinary lifecycle scripts, unchanged 4,812 source inputs and no
+legacy compiler/parser load. The remaining native Stack adoption continues
+through the owning protected release and a new genuine frozen root graph.
+
 The complete `pnpm modular:qualify` passed on exact clean `e5279c73`: the original strict project (`skipLibCheck:false`) and all seven composition suites, **25/25** with zero skips. The complete `pnpm foundation:qualify` then passed on that same clean tree: verified registry tarballs, strict packed Get Modular consumer, runtime/rejecting wiring, original tooling project and all seven actual workspace boundary cases. All 4,799 tracked file hashes remained unchanged during Foundation qualification. The ordinary Source and Certification Checks lane now explicitly invokes both the full native compiler pilot and Foundation consumer/boundary qualification; the compiler pilot's `.pilot.ts` file is not ordinary Vitest discovery.
 
-Two complete `pnpm build` attempts on `e5279c73` failed at Web's unchanged native preflight with SIGKILL before Next started. The second serialized attempt measured the received Go1/512MiB limits and completed 55/56 package tasks, including API and worker emission. The maintained ESM rewrite and unchanged `pnpm runtime:smoke` subsequently passed on those real outputs against a fresh PostgreSQL 17.12 database with all 165 successful Prisma migration-ledger entries. The owned cluster was removed, and source/locks/tree stayed unchanged. This establishes compiled API/worker runtime only; full production Web build, HTTP/browser and required offline Prisma isolation remain unqualified locally. The [runtime and tooling receipt](../deployments/evidence/2026-11-23-architecture-phase2-runtime-tooling.json) preserves both failed builds alongside the bounded passes.
+Two complete `pnpm build` attempts on `e5279c73` failed at Web's unchanged native preflight with SIGKILL before Next started. The second serialized attempt measured the received Go1/512MiB limits and completed 55/56 package tasks, including API and worker emission. The maintained ESM rewrite and unchanged `pnpm runtime:smoke` subsequently passed on those real outputs against a fresh PostgreSQL 17.12 database with all 165 successful Prisma migration-ledger entries. The owned cluster was removed, and source/locks/tree stayed unchanged. This historical attempt establishes compiled API/worker runtime only; the later restored whole build and maintained HTTP smoke are recorded above, while full corrected browser acceptance remains pending. The [runtime and tooling receipt](../deployments/evidence/2026-11-23-architecture-phase2-runtime-tooling.json) preserves both failed builds alongside the bounded passes.
 
 ## Complete native lint and OCR acceptance gates — 2026-11-23
 
