@@ -52,8 +52,18 @@ isolated original API strict run passed. Failed attempts remain failed evidence;
 no timeout, compiler rule or project scope was weakened. Independent review
 checked deadline clipping, current authority, immutable retries and budget order.
 
-Checker corrections and current production/paired Action/browser E2E remain
-ongoing until their actual stable-source execution and cleanup are recorded.
+Independent E2E review also reproduced a false-pass risk in the maintained
+paired receipt checker: any 25 distinct passing lifecycle names satisfied the
+gate. The checker now requires the independently recorded exact scenario roster,
+including every protocol version and production route. A substitution regression
+failed before the correction; all 17 receipt-checker tests and the original
+strict tooling project passed afterward. This qualifies the receipt validator,
+not execution of the 25 lifecycle scenarios.
+
+Current production E2E passed 17/17 on `43a69f34`, with unchanged recorded source
+inputs and verified PostgreSQL migration/cleanup evidence. Paired Action and
+browser E2E remain ongoing until their actual stable-source execution and
+cleanup are recorded; earlier interrupted attempts are not successful gates.
 
 ## Priority expansion — 2026-11-24
 

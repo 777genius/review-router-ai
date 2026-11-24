@@ -113,6 +113,37 @@ export function assertUnifiedOcrUiResults(
 
 // Seven scenarios in both protocol versions, five v2-only scenarios and six
 // concrete production routes in the existing paired lifecycle fixture.
+// Independent acceptance roster, captured from the reviewed lifecycle matrix.
+// Keep every protocol scenario and production route; counts alone can hide a
+// missing required case replaced by an unrelated passing assertion.
+const requiredPairedCases = [
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (1 / 'success' / undefined)",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'success' / undefined)",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (1 / 'denied' / undefined)",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'denied' / undefined)",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (1 / 'unknown' / undefined)",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'unknown' / undefined)",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (1 / 'missing_verdict' / undefined)",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'missing_verdict' / undefined)",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (1 / 'invalid_quote' / undefined)",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'invalid_quote' / undefined)",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (1 / 'wrong_packet' / undefined)",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'wrong_packet' / undefined)",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (1 / 'forged_claim' / undefined)",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'forged_claim' / undefined)",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'report_only' / undefined)",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'paid_unknown' / undefined)",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'budget_exhausted' / undefined)",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'stale_head' / undefined)",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'production_runner' / undefined)",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'production_runner' / 'openrouter-api')",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'production_runner' / 'mimo-token-plan-api')",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'production_runner' / 'kimi-code-api')",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'production_runner' / 'codex-subscription')",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'production_runner' / 'hosted-pool')",
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'production_runner' / 'claude-subscription')",
+] as const;
+
 const pairedResultSchema = z.object({
   success: z.literal(true),
   numTotalTests: z.literal(25),
@@ -149,9 +180,9 @@ export function assertUnifiedOcrPairedResults(input: unknown): {
       "scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts",
     ),
   );
-  assert.equal(
-    new Set(suite.assertionResults.map((test) => test.fullName)).size,
-    25,
+  assert.deepEqual(
+    suite.assertionResults.map((test) => test.fullName).sort(),
+    [...requiredPairedCases].sort(),
   );
   return { executed: 25, passed: 25, skipped: 0 };
 }
