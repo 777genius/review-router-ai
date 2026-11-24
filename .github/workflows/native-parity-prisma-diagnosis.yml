@@ -1,0 +1,113 @@
+name: Native parity Prisma transaction diagnosis
+on:
+  push:
+    branches: [diagnostics/native-parity-prisma-29719]
+    paths:
+      - .github/workflows/native-parity-prisma-diagnosis.yml
+permissions: {}
+jobs:
+  reproduce:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        prisma: ["7.8.0", "7.9.0"]
+    services:
+      postgres:
+        image: postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+        env:
+          POSTGRES_USER: fixture_owner
+          POSTGRES_DB: prisma_diagnosis
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["127.0.0.1:5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U fixture_owner -d prisma_diagnosis"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PRISMA_VERSION: ${{ matrix.prisma }}
+      DATABASE_URL: postgresql://fixture_owner@127.0.0.1:5432/prisma_diagnosis
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.12.1
+      - name: Install isolated official runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          mkdir prisma-diagnosis
+          cd prisma-diagnosis
+          printf '{"private":true,"type":"module"}\n' > package.json
+          npm install --ignore-scripts --no-audit --no-fund --save-exact "prisma@$PRISMA_VERSION" "@prisma/client@$PRISMA_VERSION" "@prisma/adapter-pg@$PRISMA_VERSION" pg@8.23.0
+          cat > schema.prisma <<'SCHEMA'
+          generator client {
+            provider = "prisma-client-js"
+          }
+          datasource db {
+            provider = "postgresql"
+          }
+          model Probe {
+            id Int @id
+          }
+          SCHEMA
+          npx --no-install prisma generate --schema schema.prisma
+          npm ls prisma @prisma/client @prisma/adapter-pg pg
+      - name: Observe real PostgreSQL after delayed transaction startup
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/prisma-diagnosis"
+          cat > probe.mjs <<'JS'
+          import assert from "node:assert/strict";
+          import { setTimeout as sleep } from "node:timers/promises";
+          import { PrismaClient } from "@prisma/client";
+          import { PrismaPg } from "@prisma/adapter-pg";
+          import pg from "pg";
+
+          const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+          const observer = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+          const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
+          let held;
+          try {
+            await prisma.$queryRawUnsafe("SELECT 1");
+            held = await pool.connect();
+            const { rows: [{ pid }] } = await held.query("SELECT pg_backend_pid() AS pid");
+            let callbackEntered = false;
+            const pending = prisma.$transaction(async () => { callbackEntered = true; }, {
+              isolationLevel: "Serializable", maxWait: 500, timeout: 5000
+            });
+            const rejected = assert.rejects(pending, error => error?.code === "P2028");
+            for (let i = 0; i < 40 && pool.waitingCount === 0; i++) await sleep(10);
+            assert.equal(pool.waitingCount, 1, "must demonstrate actual pool contention");
+            await rejected;
+            assert.equal(callbackEntered, false);
+            assert.equal(pool.waitingCount, 1, "late start remains pending after maxWait");
+            let releases = 0;
+            const onRelease = () => { releases += 1; };
+            pool.on("release", onRelease);
+            held.release();
+            held = undefined;
+            for (let i = 0; i < 200 && releases < 2; i++) await sleep(25);
+            pool.off("release", onRelease);
+            assert.equal(releases, 2, "held connection and late transaction must both release");
+            assert.equal(pool.idleCount, 1);
+            const { rows } = await observer.query("SELECT state, xact_start IS NOT NULL AS open FROM pg_stat_activity WHERE pid=$1", [pid]);
+            assert.equal(rows.length, 1);
+            console.log(JSON.stringify({ prisma: process.env.PRISMA_VERSION, pid, releases, state: rows[0], callbackEntered }));
+            const old = process.env.PRISMA_VERSION === "7.8.0";
+            assert.equal(rows[0].open, old);
+            assert.equal(rows[0].state, old ? "idle in transaction" : "idle");
+            if (old) await pool.query("ROLLBACK");
+            await prisma.$transaction(tx => tx.$queryRawUnsafe("SELECT 1"), { isolationLevel: "Serializable" });
+            console.log("Post-cleanup serializable transaction passed");
+          } finally {
+            held?.release();
+            await prisma.$disconnect();
+            await pool.end();
+            await observer.end();
+          }
+          JS
+          node probe.mjs
