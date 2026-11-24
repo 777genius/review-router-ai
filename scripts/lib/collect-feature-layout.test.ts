@@ -119,3 +119,125 @@ test("native layout AST does not infer imports from commented source text", asyn
     },
   );
 });
+
+test("native layout AST retains exported ambient functions without inventing type-only exports", async () => {
+  await disposable(
+    {
+      [`${sourceRoot}/application/use-cases/read.ts`]:
+        "declare function hidden(): void;\n" +
+        "export declare function read(id: string): Promise<string>;\n" +
+        "export type Result = string;\n" +
+        "export interface Options { readonly id: string }\n",
+    },
+    async (root) => {
+      const records = await collectFeatureLayout(
+        root,
+        sourceRoot,
+        "qualification",
+      );
+      assert.deepEqual(
+        records.useCaseExports[
+          "features/qualification/application/use-cases/read.ts"
+        ],
+        [{ name: "read", kind: "function" }],
+      );
+    },
+  );
+});
+
+test("native layout AST preserves every exported overload declaration in source order", async () => {
+  await disposable(
+    {
+      [`${sourceRoot}/application/use-cases/select.ts`]:
+        "export function select(id: string): string;\n" +
+        "export function select(id: number): number;\n" +
+        "export function select(id: string | number) { return id; }\n",
+    },
+    async (root) => {
+      const records = await collectFeatureLayout(
+        root,
+        sourceRoot,
+        "qualification",
+      );
+      assert.deepEqual(
+        records.useCaseExports[
+          "features/qualification/application/use-cases/select.ts"
+        ],
+        [
+          { name: "select", kind: "function" },
+          { name: "select", kind: "function" },
+          { name: "select", kind: "function" },
+        ],
+      );
+    },
+  );
+});
+
+test.each([
+  ["{ run, label }", "{ run: () => number; label: string }", ""],
+  ["[run, label]", "readonly [() => number, string]", ""],
+  [
+    "{ run /* retained */ }",
+    "{ run: () => number; label: string }",
+    " /* trailing } ] */ /* another */\n// line comment } ]\n ",
+  ],
+  [
+    "[run /* retained */]",
+    "readonly [() => number, string]",
+    " /* trailing } ] */ /* another */\n// line comment } ]\n ",
+  ],
+] as const)(
+  "native layout AST keeps the binding-pattern name without its annotation: %s",
+  async (pattern, type, trivia) => {
+    await disposable(
+      {
+        [`${sourceRoot}/application/use-cases/bind.ts`]:
+          `type Bindings = ${type};\n` +
+          "declare const source: Bindings;\n" +
+          `export const ${pattern}${trivia}: Bindings = source;\n`,
+      },
+      async (root) => {
+        const records = await collectFeatureLayout(
+          root,
+          sourceRoot,
+          "qualification",
+        );
+        assert.deepEqual(
+          records.useCaseExports[
+            "features/qualification/application/use-cases/bind.ts"
+          ],
+          [{ name: pattern, kind: "value" }],
+        );
+      },
+    );
+  },
+);
+
+test.each([
+  ["(() => 42)", "value"],
+  ["(function named() { return 42; })", "value"],
+  ["() => 42", "function"],
+  ["function named() { return 42; }", "function"],
+] as const)(
+  "native layout AST preserves the syntax-specific initializer kind: %s",
+  async (initializer, kind) => {
+    await disposable(
+      {
+        [`${sourceRoot}/application/use-cases/run.ts`]: `export const run = ${initializer};\n`,
+      },
+      async (root) => {
+        const records = await collectFeatureLayout(
+          root,
+          sourceRoot,
+          "qualification",
+        );
+        assert.deepEqual(
+          records.useCaseExports[
+            "features/qualification/application/use-cases/run.ts"
+          ],
+          [{ name: "run", kind }],
+        );
+      },
+    );
+  },
+);

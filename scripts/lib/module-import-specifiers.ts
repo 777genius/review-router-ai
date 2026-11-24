@@ -4,6 +4,7 @@ export type SyntaxNode = Readonly<{ type: string; [key: string]: unknown }>;
 export type ParsedSource = Readonly<{
   root: SyntaxNode;
   errors: readonly string[];
+  comments: readonly Readonly<{ start: number; end: number }>[];
   source: string;
 }>;
 
@@ -20,10 +21,11 @@ export function isSyntaxNode(value: unknown): value is SyntaxNode {
  * Effective typechecking stays with the native TypeScript >=7 compiler.
  */
 export function parseSourceAst(filename: string, source: string): ParsedSource {
-  const result = parseSync(filename, source, { preserveParens: false });
+  const result = parseSync(filename, source, { preserveParens: true });
   return {
     root: result.program as unknown as SyntaxNode,
     errors: result.errors.map((error) => error.message),
+    comments: result.comments,
     source,
   };
 }
