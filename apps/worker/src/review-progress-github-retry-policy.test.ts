@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import * as sharedGithubError from "./review-progress-github-error";
 import {
   classifyGitHubFailure,
   reconciliationFailure,
+  unconfirmedMutation,
   ReviewProgressGitHubError,
   fallbackRetryAt,
   isSecondaryRateLimitResponse,
@@ -13,12 +15,24 @@ import {
 const now = new Date("2026-08-12T12:00:00.000Z");
 
 describe("Review progress GitHub retry policy", () => {
+  it("keeps the same GitHub error constructor after extraction", () => {
+    const sharedErrorConstructor = sharedGithubError.ReviewProgressGitHubError;
+    expect(ReviewProgressGitHubError).toBe(sharedErrorConstructor);
+    const classified = classifyGitHubFailure(
+      { status: 502 },
+      "github_request_failed",
+      () => now,
+      () => 0,
+    );
+    expect(classified).toBeInstanceOf(sharedErrorConstructor);
+  });
+
   it("prefers Retry-After over a later rate-limit reset", () => {
     const headers = {
       "retry-after": "10",
       "x-ratelimit-reset": "1786536060",
     };
-    const actual = retryBoundary(headers, now).getTime();
+    const actual = retryBoundary(headers, now, "server_unavailable").getTime();
     expect(actual).toBe(now.getTime() + 10_000);
   });
 
@@ -102,9 +116,12 @@ describe("Review progress GitHub retry policy", () => {
       expect(actual.getTime()).toBe(now.getTime() + 60_000);
     }
     const httpDate = "Wed, 12 Aug 2026 12:00:30 GMT";
-    expect(retryBoundary({ "retry-after": httpDate }, now).getTime()).toBe(
-      now.getTime() + 30_000,
+    const httpRetryAt = retryBoundary(
+      { "retry-after": httpDate },
+      now,
+      "server_unavailable",
     );
+    expect(httpRetryAt.getTime()).toBe(now.getTime() + 30_000);
   });
 
   it("treats blank Retry-After as absent while retaining an explicit zero", () => {
@@ -121,10 +138,15 @@ describe("Review progress GitHub retry policy", () => {
   it("ignores oversized retry headers while preserving usable boundaries", () => {
     const oversized = "10000000000000";
     const nearDateLimit = "8639999999999.5";
-    const fallback = retryBoundary({ "retry-after": oversized }, now);
+    const fallback = retryBoundary(
+      { "retry-after": oversized },
+      now,
+      "server_unavailable",
+    );
     const reset = retryBoundary(
       { "retry-after": oversized, "x-ratelimit-reset": "1786536060" },
       now,
+      "server_unavailable",
     );
     const quota = retryBoundary(
       { "x-ratelimit-reset": nearDateLimit },
@@ -169,9 +191,9 @@ describe("Review progress GitHub retry policy", () => {
       "x-ratelimit-reset": "1786536020",
     };
     const stale = { "retry-after": "Wed, 12 Aug 2026 11:59:59 GMT" };
-    const reset = retryBoundary(headers, now).getTime();
-    const fallback = retryBoundary({}, now).getTime();
-    const expired = retryBoundary(stale, now).getTime();
+    const reset = retryBoundary(headers, now, "server_unavailable").getTime();
+    const fallback = retryBoundary({}, now, "server_unavailable").getTime();
+    const expired = retryBoundary(stale, now, "server_unavailable").getTime();
     expect(reset).toBe(now.getTime() + 20_000);
     expect(fallback).toBe(now.getTime() + 1_000);
     expect(expired).toBe(now.getTime());
@@ -330,6 +352,7 @@ describe("Review progress GitHub retry policy", () => {
       () => 0,
     );
     expect(result.kind).toBe("pagination_inconclusive");
+    expect(result.metadata.mutationMayHaveLanded).toBeUndefined();
     expect(result.metadata.retryAt).toEqual(
       new Date("2026-08-12T14:00:00.250Z"),
     );
@@ -339,6 +362,68 @@ describe("Review progress GitHub retry policy", () => {
     expect(result.metadata.installationCooldownUntil).toEqual(
       new Date("2026-08-12T14:00:00.250Z"),
     );
+  });
+
+  it("does not mark a rejected 422 PATCH as landed when scanning fails", () => {
+    const mutationError = { status: 422 };
+    const observationError = new ReviewProgressGitHubError(
+      "pagination_inconclusive",
+      "github_comment_scan_inconclusive",
+      {
+        retryable: true,
+        retryAt: new Date("2026-08-12T12:10:00.000Z"),
+      },
+    );
+    const result = reconciliationFailure(
+      mutationError,
+      observationError,
+      () => now,
+      () => 0,
+    );
+    expect(result.kind).toBe("pagination_inconclusive");
+    expect(result.metadata.mutationMayHaveLanded).toBeUndefined();
+    expect(result.metadata.retryAt).toEqual(
+      new Date("2026-08-12T12:10:00.000Z"),
+    );
+  });
+
+  it("does not mark a rejected 422 POST as landed when the read fails", () => {
+    const result = reconciliationFailure(
+      { status: 422 },
+      { status: 503, response: { headers: { "retry-after": "60" } } },
+      () => now,
+      () => 0,
+    );
+    expect(result.kind).toBe("ambiguous_mutation");
+    expect(result.metadata.mutationMayHaveLanded).toBeUndefined();
+    expect(result.metadata.retryAt).toEqual(
+      new Date("2026-08-12T12:01:00.250Z"),
+    );
+  });
+
+  it("clears an inherited landed flag after a definitely rejected write", () => {
+    const observationError = new ReviewProgressGitHubError(
+      "pagination_inconclusive",
+      "github_comment_scan_inconclusive",
+      { retryable: true, mutationMayHaveLanded: true },
+    );
+    const rejected = reconciliationFailure(
+      { status: 422 },
+      observationError,
+      () => now,
+      () => 0,
+    );
+    const uncertain = reconciliationFailure(
+      { status: 503 },
+      observationError,
+      () => now,
+      () => 0,
+    );
+    expect(rejected.kind).toBe("pagination_inconclusive");
+    expect(rejected.metadata.mutationMayHaveLanded).toBeUndefined();
+    const hasFlag = Object.hasOwn(rejected.metadata, "mutationMayHaveLanded");
+    expect(hasFlag).toBe(false);
+    expect(uncertain.metadata.mutationMayHaveLanded).toBe(true);
   });
 
   it("keeps PATCH throttling cooldown separate from a later GET outage", () => {
@@ -357,6 +442,7 @@ describe("Review progress GitHub retry policy", () => {
       () => 0,
     );
     expect(result.kind).toBe("rate_limited");
+    expect(result.metadata.mutationMayHaveLanded).toBeUndefined();
     expect(result.metadata.retryAt).toEqual(
       new Date("2026-08-12T14:00:00.250Z"),
     );
@@ -393,5 +479,89 @@ describe("Review progress GitHub retry policy", () => {
       );
       expect(result.metadata.installationCooldownUntil).toBeUndefined();
     }
+  });
+
+  it("fences a typed server throttle when reconciliation also fails", () => {
+    const throttle = new ReviewProgressGitHubError(
+      "rate_limited",
+      "server_throttle",
+      {
+        status: 503,
+        retryable: true,
+        retryNotBefore: new Date("2026-08-12T12:01:00.000Z"),
+        retryAt: new Date("2026-08-12T12:01:00.250Z"),
+      },
+    );
+    const failure = reconciliationFailure(
+      throttle,
+      { status: 502 },
+      () => now,
+      () => 0,
+    );
+    expect(failure.kind).toBe("rate_limited");
+    expect(failure.metadata.mutationMayHaveLanded).toBe(true);
+    expect(failure.metadata.retryAt).toEqual(
+      new Date("2026-08-12T12:01:00.250Z"),
+    );
+
+    const rejected = new ReviewProgressGitHubError(
+      "rate_limited",
+      "client_throttle",
+      { status: 429, retryable: true },
+    );
+    const rejection = reconciliationFailure(
+      rejected,
+      { status: 502 },
+      () => now,
+      () => 0,
+    );
+    expect(rejection.metadata.mutationMayHaveLanded).toBeUndefined();
+  });
+
+  it("keeps definite 4xx rejections distinct from uncertain writes", () => {
+    const rejected = new ReviewProgressGitHubError(
+      "ambiguous_mutation",
+      "client_rejected",
+      { status: 422, retryable: true },
+    );
+    expect(unconfirmedMutation(rejected)).toBe(rejected);
+
+    const rejectedPost = classifyGitHubFailure(
+      { status: 429, response: { headers: { "retry-after": "60" } } },
+      "ambiguous_mutation",
+      () => now,
+      () => 0,
+    );
+    expect(rejectedPost.kind).toBe("rate_limited");
+    expect(rejectedPost.metadata.retryNotBefore).toEqual(
+      new Date(now.getTime() + 60_000),
+    );
+    expect(rejectedPost.metadata.retryAt).toEqual(
+      new Date(now.getTime() + 60_250),
+    );
+    expect(unconfirmedMutation(rejectedPost)).toBe(rejectedPost);
+    expect(rejectedPost.metadata.mutationMayHaveLanded).toBeUndefined();
+
+    // A future server-side throttle must not masquerade as a rejected write.
+    const serverThrottle = new ReviewProgressGitHubError(
+      "rate_limited",
+      "server_throttle",
+      { status: 503, retryable: true },
+    );
+    const pending = unconfirmedMutation(serverThrottle);
+    expect(pending.metadata.mutationMayHaveLanded).toBe(true);
+    expect(pending.cause).toBe(serverThrottle);
+
+    const uncertain = new ReviewProgressGitHubError(
+      "ambiguous_mutation",
+      "request_timed_out",
+      { retryable: true },
+    );
+    const result = unconfirmedMutation(uncertain);
+    expect(result).toMatchObject({
+      kind: "ambiguous_mutation",
+      metadata: { retryable: true, mutationMayHaveLanded: true },
+    });
+    expect(result.cause).toBe(uncertain);
   });
 });

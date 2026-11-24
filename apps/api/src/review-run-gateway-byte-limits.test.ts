@@ -1,3 +1,4 @@
+import { GatewayError } from "@agent-teams/account-gateway/http";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { createHash } from "node:crypto";
 import type { AddressInfo } from "node:net";
@@ -28,6 +29,7 @@ import {
 import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config";
 import { createReviewRunGatewayPreparation } from "./review-run-gateway-preparation";
+import * as preparationModule from "./review-run-gateway-preparation";
 import {
   createReviewRunGatewayRelay,
   createReviewRunGatewayTerminalGate,
@@ -1779,7 +1781,11 @@ async function fixture(
   const nativeExecutions = new Map<string, "active" | "closed">();
   const nativeCloses: string[] = [];
   const nativeCloseReasons: c.Close["reason"][] = [];
+  const nativeCloseOperationIds: string[] = [];
   let closeState: "applied" | "unknown" | "failure" = "applied";
+  let closeResponseOverride:
+    | ((operationId: string) => { status: number; body: unknown })
+    | undefined;
   let closeGate: Promise<void> | undefined;
   let closeStarted: (() => void) | undefined;
   let prepareGate: Promise<void> | undefined;
@@ -1979,8 +1985,16 @@ async function fixture(
     if (execution?.[2] === "close") {
       nativeCloses.push(execution[1]!);
       nativeCloseReasons.push(JSON.parse(raw).reason);
+      nativeCloseOperationIds.push(JSON.parse(raw).operationId);
       closeStarted?.();
       await closeGate;
+      if (closeResponseOverride) {
+        const response = closeResponseOverride(JSON.parse(raw).operationId);
+        res
+          .writeHead(response.status, { "content-type": "application/json" })
+          .end(JSON.stringify(response.body));
+        return;
+      }
       if (closeState === "failure") {
         res.writeHead(503).end();
         return;
@@ -2005,7 +2019,9 @@ async function fixture(
     timeoutMs: 5000,
   };
   const queries = {
-    findReviewRunAuthorizationById: async (id: string) => {
+    findReviewRunAuthorizationById: async (
+      id: string,
+    ): Promise<ReviewRunAuthorization | null> => {
       lookups.push(id);
       if (lookupFailures.has(id)) throw Error("authorization_read_failed");
       return authorization(id);
@@ -2129,6 +2145,8 @@ async function fixture(
   const relay = createReviewRunGatewayRelay(relayInput);
   return {
     preparation,
+    queries,
+    relayInput,
     bindings,
     rejectPreparation(
       statusCode: number,
@@ -2182,6 +2200,7 @@ async function fixture(
     nativeExecutions,
     nativeCloses,
     nativeCloseReasons,
+    nativeCloseOperationIds,
     operations,
     operationReads,
     revokedAllocations,
@@ -2194,6 +2213,9 @@ async function fixture(
     },
     setCloseState(state: typeof closeState) {
       closeState = state;
+    },
+    setCloseResponseOverride(value?: typeof closeResponseOverride) {
+      closeResponseOverride = value;
     },
     setOperationReadFailure(value = true) {
       operationReadFailure = value;
@@ -2657,10 +2679,50 @@ async function streamRun(
   return response.kind;
 }
 
+const reclaimBatchEvent = "review_run_gateway_relay_reclaim_batch";
+// Independent expected vector: extra fields, double counts and sensitive values
+// fail at the real relay boundary, without deriving expectations from its code.
+function expectReclaimBatch(
+  calls: readonly (readonly unknown[])[],
+  overrides: Partial<Record<string, number>>,
+) {
+  const events = calls.filter((call) => call[0] === reclaimBatchEvent);
+  expect(events).toEqual([
+    [
+      reclaimBatchEvent,
+      {
+        retainedBefore: 1,
+        retainedAfter: 1,
+        budget: 1,
+        visited: 1,
+        skippedClosing: 0,
+        skippedPreparing: 0,
+        rowMissing: 0,
+        rowMismatch: 0,
+        sourceUnavailable: 0,
+        sourceReturnedFalseUnknown: 0,
+        confirmationMissing: 0,
+        confirmationMismatch: 0,
+        deadlineReached: 0,
+        cursorEmpty: 0,
+        lookupFailed: 0,
+        sourceFailed: 0,
+        confirmationFailed: 0,
+        closeStarted: 0,
+        closeReturnedOutcomeUnknown: 0,
+        closeFailedCauseUnknown: 0,
+        batchAbortedCauseUnknown: 0,
+        ...overrides,
+      },
+    ],
+  ]);
+}
+
 it.each(["active", "different_identity", "read_failure"] as const)(
   "retains a capacity session with %s authority",
   async (mode) => {
     const f = await fixture(MiB, 0, 1);
+    const log = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       await streamRun(f, "authorization-1");
       if (mode === "active") {
@@ -2679,7 +2741,15 @@ it.each(["active", "different_identity", "read_failure"] as const)(
       expect(f.nativeCloses).toHaveLength(0);
       expect(f.intents).toHaveLength(1);
       expect(f.admissions).toHaveLength(1);
+      expectReclaimBatch(log.mock.calls, {
+        [mode === "active"
+          ? "sourceReturnedFalseUnknown"
+          : mode === "different_identity"
+            ? "rowMismatch"
+            : "lookupFailed"]: 1,
+      });
     } finally {
+      log.mockRestore();
       f.lookupFailures.clear();
       await f.relay.shutdown();
     }
@@ -2688,6 +2758,7 @@ it.each(["active", "different_identity", "read_failure"] as const)(
 
 it("retains an unknown native close and denies the old run without replay", async () => {
   const f = await fixture(MiB, 0, 1);
+  const log = vi.spyOn(console, "warn").mockImplementation(() => {});
   try {
     await streamRun(f, "authorization-1");
     f.revoke("authorization-1");
@@ -2703,13 +2774,19 @@ it("retains an unknown native close and denies the old run without replay", asyn
     });
     expect(f.intents).toHaveLength(1);
     expect(f.admissions).toHaveLength(1);
+    expectReclaimBatch(log.mock.calls, {
+      closeStarted: 1,
+      closeReturnedOutcomeUnknown: 1,
+    });
   } finally {
+    log.mockRestore();
     await f.relay.shutdown();
   }
 });
 
 it("shares one close under concurrent capacity pressure and admits at most one new run", async () => {
   const f = await fixture(MiB, 0, 1);
+  const log = vi.spyOn(console, "warn").mockImplementation(() => {});
   let release: (() => void) | undefined;
   try {
     await streamRun(f, "authorization-1");
@@ -2733,8 +2810,192 @@ it("shares one close under concurrent capacity pressure and admits at most one n
     expect(f.intents).toHaveLength(2);
     expect(f.admissions).toHaveLength(2);
     expect(f.nativeCloses).toHaveLength(1);
+    expectReclaimBatch(log.mock.calls, {
+      retainedAfter: 0,
+      closeStarted: 1,
+      closeReturnedOutcomeUnknown: 1,
+    });
   } finally {
+    log.mockRestore();
     release?.();
+    await f.relay.shutdown();
+  }
+});
+
+// Regressions here would misidentify the failed phase or let instrumentation
+// change the existing deny-first and unknown-capability custody decisions.
+it.each([
+  "source_failure",
+  "confirmation_mismatch",
+  "parent_write_failure",
+] as const)(
+  "reclaim diagnostics preserve custody and port order after %s",
+  async (mode) => {
+    const base = await fixture(MiB, 0, 1);
+    const sourceCalls: string[] = [];
+    const f = {
+      ...base,
+      relay: createReviewRunGatewayRelay({
+        ...base.relayInput,
+        isSourceRunTerminal: async (auth) => {
+          sourceCalls.push(auth.authorizationId);
+          if (mode === "source_failure")
+            throw Error("synthetic_secret_source_failure");
+          return true;
+        },
+      }),
+    };
+    const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const query = vi.spyOn(f.queries, "findReviewRunAuthorizationById");
+    const write = vi.spyOn(
+      f.authorizations,
+      "expireOrRevokeReviewRunAuthorization",
+    );
+    try {
+      await streamRun(f, "authorization-1");
+      if (mode === "parent_write_failure") {
+        f.revoke("authorization-1");
+        write.mockRejectedValue(Error("synthetic_secret_parent_write_failure"));
+      }
+      let reads = 0;
+      query.mockImplementation(async (id) => {
+        f.lookups.push(id);
+        reads++;
+        const row = f.authorization(id);
+        return mode === "confirmation_mismatch" && reads === 2
+          ? { ...row, sourceRunId: "foreign-synthetic-source" }
+          : row;
+      });
+      f.lookups.length = 0;
+      await expect(streamRun(f, "authorization-2")).rejects.toMatchObject({
+        code: "relay_saturated",
+        effect: "not_dispatched",
+      });
+      expectReclaimBatch(
+        log.mock.calls,
+        mode === "parent_write_failure"
+          ? { closeStarted: 1, closeFailedCauseUnknown: 1 }
+          : {
+              [mode === "source_failure"
+                ? "sourceFailed"
+                : "confirmationMismatch"]: 1,
+            },
+      );
+      // The current close path rereads the retained owner's authority before
+      // termination; a failed parent write follows those two guarded reads.
+      expect([...f.lookups]).toEqual(
+        Array(
+          mode === "parent_write_failure"
+            ? 3
+            : mode === "confirmation_mismatch"
+              ? 2
+              : 1,
+        ).fill("authorization-1"),
+      );
+      expect(sourceCalls).toEqual(
+        mode === "parent_write_failure" ? [] : ["authorization-1"],
+      );
+      expect(write).toHaveBeenCalledTimes(
+        mode === "parent_write_failure" ? 1 : 0,
+      );
+      expect(f.nativeCloses).toEqual([]);
+      expect([...f.nativeExecutions.values()]).toEqual(["active"]);
+      expect(f.intents).toHaveLength(1);
+      expect(f.admissions).toHaveLength(1);
+    } finally {
+      log.mockRestore();
+      query.mockRestore();
+      write.mockRestore();
+      await f.relay.shutdown();
+      await base.relay.shutdown();
+    }
+  },
+);
+
+it("throwing reclaim logger preserves HTTP refusal and unknown native custody", async () => {
+  const f = await fixture(MiB, 0, 1);
+  const app = Fastify();
+  await registerReviewRunGatewayRelayRoutes(app, f.relay);
+  await app.listen({ host: "127.0.0.1", port: 0 });
+  const log = vi.spyOn(console, "warn").mockImplementation((name) => {
+    if (name === reclaimBatchEvent)
+      throw Error("synthetic_secret_logger_failure");
+  });
+  try {
+    await streamRun(f, "authorization-1");
+    f.revoke("authorization-1");
+    f.setCloseState("unknown");
+    const response = await fetch(
+      `http://127.0.0.1:${(app.server.address() as AddressInfo).port}/api/action/v2/account-gateway/responses`,
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer authorization-2",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-5.6-sol",
+          input: [],
+          stream: true,
+          max_output_tokens: 32768,
+        }),
+      },
+    );
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: { code: "relay_saturated", effect: "not_dispatched" },
+    });
+    expectReclaimBatch(log.mock.calls, {
+      closeStarted: 1,
+      closeReturnedOutcomeUnknown: 1,
+    });
+    expect(f.nativeCloses).toHaveLength(1);
+    expect([...f.nativeExecutions.values()]).toEqual(["active"]);
+    expect(f.intents).toHaveLength(1);
+    expect(f.admissions).toHaveLength(1);
+  } finally {
+    log.mockRestore();
+    await app.close();
+    await f.relay.shutdown();
+  }
+});
+
+it("reclaim finally preserves an original guard exception when its logger also throws", async () => {
+  const originalError = Error("synthetic_original_guard_failure");
+  const originalFactory = preparationModule.createReviewRunGatewayPreparation;
+  let failGuard = false;
+  const factory = vi
+    .spyOn(preparationModule, "createReviewRunGatewayPreparation")
+    .mockImplementation((input) => {
+      const preparation = originalFactory(input);
+      return {
+        ...preparation,
+        isPreparing: () => {
+          if (failGuard) throw originalError;
+          return preparation.isPreparing();
+        },
+      };
+    });
+  const f = await fixture(MiB, 0, 1);
+  const log = vi.spyOn(console, "warn").mockImplementation((name) => {
+    if (name === reclaimBatchEvent)
+      throw Error("synthetic_secret_logger_failure");
+  });
+  try {
+    await streamRun(f, "authorization-1");
+    f.lookups.length = 0;
+    failGuard = true;
+    await expect(streamRun(f, "authorization-2")).rejects.toBe(originalError);
+    expectReclaimBatch(log.mock.calls, { batchAbortedCauseUnknown: 1 });
+    expect(f.lookups).toEqual([]);
+    expect(f.nativeCloses).toEqual([]);
+    expect([...f.nativeExecutions.values()]).toEqual(["active"]);
+    expect(f.intents).toHaveLength(1);
+    expect(f.admissions).toHaveLength(1);
+  } finally {
+    failGuard = false;
+    log.mockRestore();
+    factory.mockRestore();
     await f.relay.shutdown();
   }
 });
@@ -2957,6 +3218,360 @@ it("does not wait for an already pending explicit close under capacity pressure"
   } finally {
     release?.();
     await closing;
+    await f.relay.shutdown();
+  }
+});
+
+it.each(["pressure", "timer"] as const)(
+  "v4 retries a retained completed close through %s without revoking publication authority or replaying inference",
+  async (trigger) => {
+    const f = await fixture(
+      32768,
+      0,
+      1,
+      5000,
+      undefined,
+      undefined,
+      9,
+      undefined,
+      { models: ["gpt-5.6-sol"], independentAllocations: true },
+    );
+    const revoke = vi.spyOn(
+      f.authorizations,
+      "expireOrRevokeReviewRunAuthorization",
+    );
+    try {
+      await streamRun(f, "authorization-1", "reviewer-0");
+      f.setCloseState("unknown");
+      expect(
+        await f.relay.closeRun("authorization-1", "completed"),
+      ).toMatchObject({ state: "unknown" });
+      expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+      expect(f.terminalRuns.size).toBe(0);
+      expect(f.nativeCloses).toHaveLength(1);
+      if (trigger === "pressure") {
+        await expect(
+          streamRun(f, "authorization-2", "reviewer-0"),
+        ).rejects.toMatchObject({ code: "relay_saturated" });
+        expect(f.nativeCloses).toHaveLength(2);
+      } else {
+        await vi.waitFor(() => expect(f.nativeCloses).toHaveLength(2), {
+          timeout: 2000,
+        });
+      }
+      expect(f.intents).toHaveLength(1);
+      expect(f.requestModels).toHaveLength(1);
+      expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+      expect(revoke).not.toHaveBeenCalled();
+      expect(new Set(f.nativeCloseOperationIds).size).toBe(1);
+      f.setCloseState("applied");
+      if (trigger === "timer") {
+        await vi.waitFor(() => expect(f.nativeCloses).toHaveLength(3), {
+          timeout: 4000,
+        });
+      }
+      await expect(streamRun(f, "authorization-2", "reviewer-0")).resolves.toBe(
+        "stream",
+      );
+      expect(f.nativeCloseReasons).toEqual([
+        "completed",
+        "completed",
+        "completed",
+      ]);
+      expect(new Set(f.nativeCloseOperationIds).size).toBe(1);
+      expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+      expect(revoke).not.toHaveBeenCalled();
+      expect(f.requestModels).toHaveLength(2);
+    } finally {
+      revoke.mockRestore();
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it("v4 bounds automatic close retries and preserves the original deadline fence", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  const f = await fixture(
+    32768,
+    0,
+    1,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    { models: ["gpt-5.6-sol"], independentAllocations: true },
+  );
+  try {
+    await streamRun(f, "authorization-1", "reviewer-0");
+    f.setCloseState("unknown");
+    await f.relay.closeRun("authorization-1", "completed");
+    // Advance in small steps so real loopback I/O can settle between virtual
+    // retries; transport keepalive timers are independent of the cleanup budget.
+    for (let tick = 0; tick < 1100 && f.nativeCloses.length < 9; tick++) {
+      await vi.advanceTimersByTimeAsync(100);
+      await setImmediate();
+    }
+    await vi.waitFor(() => expect(f.nativeCloses).toHaveLength(9));
+    for (let tick = 0; tick < 10; tick++) await setImmediate();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(f.nativeCloses).toHaveLength(9);
+    expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+    expect(new Set(f.nativeCloseOperationIds).size).toBe(1);
+    expect(f.nativeCloseReasons).toEqual(
+      Array.from({ length: 9 }, () => "completed"),
+    );
+    expect(f.requestModels).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(
+      f.authorization().maxExpiresAt.getTime() - Date.now() + 1,
+    );
+    await vi.waitFor(() =>
+      expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Expired),
+    );
+    await vi.waitFor(() => expect(f.nativeCloses).toHaveLength(10));
+    for (let tick = 0; tick < 10; tick++) await setImmediate();
+    const closes = f.nativeCloses.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(f.nativeCloses).toHaveLength(closes);
+    expect(f.requestModels).toHaveLength(1);
+  } finally {
+    await f.relay.shutdown();
+    vi.useRealTimers();
+  }
+});
+
+it.each(["identity", "snapshot"] as const)(
+  "v4 automatic close retry rejects changed retained %s after the authority read",
+  async (changed) => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    const f = await fixture(
+      32768,
+      0,
+      1,
+      5000,
+      undefined,
+      undefined,
+      9,
+      undefined,
+      { models: ["gpt-5.6-sol"], independentAllocations: true },
+    );
+    let releaseRead: (() => void) | undefined;
+    const originalRead = f.queries.findReviewRunAuthorizationById;
+    const read = vi.spyOn(f.queries, "findReviewRunAuthorizationById");
+    try {
+      await streamRun(f, "authorization-1", "reviewer-0");
+      f.setCloseState("unknown");
+      await f.relay.closeRun("authorization-1", "completed");
+      const original = f.authorization();
+      const reads = f.lookups.length;
+      const held = new Promise<void>((resolve) => {
+        releaseRead = resolve;
+      });
+      read.mockImplementationOnce(async (id) => {
+        await held;
+        return originalRead(id);
+      });
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(f.lookups).toHaveLength(reads);
+      if (changed === "identity")
+        f.overrides.set("authorization-1", { headSha: "e".repeat(40) });
+      else {
+        const snapshot = JSON.parse(original.runtimeSnapshotCanonicalJson!) as {
+          allocations: Array<{ allocationId: string }>;
+          reviewers: Array<{ transport: { allocationId: string } }>;
+        };
+        snapshot.allocations[0]!.allocationId = "replacement-allocation";
+        snapshot.reviewers[0]!.transport.allocationId =
+          "replacement-allocation";
+        f.overrides.set("authorization-1", {
+          runtimeSnapshotCanonicalJson: canonicalJson(snapshot),
+        });
+      }
+      releaseRead!();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(f.lookups.length).toBeGreaterThan(reads);
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(f.nativeCloses).toHaveLength(1);
+      expect(f.intents).toHaveLength(1);
+      expect(f.requestModels).toHaveLength(1);
+      expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+    } finally {
+      releaseRead?.();
+      read.mockRestore();
+      f.overrides.clear();
+      await f.relay.shutdown();
+      vi.useRealTimers();
+    }
+  },
+);
+
+it("v4 shutdown cancels automatic retry and original deadline timers after an unknown close", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  const f = await fixture(
+    32768,
+    0,
+    1,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    { models: ["gpt-5.6-sol"], independentAllocations: true },
+  );
+  const revoke = vi.spyOn(
+    f.authorizations,
+    "expireOrRevokeReviewRunAuthorization",
+  );
+  try {
+    await streamRun(f, "authorization-1", "reviewer-0");
+    f.setCloseState("unknown");
+    await f.relay.closeRun("authorization-1", "completed");
+    await f.relay.shutdown();
+    const closes = f.nativeCloses.length;
+    const writes = revoke.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(f.nativeCloses).toHaveLength(closes);
+    expect(revoke).toHaveBeenCalledTimes(writes);
+    expect(f.requestModels).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    revoke.mockRestore();
+    vi.useRealTimers();
+  }
+});
+
+it("v4 joined cancellation keeps its authority fence after the first allocation was released", async () => {
+  const f = await fixture(
+    32768,
+    0,
+    2,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    { models: ["gpt-5.6-sol", "gpt-5.5"], independentAllocations: true },
+  );
+  let first: ReturnType<typeof f.holdClose> | undefined;
+  let second: ReturnType<typeof f.holdClose> | undefined;
+  let completed: ReturnType<typeof f.relay.closeRun> | undefined;
+  let cancelled: ReturnType<typeof f.relay.closeRun> | undefined;
+  try {
+    for (const reviewerId of ["reviewer-0", "reviewer-1"]) {
+      const response = await f.relay.responses(
+        "authorization-1",
+        Buffer.from("{}"),
+        new AbortController(),
+        undefined,
+        undefined,
+        reviewerId,
+      );
+      if (response.kind !== "stream") throw new Error("stream_expected");
+      for await (const chunk of response.body) {
+        expect(chunk.byteLength).toBeGreaterThan(0);
+      }
+    }
+    first = f.holdClose();
+    completed = f.relay.closeRun("authorization-1", "completed");
+    await first.started;
+    second = f.holdClose();
+    first.release();
+    await second.started;
+    cancelled = f.relay.closeRun("authorization-1", "cancelled");
+    await vi.waitFor(() =>
+      expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Revoked),
+    );
+    second.release();
+    expect(await Promise.all([completed, cancelled])).toEqual([
+      expect.objectContaining({ state: "applied" }),
+      expect.objectContaining({ state: "applied" }),
+    ]);
+    expect(f.nativeCloses).toHaveLength(2);
+    expect(new Set(f.nativeCloses).size).toBe(2);
+    expect(f.nativeCloseReasons).toEqual(["completed", "completed"]);
+    expect(f.requestModels).toHaveLength(2);
+  } finally {
+    first?.release();
+    second?.release();
+    await Promise.allSettled([completed, cancelled]);
+    await f.relay.shutdown();
+  }
+});
+
+it("v4 automatic retries preserve a failed parent cancellation and bound concurrent close work", async () => {
+  const f = await fixture(
+    32768,
+    0,
+    2,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    { models: ["gpt-5.6-sol"], independentAllocations: true },
+  );
+  const relay = f.restartRelay(2, 1);
+  const revoke = vi.spyOn(
+    f.authorizations,
+    "expireOrRevokeReviewRunAuthorization",
+  );
+  let gate: ReturnType<typeof f.holdClose> | undefined;
+  let cancelled: ReturnType<typeof relay.closeRun> | undefined;
+  try {
+    for (const id of ["authorization-1", "authorization-2"]) {
+      await streamRun({ ...f, relay }, id, "reviewer-0");
+      f.setCloseState("unknown");
+      expect(await relay.closeRun(id, "completed")).toMatchObject({
+        state: "unknown",
+      });
+    }
+    revoke.mockRejectedValueOnce(new Error("authority_write_failed"));
+    await expect(
+      relay.closeRun("authorization-1", "cancelled"),
+    ).rejects.toThrow("authority_write_failed");
+    expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+    f.setCloseState("applied");
+    gate = f.holdClose();
+    await gate.started;
+    expect(f.nativeCloses).toHaveLength(3);
+    await expect(
+      streamRun({ ...f, relay }, "authorization-3", "reviewer-0"),
+    ).rejects.toMatchObject({ code: "relay_saturated" });
+    expect(f.nativeCloses).toHaveLength(3);
+    const heldAuthorization =
+      f.nativeCloses.at(-1) === `execution-${f.intents[0]!.operationId}`
+        ? "authorization-1"
+        : "authorization-2";
+    cancelled = relay.closeRun(heldAuthorization, "cancelled");
+    await vi.waitFor(() =>
+      expect(f.authorization(heldAuthorization).state).toBe(
+        ReviewRunAuthorizationState.Revoked,
+      ),
+    );
+    gate.release();
+    await cancelled;
+    await vi.waitFor(() => expect(f.nativeCloses).toHaveLength(4), {
+      timeout: 3000,
+    });
+    expect(f.nativeCloseReasons).toEqual([
+      "completed",
+      "completed",
+      "completed",
+      "completed",
+    ]);
+    expect(new Set(f.nativeCloseOperationIds).size).toBe(2);
+    expect(f.requestModels).toHaveLength(2);
+    expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Revoked);
+    expect(f.authorization("authorization-2").state).toBe(
+      heldAuthorization === "authorization-2"
+        ? ReviewRunAuthorizationState.Revoked
+        : ReviewRunAuthorizationState.Active,
+    );
+  } finally {
+    gate?.release();
+    await cancelled;
+    revoke.mockRestore();
+    await relay.shutdown();
     await f.relay.shutdown();
   }
 });
@@ -4207,3 +4822,767 @@ it.each(["gpt-5.6-sol", "authorized-account-model-not-in-anchor"])(
     }
   },
 );
+
+it.each(["unknown", "http503", "timeout", "binding_failure"] as const)(
+  "isolated safe close diagnostics emit finite fields without custody changes: %s",
+  async (mode) => {
+    const f = await fixture(MiB, 0, 1, 150);
+    let release: (() => void) | undefined;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await streamRun(f, "authorization-1");
+      const initialRequestRefs = [...f.requestRefs];
+      f.revoke("authorization-1");
+      if (mode === "unknown") f.setCloseState("unknown");
+      if (mode === "http503") f.setCloseState("failure");
+      if (mode === "timeout") {
+        f.setCloseState("unknown");
+        const hold = f.holdClose();
+        release = hold.release;
+      }
+      if (mode === "binding_failure") {
+        Object.defineProperty(f.bindings, "completeCleanup", {
+          configurable: true,
+          value: async () => {
+            throw new Error("SECRET_SENTINEL_DO_NOT_LOG");
+          },
+        });
+      }
+      await expect(streamRun(f, "authorization-2")).rejects.toMatchObject({
+        code: "relay_saturated",
+        effect: "not_dispatched",
+      });
+      expect(f.intents).toHaveLength(1);
+      expect(f.requestRefs).toEqual(initialRequestRefs);
+      const diagnostics = warn.mock.calls
+        .filter(([event]) => event === "review_run_gateway_close_diagnostic")
+        .map(([, data]) => data);
+      const expected = {
+        unknown: {
+          phase: "remote_close",
+          category: "unknown",
+          code: "unknown",
+          effect: "unknown",
+        },
+        http503: {
+          phase: "remote_close",
+          category: "invalid_response",
+          code: "unknown",
+          effect: "unknown",
+          httpStatus: "unknown",
+        },
+        timeout: {
+          phase: "remote_close",
+          category: "cancelled",
+          code: "unknown",
+          effect: "unknown",
+          httpStatus: "unknown",
+        },
+        binding_failure: { phase: "binding_cleanup", category: "other" },
+      } as const;
+      expect(diagnostics).toEqual([expected[mode]]);
+      const log = JSON.stringify(diagnostics);
+      for (const value of [
+        "SECRET_SENTINEL_DO_NOT_LOG",
+        "local-control-token",
+        "local-execution-token",
+        "authorization-1",
+        "execution-operation-authorization-1",
+      ]) {
+        expect(log).not.toContain(value);
+      }
+    } finally {
+      release?.();
+      Object.defineProperty(f.bindings, "completeCleanup", {
+        configurable: true,
+        value: async () => {},
+      });
+      f.setCloseState("applied");
+      await f.relay.shutdown();
+      warn.mockRestore();
+    }
+  },
+);
+
+it.each(["never_attempted", "proven_no_execution"])(
+  "isolated safe close diagnostics do not warn for %s",
+  async (scenario) => {
+    const f = await fixture(MiB);
+    const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      if (scenario === "proven_no_execution") {
+        f.rejectPreparation(503, (intent) => ({
+          code: "admission_limited",
+          traceRef: "fixture-trace",
+          operationRef: intent.operationId,
+          effect: "not_dispatched",
+          retry: { kind: "after", milliseconds: 1000 },
+        }));
+        await expect(f.preparation.prepare()).rejects.toMatchObject({
+          code: "safe_error",
+        });
+      }
+      expect(await f.preparation.close("cancelled")).toEqual({
+        state: "unknown",
+      });
+      expect(f.preparation.canReleaseWithoutRemoteClose()).toBe(true);
+      expect(
+        warnings.mock.calls.filter(
+          ([message]) => message === "review_run_gateway_close_diagnostic",
+        ),
+      ).toEqual([]);
+      expect(f.nativeCloses).toHaveLength(0);
+      expect(f.requestRefs).toHaveLength(0);
+    } finally {
+      warnings.mockRestore();
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it("isolated safe close diagnostics warn when attempted execution remains uncertain", async () => {
+  const f = await fixture(MiB);
+  const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
+  f.rejectPreparation(503, () => ({
+    code: "admission_limited",
+    traceRef: "fixture-trace",
+    operationRef: "foreign-operation",
+    effect: "not_dispatched",
+    retry: { kind: "after", milliseconds: 1000 },
+  }));
+  try {
+    await expect(f.preparation.prepare()).rejects.toBeDefined();
+    expect(await f.preparation.close("cancelled")).toEqual({
+      state: "unknown",
+    });
+    expect(f.preparation.canReleaseWithoutRemoteClose()).toBe(false);
+    expect(
+      warnings.mock.calls.filter(
+        ([message]) => message === "review_run_gateway_close_diagnostic",
+      ),
+    ).toEqual([
+      [
+        "review_run_gateway_close_diagnostic",
+        { phase: "recovery", category: "no_capability" },
+      ],
+    ]);
+  } finally {
+    warnings.mockRestore();
+    await f.relay.shutdown();
+  }
+});
+
+it("isolated safe close diagnostics retry logging after one logger failure", async () => {
+  const f = await fixture(MiB);
+  const recorded: unknown[] = [];
+  let attempts = 0;
+  const warn = vi
+    .spyOn(console, "warn")
+    .mockImplementation((event, details) => {
+      if (event !== "review_run_gateway_close_diagnostic") return;
+      attempts++;
+      if (attempts === 1) throw new Error("synthetic_log_failure");
+      recorded.push(details);
+    });
+  try {
+    await f.preparation.prepare();
+    f.setCloseState("unknown");
+    for (let i = 0; i < 3; i++) {
+      expect(await f.preparation.close("cancelled")).toMatchObject({
+        state: "unknown",
+      });
+      expect(f.preparation.canReleaseWithoutRemoteClose()).toBe(false);
+    }
+    expect(attempts).toBe(2);
+    expect(recorded).toEqual([
+      {
+        phase: "remote_close",
+        category: "unknown",
+        code: "unknown",
+        effect: "unknown",
+      },
+    ]);
+    expect(f.nativeCloses).toHaveLength(3);
+    expect(f.requestRefs).toHaveLength(0);
+    expect([...f.nativeExecutions.values()]).toEqual(["active"]);
+  } finally {
+    warn.mockRestore();
+    f.setCloseState("applied");
+    await f.relay.shutdown();
+  }
+});
+
+it.each([
+  "operation_unknown",
+  "operation_rejected",
+  "http_safe_error",
+  "malformed_operation",
+] as const)(
+  "isolated safe close diagnostics whitelist Gateway contract fields: %s",
+  async (mode) => {
+    const f = await fixture(MiB);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const sentinel = "SECRET_SENTINEL_DO_NOT_LOG";
+    try {
+      await f.preparation.prepare();
+      f.setCloseResponseOverride((operationId) => {
+        const operation =
+          mode === "operation_unknown" ||
+          mode === "operation_rejected" ||
+          mode === "malformed_operation";
+        const rejected = mode === "operation_rejected";
+        const diagnostic = {
+          code: mode === "malformed_operation" ? sentinel : "upstream_failure",
+          effect: rejected ? "not_dispatched" : "effect_unknown",
+          traceRef: sentinel,
+          operationRef: operationId,
+          requestRef: sentinel,
+          retry: { kind: "never" },
+        };
+        return operation
+          ? {
+              status: 200,
+              body: {
+                operationRef: operationId,
+                state: rejected ? "rejected" : "unknown",
+                error: diagnostic,
+              },
+            }
+          : { status: 503, body: diagnostic };
+      });
+      if (mode === "http_safe_error" || mode === "malformed_operation") {
+        await expect(f.preparation.close("cancelled")).rejects.toBeDefined();
+      } else {
+        expect(await f.preparation.close("cancelled")).toMatchObject({
+          state: mode === "operation_rejected" ? "rejected" : "unknown",
+        });
+      }
+      expect(f.preparation.canReleaseWithoutRemoteClose()).toBe(false);
+      expect(f.requestRefs).toHaveLength(0);
+      expect([...f.nativeExecutions.values()]).toEqual(["active"]);
+      const entries = warn.mock.calls
+        .filter(([event]) => event === "review_run_gateway_close_diagnostic")
+        .map(([, data]) => data);
+      const expected =
+        mode === "http_safe_error"
+          ? {
+              phase: "remote_close",
+              category: "safe_error",
+              code: "upstream_failure",
+              effect: "effect_unknown",
+              httpStatus: 503,
+            }
+          : mode === "malformed_operation"
+            ? {
+                phase: "remote_close",
+                category: "invalid_response",
+                code: "unknown",
+                effect: "unknown",
+                httpStatus: "unknown",
+              }
+            : {
+                phase: "remote_close",
+                category:
+                  mode === "operation_rejected" ? "rejected" : "unknown",
+                code: "upstream_failure",
+                effect:
+                  mode === "operation_rejected"
+                    ? "not_dispatched"
+                    : "effect_unknown",
+              };
+      expect(entries).toEqual([expected]);
+      expect(JSON.stringify(entries)).not.toContain(sentinel);
+      expect(JSON.stringify(entries)).not.toContain("rr-close-");
+    } finally {
+      f.setCloseResponseOverride();
+      f.setCloseState("applied");
+      await f.relay.shutdown();
+      warn.mockRestore();
+    }
+  },
+);
+
+it.each([
+  {
+    code: "SECRET_SENTINEL_DO_NOT_LOG",
+    effect: "SECRET_SENTINEL_DO_NOT_LOG",
+    httpStatus: 999,
+    expectedCode: "unknown",
+    expectedEffect: "unknown",
+    expectedStatus: "unknown",
+  },
+  {
+    code: "upstream_failure",
+    effect: "SECRET_SENTINEL_DO_NOT_LOG",
+    httpStatus: -1,
+    expectedCode: "upstream_failure",
+    expectedEffect: "unknown",
+    expectedStatus: "unknown",
+  },
+  {
+    code: "SECRET_SENTINEL_DO_NOT_LOG",
+    effect: "effect_unknown",
+    httpStatus: "SECRET_SENTINEL_DO_NOT_LOG",
+    expectedCode: "unknown",
+    expectedEffect: "effect_unknown",
+    expectedStatus: "unknown",
+  },
+] as const)(
+  "isolated safe close diagnostics reject malformed injected exception metadata: %#",
+  async (scenario) => {
+    const f = await fixture(MiB);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const sentinel = "SECRET_SENTINEL_DO_NOT_LOG";
+    const injected = new GatewayError(
+      "safe_error",
+      "effect_unknown",
+      sentinel,
+      sentinel,
+      {
+        code: scenario.code,
+        effect: scenario.effect,
+        traceRef: sentinel,
+      } as never,
+      scenario.httpStatus as number,
+    );
+    Object.defineProperty(f.bindings, "completeCleanup", {
+      configurable: true,
+      value: async () => {
+        throw injected;
+      },
+    });
+    try {
+      await f.preparation.prepare();
+      await expect(f.preparation.close("cancelled")).rejects.toBe(injected);
+      const entries = warn.mock.calls
+        .filter(([event]) => event === "review_run_gateway_close_diagnostic")
+        .map(([, data]) => data);
+      expect(entries).toEqual([
+        {
+          phase: "binding_cleanup",
+          category: "safe_error",
+          code: scenario.expectedCode,
+          effect: scenario.expectedEffect,
+          httpStatus: scenario.expectedStatus,
+        },
+      ]);
+      expect(JSON.stringify(entries)).not.toContain(sentinel);
+      expect(f.requestRefs).toHaveLength(0);
+    } finally {
+      Object.defineProperty(f.bindings, "completeCleanup", {
+        configurable: true,
+        value: async () => {},
+      });
+      await f.relay.shutdown();
+      warn.mockRestore();
+    }
+  },
+);
+
+it.each(["pressure", "timer"] as const)(
+  "v4 restored completed close recovers through %s without publication revocation or inference replay",
+  async (trigger) => {
+    const f = await fixture(
+      32768,
+      0,
+      1,
+      5000,
+      undefined,
+      undefined,
+      9,
+      undefined,
+      { models: ["gpt-5.6-sol"], independentAllocations: true },
+    );
+    const restored = f.restartRelay(1);
+    const revoke = vi.spyOn(
+      f.authorizations,
+      "expireOrRevokeReviewRunAuthorization",
+    );
+    try {
+      await streamRun(f, "authorization-1", "reviewer-0");
+      f.setCloseState("unknown");
+      expect(
+        await restored.closeRun("authorization-1", "completed"),
+      ).toMatchObject({ state: "unknown" });
+      expect(f.nativeCloses).toHaveLength(1);
+      expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+      expect(f.terminalRuns.size).toBe(0);
+      f.setCloseState("applied");
+      if (trigger === "timer") {
+        // Join the automatic close while its native ACK is held, then wait for
+        // custody release before the single new admission.
+        const gate = f.holdClose();
+        try {
+          await gate.started;
+          const joined = restored.closeRun("authorization-1", "completed");
+          gate.release();
+          expect(await joined).toMatchObject({ state: "applied" });
+        } finally {
+          gate.release();
+        }
+      }
+      await expect(
+        streamRun({ ...f, relay: restored }, "authorization-2", "reviewer-0"),
+      ).resolves.toBe("stream");
+      expect(f.nativeCloseReasons).toEqual(["completed", "completed"]);
+      expect(new Set(f.nativeCloseOperationIds).size).toBe(1);
+      expect(f.requestModels).toHaveLength(2);
+      expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+      expect(revoke).not.toHaveBeenCalled();
+    } finally {
+      revoke.mockRestore();
+      await restored.shutdown();
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it("v4 restored completed close bounds idle retries and retains its original deadline timer", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  const f = await fixture(
+    32768,
+    0,
+    1,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    { models: ["gpt-5.6-sol"], independentAllocations: true },
+  );
+  const restored = f.restartRelay(1);
+  try {
+    await streamRun(f, "authorization-1", "reviewer-0");
+    // The original process has exited: its in-memory timers cannot perform
+    // deadline cleanup for the independently restored process.
+    vi.clearAllTimers();
+    f.setCloseState("unknown");
+    await restored.closeRun("authorization-1", "completed");
+    for (let tick = 0; tick < 1100 && f.nativeCloses.length < 9; tick++) {
+      await vi.advanceTimersByTimeAsync(100);
+      await setImmediate();
+    }
+    await vi.waitFor(() => expect(f.nativeCloses).toHaveLength(9));
+    for (let tick = 0; tick < 10; tick++) await setImmediate();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(f.nativeCloses).toHaveLength(9);
+    expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+    await vi.advanceTimersByTimeAsync(
+      f.authorization().maxExpiresAt.getTime() - Date.now() + 1,
+    );
+    await vi.waitFor(() =>
+      expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Expired),
+    );
+    await vi.waitFor(() => expect(f.nativeCloses).toHaveLength(10));
+    for (let tick = 0; tick < 10; tick++) await setImmediate();
+    const closes = f.nativeCloses.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(f.nativeCloses).toHaveLength(closes);
+    expect(f.nativeCloseReasons).toEqual(
+      Array.from({ length: 10 }, () => "completed"),
+    );
+    expect(new Set(f.nativeCloseOperationIds).size).toBe(1);
+    expect(f.requestModels).toHaveLength(1);
+  } finally {
+    await restored.shutdown();
+    await f.relay.shutdown();
+    vi.useRealTimers();
+  }
+});
+
+it.each(["identity", "snapshot", "read_failure"] as const)(
+  "v4 restored completed close rejects changed %s during automatic owner validation",
+  async (changed) => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    const f = await fixture(
+      32768,
+      0,
+      1,
+      5000,
+      undefined,
+      undefined,
+      9,
+      undefined,
+      { models: ["gpt-5.6-sol"], independentAllocations: true },
+    );
+    const restored = f.restartRelay(1);
+    const originalRead = f.queries.findReviewRunAuthorizationById;
+    const read = vi.spyOn(f.queries, "findReviewRunAuthorizationById");
+    const revoke = vi.spyOn(
+      f.authorizations,
+      "expireOrRevokeReviewRunAuthorization",
+    );
+    let releaseRead: (() => void) | undefined;
+    try {
+      await streamRun(f, "authorization-1", "reviewer-0");
+      vi.clearAllTimers();
+      f.setCloseState("unknown");
+      await restored.closeRun("authorization-1", "completed");
+      const original = f.authorization();
+      let entered!: () => void;
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const held = new Promise<void>((resolve) => {
+        releaseRead = resolve;
+      });
+      read.mockImplementationOnce(async (id) => {
+        entered();
+        await held;
+        if (changed === "read_failure")
+          throw Error("synthetic_restored_owner_read_failure");
+        return originalRead(id);
+      });
+      await vi.advanceTimersByTimeAsync(1000);
+      await started;
+      if (changed === "identity")
+        f.overrides.set("authorization-1", { headSha: "e".repeat(40) });
+      if (changed === "snapshot") {
+        const snapshot = JSON.parse(original.runtimeSnapshotCanonicalJson!) as {
+          allocations: Array<{ allocationId: string }>;
+          reviewers: Array<{ transport: { allocationId: string } }>;
+        };
+        snapshot.allocations[0]!.allocationId = "replacement-allocation";
+        snapshot.reviewers[0]!.transport.allocationId =
+          "replacement-allocation";
+        f.overrides.set("authorization-1", {
+          runtimeSnapshotCanonicalJson: canonicalJson(snapshot),
+        });
+      }
+      // Join the in-progress timer close; it must retain custody and reject
+      // the changed or unreadable owner before issuing another native close.
+      const joined = restored.closeRun("authorization-1", "completed");
+      releaseRead!();
+      if (changed === "read_failure")
+        await expect(joined).rejects.toThrow(
+          "synthetic_restored_owner_read_failure",
+        );
+      else expect(await joined).toMatchObject({ state: "unknown" });
+      expect(f.nativeCloses).toHaveLength(1);
+      expect(f.requestModels).toHaveLength(1);
+      expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+      expect(revoke).not.toHaveBeenCalled();
+    } finally {
+      releaseRead?.();
+      read.mockRestore();
+      revoke.mockRestore();
+      f.overrides.clear();
+      await restored.shutdown();
+      await f.relay.shutdown();
+      vi.useRealTimers();
+    }
+  },
+);
+
+it("v4 restored completed close preserves joined cancellation for later restored allocations", async () => {
+  const f = await fixture(
+    32768,
+    0,
+    2,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    { models: ["gpt-5.6-sol", "gpt-5.5"], independentAllocations: true },
+  );
+  const restored = f.restartRelay(1);
+  let gate: ReturnType<typeof f.holdClose> | undefined;
+  let completed: ReturnType<typeof restored.closeRun> | undefined;
+  let cancelled: ReturnType<typeof restored.closeRun> | undefined;
+  try {
+    for (const reviewerId of ["reviewer-0", "reviewer-1"]) {
+      const response = await f.relay.responses(
+        "authorization-1",
+        Buffer.from("{}"),
+        new AbortController(),
+        undefined,
+        undefined,
+        reviewerId,
+      );
+      if (response.kind !== "stream") throw Error("stream_expected");
+      for await (const chunk of response.body)
+        expect(chunk.byteLength).toBeGreaterThan(0);
+    }
+    gate = f.holdClose();
+    completed = restored.closeRun("authorization-1", "completed");
+    await gate.started;
+    cancelled = restored.closeRun("authorization-1", "cancelled");
+    await vi.waitFor(() =>
+      expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Revoked),
+    );
+    gate.release();
+    expect(await Promise.all([completed, cancelled])).toEqual([
+      expect.objectContaining({ state: "applied" }),
+      expect.objectContaining({ state: "applied" }),
+    ]);
+    expect(f.nativeCloseReasons).toEqual(["completed", "cancelled"]);
+    expect(new Set(f.nativeCloses).size).toBe(2);
+    expect(f.requestModels).toHaveLength(2);
+  } finally {
+    gate?.release();
+    await Promise.allSettled([completed, cancelled]);
+    await restored.shutdown();
+    await f.relay.shutdown();
+  }
+});
+
+it.each([
+  { changed: "identity", alreadyExpired: false },
+  { changed: "snapshot", alreadyExpired: false },
+  { changed: "identity", alreadyExpired: true },
+] as const)(
+  "v4 first restored close pins $changed authority before its deadline joins: expired=$alreadyExpired",
+  async ({ changed, alreadyExpired }) => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    const f = await fixture(
+      32768,
+      0,
+      1,
+      5000,
+      undefined,
+      undefined,
+      9,
+      undefined,
+      { models: ["gpt-5.6-sol"], independentAllocations: true },
+    );
+    const restored = f.restartRelay(1);
+    const revoke = vi.spyOn(
+      f.authorizations,
+      "expireOrRevokeReviewRunAuthorization",
+    );
+    let gate: ReturnType<typeof f.holdClose> | undefined;
+    let completed: ReturnType<typeof restored.closeRun> | undefined;
+    try {
+      await streamRun(f, "authorization-1", "reviewer-0");
+      vi.clearAllTimers();
+      const original = f.authorization();
+      vi.setSystemTime(
+        original.maxExpiresAt.getTime() + (alreadyExpired ? 1 : -10),
+      );
+      f.setCloseState("unknown");
+      gate = f.holdClose();
+      completed = restored.closeRun("authorization-1", "completed");
+      void completed.catch(() => {});
+      await gate.started;
+      if (changed === "identity")
+        f.overrides.set("authorization-1", { headSha: "e".repeat(40) });
+      else {
+        const snapshot = JSON.parse(original.runtimeSnapshotCanonicalJson!) as {
+          deadline: string;
+        };
+        snapshot.deadline = new Date(
+          Date.parse(snapshot.deadline) - 1,
+        ).toISOString();
+        f.overrides.set("authorization-1", {
+          runtimeSnapshotCanonicalJson: canonicalJson(snapshot),
+        });
+      }
+      await vi.advanceTimersByTimeAsync(
+        Math.max(1, original.maxExpiresAt.getTime() - Date.now() + 1),
+      );
+      const joined = restored.closeRun("authorization-1", "deadline");
+      gate.release();
+      await Promise.all([completed, joined]);
+      expect(revoke).not.toHaveBeenCalled();
+      expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+      expect(f.nativeCloses).toHaveLength(1);
+      expect(f.requestModels).toHaveLength(1);
+    } finally {
+      gate?.release();
+      await Promise.allSettled([completed]);
+      revoke.mockRestore();
+      f.overrides.clear();
+      await restored.shutdown();
+      await f.relay.shutdown();
+      vi.useRealTimers();
+    }
+  },
+);
+
+it("v4 restored completed close clears deadline and retry timers at shutdown", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  const f = await fixture(
+    32768,
+    0,
+    1,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    { models: ["gpt-5.6-sol"], independentAllocations: true },
+  );
+  const restored = f.restartRelay(1);
+  const revoke = vi.spyOn(
+    f.authorizations,
+    "expireOrRevokeReviewRunAuthorization",
+  );
+  try {
+    await streamRun(f, "authorization-1", "reviewer-0");
+    vi.clearAllTimers();
+    f.setCloseState("unknown");
+    await restored.closeRun("authorization-1", "completed");
+    await restored.shutdown();
+    const closes = f.nativeCloses.length;
+    const writes = revoke.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(f.nativeCloses).toHaveLength(closes);
+    expect(revoke).toHaveBeenCalledTimes(writes);
+    expect(f.requestModels).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    revoke.mockRestore();
+    await f.relay.shutdown();
+    vi.useRealTimers();
+  }
+});
+
+it("shutdown clears timers for additional allocations restored during cleanup", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  const f = await fixture(
+    32768,
+    0,
+    2,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    {
+      models: ["gpt-5.6-sol", "gpt-5.5"],
+      independentAllocations: true,
+    },
+  );
+  const restored = f.restartRelay(2);
+  try {
+    for (const [relay, reviewerId] of [
+      [restored, "reviewer-0"],
+      [f.relay, "reviewer-1"],
+    ] as const) {
+      const response = await relay.responses(
+        "authorization-1",
+        Buffer.from("{}"),
+        new AbortController(),
+        undefined,
+        undefined,
+        reviewerId,
+      );
+      if (response.kind !== "stream") throw Error("stream_expected");
+      for await (const chunk of response.body) void chunk;
+    }
+    vi.clearAllTimers();
+    f.setCloseState("unknown");
+    await restored.shutdown();
+    expect(f.nativeCloses).toHaveLength(2);
+    expect(f.requestModels).toHaveLength(2);
+    // A request-timeout timer remains in the fixture transport.
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(f.nativeCloses).toHaveLength(2);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    await f.relay.shutdown();
+    vi.useRealTimers();
+  }
+});
