@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  assertManagedWorkflowSetupOptions,
-} from "../domain/managed-workflow-setup-options.js";
+import { assertManagedWorkflowSetupOptions } from "../domain/managed-workflow-setup-options.js";
 import type { WorkflowTransport } from "../domain/workflow-transport.js";
 import type {
   ReviewRouterDiscussionMode,

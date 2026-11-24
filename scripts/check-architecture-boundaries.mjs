@@ -606,7 +606,8 @@ async function checkActionConflictRuntimePublishedContract(
     violations.push({
       file: facade,
       imported: "missing contract",
-      reason: "conflict-runtime needs an explicit pure published domain contract",
+      reason:
+        "conflict-runtime needs an explicit pure published domain contract",
     });
   } else {
     const source = ts.createSourceFile(
@@ -678,7 +679,8 @@ async function checkActionConflictRuntimePublishedContract(
     violations.push({
       file: owned,
       imported: "missing domain owner",
-      reason: "conflict-runtime published contract needs its standalone domain owner",
+      reason:
+        "conflict-runtime published contract needs its standalone domain owner",
     });
   } else {
     const source = ts.createSourceFile(

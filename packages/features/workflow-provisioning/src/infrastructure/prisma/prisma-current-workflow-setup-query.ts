@@ -5,9 +5,7 @@ import type {
 } from "../../application/ports/current-workflow-setup-query-port.js";
 import type { CurrentWorkflowSetupAttempt } from "../../domain/workflow-setup-authority.js";
 
-export class PrismaCurrentWorkflowSetupQuery
-  implements CurrentWorkflowSetupQueryPort
-{
+export class PrismaCurrentWorkflowSetupQuery implements CurrentWorkflowSetupQueryPort {
   constructor(private readonly prisma: PrismaClient) {}
 
   async findEligibleRepository(
