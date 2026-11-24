@@ -13,14 +13,14 @@
   [plan 86](../architecture/86-review-failure-classes-fixes.md), step 5.
 - Implementation reference: the squash commit of that PR on `main`.
 - Dependencies: none. No migration, configuration or feature flag.
-- Last updated: 2026-11-20.
+- Last updated: 2026-11-21.
 
 ## Environment status
 
-| Target     | Status      | Actual image                         | Evidence                                                                                                                                 |
-| ---------- | ----------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Staging    | `pending`   | Not verified                         | Ordinary API and worker rollout                                                                                                          |
-| Production | `installed` | `be5c879d`, image `sha256:02248832…` | [Bundle 4](2026-11-20-bundle4.md), with the Action side (review-router#405) in `v1.0.244`; no GitHub blip yet, so no retry line observed |
+| Target     | Status     | Actual image                         | Evidence                                                                                                                                                                  |
+| ---------- | ---------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Staging    | `pending`  | Not verified                         | Ordinary API and worker rollout                                                                                                                                           |
+| Production | `deployed` | `be5c879d`, image `sha256:02248832…` | [Bundle 4](2026-11-20-bundle4.md), with the Action side (review-router#405) in `v1.0.244`; one retry line on 2026-11-20 16:31:02 (503), no refusal after it (see the log) |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -73,6 +73,7 @@ Revert the commit and roll the API and worker back. No state is written by this 
 
 ## Execution log
 
-| Time (UTC)       | Environment | Operator | Actual version / image               | Step and observed result           | Evidence                          | Next action                                                                      |
-| ---------------- | ----------- | -------- | ------------------------------------ | ---------------------------------- | --------------------------------- | -------------------------------------------------------------------------------- |
-| 2026-11-20 14:49 | production  | D5       | `be5c879d`, image `sha256:02248832…` | API and worker swapped in bundle 4 | [Bundle 4](2026-11-20-bundle4.md) | Watch for `github_review_revision_read_retry` lines during the next GitHub blip. |
+| Time (UTC)       | Environment | Operator | Actual version / image               | Step and observed result                                                                                                                                                                                                                               | Evidence                                                                      | Next action                                                                      |
+| ---------------- | ----------- | -------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| 2026-11-20 14:49 | production  | D5       | `be5c879d`, image `sha256:02248832…` | API and worker swapped in bundle 4                                                                                                                                                                                                                     | [Bundle 4](2026-11-20-bundle4.md)                                             | Watch for `github_review_revision_read_retry` lines during the next GitHub blip. |
+| 2026-11-21 12:30 | production  | D5       | `be5c879d`, image `sha256:02248832…` | API log read back: one `github_review_revision_read_retry` line at 2026-11-20 16:31:02 (`server_error`, 503, attempt 1, wait 1 s) and no refusal or error line in the next 40 s, so the read succeeded on the retry; the only such line since bundle 4 | [Bundle 5](2026-11-21-bundle5.md#observed-since-bundle-4-before-this-rollout) | None; the Action side (#405) has not met a blip yet.                             |

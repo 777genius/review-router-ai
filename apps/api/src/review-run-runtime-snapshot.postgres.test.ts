@@ -6,7 +6,8 @@ import { createApiApp } from "./app";
 import { describe, expect, it } from "vitest";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
-import type { Prisma } from "@prisma/client";
+import { PrismaClient, type Prisma } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 import {
   accountAdmissionApiGrantStatements,
   activationAuthorityProvisioningSql,
@@ -494,6 +495,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
     }
   });
   it("locks checkout repositories for the SELECT-only API without runtime write authority", async () => {
+    await resetReviewActionV2E2EDatabase(disposableDatabase());
     const harness = await createReviewActionV2E2EHarness(disposableDatabase());
     const { prisma, workspaceId, repositoryConnectionId } = harness;
     const writer = createPrismaClient({
@@ -915,6 +917,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       return { pending, release };
     };
     let holdScm: (() => Promise<void>) | undefined;
+    let failScm = false;
     let scmReads = 0;
     const harness = await createReviewActionV2E2EHarness(databaseUrl, {
       beforeFakeGitHubRead: async () => {
@@ -922,6 +925,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         const hold = holdScm;
         holdScm = undefined;
         await hold?.();
+        if (failScm) throw new Error("fixture_close_scm_aborted");
       },
       modelTransport: "account_gateway",
       repositoryProviderSelection: "none",
@@ -948,7 +952,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         await prisma.$queryRaw<readonly { timezone: string }[]>`
           SELECT current_setting('TimeZone') AS "timezone"
         `,
-      ).toEqual([{ timezone }]);
+      ).toEqual([{ timezone: "UTC" }]);
       const accounts = new PrismaProviderAccountRepository(prisma);
       const connection = await prisma.providerAccountConnection.create({
         data: {
@@ -1169,10 +1173,16 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         }),
       ).toEqual({
         status: ReviewRunAuthorizationUseCaseStatus.Denied,
-        reason: ReviewRunAuthorizationDenialReason.GatewayProfileUnapproved,
+        reason: ReviewRunAuthorizationDenialReason.AdmissionFactsChanged,
       });
       expect(
-        await new ProductionReviewRunRuntimeSnapshot(prisma).capture({
+        await new ProductionReviewRunRuntimeSnapshot(
+          prisma,
+          undefined,
+          undefined,
+          false,
+          "codex-default",
+        ).capture({
           modelTransport: "account_gateway",
           identity: gatewayRun,
           deadline: gatewayRun.maxExpiresAt,
@@ -1818,6 +1828,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
               ...mapConfigToRuntimeEnv(config),
               REVIEW_ROUTER_AGENT_PROFILE_JSON: canonicalJson(pin.agent),
               REVIEW_ROUTER_AGENT_PROFILE_DIGEST: pin.agentProfileDigest,
+              REVIEW_ROUTER_GATEWAY_PROFILE_REF: connection.profileRef,
               REVIEW_ROUTER_LIFECYCLE_OBSERVATION_AUTHORS: JSON.stringify([
                 "review-router-ai[bot]",
                 "github-actions[bot]",
@@ -1940,10 +1951,10 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         // not prevent cancellation, but duplicate close SCM work stays bounded.
         const closeEntered = gate(),
           closeRelease = gate();
+        failScm = true;
         holdScm = async () => {
           closeEntered.release();
           await closeRelease.pending;
-          throw new Error("fixture_close_scm_aborted");
         };
         const pendingClose = relay
           .close(first.authorizationToken, "cancelled")
@@ -1959,9 +1970,13 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           holdScm = undefined;
           closeRelease.release();
         }
-        expect(await pendingClose).toMatchObject({
-          message: "fixture_close_scm_aborted",
-        });
+        try {
+          expect(await pendingClose).toMatchObject({
+            message: "fixture_close_scm_aborted",
+          });
+        } finally {
+          failScm = false;
+        }
 
         // The old concurrent authority projection survives both delays while
         // the authorization row stays active and unchanged: it dispatches HTTP.
@@ -2396,9 +2411,13 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           },
         }),
       ).rejects.toThrow();
-      const snapshotSource = new ProductionReviewRunRuntimeSnapshot(prisma, {
-        profiles: [{ profileRef: "mimo-responses-v1", limits }],
-      });
+      const snapshotSource = new ProductionReviewRunRuntimeSnapshot(
+        prisma,
+        { profiles: [{ profileRef: "mimo-responses-v1", limits }] },
+        undefined,
+        false,
+        "codex-default",
+      );
       const deniedAfterDeadline = await snapshotSource.isLive({
         snapshot: pin,
         identity: original,
@@ -2877,6 +2896,10 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           where: { scmRepositoryIdentityId: harness.scmRepositoryIdentityId },
         });
       const transactionEpochMs = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SET LOCAL TIME ZONE 'Europe/Berlin'`;
+        expect(
+          await tx.$queryRaw`SELECT current_setting('TimeZone') AS "timezone"`,
+        ).toEqual([{ timezone }]);
         const [time] = await tx.$queryRaw<readonly { epochMs: bigint }[]>`
           SELECT round(extract(epoch FROM transaction_timestamp()) * 1000)::bigint AS "epochMs"
         `;
@@ -2906,9 +2929,27 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         return Number(time.epochMs);
       };
       const beforeRemovalEpochMs = await readEpochMs();
-      await new PrismaGitHubInstallationRepository(
-        prisma,
-      ).markInstallationRemoved("123456");
+      // markInstallationRemoved manages its own transaction, so use an
+      // explicitly non-UTC test adapter; the production factory remains UTC.
+      const berlinDatabase = new URL(databaseUrl);
+      berlinDatabase.searchParams.delete("options");
+      const berlinPrisma = new PrismaClient({
+        adapter: new PrismaPg({
+          connectionString: berlinDatabase.toString(),
+          options: "-c timezone=Europe/Berlin",
+          max: 1,
+        }),
+      });
+      try {
+        expect(
+          await berlinPrisma.$queryRaw`SELECT current_setting('TimeZone') AS "timezone"`,
+        ).toEqual([{ timezone }]);
+        await new PrismaGitHubInstallationRepository(
+          berlinPrisma,
+        ).markInstallationRemoved("123456");
+      } finally {
+        await berlinPrisma.$disconnect();
+      }
       const afterRemovalEpochMs = await readEpochMs();
       const removedIdentity =
         await prisma.scmRepositoryIdentity.findUniqueOrThrow({

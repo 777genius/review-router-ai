@@ -16,6 +16,7 @@ import type {
 } from "./review-progress-store";
 
 const now = new Date("2026-08-12T12:00:00.000Z");
+const targetIssueUrl = "https://api.github.com/repos/acme/rocket/issues/42";
 
 describe("ReviewProgressPublisher", () => {
   it("publishes through the installation and fences completion", async () => {
@@ -41,6 +42,7 @@ describe("ReviewProgressPublisher", () => {
               id: 77,
               body: parameters.body,
               user: { login: "review-router[bot]" },
+              issue_url: targetIssueUrl,
             },
           };
         }
@@ -57,6 +59,7 @@ describe("ReviewProgressPublisher", () => {
     });
     expect(calls).toEqual([
       "GET /repos/{owner}/{repo}/pulls/{pull_number}",
+      "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
       "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
       "GET /repos/{owner}/{repo}/pulls/{pull_number}",
       "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
@@ -88,6 +91,7 @@ describe("ReviewProgressPublisher", () => {
               id: 77,
               body: parameters.body,
               user: { login: "review-router[bot]" },
+              issue_url: targetIssueUrl,
             },
           };
         }
@@ -117,6 +121,18 @@ describe("ReviewProgressPublisher", () => {
         request: async (route, parameters = {}) => {
           routes.push(route);
           if (route.includes("/pulls/")) return pull();
+          if (
+            route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}"
+          ) {
+            return {
+              data: {
+                id: 77,
+                body: "<!-- review-router-live-progress -->",
+                user: { login: "review-router[bot]" },
+                issue_url: targetIssueUrl,
+              },
+            };
+          }
           if (route.startsWith("GET")) {
             return {
               data: [
@@ -124,6 +140,7 @@ describe("ReviewProgressPublisher", () => {
                   id: 77,
                   body: "<!-- review-router-live-progress -->",
                   user: { login: "review-router[bot]" },
+                  issue_url: targetIssueUrl,
                 },
               ],
             };
@@ -133,7 +150,14 @@ describe("ReviewProgressPublisher", () => {
             expect(parameters.body).toContain(
               "<!-- review-router-live-progress -->",
             );
-            return { data: { id: 77 } };
+            return {
+              data: {
+                id: 77,
+                body: parameters.body,
+                user: { login: "review-router[bot]" },
+                issue_url: targetIssueUrl,
+              },
+            };
           }
           throw new Error(`unexpected:${route}`);
         },
@@ -150,6 +174,7 @@ describe("ReviewProgressPublisher", () => {
     expect(routes).toEqual([
       "GET /repos/{owner}/{repo}/pulls/{pull_number}",
       "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
+      "GET /repos/{owner}/{repo}/issues/comments/{comment_id}",
       "GET /repos/{owner}/{repo}/pulls/{pull_number}",
       "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
     ]);
@@ -172,6 +197,7 @@ describe("ReviewProgressPublisher", () => {
               id: 77,
               body: parameters.body,
               user: { login: "review-router[bot]" },
+              issue_url: targetIssueUrl,
             },
           };
         }
@@ -341,6 +367,7 @@ describe("ReviewProgressPublisher", () => {
             id: 77,
             body: parameters.body,
             user: { login: "review-router[bot]" },
+            issue_url: targetIssueUrl,
           },
         };
       },
@@ -377,6 +404,7 @@ describe("ReviewProgressPublisher", () => {
           id: 77,
           body: parameters.body,
           user: { login: "review-router[bot]" },
+          issue_url: targetIssueUrl,
         },
       }),
     );
@@ -405,17 +433,32 @@ describe("ReviewProgressPublisher", () => {
     const comment = {
       body: "<!-- review-router-live-progress -->",
       user: { login: "review-router[bot]" },
+      issue_url: targetIssueUrl,
     };
     const firstComment = { ...comment, id: 77 };
     const secondComment = { ...comment, id: 78 };
     const publisher = createPublisher(store, async () => ({
       botLogin: "review-router[bot]",
-      request: async (route) => {
+      request: async (route, parameters = {}) => {
         if (route.includes("/pulls/")) return pull();
+        if (
+          route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}"
+        ) {
+          return { data: firstComment };
+        }
         if (route.startsWith("GET")) {
           return { data: [firstComment, secondComment] };
         }
-        if (route.startsWith("PATCH")) return { data: {} };
+        if (route.startsWith("PATCH")) {
+          return {
+            data: {
+              id: 77,
+              body: parameters.body,
+              user: { login: "review-router[bot]" },
+              issue_url: targetIssueUrl,
+            },
+          };
+        }
         throw new Error(`unexpected:${route}`);
       },
     }));
@@ -446,11 +489,17 @@ describe("ReviewProgressPublisher", () => {
     const comment = {
       body: "<!-- review-router-live-progress -->",
       user: { login: "review-router[bot]" },
+      issue_url: targetIssueUrl,
     };
     const publisher = createPublisher(store, async () => ({
       botLogin: "review-router[bot]",
-      request: async (route) => {
+      request: async (route, parameters = {}) => {
         if (route.includes("/pulls/")) return pull();
+        if (
+          route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}"
+        ) {
+          return { data: { ...comment, id: 77 } };
+        }
         if (route.startsWith("GET")) {
           return {
             data: [
@@ -459,7 +508,16 @@ describe("ReviewProgressPublisher", () => {
             ],
           };
         }
-        if (route.startsWith("PATCH")) return { data: {} };
+        if (route.startsWith("PATCH")) {
+          return {
+            data: {
+              id: 77,
+              body: parameters.body,
+              user: { login: "review-router[bot]" },
+              issue_url: targetIssueUrl,
+            },
+          };
+        }
         throw new Error(`unexpected:${route}`);
       },
     }));
@@ -497,12 +555,15 @@ describe("ReviewProgressPublisher", () => {
     const comment = {
       body: canonicalBody,
       user: { login: "review-router[bot]" },
+      issue_url: targetIssueUrl,
     };
     const deletedIds: number[] = [];
     const publisher = createPublisher(store, async () => ({
       botLogin: "review-router[bot]",
       request: async (route, parameters = {}) => {
         if (route.includes("/pulls/")) return pull();
+        const known = testKnownComment(route, parameters, canonicalBody);
+        if (known) return known;
         if (route.startsWith("GET")) {
           return {
             data: [
@@ -563,12 +624,15 @@ describe("ReviewProgressPublisher", () => {
         botLogin: "review-router[bot]",
         request: async (route, parameters = {}) => {
           if (route.includes("/pulls/")) return pull();
+          const known = testKnownComment(route, parameters, body);
+          if (known) return known;
           if (route.startsWith("GET")) {
             return {
               data: [77, 78].map((id) => ({
                 id,
                 body,
                 user: { login: "review-router[bot]" },
+                issue_url: targetIssueUrl,
               })),
             };
           }
@@ -622,12 +686,15 @@ describe("ReviewProgressPublisher", () => {
         botLogin: "review-router[bot]",
         request: async (route, parameters = {}) => {
           if (route.includes("/pulls/")) return pull();
+          const known = testKnownComment(route, parameters, body);
+          if (known) return known;
           if (route.startsWith("GET")) {
             return {
               data: [77, 78].map((id) => ({
                 id,
                 body,
                 user: { login: "review-router[bot]" },
+                issue_url: targetIssueUrl,
               })),
             };
           }
@@ -667,6 +734,67 @@ describe("ReviewProgressPublisher", () => {
     },
   );
 
+  it.each(["missing", "malformed"] as const)(
+    "repairs a confirmed duplicate DELETE after %s canonical verification",
+    async (verification) => {
+      const publication = { ...claimed(), commentId: 77n };
+      const store = fakeStore(publication);
+      store.retry.mockResolvedValue("stale");
+      const body = formatReviewProgressComment(
+        formatGithubProgressComment(progressSnapshot()),
+        githubProgressCommentMarker,
+      );
+      const deletes: number[] = [];
+      const publisher = createPublisher(store, async () => ({
+        botLogin: "review-router[bot]",
+        request: async (route, parameters = {}) => {
+          if (route.includes("/pulls/")) return pull();
+          const known = testKnownComment(route, parameters, body);
+          if (known) {
+            if (deletes.length === 0) return known;
+            if (verification === "missing") throw { status: 404 };
+            return { data: null };
+          }
+          if (route.startsWith("GET")) {
+            return {
+              data: [77, 78].map((id) => ({
+                id,
+                body,
+                user: { login: "review-router[bot]" },
+                issue_url: targetIssueUrl,
+              })),
+            };
+          }
+          if (route.startsWith("DELETE")) {
+            deletes.push(Number(parameters.comment_id));
+            return { data: undefined };
+          }
+          throw new Error(`unexpected:${route}`);
+        },
+      }));
+
+      await expect(publisher.runMaintenance()).resolves.toMatchObject({
+        claimed: 1,
+        deferred: 1,
+        published: 0,
+      });
+      expect(deletes).toEqual([78]);
+      expect(store.complete).not.toHaveBeenCalled();
+      expect(store.suppress).not.toHaveBeenCalled();
+      expect(store.requeueAfterClaimLoss).toHaveBeenCalledOnce();
+      if (verification === "missing") {
+        expect(store.retry).toHaveBeenCalledWith(
+          expect.objectContaining({
+            safeCode: "review_progress_pagination_inconclusive",
+            countFailure: false,
+          }),
+        );
+      } else {
+        expect(store.retry).not.toHaveBeenCalled();
+      }
+    },
+  );
+
   it.each([
     { operation: "duplicate_deleted", hasDuplicate: true },
     { operation: "unchanged", hasDuplicate: false },
@@ -681,12 +809,15 @@ describe("ReviewProgressPublisher", () => {
     const comment = {
       body: canonicalBody,
       user: { login: "review-router[bot]" },
+      issue_url: targetIssueUrl,
     };
     const deletedIds: number[] = [];
     const publisher = createPublisher(store, async () => ({
       botLogin: "review-router[bot]",
       request: async (route, parameters = {}) => {
         if (route.includes("/pulls/")) return pull();
+        const known = testKnownComment(route, parameters, canonicalBody);
+        if (known) return known;
         if (route.startsWith("GET")) {
           return {
             data: [
@@ -752,7 +883,7 @@ describe("ReviewProgressPublisher", () => {
       suppressed: 0,
       failed: 0,
     });
-    expect(pages).toEqual([1, 2]);
+    expect(pages).toEqual([1, 2, 1, 2]);
     expect(store.retry).toHaveBeenCalledWith(
       expect.objectContaining({
         publication,
@@ -794,6 +925,7 @@ describe("ReviewProgressPublisher", () => {
                     id: 77,
                     body: "<!-- review-router-live-progress -->",
                     user: { login: "review-router[bot]" },
+                    issue_url: targetIssueUrl,
                   },
                 ],
               };
@@ -801,6 +933,18 @@ describe("ReviewProgressPublisher", () => {
             throw {
               status: 403,
               response: { headers: { "retry-after": "60" } },
+            };
+          }
+          if (
+            route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}"
+          ) {
+            return {
+              data: {
+                id: 77,
+                body: "<!-- review-router-live-progress -->",
+                user: { login: "review-router[bot]" },
+                issue_url: targetIssueUrl,
+              },
             };
           }
           if (route.startsWith("PATCH")) {
@@ -843,18 +987,20 @@ describe("ReviewProgressPublisher", () => {
       issue_url: "https://api.github.com/repos/acme/rocket/issues/42",
     };
     let commentReads = 0;
+    let patchAttempts = 0;
     const publisher = createPublisher(store, async () => ({
       botLogin: "review-router[bot]",
-      request: async (route) => {
+      request: async (route, parameters = {}) => {
         if (route.includes("/pulls/")) return pull();
         if (
           route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
         ) {
           commentReads += 1;
           if (commentReads === 1) return { data: [oldComment] };
+          const page = Number(parameters.page);
           return {
             data: Array.from({ length: 100 }, (_, index) => ({
-              id: index + 1,
+              id: (page - 1) * 100 + index + 1,
               body: "unrelated",
               user: { login: "other" },
             })),
@@ -866,6 +1012,7 @@ describe("ReviewProgressPublisher", () => {
           return { data: oldComment };
         }
         if (route.startsWith("PATCH")) {
+          patchAttempts += 1;
           throw new Error("transport_outcome_unknown");
         }
         throw new Error(`unexpected:${route}`);
@@ -877,6 +1024,7 @@ describe("ReviewProgressPublisher", () => {
       deferred: 1,
       failed: 0,
     });
+    expect(patchAttempts).toBe(1);
     const retry = store.retry.mock.calls[0]?.[0];
     expect(retry).toMatchObject({
       safeCode: "review_progress_ambiguous_mutation",
@@ -917,8 +1065,21 @@ describe("ReviewProgressPublisher", () => {
                   id: 77,
                   body: "<!-- review-router-live-progress -->",
                   user: { login: "review-router[bot]" },
+                  issue_url: targetIssueUrl,
                 },
               ],
+            };
+          }
+          if (
+            route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}"
+          ) {
+            return {
+              data: {
+                id: 77,
+                body: "<!-- review-router-live-progress -->",
+                user: { login: "review-router[bot]" },
+                issue_url: targetIssueUrl,
+              },
             };
           }
           if (route.startsWith("PATCH")) {
@@ -941,7 +1102,8 @@ describe("ReviewProgressPublisher", () => {
           failed: 0,
         });
       }
-      expect(commentReads).toBe(2);
+      // Initial scan, empty reconciliation scan, terminal recheck.
+      expect(commentReads).toBe(3);
       expect(store.retry).toHaveBeenCalledWith(
         expect.objectContaining({
           publication,
@@ -979,6 +1141,18 @@ describe("ReviewProgressPublisher", () => {
         botLogin: "review-router[bot]",
         request: async (route, parameters = {}) => {
           if (route.includes("/pulls/")) return pull();
+          if (
+            route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}"
+          ) {
+            return {
+              data: {
+                id: 77,
+                body: "<!-- review-router-live-progress -->",
+                user: { login: "review-router[bot]" },
+                issue_url: targetIssueUrl,
+              },
+            };
+          }
           if (route.startsWith("GET")) {
             return {
               data:
@@ -989,6 +1163,7 @@ describe("ReviewProgressPublisher", () => {
                         id: 77,
                         body: "<!-- review-router-live-progress -->",
                         user: { login: "review-router[bot]" },
+                        issue_url: targetIssueUrl,
                       },
                     ],
             };
@@ -999,6 +1174,7 @@ describe("ReviewProgressPublisher", () => {
                 id: 77,
                 body: parameters.body,
                 user: { login: "review-router[bot]" },
+                issue_url: targetIssueUrl,
               },
             };
           }
@@ -1048,6 +1224,7 @@ describe("ReviewProgressPublisher", () => {
               id: 77,
               body: parameters.body,
               user: { login: "review-router[bot]" },
+              issue_url: targetIssueUrl,
             },
           };
         }
@@ -1096,6 +1273,68 @@ describe("ReviewProgressPublisher", () => {
     expect(store.retry).toHaveBeenCalledWith(
       expect.objectContaining({ maxFailures: 3 }),
     );
+  });
+
+  it("defers throttled duplicate cleanup at the publication failure bound", async () => {
+    const publication = { ...claimed(), commentId: 77n, failureCount: 2 };
+    const store = fakeStore(publication);
+    store.retry.mockImplementationOnce(async (input) => {
+      const mutation = retryMutationData(input);
+      expect(mutation.reachesLimit).toBe(false);
+      expect(mutation.data).not.toHaveProperty("publishedVersion");
+      expect(mutation.data).not.toHaveProperty("failureCount");
+      return "retried";
+    });
+    const body = formatReviewProgressComment(
+      formatGithubProgressComment(progressSnapshot()),
+      githubProgressCommentMarker,
+    );
+    const deletes: number[] = [];
+    const publisher = createPublisher(store, async () => ({
+      botLogin: "review-router[bot]",
+      request: async (route, parameters = {}) => {
+        if (route.includes("/pulls/")) return pull();
+        const known = testKnownComment(route, parameters, body);
+        if (known) return known;
+        if (route.startsWith("GET")) {
+          return {
+            data: [77, 78].map((id) => ({
+              id,
+              body,
+              user: { login: "review-router[bot]" },
+              issue_url: targetIssueUrl,
+            })),
+          };
+        }
+        if (route.startsWith("DELETE")) {
+          deletes.push(Number(parameters.comment_id));
+          throw { status: 429, response: { headers: { "retry-after": "60" } } };
+        }
+        throw new Error(`unexpected:${route}`);
+      },
+    }));
+
+    await expect(publisher.runMaintenance()).resolves.toEqual({
+      claimed: 1,
+      published: 0,
+      deferred: 1,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(deletes).toEqual([78]);
+    const retry = store.retry.mock.calls[0]?.[0];
+    expect(retry).toMatchObject({
+      publication,
+      safeCode: "review_progress_rate_limited",
+      countFailure: false,
+    });
+    expect(retry?.retryAt.getTime()).toBeGreaterThanOrEqual(
+      now.getTime() + 60_000,
+    );
+    expect(retry?.installationCooldownUntil).toEqual(retry?.retryAt);
+    expect(store.complete).not.toHaveBeenCalled();
+    expect(store.suppress).not.toHaveBeenCalled();
+    expect(store.requeueAfterClaimLoss).not.toHaveBeenCalled();
   });
 
   it("uses the GitHub rate-limit retry boundary as installation cooldown", async () => {
@@ -1259,18 +1498,26 @@ describe("ReviewProgressPublisher", () => {
                   id: 77,
                   body: githubProgressCommentMarker,
                   user: { login: "review-router[bot]" },
+                  issue_url: targetIssueUrl,
                 },
               ]
             : [77, 78].map((id) => ({
                 id,
                 body,
                 user: { login: "review-router[bot]" },
+                issue_url: targetIssueUrl,
               }));
       const mutations: string[] = [];
       const publisher = createPublisher(store, async () => ({
         botLogin: "review-router[bot]",
-        request: async (route) => {
+        request: async (route, parameters = {}) => {
           if (route.includes("/pulls/")) return pull();
+          const known = testKnownComment(
+            route,
+            parameters,
+            operation === "PATCH" ? githubProgressCommentMarker : body,
+          );
+          if (known) return known;
           if (route.startsWith("GET")) return { data: rows };
           if (route.startsWith(operation)) {
             mutations.push(route);
@@ -1350,6 +1597,25 @@ describe("ReviewProgressPublisher", () => {
     expect(store.retry).not.toHaveBeenCalled();
   });
 });
+
+/** Model GitHub's single-comment REST GET, not the issue-comments list. */
+function testKnownComment(
+  route: string,
+  parameters: Readonly<Record<string, unknown>>,
+  body: string,
+) {
+  if (route !== "GET /repos/{owner}/{repo}/issues/comments/{comment_id}") {
+    return null;
+  }
+  return {
+    data: {
+      id: Number(parameters.comment_id),
+      body,
+      user: { login: "review-router[bot]" },
+      issue_url: targetIssueUrl,
+    },
+  };
+}
 
 function createPublisher(
   store: ReturnType<typeof fakeStore>,

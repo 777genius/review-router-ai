@@ -46,6 +46,7 @@ export interface ReviewRequestEligibilityPort {
     readonly githubInstallationId: string;
     readonly repositoryFullName: string;
     readonly pullRequestNumber: number;
+    readonly signal?: AbortSignal;
   }): Promise<ReviewRequestEligibility>;
 }
 

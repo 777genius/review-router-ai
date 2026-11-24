@@ -96,6 +96,18 @@ describe("workspace draft dispatch gate", () => {
     );
   });
 
+  it("propagates a preparation abort signal to the eligibility read", async () => {
+    const { gate, load } = fixture({ reviewDrafts: false });
+    const controller = new AbortController();
+    await expect(gate(intent, controller.signal)).resolves.toBe(true);
+    expect(load).toHaveBeenCalledWith({
+      githubInstallationId: "123",
+      repositoryFullName: "acme/widget",
+      pullRequestNumber: 42,
+      signal: controller.signal,
+    });
+  });
+
   it.each([
     ["missing", null],
     ["moved to another workspace", { ...repository, workspaceId: "other" }],

@@ -1,20 +1,31 @@
 import {
+  CAPACITY_LIMIT_SCAN,
+  commentIssueMembership,
   commentPageScanDecision,
   confirmedReconciliation,
-  commentPageLinks,
+  hasUnclassifiedMarker,
+  isCapacityLimitedScan,
   ownsMarker,
   parseCommentOrNull,
+  readableCommentId,
+  requireConfirmedMutationReply,
+  verifiedKnownComment,
   type ReviewProgressComment,
 } from "./review-progress-github-comment-policy";
+import { commentPageLinks } from "./review-progress-github-link-policy";
 import {
+  expectedIssueCommentCollectionPaths,
   formatReviewProgressComment,
   pullRequestIdentityViolation,
+  repositoryIdFromValidatedPullRequest,
+  repositoryParameters,
   validateReviewProgressInput,
   type UpsertReviewProgressCommentInput,
 } from "./review-progress-github-input-policy";
 import {
   classifyGitHubFailure,
   reconciliationFailure,
+  unconfirmedMutation,
   ReviewProgressGitHubError,
   type ReviewProgressGitHubFailureKind,
 } from "./review-progress-github-retry-policy";
@@ -72,11 +83,11 @@ export class ReviewProgressGitHubGateway {
     input: UpsertReviewProgressCommentInput,
   ): Promise<UpsertReviewProgressCommentResult> {
     validateReviewProgressInput(input);
-    await this.assertCurrentPullRequest(input);
+    const repositoryId = await this.assertCurrentPullRequest(input);
     // Only comments listed under this PR can be canonical.
     let existing: ReviewProgressComment[];
     try {
-      existing = await this.findMarkedComments(input);
+      existing = await this.findMarkedComments(input, repositoryId);
     } catch (error) {
       existing = await this.knownCommentAfterInconclusiveScan(input, error);
     }
@@ -92,9 +103,10 @@ export class ReviewProgressGitHubGateway {
         canonical,
         duplicates,
         desiredBody,
+        repositoryId,
       );
     }
-    return this.createComment(input, desiredBody);
+    return this.createComment(input, desiredBody, repositoryId);
   }
 
   /**
@@ -107,8 +119,7 @@ export class ReviewProgressGitHubGateway {
   ): Promise<ReviewProgressComment[]> {
     if (
       input.knownCommentId === undefined ||
-      !(scanError instanceof ReviewProgressGitHubError) ||
-      scanError.kind !== "pagination_inconclusive"
+      !isCapacityLimitedScan(scanError)
     ) {
       throw scanError;
     }
@@ -142,33 +153,8 @@ export class ReviewProgressGitHubGateway {
       throw classified;
     }
 
-    const data = response.data;
-    if (typeof data !== "object" || data === null) {
-      throw failure("invalid_response", "github_known_comment_invalid", false);
-    }
-    const issueUrl = (data as { issue_url?: unknown }).issue_url;
-    if (typeof issueUrl !== "string") {
-      throw failure(
-        "invalid_response",
-        "github_known_comment_issue_missing",
-        false,
-      );
-    }
-    const expectedIssueUrl = [
-      "https://api.github.com/repos",
-      input.owner,
-      input.repo,
-      "issues",
-      input.pullNumber,
-    ].join("/");
-    if (issueUrl.toLowerCase() !== expectedIssueUrl.toLowerCase()) {
-      return scanned;
-    }
-    const known = parseCommentOrNull(data);
-    if (!known || known.id !== knownId) {
-      throw failure("invalid_response", "github_known_comment_mismatch", false);
-    }
-    if (!ownsMarker(known, input)) return scanned;
+    const known = verifiedKnownComment(response.data, input, knownId);
+    if (!known) return scanned;
     return [...scanned, known].sort((left, right) => left.id - right.id);
   }
 
@@ -177,34 +163,64 @@ export class ReviewProgressGitHubGateway {
     canonical: ReviewProgressComment,
     duplicates: readonly ReviewProgressComment[],
     desiredBody: string,
+    scannedRepositoryId?: number,
   ): Promise<UpsertReviewProgressCommentResult> {
     if (canonical.body !== desiredBody) {
       return this.patchChangedComment(
         input,
-        canonical.id,
+        canonical,
         duplicates,
         desiredBody,
+        scannedRepositoryId,
       );
     }
 
-    return this.settleUnchangedComment(input, canonical.id, duplicates);
+    return this.settleUnchangedComment(
+      input,
+      canonical.id,
+      duplicates,
+      desiredBody,
+      scannedRepositoryId,
+    );
   }
 
   /** Reconcile ambiguous PATCH failures without deleting duplicate comments. */
   private async patchChangedComment(
     input: UpsertReviewProgressCommentInput,
-    canonicalId: number,
+    canonical: ReviewProgressComment,
     duplicates: readonly ReviewProgressComment[],
     desiredBody: string,
+    scannedRepositoryId?: number,
   ): Promise<UpsertReviewProgressCommentResult> {
-    await this.assertCurrentPullRequest(input);
+    const canonicalId = canonical.id;
+    const [current] = await this.includeVerifiedKnownComment(
+      { ...input, knownCommentId: canonicalId },
+      [],
+    );
+    if (current?.body !== canonical.body) {
+      throw failure(
+        "pagination_inconclusive",
+        "github_canonical_comment_changed_before_patch",
+        true,
+      );
+    }
+    const currentRepositoryId = await this.assertRepositoryId(
+      input,
+      scannedRepositoryId,
+    );
     try {
-      await this.request(
+      const response = await this.request(
         "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
         repositoryParameters(input, {
           comment_id: canonicalId,
           body: desiredBody,
         }),
+      );
+      requireConfirmedMutationReply(
+        response.data,
+        input,
+        desiredBody,
+        canonicalId,
       );
     } catch (error) {
       const reconciled = await this.reconcileMutation(
@@ -212,6 +228,7 @@ export class ReviewProgressGitHubGateway {
         desiredBody,
         error,
         canonicalId,
+        currentRepositoryId,
       );
       return {
         commentId: canonicalId,
@@ -232,16 +249,61 @@ export class ReviewProgressGitHubGateway {
     input: UpsertReviewProgressCommentInput,
     canonicalId: number,
     duplicates: readonly ReviewProgressComment[],
+    desiredBody: string,
+    scannedRepositoryId?: number,
   ): Promise<UpsertReviewProgressCommentResult> {
     const duplicate = duplicates[0];
+    await this.assertRepositoryId(input, scannedRepositoryId);
+    // Read-only throttling must not consume the publication failure budget
+    // while duplicate cleanup is deferred.
+    const verifyForCleanup = async (commentId: number) => {
+      try {
+        return await this.includeVerifiedKnownComment(
+          { ...input, knownCommentId: commentId },
+          [],
+        );
+      } catch (error) {
+        const classified = this.classify(error, "github_unavailable");
+        if (classified.kind === "rate_limited") {
+          throw new ReviewProgressGitHubError(
+            "rate_limited",
+            "github_duplicate_cleanup_rate_limited",
+            classified.metadata,
+            { cause: classified },
+          );
+        }
+        throw classified;
+      }
+    };
+    // The scanned canonical may have been deleted or repurposed before settling.
+    const verified = await verifyForCleanup(canonicalId);
+    if (verified[0]?.body !== desiredBody) {
+      throw failure(
+        "pagination_inconclusive",
+        "github_canonical_comment_changed_before_delete",
+        true,
+      );
+    }
     if (!duplicate) {
+      // A new PR head or repository may have appeared during the by-ID read.
+      await this.assertRepositoryId(input, scannedRepositoryId);
       return {
         commentId: canonicalId,
         operation: "unchanged",
         duplicateCommentIds: [],
       };
     }
-    await this.assertCurrentPullRequest(input);
+    // Do not delete a once-marked comment repurposed since the offset scan.
+    const duplicateNow = await verifyForCleanup(duplicate.id);
+    if (duplicateNow[0]?.body !== duplicate.body) {
+      throw failure(
+        "pagination_inconclusive",
+        "github_duplicate_comment_changed_before_delete",
+        true,
+      );
+    }
+    // The PR or repository can change during either known-comment read.
+    await this.assertRepositoryId(input, scannedRepositoryId);
     try {
       await this.request(
         "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",
@@ -250,6 +312,35 @@ export class ReviewProgressGitHubGateway {
     } catch (error) {
       const classified = this.classify(error, "ambiguous_mutation");
       if (classified.kind === "revoked_app") throw classified;
+      const mutationFailure = unconfirmedMutation(classified);
+      if (mutationFailure.kind === "rate_limited") {
+        // Cleanup must wait for the installation cooldown, not consume retries.
+        throw new ReviewProgressGitHubError(
+          mutationFailure.kind,
+          "github_duplicate_cleanup_rate_limited",
+          mutationFailure.metadata,
+          { cause: mutationFailure },
+        );
+      }
+      throw mutationFailure;
+    }
+    try {
+      // DELETE can succeed as another worker removes or changes the canonical.
+      const canonicalAfterDelete = await this.includeVerifiedKnownComment(
+        { ...input, knownCommentId: canonicalId },
+        [],
+      );
+      if (canonicalAfterDelete[0]?.body !== desiredBody) {
+        throw failure(
+          "pagination_inconclusive",
+          "github_canonical_comment_changed_after_delete",
+          true,
+        );
+      }
+      await this.assertRepositoryId(input, scannedRepositoryId);
+    } catch (error) {
+      const classified = this.classify(error, "github_unavailable");
+      // A rejected verification GET does not undo the confirmed DELETE.
       throw new ReviewProgressGitHubError(
         classified.kind,
         classified.message,
@@ -267,8 +358,19 @@ export class ReviewProgressGitHubGateway {
   private async createComment(
     input: UpsertReviewProgressCommentInput,
     desiredBody: string,
+    scannedRepositoryId?: number,
   ): Promise<UpsertReviewProgressCommentResult> {
-    await this.assertCurrentPullRequest(input);
+    const currentRepositoryId = await this.assertCurrentPullRequest(input);
+    if (
+      scannedRepositoryId !== undefined &&
+      currentRepositoryId !== scannedRepositoryId
+    ) {
+      throw failure(
+        "repository_mismatch",
+        "github_pull_request_repository_identity_changed",
+        false,
+      );
+    }
     try {
       const response = await this.request(
         "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
@@ -277,7 +379,11 @@ export class ReviewProgressGitHubGateway {
           body: desiredBody,
         }),
       );
-      const created = parseComment(response.data);
+      const created = requireConfirmedMutationReply(
+        response.data,
+        input,
+        desiredBody,
+      );
       return {
         commentId: created.id,
         operation: "created",
@@ -288,6 +394,8 @@ export class ReviewProgressGitHubGateway {
         input,
         desiredBody,
         error,
+        undefined,
+        currentRepositoryId,
       );
       return {
         commentId: reconciled[0]!.id,
@@ -297,9 +405,27 @@ export class ReviewProgressGitHubGateway {
     }
   }
 
+  private async assertRepositoryId(
+    input: UpsertReviewProgressCommentInput,
+    expectedRepositoryId?: number,
+  ): Promise<number | undefined> {
+    const currentRepositoryId = await this.assertCurrentPullRequest(input);
+    if (
+      expectedRepositoryId !== undefined &&
+      currentRepositoryId !== expectedRepositoryId
+    ) {
+      throw failure(
+        "repository_mismatch",
+        "github_pull_request_repository_identity_changed",
+        false,
+      );
+    }
+    return currentRepositoryId;
+  }
+
   private async assertCurrentPullRequest(
     input: UpsertReviewProgressCommentInput,
-  ): Promise<void> {
+  ): Promise<number | undefined> {
     let response: Awaited<ReturnType<ReviewProgressGitHubRequester>>;
     try {
       response = await this.request(
@@ -311,21 +437,40 @@ export class ReviewProgressGitHubGateway {
     }
     const violation = pullRequestIdentityViolation(response.data, input);
     if (violation) throw failure(violation.kind, violation.message, false);
+    return repositoryIdFromValidatedPullRequest(response.data);
   }
 
   private async findMarkedComments(
     input: UpsertReviewProgressCommentInput,
+    verifiedRepositoryId?: number,
   ): Promise<ReviewProgressComment[]> {
     const matches: ReviewProgressComment[] = [];
+    const observedPages: string[] = [];
+    const observedIds = new Set<number>();
     let advertisedLastPage: number | undefined;
     for (let page = 1; page <= this.maxCommentPages; page += 1) {
       const { comments, hasNextPage, lastPage } = await this.fetchCommentPage(
         input,
         page,
+        verifiedRepositoryId,
       );
+      observedPages.push(JSON.stringify([comments, hasNextPage, lastPage]));
       for (const value of comments) {
+        const id = readableCommentId(value);
+        if (id !== null) {
+          if (observedIds.has(id)) {
+            throw failure(
+              "pagination_inconclusive",
+              "github_issue_comments_offset_changed",
+              true,
+            );
+          }
+          observedIds.add(id);
+        }
         const comment = parseCommentOrNull(value);
-        if (comment && ownsMarker(comment, input)) matches.push(comment);
+        if (comment && ownsMarker(comment, input)) {
+          matches.push(await this.verifyScannedComment(input, value, comment));
+        }
         if (
           !comment &&
           hasUnclassifiedMarker(value, input.marker, input.expectedBotLogin)
@@ -361,19 +506,108 @@ export class ReviewProgressGitHubGateway {
       );
       if (decision === "complete") break;
       if (decision === "inconclusive") {
+        // Only a trusted bounded-scan overflow permits known-ID recovery.
+        // Invalid links and offset drift cannot certify duplicate cleanup.
+        const capacityLimited =
+          page === this.maxCommentPages &&
+          effectiveNextPage !== "invalid" &&
+          (comments.length === 100 || effectiveNextPage === true);
+        if (capacityLimited) {
+          // Recheck every observed page before permitting known-ID recovery.
+          await this.recheckObservedCommentPages(
+            input,
+            observedPages,
+            verifiedRepositoryId,
+            true,
+          );
+        }
         throw failure(
           "pagination_inconclusive",
-          "github_issue_comments_pagination_inconclusive",
+          capacityLimited
+            ? CAPACITY_LIMIT_SCAN
+            : "github_issue_comments_pagination_inconclusive",
           true,
         );
       }
     }
+    // An earlier-page recheck cannot certify the terminal page stayed stable.
+    // Recheck it after multipage scans and before creating a new comment.
+    await this.recheckObservedCommentPages(
+      input,
+      observedPages,
+      verifiedRepositoryId,
+      matches.length === 0 || observedPages.length > 1,
+    );
     return matches.sort((left, right) => left.id - right.id);
+  }
+
+  private async verifyScannedComment(
+    input: UpsertReviewProgressCommentInput,
+    value: unknown,
+    comment: ReviewProgressComment,
+  ): Promise<ReviewProgressComment> {
+    const membership = commentIssueMembership(value, input);
+    if (membership === true) return comment;
+    if (membership === undefined) {
+      const [verified] = await this.includeVerifiedKnownComment(
+        { ...input, knownCommentId: comment.id },
+        [],
+      );
+      if (verified) {
+        if (verified.body === comment.body) return verified;
+        throw failure(
+          "pagination_inconclusive",
+          "github_issue_comments_offset_changed",
+          true,
+        );
+      }
+    }
+    // Do not interpret a foreign or unverified marked row as absence.
+    throw failure(
+      "pagination_inconclusive",
+      "github_issue_comments_marked_row_issue_unverified",
+      true,
+    );
+  }
+
+  /** Recheck earlier offset pages before authorizing any mutation. */
+  private async recheckObservedCommentPages(
+    input: UpsertReviewProgressCommentInput,
+    observedPages: readonly string[],
+    verifiedRepositoryId?: number,
+    includeTerminalPage = false,
+  ): Promise<void> {
+    // GitHub offset pages are not snapshots. Recheck preceding pages for
+    // shifts, including the terminal page for complete multipage scans.
+    const finalPage = includeTerminalPage
+      ? observedPages.length
+      : observedPages.length - 1;
+    for (let page = 1; page <= finalPage; page += 1) {
+      const current = await this.fetchCommentPage(
+        input,
+        page,
+        verifiedRepositoryId,
+      );
+      if (
+        JSON.stringify([
+          current.comments,
+          current.hasNextPage,
+          current.lastPage,
+        ]) !== observedPages[page - 1]
+      ) {
+        throw failure(
+          "pagination_inconclusive",
+          "github_issue_comments_offset_changed",
+          true,
+        );
+      }
+    }
   }
 
   private async fetchCommentPage(
     input: UpsertReviewProgressCommentInput,
     page: number,
+    verifiedRepositoryId?: number,
   ): Promise<{
     comments: unknown[];
     hasNextPage: boolean | "invalid" | undefined;
@@ -395,9 +629,20 @@ export class ReviewProgressGitHubGateway {
     if (!Array.isArray(response.data)) {
       throw failure("invalid_response", "github_issue_comments_invalid", false);
     }
+    if (response.data.length > 100) {
+      throw failure(
+        "pagination_inconclusive",
+        "github_issue_comments_pagination_inconclusive",
+        true,
+      );
+    }
+    const expectedCollectionPaths = expectedIssueCommentCollectionPaths(
+      input,
+      verifiedRepositoryId,
+    );
     return {
       comments: response.data,
-      ...commentPageLinks(response.headers, page),
+      ...commentPageLinks(response.headers, page, expectedCollectionPaths),
     };
   }
 
@@ -406,19 +651,31 @@ export class ReviewProgressGitHubGateway {
     desiredBody: string,
     mutationError: unknown,
     expectedCommentId?: number,
+    originalRepositoryId?: number,
   ): Promise<ReviewProgressComment[]> {
     const classified = this.classify(mutationError, "ambiguous_mutation");
     // A definitive unthrottled 403 did not mutate the comment. An unrelated
     // read failure must not promote this into an ambiguous landed write.
     if (classified.kind === "revoked_app") throw classified;
     let observed: ReviewProgressComment[];
+    let scannedRepositoryId: number | undefined;
     try {
-      observed = await this.findMarkedComments(input);
+      // A write may land just as the PR head changes. Do not reconcile it
+      // against a stale publication identity, even after an earlier fence.
+      scannedRepositoryId = await this.assertRepositoryId(
+        input,
+        originalRepositoryId,
+      );
+      observed = await this.findMarkedComments(input, scannedRepositoryId);
+      // The head or repository can change while reading the comment pages.
+      scannedRepositoryId = await this.assertRepositoryId(
+        input,
+        scannedRepositoryId,
+      );
     } catch (observationError) {
       if (
         expectedCommentId !== undefined &&
-        observationError instanceof ReviewProgressGitHubError &&
-        observationError.kind === "pagination_inconclusive"
+        isCapacityLimitedScan(observationError)
       ) {
         return this.reconcileKnownCommentPatch(
           input,
@@ -426,6 +683,7 @@ export class ReviewProgressGitHubGateway {
           mutationError,
           expectedCommentId,
           classified,
+          scannedRepositoryId,
         );
       }
       throw reconciliationFailure(
@@ -440,7 +698,23 @@ export class ReviewProgressGitHubGateway {
       desiredBody,
       expectedCommentId,
     );
-    if (confirmed) return confirmed;
+    if (!confirmed) throw unconfirmedMutation(classified);
+    try {
+      const canonicalId = expectedCommentId ?? confirmed[0]!.id;
+      const current = await this.includeVerifiedKnownComment(
+        { ...input, knownCommentId: canonicalId },
+        [],
+      );
+      await this.assertRepositoryId(input, scannedRepositoryId);
+      if (current[0]?.body === desiredBody) return confirmed;
+    } catch (observationError) {
+      throw reconciliationFailure(
+        mutationError,
+        observationError,
+        this.now,
+        this.random,
+      );
+    }
     throw unconfirmedMutation(classified);
   }
 
@@ -454,6 +728,7 @@ export class ReviewProgressGitHubGateway {
     mutationError: unknown,
     commentId: number,
     classified: ReviewProgressGitHubError,
+    scannedRepositoryId?: number,
   ): Promise<ReviewProgressComment[]> {
     let known: ReviewProgressComment[];
     try {
@@ -461,6 +736,18 @@ export class ReviewProgressGitHubGateway {
         { ...input, knownCommentId: commentId },
         [],
       );
+      // Confirm both the head and the numeric repository identity after lookup.
+      const currentRepositoryId = await this.assertCurrentPullRequest(input);
+      if (
+        scannedRepositoryId !== undefined &&
+        currentRepositoryId !== scannedRepositoryId
+      ) {
+        throw failure(
+          "repository_mismatch",
+          "github_pull_request_repository_identity_changed",
+          false,
+        );
+      }
     } catch (lookupError) {
       throw reconciliationFailure(
         mutationError,
@@ -481,60 +768,10 @@ export class ReviewProgressGitHubGateway {
   }
 }
 
-function repositoryParameters(
-  input: Pick<UpsertReviewProgressCommentInput, "owner" | "repo">,
-  extra: Readonly<Record<string, unknown>>,
-): Readonly<Record<string, unknown>> {
-  return { owner: input.owner, repo: input.repo, ...extra };
-}
-
 /**
  * A definite 4xx response proves GitHub rejected the write, so it is retried
  * and counted like on main. Anything else may have landed.
  */
-function unconfirmedMutation(
-  classified: ReviewProgressGitHubError,
-): ReviewProgressGitHubError {
-  const status = classified.metadata.status;
-  if (
-    classified.kind === "ambiguous_mutation" &&
-    status !== undefined &&
-    status >= 400 &&
-    status < 500
-  ) {
-    return classified;
-  }
-  return new ReviewProgressGitHubError(
-    classified.kind,
-    classified.message,
-    { ...classified.metadata, mutationMayHaveLanded: true },
-    { cause: classified },
-  );
-}
-
-function hasUnclassifiedMarker(
-  value: unknown,
-  marker: string,
-  expectedBotLogin: string,
-): boolean {
-  if (typeof value !== "object" || value === null) return true;
-  const body = (value as { body?: unknown }).body;
-  if (typeof body === "string") return body.includes(marker);
-  const user = (value as { user?: unknown }).user;
-  // Neither an unknown author nor an unreadable body can rule out a match.
-  if (typeof user !== "object" || user === null) return true;
-  const login = (user as { login?: unknown }).login;
-  if (typeof login !== "string" || !login.trim()) return true;
-  return login.toLowerCase() === expectedBotLogin.toLowerCase();
-}
-
-function parseComment(value: unknown): ReviewProgressComment {
-  const comment = parseCommentOrNull(value);
-  if (!comment)
-    throw failure("invalid_response", "github_issue_comment_invalid", false);
-  return comment;
-}
-
 function failure(
   kind: ReviewProgressGitHubFailureKind,
   message: string,
