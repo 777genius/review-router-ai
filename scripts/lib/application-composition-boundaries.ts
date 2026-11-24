@@ -35,7 +35,7 @@ const reviewConfigDomainSubpaths = [
 /** Bounded adoption for the selected owners; external legacy graphs remain out of scope. */
 export async function checkApplicationCompositionBoundaries(
   root: string,
-  imports: (source: string) => Iterable<string>,
+  imports: (source: string, filename: string) => Iterable<string>,
 ): Promise<BoundaryViolation[]> {
   const violations: BoundaryViolation[] = [];
   const featureRoot = join(root, "packages", "features");
@@ -72,7 +72,7 @@ export async function checkApplicationCompositionBoundaries(
       !coreLayers.has(firstLayer(segments.slice(src + 1).join("/")) ?? "")
     )
       continue;
-    for (const imported of imports(readFileSync(file, "utf8"))) {
+    for (const imported of imports(readFileSync(file, "utf8"), file)) {
       if (outerImport(file, imported))
         violations.push({
           file,
@@ -137,7 +137,7 @@ export async function checkApplicationCompositionBoundaries(
       const file = pending.pop()!;
       if (visited.has(file) || !existsSync(file)) continue;
       visited.add(file);
-      for (const imported of imports(readFileSync(file, "utf8"))) {
+      for (const imported of imports(readFileSync(file, "utf8"), file)) {
         if (outerImport(file, imported)) {
           violations.push({
             file,

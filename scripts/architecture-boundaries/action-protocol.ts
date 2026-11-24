@@ -37,7 +37,7 @@ export async function checkReviewActionV2ProtocolBoundaries(
   for (const file of featureFiles) {
     const source = readFileSync(file, "utf8");
     const repositoryPath = relative(root, file).replaceAll("\\", "/");
-    for (const imported of extractImportSpecifiers(source)) {
+    for (const imported of extractImportSpecifiers(source, file)) {
       if (
         /^@reviewrouter\/protocol-review-action-v2(?:\/.*)?$/.test(imported) &&
         // These exact adapters/fixtures attest the canonical transport contract.
@@ -80,6 +80,7 @@ export async function checkReviewActionV2ProtocolBoundaries(
   for (const file of protocolFiles) {
     for (const imported of extractImportSpecifiers(
       readFileSync(file, "utf8"),
+      file,
     )) {
       if (imported.startsWith("@reviewrouter/features-")) {
         violations.push({
@@ -102,7 +103,7 @@ export async function checkReviewActionV2ProtocolBoundaries(
   if (existsSync(contractSourcePath)) {
     const source = readFileSync(contractSourcePath, "utf8");
     if (
-      extractImportSpecifiers(source).size > 0 ||
+      extractImportSpecifiers(source, contractSourcePath).size > 0 ||
       /\b(?:process|fetch|Deno|Bun)\b|node:/.test(source)
     ) {
       violations.push({

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   collectAllSourceFiles,
   extractImportSpecifiers,
@@ -12,6 +13,7 @@ type StrictReviewContext = Readonly<{
   packageRoot: string;
   sourceRoot: string;
   requiredExports: readonly string[] | null;
+  preserveLegacyRoot: boolean;
   rootIndex: string | null;
 }>;
 
@@ -41,6 +43,7 @@ export async function checkRevisionAwareReviewRatchet(
         "src",
       ),
       requiredExports: null,
+      preserveLegacyRoot: false,
       rootIndex: null,
     },
   ];
@@ -51,7 +54,7 @@ export async function checkRevisionAwareReviewRatchet(
     for (const file of sourceFiles) {
       const source = readFileSync(file, "utf8");
       const layer = strictLayer(file, context.sourceRoot);
-      for (const imported of extractImportSpecifiers(source)) {
+      for (const imported of extractImportSpecifiers(source, file)) {
         if (imported.startsWith("@reviewrouter/features-")) {
           violations.push({
             file,
@@ -61,7 +64,9 @@ export async function checkRevisionAwareReviewRatchet(
           });
         }
         if (imported.startsWith(".")) {
-          const resolved = new URL(imported, `file://${file}`).pathname;
+          const resolved = fileURLToPath(
+            new URL(imported, pathToFileURL(file)),
+          );
           if (!isInside(resolved, context.sourceRoot)) {
             violations.push({
               file,
@@ -141,6 +146,7 @@ export async function checkRevisionAwareReviewRatchet(
     if (context.rootIndex && existsSync(context.rootIndex)) {
       for (const imported of extractImportSpecifiers(
         readFileSync(context.rootIndex, "utf8"),
+        context.rootIndex,
       )) {
         if (
           /(?:^|\/)(?:infrastructure|interface|composition|testing|contract-source)(?:\/|$)/.test(
@@ -161,7 +167,7 @@ export async function checkRevisionAwareReviewRatchet(
     if (existsSync(contractSourceRoot)) {
       for (const file of await collectAllSourceFiles(contractSourceRoot)) {
         const source = readFileSync(file, "utf8");
-        for (const imported of extractImportSpecifiers(source)) {
+        for (const imported of extractImportSpecifiers(source, file)) {
           if (!imported.startsWith(".")) {
             violations.push({
               file,
@@ -217,6 +223,7 @@ function strictContext(
     requiredExports: protocolFacing
       ? [".", "./composition", "./contract-source", "./testing"]
       : [".", "./composition", "./testing"],
+    preserveLegacyRoot: false,
     rootIndex: join(packageRoot, "src", "index.ts"),
   };
 }
@@ -234,6 +241,7 @@ function strictV2Context(root: string, name: string): StrictReviewContext {
       "./v2/contract-source",
       "./v2/testing",
     ],
+    preserveLegacyRoot: true,
     rootIndex: join(packageRoot, "src", "v2", "index.ts"),
   };
 }
@@ -260,7 +268,8 @@ function checkRequiredExportMap(
   const packageJson: unknown = JSON.parse(
     readFileSync(packageJsonPath, "utf8"),
   );
-  const actual = Object.keys(record(record(packageJson)?.exports) ?? {}).sort();
+  const exports = record(record(packageJson)?.exports);
+  const actual = Object.keys(exports ?? {}).sort();
   const expected = [...(context.requiredExports ?? [])].sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     violations.push({
@@ -268,5 +277,24 @@ function checkRequiredExportMap(
       imported: actual.join(","),
       reason: `${context.name} export map must be exactly ${expected.join(",")}`,
     });
+  }
+  // The adopted strict-context ABI maps these facades to matching source and
+  // emitted indexes. Publishing/snapshots retain their independent v1 root.
+  for (const subpath of context.requiredExports ?? []) {
+    if (context.preserveLegacyRoot && subpath === ".") continue;
+    const target = subpath === "." ? "index" : `${subpath.slice(2)}/index`;
+    const conditions = record(exports?.[subpath]);
+    const expectedConditions = {
+      types: `./src/${target}.ts`,
+      production: `./dist/${target}.js`,
+      default: `./src/${target}.ts`,
+    };
+    if (JSON.stringify(conditions) !== JSON.stringify(expectedConditions)) {
+      violations.push({
+        file: packageJsonPath,
+        imported: subpath,
+        reason: `${context.name} export ${subpath} must have exact source, types and production facade targets`,
+      });
+    }
   }
 }

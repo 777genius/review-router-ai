@@ -39,6 +39,7 @@ export async function checkCodexRuntimeOwnershipBoundaries(
     }
     for (const imported of extractImportSpecifiers(
       readFileSync(file, "utf8"),
+      file,
     )) {
       if (/^\.\/github-action(?:\.(?:js|ts|mts|cts))?$/u.test(imported)) {
         violations.push({
@@ -58,6 +59,7 @@ export async function checkCodexRuntimeOwnershipBoundaries(
       /(?:^|[\\/])codex-(?:contract|workflow)\.ts$/u.test(file);
     for (const imported of extractImportSpecifiers(
       readFileSync(file, "utf8"),
+      file,
     )) {
       if (
         imported.startsWith("../action/") ||
@@ -102,6 +104,7 @@ export async function checkReviewExecutionExtractionBoundaries(
     if (!existsSync(file)) continue;
     for (const imported of extractImportSpecifiers(
       readFileSync(file, "utf8"),
+      file,
     )) {
       if (
         /^\.\/prisma-review-execution-store(?:\.[cm]?[jt]s)?$/u.test(
@@ -134,6 +137,7 @@ export async function checkReviewExecutionExtractionBoundaries(
     if (!existsSync(file)) continue;
     for (const imported of extractImportSpecifiers(
       readFileSync(file, "utf8"),
+      file,
     )) {
       if (
         imported === `./${mapper.host}` ||
@@ -186,7 +190,7 @@ export async function checkReleaseRolloutProviderNeutrality(
           "release-rollout domain/application contracts must be provider-neutral",
       });
     }
-    for (const imported of extractImportSpecifiers(source)) {
+    for (const imported of extractImportSpecifiers(source, file)) {
       if (/(?:^|\/)adapters(?:\/|$)/u.test(imported)) {
         violations.push({
           file,
