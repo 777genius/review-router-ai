@@ -33,18 +33,22 @@ export function createWorkspaceDraftDispatchGate(
     ReviewRequestedIntent,
     "workspaceId" | "repositoryConnectionId" | "pullRequestNumber"
   >,
+  signal?: AbortSignal,
 ) => Promise<boolean> {
-  return async (intent) => {
+  return async (intent, signal) => {
     if (await dependencies.reviewDrafts(intent.workspaceId)) return true;
+    signal?.throwIfAborted();
     const repository = await dependencies.findGitHubRepository(
       intent.repositoryConnectionId,
     );
     if (!repository || repository.workspaceId !== intent.workspaceId)
       return false;
+    signal?.throwIfAborted();
     const current = await dependencies.eligibility.load({
       githubInstallationId: repository.githubInstallationId,
       repositoryFullName: repository.fullName,
       pullRequestNumber: intent.pullRequestNumber,
+      ...(signal ? { signal } : {}),
     });
     if (current.status === ReviewRequestEligibilityStatus.Unavailable) {
       throw new Error("review_request_eligibility_unavailable");
