@@ -7,7 +7,7 @@ export type ParsedSource = Readonly<{
   source: string;
 }>;
 
-function syntaxNode(value: unknown): value is SyntaxNode {
+export function isSyntaxNode(value: unknown): value is SyntaxNode {
   return (
     value !== null &&
     typeof value === "object" &&
@@ -39,10 +39,10 @@ export function walkSourceAst(
     visitor(node, parent);
     for (const [key, value] of Object.entries(node)) {
       if (key === "parent" || key === "comments" || key === "tokens") continue;
-      if (syntaxNode(value)) {
+      if (isSyntaxNode(value)) {
         walk(value, node);
       } else if (Array.isArray(value)) {
-        for (const child of value) if (syntaxNode(child)) walk(child, node);
+        for (const child of value) if (isSyntaxNode(child)) walk(child, node);
       }
     }
   };
@@ -50,7 +50,7 @@ export function walkSourceAst(
 }
 
 function moduleString(node: unknown): string {
-  if (!syntaxNode(node)) return "computed module import";
+  if (!isSyntaxNode(node)) return "computed module import";
   if (
     (node.type === "Literal" || node.type === "StringLiteral") &&
     typeof node.value === "string"
@@ -64,7 +64,7 @@ function moduleString(node: unknown): string {
   ) {
     const first: unknown = node.quasis[0];
     if (
-      syntaxNode(first) &&
+      isSyntaxNode(first) &&
       first.value !== null &&
       typeof first.value === "object"
     ) {
@@ -93,7 +93,7 @@ export function collectModuleImportSpecifiers(
         break;
       case "TSImportEqualsDeclaration":
         if (
-          syntaxNode(node.moduleReference) &&
+          isSyntaxNode(node.moduleReference) &&
           node.moduleReference.type === "TSExternalModuleReference"
         ) specifiers.add(moduleString(node.moduleReference.expression));
         break;
@@ -103,7 +103,7 @@ export function collectModuleImportSpecifiers(
       case "CallExpression": {
         const callee = node.callee;
         if (
-          syntaxNode(callee) &&
+          isSyntaxNode(callee) &&
           (callee.type === "Import" ||
             (callee.type === "Identifier" && callee.name === "require"))
         ) {
