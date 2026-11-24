@@ -684,8 +684,10 @@ function checkHook(view: RepositoryView, bad: (message: string) => void): void {
     bad("package.json has no scripts");
     return;
   }
-  if (scripts[HOOK_SCRIPT] !== `tsx ${CLI_PATH}`) {
-    bad(`script ${HOOK_SCRIPT} must be exactly 'tsx ${CLI_PATH}'`);
+  if (scripts[HOOK_SCRIPT] !== `node --import tsx ${CLI_PATH}`) {
+    bad(
+      `script ${HOOK_SCRIPT} must be exactly 'node --import tsx ${CLI_PATH}'`,
+    );
   }
   const chain = String(scripts["architecture:check"] ?? "");
   const parts = chain.split(" && ");
