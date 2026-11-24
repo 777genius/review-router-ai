@@ -109,7 +109,9 @@ function fixture(options: {
         };
       }
       if (route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}") {
-        return { data: comment(`old progress\n\n${githubProgressCommentMarker}`) };
+        return {
+          data: comment(`old progress\n\n${githubProgressCommentMarker}`),
+        };
       }
       if (
         route === "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}"
@@ -187,8 +189,7 @@ function comment(body: string) {
     id: 501,
     body,
     user: { login: "reviewrouter[bot]" },
-    issue_url:
-      "https://api.github.com/repos/777genius/social-monitor/issues/42",
+    issue_url: "https://api.github.com/repos/777genius/social-monitor/issues/42",
   };
 }
 

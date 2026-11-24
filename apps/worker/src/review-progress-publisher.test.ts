@@ -121,7 +121,9 @@ describe("ReviewProgressPublisher", () => {
         request: async (route, parameters = {}) => {
           routes.push(route);
           if (route.includes("/pulls/")) return pull();
-          if (route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}") {
+          if (
+            route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}"
+          ) {
             return {
               data: {
                 id: 77,
@@ -439,7 +441,9 @@ describe("ReviewProgressPublisher", () => {
       botLogin: "review-router[bot]",
       request: async (route, parameters = {}) => {
         if (route.includes("/pulls/")) return pull();
-        if (route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}") {
+        if (
+          route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}"
+        ) {
           return { data: firstComment };
         }
         if (route.startsWith("GET")) {
@@ -491,7 +495,9 @@ describe("ReviewProgressPublisher", () => {
       botLogin: "review-router[bot]",
       request: async (route, parameters = {}) => {
         if (route.includes("/pulls/")) return pull();
-        if (route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}") {
+        if (
+          route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}"
+        ) {
           return { data: { ...comment, id: 77 } };
         }
         if (route.startsWith("GET")) {
@@ -929,7 +935,9 @@ describe("ReviewProgressPublisher", () => {
               response: { headers: { "retry-after": "60" } },
             };
           }
-          if (route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}") {
+          if (
+            route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}"
+          ) {
             return {
               data: {
                 id: 77,
@@ -979,18 +987,20 @@ describe("ReviewProgressPublisher", () => {
       issue_url: "https://api.github.com/repos/acme/rocket/issues/42",
     };
     let commentReads = 0;
+    let patchAttempts = 0;
     const publisher = createPublisher(store, async () => ({
       botLogin: "review-router[bot]",
-      request: async (route) => {
+      request: async (route, parameters = {}) => {
         if (route.includes("/pulls/")) return pull();
         if (
           route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
         ) {
           commentReads += 1;
           if (commentReads === 1) return { data: [oldComment] };
+          const page = Number(parameters.page);
           return {
             data: Array.from({ length: 100 }, (_, index) => ({
-              id: index + 1,
+              id: (page - 1) * 100 + index + 1,
               body: "unrelated",
               user: { login: "other" },
             })),
@@ -1002,6 +1012,7 @@ describe("ReviewProgressPublisher", () => {
           return { data: oldComment };
         }
         if (route.startsWith("PATCH")) {
+          patchAttempts += 1;
           throw new Error("transport_outcome_unknown");
         }
         throw new Error(`unexpected:${route}`);
@@ -1013,6 +1024,7 @@ describe("ReviewProgressPublisher", () => {
       deferred: 1,
       failed: 0,
     });
+    expect(patchAttempts).toBe(1);
     const retry = store.retry.mock.calls[0]?.[0];
     expect(retry).toMatchObject({
       safeCode: "review_progress_ambiguous_mutation",
@@ -1058,7 +1070,9 @@ describe("ReviewProgressPublisher", () => {
               ],
             };
           }
-          if (route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}") {
+          if (
+            route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}"
+          ) {
             return {
               data: {
                 id: 77,
@@ -1127,7 +1141,9 @@ describe("ReviewProgressPublisher", () => {
         botLogin: "review-router[bot]",
         request: async (route, parameters = {}) => {
           if (route.includes("/pulls/")) return pull();
-          if (route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}") {
+          if (
+            route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}"
+          ) {
             return {
               data: {
                 id: 77,
@@ -1434,7 +1450,11 @@ describe("ReviewProgressPublisher", () => {
         botLogin: "review-router[bot]",
         request: async (route, parameters = {}) => {
           if (route.includes("/pulls/")) return pull();
-          const known = testKnownComment(route, parameters, body);
+          const known = testKnownComment(
+            route,
+            parameters,
+            operation === "PATCH" ? githubProgressCommentMarker : body,
+          );
           if (known) return known;
           if (route.startsWith("GET")) return { data: rows };
           if (route.startsWith(operation)) {

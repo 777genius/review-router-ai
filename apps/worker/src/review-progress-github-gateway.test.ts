@@ -44,7 +44,9 @@ describe("ReviewProgressGitHubGateway", () => {
         parameters,
       ) => {
         const response = await fixture.request(route, parameters);
-        if (route !== "GET /repos/{owner}/{repo}/issues/comments/{comment_id}") {
+        if (
+          route !== "GET /repos/{owner}/{repo}/issues/comments/{comment_id}"
+        ) {
           return response;
         }
         if (change === "deleted") throw { status: 404 };
@@ -1918,7 +1920,9 @@ describe("ReviewProgressGitHubGateway", () => {
         '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',
       ],
     });
-    await expect(gateway(fixture.request).upsert(input())).rejects.toMatchObject({
+    await expect(
+      gateway(fixture.request).upsert(input()),
+    ).rejects.toMatchObject({
       kind: "pagination_inconclusive",
       message: "github_issue_comments_offset_changed",
     });

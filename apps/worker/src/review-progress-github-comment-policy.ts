@@ -78,9 +78,7 @@ export function parseCommentOrNull(
 /** Track readable IDs even when the rest of a list row is malformed. */
 export function readableCommentId(value: unknown): number | null {
   const id = record(value)?.id;
-  return typeof id === "number" && Number.isSafeInteger(id) && id > 0
-    ? id
-    : null;
+  return typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
 export function parseComment(value: unknown): ReviewProgressComment {
@@ -129,8 +127,7 @@ export function ownsMarker(
   input: Pick<UpsertReviewProgressCommentInput, "expectedBotLogin" | "marker">,
 ): boolean {
   return (
-    comment.authorLogin.toLowerCase() ===
-      input.expectedBotLogin.toLowerCase() &&
+    comment.authorLogin.toLowerCase() === input.expectedBotLogin.toLowerCase() &&
     comment.body.includes(input.marker)
   );
 }
@@ -142,10 +139,7 @@ function record(value: unknown): Record<string, unknown> | null {
 }
 
 function expectedIssueUrl(
-  input: Pick<
-    UpsertReviewProgressCommentInput,
-    "owner" | "repo" | "pullNumber"
-  >,
+  input: Pick<UpsertReviewProgressCommentInput, "owner" | "repo" | "pullNumber">,
 ): string {
   return [
     "https://api.github.com/repos",
