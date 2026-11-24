@@ -1,0 +1,78 @@
+name: Native parity immutable reader floor
+on:
+  push:
+    branches: [diagnostics/native-parity-prisma-29719]
+    paths:
+      - .github/workflows/native-parity-prisma-reader-floor.yml
+permissions:
+  contents: read
+jobs:
+  reader-floor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: 38eb54a1706658fc005eba99d5c774c50005df90
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.11.1
+      - name: Install exact historical runtime without lifecycle scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 38eb54a1706658fc005eba99d5c774c50005df90
+          npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+          test "$(pnpm --version)" = 11.28.7
+          pnpm --filter review-router --filter @reviewrouter/platform-db --filter @reviewrouter/features-provider-accounts install --ignore-scripts --ignore-pnpmfile --frozen-lockfile
+          pnpm rebuild @prisma/engines
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA=1 node scripts/generate-prisma-offline.mjs
+          git diff --exit-code HEAD
+      - name: Verify byte-exact admitted historical generated client
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/reader-floor"
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          import { createRequire } from 'node:module';
+          import { readFile, readdir, realpath, writeFile } from 'node:fs/promises';
+          import { dirname, join, relative } from 'node:path';
+          const require = createRequire(join(process.cwd(),'package.json'));
+          const client = await realpath(require.resolve('@prisma/client'));
+          const generated = await realpath(dirname(createRequire(client).resolve('.prisma/client/default')));
+          const managed = await realpath(join(process.cwd(),'node_modules'));
+          assert.ok(generated.startsWith(managed+'/'));
+          const digest = b => createHash('sha256').update(b).digest('hex');
+          const versions = {};
+          for (const name of ['@prisma/client','@prisma/adapter-pg','prisma','pg']) {
+            const path = await realpath(require.resolve(name+'/package.json'));
+            assert.ok(path.startsWith(managed+'/'));
+            versions[name] = JSON.parse(await readFile(path,'utf8')).version;
+          }
+          assert.deepEqual(versions,{'@prisma/client':'7.8.0','@prisma/adapter-pg':'7.8.0',prisma:'7.8.0',pg:'8.23.0'});
+          const files = [];
+          async function visit(directory) {
+            for (const item of (await readdir(directory,{withFileTypes:true})).sort((a,b)=>a.name.localeCompare(b.name,'en'))) {
+              const path=join(directory,item.name);
+              if (item.isDirectory()) await visit(path);
+              else { assert.ok(item.isFile()); files.push([relative(generated,path),digest(await readFile(path))]); }
+            }
+          }
+          await visit(generated);
+          const generatedClientSHA256=digest(JSON.stringify(files));
+          const receipt={floor:'38eb54a1706658fc005eba99d5c774c50005df90',node:process.version,versions,lockSHA256:digest(await readFile('pnpm-lock.yaml')),generatedClientSHA256,files};
+          console.log(JSON.stringify(receipt,null,2));
+          assert.equal(files.length,16);
+          assert.equal(generatedClientSHA256,'f5751d0ebd2fd8c3f792d90c1b3b79290db738f084c5be2991b99a5520b3ea1a');
+          await writeFile(process.env.RUNNER_TEMP+'/reader-floor/receipt.json',JSON.stringify(receipt,null,2)+'\n');
+          JS
+      - name: Retain historical floor receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: immutable-reader-floor-receipt
+          path: ${{ runner.temp }}/reader-floor/receipt.json
+          if-no-files-found: error
+          retention-days: 14
