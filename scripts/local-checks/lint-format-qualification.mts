@@ -314,10 +314,10 @@ for (const fixture of formatCases) {
         format(tool, fixture.path, first.stdout).stdout,
         fixture.expected,
       );
-      if (/\\.(?:js|mjs|cjs|ts|mts|cts|tsx)$/.test(fixture.path)) {
-        const loader = /\\.tsx$/.test(fixture.path)
+      if (/\.(?:js|mjs|cjs|ts|mts|cts|tsx)$/.test(fixture.path)) {
+        const loader = /\.tsx$/.test(fixture.path)
           ? "tsx"
-          : /\\.(?:ts|mts|cts)$/.test(fixture.path)
+          : /\.(?:ts|mts|cts)$/.test(fixture.path)
             ? "ts"
             : "js";
         // Strict TS7 has no transpileModule JavaScript API. The already
