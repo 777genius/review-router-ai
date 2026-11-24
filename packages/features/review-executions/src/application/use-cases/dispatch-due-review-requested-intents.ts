@@ -294,13 +294,15 @@ export class DispatchDueReviewRequestedIntents {
           handedOff = true;
           return begun.intent;
         } finally {
-          if (this.inFlightBeginnings.get(intent.requestId) === reservation)
+          if (this.inFlightBeginnings.get(intent.requestId) === reservation) {
             this.inFlightBeginnings.delete(intent.requestId);
+          }
           if (
             !handedOff &&
             this.inFlightSubmissions.get(intent.requestId) === reservation
-          )
+          ) {
             this.inFlightSubmissions.delete(intent.requestId);
+          }
         }
       },
       () => {
@@ -403,8 +405,9 @@ export class DispatchDueReviewRequestedIntents {
             return "failed" as const;
           return await this.completeSubmission(intent, submission);
         } finally {
-          if (this.inFlightSubmissions.get(intent.requestId) === reservation)
+          if (this.inFlightSubmissions.get(intent.requestId) === reservation) {
             this.inFlightSubmissions.delete(intent.requestId);
+          }
         }
       },
       () => {
