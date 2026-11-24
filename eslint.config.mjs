@@ -16,7 +16,7 @@ const webMaxLinesCeilings = {
   "apps/web/app/dashboard/provider-setup-actions.ts": 1020,
   "apps/web/app/dashboard/provider-setup/gateway-reviewer-roster.tsx": 898,
   "apps/web/app/dashboard/provider-setup/provider-credential-delivery.tsx": 1374,
-  "apps/web/app/dashboard/provider-setup/provider-list.tsx": 842,
+  "apps/web/app/dashboard/provider-setup/provider-list.tsx": 841,
   "apps/web/app/dashboard/provider-setup/provider-setup-dialog.tsx": 2608,
   "apps/web/app/dashboard/provider-usage-tables.tsx": 629,
   "apps/web/app/dashboard/provider-usage-view.tsx": 753,
@@ -33,7 +33,7 @@ const webMaxLinesCeilings = {
   "apps/web/src/server/account-gateway-accounts.ts": 2530,
   "apps/web/src/server/dashboard-mutations.ts": 1105,
   "apps/web/src/server/personal-account-composition.ts": 848,
-  "apps/web/src/server/personal-canonical-accounts.ts": 1154,
+  "apps/web/src/server/personal-canonical-accounts.ts": 1150,
 };
 
 export default [

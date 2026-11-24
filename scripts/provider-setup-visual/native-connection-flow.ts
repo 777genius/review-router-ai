@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import type { Locator, Page } from "playwright-core";
 import type { FlowRun, VisualFlow } from "./flows.js";
-import { workspaceRoute } from "./ui.js";
+import { gotoDashboard } from "./capture.js";
+import { VISUAL_WORKSPACES } from "./fixture-contract.js";
+import {
+  chooseModel,
+  chooseSource,
+  openDialog,
+  providerListRow,
+  workspaceRoute,
+} from "./ui.js";
 import {
   VISUAL_NATIVE_COMPLETION,
   VISUAL_NATIVE_DOCUMENT,
@@ -353,5 +361,104 @@ export const nativeConnectionFlow: VisualFlow = {
       },
     );
     await flow.shot(page, "native-device-applied");
+    await flow.check(
+      "native provider edit persists without a direct setup definition",
+      async () => {
+        const connection = await waitForAccount(
+          flow,
+          "Visual native structured",
+          2,
+        );
+        const binding = await flow.prisma.workspaceAccountBinding.findFirst({
+          where: {
+            connectionId: connection.id,
+            workspaceId: VISUAL_WORKSPACES.main.id,
+            state: "active",
+          },
+          select: { id: true },
+        });
+        assert.ok(binding, "the existing native connection has a binding");
+        await gotoDashboard(page, workspaceRoute("main", "providers"));
+        const setup = await openDialog(
+          page,
+          page.getByRole("button", { name: "Add provider", exact: true }),
+        );
+        await chooseSource(page, setup, /^New native provider$/);
+        await setup
+          .getByRole("combobox", { name: "Account", exact: true })
+          .click();
+        await page
+          .getByRole("option", { name: /^Visual native structured/ })
+          .click();
+        await chooseModel(setup, "visual-native-model");
+        await setup
+          .getByRole("button", { name: "Add provider", exact: true })
+          .click();
+        await setup
+          .getByRole("heading", { name: "Provider saved", exact: true })
+          .waitFor();
+        await setup.getByRole("button", { name: "Done", exact: true }).click();
+        await setup.waitFor({ state: "hidden" });
+        const created = await flow.prisma.workspaceProviderProfile.findFirst({
+          where: {
+            workspaceId: VISUAL_WORKSPACES.main.id,
+            gatewayBindingId: binding.id,
+            archivedAt: null,
+          },
+          select: {
+            id: true,
+            label: true,
+            model: true,
+            credentialKind: true,
+            gatewayBindingId: true,
+            gatewayProfileRef: true,
+          },
+        });
+        assert.ok(created, "the native provider was persisted");
+        assert.equal(created.credentialKind, "gateway_binding");
+        assert.equal(created.gatewayProfileRef, VISUAL_NATIVE_PROFILE);
+        assert.equal(created.model, "visual-native-model");
+        const edit = await openDialog(
+          page,
+          providerListRow(page, created.label).getByRole("button", {
+            name: "Edit",
+            exact: true,
+          }),
+        );
+        await edit
+          .getByText("Credential storage: ReviewRouter", { exact: true })
+          .waitFor();
+        assert.equal(
+          await edit
+            .getByRole("link", { name: "Add with different storage" })
+            .count(),
+          0,
+        );
+        const label = "Visual native edited";
+        await edit.getByLabel("Name", { exact: true }).fill(label);
+        await edit
+          .getByRole("button", { name: "Save changes", exact: true })
+          .click();
+        await edit.waitFor({ state: "hidden" });
+        const stored = await flow.prisma.workspaceProviderProfile.findUnique({
+          where: { id: created.id },
+          select: {
+            id: true,
+            label: true,
+            model: true,
+            credentialKind: true,
+            gatewayBindingId: true,
+            gatewayProfileRef: true,
+          },
+        });
+        assert.deepEqual(stored, { ...created, label });
+        await page.reload();
+        const row = providerListRow(page, label);
+        await row.getByText(label, { exact: true }).waitFor();
+        await row.getByText("visual-native-model", { exact: true }).waitFor();
+        await assertNoSecrets(page);
+      },
+    );
+    await flow.shot(page, "native-provider-edited");
   },
 };

@@ -192,11 +192,11 @@ jobs:
           const flow = manifest.flows[0];
           assert.equal(flow.flow, 'flow-native-connections');
           assert.equal(flow.status, 'pass');
-          assert.equal(flow.checks.length, 5);
+          assert.equal(flow.checks.length, 6);
           assert(flow.checks.every(check => check.pass));
           assert.deepEqual(flow.pageErrors, []);
           assert.deepEqual(flow.blockedRequests, []);
-          assert.equal(flow.screenshots.length, 5);
+          assert.equal(flow.screenshots.length, 6);
           for (const file of flow.screenshots) assert(statSync(join(directory, file)).size > 0);
           assert.deepEqual(manifest.network.blocked, []);
           assert.deepEqual(manifest.network.githubUnhandled, []);
