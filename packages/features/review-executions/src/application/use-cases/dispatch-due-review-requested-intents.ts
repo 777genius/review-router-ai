@@ -299,7 +299,8 @@ export class DispatchDueReviewRequestedIntents {
           if (
             !handedOff &&
             this.inFlightSubmissions.get(intent.requestId) === reservation
-          ) this.inFlightSubmissions.delete(intent.requestId);
+          )
+            this.inFlightSubmissions.delete(intent.requestId);
         }
       },
       () => {
