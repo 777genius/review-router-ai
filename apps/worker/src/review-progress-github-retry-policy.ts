@@ -1,140 +1,25 @@
-/** Pure GitHub retry scheduling and secondary rate-limit detection. */
+import {
+  ReviewProgressGitHubError,
+  type ReviewProgressGitHubFailureKind,
+} from "./review-progress-github-error";
+import {
+  fallbackRetryAt,
+  isSecondaryRateLimitResponse,
+  jitterAfter,
+  normalizeHeaders,
+  retryBoundary,
+} from "./review-progress-github-rate-limit-policy";
 
-export function fallbackRetryAt(now: () => Date, random: () => number): Date {
-  return jitterAfter(new Date(now().getTime() + 1_000), random);
-}
+export {
+  fallbackRetryAt,
+  isSecondaryRateLimitResponse,
+  jitterAfter,
+  normalizeHeaders,
+  retryBoundary,
+};
 
-export function isSecondaryRateLimitResponse(
-  data: Record<string, unknown> | null,
-): boolean {
-  if (!data) return false;
-  const message =
-    typeof data.message === "string" ? data.message.toLowerCase() : "";
-  const documentationUrl =
-    typeof data.documentation_url === "string"
-      ? data.documentation_url.toLowerCase()
-      : "";
-  return (
-    message.includes("secondary rate limit") ||
-    message.includes("abuse detection mechanism") ||
-    documentationUrl.includes("#about-secondary-rate-limits")
-  );
-}
-
-export function retryBoundary(
-  headers: Readonly<Record<string, string>>,
-  now: Date,
-  kind: "rate_limit" | "server_unavailable" = "server_unavailable",
-): Date {
-  const retryAfter = headers["retry-after"]?.trim();
-  let retryAfterTime: number | null = null;
-  if (retryAfter) {
-    if (/^\d+$/u.test(retryAfter)) {
-      const seconds = Number(retryAfter);
-      const candidate = now.getTime() + seconds * 1_000;
-      if (isUsableRetryTimestamp(candidate)) retryAfterTime = candidate;
-    } else {
-      const date = Date.parse(retryAfter);
-      if (
-        Number.isFinite(date) &&
-        new Date(date).toUTCString() === retryAfter &&
-        isUsableRetryTimestamp(date)
-      ) {
-        retryAfterTime = Math.max(now.getTime(), date);
-      }
-    }
-  }
-
-  const resetHeader = headers["x-ratelimit-reset"]?.trim();
-  const resetSeconds =
-    resetHeader && /^\d+(?:\.\d+)?$/u.test(resetHeader)
-      ? Number(resetHeader)
-      : Number.NaN;
-  const resetTime =
-    Number.isFinite(resetSeconds) &&
-    resetSeconds >= 0 &&
-    isUsableRetryTimestamp(resetSeconds * 1_000)
-      ? Math.max(now.getTime(), resetSeconds * 1_000)
-      : null;
-
-  // Exhausted primary quota must not retry before either GitHub boundary.
-  if (
-    kind === "rate_limit" &&
-    headers["x-ratelimit-remaining"] === "0" &&
-    resetTime !== null
-  ) {
-    return new Date(Math.max(retryAfterTime ?? now.getTime(), resetTime));
-  }
-  if (retryAfterTime !== null) return new Date(retryAfterTime);
-
-  // A secondary throttle without Retry-After has at least a one-minute delay.
-  if (kind === "rate_limit") {
-    return new Date(Math.max(now.getTime() + 60_000, resetTime ?? 0));
-  }
-  if (resetTime !== null) return new Date(resetTime);
-  return new Date(now.getTime() + 1_000);
-}
-
-/** Validate the GitHub deadline itself; jitter is clipped separately. */
-function isUsableRetryTimestamp(timestamp: number): boolean {
-  return Number.isFinite(new Date(timestamp).getTime());
-}
-
-export function jitterAfter(boundary: Date, random: () => number): Date {
-  const boundedRandom = Math.min(1, Math.max(0, random()));
-  const jitterMs = 250 + Math.floor(boundedRandom * 750);
-  const boundaryTime = boundary.getTime();
-  // JavaScript Date TimeClip cannot represent instants after this limit.
-  const availableJitter = Math.max(0, 8_640_000_000_000_000 - boundaryTime);
-  return new Date(boundaryTime + Math.min(jitterMs, availableJitter));
-}
-
-/** Normalize GitHub response headers before retry decisions. */
-export function normalizeHeaders(
-  value: Record<string, unknown> | null,
-): Record<string, string> {
-  if (!value) return {};
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter(
-        (entry): entry is [string, string | number] =>
-          typeof entry[1] === "string" || typeof entry[1] === "number",
-      )
-      .map(([key, header]) => [key.toLowerCase(), String(header)]),
-  );
-}
-
-export type ReviewProgressGitHubFailureKind =
-  | "stale_head"
-  | "repository_mismatch"
-  | "revoked_app"
-  | "rate_limited"
-  | "github_unavailable"
-  | "github_request_failed"
-  | "ambiguous_mutation"
-  | "pagination_inconclusive"
-  | "invalid_response";
-
-export class ReviewProgressGitHubError extends Error {
-  constructor(
-    readonly kind: ReviewProgressGitHubFailureKind,
-    message: string,
-    readonly metadata: {
-      readonly status?: number;
-      readonly retryable: boolean;
-      /** A jittered instant that is never earlier than GitHub's reset boundary. */
-      readonly retryAt?: Date;
-      readonly retryNotBefore?: Date;
-      readonly installationCooldownUntil?: Date;
-      /** A failed GitHub write had an outcome that could not be confirmed. */
-      readonly mutationMayHaveLanded?: true;
-    },
-    options?: { readonly cause?: unknown },
-  ) {
-    super(message, options);
-    this.name = "ReviewProgressGitHubError";
-  }
-}
+export { ReviewProgressGitHubError };
+export type { ReviewProgressGitHubFailureKind };
 
 /** Classify GitHub transport failures without coupling policy to the gateway. */
 export function classifyGitHubFailure(
@@ -233,7 +118,7 @@ function classifyRetryableHttpFailure(
     );
   }
   if (status === 408 || (status !== undefined && status >= 500)) {
-    const retryNotBefore = retryBoundary(headers, now());
+    const retryNotBefore = retryBoundary(headers, now(), "server_unavailable");
     return new ReviewProgressGitHubError(
       "github_unavailable",
       "github_progress_comment_unavailable",
@@ -291,12 +176,17 @@ export function reconciliationFailure(
       mutationFailure.metadata.retryNotBefore,
       observationError.metadata.retryNotBefore,
     );
+    const observationMetadata = { ...observationError.metadata };
+    if (isDefinitelyRejectedMutation(mutationFailure)) {
+      delete observationMetadata.mutationMayHaveLanded;
+    } else {
+      observationMetadata.mutationMayHaveLanded = true;
+    }
     return new ReviewProgressGitHubError(
       observationError.kind,
       observationError.message,
       {
-        ...observationError.metadata,
-        mutationMayHaveLanded: true,
+        ...observationMetadata,
         ...(retryAt ? { retryAt } : {}),
         ...(retryNotBefore ? { retryNotBefore } : {}),
         ...(installationCooldownUntil ? { installationCooldownUntil } : {}),
@@ -326,12 +216,19 @@ export function reconciliationFailure(
       mutationFailure.metadata.retryNotBefore,
       observationFailure.metadata.retryNotBefore,
     );
+    // A typed server-side throttle may have landed even when the read fails.
+    // Only a definite 4xx rejection can clear a pre-existing landed marker.
+    const mutationMetadata = { ...mutationFailure.metadata };
+    if (isDefinitelyRejectedMutation(mutationFailure)) {
+      delete mutationMetadata.mutationMayHaveLanded;
+    } else {
+      mutationMetadata.mutationMayHaveLanded = true;
+    }
     return new ReviewProgressGitHubError(
       mutationFailure.kind,
       mutationFailure.message,
       {
-        ...mutationFailure.metadata,
-        mutationMayHaveLanded: true,
+        ...mutationMetadata,
         ...(retryAt ? { retryAt } : {}),
         ...(retryNotBefore ? { retryNotBefore } : {}),
         ...(mutationFailure.metadata.retryAt
@@ -360,7 +257,9 @@ export function reconciliationFailure(
     "github_progress_comment_mutation_ambiguous",
     {
       retryable: true,
-      mutationMayHaveLanded: true,
+      ...(!isDefinitelyRejectedMutation(mutationFailure)
+        ? { mutationMayHaveLanded: true as const }
+        : {}),
       retryAt: retryAt ?? fallbackRetryAt(now, random),
       ...(retryNotBefore ? { retryNotBefore } : {}),
     },
@@ -388,4 +287,32 @@ function number(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value)
     ? value
     : undefined;
+}
+
+/** Definite 4xx rejections cannot have landed, even if observation fails. */
+function isDefinitelyRejectedMutation(
+  failure: ReviewProgressGitHubError,
+): boolean {
+  const status = failure.metadata.status;
+  return (
+    status !== undefined &&
+    status >= 400 &&
+    status < 500 &&
+    (failure.kind === "rate_limited" || failure.kind === "ambiguous_mutation")
+  );
+}
+
+/** Preserve a definite HTTP rejection, fence outcomes that may have landed. */
+export function unconfirmedMutation(
+  classified: ReviewProgressGitHubError,
+): ReviewProgressGitHubError {
+  if (isDefinitelyRejectedMutation(classified)) {
+    return classified;
+  }
+  return new ReviewProgressGitHubError(
+    classified.kind,
+    classified.message,
+    { ...classified.metadata, mutationMayHaveLanded: true },
+    { cause: classified },
+  );
 }

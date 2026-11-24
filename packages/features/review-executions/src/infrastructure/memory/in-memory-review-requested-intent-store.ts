@@ -11,6 +11,7 @@ import {
   type ExtendReviewRequestedQueuedRunWaitCommand,
   type LinkReviewRequestedAdmissionCommand,
   type RecordReviewRequestedAdmissionDecisionCommand,
+  type ResolveReviewRequestedPreparationCommand,
   type RecordReviewRequestedDispatchCommand,
   type RecoverReviewRequestedDispatchCommand,
   type RegisterReviewRequestedIntentCommand,
@@ -43,6 +44,8 @@ import {
   decideReviewRequestedRegistration,
   deferReviewRequestedResolution,
   extendReviewRequestedQueuedRunWait,
+  expireReviewRequestedPreparation,
+  resolveReviewRequestedPreparation,
   type ReviewRequestedIntent,
 } from "../../domain/review-requested-intent";
 import {
@@ -167,6 +170,8 @@ export class InMemoryReviewRequestedIntentStore
   async listDue(input: {
     readonly now: Date;
     readonly limit: number;
+    readonly excludeRequestIds?: readonly string[];
+    readonly excludeAlwaysRequestIds?: readonly string[];
   }): Promise<readonly ReviewRequestedIntent[]> {
     await this.transactionTail;
     assertDate(input.now, "review_requested_due_now");
@@ -180,15 +185,43 @@ export class InMemoryReviewRequestedIntentStore
     return [...this.intents.values()]
       .filter(
         (intent) =>
-          (intent.state === ReviewRequestedIntentState.PendingDispatch &&
+          !input.excludeAlwaysRequestIds?.includes(intent.requestId) &&
+          (!input.excludeRequestIds?.includes(intent.requestId) ||
+            (intent.state === ReviewRequestedIntentState.Dispatching &&
+              intent.resolutionDeadlineAt !== null &&
+              intent.resolutionDeadlineAt <= input.now)) &&
+          ((intent.state === ReviewRequestedIntentState.PendingDispatch &&
             intent.notBefore <= input.now) ||
-          (intent.state === ReviewRequestedIntentState.Dispatching &&
-            intent.claim !== null &&
-            intent.claim.claimUntil <= input.now),
+            (intent.state === ReviewRequestedIntentState.Dispatching &&
+              intent.claim !== null &&
+              intent.claim.claimUntil <= input.now)),
       )
       .sort(
         (left, right) =>
-          left.notBefore.getTime() - right.notBefore.getTime() ||
+          Number(
+            !(
+              input.excludeRequestIds?.includes(left.requestId) &&
+              left.state === ReviewRequestedIntentState.Dispatching &&
+              left.resolutionDeadlineAt !== null &&
+              left.resolutionDeadlineAt <= input.now
+            ),
+          ) -
+            Number(
+              !(
+                input.excludeRequestIds?.includes(right.requestId) &&
+                right.state === ReviewRequestedIntentState.Dispatching &&
+                right.resolutionDeadlineAt !== null &&
+                right.resolutionDeadlineAt <= input.now
+              ),
+            ) ||
+          (left.state === ReviewRequestedIntentState.Dispatching
+            ? left.claim!.claimUntil
+            : left.notBefore
+          ).getTime() -
+            (right.state === ReviewRequestedIntentState.Dispatching
+              ? right.claim!.claimUntil
+              : right.notBefore
+            ).getTime() ||
           left.createdAt.getTime() - right.createdAt.getTime() ||
           left.requestId.localeCompare(right.requestId),
       )
@@ -341,6 +374,18 @@ export class InMemoryReviewRequestedIntentStore
       if (!intent) {
         return { status: ReviewRequestedClaimStatus.Missing };
       }
+      const decision = assessReviewRequestedClaim({ intent, ...command });
+      const expired =
+        decision === ReviewRequestedClaimDecisionStatus.Takeover
+          ? expireReviewRequestedPreparation(intent, command.now)
+          : null;
+      if (expired !== null) {
+        this.intents.set(intent.requestId, expired);
+        return {
+          status: ReviewRequestedClaimStatus.PreparationExpired,
+          intent: cloneIntent(expired),
+        };
+      }
       const laneBusy = [...this.intents.values()].some(
         (candidate) =>
           candidate.requestId !== intent.requestId &&
@@ -358,7 +403,6 @@ export class InMemoryReviewRequestedIntentStore
       if (laneBusy) {
         return { status: ReviewRequestedClaimStatus.Busy };
       }
-      const decision = assessReviewRequestedClaim({ intent, ...command });
       if (decision === ReviewRequestedClaimDecisionStatus.Restored) {
         return {
           status: ReviewRequestedClaimStatus.Restored,
@@ -374,7 +418,10 @@ export class InMemoryReviewRequestedIntentStore
         fencingToken: this.fencingTokens.next(),
       });
       this.intents.set(intent.requestId, claimed);
-      this.pendingByScope.delete(scopeKey(intent));
+      const scope = scopeKey(intent);
+      if (this.pendingByScope.get(scope) === intent.requestId) {
+        this.pendingByScope.delete(scope);
+      }
       return {
         status: ReviewRequestedClaimStatus.Claimed,
         intent: cloneIntent(claimed),
@@ -519,6 +566,33 @@ export class InMemoryReviewRequestedIntentStore
       if (decision.status !== ReviewRequestedTransitionDecisionStatus.Applied) {
         return { status: ReviewRequestedTransitionStatus.Conflict };
       }
+      this.intents.set(intent.requestId, decision.intent);
+      return {
+        status: ReviewRequestedTransitionStatus.Applied,
+        intent: cloneIntent(decision.intent),
+      };
+    });
+  }
+
+  async resolvePreparation(command: ResolveReviewRequestedPreparationCommand) {
+    return this.atomic(() => {
+      const intent = this.intents.get(command.requestId);
+      if (!intent) return { status: ReviewRequestedTransitionStatus.Missing };
+      const decision = resolveReviewRequestedPreparation({
+        ...command,
+        intent,
+      });
+      if (
+        decision.status === ReviewRequestedTransitionDecisionStatus.StaleClaim
+      )
+        return { status: ReviewRequestedTransitionStatus.StaleClaim };
+      if (decision.status === ReviewRequestedTransitionDecisionStatus.Conflict)
+        return { status: ReviewRequestedTransitionStatus.Conflict };
+      if (decision.status === ReviewRequestedTransitionDecisionStatus.Restored)
+        return {
+          status: ReviewRequestedTransitionStatus.Restored,
+          intent: cloneIntent(decision.intent),
+        };
       this.intents.set(intent.requestId, decision.intent);
       return {
         status: ReviewRequestedTransitionStatus.Applied,

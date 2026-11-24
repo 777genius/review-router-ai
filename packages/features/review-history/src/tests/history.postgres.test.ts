@@ -53,6 +53,66 @@ describe.skipIf(!adminUrl)(
       const projector = createPrismaHistoryProjector(prisma);
       for (const event of await events(root)) await projector.project(event);
     }
+    it("projects stopped and expired preparation from actual intent transactions", async () => {
+      await activateHistoryCapture(prisma);
+      for (const kind of ["stale", "expired"] as const) {
+        const f = await createHistorySourceFixture(prisma);
+        const candidate = f.candidate();
+        await f.intents.registerIntent({ candidate });
+        const now = new Date();
+        const claimed = await f.intents.claimIntent({
+          requestId: candidate.requestId,
+          claimId: randomUUID(),
+          ownerIdHash: hash("1"),
+          now,
+          claimUntil: new Date(now.getTime() + 30000),
+        });
+        const claim = claimed.intent!.claim!;
+        if (kind === "stale") {
+          await f.intents.resolvePreparation({
+            requestId: candidate.requestId,
+            expectedVersion: claimed.intent!.version,
+            claimId: claim.claimId,
+            ownerIdHash: claim.ownerIdHash,
+            fencingToken: claim.fencingToken,
+            now,
+          });
+        } else {
+          await prisma.reviewRequestedIntent.update({
+            where: { requestId: candidate.requestId },
+            data: {
+              claimedAt: new Date(now.getTime() - 120000),
+              claimUntil: new Date(now.getTime() - 60000),
+              resolutionDeadlineAt: new Date(now.getTime() - 1),
+            },
+          });
+          await f.intents.claimIntent({
+            requestId: candidate.requestId,
+            claimId: randomUUID(),
+            ownerIdHash: hash("1"),
+            now,
+            claimUntil: new Date(now.getTime() + 30000),
+          });
+        }
+        const captured = await events(candidate.requestId);
+        expect(
+          captured.some(
+            (event) =>
+              event.snapshot.kind === "intent" &&
+              event.snapshot.facts.state ===
+                (kind === "stale" ? "superseded" : "terminal") &&
+              event.snapshot.facts.terminalReason ===
+                (kind === "stale" ? null : "dispatch_failed_no_effect"),
+          ),
+        ).toBe(true);
+        await drain(candidate.requestId);
+        expect(
+          await prisma.reviewHistoryRun.findUniqueOrThrow({
+            where: { rootRequestId: candidate.requestId },
+          }),
+        ).toMatchObject({ status: kind === "stale" ? "stopped" : "failed" });
+      }
+    });
     it("activates once, excludes old roots and rolls back source + sequence + event on capture failure", async () => {
       await prisma.reviewHistoryCoverage.deleteMany();
       const f = await createHistorySourceFixture(prisma),

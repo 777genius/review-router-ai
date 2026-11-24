@@ -16,14 +16,14 @@
 - Dependencies: none. No migration, configuration or feature flag. The native
   NVIDIA status diagnostic is a separate native change in the same bundle; this
   change does not need it.
-- Last updated: 2026-11-20.
+- Last updated: 2026-11-21.
 
 ## Environment status
 
-| Target     | Status      | Actual image                         | Evidence                                                                                                    |
-| ---------- | ----------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
-| Staging    | `pending`   | Not verified                         | Ordinary API rollout                                                                                        |
-| Production | `installed` | `1d92ee85`, image `sha256:abf7f4a9…` | [Bundle 3](2026-11-20-bundle3.md) at 07:20 UTC; no companion failure since, so `relayCode` not observed yet |
+| Target     | Status     | Actual image                         | Evidence                                                                                                                       |
+| ---------- | ---------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| Staging    | `pending`  | Not verified                         | Ordinary API rollout                                                                                                           |
+| Production | `deployed` | `1d92ee85`, image `sha256:abf7f4a9…` | [Bundle 3](2026-11-20-bundle3.md) at 07:20 UTC; four companion failure lines with `relayCode` seen on `be5c879d` (see the log) |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -44,7 +44,7 @@ observed to be absent. Use the [status contract](README.md#status-contract).
 
 ## Applicability and rollout
 
-Ordinary API image rollout. Rides in bundle 3, NOT deployed.
+Ordinary API image rollout. Shipped in [bundle 3](2026-11-20-bundle3.md).
 
 ## Verification and completion
 
@@ -58,6 +58,7 @@ Revert the commit and roll the API back. No state is written by this change.
 
 ## Execution log
 
-| Time (UTC)       | Environment | Operator | Actual version / image               | Step and observed result | Evidence                          | Next action                                                                        |
-| ---------------- | ----------- | -------- | ------------------------------------ | ------------------------ | --------------------------------- | ---------------------------------------------------------------------------------- |
-| 2026-11-20 07:20 | production  | D4       | `1d92ee85`, image `sha256:abf7f4a9…` | Installed with bundle 3  | [bundle 3](2026-11-20-bundle3.md) | Check the next `review_run_companion_gateway_request_failed` line for `relayCode`. |
+| Time (UTC)       | Environment | Operator | Actual version / image               | Step and observed result                                                                                                                                                                                                                                             | Evidence                                                                      | Next action                                                                        |
+| ---------------- | ----------- | -------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| 2026-11-20 07:20 | production  | D4       | `1d92ee85`, image `sha256:abf7f4a9…` | Installed with bundle 3                                                                                                                                                                                                                                              | [bundle 3](2026-11-20-bundle3.md)                                             | Check the next `review_run_companion_gateway_request_failed` line for `relayCode`. |
+| 2026-11-21 12:30 | production  | D5       | `be5c879d`, image `sha256:02248832…` | Read the API log since bundle 4: 2026-11-20 16:52 `relayCode` `companion_lease_not_active` (`local_forward`), 18:50 `cancelled` (`sdk_request`, effect `effect_unknown`), 23:09 and 2026-11-21 00:03 `relay_unknown` (`local_authority`), each with its `requestRef` | [Bundle 5](2026-11-21-bundle5.md#observed-since-bundle-4-before-this-rollout) | None.                                                                              |

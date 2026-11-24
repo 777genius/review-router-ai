@@ -13,8 +13,20 @@ export function publicationRetryPlan(
 } {
   const githubError = error instanceof ReviewProgressGitHubError ? error : null;
   let retryAt = githubError?.metadata.retryAt;
-  if (githubError?.kind === "pagination_inconclusive") {
-    // A capped scan is structural, even when a failed mutation has retryAt.
+  const transientPaginationRace =
+    githubError?.kind === "pagination_inconclusive" &&
+    (githubError.message === "github_issue_comments_offset_changed" ||
+      githubError.message === "github_canonical_comment_changed_before_patch" ||
+      githubError.message ===
+        "github_canonical_comment_changed_before_delete" ||
+      githubError.message ===
+        "github_duplicate_comment_changed_before_delete" ||
+      githubError.message === "github_canonical_comment_changed_after_delete");
+  if (
+    githubError?.kind === "pagination_inconclusive" &&
+    !transientPaginationRace
+  ) {
+    // A capped or untrusted scan is structural; transient offset drift is not.
     const structuralRetryAt = new Date(
       now().getTime() + Math.max(retryDelayMs, 60 * 60_000),
     );
@@ -36,15 +48,16 @@ export function publicationRetryPlan(
   const installationCooldownUntil =
     mutationCooldown ??
     (githubError?.kind === "rate_limited" ? retryAt : undefined);
+  const deferWithoutCounting =
+    githubError?.kind === "pagination_inconclusive" ||
+    (githubError?.kind === "rate_limited" &&
+      githubError.message === "github_duplicate_cleanup_rate_limited");
   return {
     safeCode: githubError
       ? `review_progress_${githubError.kind}`
       : "review_progress_publish_failed",
     retryAt,
     ...(installationCooldownUntil ? { installationCooldownUntil } : {}),
-    // A bounded duplicate scan must never mutate comments or exhaust retries.
-    ...(githubError?.kind === "pagination_inconclusive"
-      ? { countFailure: false as const }
-      : {}),
+    ...(deferWithoutCounting ? { countFailure: false as const } : {}),
   };
 }
