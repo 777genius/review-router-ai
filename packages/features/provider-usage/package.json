@@ -18,8 +18,8 @@
   "dependencies": {
     "@agent-teams/account-gateway": "file:../../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-imports-f2690a3c9cfd.tgz",
     "@prisma/client": "7.8.0",
-    "@get-modular/core": "0.7.0",
-    "@get-modular/assembly": "0.7.0"
+    "@get-modular/core": "0.8.0",
+    "@get-modular/assembly": "0.8.0"
   },
   "scripts": {
     "build": "node ../../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.build.json",

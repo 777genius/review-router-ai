@@ -507,7 +507,10 @@ export class InMemoryReviewRunControlStore
   async putReviewSafetyPolicy(input: {
     readonly expectedVersion: number;
     readonly policy: ReviewSafetyPolicy;
-  }) {
+  }): Promise<
+    | { status: ReviewSafetyControlWriteStatus; policy: ReviewSafetyPolicy }
+    | { status: ReviewSafetyControlWriteStatus; readonly policy?: never }
+  > {
     const key = reviewSafetyPolicyKey(input.policy);
     const current = this.policies.get(key);
     if (current && equivalentPolicy(current, input.policy)) {
@@ -534,7 +537,13 @@ export class InMemoryReviewRunControlStore
   async putReviewSafetyEmergencyControl(input: {
     readonly expectedVersion: number;
     readonly control: ReviewSafetyEmergencyControl;
-  }) {
+  }): Promise<
+    | {
+        status: ReviewSafetyControlWriteStatus;
+        control: ReviewSafetyEmergencyControl;
+      }
+    | { status: ReviewSafetyControlWriteStatus; readonly control?: never }
+  > {
     const key = reviewSafetyScopeKey(input.control.scope);
     const current = this.emergencyControls.get(key);
     if (current && equivalentEmergency(current, input.control)) {

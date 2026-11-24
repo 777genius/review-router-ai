@@ -173,10 +173,10 @@ const featureManifest = JSON.parse(
   ),
 ) as Manifest;
 assert.deepEqual(profile.packages, {
-  "@get-modular/core": "0.7.0",
-  "@get-modular/assembly": "0.7.0",
-  "@get-modular/conformance": "0.5.0",
-  "@get-modular/resources": "0.2.1",
+  "@get-modular/core": "0.8.0",
+  "@get-modular/assembly": "0.8.0",
+  "@get-modular/conformance": "0.5.2",
+  "@get-modular/resources": "0.2.2",
 });
 for (const [name, version] of Object.entries(profile.packages))
   assert.equal(
