@@ -147,8 +147,46 @@ describe("ReviewProgressGitHubGateway", () => {
     });
     expect(
       fixture.calls.filter(({ route }) => route.startsWith("GET ")),
-    ).toHaveLength(7);
+    ).toHaveLength(9);
   });
+
+  it.each(["POST", "PATCH"] as const)(
+    "does not reconcile a landed %s when the canonical changes after scanning",
+    async (method) => {
+      const fixture =
+        method === "POST"
+          ? githubFixture([], { throwAfterPost: true })
+          : githubFixture([{ id: 8, body: `old\n${marker}` }], {
+              throwAfterPatch: true,
+            });
+      const byId = "GET /repos/{owner}/{repo}/issues/comments/{comment_id}";
+      let reads = 0;
+      const request: ReviewProgressGitHubRequester = async (
+        route,
+        parameters,
+      ) => {
+        if (route === byId) {
+          reads += 1;
+          if (method === "POST") throw { status: 404 };
+          const response = await fixture.request(route, parameters);
+          return {
+            data: {
+              ...(response.data as Record<string, unknown>),
+              body: `edited\n${marker}`,
+            },
+          };
+        }
+        return fixture.request(route, parameters);
+      };
+
+      await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+        kind: "ambiguous_mutation",
+        metadata: { retryable: true, mutationMayHaveLanded: true },
+      });
+      expect(reads).toBe(1);
+      expect(mutations(fixture.calls)).toHaveLength(1);
+    },
+  );
 
   it("does not reconcile a landed POST after the repository changes", async () => {
     const fixture = githubFixture([], { throwAfterPost: true });
@@ -408,13 +446,50 @@ describe("ReviewProgressGitHubGateway", () => {
     await expect(gateway(request).upsert(input())).rejects.toMatchObject({
       kind: "pagination_inconclusive",
       message: "github_canonical_comment_changed_after_delete",
-      metadata: { retryable: true },
+      metadata: { retryable: true, mutationMayHaveLanded: true },
     });
     expect(canonicalReads).toBe(2);
     expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
       "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",
     ]);
   });
+
+  it.each([
+    { status: 200, kind: "invalid_response", retryable: false },
+    { status: 429, kind: "rate_limited", retryable: true },
+  ] as const)(
+    "preserves a confirmed DELETE when verification returns $status",
+    async ({ status, kind, retryable }) => {
+      const desired = formatReviewProgressComment("working", marker);
+      const fixture = githubFixture([
+        { id: 4, body: desired },
+        { id: 7, body: `duplicate\n${marker}` },
+      ]);
+      const byId = "GET /repos/{owner}/{repo}/issues/comments/{comment_id}";
+      let deleted = false;
+      const request: ReviewProgressGitHubRequester = async (
+        route,
+        parameters,
+      ) => {
+        if (deleted && route === byId) {
+          if (status === 429) {
+            throw { status, response: { headers: { "retry-after": "60" } } };
+          }
+          return { data: null };
+        }
+        const response = await fixture.request(route, parameters);
+        if (route.startsWith("DELETE ")) deleted = true;
+        return response;
+      };
+
+      await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+        kind,
+        metadata: { retryable, mutationMayHaveLanded: true },
+      });
+      expect(deleted).toBe(true);
+      expect(mutations(fixture.calls)).toHaveLength(1);
+    },
+  );
 
   it("refuses DELETE when repository ID changes after the scan", async () => {
     const desired = formatReviewProgressComment("working", marker);

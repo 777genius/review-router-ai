@@ -285,19 +285,31 @@ export class ReviewProgressGitHubGateway {
       if (classified.kind === "revoked_app") throw classified;
       throw unconfirmedMutation(classified);
     }
-    // DELETE can succeed as another worker removes or changes the canonical.
-    const canonicalAfterDelete = await this.includeVerifiedKnownComment(
-      { ...input, knownCommentId: canonicalId },
-      [],
-    );
-    if (canonicalAfterDelete[0]?.body !== desiredBody) {
-      throw failure(
-        "pagination_inconclusive",
-        "github_canonical_comment_changed_after_delete",
-        true,
+    try {
+      // DELETE can succeed as another worker removes or changes the canonical.
+      const canonicalAfterDelete = await this.includeVerifiedKnownComment(
+        { ...input, knownCommentId: canonicalId },
+        [],
+      );
+      if (canonicalAfterDelete[0]?.body !== desiredBody) {
+        throw failure(
+          "pagination_inconclusive",
+          "github_canonical_comment_changed_after_delete",
+          true,
+        );
+      }
+      await this.assertRepositoryId(input, scannedRepositoryId);
+    } catch (error) {
+      const classified = this.classify(error, "github_unavailable");
+      if (classified.kind === "revoked_app") throw classified;
+      // A rejected verification GET does not undo the confirmed DELETE.
+      throw new ReviewProgressGitHubError(
+        classified.kind,
+        classified.message,
+        { ...classified.metadata, mutationMayHaveLanded: true },
+        { cause: classified },
       );
     }
-    await this.assertRepositoryId(input, scannedRepositoryId);
     return {
       commentId: canonicalId,
       operation: "duplicate_deleted",
@@ -567,17 +579,10 @@ export class ReviewProgressGitHubGateway {
       );
       observed = await this.findMarkedComments(input, scannedRepositoryId);
       // The head or repository can change while reading the comment pages.
-      const currentRepositoryId = await this.assertCurrentPullRequest(input);
-      if (
-        scannedRepositoryId !== undefined &&
-        currentRepositoryId !== scannedRepositoryId
-      ) {
-        throw failure(
-          "repository_mismatch",
-          "github_pull_request_repository_identity_changed",
-          false,
-        );
-      }
+      scannedRepositoryId = await this.assertRepositoryId(
+        input,
+        scannedRepositoryId,
+      );
     } catch (observationError) {
       if (
         expectedCommentId !== undefined &&
@@ -604,7 +609,23 @@ export class ReviewProgressGitHubGateway {
       desiredBody,
       expectedCommentId,
     );
-    if (confirmed) return confirmed;
+    if (!confirmed) throw unconfirmedMutation(classified);
+    try {
+      const canonicalId = expectedCommentId ?? confirmed[0]!.id;
+      const current = await this.includeVerifiedKnownComment(
+        { ...input, knownCommentId: canonicalId },
+        [],
+      );
+      await this.assertRepositoryId(input, scannedRepositoryId);
+      if (current[0]?.body === desiredBody) return confirmed;
+    } catch (observationError) {
+      throw reconciliationFailure(
+        mutationError,
+        observationError,
+        this.now,
+        this.random,
+      );
+    }
     throw unconfirmedMutation(classified);
   }
 

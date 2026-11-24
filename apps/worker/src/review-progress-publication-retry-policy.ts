@@ -18,7 +18,9 @@ export function publicationRetryPlan(
     (githubError.message === "github_issue_comments_offset_changed" ||
       githubError.message ===
         "github_canonical_comment_changed_before_delete" ||
-      githubError.message === "github_duplicate_comment_changed_before_delete");
+      githubError.message ===
+        "github_duplicate_comment_changed_before_delete" ||
+      githubError.message === "github_canonical_comment_changed_after_delete");
   if (
     githubError?.kind === "pagination_inconclusive" &&
     !transientPaginationRace

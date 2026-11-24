@@ -597,8 +597,8 @@ describe("ReviewProgressPublisher", () => {
         botLogin: "review-router[bot]",
         request: async (route, parameters = {}) => {
           if (route.includes("/pulls/")) return pull();
-        const known = testKnownComment(route, parameters, body);
-        if (known) return known;
+          const known = testKnownComment(route, parameters, body);
+          if (known) return known;
           if (route.startsWith("GET")) {
             return {
               data: [77, 78].map((id) => ({
@@ -658,8 +658,8 @@ describe("ReviewProgressPublisher", () => {
         botLogin: "review-router[bot]",
         request: async (route, parameters = {}) => {
           if (route.includes("/pulls/")) return pull();
-        const known = testKnownComment(route, parameters, body);
-        if (known) return known;
+          const known = testKnownComment(route, parameters, body);
+          if (known) return known;
           if (route.startsWith("GET")) {
             return {
               data: [77, 78].map((id) => ({
@@ -702,6 +702,66 @@ describe("ReviewProgressPublisher", () => {
         now,
         retryAt: expect.any(Date),
       });
+    },
+  );
+
+  it.each(["missing", "malformed"] as const)(
+    "repairs a confirmed duplicate DELETE after %s canonical verification",
+    async (verification) => {
+      const publication = { ...claimed(), commentId: 77n };
+      const store = fakeStore(publication);
+      store.retry.mockResolvedValue("stale");
+      const body = formatReviewProgressComment(
+        formatGithubProgressComment(progressSnapshot()),
+        githubProgressCommentMarker,
+      );
+      const deletes: number[] = [];
+      const publisher = createPublisher(store, async () => ({
+        botLogin: "review-router[bot]",
+        request: async (route, parameters = {}) => {
+          if (route.includes("/pulls/")) return pull();
+          const known = testKnownComment(route, parameters, body);
+          if (known) {
+            if (deletes.length === 0) return known;
+            if (verification === "missing") throw { status: 404 };
+            return { data: null };
+          }
+          if (route.startsWith("GET")) {
+            return {
+              data: [77, 78].map((id) => ({
+                id,
+                body,
+                user: { login: "review-router[bot]" },
+              })),
+            };
+          }
+          if (route.startsWith("DELETE")) {
+            deletes.push(Number(parameters.comment_id));
+            return { data: undefined };
+          }
+          throw new Error(`unexpected:${route}`);
+        },
+      }));
+
+      await expect(publisher.runMaintenance()).resolves.toMatchObject({
+        claimed: 1,
+        deferred: 1,
+        published: 0,
+      });
+      expect(deletes).toEqual([78]);
+      expect(store.complete).not.toHaveBeenCalled();
+      expect(store.suppress).not.toHaveBeenCalled();
+      expect(store.requeueAfterClaimLoss).toHaveBeenCalledOnce();
+      if (verification === "missing") {
+        expect(store.retry).toHaveBeenCalledWith(
+          expect.objectContaining({
+            safeCode: "review_progress_pagination_inconclusive",
+            countFailure: false,
+          }),
+        );
+      } else {
+        expect(store.retry).not.toHaveBeenCalled();
+      }
     },
   );
 

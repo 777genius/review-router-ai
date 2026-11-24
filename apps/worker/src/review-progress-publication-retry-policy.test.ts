@@ -57,6 +57,7 @@ describe("Review progress publication retry policy", () => {
   it.each([
     "github_canonical_comment_changed_before_delete",
     "github_duplicate_comment_changed_before_delete",
+    "github_canonical_comment_changed_after_delete",
   ])(
     "retries transient %s promptly without weakening hard bounds",
     (message) => {
