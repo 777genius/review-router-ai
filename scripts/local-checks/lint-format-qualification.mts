@@ -5,7 +5,7 @@ import { basename, join } from "node:path";
 import { Script } from "node:vm";
 import { after, test } from "node:test";
 import { ESLint } from "eslint";
-import ts from "typescript";
+import { transformSync } from "esbuild";
 import {
   admitTools,
   assertNoSymlinks,
@@ -314,16 +314,23 @@ for (const fixture of formatCases) {
         format(tool, fixture.path, first.stdout).stdout,
         fixture.expected,
       );
-      if (/\.(?:js|mjs|cjs|ts|mts|cts|tsx)$/.test(fixture.path)) {
-        const parsed = ts.transpileModule(first.stdout, {
-          fileName: fixture.path,
-          reportDiagnostics: true,
-          compilerOptions: {
-            target: ts.ScriptTarget.ES2022,
-            jsx: ts.JsxEmit.Preserve,
-          },
+      if (/\\.(?:js|mjs|cjs|ts|mts|cts|tsx)$/.test(fixture.path)) {
+        const loader = /\\.tsx$/.test(fixture.path)
+          ? "tsx"
+          : /\\.(?:ts|mts|cts)$/.test(fixture.path)
+            ? "ts"
+            : "js";
+        // Strict TS7 has no transpileModule JavaScript API. The already
+        // pinned Go-based esbuild parser checks the same formatted fixture;
+        // successful parsing is not a substitute for a TS7 typecheck.
+        const parseProof = transformSync(first.stdout, {
+          loader,
+          sourcefile: fixture.path,
+          target: "es2022",
+          format: "cjs",
+          jsx: "preserve",
         });
-        assert.deepEqual(parsed.diagnostics, []);
+        assert.equal(parseProof.warnings.length, 0);
         if (
           [
             "comments.js",
@@ -333,41 +340,46 @@ for (const fixture of formatCases) {
             "regex.cjs",
           ].includes(fixture.path)
         ) {
-          const emitted = ts.transpileModule(first.stdout, {
-            compilerOptions: {
-              module: ts.ModuleKind.CommonJS,
-              target: ts.ScriptTarget.ES2022,
-            },
-          }).outputText;
-          const exports: Record<string, unknown> = {};
+          const evaluated = transformSync(first.stdout, {
+            loader,
+            sourcefile: fixture.path,
+            target: "es2022",
+            format: "cjs",
+          });
+          assert.equal(evaluated.warnings.length, 0);
+          const module = { exports: {} as Record<string, unknown> };
           const observations: unknown[] = [];
-          new Script(emitted).runInNewContext(
+          new Script(evaluated.code).runInNewContext(
             {
-              exports,
+              module,
+              exports: module.exports,
               console: { log: (value: unknown) => observations.push(value) },
             },
             { timeout: 1_000 },
           );
           if (fixture.path === "template.mjs")
-            assert.equal(exports.value, "hello 3");
+            assert.equal(module.exports.value, "hello 3");
           if (fixture.path === "types.mts" || fixture.path === "types.ts")
-            assert.equal(JSON.stringify(exports.value), '{"label":"ok"}');
+            assert.equal(JSON.stringify(module.exports.value), '{"label":"ok"}');
           if (fixture.path === "regex.cjs")
             assert.deepEqual(observations, [true]);
         }
       }
       if (fixture.path === "view.tsx") {
-        const emitted = ts.transpileModule(first.stdout, {
-          compilerOptions: {
-            module: ts.ModuleKind.CommonJS,
-            jsx: ts.JsxEmit.React,
-            jsxFactory: "element",
-          },
-        }).outputText;
-        const exports: Record<string, unknown> = {};
-        new Script(emitted).runInNewContext(
+        const evaluated = transformSync(first.stdout, {
+          loader: "tsx",
+          sourcefile: fixture.path,
+          target: "es2022",
+          format: "cjs",
+          jsx: "transform",
+          jsxFactory: "element",
+        });
+        assert.equal(evaluated.warnings.length, 0);
+        const module = { exports: {} as Record<string, unknown> };
+        new Script(evaluated.code).runInNewContext(
           {
-            exports,
+            module,
+            exports: module.exports,
             element: (tag: string, props: unknown, child: string) => ({
               tag,
               props,
@@ -377,7 +389,7 @@ for (const fixture of formatCases) {
           { timeout: 1_000 },
         );
         assert.equal(
-          JSON.stringify(exports.view),
+          JSON.stringify(module.exports.view),
           '{"tag":"section","props":{"title":"ok"},"child":"Hello"}',
         );
       }
