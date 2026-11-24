@@ -371,7 +371,12 @@ export function applicationEnvironment(input: {
           REVIEW_ROUTER_ACCOUNT_GATEWAY_SUBSCRIPTION_PROFILE_IDS:
             "kimi-code-global-responses-apikey-v1,glm-coding-global-responses-apikey-v1,minimax-mplan-global-responses-apikey-v1,grok-subscription-responses-oauth-v1",
         }
-      : {}),
+      : process.argv.includes("--api-key-storage-fixture")
+        ? {
+            REVIEW_ROUTER_ACCOUNT_GATEWAY_SUBSCRIPTION_PROFILE_IDS:
+              "kimi-code-global-responses-apikey-v1",
+          }
+        : {}),
     ...(process.argv.includes("--api-key-storage-fixture")
       ? {
           REVIEW_ROUTER_ACCOUNT_GATEWAY_MIMO_PROFILE_ID:
@@ -380,8 +385,8 @@ export function applicationEnvironment(input: {
             "https://token-plan-sgp.xiaomimimo.com/v1",
           REVIEW_ROUTER_ACCOUNT_GATEWAY_OPENROUTER_PROFILE_ID:
             "openrouter-openai-responses-apikey-v1",
-          REVIEW_ROUTER_ACCOUNT_GATEWAY_SUBSCRIPTION_PROFILE_IDS:
-            "kimi-code-global-responses-apikey-v1",
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_NVIDIA_PROFILE_ID:
+            "nvidia-build-chat-apikey-v1",
         }
       : {}),
     TMPDIR: input.tmpDir,

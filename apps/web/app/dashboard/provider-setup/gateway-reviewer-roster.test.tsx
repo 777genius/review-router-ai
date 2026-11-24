@@ -219,12 +219,15 @@ describe("Gateway reviewer roster", () => {
       expect(save).toHaveProperty("disabled", false);
       fireEvent.click(refresh);
       await waitFor(() => expect(save).toHaveProperty("disabled", true));
-      const retry = screen.getByRole("button", { name: /^Refresh models$/ });
+      // A failed read offers Try again; an empty list keeps its small refresh.
+      const retry = screen.getByRole("button", {
+        name: outcome === "unavailable" ? "Try again" : /^Refresh models$/,
+      });
       await waitFor(() => expect(retry).toHaveProperty("disabled", false));
       expect(screen.getByText(/1\. model-one/)).toBeTruthy();
       expect(screen.getByText(/2\. model-two/)).toBeTruthy();
       const unknownWarning =
-        "Model availability could not be checked. Edit this reviewer to refresh account models. Your saved selection is unchanged.";
+        "Model availability could not be checked. Edit this reviewer to try again. Your saved selection is unchanged.";
       const unavailableWarning =
         "This model is unavailable for this account. Edit this reviewer to choose another model.";
       expect(
@@ -577,7 +580,8 @@ describe("Gateway reviewer roster", () => {
     const props = base();
     props.view = { ...props.view, defaultSelections: [selection("one")] };
     // An NVIDIA account without its own fresh catalogue: every model is listed
-    // but marked unusable, so typing its exact name must not make it savable.
+    // but unusable and the list says why once, so typing its exact name must
+    // not make it savable.
     props.gatewayAccounts = {
       status: "ok",
       value: {
@@ -597,12 +601,175 @@ describe("Gateway reviewer roster", () => {
       target: { value: "model-two" },
     });
     expect(
-      screen.getAllByText(/NVIDIA account model qualification unavailable/)
-        .length,
-    ).toBeGreaterThan(0);
+      screen.getByText("Could not update the model list for this account."),
+    ).toBeTruthy();
     const save = screen.getByRole("button", { name: "Save reviewers" });
     expect(save).toHaveProperty("disabled", true);
     fireEvent.click(save);
     expect(saveProviderRoster).not.toHaveBeenCalled();
+  });
+
+  it("names an unavailable account with Try again and has no Refresh accounts button", async () => {
+    if (accounts.status !== "ok") throw new Error("fixture_unavailable");
+    const get = vi
+      .fn<GatewayModelAccountsApi["get"]>()
+      .mockResolvedValue({ status: "denied" });
+    const list = vi.fn<GatewayModelAccountsApi["list"]>();
+    render(
+      <GatewayModelAccountsProvider
+        scope="viewer:workspace:w"
+        api={{ get, list }}
+      >
+        <GatewayReviewerRoster {...base()} />
+      </GatewayModelAccountsProvider>,
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]!);
+    expect(
+      await screen.findByText(
+        "This account is unavailable. Choose another account.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Refresh accounts" }),
+    ).toBeNull();
+    const reads = get.mock.calls.length;
+    fireEvent.click(screen.getAllByRole("button", { name: "Try again" })[0]!);
+    await waitFor(() => expect(get.mock.calls.length).toBe(reads + 1));
+    // An ordinary read of that one binding, not a forced model refresh.
+    expect(get).toHaveBeenLastCalledWith("binding");
+  });
+
+  it("says once that the account list failed instead of calling every account unavailable", () => {
+    render(
+      <GatewayReviewerRoster
+        {...base()}
+        gatewayAccounts={{ status: "unavailable" }}
+      />,
+    );
+    expect(screen.getByText("Could not load the account list.")).toBeTruthy();
+    expect(screen.queryByText(/This account is unavailable/)).toBeNull();
+    // Without an accounts adapter there is nothing to retry.
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+});
+
+describe("daily request limit notice", () => {
+  const free = "openai/gpt-oss-120b:free";
+  const paid = "openai/gpt-5.3-codex";
+  const notice = /This model has a daily request limit/;
+  const rowHint = /Free OpenRouter models have a daily request limit/;
+  function openRouterProps(models: readonly string[], fallback = false) {
+    if (accounts.status !== "ok") throw new Error("fixture_unavailable");
+    const page = accounts.value;
+    const connection = page.profiles[0]!.connection!;
+    const props = base();
+    const ids = models.map((_, index) => `p${index}`);
+    return {
+      ...props,
+      gatewayAccounts: {
+        status: "ok" as const,
+        value: {
+          ...page,
+          profiles: [
+            {
+              ...page.profiles[0]!,
+              models: [free, paid],
+              connection: {
+                ...connection,
+                provider: "openrouter" as const,
+                modelSettings: [free, paid].map((modelId) => ({
+                  ...connection.modelSettings[0]!,
+                  modelId,
+                })),
+              },
+            },
+          ],
+        },
+      },
+      modelOptions: [free, paid].map((value) => ({
+        value,
+        label: value,
+        provider: "openrouter" as const,
+      })),
+      view: {
+        ...props.view,
+        ...(fallback ? { providerMode: "fallback" as const } : {}),
+        defaultSelection: selection(ids[0]!),
+        defaultSelections: ids.map((id) => selection(id)),
+        profiles: models.map((model, index) => ({
+          ...props.view.profiles[0]!,
+          id: ids[index]!,
+          model,
+          label: `Profile ${index}`,
+        })),
+      },
+    };
+  }
+
+  it("advises a second reviewer when the only reviewer is a free model, without blocking save", async () => {
+    render(<GatewayReviewerRoster {...openRouterProps([free])} />);
+    expect(screen.getByRole("note").textContent).toMatch(notice);
+    // One message only: the row repeats nothing.
+    expect(screen.queryByText(rowHint)).toBeNull();
+    const save = screen.getByRole("button", { name: "Save reviewers" });
+    expect(save).toHaveProperty("disabled", false);
+    fireEvent.click(save);
+    await waitFor(() => expect(saveProviderRoster).toHaveBeenCalledTimes(1));
+  });
+
+  it("opens a new reviewer from the notice, keeps the keyboard there and hides the notice", async () => {
+    render(<GatewayReviewerRoster {...openRouterProps([free])} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add a second reviewer" }),
+    );
+    expect(screen.getByText(/2\. Choose a model/)).toBeTruthy();
+    const account = screen.getByRole("combobox", {
+      name: "Account for reviewer 2",
+    });
+    await waitFor(() => expect(document.activeElement).toBe(account));
+    expect(screen.queryByRole("note")).toBeNull();
+    expect(
+      screen.getByRole("combobox", { name: /How reviewers work together/ }),
+    ).toBeTruthy();
+  });
+
+  it("shows for a repository inheriting a sole free default before its account loads", () => {
+    const props = openRouterProps([free]);
+    render(
+      <GatewayReviewerRoster
+        {...props}
+        target={repositoryTarget}
+        gatewayAccounts={{ status: "unavailable" }}
+        view={{
+          ...props.view,
+          profiles: props.view.profiles.map((profile) => ({
+            ...profile,
+            providerId: "openrouter" as const,
+          })),
+          repositories: [
+            {
+              ...props.view.repositories[0]!,
+              source: "workspace",
+              selection: null,
+              selections: [],
+            },
+          ],
+        }}
+      />,
+    );
+    expect(screen.getByRole("note").textContent).toMatch(notice);
+  });
+
+  it.each([
+    ["the only reviewer is a paid model", [paid], false],
+    ["a paid reviewer follows the free one in parallel", [free, paid], false],
+    ["a paid reviewer backs the free one up in fallback", [free, paid], true],
+  ] as const)("stays hidden when %s", (_case, models, fallback) => {
+    render(<GatewayReviewerRoster {...openRouterProps(models, fallback)} />);
+    expect(screen.queryByRole("note")).toBeNull();
+    // With several reviewers the free row keeps its own short hint.
+    expect(screen.queryAllByText(rowHint)).toHaveLength(
+      models.length > 1 ? 1 : 0,
+    );
   });
 });

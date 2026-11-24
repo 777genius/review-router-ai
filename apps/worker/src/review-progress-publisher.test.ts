@@ -60,6 +60,7 @@ describe("ReviewProgressPublisher", () => {
     expect(calls).toEqual([
       "GET /repos/{owner}/{repo}/pulls/{pull_number}",
       "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
+      "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
       "GET /repos/{owner}/{repo}/pulls/{pull_number}",
       "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
     ]);
@@ -455,7 +456,7 @@ describe("ReviewProgressPublisher", () => {
         publication,
         safeCode: "review_progress_duplicate_cleanup_pending",
         retryAt: new Date(now.getTime() + 1_000),
-        countFailure: false,
+        resetFailureCount: true,
         maxFailures: 3,
       }),
     );
@@ -506,7 +507,7 @@ describe("ReviewProgressPublisher", () => {
       expect.objectContaining({
         publication,
         safeCode: "review_progress_duplicate_cleanup_pending",
-        countFailure: false,
+        resetFailureCount: true,
       }),
     );
     expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
@@ -565,7 +566,7 @@ describe("ReviewProgressPublisher", () => {
       expect.objectContaining({
         publication,
         safeCode: "review_progress_duplicate_cleanup_pending",
-        countFailure: false,
+        resetFailureCount: true,
       }),
     );
     expect(store.complete).not.toHaveBeenCalled();
@@ -633,6 +634,7 @@ describe("ReviewProgressPublisher", () => {
       expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
         scope: publication.scope,
         now,
+        retryAt: expect.any(Date),
       });
     },
   );
@@ -698,6 +700,7 @@ describe("ReviewProgressPublisher", () => {
       expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
         scope: publication.scope,
         now,
+        retryAt: expect.any(Date),
       });
     },
   );
@@ -978,7 +981,8 @@ describe("ReviewProgressPublisher", () => {
           failed: 0,
         });
       }
-      expect(commentReads).toBe(2);
+      // Initial scan, empty reconciliation scan, terminal recheck.
+      expect(commentReads).toBe(3);
       expect(store.retry).toHaveBeenCalledWith(
         expect.objectContaining({
           publication,
@@ -987,9 +991,11 @@ describe("ReviewProgressPublisher", () => {
       );
       expect(store.complete).not.toHaveBeenCalled();
       expect(store.requeueAfterClaimLoss).toHaveBeenCalledOnce();
+      // The repair keeps the retry deadline that the stale retry dropped.
       expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
         scope: publication.scope,
         now,
+        retryAt: store.retry.mock.calls[0]![0].retryAt,
       });
     },
   );
@@ -1060,6 +1066,7 @@ describe("ReviewProgressPublisher", () => {
       expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
         scope: publication.scope,
         now,
+        retryAt: expect.any(Date),
       });
     },
   );
@@ -1099,6 +1106,7 @@ describe("ReviewProgressPublisher", () => {
     expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
       scope: publication.scope,
       now,
+      retryAt: expect.any(Date),
     });
   });
 
@@ -1306,8 +1314,8 @@ describe("ReviewProgressPublisher", () => {
         botLogin: "review-router[bot]",
         request: async (route, parameters = {}) => {
           if (route.includes("/pulls/")) return pull();
-        const known = testKnownComment(route, parameters, body);
-        if (known) return known;
+          const known = testKnownComment(route, parameters, body);
+          if (known) return known;
           if (route.startsWith("GET")) return { data: rows };
           if (route.startsWith(operation)) {
             mutations.push(route);

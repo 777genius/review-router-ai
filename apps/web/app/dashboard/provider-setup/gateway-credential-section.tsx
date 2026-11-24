@@ -20,20 +20,25 @@ import {
 export function useInlineGatewayConnect({
   available,
   empty,
+  readFailed,
   onConnected,
 }: {
   /** The chosen provider and storage can be connected in place. */
   readonly available: boolean;
   /** No ready connection of this provider here yet. */
   readonly empty: boolean;
+  /** The dialog's account list could not be reread. */
+  readonly readFailed: boolean;
   readonly onConnected: (bindingId: string) => void;
 }) {
   const place = usePersonalConnectPlace();
   const [open, setOpen] = useState(false);
   const [nonce, setNonce] = useState<string | null>(null);
   const [connectedBinding, setConnectedBinding] = useState<string | null>(null);
-  // An open request keeps the form even if the dialog's lists fail to reread.
-  const supported = place !== null && (available || nonce !== null);
+  // An open form outlives a failed reread of the dialog's lists, so a typed
+  // key is not lost, and an open request outlives anything (its device code).
+  const supported =
+    place !== null && (available || (open && readFailed) || nonce !== null);
   const show = supported && (open || (empty && connectedBinding === null));
   useEffect(() => {
     // Opened because nothing was there: stay open while the list rereads.

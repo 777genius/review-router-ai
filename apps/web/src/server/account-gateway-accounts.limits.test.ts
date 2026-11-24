@@ -25,6 +25,7 @@ function fixture() {
     displayName: "Owned",
     state: "active",
     metadataRevision: 1,
+    authorizationEpochMirror: 1,
   };
   const operator: ProviderAccountConnection = {
     ...owned,

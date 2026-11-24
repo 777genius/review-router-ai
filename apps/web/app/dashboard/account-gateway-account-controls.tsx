@@ -1,6 +1,18 @@
 "use client";
 
 import {
+  connectionMethodAllowed,
+  canCreateConnection,
+  credentialImportMethods,
+  type CredentialImportMethod,
+} from "../../src/features/account-gateway/connection-capabilities";
+import {
+  CredentialImportFields,
+  credentialImportLabels,
+  validCredentialImportText,
+} from "./credential-import-fields";
+
+import {
   AccountLimitsLine,
   AccountLimitsReadContext,
 } from "./account-limits-line";
@@ -17,6 +29,7 @@ import { useAccountLifecycleActivities } from "./account-lifecycle-controls";
 import {
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
   createContext,
@@ -37,7 +50,6 @@ import {
   apiKeyProviderForGatewayProfile,
   apiKeySetupHref,
   apiKeyStorageLabel,
-  type ApiKeySetupIntent,
   type ApiKeyStorage,
 } from "../../src/features/provider-setup/api-key-storage";
 import {
@@ -52,12 +64,7 @@ import {
   useAccountMenuReturnFocus,
 } from "./account-actions-menu";
 import { Copy, ExternalLink, Plus, RefreshCw } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { hasReadySetupProvider } from "../../src/features/provider-setup/connection-setup-continuation";
-import {
-  useGatewayModelAccounts,
-  useCurrentGatewayModelAccountsCache,
-} from "./gateway-model-account-options";
+import { useCurrentGatewayModelAccountsCache } from "./gateway-model-account-options";
 import { ChooseForReviewsLink } from "./choose-for-reviews-link";
 import {
   accountsCopy,
@@ -65,7 +72,6 @@ import {
   removedFromWorkspaceText,
 } from "./accounts-copy";
 import { bindingWorkspaceUse, WorkspaceUseLine } from "./account-workspace-use";
-import { useShowConnectionsList } from "./accounts-add-dialog";
 import { useConnectTarget } from "./account-connect-target";
 import { dashboardPath } from "./dashboard-section";
 import { refreshPersonalAccountViews } from "./personal-account-controls";
@@ -147,7 +153,8 @@ export type AddConnectionToWorkspace = (
 // Legacy Claude OAuth accounts remain readable, but customers may only enroll
 // subscription credentials locally in their own GitHub Actions CLI workflow.
 const centrallyEnrollAllowed = (profile: AccountProfileView) =>
-  profile.id !== "anthropic-claude-oauth-messages-v1";
+  profile.id !== "anthropic-claude-oauth-messages-v1" &&
+  canCreateConnection(profile);
 
 // Small safe keys: scoped stable user/workspace locator; no signature or secret.
 const pageKey = (scope: string, cursor: string | null) =>
@@ -245,9 +252,8 @@ function validAuthorizationURL(value: string | undefined): value is string {
   }
 }
 
-const ApiKeySetupContext = createContext<{
+const ConnectWorkspaceContext = createContext<{
   workspaceId?: string | undefined;
-  intent?: ApiKeySetupIntent | undefined;
 }>({});
 
 export function AccountGatewayControls({
@@ -260,8 +266,6 @@ export function AccountGatewayControls({
   connectEntry,
   connectOnly = false,
   workspaceId,
-  setupIntent,
-  initiallyOpenConnect = false,
   addToWorkspace,
 }: {
   bootstrap: AccountsBootstrap;
@@ -275,8 +279,6 @@ export function AccountGatewayControls({
   connectEntry?: ReactNode;
   connectOnly?: boolean;
   workspaceId?: string | undefined;
-  setupIntent?: ApiKeySetupIntent | undefined;
-  initiallyOpenConnect?: boolean;
   addToWorkspace?: AddConnectionToWorkspace | undefined;
 }) {
   const optionsCache = useCurrentGatewayModelAccountsCache();
@@ -378,9 +380,7 @@ export function AccountGatewayControls({
             bootstrap.page.status !== "unavailable",
         }}
       >
-        <ApiKeySetupContext.Provider
-          value={{ workspaceId, intent: setupIntent }}
-        >
+        <ConnectWorkspaceContext.Provider value={{ workspaceId }}>
           <Controls
             key={`${managementScope}:${bootstrap.context.split(".")[0]}`}
             bootstrap={bootstrap}
@@ -393,13 +393,12 @@ export function AccountGatewayControls({
             hideToolbar={hideToolbar}
             connectEntry={connectEntry}
             connectOnly={connectOnly}
-            initiallyOpenConnect={initiallyOpenConnect}
             workspaceId={workspaceId}
             addToWorkspace={
               managementScope === "personal" ? addToWorkspace : undefined
             }
           />
-        </ApiKeySetupContext.Provider>
+        </ConnectWorkspaceContext.Provider>
       </AccountLimitsReadContext.Provider>
     </QueryClientProvider>
   );
@@ -416,7 +415,6 @@ function Controls({
   hideToolbar,
   connectEntry,
   connectOnly,
-  initiallyOpenConnect,
   workspaceId,
   addToWorkspace,
 }: {
@@ -430,11 +428,9 @@ function Controls({
   hideToolbar: boolean;
   connectEntry: ReactNode;
   connectOnly: boolean;
-  initiallyOpenConnect: boolean;
   workspaceId: string | undefined;
   addToWorkspace: AddConnectionToWorkspace | undefined;
 }) {
-  const setup = useContext(ApiKeySetupContext);
   // An embedded form follows the request its host holds, not the latest one.
   const target = useConnectTarget();
   const { context } = bootstrap;
@@ -1058,6 +1054,7 @@ function Controls({
             disabled={sourceBusy || account.canManage !== true}
             disabledReason={manageReason}
             begin={beginOAuth}
+            submit={submit}
             managementScope={managementScope}
           />
         ) : null}
@@ -1103,6 +1100,7 @@ function Controls({
     <div className="space-y-4">
       {connectOnly && !activeNonce && enrollmentProfiles.length > 0 ? (
         <ConnectionForm
+          key={target?.provider}
           profiles={enrollmentProfiles}
           accounts={enrollmentAccounts}
           disabled={disabled}
@@ -1119,12 +1117,10 @@ function Controls({
         <div className="flex flex-wrap gap-3">
           {!fullToolbar ? null : connectEntry !== undefined ? (
             connectEntry
-          ) : (!initiallyOpenConnect || ready) &&
-            enrollmentProfiles.some(
+          ) : enrollmentProfiles.some(
               (p) => p.authKind === "api_key" || p.authKind === "oauth",
             ) ? (
             <ConnectAccountDialog
-              initiallyOpen={initiallyOpenConnect && !activeNonce}
               profiles={enrollmentProfiles.filter(
                 (p) => p.authKind === "api_key" || p.authKind === "oauth",
               )}
@@ -1201,6 +1197,10 @@ function Controls({
                 completionProvider={completionProviders[nonce]}
                 beginContinuation={(intent) => beginOAuth(intent, nonce)}
                 inline={connectOnly}
+                cancel={
+                  // Leaves a waiting sign-in as a receipt in Connections.
+                  embedded ? () => setActiveNonce(null) : undefined
+                }
                 startAnother={() => {
                   // Embedded: a declined request leaves nothing to keep. Any
                   // other result stays a receipt in Connections, with its retry.
@@ -1239,37 +1239,6 @@ function Controls({
                       }
                     : undefined
                 }
-                renderSetupContinuation={
-                  setup.intent?.storage === "reviewrouter" &&
-                  data?.status === "ok"
-                    ? (operationAccount) => {
-                        const account =
-                          data.value.accounts.find(
-                            (candidate) =>
-                              candidate.connectionId ===
-                              operationAccount.connectionId,
-                          ) ?? operationAccount;
-                        const profile = data.value.profiles.find(
-                          (candidate) => candidate.id === account.profileId,
-                        );
-                        return setupProviderForGatewayProfile(profile) ===
-                          setup.intent!.provider ? (
-                          <ConnectionSetupContinuation
-                            intent={setup.intent!}
-                            account={account}
-                            managementScope={managementScope}
-                            disabled={
-                              disabled ||
-                              lifecycleActivities.has(account.connectionId)
-                            }
-                            makeAvailable={(selected) =>
-                              bindingMutation.mutateAsync(selected)
-                            }
-                          />
-                        ) : null;
-                      }
-                    : undefined
-                }
               />
             ))}
         </div>
@@ -1304,6 +1273,11 @@ function Controls({
                   provider={account.provider}
                   authKind={account.authKind}
                   connection={account.connection}
+                  metadata={
+                    lifecycleActivities.has(account.connectionId)
+                      ? { status: "unknown", displayToken: "restricted" }
+                      : account.metadata
+                  }
                 />
                 <AccountLimitsLine
                   scope={limitsScope}
@@ -1411,132 +1385,8 @@ function Controls({
   );
 }
 
-function ConnectionSetupContinuation({
-  intent,
-  account,
-  managementScope,
-  disabled,
-  makeAvailable,
-}: {
-  intent: ApiKeySetupIntent;
-  account: AccountView;
-  managementScope: ManagementScope;
-  disabled: boolean;
-  makeAvailable(
-    account: AccountView,
-  ): Promise<AccountsResult<{ label: string }>>;
-}): React.ReactElement {
-  const router = useRouter();
-  const showConnectionsList = useShowConnectionsList();
-  const targetAccounts = useGatewayModelAccounts(undefined, []);
-  const personal = managementScope === "personal";
-  const availableForProvider = hasReadySetupProvider(
-    targetAccounts.accounts,
-    intent.provider,
-  );
-  const needsBinding =
-    !personal &&
-    (account.binding?.state !== "active" || account.binding.fencePending);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const href = apiKeySetupHref("providers", intent);
-  async function continueSetup() {
-    if (pending || disabled) return;
-    setError(null);
-    setPending(true);
-    try {
-      if (needsBinding) {
-        const result = await makeAvailable(account);
-        if (result.status !== "ok") {
-          setError(statusText(result.status));
-          return;
-        }
-      }
-      router.push(href);
-    } catch {
-      setError(
-        "The connection could not be made available. Check its status before trying again.",
-      );
-    } finally {
-      setPending(false);
-    }
-  }
-  if (personal)
-    return (
-      <div className="grid gap-2">
-        <p className="text-sm text-slate-400">
-          {availableForProvider
-            ? "A connection for this provider is available to this workspace. Continue to choose which connection to use."
-            : "Continue to provider setup to choose a connection, or manage this connection's workspace access."}
-        </p>
-        <Button
-          type="button"
-          size="sm"
-          className="w-fit"
-          disabled={disabled || pending || account.state !== "active"}
-          onClick={() => void continueSetup()}
-        >
-          Continue provider setup
-        </Button>
-        {showConnectionsList ? (
-          <button
-            type="button"
-            className="w-fit font-semibold text-cyan-200 underline"
-            onClick={showConnectionsList}
-          >
-            Manage workspace access
-          </button>
-        ) : (
-          <a
-            className="w-fit font-semibold text-cyan-200 underline"
-            href={`${apiKeySetupHref("accounts", intent)}#your-accounts`}
-          >
-            Manage workspace access
-          </a>
-        )}
-      </div>
-    );
-  return (
-    <div className="grid gap-2">
-      {needsBinding ? (
-        <p className="text-sm text-slate-400">
-          Continue makes this connection available to the selected workspace,
-          then returns to the same provider and repository setup.
-        </p>
-      ) : null}
-      <Button
-        type="button"
-        size="sm"
-        className="w-fit"
-        disabled={
-          disabled ||
-          pending ||
-          account.state !== "active" ||
-          (needsBinding &&
-            (account.canManage !== true ||
-              Boolean(account.binding?.fencePending)))
-        }
-        aria-busy={pending}
-        onClick={() => void continueSetup()}
-      >
-        {pending
-          ? "Making available..."
-          : needsBinding
-            ? "Make available and continue"
-            : "Continue provider setup"}
-      </Button>
-      {error ? (
-        <p role="alert" className="text-sm text-red-100">
-          {error}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
 /** One provider-first entry point; operation progress stays with the controller. */
 function ConnectAccountDialog({
-  initiallyOpen = false,
   profiles,
   accounts,
   disabled,
@@ -1545,10 +1395,9 @@ function ConnectAccountDialog({
   begin,
   submit,
 }: Parameters<typeof ConnectionForm>[0] & {
-  initiallyOpen?: boolean;
   addsToWorkspace?: boolean;
 }): React.ReactElement {
-  const [open, setOpen] = useState(initiallyOpen);
+  const [open, setOpen] = useState(false);
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger
@@ -1615,16 +1464,8 @@ function ConnectionForm({
   const ordered = [...profiles].sort(
     (a, b) => Number(b.authKind === "oauth") - Number(a.authKind === "oauth"),
   );
-  const setup = useContext(ApiKeySetupContext);
-  const [profileId, setProfileId] = useState(
-    ordered.find(
-      (profile) =>
-        setup.intent !== undefined &&
-        setupProviderForGatewayProfile(profile) === setup.intent?.provider,
-    )?.id ??
-      ordered[0]?.id ??
-      "",
-  );
+  const setup = useContext(ConnectWorkspaceContext);
+  const [profileId, setProfileId] = useState(ordered[0]?.id ?? "");
   const profile = profiles.find((row) => row.id === profileId);
   const formContainer = useRef<HTMLDivElement>(null);
   const target = useConnectTarget();
@@ -1704,6 +1545,7 @@ function ConnectionForm({
           disabled={disabled}
           managementScope={managementScope}
           begin={begin}
+          submit={submit}
         />
       ) : profile ? (
         <AccountForm
@@ -1727,6 +1569,7 @@ function OAuthForm({
   disabled,
   disabledReason,
   begin,
+  submit,
   managementScope = "workspace",
 }: {
   inline?: boolean;
@@ -1736,6 +1579,10 @@ function OAuthForm({
   disabled: boolean;
   disabledReason?: string | undefined;
   begin(intent: OAuthFormIntent): Promise<void>;
+  submit(
+    intent: Omit<AccountIntent, "nonce">,
+    credential?: string,
+  ): Promise<void>;
   managementScope?: ManagementScope;
 }) {
   const menuReturnFocus = useAccountMenuReturnFocus();
@@ -1745,17 +1592,43 @@ function OAuthForm({
   );
   const profile =
     profiles.find((candidate) => candidate.id === profileId) ?? profiles[0];
-  const methods: readonly ("device_code" | "browser")[] =
-    profile?.oauthMethods ??
-    (profile?.id === "openai-codex-oauth-responses-v1" && !profile?.connection
-      ? (["device_code", "browser"] as const)
-      : (["browser"] as const));
-  const [chosenMethod, setMethod] = useState<"device_code" | "browser">(
-    methods[0] ?? "browser",
+  const action = account ? "reconnect" : "create";
+  const methods = profile
+    ? (
+        profile.oauthMethods ??
+        (profile.id === "openai-codex-oauth-responses-v1" && !profile.connection
+          ? (["device_code", "browser"] as const)
+          : (["browser"] as const))
+      ).filter((method) => connectionMethodAllowed(profile, action, method))
+    : [];
+  const imports = profile ? credentialImportMethods(profile, action) : [];
+  type Method = "device_code" | "browser" | CredentialImportMethod;
+  const [chosenMethod, setMethod] = useState<Method>(
+    methods[0] ?? imports[0] ?? "browser",
   );
-  const method = methods.includes(chosenMethod)
-    ? chosenMethod
-    : (methods[0] ?? "browser");
+  const choices: Method[] = [...methods, ...imports];
+  const method = choices.includes(chosenMethod) ? chosenMethod : choices[0];
+  const importMethod =
+    method === "refresh_token" || method === "oauth_auth_json"
+      ? method
+      : undefined;
+  const [importLoading, setImportLoading] = useState(false);
+  const [importError, setImportError] = useState("");
+  const importErrorId = useId();
+  const formRef = useRef<HTMLFormElement>(null);
+  function chooseMethod(value: Method) {
+    formRef.current
+      ?.querySelectorAll<
+        HTMLInputElement | HTMLTextAreaElement
+      >('[name="credential"], [name="credentialFile"]')
+      .forEach((field) => {
+        field.value = "";
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    setImportLoading(false);
+    setImportError("");
+    setMethod(value);
+  }
   const providerLabel = profile?.label ?? account?.profileLabel ?? "provider";
   const connectText =
     profiles.length > 1
@@ -1764,11 +1637,48 @@ function OAuthForm({
   const reconnectText = `Refresh ${providerLabel} sign-in`;
   const fields = (
     <form
+      ref={formRef}
       className="mt-4 grid gap-4"
+      onInput={() => setImportError("")}
       onSubmit={(event) => {
         event.preventDefault();
         const form = event.currentTarget;
         const values = new FormData(form);
+        if (!method || importLoading) return;
+        setImportError("");
+        if (importMethod) {
+          const credential = String(values.get("credential") ?? "");
+          if (!validCredentialImportText(credential)) {
+            setImportError("Enter valid text of 64 KiB or smaller.");
+            return;
+          }
+          const intent: Omit<AccountIntent, "nonce"> = account
+            ? {
+                kind: "reconnect",
+                connectionId: account.connectionId,
+                gatewayRevision: account.gatewayRevision,
+                mirrorRevision: account.mirrorRevision,
+                credentialImportMethod: importMethod,
+              }
+            : {
+                kind: "connect",
+                profileId: profile!.id,
+                label:
+                  String(values.get("label") ?? "").trim() ||
+                  suggestedAccountLabel(
+                    providerLabel,
+                    accounts.map((item) => item.label),
+                  ),
+                credentialImportMethod: importMethod,
+              };
+          form.reset();
+          values.delete("credential");
+          values.delete("credentialFile");
+          setOpen(false);
+          void submit(intent, credential);
+          return;
+        }
+        if (method !== "browser" && method !== "device_code") return;
         const intent: OAuthFormIntent = account
           ? {
               method,
@@ -1791,17 +1701,50 @@ function OAuthForm({
         void begin(intent);
       }}
     >
-      <OAuthMethodChoice
-        key={profile?.id}
-        method={method}
-        methods={methods}
-        completionKind={
-          profile?.connection?.completionInputKind ??
-          oauthCompletionPresentation(profile)?.inputKind ??
-          "callback_url"
-        }
-        change={setMethod}
-      />
+      {imports.length ? (
+        <SelectField
+          name="connectionMethod"
+          label="Sign-in method"
+          value={method ?? ""}
+          onValueChange={(value) => chooseMethod(value as Method)}
+          options={choices.map((value) => ({
+            value,
+            label:
+              value === "device_code"
+                ? "Device code"
+                : value === "browser"
+                  ? "Browser sign-in"
+                  : `Import ${credentialImportLabels[value]}`,
+          }))}
+        />
+      ) : null}
+      {importMethod ? (
+        <CredentialImportFields
+          key={importMethod}
+          method={importMethod}
+          loading={setImportLoading}
+          validationErrorId={importError ? importErrorId : undefined}
+        />
+      ) : method === "browser" || method === "device_code" ? (
+        <OAuthMethodChoice
+          key={profile?.id}
+          method={method}
+          methods={imports.length ? [method] : methods}
+          completionKind={
+            profile?.connection?.completionInputKind ??
+            oauthCompletionPresentation(profile)?.inputKind ??
+            "callback_url"
+          }
+          change={chooseMethod}
+        />
+      ) : (
+        <p role="status">No sign-in method is currently available.</p>
+      )}
+      {importError ? (
+        <p id={importErrorId} role="alert" className="text-sm text-amber-200">
+          {importError}
+        </p>
+      ) : null}
       {!account ? (
         <>
           {!inline ? (
@@ -1814,7 +1757,7 @@ function OAuthForm({
                 const selected = profiles.find(
                   (candidate) => candidate.id === id,
                 );
-                setMethod(
+                chooseMethod(
                   selected?.oauthMethods?.[0] ??
                     (selected?.id === "openai-codex-oauth-responses-v1" &&
                     !selected?.connection
@@ -1854,14 +1797,28 @@ function OAuthForm({
       ) : (
         <p className="text-sm text-slate-300">{account.label}</p>
       )}
-      <Button type="submit" disabled={disabled}>
-        Sign in to {providerLabel}
+      <Button type="submit" disabled={disabled || importLoading || !method}>
+        {importLoading
+          ? "Reading file…"
+          : importMethod
+            ? `Import ${credentialImportLabels[importMethod]}`
+            : `Sign in to ${providerLabel}`}
       </Button>
     </form>
   );
   if (inline) return fields;
   return (
-    <Dialog.Root open={open} onOpenChange={setOpen}>
+    <Dialog.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) {
+          formRef.current?.reset();
+          setImportLoading(false);
+          setImportError("");
+        }
+        setOpen(next);
+      }}
+    >
       <AccountMenuItem>
         <Dialog.Trigger
           render={
@@ -1942,7 +1899,9 @@ function OAuthMethodChoice({
           ]}
         />
       ) : (
-        <p className="text-sm text-slate-400">Browser sign-in</p>
+        <p className="text-sm text-slate-400">
+          {method === "device_code" ? "Device code sign-in" : "Browser sign-in"}
+        </p>
       )}
       {method === "device_code" ? (
         <p className="text-sm text-slate-400">
@@ -1980,6 +1939,7 @@ function OperationReadback({
   beginContinuation,
   inline = false,
   startAnother,
+  cancel,
   dismiss,
   refresh,
   oauthEnabled,
@@ -1989,13 +1949,14 @@ function OperationReadback({
   managementScope,
   addToWorkspace,
   onConnected,
-  renderSetupContinuation,
 }: {
   context: string;
   scope: string;
   nonce: string;
   listFailed: boolean;
   startAnother(): void;
+  /** An embedded form may leave a waiting request and start over. */
+  cancel?: (() => void) | undefined;
   deviceAuthorization?: DeviceAuthorization | undefined;
   completionProvider?: OAuthCompletionPresentation | undefined;
   beginContinuation(intent: OAuthFormIntent): Promise<void>;
@@ -2010,7 +1971,6 @@ function OperationReadback({
   addToWorkspace?: AddConnectionToWorkspace | undefined;
   /** Once the new connection is added to the workspace it was made from. */
   onConnected?: ((bindingId: string) => void) | undefined;
-  renderSetupContinuation?: ((account: AccountView) => ReactNode) | undefined;
 }) {
   const client = useQueryClient();
   const [pollUntil] = useState(() => Date.now() + 15 * 60000);
@@ -2104,6 +2064,9 @@ function OperationReadback({
     if (keyContinuationEntered.current || !keyResume || state !== "pending")
       return;
     const selectedResume = { ...keyResume };
+    const unconfirmedText = selectedResume.credentialImportMethod
+      ? "The credential import was not confirmed. Use Check status to see the current state before submitting it again."
+      : keyUnconfirmedText;
     keyContinuationEntered.current = true;
     keyContinuationInFlight.current = true;
     keyContinuationGeneration.current++;
@@ -2130,12 +2093,12 @@ function OperationReadback({
         else
           setKeySubmitFailure(
             returned.status === "ok"
-              ? keyUnconfirmedText
-              : `The key was not saved. ${statusText(returned.status, managementScope)}`,
+              ? unconfirmedText
+              : `${selectedResume.credentialImportMethod ? "The credential import" : "The key"} was not saved. ${statusText(returned.status, managementScope)}`,
           );
       } catch {
         // Any uncertain submission is readback-only under this original nonce.
-        setKeySubmitFailure(keyUnconfirmedText);
+        setKeySubmitFailure(unconfirmedText);
       }
       // A ready read may have started during the direct request. Cancel it before publish.
       await client.cancelQueries({ queryKey, exact: true });
@@ -2177,7 +2140,8 @@ function OperationReadback({
         resume.connectionId === original.connectionId &&
         resume.profileId === original.profileId &&
         resume.gatewayRevision === original.gatewayRevision &&
-        resume.mirrorRevision === original.mirrorRevision
+        resume.mirrorRevision === original.mirrorRevision &&
+        resume.credentialImportMethod === original.credentialImportMethod
       ) {
         keyContinuationEntered.current = false;
         setKeyContinuationSpent(false);
@@ -2210,6 +2174,7 @@ function OperationReadback({
             provider={data.value.account.provider}
             authKind={data.value.account.authKind}
             connection={data.value.account.connection}
+            metadata={data.value.account.metadata}
           />
         ) : data?.status === "ok" && data.value.oauthMethod ? (
           <div className="flex items-center gap-3 font-medium text-cyan-50">
@@ -2264,9 +2229,6 @@ function OperationReadback({
           onConnected={onConnected}
         />
       ) : null}
-      {state === "applied" && data?.status === "ok" && data.value.account
-        ? renderSetupContinuation?.(data.value.account)
-        : null}
       {state === "pending" &&
       data?.status === "ok" &&
       data.value.oauthMethod === "device_code" ? (
@@ -2302,13 +2264,19 @@ function OperationReadback({
         </Button>
       ) : null}
       {state === "pending" && keyResume && !keyContinuationSpent ? (
-        <KeyUpdateContinuation submit={continueKeyUpdate} />
+        <KeyUpdateContinuation
+          submit={continueKeyUpdate}
+          method={keyResume.credentialImportMethod}
+        />
       ) : null}
       {state === "pending" &&
       !keyResume &&
       (!oauthResume || keyContinuationSpent) &&
       !(data?.status === "ok" && data.value.oauthMethod === "device_code") &&
-      (completion || !savedCompletion) &&
+      (completion ||
+        (data?.status === "ok" && data.value.oauthMethod === "browser") ||
+        autoOpenCompletion ||
+        completionOffered) &&
       (oauthEnabled || autoOpenCompletion || completionOffered) ? (
         <OAuthCompletionForm
           inline={inline}
@@ -2338,6 +2306,11 @@ function OperationReadback({
       {inline && terminal ? (
         <Button variant="outline" size="sm" onClick={startAnother}>
           Add another account
+        </Button>
+      ) : null}
+      {cancel && !terminal ? (
+        <Button variant="ghost" size="sm" onClick={cancel}>
+          Cancel sign-in
         </Button>
       ) : null}
       {(terminal && !inline) || state === "unknown" ? (
@@ -2514,13 +2487,29 @@ function DeviceCodeHandoff({
 
 function KeyUpdateContinuation({
   submit,
+  method,
 }: {
   submit(credential: string): Promise<void>;
+  method?: CredentialImportMethod | undefined;
 }) {
   const [open, setOpen] = useState(false);
   const entered = useRef(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const errorId = useId();
   return (
-    <Dialog.Root open={open} onOpenChange={setOpen}>
+    <Dialog.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) {
+          formRef.current?.reset();
+          setLoading(false);
+          setError("");
+        }
+        setOpen(next);
+      }}
+    >
       <AccountMenuItem>
         <Dialog.Trigger
           render={
@@ -2531,46 +2520,71 @@ function KeyUpdateContinuation({
             />
           }
         >
-          Continue key update
+          {method ? "Continue account import" : "Continue key update"}
         </Dialog.Trigger>
       </AccountMenuItem>
       <Dialog.Portal>
         <Dialog.Backdrop />
         <Dialog.Popup>
-          <Dialog.Title>Continue key update</Dialog.Title>
+          <Dialog.Title>
+            {method ? "Continue account import" : "Continue key update"}
+          </Dialog.Title>
           <Dialog.Description>
-            Old review access is blocked. Enter the new key to continue this
-            original account update.
+            Old review access is blocked. Enter the credential again to continue
+            this original account update.
           </Dialog.Description>
           <form
+            ref={formRef}
             className="mt-4 grid gap-4"
+            onInput={() => setError("")}
             onSubmit={(event) => {
               event.preventDefault();
-              if (entered.current) return;
-              entered.current = true;
+              if (entered.current || loading) return;
+              setError("");
               const form = event.currentTarget;
               const values = new FormData(form);
               const credential = String(values.get("credential") ?? "");
+              if (method && !validCredentialImportText(credential)) {
+                setError("Enter valid text of 64 KiB or smaller.");
+                return;
+              }
+              entered.current = true;
               form.reset();
               values.delete("credential");
+              values.delete("credentialFile");
               setOpen(false);
               void submit(credential);
             }}
           >
-            <label className="grid gap-2 text-sm">
-              API key
-              <input
-                className={inputClass}
-                name="credential"
-                type="password"
-                required
-                maxLength={16384}
-                autoComplete="off"
-                spellCheck={false}
+            {method ? (
+              <CredentialImportFields
+                method={method}
+                loading={setLoading}
+                validationErrorId={error ? errorId : undefined}
               />
-            </label>
+            ) : (
+              <label className="grid gap-2 text-sm">
+                API key
+                <input
+                  className={inputClass}
+                  name="credential"
+                  type="password"
+                  required
+                  maxLength={16384}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </label>
+            )}
+            {error ? (
+              <p id={errorId} role="alert" className="text-sm text-amber-200">
+                {error}
+              </p>
+            ) : null}
             <div className="flex gap-3">
-              <Button type="submit">Continue update</Button>
+              <Button type="submit" disabled={loading}>
+                {loading ? "Reading file…" : "Continue update"}
+              </Button>
               <Dialog.Close render={<Button type="button" variant="outline" />}>
                 Cancel
               </Dialog.Close>
@@ -2768,7 +2782,7 @@ function AccountForm({
   const selected =
     profiles.find((p) => p.id === selectedId) ??
     (inline ? profiles[0] : undefined);
-  const setup = useContext(ApiKeySetupContext);
+  const setup = useContext(ConnectWorkspaceContext);
   // Inside another flow the storage is already chosen there.
   const embedded = useConnectTarget() !== null;
   const apiKeyProvider = apiKeyProviderForGatewayProfile(selected);
@@ -2779,7 +2793,7 @@ function AccountForm({
           provider: apiKeyProvider,
           storage: "github_secrets" as const,
           workspaceId: setup.workspaceId,
-          repositoryIds: setup.intent?.repositoryIds ?? [],
+          repositoryIds: [],
         }
       : null;
   const keyURL = selected?.connection
@@ -3070,12 +3084,7 @@ function AccountForm({
         }
         if (next && mode !== "connect") setLabelValue(account?.label ?? "");
         if (next && mode === "connect") {
-          const profile =
-            profiles.find(
-              (profile) =>
-                setupProviderForGatewayProfile(profile) ===
-                setup.intent?.provider,
-            ) ?? profiles[0];
+          const profile = profiles[0];
           setSelectedId(profile?.id ?? "");
           setKeyStorage("reviewrouter");
           setBaseURL(profile?.dedicatedBaseURL ?? "");

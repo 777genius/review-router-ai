@@ -502,6 +502,47 @@ describe("RepositorySetupProgressPanel", () => {
     },
   );
 
+  it("refreshes once for confirmations of several repositories sent together", async () => {
+    const panel = (repositoryId: string) => (
+      <RepositorySetupProgressPanel
+        key={repositoryId}
+        verificationNeeded={false}
+        workspaceId="workspace_1"
+        repositoryId={repositoryId}
+        repositoryFullName={`777genius/${repositoryId}`}
+        selected
+        archived={false}
+        initialSetupStatus="configured"
+        initialSetupPullRequestUrl={null}
+        workflowCurrent
+        mutationsEnabled
+        initialStep="provider"
+        expectedProviderAuthModes={["openrouter_api_key"]}
+      />
+    );
+    render(<>{["repo_1", "repo_2"].map(panel)}</>);
+    const confirm = (repositoryId: string) =>
+      window.dispatchEvent(
+        providerSetupConfirmedEvent({
+          repositoryId,
+          repositoryFullName: `777genius/${repositoryId}`,
+          authMode: "openrouter_api_key",
+        }),
+      );
+
+    // A second refresh in the same run makes Next reload the whole page.
+    act(() => {
+      confirm("repo_1");
+      confirm("repo_2");
+    });
+    expect(router.refresh).toHaveBeenCalledTimes(1);
+    await act(async () => {});
+    act(() => {
+      confirm("repo_2");
+    });
+    expect(router.refresh).toHaveBeenCalledTimes(2);
+  });
+
   it("shows actual Gateway draining state despite cached complete progress", () => {
     render(
       <RepositorySetupProgressPanel

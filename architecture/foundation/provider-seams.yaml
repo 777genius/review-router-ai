@@ -3,6 +3,8 @@ workspace:
   kind: pnpm
   manifest: pnpm-workspace.yaml
 governedRoots:
+  - packages/features/provider-accounts/src/account-metadata
+  - apps/web/src/server/account-metadata
   - packages/features/review-history/src
   - packages/features/review-statistics/src
   - packages/features/review-providers/src
@@ -15,6 +17,68 @@ governedRoots:
   - packages/context-memory/src
   - packages/context-memory/examples
 boundaries:
+  - id: account-metadata.application
+    roots:
+      - packages/features/provider-accounts/src/account-metadata/application/ports
+      - packages/features/provider-accounts/src/account-metadata/application/use-cases/read-account-metadata.ts
+    entrypoints:
+      - packages/features/provider-accounts/src/account-metadata/application/ports/account-metadata.ts
+      - packages/features/provider-accounts/src/account-metadata/application/ports/account-metadata-reader.ts
+      - packages/features/provider-accounts/src/account-metadata/application/use-cases/read-account-metadata.ts
+    allow:
+      boundaries: []
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: account-metadata.composition
+    roots:
+      - packages/features/provider-accounts/src/account-metadata/composition/account-metadata.contracts.ts
+      - packages/features/provider-accounts/src/account-metadata/composition/account-metadata.declaration.ts
+      - packages/features/provider-accounts/src/account-metadata/composition/account-metadata-reader.declaration.ts
+      - packages/features/provider-accounts/src/account-metadata/composition/account-metadata.module.ts
+      - packages/features/provider-accounts/src/account-metadata/composition/account-metadata.group.ts
+      - packages/features/provider-accounts/src/account-metadata/composition/account-metadata.inputs.ts
+      - packages/features/provider-accounts/src/account-metadata/composition/account-metadata.root.ts
+    entrypoints:
+      - packages/features/provider-accounts/src/account-metadata/composition/account-metadata.root.ts
+      - packages/features/provider-accounts/src/account-metadata/composition/account-metadata.contracts.ts
+      - packages/features/provider-accounts/src/account-metadata/composition/account-metadata.inputs.ts
+    allow:
+      boundaries:
+        - account-metadata.application
+      packages:
+        - "@get-modular/core"
+        - "@get-modular/assembly"
+      builtins: []
+      runtimeReferences: []
+  - id: account-metadata.authorization
+    roots:
+      - apps/web/src/server/account-metadata/authorization.ts
+    entrypoints:
+      - apps/web/src/server/account-metadata/authorization.ts
+    allow:
+      boundaries: []
+      packages:
+        - "@prisma/client"
+      builtins: []
+      runtimeReferences: []
+  - id: account-metadata.tests
+    roots:
+      - packages/features/provider-accounts/src/account-metadata/application/use-cases/read-account-metadata.test.ts
+      - packages/features/provider-accounts/src/account-metadata/composition/account-metadata.root.test.ts
+    entrypoints: []
+    allow:
+      boundaries:
+        - account-metadata.application
+        - account-metadata.composition
+      packages:
+        - vitest
+        - "@get-modular/core"
+        - "@get-modular/assembly"
+        - "@get-modular/conformance"
+      builtins: []
+      runtimeReferences: []
+    dependencyMode: development
   - id: account-limits.domain
     roots:
       - packages/features/provider-accounts/src/account-limits/domain/account-limits.ts

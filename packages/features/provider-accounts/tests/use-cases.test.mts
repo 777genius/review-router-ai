@@ -820,3 +820,98 @@ test("a GLM personal attach to an organization reaches Gateway and the store", a
   assert.deepEqual(gatewayReads, [glm]);
   assert.deepEqual(targets, ["organization"]);
 });
+
+test("credential imports keep legacy hashes byte-stable and bind the method without retaining credentials", async () => {
+  const { createHash } = await import("node:crypto");
+  const { snapshotPersonalIntent, personalIntentDigest } =
+    await import("../src/application/use-cases/personal-account-operations");
+  const { canonicalIntentHash, snapshotCanonicalIntent } =
+    await import("../src/domain/personal-canonical-operation");
+  const legacy = {
+    actorUserId: "actor-import",
+    clientOperationId: "nonce-import",
+    personalWorkspaceId: "personal-import",
+    action: "connect" as const,
+    proposedSourceId: "source-import",
+    profileId: "codex-import",
+    displayName: "Codex",
+    ingress: "oauth-begin" as const,
+  };
+  const hash = (value: unknown) =>
+    createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  {
+    assert.equal(personalIntentDigest(legacy), hash(legacy));
+    assert.equal(
+      personalIntentDigest({ ...legacy, method: "browser" }),
+      hash(legacy),
+    );
+    assert.equal(
+      personalIntentDigest({ ...legacy, method: "device_code" }),
+      hash({ ...legacy, method: "device_code" }),
+    );
+    assert.equal(
+      personalIntentDigest({ ...legacy, ingress: "api-key-create" }),
+      hash({ ...legacy, ingress: "api-key-create" }),
+    );
+  }
+  const imported = {
+    ...legacy,
+    ingress: "credential-import" as const,
+    credentialImportMethod: "refresh_token" as const,
+    value: "must-not-be-snapshotted",
+    fingerprint: "must-not-be-persisted",
+  };
+  const safe = snapshotPersonalIntent(imported);
+  assert.equal(JSON.stringify(safe).includes("must-not"), false);
+  assert.notEqual(
+    personalIntentDigest(imported),
+    personalIntentDigest({
+      ...imported,
+      credentialImportMethod: "oauth_auth_json",
+    }),
+  );
+  assert.throws(
+    () => snapshotPersonalIntent({ ...imported, method: "browser" }),
+    denied("invalid_input"),
+  );
+  assert.throws(
+    () =>
+      snapshotPersonalIntent({
+        ...legacy,
+        credentialImportMethod: "refresh_token",
+      }),
+    denied("invalid_input"),
+  );
+  const reconnect = {
+    actorUserId: "actor-import",
+    clientOperationId: "nonce-import",
+    personalWorkspaceId: "personal-import",
+    sourceId: "source-import",
+    expectedSourceMetadataRevision: 2,
+    expectedGatewayRevision: 3,
+    expectedAuthorizationEpoch: 4,
+    action: "reconnect" as const,
+  };
+  assert.equal(canonicalIntentHash(reconnect), hash(reconnect));
+  assert.equal(
+    canonicalIntentHash({ ...reconnect, action: "retire" }),
+    hash({ ...reconnect, action: "retire" }),
+  );
+  assert.notEqual(
+    canonicalIntentHash(reconnect),
+    canonicalIntentHash({
+      ...reconnect,
+      credentialImportMethod: "refresh_token",
+    }),
+  );
+  assert.equal(
+    JSON.stringify(
+      snapshotCanonicalIntent({
+        ...reconnect,
+        credentialImportMethod: "oauth_auth_json",
+        value: "ignored",
+      } as typeof reconnect),
+    ).includes("ignored"),
+    false,
+  );
+});

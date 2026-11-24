@@ -48,6 +48,8 @@ const claudeApiKeyMigrationName = "000157_claude_code_api_key_secret";
 const providerQuotaMigrationName =
   "000158_review_run_allocation_provider_quota";
 const reviewerPlanV2MigrationName = "000159_producer_reviewer_plan_v2";
+const credentialImportMigrationName =
+  "000160_personal_credential_import_method";
 const readPreIndexCheckoutInventory = () =>
   readRenderManagedCheckoutInventory().filter(
     (row) =>
@@ -55,6 +57,7 @@ const readPreIndexCheckoutInventory = () =>
       row.migrationName !== claudeApiKeyMigrationName &&
       row.migrationName !== providerQuotaMigrationName &&
       row.migrationName !== reviewerPlanV2MigrationName &&
+      row.migrationName !== credentialImportMigrationName &&
       row.migrationName !== verifiedReplyMigrationName,
   );
 const withoutUnifiedDispatch = <T extends { migrationName: string }>(
@@ -212,6 +215,7 @@ const canonicalPrismaMigrationNames =
       name !== claudeApiKeyMigrationName &&
       name !== providerQuotaMigrationName &&
       name !== reviewerPlanV2MigrationName &&
+      name !== credentialImportMigrationName &&
       name !== usageMemberReportIndexName &&
       name !== verifiedReplyMigrationName &&
       name !== gatewayAllocationsMigrationName &&
@@ -600,7 +604,29 @@ const canonicalPrefix = (count: number) =>
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
   it("admits only the exact concurrent-index checkout160 outside managed92 and historical96", () => {
-    const withReviewerPlanV2 = readRenderManagedCheckoutInventory();
+    const withCredentialImports = readRenderManagedCheckoutInventory();
+    expect(withCredentialImports).toHaveLength(165);
+    expect(withCredentialImports.at(-1)).toEqual({
+      migrationName: credentialImportMigrationName,
+      checksum:
+        "81317004692eb7e6b2691e1c06b151b8a920bfb02e0caeb1a9e724356f1b5cbe",
+    });
+    expect(partitionRenderSchemaHandoffCheckout(withCredentialImports)).toEqual(
+      catalog,
+    );
+    expect(() =>
+      partitionRenderSchemaHandoffCheckout([
+        ...withCredentialImports.slice(0, -1),
+        { ...withCredentialImports.at(-1)!, checksum: "0".repeat(64) },
+      ]),
+    ).toThrow("checkout_extension");
+    expect(() =>
+      partitionRenderSchemaHandoffCheckout([
+        ...withCredentialImports.slice(0, -2),
+        withCredentialImports.at(-1)!,
+      ]),
+    ).toThrow("checkout_extension");
+    const withReviewerPlanV2 = withCredentialImports.slice(0, -1);
     expect(withReviewerPlanV2).toHaveLength(164);
     expect(withReviewerPlanV2.at(-1)).toEqual({
       migrationName: reviewerPlanV2MigrationName,
@@ -2923,6 +2949,9 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(join(migrations, reviewerPlanV2MigrationName), {
         recursive: true,
       });
+      rmSync(join(migrations, credentialImportMigrationName), {
+        recursive: true,
+      });
       rmSync(join(migrations, usageMemberReportIndexName), { recursive: true });
       rmSync(join(migrations, gatewayAllocationsMigrationName), {
         recursive: true,
@@ -3022,7 +3051,12 @@ describe("complete filesystem checkout inventory", () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(164);
+    expect(inventory).toHaveLength(165);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, credentialImportMigrationName), {
+      recursive: true,
+    });
+    expect(readdirSync(fixture.migrations)).toHaveLength(164);
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, reviewerPlanV2MigrationName), {
       recursive: true,
@@ -3487,6 +3521,7 @@ describe("complete filesystem checkout inventory", () => {
       if (name === usageMemberReportIndexName) {
         expect(() => fixture.read()).toThrow("checkout_extension");
         const extensions = [
+          credentialImportMigrationName,
           reviewerPlanV2MigrationName,
           providerQuotaMigrationName,
           claudeApiKeyMigrationName,
@@ -3508,9 +3543,9 @@ describe("complete filesystem checkout inventory", () => {
             extensionBytes,
           );
         }
-      } else if (name === reviewerPlanV2MigrationName) {
-        // Removing only the newest reviewer plan v2 tail restores the
-        // checksum-pinned provider-quota checkout163.
+      } else if (name === credentialImportMigrationName) {
+        // Removing only the newest import tail restores the unchanged
+        // checksum-pinned reviewer-plan checkout164.
         expect(fixture.read()).toEqual(catalog);
       } else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);

@@ -23,6 +23,7 @@ export class PrismaProviderAccountSynchronization implements ProviderAccountSync
       readonly id: string;
       readonly workspaceId: string;
       readonly gatewayAccountRef: string;
+      readonly authorizationEpoch: number;
     },
   ) {
     const input = {
@@ -33,8 +34,14 @@ export class PrismaProviderAccountSynchronization implements ProviderAccountSync
       profileRef: request.profileRef,
       displayName: request.displayName,
       state: request.state,
+      authorizationEpoch: request.authorizationEpoch,
     };
     assertMetadata(input);
+    if (
+      !Number.isSafeInteger(input.authorizationEpoch) ||
+      input.authorizationEpoch < 1
+    )
+      throw new ProviderAccountError("invalid_input");
     for (const ref of [input.id, input.workspaceId, input.gatewayAccountRef])
       assertOpaqueReference(ref);
     try {
@@ -51,6 +58,7 @@ export class PrismaProviderAccountSynchronization implements ProviderAccountSync
             displayName: input.displayName,
             state: input.state,
             metadataRevision: 1,
+            authorizationEpochMirror: BigInt(input.authorizationEpoch),
           },
         }),
       );
@@ -63,6 +71,7 @@ export class PrismaProviderAccountSynchronization implements ProviderAccountSync
       readonly workspaceId: string;
       readonly connectionId: string;
       readonly expectedRevision: number;
+      readonly authorizationEpoch: number;
     },
   ) {
     const input = {
@@ -73,8 +82,14 @@ export class PrismaProviderAccountSynchronization implements ProviderAccountSync
       profileRef: request.profileRef,
       displayName: request.displayName,
       state: request.state,
+      authorizationEpoch: request.authorizationEpoch,
     };
     assertMetadata(input);
+    if (
+      !Number.isSafeInteger(input.authorizationEpoch) ||
+      input.authorizationEpoch < 1
+    )
+      throw new ProviderAccountError("invalid_input");
     assertExpectedRevision(input.expectedRevision);
     assertOpaqueReference(input.workspaceId);
     assertOpaqueReference(input.connectionId);
@@ -86,6 +101,15 @@ export class PrismaProviderAccountSynchronization implements ProviderAccountSync
             ownerWorkspaceId: input.workspaceId,
             ownerUserId: null,
             metadataRevision: input.expectedRevision,
+            pendingSourceOperationId: null,
+            OR: [
+              { authorizationEpochMirror: null },
+              {
+                authorizationEpochMirror: {
+                  lte: BigInt(input.authorizationEpoch),
+                },
+              },
+            ],
           },
           data: {
             gatewayOperationRef: input.gatewayOperationRef,
@@ -93,6 +117,7 @@ export class PrismaProviderAccountSynchronization implements ProviderAccountSync
             displayName: input.displayName,
             state: input.state,
             metadataRevision: { increment: 1 },
+            authorizationEpochMirror: BigInt(input.authorizationEpoch),
           },
         });
         if (changed.count !== 1)

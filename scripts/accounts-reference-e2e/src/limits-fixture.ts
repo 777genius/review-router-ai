@@ -1,5 +1,5 @@
 // Controlled Gateway HTTP fixture. This proves RR integration, not live native quota.
-import { FIXTURES } from "./contracts.ts";
+import { FIXTURES } from "./contracts.js";
 import { setTimeout as delay } from "node:timers/promises";
 
 type Account = {

@@ -24,11 +24,20 @@ function fixture(
   options: {
     lifecycleWritable?: boolean;
     grok?: boolean;
+    codexImports?: boolean;
     disabled?: boolean;
     nvidia?: "qualified" | "unqualified";
+    nativeApi?: boolean;
+    lazyCatalogue?: boolean;
   } = {},
 ) {
-  const grokProfileId = "grok-subscription-responses-oauth-v1";
+  const grokProfileId = options.codexImports
+    ? "openai-codex-oauth-responses-v1"
+    : "grok-subscription-responses-oauth-v1";
+  const oauth = options.grok || options.codexImports;
+  const apiProfileId = options.nativeApi
+    ? "gemini-openai-chat-apikey-v1"
+    : "profile-mimo";
   const nvidiaProfileId = "nvidia-build-chat-apikey-v1";
   let oauthBegun = false;
   let actor = "user-u",
@@ -41,9 +50,9 @@ function fixture(
     gatewayOperationRef: null,
     profileRef: options.nvidia
       ? nvidiaProfileId
-      : options.grok
+      : oauth
         ? grokProfileId
-        : "profile-mimo",
+        : apiProfileId,
     displayName: "Personal",
     state: "active",
     metadataRevision: 10,
@@ -55,9 +64,9 @@ function fixture(
     ownerRef: `rru_${createHash("sha256").update(`rr-user-owner-v1\0${actor}`).digest("hex")}`,
     profileId: options.nvidia
       ? nvidiaProfileId
-      : options.grok
+      : oauth
         ? grokProfileId
-        : "profile-mimo",
+        : apiProfileId,
     displayName: "Personal",
     state: "active" as const,
     metadataRevision: 23,
@@ -152,7 +161,7 @@ function fixture(
   const control = {
     profiles: vi.fn(async () => ({
       profiles: [
-        ...(options.grok
+        ...(oauth
           ? [
               {
                 profileId: grokProfileId,
@@ -173,7 +182,7 @@ function fixture(
             ]
           : []),
         {
-          profileId: "profile-mimo",
+          profileId: apiProfileId,
           protocol: "openai-responses" as const,
           modelIds: ["qualified-model"],
           authKinds: ["api_key" as const],
@@ -337,7 +346,12 @@ function fixture(
     })),
   };
   const deliverFences = vi.fn(async () => {});
-  const api = createPersonalCanonicalAccounts({
+  const personalAdapterFactory = vi.fn<
+    Parameters<
+      typeof createPersonalCanonicalAccounts
+    >[0]["personalAdapterFactory"]
+  >(() => delegate);
+  const input: Parameters<typeof createPersonalCanonicalAccounts>[0] = {
     authorizeUser: async () => actor,
     ...(options.lifecycleWritable
       ? {
@@ -376,7 +390,7 @@ function fixture(
             },
           ]
         : []),
-      ...(options.grok
+      ...(oauth
         ? [
             {
               id: grokProfileId,
@@ -388,7 +402,34 @@ function fixture(
               canReconnect: true,
               oauthMethods: ["browser"] as const,
               connection: {
-                provider: "grok" as const,
+                provider: options.codexImports
+                  ? ("openai" as const)
+                  : ("grok" as const),
+                ...(options.codexImports
+                  ? {
+                      methods: [
+                        {
+                          kind: "browser" as const,
+                          create: true,
+                          reconnect: false,
+                        },
+                        {
+                          kind: "credential_import" as const,
+                          method: "refresh_token" as const,
+                          maxBytes: 65536 as const,
+                          create: true,
+                          reconnect: true,
+                        },
+                        {
+                          kind: "credential_import" as const,
+                          method: "oauth_auth_json" as const,
+                          maxBytes: 65536 as const,
+                          create: true,
+                          reconnect: false,
+                        },
+                      ],
+                    }
+                  : {}),
                 planLabel: "Subscription",
                 regionLabel: "Global",
                 completionInputKind: "authorization_code" as const,
@@ -399,8 +440,8 @@ function fixture(
           ]
         : []),
       {
-        id: "profile-mimo",
-        label: "MiMo",
+        id: apiProfileId,
+        label: options.nativeApi ? "Gemini" : "MiMo",
         authKind: "api_key",
         canReconnect: true,
       },
@@ -411,8 +452,30 @@ function fixture(
         canReconnect: true,
       },
     ],
-    personalAdapterFactory: () => delegate,
+    personalAdapterFactory,
     deliverFences,
+  };
+  const qualifiedProfiles = input.profiles.map((profile) => ({
+    ...profile,
+    protocol: "openai-responses" as const,
+    models: ["qualified-model"],
+  }));
+  const catalogue = vi.fn(async () => qualifiedProfiles);
+  const api = createPersonalCanonicalAccounts({
+    ...input,
+    profiles: options.lazyCatalogue
+      ? input.profiles.map((profile) => ({
+          id: profile.id,
+          label: profile.label,
+          authKind: profile.authKind,
+          ...(profile.oauthMethods
+            ? { oauthMethods: profile.oauthMethods }
+            : {}),
+          availability: "deployment_configuration_required" as const,
+          canReconnect: false,
+        }))
+      : input.profiles,
+    ...(options.lazyCatalogue ? { catalogue } : {}),
   });
   const request = {
     kind: "reconnect" as const,
@@ -428,6 +491,10 @@ function fixture(
     control,
     store,
     delegate,
+    catalogue,
+    qualifiedProfiles,
+    personalAdapterFactory,
+    profileId: account.profileId,
     intents,
     deliverFences,
     ack: () => {
@@ -1130,5 +1197,303 @@ it("routes a saved Grok connect through the shared journal after reload without 
   expect(f.delegate.completeOAuth).toHaveBeenCalledExactlyOnceWith({
     nonce,
     callbackURL,
+  });
+});
+
+it("reconnect imports retain their selected method through fencing and lost acknowledgement", async () => {
+  const f = fixture({ codexImports: true });
+  const request = {
+    ...f.request,
+    credentialImportMethod: "refresh_token" as const,
+  };
+  const first = await f.api.submitGatewayApiKey(
+    "",
+    request,
+    "synthetic-import-first",
+  );
+  expect(first.status).toBe("ok");
+  expect(f.control.reconnect).not.toHaveBeenCalled();
+  expect(f.intents).toHaveLength(1);
+  expect(f.intents[0]).toMatchObject({
+    action: "reconnect",
+    credentialImportMethod: "refresh_token",
+  });
+  expect(JSON.stringify(f.intents)).not.toContain("synthetic-import");
+  expect(
+    await f.api.submitGatewayApiKey(
+      "",
+      { ...request, credentialImportMethod: "oauth_auth_json" },
+      "synthetic-other",
+    ),
+  ).toEqual({ status: "conflict" });
+  f.ack();
+  const ready = await f.api.readGatewayOperation("", nonce);
+  expect(ready).toMatchObject({
+    status: "ok",
+    value: {
+      state: "pending",
+      resume: { credentialImportMethod: "refresh_token" },
+    },
+  });
+  if (ready.status === "ok") expect(ready.value.completion).toBeUndefined();
+  const submitted = await f.api.submitGatewayApiKey(
+    "",
+    request,
+    "synthetic-import-reentered",
+  );
+  expect(submitted.status).toBe("ok");
+  expect(f.control.reconnect).toHaveBeenCalledExactlyOnceWith(
+    "private-account",
+    expect.objectContaining({
+      credential: {
+        kind: "credential_import",
+        method: "refresh_token",
+        value: "synthetic-import-reentered",
+      },
+    }),
+  );
+  await f.api.submitGatewayApiKey("", request, "synthetic-never-replay");
+  expect(f.control.reconnect).toHaveBeenCalledTimes(1);
+  expect(f.control.beginOAuthReconnect).not.toHaveBeenCalled();
+});
+it("a create-only import method cannot start reconnect fencing", async () => {
+  const f = fixture({ codexImports: true });
+  expect(
+    await f.api.submitGatewayApiKey(
+      "",
+      { ...f.request, credentialImportMethod: "oauth_auth_json" },
+      "synthetic-import",
+    ),
+  ).toEqual({ status: "denied" });
+  expect(f.intents).toEqual([]);
+  expect(f.control.reconnect).not.toHaveBeenCalled();
+});
+
+describe("lazy native admission and durable personal recovery", () => {
+  it.each(["native API", "Codex import"] as const)(
+    "recovers a saved %s nonce without discovery and denies a new nonce during outage",
+    async (kind) => {
+      const f = fixture({
+        lazyCatalogue: true,
+        nativeApi: kind === "native API",
+        codexImports: kind === "Codex import",
+      });
+      const credentialImportMethod =
+        kind === "Codex import" ? ("refresh_token" as const) : undefined;
+      const original = {
+        id: "accepted-connect",
+        intent: {
+          action: "connect" as const,
+          actorUserId: "user-u",
+          personalWorkspaceId: "personal-u",
+          clientOperationId: nonce,
+          proposedSourceId: "original-source",
+          profileId: f.profileId,
+          displayName: "Saved label",
+          ingress: credentialImportMethod
+            ? ("credential-import" as const)
+            : ("api-key-create" as const),
+          ...(credentialImportMethod ? { credentialImportMethod } : {}),
+        },
+        phase: "unknown" as const,
+        source: null,
+        binding: null,
+        available: false,
+      };
+      vi.spyOn(f.store, "readOperation").mockImplementation(
+        async (_actor, requested) => {
+          if (requested !== nonce) throw new ProviderAccountError("not_found");
+          return original;
+        },
+      );
+      f.catalogue.mockRejectedValue(new Error("native_capabilities_outage"));
+      f.control.profiles.mockRejectedValue(new Error("profile_catalog_outage"));
+      f.delegate.operation.mockResolvedValue({
+        operationId: original.id,
+        phase: "unknown",
+        sourceId: null,
+        bindingId: null,
+        available: false,
+        state: "pending",
+      });
+      const request = {
+        kind: "connect" as const,
+        nonce,
+        profileId: f.profileId,
+        ...(credentialImportMethod ? { credentialImportMethod } : {}),
+      };
+      const recovered = {
+        status: "ok",
+        value: { nonce, state: "unknown", cleanup: "unresolved" },
+      };
+      expect(
+        await f.api.submitGatewayApiKey("", request, "discarded-retry-secret"),
+      ).toEqual(recovered);
+      expect(await f.api.readGatewayOperation("", nonce)).toEqual(recovered);
+      expect(f.catalogue).not.toHaveBeenCalled();
+      expect(f.control.profiles).not.toHaveBeenCalled();
+      expect(f.delegate.connect).not.toHaveBeenCalled();
+      expect(f.delegate.operation).toHaveBeenCalledTimes(2);
+      expect(
+        await f.api.submitGatewayApiKey(
+          "",
+          {
+            ...request,
+            nonce: "537d0104-f074-4434-9539-a11b4ae10f2c",
+          },
+          "fresh-secret",
+        ),
+      ).toEqual({ status: "unavailable" });
+      expect(f.catalogue).toHaveBeenCalledOnce();
+      expect(f.delegate.connect).not.toHaveBeenCalled();
+      expect(JSON.stringify(original)).not.toContain("secret");
+    },
+  );
+
+  it.each(["native API", "Codex import"] as const)(
+    "passes the qualified %s descriptor to the existing fresh enrollment adapter",
+    async (kind) => {
+      const f = fixture({
+        lazyCatalogue: true,
+        nativeApi: kind === "native API",
+        codexImports: kind === "Codex import",
+      });
+      expect(f.catalogue).not.toHaveBeenCalled();
+      const result = await f.api.submitGatewayApiKey(
+        "",
+        {
+          kind: "connect",
+          nonce,
+          profileId: f.profileId,
+          ...(kind === "Codex import"
+            ? { credentialImportMethod: "refresh_token" as const }
+            : {}),
+        },
+        "synthetic-fresh-credential",
+      );
+      expect(result.status).toBe("ok");
+      expect(f.catalogue).toHaveBeenCalledOnce();
+      expect(f.control.profiles).not.toHaveBeenCalled();
+      expect(f.delegate.connect).toHaveBeenCalledOnce();
+      const selected = f.personalAdapterFactory.mock.calls.at(-1)?.[0];
+      expect([...selected!.profiles.keys()]).toEqual([f.profileId]);
+      expect(selected?.connectionProfiles).toEqual([
+        f.qualifiedProfiles.find((profile) => profile.id === f.profileId),
+      ]);
+      expect(selected?.connectionProfiles?.[0]?.availability).not.toBe(
+        "deployment_configuration_required",
+      );
+    },
+  );
+
+  it.each(["policy", "method"] as const)(
+    "a saved resume hint never overrides current %s admission or redispatches a completed import",
+    async (denial) => {
+      const f = fixture({ codexImports: true, lazyCatalogue: true });
+      const request = {
+        ...f.request,
+        credentialImportMethod: "refresh_token" as const,
+      };
+      expect(
+        (await f.api.submitGatewayApiKey("", request, "first-entry")).status,
+      ).toBe("ok");
+      expect(f.control.reconnect).not.toHaveBeenCalled();
+      expect(f.intents).toHaveLength(1);
+      f.ack();
+      f.catalogue.mockRejectedValue(new Error("catalog_outage"));
+      const beforeRead = f.catalogue.mock.calls.length;
+      expect(await f.api.readGatewayOperation("", nonce)).toMatchObject({
+        status: "ok",
+        value: {
+          state: "pending",
+          resume: { credentialImportMethod: "refresh_token" },
+        },
+      });
+      expect(f.catalogue).toHaveBeenCalledTimes(beforeRead);
+      f.catalogue.mockResolvedValue(
+        f.qualifiedProfiles.map((profile) => ({
+          ...profile,
+          ...(denial === "policy" ? { canReconnect: false } : {}),
+          ...(profile.connection
+            ? {
+                connection: {
+                  ...profile.connection,
+                  ...(denial === "method" && profile.connection.methods
+                    ? {
+                        methods: profile.connection.methods.map((method) => ({
+                          ...method,
+                          reconnect: false,
+                        })),
+                      }
+                    : {}),
+                },
+              }
+            : {}),
+        })),
+      );
+      await f.api.submitGatewayApiKey("", request, "must-not-enter");
+      expect(f.control.reconnect).not.toHaveBeenCalled();
+      expect(f.intents).toHaveLength(1);
+      f.catalogue.mockResolvedValue(f.qualifiedProfiles);
+      await f.api.submitGatewayApiKey("", request, "authorized-entry");
+      expect(f.control.reconnect).toHaveBeenCalledOnce();
+      f.catalogue.mockRejectedValue(new Error("catalog_outage"));
+      const beforeRecovery = f.catalogue.mock.calls.length;
+      f.reveal();
+      expect(await f.api.readGatewayOperation("", nonce)).toMatchObject({
+        status: "ok",
+        value: { state: "applied" },
+      });
+      await f.api.submitGatewayApiKey("", request, "must-not-replay");
+      expect(f.catalogue).toHaveBeenCalledTimes(beforeRecovery);
+      expect(f.control.reconnect).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("continues an accepted browser reconnect during discovery outage without a new begin", async () => {
+    const f = fixture({ grok: true, lazyCatalogue: true });
+    const request = { ...f.request, method: "browser" as const };
+    expect((await f.api.beginGatewayOAuth("", request)).status).toBe("ok");
+    f.ack();
+    expect((await f.api.beginGatewayOAuth("", request)).status).toBe("ok");
+    expect(f.control.beginOAuthReconnect).toHaveBeenCalledOnce();
+    f.catalogue.mockRejectedValue(new Error("catalog_outage"));
+    const before = f.catalogue.mock.calls.length;
+    await f.api.readGatewayOperation("", nonce);
+    const completion = {
+      nonce,
+      authorizationCode: "synthetic-grok-plain-code",
+    };
+    expect(await f.api.completeGatewayOAuth("", completion)).toMatchObject({
+      status: "ok",
+      value: { state: "applied" },
+    });
+    await f.api.completeGatewayOAuth("", completion);
+    expect(f.catalogue).toHaveBeenCalledTimes(before);
+    expect(f.control.beginOAuthReconnect).toHaveBeenCalledOnce();
+    expect(f.control.completeOAuth).toHaveBeenCalledOnce();
+  });
+
+  it("does not admit a live descriptor outside its offline identity/auth-kind bound", async () => {
+    const f = fixture({ nativeApi: true, lazyCatalogue: true });
+    f.catalogue.mockResolvedValue(
+      f.qualifiedProfiles.map((profile) => ({
+        ...profile,
+        authKind: "oauth" as const,
+      })),
+    );
+    expect(
+      await f.api.submitGatewayApiKey(
+        "",
+        {
+          kind: "connect",
+          nonce,
+          profileId: f.profileId,
+        },
+        "must-not-enter",
+      ),
+    ).toEqual({ status: "denied" });
+    expect(f.delegate.connect).not.toHaveBeenCalled();
+    expect(f.control.get).not.toHaveBeenCalled();
   });
 });

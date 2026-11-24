@@ -89,10 +89,18 @@ export type ProgressSnapshot = {
   readonly phase: ProgressPhase;
   readonly terminal: ProgressTerminal;
   readonly updatedAt: string;
+  /** When the review started; absent on snapshots captured before it existed. */
+  readonly startedAt?: string | undefined;
   readonly counts: ProgressCounts;
   readonly fileCoverage: FileCoverage;
   /** Non-secret GitHub Actions identity used to causally bind hosted progress. */
   readonly sourceIdentity?: ProgressSourceIdentity | undefined;
+  /**
+   * Set on a terminal snapshot when the server covered every required part,
+   * also when the published summary still says the review is incomplete. The
+   * comment then counts only the parts the review needed.
+   */
+  readonly requiredCoverageComplete?: true | undefined;
 };
 
 export type ComputeProgressSnapshotInput = {
@@ -100,6 +108,7 @@ export type ComputeProgressSnapshotInput = {
   readonly phase: ProgressPhase;
   readonly terminal: ProgressTerminal;
   readonly updatedAt: Date | string;
+  readonly startedAt?: Date | string | undefined;
   readonly slots: readonly ReviewSlotProgressInput[];
   readonly assignmentManifest?: ReviewAssignmentManifest | undefined;
   readonly sourceIdentity?: ProgressSourceIdentity | undefined;
@@ -154,6 +163,14 @@ export function computeProgressSnapshot(
     phase: input.phase,
     terminal: input.terminal,
     updatedAt,
+    ...(input.startedAt === undefined
+      ? {}
+      : {
+          startedAt: normalizeInstant(
+            input.startedAt,
+            "progress_started_at_invalid",
+          ),
+        }),
     counts,
     fileCoverage: computeFileCoverage(input.assignmentManifest, slots),
     ...(input.sourceIdentity === undefined
@@ -254,6 +271,37 @@ function assertLifecycle(
   }
 }
 
+/**
+ * Required counts a Complete or Complete-with-gaps outcome may show. The
+ * counts never decide between the two: the execution's coverage verdict and
+ * the published review's coverage claim do. An ordered fallback completes with
+ * later reviewers' parts cancelled or a failed reviewer's parts exhausted, and
+ * a review can end incomplete with every part finished (for example when
+ * native spans could not be verified). Both outcomes therefore need every
+ * required part settled; Complete also needs at least one finished.
+ */
+export function settledOutcomeCountsValid(
+  terminal: Extract<ProgressTerminal, "complete" | "complete_with_gaps">,
+  counts: Pick<
+    ProgressCounts,
+    | "requiredTotal"
+    | "requiredCompleted"
+    | "requiredExhausted"
+    | "requiredCancelled"
+  >,
+): boolean {
+  const settled =
+    counts.requiredCompleted +
+    counts.requiredExhausted +
+    counts.requiredCancelled;
+  return (
+    settled === counts.requiredTotal &&
+    (terminal === "complete_with_gaps" ||
+      counts.requiredTotal === 0 ||
+      counts.requiredCompleted > 0)
+  );
+}
+
 function assertOutcomeCounts(
   input: ComputeProgressSnapshotInput,
   counts: ProgressCounts,
@@ -268,16 +316,13 @@ function assertOutcomeCounts(
   }
   if (
     input.terminal === "complete" &&
-    (counts.requiredCompleted !== counts.requiredTotal ||
-      counts.requiredExhausted > 0 ||
-      counts.requiredCancelled > 0)
+    !settledOutcomeCountsValid("complete", counts)
   ) {
     throw new Error("progress_complete_outcome_inconsistent");
   }
   if (
     input.terminal === "complete_with_gaps" &&
-    (counts.requiredExhausted + counts.requiredCancelled === 0 ||
-      counts.requiredCompleted === counts.requiredTotal)
+    !settledOutcomeCountsValid("complete_with_gaps", counts)
   ) {
     throw new Error("progress_gap_outcome_inconsistent");
   }
@@ -373,10 +418,12 @@ function phaseRank(phase: ProgressPhase): number {
   }[phase];
 }
 
-function normalizeInstant(value: Date | string): string {
+function normalizeInstant(
+  value: Date | string,
+  code = "progress_updated_at_invalid",
+): string {
   const date = value instanceof Date ? value : new Date(value);
-  if (!Number.isFinite(date.getTime()))
-    throw new Error("progress_updated_at_invalid");
+  if (!Number.isFinite(date.getTime())) throw new Error(code);
   return date.toISOString();
 }
 

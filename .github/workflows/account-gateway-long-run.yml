@@ -4,6 +4,7 @@ name: Account Gateway long-run P115
 # This does not qualify native/provider, elapsed-time or memory acceptance.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - .github/workflows/account-gateway-long-run.yml
       - apps/api/**
@@ -38,11 +39,12 @@ permissions:
 
 concurrency:
   # Manual qualification must not cancel branch/PR checks or another manual mode.
-  group: account-gateway-long-run-p115-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+  group: account-gateway-long-run-p115-${{ github.event_name }}-${{ github.event_name == 'pull_request' && (github.event.pull_request.number || github.ref) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   qualify:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft != true
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     services:

@@ -8,15 +8,47 @@ const now = new Date("2026-08-12T12:00:00.000Z");
 
 describe("Review progress terminal policy", () => {
   it("preserves explicit settlement precedence", () => {
-    expect(executionStateTerminal("completed", "succeeded")).toBe("complete");
-    expect(executionStateTerminal("partial", "succeeded")).toBe(
+    expect(executionStateTerminal("completed", "succeeded", "complete")).toBe(
+      "complete",
+    );
+    expect(executionStateTerminal("partial", "succeeded", "complete")).toBe(
       "complete_with_gaps",
     );
-    expect(executionStateTerminal("completed", "failed")).toBe("failed");
-    expect(executionStateTerminal("completed", "superseded")).toBe(
-      "superseded",
+    expect(executionStateTerminal("completed", "failed", "complete")).toBe(
+      "failed",
     );
-    expect(executionStateTerminal("running", "succeeded")).toBeNull();
+    expect(
+      executionStateTerminal("completed", "superseded", "incomplete"),
+    ).toBe("superseded");
+    expect(
+      executionStateTerminal("running", "succeeded", "complete"),
+    ).toBeNull();
+  });
+
+  it("ends incomplete whenever the published review is incomplete", () => {
+    // Unverified native spans: every part finished, the summary says incomplete.
+    expect(executionStateTerminal("completed", "succeeded", "incomplete")).toBe(
+      "complete_with_gaps",
+    );
+    // Exhausted required parts: the execution itself is partial.
+    expect(executionStateTerminal("partial", "succeeded", "incomplete")).toBe(
+      "complete_with_gaps",
+    );
+  });
+
+  it("accepts an incomplete outcome with every required part finished", () => {
+    const snapshot = {
+      schemaVersion: 1,
+      counts: {
+        requiredCompleted: 2,
+        requiredTotal: 2,
+        requiredExhausted: 0,
+        requiredCancelled: 0,
+      },
+    };
+    expect(terminalSnapshot(snapshot, "complete_with_gaps", now)).toMatchObject(
+      { terminal: "complete_with_gaps" },
+    );
   });
 
   it("preserves the original terminal snapshot projection", () => {
@@ -56,6 +88,26 @@ describe("Review progress terminal policy", () => {
     ).toThrow("review_progress_complete_outcome_inconsistent");
   });
 
+  it.each([
+    { name: "later reviewers were not needed", cancelled: 2, exhausted: 0 },
+    { name: "an earlier reviewer failed", cancelled: 0, exhausted: 1 },
+  ])("completes an ordered fallback when $name", ({ cancelled, exhausted }) => {
+    // The execution's coverage verdict owns completeness (plan 67).
+    const snapshot = {
+      schemaVersion: 1,
+      counts: {
+        requiredCompleted: 1,
+        requiredTotal: 1 + cancelled + exhausted,
+        requiredExhausted: exhausted,
+        requiredCancelled: cancelled,
+      },
+    };
+    expect(terminalSnapshot(snapshot, "complete", now)).toMatchObject({
+      phase: "terminal",
+      terminal: "complete",
+    });
+  });
+
   it("rejects over-total required settlements before partial-outcome checks", () => {
     for (const gaps of [
       { requiredExhausted: 1, requiredCancelled: 0 },
@@ -78,7 +130,7 @@ describe("Review progress terminal policy", () => {
     }
   });
 
-  it("rejects a partial outcome without any required gap", () => {
+  it("rejects an incomplete outcome with unsettled required parts", () => {
     expect(() =>
       terminalSnapshot(
         {

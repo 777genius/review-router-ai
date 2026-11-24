@@ -3,7 +3,13 @@ import type { ReactNode } from "react";
 import type { ProviderUsageReport } from "./provider-usage-model";
 import { DailyUsageTable } from "./provider-usage-charts";
 import { ObservationTable } from "./provider-usage-tables";
-import { count, humanUtc, tokenCoverage } from "./provider-usage-format";
+import {
+  count,
+  humanUtc,
+  PARTIAL_DAY_NOTE,
+  TOKEN_LOWER_BOUND_NOTE,
+  tokenCoverage,
+} from "./provider-usage-format";
 import type { CostBucket } from "./provider-usage-format";
 
 export function UsageDetails({
@@ -52,7 +58,7 @@ export function UsageDetails({
           className="text-cyan-200 underline"
           href={dashboardSectionHref("setup", workspaceId)}
         >
-          Account limits are shown in Accounts
+          Account limits are shown in Connections
         </a>
       </p>
       <p>
@@ -69,10 +75,9 @@ export function UsageDetails({
         ) : null}
       </p>
       <p>
-        A partial day covers only part of a UTC day. Unknown or partial
-        observations mean usage measurements are missing or incomplete. Not
-        reported means the source does not send that value: Gateway calls do not
-        report the upstream model, latency or cost.
+        {PARTIAL_DAY_NOTE}. At least N: {TOKEN_LOWER_BOUND_NOTE}. Not reported
+        means the source does not send that value: Gateway calls do not report
+        the upstream model, latency or cost.
       </p>
       <p>
         {report.sources.length

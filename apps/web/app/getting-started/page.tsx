@@ -288,13 +288,13 @@ const troubleshooting = [
   },
   {
     value: "setup-pr",
-    question: "The setup PR was closed or its branch was deleted.",
+    question: "The setup PR was closed or its branch was deleted",
     answer:
       "Create the setup PR again from the dashboard and merge the new one before you connect the provider again.",
   },
   {
     value: "no-review",
-    question: "A pull request got no review.",
+    question: "A pull request got no review",
     answer:
       "Fork pull requests are skipped because provider secrets are not exposed to them. Otherwise check that the setup PR is merged and that the provider shows as confirmed for the repository.",
   },
@@ -307,7 +307,7 @@ export default function GettingStartedPage(): React.ReactElement {
         <header className="max-w-3xl">
           <Badge tone="accent">Getting started</Badge>
           <h1 className="mt-6 text-4xl font-semibold text-cyan-50 sm:text-5xl">
-            From install to your first review in four steps.
+            From install to your first review in four steps
           </h1>
           <p className="mt-5 text-base leading-7 text-slate-300 sm:text-lg sm:leading-8">
             Install the GitHub App, choose an AI provider, merge the setup PR

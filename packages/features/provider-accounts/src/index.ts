@@ -1,5 +1,7 @@
 export * from "./domain/provider-account";
 export * from "./account-limits/domain/account-limits";
+export type * from "./account-metadata/application/ports/account-metadata.js";
+export type * from "./account-metadata/application/ports/account-metadata-reader.js";
 export * from "./account-limits/application/ports/account-limits-reader";
 export * from "./account-limits/application/ports/account-limits-refresher";
 export * from "./account-limits/application/use-cases/read-account-limits";

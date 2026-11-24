@@ -55,10 +55,6 @@ export function buildRepositorySearchText({
     .toLowerCase();
 }
 
-export function tokenizeRepositorySearch(query: string): string[] {
-  return query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-}
-
 export function describeRepositorySetup(
   setupStatus: string,
   healthStatus: string | undefined,

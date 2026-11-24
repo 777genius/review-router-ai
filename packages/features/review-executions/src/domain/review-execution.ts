@@ -664,6 +664,21 @@ export function reviewExecutionIsTerminal(
   );
 }
 
+/**
+ * Whether the Action's projection envelope claims complete coverage. This is
+ * the producer's coverage claim that can narrow the server's verdict; what the
+ * published summary says is `publishedSummaryIncomplete` in review publishing.
+ */
+export function projectionClaimsCompleteCoverage(envelope: unknown): boolean {
+  if (typeof envelope !== "object" || envelope === null) return false;
+  const coverage = (envelope as { readonly coverage?: unknown }).coverage;
+  return (
+    typeof coverage === "object" &&
+    coverage !== null &&
+    (coverage as { readonly state?: unknown }).state === "complete"
+  );
+}
+
 /** Server-verified facts that may excuse a required slot (plan 69). */
 export type ReviewCoverageExceptions = Readonly<{
   /** Reviewer votes whose provider quota the relay itself saw exhausted. */

@@ -457,6 +457,11 @@ function WorkspacePersonalRows({
               provider={row.provider}
               authKind={row.authKind}
               connection={row.connection}
+              metadata={
+                lifecycleActivities.has(row.connectionId)
+                  ? { status: "unknown", displayToken: "restricted" }
+                  : row.metadata
+              }
             />
             <AccountUsageLine usage={row.usage} />
             <AccountLimitsLine

@@ -1,4 +1,5 @@
 import type { UsageTotals } from "@reviewrouter/features-provider-usage";
+import { isOpenRouterFreeVariant } from "@reviewrouter/features-review-providers";
 import type { ProviderUsageReport } from "./provider-usage-model";
 export type UsageMetric = "tokens" | "requests" | "cost";
 export type CostBucket = { currency: string; basis: string };
@@ -71,15 +72,42 @@ export function metricLabel(
   if (metric === "cost" && bucket)
     return costsLabel(totals, bucket.currency, bucket.basis);
   if (value === null) return NOT_REPORTED;
+  // Calls without a token total only add to the real total, so the sum of the
+  // reported ones is a lower bound.
   return (
-    count(Number(value)) +
     (metric === "tokens" && totals.unknownTotalTokenCount > 0
-      ? " (known part)"
-      : "")
+      ? "at least "
+      : "") + count(Number(value))
   );
 }
 const calls = (value: number) =>
   `${count(value)} ${value === 1 ? "call" : "calls"}`;
+/*
+ * The plain words for usage gaps. Everything below is the one source of this
+ * wording for the tooltip, table, legend, KPI, coverage, notes and Details.
+ */
+const tokensGap = {
+  one: "may not have reported all its tokens",
+  many: "may not have reported all their tokens",
+};
+const costGap = {
+  one: "did not report its cost",
+  many: "did not report their cost",
+};
+/** "1 call did ... its ..." / "2 calls did ... their ...". */
+const callsThat = (value: number, gap: { one: string; many: string }) =>
+  `${calls(value)} ${value === 1 ? gap.one : gap.many}`;
+/** Short notes for one bucket, e.g. a chart tooltip row. */
+export const SOME_TOKENS_NOT_REPORTED = `some calls ${tokensGap.many}`;
+export const SOME_COST_NOT_REPORTED = `some calls ${costGap.many}`;
+/** Why a token count reads "at least N". */
+export const TOKEN_LOWER_BOUND_NOTE =
+  "Some calls did not report a token total, so the real total may be higher";
+/** The same, under a token total that is a lower bound. */
+export const TOKEN_LOWER_BOUND_HINT = `At least this many. ${TOKEN_LOWER_BOUND_NOTE}`;
+/** A day only partly inside the period (see `partialDayLabel`). */
+export const PARTIAL_DAY_NOTE =
+  "The first and last day may cover only part of the day";
 /**
  * One readable status per bucket. Source completeness flags are mutually
  * exclusive per call, so their sum is an exact count of incomplete calls.
@@ -89,32 +117,41 @@ export function tokenCoverage(
     UsageTotals,
     "unknownCount" | "partialCount" | "unknownTotalTokenCount"
   >,
-): { label: string; detail: string | undefined; incomplete: boolean } {
+): {
+  label: string;
+  detail: string | undefined;
+  incomplete: boolean;
+  /** Under a token total that is only a lower bound. */
+  totalHint?: string;
+} {
   const incomplete = totals.unknownCount + totals.partialCount;
   if (!incomplete && !totals.unknownTotalTokenCount)
     return {
-      label: "Reported observations",
+      label: "Every recorded call reported its tokens",
       detail: undefined,
       incomplete: false,
     };
+  const withoutTotal = `${calls(totals.unknownTotalTokenCount)} did not report a token total`;
   return {
-    label: incomplete
-      ? `${calls(incomplete)} with incomplete token data`
-      : `${calls(totals.unknownTotalTokenCount)} without total tokens`,
+    label: incomplete ? callsThat(incomplete, tokensGap) : withoutTotal,
     detail: [
       totals.unknownCount
-        ? `${calls(totals.unknownCount)} without token counts`
+        ? `${calls(totals.unknownCount)} reported no tokens`
         : "",
       totals.partialCount
-        ? `${calls(totals.partialCount)} marked partial by the source`
+        ? callsThat(totals.partialCount, {
+            one: "may have reported only part of its tokens",
+            many: "may have reported only part of their tokens",
+          })
         : "",
-      totals.unknownTotalTokenCount
-        ? `${calls(totals.unknownTotalTokenCount)} without total tokens`
-        : "",
+      totals.unknownTotalTokenCount ? withoutTotal : "",
     ]
       .filter(Boolean)
       .join(" · "),
     incomplete: true,
+    ...(totals.unknownTotalTokenCount
+      ? { totalHint: TOKEN_LOWER_BOUND_HINT }
+      : {}),
   };
 }
 export const missingCostLabel = (unknownCostCount: number) =>
@@ -128,8 +165,7 @@ type RequestedIdentity = {
  * `:free` variants at zero, and ReviewRouter never sends paid fallback models.
  */
 export const isFreeModel = (identity: RequestedIdentity) =>
-  identity.provider === "openrouter" &&
-  (identity.requestedModel?.endsWith(":free") ?? false);
+  isOpenRouterFreeVariant(identity.provider, identity.requestedModel);
 /** Why calls carry no cost: a free model, or a flat subscription/coding plan. */
 export type UsagePricing = "free_model" | "subscription" | undefined;
 /**
@@ -170,7 +206,7 @@ export function unreportedUsageNote(
   );
   const parts = [
     tokens.incomplete ? tokens.label : "",
-    withoutCost ? `${calls(withoutCost)} without reported cost` : "",
+    withoutCost ? callsThat(withoutCost, costGap) : "",
   ].filter(Boolean);
   return parts.length ? `△ ${parts.join(" · ")}` : null;
 }
@@ -329,4 +365,20 @@ export function humanUtcRange(first: string, last: string): string {
   return start.day === end.day
     ? `${start.day}, ${start.time} - ${end.time} UTC`
     : `${start.day}, ${start.time} - ${end.day}, ${end.time} UTC`;
+}
+
+/**
+ * Plain words for a UTC day only partly inside the period: the last day counts
+ * usage so far, and the first day of a rolling period starts mid-day. Taken
+ * from the period alone, so server and browser render the same words.
+ */
+export function partialDayLabel(
+  day: { day: string; partial: boolean },
+  period: { from: string; to: string },
+): string | null {
+  if (!day.partial) return null;
+  const end = new Date(Date.parse(period.to) - 1).toISOString().slice(0, 10);
+  return day.day === end
+    ? `so far, until ${utcParts(period.to).time} UTC`
+    : `from ${utcParts(period.from).time} UTC`;
 }

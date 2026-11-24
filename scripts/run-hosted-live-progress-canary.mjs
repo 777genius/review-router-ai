@@ -22,7 +22,7 @@ const pinnedTarget = Object.freeze({
 const expectedActionReleaseTag = "v1.0.113";
 const terminalPhases = new Set([
   "Complete",
-  "Complete with gaps",
+  "Review incomplete",
   "Failed",
   "Cancelled",
   "Superseded",
@@ -192,8 +192,9 @@ export async function verifyHostedProgressCanary(
     final.coveredFiles !== config.expectedReviewedFiles ||
     final.totalFiles !== config.expectedReviewedFiles ||
     final.unassignedFiles !== 0 ||
-    final.excludedFiles !== config.expectedExcludedFiles ||
-    final.exhaustedUnits !== 0
+    // A Complete comment never lists unfinished parts, so Review incomplete
+    // is what a required part that did not finish fails here.
+    final.excludedFiles !== config.expectedExcludedFiles
   )
     throw new Error("hosted_progress_canary_final_coverage_incomplete");
   return {
@@ -238,11 +239,14 @@ export function parseProgressComment(comment, config, expectedSource) {
       sourceIdentity.sourceRunAttempt !== expectedSource.sourceRunAttempt)
   )
     throw new Error("hosted_progress_canary_comment_source_mismatch");
-  const units = numbers(comment.body, /Review units: (\d+) of (\d+) complete/u);
-  const files = numbers(
+  const units = numbers(
     comment.body,
-    /Files in completed units: (\d+) of (\d+)/u,
+    /Progress: (\d+) of (\d+) parts? reviewed/u,
   );
+  // An incomplete review with accepted parts has no file count (plan 87).
+  const files = /Files fully reviewed: /u.test(comment.body ?? "")
+    ? numbers(comment.body, /Files fully reviewed: (\d+) of (\d+)/u)
+    : [null, null];
   return {
     commentId: comment.id,
     updatedAt: instant(comment.updated_at),
@@ -251,9 +255,16 @@ export function parseProgressComment(comment, config, expectedSource) {
     totalUnits: units[1],
     coveredFiles: files[0],
     totalFiles: files[1],
-    unassignedFiles: metric(comment.body, "Files not assigned"),
-    excludedFiles: metric(comment.body, "Files unavailable or excluded"),
-    exhaustedUnits: metric(comment.body, "Units not completed after retries"),
+    unassignedFiles: metric(comment.body, "Files not assigned to any part"),
+    excludedFiles: metric(
+      comment.body,
+      "Files skipped \\(unavailable or excluded\\)",
+    ),
+    // The comment shows retry lines only when their count is not zero.
+    exhaustedUnits: optionalMetric(
+      comment.body,
+      "Parts that could not be finished",
+    ),
     sourceIdentity,
   };
 }
@@ -279,9 +290,13 @@ export function assertMonotonic(previous, next) {
     next.commentId !== previous.commentId ||
     Date.parse(next.updatedAt) <= Date.parse(previous.updatedAt) ||
     next.totalUnits !== previous.totalUnits ||
-    next.totalFiles !== previous.totalFiles ||
+    (next.totalFiles !== null &&
+      previous.totalFiles !== null &&
+      next.totalFiles !== previous.totalFiles) ||
     next.completedUnits < previous.completedUnits ||
-    next.coveredFiles < previous.coveredFiles ||
+    (next.coveredFiles !== null &&
+      previous.coveredFiles !== null &&
+      next.coveredFiles < previous.coveredFiles) ||
     phaseRank(next.phase) < phaseRank(previous.phase) ||
     next.sourceIdentity?.sourceRunId !== previous.sourceIdentity?.sourceRunId ||
     next.sourceIdentity?.sourceRunAttempt !==
@@ -655,6 +670,10 @@ function numbers(body, regex) {
 function metric(body, label) {
   return Number(capture(body, new RegExp(`${label}: (\\d+)`, "u")));
 }
+function optionalMetric(body, label) {
+  const value = body?.match(new RegExp(`${label}: (\\d+)`, "u"))?.[1];
+  return value === undefined ? 0 : Number(value);
+}
 function instant(value) {
   if (!Number.isFinite(Date.parse(value)))
     throw new Error("hosted_progress_canary_instant_invalid");
@@ -671,7 +690,7 @@ function phaseRank(phase) {
       "Assembling results": 2,
       "Publishing results": 3,
       Complete: 4,
-      "Complete with gaps": 4,
+      "Review incomplete": 4,
       Failed: 4,
       Cancelled: 4,
       Superseded: 4,

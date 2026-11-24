@@ -15,10 +15,10 @@
 
 ## Environment status
 
-| Target     | Status    | Actual image | Evidence                                           |
-| ---------- | --------- | ------------ | -------------------------------------------------- |
-| Staging    | `pending` | Not verified | Ordinary worker rollout and the checks below       |
-| Production | `pending` | Not verified | Ordinary worker rollout with the next worker image |
+| Target     | Status     | Actual image                         | Evidence                                                                                                                                                                                                                     |
+| ---------- | ---------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Staging    | `pending`  | Not verified                         | Ordinary worker rollout and the checks below                                                                                                                                                                                 |
+| Production | `deployed` | `9ee93eb1`, image `sha256:a032a165…` | Active since the [bundled rollout](2026-11-19-progress-comments-enabled.md) turned hosted progress comment writes on (2026-11-20 00:08 UTC); canary PR 142 and social-monitor #782 reached their final state in one comment. |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -48,9 +48,12 @@ The behavior a user can notice stays the same, but the worker now:
    the drain because the claim columns and their meaning are unchanged.
 2. Run one review on a disposable PR and check that the progress comment is
    created once, updates while the review runs and ends in its final state.
-3. Watch worker logs for `review_progress_*` error codes, in particular
-   `review_progress_snapshot_invalid` and `review_progress_pagination_inconclusive`.
-   A new burst of either one is a rollback signal.
+3. Watch `lastErrorCode` on `ReviewProgressPublicationV1` (these codes are not
+   logged), in particular `review_progress_snapshot_invalid` and
+   `review_progress_pagination_inconclusive`, and the worker log line
+   `ReviewRouter worker phases failed` for `review_v2.progress_*` phases. A new
+   burst of either one is a rollback signal. Enabling the dormant flag follows
+   the [enablement runbook](../operations/15-progress-comments-enablement-runbook.md).
 4. Record the actual image/version, timestamp and evidence separately for each
    environment.
 
@@ -63,6 +66,7 @@ any rollback as `rolled_back` with the previous image.
 
 ## Execution log
 
-| Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result | Evidence | Next action                            |
-| ------------ | -------------------- | ---------- | ---------------------- | ------------------------ | -------- | -------------------------------------- |
-| Not executed | staging / production | Unassigned | Not verified           | Merged, not deployed     | PR #821  | Roll out with the next worker release. |
+| Time (UTC)                | Environment          | Operator    | Actual version / image               | Step and observed result                                                                   | Evidence                                                   | Next action                            |
+| ------------------------- | -------------------- | ----------- | ------------------------------------ | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------- | -------------------------------------- |
+| 2026-11-20 00:07 to 01:15 | production           | operator E2 | `9ee93eb1`, image `sha256:a032a165…` | Writes turned on with the swap at 00:08; canary and real reviews reached their final state | [bundled rollout](2026-11-19-progress-comments-enabled.md) | Staging pending.                       |
+| Not executed              | staging / production | Unassigned  | Not verified                         | Merged, not deployed                                                                       | PR #821                                                    | Roll out with the next worker release. |

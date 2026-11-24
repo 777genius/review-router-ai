@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   openNewProvider,
   expectNoHorizontalOverflow,
@@ -73,6 +73,24 @@ async function profiles() {
   );
 }
 
+async function expectNativeDetails(
+  dialog: Locator,
+  expected: { email: string; plan: string; subscriptionEnd: string },
+) {
+  await expect(dialog.getByText(expected.email, { exact: true })).toBeVisible();
+  await expect(dialog.getByText(expected.plan, { exact: true })).toBeVisible();
+  await expect(
+    dialog.getByText(`Subscription ends ${expected.subscriptionEnd}`, {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByText("Credential expires Dec 15, 2026, 1:00 PM UTC", {
+      exact: true,
+    }),
+  ).toBeVisible();
+}
+
 test("dynamic Codex account models work in provider edit and add with exact binding refresh and save validation", async ({
   page,
   context,
@@ -97,9 +115,17 @@ test("dynamic Codex account models work in provider edit and add with exact bind
   // Account and public provider catalogs expose independent status regions.
   const accountCatalogStatus = dialog
     .getByRole("status")
-    .filter({ hasText: /^Account model catalog\./u });
+    .filter({ hasText: /^Model list updated/u });
   await expect(model).toHaveValue(savedModel);
   await expect(accountCatalogStatus).toBeVisible();
+  await expectNativeDetails(dialog, {
+    email: "selected-codex@example.invalid",
+    plan: "Plus",
+    subscriptionEnd: "2026-12-31",
+  });
+  await expect(dialog.getByText("workspace-codex@example.invalid")).toHaveCount(
+    0,
+  );
   await expect(model).toHaveValue(savedModel);
   await choose(page, "Model", CODEX_A_MODEL);
   // The same model is now offered only by account B; A must reject the stale
@@ -121,6 +147,11 @@ test("dynamic Codex account models work in provider edit and add with exact bind
   await expect(accountCatalogStatus).toBeVisible();
   await expect(model).toHaveValue(CODEX_A_MODEL);
   await choose(page, "Model", CODEX_A_REFRESHED);
+  await expectNativeDetails(dialog, {
+    email: "selected-codex@example.invalid",
+    plan: "Plus",
+    subscriptionEnd: "2026-12-31",
+  });
   const after = await fixture();
   const forceReads = after.reads
     .slice(before.reads.length)
@@ -163,12 +194,22 @@ test("dynamic Codex account models work in provider edit and add with exact bind
   if (await useDefault.isChecked()) await useDefault.uncheck();
   await choose(page, "Model", CODEX_B_MODEL);
   await expect(accountCatalogStatus).toBeVisible();
+  await expectNativeDetails(dialog, {
+    email: "workspace-codex@example.invalid",
+    plan: "Team",
+    subscriptionEnd: "2027-01-31",
+  });
+  await expect(dialog.getByText("selected-codex@example.invalid")).toHaveCount(
+    0,
+  );
   // The account status also refreshes public metadata; a second public
   // catalog line and button would contradict it.
   await expect(
     dialog.getByRole("button", { name: "Refresh models", exact: true }),
   ).toHaveCount(1);
-  await expect(dialog.getByText("Model list is up to date.")).toHaveCount(0);
+  await expect(
+    dialog.getByText("Access to these models has not been checked."),
+  ).toHaveCount(0);
   await dialog
     .getByRole("button", { name: "Add provider", exact: true })
     .click();
@@ -233,6 +274,11 @@ test("provider settings geometry stays aligned on desktop, mobile and narrow lay
       .getByRole("checkbox", { name: /Use as workspace default/ })
       .check();
     await choose(page, "Model", CODEX_B_MODEL);
+    await expectNativeDetails(dialog, {
+      email: "workspace-codex@example.invalid",
+      plan: "Team",
+      subscriptionEnd: "2027-01-31",
+    });
     const depth = dialog.getByRole("combobox", {
       name: /^Review depth\b/,
     });

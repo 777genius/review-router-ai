@@ -394,7 +394,10 @@ describe("ReviewProgressGitHubGateway", () => {
     ]);
     const byId = "GET /repos/{owner}/{repo}/issues/comments/{comment_id}";
     let canonicalReads = 0;
-    const request: ReviewProgressGitHubRequester = async (route, parameters) => {
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
       if (route === byId && parameters?.comment_id === 4) {
         canonicalReads += 1;
         if (canonicalReads === 2) throw { status: 404 };
@@ -625,7 +628,10 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([{ id: 4, body: desired }]);
     const knownRoute = "GET /repos/{owner}/{repo}/issues/comments/{comment_id}";
     let knownReads = 0;
-    const request: ReviewProgressGitHubRequester = async (route, parameters) => {
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
       if (route === knownRoute && parameters?.comment_id === 4) {
         knownReads += 1;
         throw { status: 404 };
@@ -647,7 +653,10 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([{ id: 4, body: desired }]);
     const knownRoute = "GET /repos/{owner}/{repo}/issues/comments/{comment_id}";
     let knownReads = 0;
-    const request: ReviewProgressGitHubRequester = async (route, parameters) => {
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
       const response = await fixture.request(route, parameters);
       if (route !== knownRoute || parameters?.comment_id !== 4) return response;
       knownReads += 1;
@@ -675,7 +684,10 @@ describe("ReviewProgressGitHubGateway", () => {
     const knownRoute = "GET /repos/{owner}/{repo}/issues/comments/{comment_id}";
     const pullRoute = "GET /repos/{owner}/{repo}/pulls/{pull_number}";
     let knownReads = 0;
-    const request: ReviewProgressGitHubRequester = async (route, parameters) => {
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
       const response = await fixture.request(route, parameters);
       if (route === knownRoute) knownReads += 1;
       if (route !== pullRoute || knownReads === 0) return response;

@@ -683,6 +683,9 @@ publication are later C/D work; the C1 exit status cannot close those gates.
 
 The reusable native source now has an explicit home:
 `agent-teams-ai/sub2api`, a public fork of `Wei-Shaw/sub2api`.
+(Moved on 2026-11-21 to `agent-teams-ai/sub2api-standalone`, a non-fork repo
+with the same `main` history; the old fork is retired and archived after the
+move. The rest of this paragraph is the state at the time.)
 Its `release/account-gateway-v0.2.11` baseline is pinned to `96f4c115`;
 no private-native change has been merged there yet. Generated spike patches
 are qualification artifacts, not a second runtime source authority. Production

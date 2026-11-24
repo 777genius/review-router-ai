@@ -28,6 +28,16 @@
       "types": "./src/composition.ts",
       "production": "./dist/composition.js",
       "default": "./src/composition.ts"
+    },
+    "./account-metadata": {
+      "types": "./src/account-metadata/application/ports/account-metadata.ts",
+      "production": "./dist/account-metadata/application/ports/account-metadata.js",
+      "default": "./src/account-metadata/application/ports/account-metadata.ts"
+    },
+    "./account-metadata/composition": {
+      "types": "./src/account-metadata/composition/account-metadata.root.ts",
+      "production": "./dist/account-metadata/composition/account-metadata.root.js",
+      "default": "./src/account-metadata/composition/account-metadata.root.ts"
     }
   },
   "dependencies": {
@@ -40,7 +50,8 @@
     "vitest": "4.1.10",
     "@prisma/adapter-pg": "7.8.0",
     "@types/pg": "8.23.1",
-    "pg": "8.23.0"
+    "pg": "8.23.0",
+    "@get-modular/conformance": "0.5.0"
   },
   "scripts": {
     "build": "node ../../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.build.json",

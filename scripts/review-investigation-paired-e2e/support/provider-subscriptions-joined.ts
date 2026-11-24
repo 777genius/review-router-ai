@@ -15,6 +15,11 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import type * as GatewayHTTP from "@agent-teams/account-gateway/http";
 import { protectedResponsesToolPolicyConfigLines } from "../../../packages/features/codex-oauth-rotating/src/action/github-action";
+import {
+  qualifyReadonlySandbox,
+  SandboxQualificationError,
+  type SandboxQualification,
+} from "./provider-subscriptions-sandbox";
 
 type JoinedInput = Readonly<{
   origin: string;
@@ -63,8 +68,10 @@ type RelayAdapter = {
 };
 const execFileAsync = promisify(execFile);
 export const joinedActionRef = "0454fc0a3af15f94522c7c31cce59c0c62af6567";
+// Reproducible complete source: git 2.52.0 archive --format=tar <joinedActionRef>.
+// The archive's embedded commit ID and codex.ts digest were independently checked.
 const actionArchiveDigest =
-  "f76f0ab503b7b3d2ea000639e8ca47e5377a3b66d5140c669c39e8a9df00db7c";
+  "42e8d844bd451655ff171dc4093a872fc471675c90b3997697261ba4153807b4";
 const codexSourceDigest =
   "22967b9f1e4bb463926df901af002e8d97bc272bd6396f28f67cd4463626bcef";
 const codexBinaryDigest =
@@ -123,6 +130,8 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
   let declaredFunctionTools = 0;
   let returnedCustomTools = 0;
   let returnedFunctionTools = 0;
+  let structuredOutputRequests = 0;
+  let sandboxQualification: SandboxQualification | undefined;
   const active = new Set<() => Promise<void>>();
   const inFlight = new Set<Promise<void>>();
   const savedEnv = { ...process.env };
@@ -152,6 +161,18 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
     });
     const providerSource = path.join(source, "src/providers/codex.ts");
     assert.equal(digest(await readFile(providerSource)), codexSourceDigest);
+    const reviewOutput = (await import(
+      pathToFileURL(path.join(source, "src/providers/review-output.ts")).href
+    )) as { buildReviewFindingsSchema(): unknown };
+    const expectedReviewSchema = reviewOutput.buildReviewFindingsSchema();
+    const actionEnvironment = (await import(
+      pathToFileURL(path.join(source, "src/providers/cli-env.ts")).href
+    )) as {
+      buildCliSafeEnv(options: {
+        includeWorkspaceEnv: boolean;
+        extraAllowedKeys: string[];
+      }): NodeJS.ProcessEnv;
+    };
     assert.equal(digest(await readFile(binary)), codexBinaryDigest);
     const oauthSource = await readFile(
       path.join(source, "src/codex-oauth/codex-cli.ts"),
@@ -274,6 +295,23 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
         assert.equal(raw.model, input.model);
         relayPhase = "cli-stream";
         assert.equal(raw.stream, true);
+        relayPhase = "cli-review-schema";
+        const textFormat = (
+          raw.text as
+            | { format?: { type?: string; schema?: unknown } }
+            | undefined
+        )?.format;
+        assert.equal(
+          textFormat?.type,
+          "json_schema",
+          "actual review must request its findings schema",
+        );
+        assert.deepEqual(
+          textFormat?.schema,
+          expectedReviewSchema,
+          "actual CLI must preserve the pinned Action findings/revalidations schema",
+        );
+        structuredOutputRequests++;
         relayPhase = "cli-reasoning";
         assert.ok(
           raw.reasoning === undefined || raw.reasoning === null,
@@ -344,6 +382,11 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
         ) as Record<string, unknown>;
         assert.ok(!("reasoning" in forwarded));
         assert.equal(forwarded.service_tier, "default");
+        assert.deepEqual(
+          forwarded.text,
+          raw.text,
+          "production relay must preserve the review schema",
+        );
         relayPhase = "sdk-execution-request";
         const upstream = await selectedExecution.request(
           selectedRef,
@@ -441,6 +484,7 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
       path.join(codexHome, "config.toml"),
       [
         ...protectedResponsesToolPolicyConfigLines(),
+        "features.use_legacy_landlock = false",
         'model_provider = "reviewrouter_joined"',
         "[model_providers.reviewrouter_joined]",
         'name = "reviewrouter_joined"',
@@ -464,6 +508,18 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
     process.env.CODEX_AGENTIC_AUDIT = "strict";
     delete process.env.CODEX_REASONING_EFFORT;
     process.chdir(checkout);
+    phase = "cli-sandbox-preflight";
+    sandboxQualification = await qualifyReadonlySandbox({
+      binary,
+      workspace: checkout,
+      outsideRoot: root,
+      environment: actionEnvironment.buildCliSafeEnv({
+        includeWorkspaceEnv: false,
+        extraAllowedKeys: ["CODEX_HOME", "OPENAI_API_KEY"],
+      }),
+    });
+    // The same default backend must pass before the real provider is invoked.
+    // A failed probe never switches backends or alters the effective policy.
     phase = "installed-action-real-cli-review";
     const provider = new installed.CodexProvider(input.model, {
       agenticContext: true,
@@ -482,9 +538,14 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
     assert.deepEqual(result.findings, []);
     assert.deepEqual(result.revalidations, []);
     closeReason = "completed";
-  } catch {
+  } catch (error) {
     // Neither raw CLI/provider errors nor SDK diagnostics (which may carry
     // capability identity) are emitted by this acceptance boundary.
+    if (
+      phase === "cli-sandbox-preflight" &&
+      error instanceof SandboxQualificationError
+    )
+      phase += "-" + error.reason;
     const code = (
       "rr_provider_joined_failed_" +
       phase +
@@ -530,6 +591,8 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
               declaredCustomTools,
               returnedFunctionTools,
               returnedCustomTools,
+              structuredOutputRequests,
+              sandboxQualification,
               reasoningOmitted: true,
               fastOmitted: true,
               executionClosureAcknowledged: true,

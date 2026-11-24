@@ -24,12 +24,22 @@ import {
   reviewerNames,
   type ProviderSetupView,
 } from "../../../src/features/provider-setup/provider-setup-model";
+import { accountProviderIdentity } from "../../../src/features/provider-setup/provider-identity";
+import {
+  hasDailyRequestLimit,
+  soleReviewerHasDailyLimit,
+} from "../../../src/features/provider-setup/domain/daily-request-limit";
 import { useGatewayModelAccounts } from "../gateway-model-account-options";
 import { GatewayModelCatalogStatus } from "../gateway-model-catalog-status";
+import {
+  GatewayAccountListStatus,
+  GatewayBindingStatus,
+} from "./gateway-account-status";
 import { getGatewaySetupAccounts } from "../../../src/server/dashboard-provider-setup-readiness";
 import { dashboardErrorText } from "../dashboard-copy";
-import { isFreeModel } from "../provider-usage-format";
 import { GatewayAccountLoadMore } from "./gateway-account-load-more";
+import { GatewayReviewerRowStatus } from "./gateway-reviewer-row-status";
+import { DailyLimitNotice } from "./daily-limit-notice";
 import {
   defaultProviderSelectionSettings,
   ProviderModelFields,
@@ -222,12 +232,16 @@ export function GatewayReviewerRoster({
   };
   const source = observed.sources.find((row) => row.key === "gateway_binding");
   const blocked = pending || !mutationsEnabled || readUnavailable;
+  const accountOf = (row: Row) =>
+    accounts.find((candidate) => candidate.binding?.id === row.bindingId);
+  // The connection's provider, or a saved reviewer's own while accounts load.
+  const providerOf = (row: Row) =>
+    accountProviderIdentity(options.profileFor(accountOf(row))) ??
+    observed.profiles.find((candidate) => candidate.id === row.profileId)
+      ?.providerId;
   const settingsFor = (row: Row) => {
     if (row.savedSettings || row.editedSettings) return row.settings;
-    const account = accounts.find(
-      (candidate) => candidate.binding?.id === row.bindingId,
-    );
-    const profile = options.profileFor(account);
+    const profile = options.profileFor(accountOf(row));
     return {
       ...defaultProviderSelectionSettings({
         authMode: "codex_account_gateway",
@@ -262,9 +276,7 @@ export function GatewayReviewerRoster({
     rows.length > 0 &&
     !duplicate &&
     rows.every((row) => {
-      const account = accounts.find(
-        (candidate) => candidate.binding?.id === row.bindingId,
-      );
+      const account = accountOf(row);
       const profile = options.profileFor(account);
       const existing = row.profileId
         ? observed.profiles.find((candidate) => candidate.id === row.profileId)
@@ -311,10 +323,42 @@ export function GatewayReviewerRoster({
       next.splice(index + offset, 0, row!);
       return next;
     });
+  const addReviewer = () => {
+    const id = `${prefix}-new-${nextRow}`;
+    setNextRow((value) => value + 1);
+    setRows((current) => [
+      ...current,
+      {
+        id,
+        bindingId: "",
+        profileRef: "",
+        model: "",
+        settings: {
+          agenticContext: true,
+          fastMode: false,
+          requiredHealthy: true,
+        },
+      },
+    ]);
+    setEditing(id);
+    // The daily limit notice that may have been clicked unmounts: keep the
+    // keyboard on the new reviewer's first choice.
+    requestAnimationFrame(() =>
+      document
+        .getElementById(`${id}-settings`)
+        ?.querySelector<HTMLElement>('[role="combobox"]')
+        ?.focus(),
+    );
+  };
   const fallback = mode === "fallback";
   // How several reviewers work together means nothing for one reviewer: its
   // mode stays as saved and the server fits the limits to the count.
   const several = rows.length > 1;
+  // One message about a daily limit: the roster notice for a sole reviewer,
+  // otherwise a short line on each limited row.
+  const soleDailyLimit = soleReviewerHasDailyLimit(
+    rows.map((row) => ({ provider: providerOf(row), model: row.model })),
+  );
   const inherited = repository?.source === "workspace";
   const ownRoster = repository?.source === "repository";
   const workspaceDefaults = workspaceDefaultSelections(observed);
@@ -414,25 +458,7 @@ export function GatewayReviewerRoster({
           variant="outline"
           size="sm"
           disabled={blocked || rows.length >= 16}
-          onClick={() => {
-            const id = `${prefix}-new-${nextRow}`;
-            setNextRow((value) => value + 1);
-            setRows((current) => [
-              ...current,
-              {
-                id,
-                bindingId: "",
-                profileRef: "",
-                model: "",
-                settings: {
-                  agenticContext: true,
-                  fastMode: false,
-                  requiredHealthy: true,
-                },
-              },
-            ]);
-            setEditing(id);
-          }}
+          onClick={addReviewer}
         >
           Add reviewer
         </Button>
@@ -466,9 +492,7 @@ export function GatewayReviewerRoster({
       ) : (
         <ol className="divide-y divide-cyan-200/10 border-y border-cyan-200/10">
           {rows.map((row, index) => {
-            const account = accounts.find(
-              (candidate) => candidate.binding?.id === row.bindingId,
-            );
+            const account = accountOf(row);
             const profile = options.profileFor(account);
             const existing = observed.profiles.find(
               (candidate) => candidate.id === row.profileId,
@@ -504,43 +528,21 @@ export function GatewayReviewerRoster({
                     <p className="break-words text-xs leading-5 text-slate-400">
                       {account?.label ?? existing?.label ?? "Choose an account"}
                     </p>
-                    {row.bindingId && !account && !options.loading ? (
-                      <p className="text-xs leading-5 text-amber-100">
-                        This account is unavailable. Edit this reviewer or
-                        refresh accounts.
-                      </p>
-                    ) : profile &&
-                      row.model &&
-                      !profile.models.includes(row.model) ? (
-                      <p className="text-xs leading-5 text-amber-100">
-                        {account?.modelCatalog?.status === "snapshot"
-                          ? "This model is unavailable for this account. Edit this reviewer to choose another model."
-                          : account?.modelCatalog?.status === "unknown" ||
-                              account?.modelCatalog?.status === "unavailable"
-                            ? "Model availability could not be checked. Edit this reviewer to refresh account models. Your saved selection is unchanged."
-                            : "This model is not in the configured choices for this account. Edit this reviewer to check its connection."}
-                      </p>
-                    ) : profile &&
-                      providerSelectionSettingsNeedCorrection({
-                        authMode: "codex_account_gateway",
-                        model: row.model,
-                        settings: settingsFor(row),
-                        connection: profile.connection,
-                        gatewayProfileRef: profile.id,
-                      }) ? (
-                      <p className="text-xs leading-5 text-amber-100">
-                        Review settings need updating for this model.
-                      </p>
-                    ) : null}
-                    {isFreeModel({
-                      provider: profile?.connection?.provider ?? "",
-                      requestedModel: row.model,
-                    }) ? (
-                      <p className="text-xs leading-5 text-slate-400">
-                        Free OpenRouter models have a daily request limit. When
-                        it runs out, this reviewer stops until the limit resets.
-                      </p>
-                    ) : null}
+                    <GatewayReviewerRowStatus
+                      bindingId={row.bindingId}
+                      model={row.model}
+                      account={account}
+                      profile={profile}
+                      accounts={options}
+                      settings={settingsFor(row)}
+                      dailyLimit={
+                        !soleDailyLimit &&
+                        hasDailyRequestLimit({
+                          provider: providerOf(row),
+                          model: row.model,
+                        })
+                      }
+                    />
                   </div>
                   <div className="flex items-center gap-2">
                     {several ? (
@@ -613,7 +615,7 @@ export function GatewayReviewerRoster({
                       placeholder="Choose an account"
                       hint={
                         accounts.length === 0 && !options.loading
-                          ? "Connect and activate an account in Accounts first."
+                          ? "Connect and activate an account in Connections first."
                           : undefined
                       }
                       disabled={blocked}
@@ -681,6 +683,14 @@ export function GatewayReviewerRoster({
                       modelOptions={rowModelOptions(row, account, profile)}
                       modelChoice="catalog"
                       allowCustomModel={false}
+                      modelStatus={
+                        <GatewayModelCatalogStatus
+                          account={account}
+                          profile={profile}
+                          accounts={options}
+                          bindingId={row.bindingId}
+                        />
+                      }
                       settings={settingsFor(row)}
                       onSettingsChange={(settings) =>
                         update(row.id, {
@@ -704,24 +714,17 @@ export function GatewayReviewerRoster({
                       hasSavedSettings={row.savedSettings === true}
                       hasEditedSettings
                     />
-                    {account ? (
-                      <GatewayModelCatalogStatus
-                        account={account}
-                        loading={options.loading}
-                        canRefresh={options.canRefresh}
-                        onRefresh={() => options.refreshModels(row.bindingId)}
-                      />
-                    ) : null}
                     {denied ? (
                       <p className="text-xs text-amber-100">
                         {providerSetupDenialText(denied)}
                       </p>
                     ) : null}
                     {row.bindingId && !account ? (
-                      <p role="status" className="text-xs text-amber-100">
-                        This account is unavailable. Refresh accounts or choose
-                        another account.
-                      </p>
+                      <GatewayBindingStatus
+                        accounts={options}
+                        bindingId={row.bindingId}
+                        busy={blocked}
+                      />
                     ) : null}
                   </div>
                 ) : null}
@@ -730,23 +733,16 @@ export function GatewayReviewerRoster({
           })}
         </ol>
       )}
+      {soleDailyLimit ? (
+        <DailyLimitNotice onAddReviewer={addReviewer} disabled={blocked} />
+      ) : null}
       <div className="flex flex-wrap gap-3">
         <GatewayAccountLoadMore
           canLoadMore={options.canLoadMore}
           loading={options.loading}
           onLoadMore={options.loadMore}
         />
-        {options.canRefresh ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={blocked || options.loading}
-            onClick={options.refresh}
-          >
-            Refresh accounts
-          </Button>
-        ) : null}
+        <GatewayAccountListStatus accounts={options} busy={blocked} />
       </div>
       {fallback || !several ? null : (
         <div className="grid gap-4 sm:grid-cols-2">

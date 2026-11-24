@@ -1,4 +1,7 @@
-import type { ProgressSnapshot } from "@reviewrouter/features-review-progress";
+import {
+  settledOutcomeCountsValid,
+  type ProgressSnapshot,
+} from "@reviewrouter/features-review-progress";
 
 export function parseSnapshot(value: unknown): ProgressSnapshot {
   if (!isRecord(value) || value.schemaVersion !== 1) {
@@ -14,11 +17,14 @@ export function parseSnapshot(value: unknown): ProgressSnapshot {
     !isTerminal(value.terminal) ||
     (value.phase === "terminal") !== (value.terminal !== "none") ||
     !isCanonicalInstant(value.updatedAt) ||
+    (value.startedAt !== undefined && !isCanonicalInstant(value.startedAt)) ||
     !isRecord(counts) ||
     !validCounts(counts) ||
     !validTerminalCounts(value.terminal, counts) ||
     !validCoverage(fileCoverage) ||
-    !validOptionalSourceIdentity(value.sourceIdentity)
+    !validOptionalSourceIdentity(value.sourceIdentity) ||
+    (value.requiredCoverageComplete !== undefined &&
+      (value.requiredCoverageComplete !== true || value.phase !== "terminal"))
   )
     throw new Error("review_progress_snapshot_invalid");
   return value as unknown as ProgressSnapshot;
@@ -85,20 +91,9 @@ function validTerminalCounts(
   value: Record<string, unknown>,
 ): boolean {
   const counts = value as unknown as ProgressSnapshot["counts"];
-  if (terminal === "complete") {
-    return (
-      counts.requiredCompleted === counts.requiredTotal &&
-      counts.requiredExhausted === 0 &&
-      counts.requiredCancelled === 0
-    );
-  }
-  if (terminal === "complete_with_gaps") {
-    return (
-      counts.requiredCompleted !== counts.requiredTotal &&
-      counts.requiredExhausted + counts.requiredCancelled > 0
-    );
-  }
-  return true;
+  return terminal === "complete" || terminal === "complete_with_gaps"
+    ? settledOutcomeCountsValid(terminal, counts)
+    : true;
 }
 
 function validCoverage(value: unknown): boolean {

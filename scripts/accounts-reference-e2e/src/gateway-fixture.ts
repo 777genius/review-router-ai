@@ -7,17 +7,17 @@ import {
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { FIXTURES, type FixtureSecrets } from "./contracts.ts";
+import { FIXTURES, type FixtureSecrets } from "./contracts.js";
 import {
   createAccountModelsFixture,
   CODEX_MODEL_PROFILE,
-} from "./account-models-fixture.ts";
-import { createLimitsFixture } from "./limits-fixture.ts";
+} from "./account-models-fixture.js";
+import { createLimitsFixture } from "./limits-fixture.js";
 import {
   createSubscriptionFixture,
   subscriptionProfiles,
   apiKeyStorageProfiles,
-} from "./subscription-fixture.ts";
+} from "./subscription-fixture.js";
 
 export type WireAccount = {
   readonly accountRef: string;
@@ -121,9 +121,18 @@ export async function startGatewayFixture(input: {
   const accountModels = process.argv.includes("--account-models-fixture")
     ? createAccountModelsFixture(accounts)
     : null;
-  const connectionProfiles = process.argv.includes("--api-key-storage-fixture")
-    ? apiKeyStorageProfiles
-    : subscriptionProfiles;
+  const connectionProfiles = [
+    ...new Map(
+      [
+        ...(process.argv.includes("--api-key-storage-fixture")
+          ? apiKeyStorageProfiles
+          : []),
+        ...(process.argv.includes("--subscription-fixture")
+          ? subscriptionProfiles
+          : []),
+      ].map((profile) => [profile.profileId, profile] as const),
+    ).values(),
+  ];
   const subscriptions =
     process.argv.includes("--subscription-fixture") ||
     process.argv.includes("--api-key-storage-fixture")
@@ -132,6 +141,82 @@ export async function startGatewayFixture(input: {
   const limits = process.argv.includes("--limits-fixture")
     ? createLimitsFixture(accounts)
     : null;
+  // One synthetic descriptor snapshot serves both discovery contracts. Only
+  // the subscription fixture implements fresh enrollment/reconnect handlers.
+  const catalog = [
+    ...(accountModels
+      ? [
+          {
+            profileId: CODEX_MODEL_PROFILE,
+            provider: "openai",
+            label: "Codex",
+            planId: "subscription",
+            plan: "ChatGPT subscription",
+            model: "gpt-5.6-sol",
+            methods: [
+              {
+                kind: "browser",
+                create: false,
+                reconnect: false,
+                completionInputKind: "callback_url",
+                callbackMode: "automatic",
+              },
+            ],
+            limitsContract: "none",
+          },
+        ]
+      : []),
+    ...(subscriptions
+      ? connectionProfiles.map((profile) => ({
+          ...profile,
+          methods: [
+            profile.provider === "grok"
+              ? {
+                  kind: "browser",
+                  create: true,
+                  reconnect: true,
+                  completionInputKind: "authorization_code",
+                  callbackMode: "manual_callback_url",
+                }
+              : { kind: "api_key", create: true, reconnect: true },
+          ],
+          limitsContract:
+            profile.provider === "nvidia" ? "none" : "account-limits/v2",
+        }))
+      : []),
+    {
+      profileId: FIXTURES.gateway.profileId,
+      provider: "mimo",
+      label: "MiMo",
+      planId: "unknown",
+      plan: "MiMo",
+      model: "rr-e2e-model",
+      methods: [{ kind: "api_key", create: false, reconnect: false }],
+      limitsContract: limits ? "account-limits/v1" : "none",
+    },
+    ...(limits
+      ? [
+          {
+            profileId: FIXTURES.gateway.claudeProfileId,
+            provider: "anthropic",
+            label: "Claude",
+            planId: "subscription",
+            plan: "Claude subscription",
+            model: "claude-sonnet-4-6",
+            methods: [
+              {
+                kind: "browser",
+                create: false,
+                reconnect: false,
+                completionInputKind: "authorization_code",
+                callbackMode: "manual_callback_url",
+              },
+            ],
+            limitsContract: "account-limits/v1",
+          },
+        ]
+      : []),
+  ];
   const probes = new Map<
     string,
     { admission: Record<string, unknown>; bearer: string }
@@ -213,6 +298,8 @@ export async function startGatewayFixture(input: {
     log: string[],
   ): Promise<void> {
     const requestUrl = new URL(request.url ?? "/", url);
+    let body: Promise<Record<string, unknown>> | undefined;
+    const read = () => (body ??= readJson(request));
     const route = `${request.method ?? "GET"} ${requestUrl.pathname}`;
     log.push(route);
     subscriptions?.observe(request.method ?? "GET", requestUrl.pathname);
@@ -227,24 +314,24 @@ export async function startGatewayFixture(input: {
       request.method === "POST"
     ) {
       const result = await issuer(
-        await readJson(request),
+        await read(),
         request.headers["x-reviewrouter-probe-proof"],
       );
       send(response, result.status, result.body);
       return;
     }
     if (accountModels && requestUrl.pathname === "/__account-models-fixture") {
-      if (request.method === "POST")
-        accountModels.configure(await readJson(request));
+      if (request.method === "POST") accountModels.configure(await read());
       send(response, 200, accountModels.stats());
       return;
     }
     if (subscriptions && requestUrl.pathname === "/__subscription-fixture") {
+      if (request.method === "POST") subscriptions.configure(await read());
       send(response, 200, subscriptions.stats());
       return;
     }
     if (limits && requestUrl.pathname === "/__limits-fixture") {
-      if (request.method === "POST") limits.configure(await readJson(request));
+      if (request.method === "POST") limits.configure(await read());
       send(response, 200, limits.stats());
       return;
     }
@@ -252,7 +339,7 @@ export async function startGatewayFixture(input: {
     if (process.argv.includes("--probe-fixture")) {
       if (requestUrl.pathname === "/__probe-fixture") {
         if (request.method === "POST") {
-          const config = await readJson(request);
+          const config = await read();
           probeMode = String(config.mode ?? "ok");
         }
         send(response, 200, { ...probeStats, mode: probeMode });
@@ -264,7 +351,7 @@ export async function startGatewayFixture(input: {
         request.headers.authorization ===
           `Bearer ${input.secrets.personalControlToken}`
       ) {
-        const body = await readJson(request);
+        const body = await read();
         const refs = body.accountRefs as string[];
         const account = accounts.find(
           (item) => item.accountRef === refs?.[0] && item.state === "active",
@@ -319,7 +406,7 @@ export async function startGatewayFixture(input: {
           send(response, 403, safeError("forbidden", "probe-auth"));
           return;
         }
-        const body = await readJson(request);
+        const body = await read();
         if (match[2] === "close") {
           probeStats.closes++;
           send(response, 200, {
@@ -387,11 +474,85 @@ export async function startGatewayFixture(input: {
       return;
     }
     if (
+      requestUrl.pathname === "/v2/provider-connection-capabilities" &&
+      request.method === "GET"
+    ) {
+      send(response, 200, {
+        contract: "provider-connections/v2",
+        capabilities: catalog.map((profile) => ({
+          profileId: profile.profileId,
+          provider: { id: profile.provider, label: profile.label },
+          product: { id: profile.planId, label: profile.plan },
+          region: { id: "global", label: "Global" },
+          protocol: "openai-responses",
+          models: [
+            {
+              modelId: profile.model,
+              reasoning: null,
+              fast: null,
+              tools: { allowed: ["function"], default: "function" },
+            },
+          ],
+          methods:
+            profile.profileId === CODEX_MODEL_PROFILE && accountModels
+              ? accountModels.methods()
+              : profile.methods,
+          accountInfo: profile.profileId === CODEX_MODEL_PROFILE,
+          limitsContract: profile.limitsContract,
+          availability: "enabled",
+        })),
+      });
+      return;
+    }
+    if (
+      accountModels &&
+      requestUrl.pathname === "/v1/account-info/read" &&
+      request.method === "POST"
+    ) {
+      const result = accountModels.info(await read());
+      send(response, result.status, result.body);
+      return;
+    }
+    if (
+      accountModels &&
+      request.method === "POST" &&
+      (requestUrl.pathname === "/v1/accounts" ||
+        /^\/v1\/accounts\/[^/]+\/reconnect$/.test(requestUrl.pathname))
+    ) {
+      const result = accountModels.import(requestUrl.pathname, await read());
+      if (result) {
+        send(response, result.status, result.body);
+        return;
+      }
+    }
+    if (
       accountModels &&
       requestUrl.pathname === "/v1/account-models/read" &&
       request.method === "POST"
     ) {
-      const result = accountModels.read(await readJson(request));
+      const body = await read();
+      const account = accounts.find(
+        (row) => row.accountRef === body.accountRef,
+      );
+      // Each known account keeps the model reader belonging to its profile.
+      // Unknown accounts still reach the existing Codex authorization guard.
+      if (
+        subscriptions &&
+        connectionProfiles.some(
+          (profile) => profile.profileId === account?.profileId,
+        )
+      ) {
+        const result = await subscriptions.handle(
+          request.method,
+          requestUrl.pathname,
+          async () => body,
+        );
+        if (!result)
+          throw new Error("subscription_fixture_models_handler_missing");
+        send(response, result.status, result.body);
+        return;
+      }
+      const result = accountModels.read(body);
       send(response, result.status, result.body);
       return;
     }
@@ -399,7 +560,7 @@ export async function startGatewayFixture(input: {
       const result = await subscriptions.handle(
         request.method ?? "GET",
         requestUrl.pathname,
-        () => readJson(request),
+        read,
       );
       if (result) {
         send(response, result.status, result.body);
@@ -410,7 +571,7 @@ export async function startGatewayFixture(input: {
       const result = await limits.handle(
         request.method ?? "GET",
         requestUrl.pathname,
-        () => readJson(request),
+        read,
       );
       if (result) {
         send(response, result.status, result.body);
@@ -447,7 +608,8 @@ export async function startGatewayFixture(input: {
         send(response, 200, {
           ...account,
           authKind:
-            account.profileId === "grok-subscription-responses-oauth-v1"
+            account.profileId === "grok-subscription-responses-oauth-v1" ||
+            account.profileId === CODEX_MODEL_PROFILE
               ? "oauth"
               : "api_key",
           resumeCustody:
@@ -458,42 +620,16 @@ export async function startGatewayFixture(input: {
     }
     if (requestUrl.pathname === "/v1/profiles" && request.method === "GET") {
       send(response, 200, {
-        profiles: [
-          ...(accountModels
-            ? [
-                {
-                  profileId: CODEX_MODEL_PROFILE,
-                  protocol: "openai-responses",
-                  modelIds: ["gpt-5.6-sol"],
-                  authKinds: ["oauth"],
-                },
-              ]
-            : []),
-          ...(subscriptions
-            ? connectionProfiles.map((profile) => ({
-                profileId: profile.profileId,
-                protocol: "openai-responses",
-                modelIds: [profile.model],
-                authKinds: [profile.provider === "grok" ? "oauth" : "api_key"],
-              }))
-            : []),
-          {
-            profileId: FIXTURES.gateway.profileId,
-            protocol: "openai-responses",
-            modelIds: ["rr-e2e-model"],
-            authKinds: ["api_key"],
-          },
-          ...(limits
-            ? [
-                {
-                  profileId: FIXTURES.gateway.claudeProfileId,
-                  protocol: "openai-responses",
-                  modelIds: ["claude-sonnet-4-6"],
-                  authKinds: ["oauth"],
-                },
-              ]
-            : []),
-        ],
+        profiles: catalog.map((profile) => ({
+          profileId: profile.profileId,
+          protocol: "openai-responses",
+          modelIds: [profile.model],
+          authKinds: [
+            profile.methods.some((method) => method.kind === "api_key")
+              ? "api_key"
+              : "oauth",
+          ],
+        })),
       });
       return;
     }
@@ -528,6 +664,11 @@ export async function startGatewayFixture(input: {
       /^\/v1\/operations\/([A-Za-z0-9_-]+)$/,
     );
     if (operationMatch && request.method === "GET") {
+      const operation = accountModels?.operation(operationMatch[1]!);
+      if (operation) {
+        send(response, 200, operation);
+        return;
+      }
       send(response, 200, {
         operationRef: operationMatch[1],
         state: "applied",
@@ -544,7 +685,7 @@ export async function startGatewayFixture(input: {
       requestUrl.pathname === "/v1/policy-fences" &&
       request.method === "POST"
     ) {
-      const body = await readJson(request);
+      const body = await read();
       send(response, 200, {
         operationRef: String(body.operationId ?? "rr-e2e-fence"),
         state: "applied",
@@ -555,7 +696,7 @@ export async function startGatewayFixture(input: {
       /^\/v1\/accounts\/([A-Za-z0-9_-]+)\/disable$/,
     );
     if (disableMatch && request.method === "POST") {
-      const body = await readJson(request);
+      const body = await read();
       const account = accounts.find(
         (item) => item.accountRef === disableMatch[1],
       );

@@ -51,6 +51,7 @@ function toIntent(row: OperationRow): PersonalAccountIntent {
   // non-intent column. Gateway counters alone need bigint->safe-number mapping.
   return snapshotPersonalIntent({
     ...row,
+    credentialImportMethod: row.credentialImportMethod ?? undefined,
     ...(row.oauthMethod !== null ? { method: row.oauthMethod } : {}),
     expectedGatewayRevision: Number(row.expectedGatewayRevision),
     expectedAuthorizationEpoch: Number(row.expectedAuthorizationEpoch),

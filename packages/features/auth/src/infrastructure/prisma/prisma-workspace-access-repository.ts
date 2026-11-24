@@ -6,7 +6,7 @@ import type {
 import type { WorkspaceAccessRole } from "../../domain/workspace-access";
 
 export class PrismaWorkspaceAccessRepository implements WorkspaceAccessRepositoryPort {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: Pick<PrismaClient, "workspaceMember">) {}
 
   async findWorkspaceRoleByUserId(input: {
     readonly workspaceId: string;

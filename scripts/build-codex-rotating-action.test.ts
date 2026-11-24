@@ -37,7 +37,7 @@ describe("Codex rotating Action bundle reproducibility", () => {
       [
         "--input-type=module",
         "-e",
-        'import { readFileSync } from "node:fs"; import { normalizeDependencyWrapperLabels } from "./scripts/lib/codex-rotating-action-build.mjs"; process.stdout.write(normalizeDependencyWrapperLabels(readFileSync(0, "utf8")));',
+        'import { readFileSync } from "node:fs"; import { normalizeDependencyWrapperLabels } from "./scripts/lib/codex-rotating-action-build.ts"; process.stdout.write(normalizeDependencyWrapperLabels(readFileSync(0, "utf8")));',
       ],
       { input: source, encoding: "utf8" },
     );
@@ -154,7 +154,7 @@ function copyBuildInputs(sourceRoot: string, checkoutRoot: string) {
     "tsconfig.base.json",
     "scripts/build-codex-rotating-action.mjs",
     "scripts/codex-rotating-action-third-party-licenses.txt",
-    "scripts/lib/codex-rotating-action-build.mjs",
+    "scripts/lib/codex-rotating-action-build.ts",
     ...trackedFiles,
   ];
   for (const file of files) {

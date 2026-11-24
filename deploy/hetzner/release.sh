@@ -11,6 +11,7 @@
 #   deploy/hetzner/release.sh all     <sha> [--apply]
 #
 # RR_DRY_RUN=1 prints the ssh/scp/curl commands without running anything.
+# RR_SWAP_EXTRA_UPDATES=<json file> adds fleet-overlay env updates to the swap (see README.md).
 #
 # Needs: ssh access with passwordless sudo to $RR_HOST, a clean checkout of <sha> locally.
 # Does not touch the account gateway (see deploy/hetzner/db-grants/README.md and the
@@ -113,10 +114,26 @@ rm -f /home/iliya/worker-repository-sync.sql
 REMOTE
 }
 
+# Fail before build/backup/migrate when the extra updates file is missing or not a JSON array of objects.
+# The host repeats this check and fleet-overlay validates every update in the spec.
+check_extra_updates() {
+  local extra="${RR_SWAP_EXTRA_UPDATES:-}"
+  [ -n "$extra" ] || return 0
+  [ -f "$extra" ] || die "RR_SWAP_EXTRA_UPDATES is not a file: $extra"
+  python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); sys.exit(0 if isinstance(r,list) and r and all(isinstance(x,dict) for x in r) else 1)' "$extra" 2>/dev/null ||
+    die "RR_SWAP_EXTRA_UPDATES must be a non-empty JSON array of update objects"
+}
+
 cmd_swap() {
-  local sha="$1" apply="${2:-}"
+  local sha="$1" apply="${2:-}" extra="${RR_SWAP_EXTRA_UPDATES:-}"
+  if [ -n "$extra" ]; then
+    # Extra env updates ride in the same overlay spec and pass its full validation on the host.
+    copy_to_host /home/iliya/rr-swap-extra-updates.json "$extra"
+  fi
   copy_to_host /home/iliya/ "$ROOT/deploy/hetzner/fleet-overlay/fleet-overlay.mjs" "$ROOT/deploy/hetzner/fleet-overlay/cutover.mjs"
-  remote "SRC=$sha" "APPLY=$([ "$apply" = --apply ] && echo 1 || echo 0)" <<'REMOTE'
+  local args=("SRC=$sha" "APPLY=$([ "$apply" = --apply ] && echo 1 || echo 0)")
+  if [ -n "$extra" ]; then args+=("EXTRA=1"); fi
+  remote "${args[@]}" <<'REMOTE'
 set -euo pipefail
 R=/srv/platform/projects/review-router/releases
 # A plan and its later --apply may run within the same minute. Each prepare
@@ -126,12 +143,17 @@ ID=${I##*/}
 ID=${ID#overlay-inputs-}
 C=$R/fleet-overlay-$ID
 install -o root -g root -m 0600 /home/iliya/fleet-overlay.mjs /home/iliya/cutover.mjs "$I/"; rm -f /home/iliya/fleet-overlay.mjs /home/iliya/cutover.mjs
+X=""
+if [ "${EXTRA:-0}" = 1 ]; then
+  X="$I/extra-updates.json"
+  install -o root -g root -m 0600 /home/iliya/rr-swap-extra-updates.json "$X"; rm -f /home/iliya/rr-swap-extra-updates.json
+fi
 B=/srv/platform/projects/review-router/builds/rr-build-${SRC:0:12}
 [ "$(stat -c %u:%a "$B")" = 0:700 ] || { echo "build directory is not root-only" >&2; exit 1; }
 NEW=$(cat "$B/image.id")
-python3 - "$I" "$SRC" "$NEW" <<'PY'
+python3 - "$I" "$SRC" "$NEW" "$X" <<'PY'
 import json, subprocess, sys
-i, src, new = sys.argv[1:4]
+i, src, new, extra = sys.argv[1:5]
 api = "rr-api-credential-rotation-20261011-v1-api-1"
 cur = json.loads(subprocess.check_output(["docker", "inspect", api]))[0]
 names = {}
@@ -154,6 +176,19 @@ spec = {"machineId": open("/etc/machine-id").read().strip(), "network": net,
             {"key": "REVIEW_ROUTER_RUNTIME_RELEASE_COMMIT_SHA", "op": "set", "value": src},
             {"key": "REVIEW_ROUTER_RUNTIME_DEPLOYMENT_PROVENANCE", "op": "set", "value": new[7:]},
             {"key": "REVIEW_ROUTER_RUNTIME_ROLLOUT_ID", "op": "set", "value": f"rr-latest-app-{src[:8]}-{new[7:19]}"}]}
+if extra:
+    # Value and op checks are fleet-overlay's validateSpec. Here: the outer shape, no unknown fields (a typo
+    # such as "role" would silently widen an update to every role), no empty role list, identity keys untouched.
+    rows = json.load(open(extra))
+    fields = {"key", "op", "value", "roles", "containerOnly"}
+    if (not isinstance(rows, list) or not rows or not all(isinstance(r, dict) and set(r) <= fields for r in rows)
+            or not all(isinstance(r.get("roles", ["all roles"]), list) and r.get("roles", ["all roles"]) for r in rows)):
+        raise SystemExit("swap: RR_SWAP_EXTRA_UPDATES must be a non-empty JSON array of update objects")
+    identity = {u["key"] for u in spec["updates"]}
+    if any(r.get("key") in identity for r in rows):
+        raise SystemExit("swap: RR_SWAP_EXTRA_UPDATES must not touch the release identity keys")
+    spec["updates"] += rows
+    print("extra updates: " + ", ".join(f'{r.get("key")} {r.get("op")} {",".join(map(str, r.get("roles", ["all roles"])))}' for r in rows))
 json.dump(spec, open(i + "/overlay-spec.json", "w"), indent=1)
 PY
 chmod 0600 "$I/overlay-spec.json"
@@ -206,10 +241,10 @@ main() {
     build) need_sha "${1:-}"; cmd_build "$1" ;;
     backup) cmd_backup ;;
     migrate) need_sha "${1:-}"; cmd_migrate "$1" ;;
-    swap) need_sha "${1:-}"; cmd_swap "$1" "${2:-}" ;;
+    swap) need_sha "${1:-}"; check_extra_updates; cmd_swap "$1" "${2:-}" ;;
     verify) need_sha "${1:-}"; cmd_verify "$1" ;;
-    all) need_sha "${1:-}"; cmd_build "$1"; cmd_backup; cmd_migrate "$1"; cmd_swap "$1" "${2:-}"; if [ "${2:-}" = --apply ]; then cmd_verify "$1"; fi ;;
-    *) sed -n '2,17p' "$0"; exit 2 ;;
+    all) need_sha "${1:-}"; check_extra_updates; cmd_build "$1"; cmd_backup; cmd_migrate "$1"; cmd_swap "$1" "${2:-}"; if [ "${2:-}" = --apply ]; then cmd_verify "$1"; fi ;;
+    *) sed -n '2,18p' "$0"; exit 2 ;;
   esac
 }
 main "$@"

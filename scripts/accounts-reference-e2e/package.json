@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "tsc --noEmit -p tsconfig.json",
+    "check": "node ../local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json",
     "e2e": "node --import tsx src/run.ts",
     "test": "playwright test -c playwright.config.ts"
   },

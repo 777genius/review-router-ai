@@ -1,7 +1,7 @@
 /*! ReviewRouter Action third-party notices
 Bundled dependency identity:
 @vioxen/subscription-runtime 0.1.0-main.28
-777genius/ar@83a7329f4383b05ac5c39356b79f82f029182d42
+777genius/ar@c7543bc716411a5f899a790a735d09ed2530f779
 
                                  Apache License
                            Version 2.0, January 2004

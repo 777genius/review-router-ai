@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  computeProgressSnapshot,
+  formatGithubProgressComment,
+} from "../packages/features/review-progress/src/index.js";
+import {
   assertMonotonic,
   assertRerunAttempt,
   createInstallationGitHub,
@@ -243,6 +247,99 @@ describe("hosted live-progress canary", () => {
         exact.replace("run-id=123", "run-id=123 --><script>"),
       ),
     ).toThrow("hosted_progress_canary_comment_source_invalid");
+  });
+
+  it("parses the comment exactly as the hosted formatter renders it", () => {
+    const body = formatGithubProgressComment(
+      computeProgressSnapshot({
+        generation: 1,
+        sourceIdentity: { sourceRunId: "123", sourceRunAttempt: "2" },
+        phase: "reviewing",
+        terminal: "none",
+        updatedAt: "2026-08-13T10:00:01.000Z",
+        slots: [
+          { slotId: "a", required: true, state: "accepted" },
+          { slotId: "b", required: true, state: "exhausted" },
+        ],
+        assignmentManifest: {
+          paths: [
+            {
+              pathId: "covered",
+              disposition: "reviewable",
+              requiredCoveringSlotIds: ["a"],
+            },
+          ],
+          excludedCount: 1,
+        },
+      }),
+    );
+    expect(
+      parseProgressComment(comment(41, body), configFixture(), {
+        sourceRunId: "123",
+        sourceRunAttempt: "2",
+      }),
+    ).toMatchObject({
+      phase: "Reviewing",
+      completedUnits: 1,
+      totalUnits: 2,
+      coveredFiles: 1,
+      totalFiles: 1,
+      unassignedFiles: 0,
+      excludedFiles: 1,
+      exhaustedUnits: 1,
+    });
+    expect(
+      parseProgressComment(
+        comment(
+          41,
+          body.replace(/^Parts that could not be finished.*\n/mu, ""),
+        ),
+        configFixture(),
+      ).exhaustedUnits,
+    ).toBe(0);
+  });
+
+  it("reads an incomplete comment without a file count as a baseline", () => {
+    // An incomplete review with accepted parts drops the per-file count
+    // (plan 87); a canary run must still start from such a comment.
+    const body = formatGithubProgressComment(
+      computeProgressSnapshot({
+        generation: 1,
+        sourceIdentity: { sourceRunId: "123", sourceRunAttempt: "2" },
+        phase: "terminal",
+        terminal: "complete_with_gaps",
+        updatedAt: "2026-08-13T10:00:01.000Z",
+        slots: [
+          { slotId: "a", required: true, state: "accepted" },
+          { slotId: "b", required: true, state: "accepted" },
+        ],
+        assignmentManifest: {
+          paths: [
+            {
+              pathId: "covered",
+              disposition: "reviewable",
+              requiredCoveringSlotIds: ["a"],
+            },
+          ],
+        },
+      }),
+    );
+    expect(body).not.toContain("Files fully reviewed");
+    const parsed = parseProgressComment(comment(41, body), configFixture());
+    expect(parsed).toMatchObject({
+      phase: "Review incomplete",
+      coveredFiles: null,
+      totalFiles: null,
+    });
+    // A later comment with a count is not a monotonicity break.
+    expect(() =>
+      assertMonotonic(parsed, {
+        ...parsed,
+        updatedAt: "2026-08-13T10:00:05.000Z",
+        coveredFiles: 0,
+        totalFiles: 1,
+      }),
+    ).not.toThrow();
   });
 
   it("proves one bot/app comment ID, dynamic updates and exact terminal coverage", async () => {
@@ -492,7 +589,7 @@ function progress(
   files: number,
   second: number,
 ) {
-  return `<!-- review-router-live-progress -->\n<!-- review-router-live-progress-source run-id=123 run-attempt=2 -->\n**Phase:** ${phase}\nReview units: ${completed} of ${total} complete (50%)\nFiles in completed units: ${covered} of ${files}\nFiles not assigned: 0\nFiles unavailable or excluded: 0\nUnits not completed after retries: 0\nLast update: 2026-08-13 10:00:0${second} UTC`;
+  return `<!-- review-router-live-progress -->\n<!-- review-router-live-progress-source run-id=123 run-attempt=2 -->\n**Phase:** ${phase}\nProgress: ${completed} of ${total} parts reviewed (50%)\nFiles fully reviewed: ${covered} of ${files}\nFiles not assigned to any part: 0\nFiles skipped (unavailable or excluded): 0\nLast update: 2026-08-13 10:00:0${second} UTC`;
 }
 function observation(
   completedUnits: number,

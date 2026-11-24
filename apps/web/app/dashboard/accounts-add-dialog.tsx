@@ -1,55 +1,39 @@
 "use client";
 
-import {
-  createContext,
-  useContext,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Button, Dialog, SelectField } from "@reviewrouter/ui";
 import { accountsCopy } from "./accounts-copy";
-
-/**
- * Closes the Add dialog to reveal the Connections list right under it. Null
- * outside the dialog, where callers link to the list instead.
- */
-const ShowConnectionsListContext = createContext<(() => void) | null>(null);
-export const useShowConnectionsList = () =>
-  useContext(ShowConnectionsListContext);
 
 export function AccountsAddDialog({
   personalConnect,
   organizationConnect,
   workspaceName,
-  initiallyOpen = false,
-  initialOwnership = "personal",
 }: {
   personalConnect: ReactNode;
   organizationConnect: ReactNode;
   workspaceName: string;
-  initiallyOpen?: boolean;
-  initialOwnership?: "personal" | "organization";
 }) {
-  const [open, setOpen] = useState(initiallyOpen);
-  const [path, setPath] = useState(initialOwnership);
+  const [open, setOpen] = useState(false);
+  const [path, setPath] = useState<"personal" | "organization">("personal");
   const cancel = useRef<HTMLButtonElement>(null);
   const popup = useRef<HTMLDivElement>(null);
   function clearUnsubmittedCredentials() {
     popup.current
-      ?.querySelectorAll<HTMLInputElement>(
-        'input[type="password"], input[name="callbackURL"], input[name="authorizationCode"]',
-      )
+      ?.querySelectorAll<
+        HTMLInputElement | HTMLTextAreaElement
+      >('input[type="password"], input[name="callbackURL"], input[name="authorizationCode"], textarea[name="credential"], input[name="credentialFile"]')
       .forEach((field) => {
         field.value = "";
+        field.dispatchEvent(new Event("input", { bubbles: true }));
       });
   }
+  // Closes the dialog to reveal the Connections list right under it.
   function showConnectionsList() {
     clearUnsubmittedCredentials();
     setOpen(false);
   }
   return (
-    <ShowConnectionsListContext.Provider value={showConnectionsList}>
+    <>
       <Dialog.Root
         open={open}
         onOpenChange={(next) => {
@@ -116,6 +100,6 @@ export function AccountsAddDialog({
           </Dialog.Popup>
         </Dialog.Portal>
       </Dialog.Root>
-    </ShowConnectionsListContext.Provider>
+    </>
   );
 }

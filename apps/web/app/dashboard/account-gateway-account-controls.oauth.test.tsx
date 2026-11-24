@@ -43,10 +43,6 @@ import {
 import { AccountsAddDialog } from "./accounts-add-dialog";
 import { accountsCopy, removeFromWorkspaceCopy } from "./accounts-copy";
 import {
-  GatewayModelAccountsProvider,
-  type GatewayModelAccountsApi,
-} from "./gateway-model-account-options";
-import {
   AccountGatewayControls,
   type AccountGatewayManagementApi,
 } from "./account-gateway-account-controls";
@@ -122,12 +118,6 @@ test.each(apiKeyProviders)(
         bootstrap={bootstrap}
         connectOnly
         workspaceId="workspace-selected"
-        setupIntent={{
-          provider: provider.id,
-          storage: "reviewrouter",
-          workspaceId: "workspace-selected",
-          repositoryIds: ["repo-kept"],
-        }}
       />,
     );
     const input = await screen.findByLabelText("API key");
@@ -140,7 +130,7 @@ test.each(apiKeyProviders)(
     const url = new URL(link.getAttribute("href")!, "https://example.test");
     expect(url.searchParams.get("workspace")).toBe("workspace-selected");
     expect(url.searchParams.get("keyProvider")).toBe(provider.id);
-    expect(url.searchParams.getAll("keyRepository")).toEqual(["repo-kept"]);
+    expect(url.searchParams.getAll("keyRepository")).toEqual([]);
     expect(url.href).not.toContain("synthetic-transient-key");
     fireEvent.click(screen.getByRole("radio", { name: "ReviewRouter" }));
     expect(screen.getByLabelText("API key")).toHaveProperty("value", "");
@@ -148,452 +138,6 @@ test.each(apiKeyProviders)(
     expect(beginGatewayOAuth).not.toHaveBeenCalled();
   },
 );
-
-test("an explicit ReviewRouter continuation opens the OpenRouter key form without another Add action and keeps one-off submission custody", async () => {
-  const bootstrap = {
-    context,
-    page: {
-      status: "ok" as const,
-      value: {
-        profiles: [
-          page.profiles[1]!,
-          {
-            id: "profile-openrouter",
-            label: "OpenRouter",
-            authKind: "api_key" as const,
-            provider: "openrouter" as const,
-            protocol: "openai-responses" as const,
-            models: ["openai/model"],
-          },
-        ],
-        accounts: [],
-        nextCursor: null,
-      },
-    },
-  };
-  const connected: AccountView = {
-    ...row("active"),
-    connectionId: "openrouter-connection",
-    label: "Workspace OpenRouter",
-    profileId: "profile-openrouter",
-    profileLabel: "OpenRouter",
-    provider: "openrouter",
-    authKind: "api_key",
-    canManage: true,
-    binding: null,
-  };
-  let madeAvailable = false;
-  vi.mocked(listGatewayAccounts).mockImplementation(async () => ({
-    status: "ok",
-    value: {
-      ...bootstrap.page.value,
-      accounts: [
-        {
-          ...connected,
-          binding: madeAvailable
-            ? {
-                id: "openrouter-binding",
-                revision: 1,
-                state: "active",
-                fencePending: false,
-              }
-            : null,
-        },
-      ],
-    },
-  }));
-  vi.mocked(submitGatewayApiKey).mockImplementation(
-    async (_context, request) => ({
-      status: "ok",
-      value: {
-        nonce: request.nonce,
-        state: "applied",
-        cleanup: "unresolved",
-        account: connected,
-      },
-    }),
-  );
-  vi.mocked(bindGatewayAccount).mockImplementation(async () => {
-    madeAvailable = true;
-    return { status: "ok", value: { label: connected.label } };
-  });
-  const props = {
-    bootstrap,
-    workspaceId: "workspace-selected",
-    setupIntent: {
-      provider: "openrouter" as const,
-      storage: "reviewrouter" as const,
-      workspaceId: "workspace-selected",
-      repositoryIds: ["repo-kept"],
-    },
-    initiallyOpenConnect: true,
-  };
-  const rendered = render(<AccountGatewayControls {...props} />);
-  const dialog = await screen.findByRole("dialog", {
-    name: "Connect a provider",
-  });
-  expect(
-    within(dialog).getByRole("combobox", { name: "Provider" }).textContent,
-  ).toContain("OpenRouter");
-  expect(
-    within(dialog).getByText(/This connection belongs to this workspace/),
-  ).toBeTruthy();
-  const input = within(dialog).getByLabelText("API key");
-  expect(beginGatewayOAuth).not.toHaveBeenCalled();
-  expect(submitGatewayApiKey).not.toHaveBeenCalled();
-  fireEvent.change(input, {
-    target: { value: "synthetic-inline-openrouter-key" },
-  });
-  const submit = within(dialog).getByRole("button", {
-    name: "Connect account",
-  });
-  await waitFor(() => expect(submit).toHaveProperty("disabled", false));
-  fireEvent.click(submit);
-  await waitFor(() =>
-    expect(submitGatewayApiKey).toHaveBeenCalledExactlyOnceWith(
-      context,
-      expect.objectContaining({
-        kind: "connect",
-        profileId: "profile-openrouter",
-      }),
-      "synthetic-inline-openrouter-key",
-    ),
-  );
-  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  const continueSetup = await screen.findByRole("button", {
-    name: "Make available and continue",
-  });
-  await waitFor(() => expect(continueSetup).toHaveProperty("disabled", false));
-  fireEvent.click(continueSetup);
-  await waitFor(() => expect(navigation.push).toHaveBeenCalledTimes(1));
-  expect(bindGatewayAccount).toHaveBeenCalledExactlyOnceWith(context, {
-    connectionId: connected.connectionId,
-    mirrorRevision: 1,
-    gatewayRevision: 1,
-    bindingRevision: 0,
-  });
-  const destination = new URL(
-    navigation.push.mock.calls[0]![0] as string,
-    "https://example.test",
-  );
-  expect(destination.searchParams.get("workspace")).toBe("workspace-selected");
-  expect(destination.searchParams.get("keyProvider")).toBe("openrouter");
-  expect(destination.searchParams.getAll("keyRepository")).toEqual([
-    "repo-kept",
-  ]);
-  rendered.rerender(<AccountGatewayControls {...props} />);
-  expect(screen.queryByRole("dialog")).toBeNull();
-  expect(document.body.innerHTML).not.toContain(
-    "synthetic-inline-openrouter-key",
-  );
-  expect(JSON.stringify(storageWrites.mock.calls)).not.toContain(
-    "synthetic-inline-openrouter-key",
-  );
-  expect([...clients].map(caches).join("\n")).not.toContain(
-    "synthetic-inline-openrouter-key",
-  );
-});
-
-test.each([false, true])(
-  "workspace setup continuation navigates only after an available binding (already bound: %s)",
-  async (alreadyBound) => {
-    const connected: AccountView = {
-      ...row("active"),
-      label: "Workspace OpenRouter",
-      profileId: "profile-openrouter",
-      profileLabel: "OpenRouter",
-      provider: "openrouter",
-      authKind: "api_key",
-      canManage: true,
-      binding: alreadyBound
-        ? {
-            id: "existing-binding",
-            revision: 1,
-            state: "active",
-            fencePending: false,
-          }
-        : null,
-    };
-    page = {
-      ...page,
-      profiles: [
-        {
-          id: connected.profileId,
-          label: "OpenRouter",
-          protocol: "openai-responses",
-          authKind: "api_key",
-          provider: "openrouter",
-          models: ["openai/model"],
-        },
-      ],
-      accounts: [connected],
-    };
-    sessionStorage.setItem(storageKey, JSON.stringify([savedNonce]));
-    vi.mocked(readGatewayOperation).mockResolvedValue({
-      status: "ok",
-      value: {
-        nonce: savedNonce,
-        state: "applied",
-        cleanup: "unresolved",
-        account: connected,
-      },
-    });
-    vi.mocked(bindGatewayAccount).mockResolvedValue({ status: "denied" });
-    render(
-      <AccountGatewayControls
-        bootstrap={{ context, page: { status: "ok", value: page } }}
-        workspaceId="workspace-selected"
-        setupIntent={{
-          provider: "openrouter",
-          storage: "reviewrouter",
-          workspaceId: "workspace-selected",
-          repositoryIds: ["repo-kept"],
-        }}
-      />,
-    );
-    const proceed = await screen.findByRole("button", {
-      name: alreadyBound
-        ? "Continue provider setup"
-        : "Make available and continue",
-    });
-    await waitFor(() => expect(proceed).toHaveProperty("disabled", false));
-    expect(navigation.push).not.toHaveBeenCalled();
-    fireEvent.click(proceed);
-    if (alreadyBound) {
-      await waitFor(() => expect(navigation.push).toHaveBeenCalledTimes(1));
-      expect(bindGatewayAccount).not.toHaveBeenCalled();
-    } else {
-      await waitFor(() => expect(bindGatewayAccount).toHaveBeenCalledTimes(1));
-      await screen.findByRole("alert");
-      expect(navigation.push).not.toHaveBeenCalled();
-      expect(
-        screen.getByRole("button", { name: "Make available and continue" }),
-      ).toBeTruthy();
-    }
-    expect(submitGatewayApiKey).not.toHaveBeenCalled();
-    expect(beginGatewayOAuth).not.toHaveBeenCalled();
-  },
-);
-
-test.each([false, true])(
-  "a completed personal connection keeps workspace access explicit before provider continuation (inside Add dialog: %s)",
-  async (insideAddDialog) => {
-    const connected: AccountView = {
-      ...row("active"),
-      profileId: "profile-openrouter",
-      profileLabel: "OpenRouter",
-      provider: "openrouter",
-      authKind: "api_key",
-      canManage: true,
-      binding: null,
-    };
-    page = {
-      ...page,
-      profiles: [
-        {
-          id: connected.profileId,
-          label: "OpenRouter",
-          protocol: "openai-responses",
-          authKind: "api_key",
-          provider: "openrouter",
-          models: ["openai/model"],
-        },
-      ],
-      accounts: [connected],
-    };
-    const api = personalApi();
-    api.readGatewayOperation.mockResolvedValue({
-      status: "ok",
-      value: {
-        nonce: savedNonce,
-        state: "applied",
-        cleanup: "unresolved",
-        account: connected,
-      },
-    });
-    sessionStorage.setItem(
-      `rr-c3-account-operations:personal:workspace-user`,
-      JSON.stringify([savedNonce]),
-    );
-    const controls = (
-      <AccountGatewayControls
-        bootstrap={{ context, page: { status: "ok", value: page } }}
-        managementScope="personal"
-        api={api}
-        workspaceId="workspace-selected"
-        setupIntent={{
-          provider: "openrouter",
-          storage: "reviewrouter",
-          workspaceId: "workspace-selected",
-          repositoryIds: ["repo-kept"],
-        }}
-        connectOnly={insideAddDialog}
-      />
-    );
-    const grant = vi.fn();
-    render(
-      insideAddDialog ? (
-        <>
-          <AccountsAddDialog
-            workspaceName="Selected workspace"
-            initiallyOpen
-            personalConnect={controls}
-            organizationConnect={null}
-          />
-          <button onClick={grant}>Grant workspace access</button>
-        </>
-      ) : (
-        controls
-      ),
-    );
-    const access = await screen.findByRole(
-      insideAddDialog ? "button" : "link",
-      {
-        name: "Manage workspace access",
-      },
-    );
-    if (insideAddDialog) {
-      expect(screen.getByRole("dialog", { name: "Add account" })).toBeTruthy();
-      // The connections list sits right under the dialog it closes.
-      fireEvent.click(access);
-      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-      expect(
-        screen.getAllByRole("button", { name: "Grant workspace access" }),
-      ).toHaveLength(1);
-      expect(grant).not.toHaveBeenCalled();
-    } else {
-      const destination = new URL(
-        access.getAttribute("href")!,
-        "https://example.test",
-      );
-      expect(destination.hash).toBe("#your-accounts");
-      expect(destination.searchParams.getAll("keyRepository")).toEqual([
-        "repo-kept",
-      ]);
-    }
-    expect(bindGatewayAccount).not.toHaveBeenCalled();
-    expect(navigation.push).not.toHaveBeenCalled();
-  },
-);
-
-test("shared personal continuation uses provider readiness across canonical and opaque binding identities", async () => {
-  const canonical: AccountView = {
-    ...row("active"),
-    connectionId: "canonical-owned-source",
-    profileId: "profile-openrouter",
-    profileLabel: "OpenRouter",
-    provider: "openrouter",
-    authKind: "api_key",
-    canManage: true,
-    binding: null,
-  };
-  const profile: AccountsPage["profiles"][number] = {
-    id: canonical.profileId,
-    label: "OpenRouter",
-    protocol: "openai-responses",
-    authKind: "api_key",
-    provider: "openrouter",
-    models: ["openai/model"],
-  };
-  page = { ...page, profiles: [profile], accounts: [canonical] };
-  const opaque = {
-    ...canonical,
-    connectionId: "workspace-opaque-binding",
-    canManage: false,
-    binding: {
-      id: "workspace-opaque-binding",
-      revision: 1,
-      state: "active" as const,
-      fencePending: false,
-    },
-  };
-  const models: GatewayModelAccountsApi = {
-    list: vi.fn(async () => ({
-      status: "ok" as const,
-      value: { profiles: [profile], accounts: [opaque], nextCursor: null },
-    })),
-    get: vi.fn(),
-  };
-  const api = personalApi();
-  api.readGatewayOperation.mockResolvedValue({
-    status: "ok",
-    value: {
-      nonce: savedNonce,
-      state: "applied",
-      cleanup: "unresolved",
-      account: canonical,
-    },
-  });
-  sessionStorage.setItem(
-    "rr-c3-account-operations:personal:workspace-user",
-    JSON.stringify([savedNonce]),
-  );
-  render(
-    <GatewayModelAccountsProvider
-      scope="viewer:workspace:workspace-selected"
-      api={models}
-    >
-      <AccountGatewayControls
-        bootstrap={{ context, page: { status: "ok", value: page } }}
-        managementScope="personal"
-        api={api}
-        workspaceId="workspace-selected"
-        setupIntent={{
-          provider: "openrouter",
-          storage: "reviewrouter",
-          workspaceId: "workspace-selected",
-          repositoryIds: ["repo-kept"],
-        }}
-      />
-    </GatewayModelAccountsProvider>,
-  );
-  await screen.findByText(
-    "A connection for this provider is available to this workspace. Continue to choose which connection to use.",
-  );
-  expect(canonical.connectionId).not.toBe(opaque.connectionId);
-  expect(screen.queryByText(/Choose workspace access before using/)).toBeNull();
-  expect(
-    screen.getByRole("link", { name: "Manage workspace access" }),
-  ).toBeTruthy();
-  const proceed = screen.getByRole("button", {
-    name: "Continue provider setup",
-  });
-  await waitFor(() => expect(proceed).toHaveProperty("disabled", false));
-  fireEvent.click(proceed);
-  await waitFor(() => expect(navigation.push).toHaveBeenCalledTimes(1));
-  const destination = new URL(
-    navigation.push.mock.calls[0]![0] as string,
-    "https://example.test",
-  );
-  expect(destination.searchParams.get("keyProvider")).toBe("openrouter");
-  expect(destination.searchParams.getAll("keyRepository")).toEqual([
-    "repo-kept",
-  ]);
-  expect(bindGatewayAccount).not.toHaveBeenCalled();
-  expect(api.submitGatewayApiKey).not.toHaveBeenCalled();
-});
-
-test("a restored pending operation suppresses automatic enrollment for a connection continuation", async () => {
-  sessionStorage.setItem(storageKey, JSON.stringify([savedNonce]));
-  render(
-    <AccountGatewayControls
-      bootstrap={{ context, page: { status: "ok", value: page } }}
-      workspaceId="workspace-selected"
-      setupIntent={{
-        provider: "codex",
-        storage: "reviewrouter",
-        workspaceId: "workspace-selected",
-        repositoryIds: [],
-      }}
-      initiallyOpenConnect
-    />,
-  );
-  await screen.findByText("Waiting for completion");
-  expect(screen.queryByRole("dialog")).toBeNull();
-  expect(readGatewayOperation).toHaveBeenCalledWith(context, savedNonce);
-  expect(beginGatewayOAuth).not.toHaveBeenCalled();
-  expect(submitGatewayApiKey).not.toHaveBeenCalled();
-});
 
 test("the provider-first connect dialog changes forms without enrollment and clears one-off keys on switch and cancel", async () => {
   await mount();
@@ -628,67 +172,6 @@ test("the provider-first connect dialog changes forms without enrollment and cle
   );
   expect(beginGatewayOAuth).not.toHaveBeenCalled();
   expect(submitGatewayApiKey).not.toHaveBeenCalled();
-});
-
-test("non-inline account enrollment preserves a second-profile intent in its visible choice and submission", async () => {
-  const profiles = [
-    {
-      id: "profile-openrouter",
-      label: "OpenRouter",
-      authKind: "api_key" as const,
-      provider: "openrouter" as const,
-      protocol: "openai-responses" as const,
-      models: ["openai/model"],
-    },
-    {
-      id: "profile-mimo",
-      label: "MiMo",
-      authKind: "api_key" as const,
-      provider: "codex-mimo" as const,
-      protocol: "openai-responses" as const,
-      models: ["mimo-v2.6-pro"],
-      dedicatedBaseURL: "https://token-plan-sgp.xiaomimimo.com/v1",
-    },
-  ];
-  render(
-    <AccountGatewayControls
-      bootstrap={{
-        context,
-        page: {
-          status: "ok",
-          value: { profiles, accounts: [], nextCursor: null },
-        },
-      }}
-      workspaceId="workspace-selected"
-      setupIntent={{
-        provider: "mimo",
-        storage: "reviewrouter",
-        workspaceId: "workspace-selected",
-        repositoryIds: [],
-      }}
-    />,
-  );
-  const dialog = await openConnectionDialog();
-  expect(
-    within(dialog).getByRole("combobox", { name: "Provider" }).textContent,
-  ).toContain("MiMo");
-  fireEvent.change(within(dialog).getByLabelText("API key"), {
-    target: { value: "synthetic-intended-mimo-key" },
-  });
-  fireEvent.click(
-    within(dialog).getByRole("button", { name: "Connect account" }),
-  );
-  await waitFor(() =>
-    expect(submitGatewayApiKey).toHaveBeenCalledWith(
-      context,
-      expect.objectContaining({
-        kind: "connect",
-        profileId: "profile-mimo",
-        baseURL: "https://token-plan-sgp.xiaomimimo.com/v1",
-      }),
-      "synthetic-intended-mimo-key",
-    ),
-  );
 });
 
 function safeOperation(
@@ -1203,6 +686,77 @@ test("personal OAuth injection preserves the existing one-off handoff and comple
   expect(api.beginGatewayOAuth).toHaveBeenCalledTimes(1);
   assertNoCapability();
   assertNoCallback();
+});
+test("personal import continuation associates byte-limit errors and preserves the original operation", async () => {
+  sessionStorage.setItem(
+    "rr-c3-account-operations:personal:workspace-user",
+    JSON.stringify([savedNonce]),
+  );
+  const resume = {
+    kind: "reconnect" as const,
+    connectionId: "own-source",
+    profileId: oauthProfileId,
+    gatewayRevision: 17,
+    mirrorRevision: 4,
+    credentialImportMethod: "oauth_auth_json" as const,
+  };
+  const api = personalApi();
+  api.readGatewayOperation.mockResolvedValue({
+    status: "ok",
+    value: {
+      nonce: savedNonce,
+      state: "pending",
+      cleanup: "unresolved",
+      resume,
+    },
+  });
+  await mount({ api, managementScope: "personal" });
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Continue account import" }),
+  );
+  const dialog = await screen.findByRole("dialog", {
+    name: "Continue account import",
+  });
+  const field = within(dialog).getByLabelText("Codex auth.json");
+  const file = within(dialog).getByLabelText("Or choose an auth.json file");
+  const submit = within(dialog).getByRole("button", {
+    name: "Continue update",
+  });
+  fireEvent.input(field, { target: { value: "é".repeat(32769) } });
+  fireEvent.click(submit);
+  const validation = within(dialog).getByRole("alert");
+  expect(validation.textContent).toBe("Enter valid text of 64 KiB or smaller.");
+  for (const input of [field, file]) {
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(input.getAttribute("aria-describedby")).toBe(validation.id);
+  }
+  expect(api.submitGatewayApiKey).not.toHaveBeenCalled();
+  const secret =
+    '{"tokens":{"refresh_token":"synthetic-personal-resume-token"}}';
+  fireEvent.input(field, { target: { value: secret } });
+  expect(within(dialog).queryByRole("alert")).toBeNull();
+  for (const input of [field, file]) {
+    expect(input.hasAttribute("aria-invalid")).toBe(false);
+    expect(input.hasAttribute("aria-describedby")).toBe(false);
+  }
+  fireEvent.click(submit);
+  await waitFor(() => expect(api.submitGatewayApiKey).toHaveBeenCalledTimes(1));
+  expect(api.submitGatewayApiKey).toHaveBeenCalledWith(
+    context,
+    { ...resume, nonce: savedNonce },
+    secret,
+  );
+  expect(api.beginGatewayOAuth).not.toHaveBeenCalled();
+  expect(api.completeGatewayOAuth).not.toHaveBeenCalled();
+  expect((field as HTMLTextAreaElement).value).toBe("");
+  expect(
+    [
+      document.body.innerHTML,
+      ...cacheSnapshots,
+      ...[...clients].map(caches),
+      JSON.stringify(storageWrites.mock.calls),
+    ].join("\n"),
+  ).not.toContain(secret);
 });
 test.each(["applied", "lost_ack"] as const)(
   "personal key continuation keeps original nonce and discards deferred ready reads (%s)",
@@ -3227,3 +2781,126 @@ test("remount reauthorizes cached inventory before enabling pagination or exposi
     ),
   );
 });
+
+test.each(["refresh_token", "oauth_auth_json"] as const)(
+  "Codex %s uses a one-off import without entering query caches or OAuth completion",
+  async (method) => {
+    const secret =
+      method === "refresh_token"
+        ? "synthetic-import-refresh-token"
+        : '{"tokens":{"refresh_token":"synthetic-import-auth-json"}}';
+    page = {
+      ...page,
+      accounts: [],
+      profiles: [
+        {
+          id: oauthProfileId,
+          label: "Codex",
+          authKind: "oauth",
+          canReconnect: true,
+          protocol: "openai-responses",
+          models: ["codex"],
+          oauthMethods: ["browser"],
+          connection: {
+            provider: "openai",
+            planLabel: "Codex subscription",
+            regionLabel: "Global",
+            completionInputKind: "callback_url",
+            limitsContract: "account-limits/v2",
+            modelSettings: [],
+            methods: [
+              { kind: "browser", create: true, reconnect: false },
+              {
+                kind: "credential_import",
+                method,
+                maxBytes: 65536,
+                create: true,
+                reconnect: true,
+              },
+            ],
+          },
+        },
+      ],
+    };
+    vi.mocked(submitGatewayApiKey).mockImplementation(
+      async (_context, intent) => safeOperation(intent.nonce),
+    );
+    await mount();
+    const dialog = await openConnectionDialog();
+    fireEvent.click(
+      within(dialog).getByRole("combobox", { name: "Sign-in method" }),
+    );
+    const option = await screen.findByRole("option", {
+      name:
+        method === "refresh_token"
+          ? "Import Refresh token"
+          : "Import Codex auth.json",
+    });
+    fireEvent.mouseMove(option);
+    fireEvent.click(option);
+    const field = within(dialog).getByLabelText(
+      method === "refresh_token" ? "Refresh token" : "Codex auth.json",
+    );
+    const submit = within(dialog).getByRole("button", {
+      name:
+        method === "refresh_token"
+          ? "Import Refresh token"
+          : "Import Codex auth.json",
+    });
+    // Below the character limit, but above the UTF-8 byte limit.
+    fireEvent.input(field, { target: { value: "é".repeat(32769) } });
+    fireEvent.click(submit);
+    const validation = within(dialog).getByRole("alert");
+    expect(validation.textContent).toBe(
+      "Enter valid text of 64 KiB or smaller.",
+    );
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(field.getAttribute("aria-describedby")).toBe(validation.id);
+    const file = within(dialog).queryByLabelText("Or choose an auth.json file");
+    if (method === "oauth_auth_json") {
+      expect(file?.getAttribute("aria-invalid")).toBe("true");
+      expect(file?.getAttribute("aria-describedby")).toBe(validation.id);
+    }
+    expect(submitGatewayApiKey).not.toHaveBeenCalled();
+    expect(beginGatewayOAuth).not.toHaveBeenCalled();
+    fireEvent.input(field, { target: { value: secret } });
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+    expect(field.hasAttribute("aria-invalid")).toBe(false);
+    expect(field.hasAttribute("aria-describedby")).toBe(false);
+    if (file) {
+      expect(file.hasAttribute("aria-invalid")).toBe(false);
+      expect(file.hasAttribute("aria-describedby")).toBe(false);
+    }
+    fireEvent.click(
+      within(dialog).getByRole("button", {
+        name:
+          method === "refresh_token"
+            ? "Import Refresh token"
+            : "Import Codex auth.json",
+      }),
+    );
+    await waitFor(() => expect(submitGatewayApiKey).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(submitGatewayApiKey).mock.calls[0]).toEqual([
+      context,
+      expect.objectContaining({
+        kind: "connect",
+        profileId: oauthProfileId,
+        credentialImportMethod: method,
+      }),
+      secret,
+    ]);
+    expect(beginGatewayOAuth).not.toHaveBeenCalled();
+    expect(completeGatewayOAuth).not.toHaveBeenCalled();
+    expect(
+      screen.queryByLabelText(/Authorization result|Callback URL/),
+    ).toBeNull();
+    expect(document.body.innerHTML).not.toContain(secret);
+    expect(
+      [
+        ...cacheSnapshots,
+        ...[...clients].map(caches),
+        JSON.stringify(storageWrites.mock.calls),
+      ].join("\n"),
+    ).not.toContain(secret);
+  },
+);

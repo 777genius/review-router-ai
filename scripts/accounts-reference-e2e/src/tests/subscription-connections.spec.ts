@@ -1,9 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
 import { subscriptionProfiles } from "../subscription-fixture.ts";
 import {
+  chooseSetupOption as choose,
+  expectNoHorizontalOverflow,
+} from "./provider-setup-support.ts";
+import {
+  connectionsListRegion,
   expectNetworkViolations,
   installLoopbackOnlyNetworkGuard,
+  noSecrets,
   openAccounts,
+  reloadAccounts,
   sourceRow,
   useViewerSession,
 } from "./support.ts";
@@ -13,28 +20,28 @@ test.skip(
   "Controlled --subscription-fixture only; no live provider/native proof.",
 );
 const gateway = process.env.ACCOUNTS_REFERENCE_E2E_GATEWAY_URL!;
-async function choose(page: Page, name: string, value: string) {
-  await page.getByRole("combobox", { name }).click();
-  await page.getByRole("option", { name: value }).click();
-}
-async function keyForm(page: Page, provider: string) {
-  await page
+/** Connections' own entry: "Connect account" opens the provider picker. */
+async function connectProvider(page: Page, provider: string) {
+  await connectionsListRegion(page)
     .getByRole("button", { name: "Connect account", exact: true })
     .click();
-  await page.getByRole("menuitem", { name: "Connect with API key" }).click();
-  await choose(page, "Provider profile", provider);
+  const dialog = page.getByRole("dialog", { name: "Connect a provider" });
+  await expect(dialog).toBeVisible();
+  await choose(page, "Provider", provider);
+  return dialog;
 }
-async function noSecrets(page: Page, values: string[]) {
-  const retained = await page.evaluate(() =>
-    JSON.stringify({
-      local: { ...localStorage },
-      session: { ...sessionStorage },
-      location: location.href,
-      markup: document.body.innerHTML,
-    }),
-  );
-  for (const value of values) expect(retained).not.toContain(value);
-}
+const counters = [
+  "connects",
+  "begins",
+  "completes",
+  "reconnects",
+  "deletes",
+  "inference",
+  "refresh",
+] as const;
+type FixtureStats = Record<(typeof counters)[number], number> & {
+  operationIds: string[];
+};
 
 test("subscription connections use real server actions for all four providers and remain compact on mobile", async ({
   page,
@@ -43,6 +50,17 @@ test("subscription connections use real server actions for all four providers an
 }, testInfo) => {
   test.setTimeout(180_000);
   const violations: string[] = [];
+  // Other specs in the same run share the Gateway fixture: count only the
+  // operations this test causes.
+  const stats = async (): Promise<FixtureStats> =>
+    (await request.get(`${gateway}/__subscription-fixture`)).json();
+  const start = await stats();
+  const since = async () => {
+    const now = await stats();
+    return Object.fromEntries(
+      counters.map((key) => [key, now[key] - start[key]]),
+    ) as Record<(typeof counters)[number], number>;
+  };
   await useViewerSession(context);
   await installLoopbackOnlyNetworkGuard(page, violations);
   // The SDK deliberately validates a fixed provider origin. Fulfill this one
@@ -57,22 +75,15 @@ test("subscription connections use real server actions for all four providers an
   });
   await openAccounts(page, "rr-e2e-personal-viewer");
   const secrets: string[] = ["synthetic-wrong-subscription-key"];
-  await keyForm(page, "Kimi");
-  await page
-    .getByRole("dialog")
-    .getByLabel(/Subscription key/)
-    .fill(secrets[0]!);
-  await page
-    .getByRole("dialog")
-    .getByLabel(/Subscription key/)
-    .press("Enter");
+  const declined = await connectProvider(page, "Kimi");
+  await declined.getByLabel(/Subscription key/).fill(secrets[0]!);
+  await declined.getByLabel(/Subscription key/).press("Enter");
   await expect(page.getByText("Declined", { exact: true })).toBeVisible();
   await noSecrets(page, secrets);
   for (const profile of subscriptionProfiles.filter(
     (profile) => profile.provider !== "grok",
   )) {
-    await keyForm(page, profile.label);
-    const dialog = page.getByRole("dialog");
+    const dialog = await connectProvider(page, profile.label);
     await expect(dialog.getByRole("link", { name: "Get key" })).toHaveAttribute(
       "href",
       /^https:\/\//,
@@ -119,12 +130,8 @@ test("subscription connections use real server actions for all four providers an
       await noSecrets(page, secrets);
     }
   }
-  await page
-    .getByRole("button", { name: "Connect account", exact: true })
-    .click();
-  await page.getByRole("menuitem", { name: "Connect Grok OAuth" }).click();
-  const enrollment = page.getByRole("dialog");
-  // Only Grok is enabled by this fixture, so no auth-method/provider wizard.
+  const enrollment = await connectProvider(page, "Grok");
+  // Grok signs in one way only, so the form asks for no sign-in method.
   await expect(
     enrollment.getByRole("combobox", { name: "Sign-in method" }),
   ).toHaveCount(0);
@@ -138,7 +145,7 @@ test("subscription connections use real server actions for all four providers an
   await expect.poll(() => authorizationDocuments).toBe(1);
   const authorizationCode = await authorization.locator("code").innerText();
   await authorization.close();
-  await page.reload({ waitUntil: "domcontentloaded" });
+  await reloadAccounts(page);
   // Readback restores original Grok plain-code grammar, not transient React state.
   await page.getByRole("button", { name: "Resume authorization" }).click();
   const completion = page.getByRole("dialog", {
@@ -181,13 +188,7 @@ test("subscription connections use real server actions for all four providers an
     .getByRole("button", { name: "Complete authorization" })
     .click();
   await expect(grokRow).toBeVisible();
-  await expect
-    .poll(
-      async () =>
-        (await (await request.get(`${gateway}/__subscription-fixture`)).json())
-          .completes,
-    )
-    .toBe(2);
+  await expect.poll(async () => (await since()).completes).toBe(2);
   await noSecrets(page, [...secrets, reconnectCode]);
   await expect(grokRow).toContainText("Ready");
   await expect(grokRow.getByRole("progressbar")).toHaveCount(2);
@@ -201,25 +202,16 @@ test("subscription connections use real server actions for all four providers an
     fullPage: true,
   });
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect
-    .poll(() =>
-      page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
-    )
-    .toBe(true);
+  await expectNoHorizontalOverflow(page);
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({
     path: testInfo.outputPath("subscriptions-mobile.png"),
     fullPage: true,
   });
-  const before = await (
-    await request.get(`${gateway}/__subscription-fixture`)
-  ).json();
-  await page.reload({ waitUntil: "domcontentloaded" });
+  // A reload only reads: it repeats no connect or sign-in.
+  await reloadAccounts(page);
   await expect(sourceRow(page, "Browser GLM subscription")).toBeVisible();
-  const after = await (
-    await request.get(`${gateway}/__subscription-fixture`)
-  ).json();
-  expect(after).toMatchObject({
+  expect(await since()).toMatchObject({
     connects: 3,
     begins: 1,
     completes: 2,
@@ -227,8 +219,8 @@ test("subscription connections use real server actions for all four providers an
     inference: 0,
     refresh: 0,
   });
-  expect(after.connects).toBe(before.connects);
-  expect(new Set(after.operationIds).size).toBe(after.operationIds.length);
+  const { operationIds } = await stats();
+  expect(new Set(operationIds).size).toBe(operationIds.length);
   const removed = sourceRow(page, "Browser Grok subscription");
   await removed
     .getByRole("button", { name: "Actions for Browser Grok subscription" })
@@ -238,13 +230,7 @@ test("subscription connections use real server actions for all four providers an
     .getByRole("dialog")
     .getByRole("button", { name: "Remove connection permanently" })
     .click();
-  await expect
-    .poll(
-      async () =>
-        (await (await request.get(`${gateway}/__subscription-fixture`)).json())
-          .deletes,
-    )
-    .toBe(1);
+  await expect.poll(async () => (await since()).deletes).toBe(1);
   await expect
     .poll(
       async () =>
@@ -252,7 +238,7 @@ test("subscription connections use real server actions for all four providers an
         (await removed.textContent())?.includes("Retired"),
     )
     .toBe(true);
-  await page.reload({ waitUntil: "domcontentloaded" });
+  await reloadAccounts(page);
   await expect(
     removed.getByRole("button", { name: "Refresh Grok sign-in" }),
   ).toHaveCount(0);
@@ -274,24 +260,32 @@ test("subscription connections use real server actions for all four providers an
       .toBe(true);
     await noSecrets(page, secrets);
   }
-  await expect
-    .poll(
-      async () =>
-        (await (await request.get(`${gateway}/__subscription-fixture`)).json())
-          .deletes,
-    )
-    .toBe(3);
-  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect.poll(async () => (await since()).deletes).toBe(3);
+  await reloadAccounts(page);
   for (const provider of ["GLM", "MiniMax"]) {
     const row = sourceRow(page, `Browser ${provider} subscription`);
     if (await row.count()) await expect(row).toContainText("Retired");
   }
   await openAccounts(page, "rr-e2e-org-alpha");
   await page.getByRole("button", { name: "Add account", exact: true }).click();
-  await choose(page, "Owner", "RR E2E Org Alpha · organization account");
-  await page.getByRole("combobox", { name: "Provider", exact: true }).click();
+  // An organization workspace offers GLM through the user's own connection.
+  // Only the offer is checked here; adding it to the organization is covered
+  // by personal-connect-attach.test.ts.
+  await choose(page, "Owner", "You · personal account");
+  const addDialog = page.getByRole("dialog");
+  const provider = addDialog.getByRole("combobox", {
+    name: "Provider",
+    exact: true,
+  });
+  // The dialog may first resume this tab's latest request.
+  const another = addDialog.getByRole("button", {
+    name: "Add another account",
+  });
+  await expect(provider.or(another)).toBeVisible();
+  if (await another.isVisible()) await another.click();
+  await provider.click();
   await expect(page.getByRole("option", { name: /^GLM(?:\s|$)/ })).toHaveCount(
-    0,
+    1,
   );
   await page.keyboard.press("Escape");
   // Escape may dismiss the select and dialog together. A second keyboard

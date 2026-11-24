@@ -1,6 +1,6 @@
 # Добавить провайдера одним шагом
 
-Статус: план v6, сверен с main `a5d3d61ae` после 76, 77, 78, 80, 81, 82 (#901, #912, #916, #911, #913, #915); этап 1 в работе. Дата: 2026-11-19. Номера строк ниже - на `ae18f9e87`, после 76 в controls они сдвинулись примерно на +46. Опирается на [66](66-connect-attaches-to-current-workspace.md) и [70](70-all-providers-in-all-workspaces.md).
+Статус: план v6, сверен с main `a5d3d61ae` после 76, 77, 78, 80, 81, 82 (#901, #912, #916, #911, #913, #915); реализовано: этап 1 - #917, этап 2 - #919 (#914 ещё не в main, импорт Codex придёт с ним без доработки формы); блокировка шагов диалога, «Configure connected-account reviewers» и «Reload saved choices» на время открытого запроса (§2 п.1) добавлена в #950. Дата: 2026-11-19. Номера строк ниже - на `ae18f9e87`, после 76 в controls они сдвинулись примерно на +46. Опирается на [66](66-connect-attaches-to-current-workspace.md) и [70](70-all-providers-in-all-workspaces.md).
 
 ## 1. Как сейчас
 
@@ -67,14 +67,14 @@
 ## 6. Этапы (каждый - свой PR с ревью)
 
 1. Этап 1 - провайдеры с Gateway-ключом (NVIDIA, OpenRouter, MiMo, Kimi, GLM, MiniMax; Anthropic и Gemini, если #914 уже в main) и предвыбор модели и default. Встроенная форма показывает только профили `authKind: "api_key"` (`connectsInProviderDialog`). Для OAuth (Codex, Grok) пока остаётся прежняя ссылка с возвратом. Шаги: `bindingId` и `activeBindingId`; `ConnectTarget` и `PersonalConnectPanel`, Connections переходит на панель; `gateway-credential-section.tsx`; `suggestedModel`; тесты и E2E для OpenRouter.
-2. Этап 2 - OAuth в той же форме (device code, browser, импорт Codex из #914) и удаление обратного пути (п.2.9): после этапа 1 им пользуются только OAuth-провайдеры. Это шаг удаления временного сосуществования.
+2. Этап 2 - OAuth в той же форме (Codex device code и browser, Grok browser; импорт Codex из #914, когда он в main) и удаление обратного пути (п.2.9): после этапа 1 им пользуются только OAuth-провайдеры. Это шаг удаления временного сосуществования. `connectsInProviderDialog` больше не ограничивает `authKind`. Без личного сервиса в диалоге остаётся простая ссылка на Connections без намерения.
 
 ## 7. Тесты
 
 - Unit: `suggestedModel` (default есть, выключен, отсутствует, один вариант, поздний каталог); `attachConnected` возвращает `bindingId` в P, X, при повторе по квитанции и при `conflict`.
 - Диалог: нет подключений → форма этого провайдера без второго «Provider»; `loading` во время подключения форму не убирает; после `onConnected` выбрано подключение и видна модель; участник видит только причину; без личного сервиса - ссылка; подсказка о дубле.
 - Controls: `onConnected` один раз после `attached`, ни разу при `not_attached`; nonce из контекста; без `ConnectTarget` (Connections) квитанция не скрывается; `rejected` → «Add another account» → форма снова, Provider разблокирован.
-- E2E `scripts/accounts-reference-e2e`: этап 1 - `one-step-add-provider.spec.ts`, OpenRouter-ключ в одном диалоге до сохранения (`--api-key-storage-fixture`; фикстура отдаёт список моделей аккаунта OpenRouter). Нужен настоящий PostgreSQL 17: на PGlite чтение аккаунтов workspace падает на prepared statement. Этап 2 - Grok browser (`subscription-connections.spec.ts:51`); Codex device code - компонентными тестами. Скриншоты desktop и mobile, прогон на Hetzner.
+- E2E `scripts/accounts-reference-e2e`: этап 1 - `one-step-add-provider.spec.ts`, OpenRouter-ключ в одном диалоге до сохранения (`--api-key-storage-fixture`; фикстура отдаёт список моделей аккаунта OpenRouter). Нужен настоящий PostgreSQL 17: на PGlite чтение аккаунтов workspace падает на prepared statement. Этап 2 - Grok browser (`one-step-add-provider.spec.ts`, «Add provider signs in to Grok in place and selects the new account»); Codex device code - компонентными тестами. Скриншоты desktop и mobile, прогон на Hetzner.
 
 ## 8. Деплой и откат
 

@@ -903,6 +903,109 @@ export function deferReviewRequestedResolution(input: {
   };
 }
 
+/**
+ * How long after dispatch a run that GitHub has not given a runner may keep
+ * its place in the GitHub queue (plan 88): the first window and at most two
+ * more of the 30 minute default.
+ */
+export const reviewRequestedMaxQueuedRunWaitMs = 5_400_000;
+
+/** The latest authorization deadline of a run that is still waiting for a runner. */
+export function reviewRequestedQueuedRunWaitLimit(
+  intent: Pick<ReviewRequestedIntent, "submissionStartedAt">,
+): Date | null {
+  return intent.submissionStartedAt === null
+    ? null
+    : new Date(
+        intent.submissionStartedAt.getTime() +
+          reviewRequestedMaxQueuedRunWaitMs,
+      );
+}
+
+/**
+ * The next deadline a run still waiting for a runner may get: one more window
+ * on top of the current deadline, capped by the queued-wait limit. `null`
+ * when the limit leaves less than half a window, because a runner arriving in
+ * such a stub would be too late for admission anyway.
+ */
+export function reviewRequestedQueuedRunWaitExtension(
+  intent: Pick<
+    ReviewRequestedIntent,
+    "submissionStartedAt" | "resolutionDeadlineAt"
+  >,
+  windowMs: number,
+): Date | null {
+  const deadline = intent.resolutionDeadlineAt;
+  const limit = reviewRequestedQueuedRunWaitLimit(intent);
+  if (deadline === null || limit === null) return null;
+  const extended = Math.min(deadline.getTime() + windowMs, limit.getTime());
+  return extended - deadline.getTime() < windowMs / 2
+    ? null
+    : new Date(extended);
+}
+
+/**
+ * Gives a dispatched run that is still waiting for a GitHub runner one more
+ * authorization window instead of stopping the request, so the run keeps its
+ * place in the GitHub queue (plan 88). Only an open window is extended: once
+ * the deadline passed, a newer request for the same revision may already run.
+ * Another request of the pull request waiting for its own run (a manual
+ * review command) blocks the extension too, so the pull request never gets
+ * two runs. Only a request that no run has reached (admission not evaluated,
+ * no authorization or execution) is extended, within
+ * `reviewRequestedQueuedRunWaitExtension`. The caller must have proven from
+ * GitHub that no job got a runner.
+ */
+export function extendReviewRequestedQueuedRunWait(input: {
+  readonly intent: ReviewRequestedIntent;
+  readonly expectedVersion: bigint;
+  readonly competingPreAdmission: boolean;
+  readonly now: Date;
+  readonly windowMs: number;
+  readonly nextResolutionAt: Date;
+}): ReviewRequestedTransitionDecision {
+  assertDate(input.now, "queued_wait_extended_at");
+  assertDate(input.nextResolutionAt, "next_resolution_at");
+  assertPositiveSafeInteger(input.windowMs, "queued_wait_window_ms");
+  const intent = input.intent;
+  const resolutionDeadlineAt = reviewRequestedQueuedRunWaitExtension(
+    intent,
+    input.windowMs,
+  );
+  if (
+    intent.version !== input.expectedVersion ||
+    input.competingPreAdmission ||
+    intent.state !== ReviewRequestedIntentState.AwaitingAuthorization ||
+    intent.admission.state !== ReviewRequestAdmissionState.NotEvaluated ||
+    intent.authorizationId !== null ||
+    intent.executionId !== null ||
+    intent.sourceRunId === null ||
+    intent.resolutionDeadlineAt === null ||
+    input.now >= intent.resolutionDeadlineAt ||
+    resolutionDeadlineAt === null ||
+    input.nextResolutionAt <= input.now ||
+    input.nextResolutionAt > resolutionDeadlineAt
+  ) {
+    return { status: ReviewRequestedTransitionDecisionStatus.Conflict };
+  }
+  return {
+    status: ReviewRequestedTransitionDecisionStatus.Applied,
+    intent: {
+      ...intent,
+      version: intent.version + 1n,
+      nextResolutionAt: new Date(input.nextResolutionAt),
+      resolutionDeadlineAt,
+      updatedAt: new Date(input.now),
+    },
+  };
+}
+
+function assertPositiveSafeInteger(value: number, field: string): void {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${field}_invalid`);
+  }
+}
+
 function terminalizeReviewRequestedIntent(input: {
   readonly intent: ReviewRequestedIntent;
   readonly expectedVersion: bigint;

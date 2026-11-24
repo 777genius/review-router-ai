@@ -13,7 +13,7 @@ export const homeHeroVideo: {
   muxPlaybackId: string | null;
   title: string;
 } = {
-  muxPlaybackId: "qZ98rT00ddnuAwiRU6yhAIA54Ks8hfT00RNJkp5n01MJa8",
+  muxPlaybackId: "cInQk9msunWb1D1avM2hQXO8sl6fYUFHYKI01NOetlWI",
   title: "ReviewRouter product walkthrough",
 };
 

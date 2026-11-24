@@ -11,10 +11,48 @@ import {
   hiddenMarkerReviewProjectionPolicyVersion,
   legacyPartialReviewPublicationSummary,
   partialReviewPublicationSummary,
+  publishedSummaryIncomplete,
   resolveReviewPublicationRenderPolicyVersion,
   renderCanonicalReviewPublication,
   type ReviewPublicationRenderingSource,
 } from "../index";
+
+describe("published summary verdict", () => {
+  const complete =
+    "<!-- reviewrouter:review-status:complete -->\nReview complete";
+  const incomplete =
+    "<!-- reviewrouter:review-status:incomplete -->\nReview incomplete";
+  const verdict = (
+    coverage: ReviewPublicationProjectionCoverage,
+    producerCoverageComplete: boolean,
+    sourceSummaryBody: string,
+  ) =>
+    publishedSummaryIncomplete({
+      coverage,
+      producerCoverageComplete,
+      sourceSummaryBody,
+    });
+
+  it("is incomplete exactly when the summary says so", () => {
+    const { Completed, Partial } = ReviewPublicationProjectionCoverage;
+    expect(verdict(Completed, true, complete)).toBe(false);
+    // Unverified previous findings: coverage claim complete, marker incomplete.
+    expect(verdict(Completed, true, incomplete)).toBe(true);
+    // Unverified native spans: the claim itself is partial.
+    expect(verdict(Completed, false, incomplete)).toBe(true);
+    // An older producer without a status marker still reports its claim.
+    expect(verdict(Completed, false, "Review")).toBe(true);
+    // The server's own partial summary.
+    expect(verdict(Partial, true, complete)).toBe(true);
+  });
+
+  it("reads only the first status marker", () => {
+    const quoted = `${complete}\n\`\`\`mermaid\n%% <!-- reviewrouter:review-status:incomplete -->\n\`\`\``;
+    expect(
+      verdict(ReviewPublicationProjectionCoverage.Completed, true, quoted),
+    ).toBe(false);
+  });
+});
 
 describe("canonical review publication renderer", () => {
   it("renders immutable pre-effect fix candidates without native-closed counts or reopen operations", () => {

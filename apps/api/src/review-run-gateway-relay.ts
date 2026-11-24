@@ -121,6 +121,9 @@ class RelayFailure extends Error {
     readonly failureScope?: "reviewer" | "allocation" | "run",
     readonly concurrencyGroupId?: string,
     readonly providerQuota?: ProviderQuota,
+    /** Closed cause behind a generic code, reported next to it so callers
+     * that act on `code` keep their behaviour. */
+    readonly failureCause?: string,
   ) {
     super(code);
   }
@@ -148,6 +151,7 @@ function emitRequestFailureDiagnostic(
   kind: "companion" | "ordinary",
   stage: GatewayRequestStage,
   requestRef: string,
+  relayCode?: string,
 ) {
   try {
     const sdkError = error instanceof GatewayError ? error : undefined;
@@ -174,6 +178,7 @@ function emitRequestFailureDiagnostic(
             : "review_run_gateway_request_failed",
         stage,
         requestRef,
+        ...(relayCode === undefined ? {} : { relayCode }),
         ...(sdkCode === undefined ? {} : { sdkCode }),
         ...(effect.success ? { effect: effect.data } : {}),
         ...(diagnosticCode.success
@@ -300,6 +305,10 @@ export function createReviewRunGatewayRelay(input: {
         reason: c.Close["reason"],
       ): Promise<ReviewRunAuthorization | null>;
     }
+  >();
+  const closeRetries = new Map<
+    string,
+    { attempts: number; timer?: ReturnType<typeof setTimeout> }
   >();
   let stopping = false;
   let capacityCleanup: Promise<void> | undefined;
@@ -521,7 +530,9 @@ export function createReviewRunGatewayRelay(input: {
             row.maxExpiresAt.getTime() !== session.deadline
           )
             continue;
+          const retryReason = session.closed ? session.closeReason : undefined;
           if (
+            retryReason === undefined &&
             row.state === ReviewRunAuthorizationState.Active &&
             Date.now() < session.deadline
           ) {
@@ -561,7 +572,7 @@ export function createReviewRunGatewayRelay(input: {
               (row.state === ReviewRunAuthorizationState.Active &&
                 Date.now() >= session.deadline)
               ? "deadline"
-              : "cancelled",
+              : (retryReason ?? "cancelled"),
             deadline,
           );
         } catch {
@@ -642,7 +653,7 @@ export function createReviewRunGatewayRelay(input: {
       throw new RelayFailure("authorization_denied", 401);
     const timer = setTimeout(
       () => {
-        if (!cleanupOnly)
+        if (!cleanupOnly && !stopping)
           void closeRun(auth.authorizationId, "deadline").catch(() => {});
       },
       cleanupOnly
@@ -677,11 +688,74 @@ export function createReviewRunGatewayRelay(input: {
     sessions.set(key, session);
     return session;
   }
+  function clearCloseRetry(authorizationId: string) {
+    const retry = closeRetries.get(authorizationId);
+    if (retry?.timer) clearTimeout(retry.timer);
+    closeRetries.delete(authorizationId);
+  }
+  function scheduleCloseRetry(authorizationId: string) {
+    const retained = [...sessions.values()].filter(
+      (session) =>
+        session.authorizationId === authorizationId &&
+        session.closed &&
+        session.closeReason !== undefined,
+    );
+    if (stopping || retained.length === 0) {
+      clearCloseRetry(authorizationId);
+      return;
+    }
+    const deadline = Math.min(...retained.map((session) => session.deadline));
+    const remaining = deadline - Date.now();
+    const retry = closeRetries.get(authorizationId) ?? { attempts: 0 };
+    closeRetries.set(authorizationId, retry);
+    if (retry.timer || retry.attempts >= 8 || remaining <= 1) return;
+    // Close is idempotent under the original operation ID. Retry only bounded
+    // cleanup, before its bearer expires; never prepare or dispatch inference.
+    const delay = Math.min(
+      30_000,
+      1000 * 2 ** retry.attempts,
+      Math.max(1, Math.floor(remaining / 2)),
+    );
+    retry.timer = setTimeout(() => {
+      if (closeRetries.get(authorizationId) !== retry) return;
+      delete retry.timer;
+      if (stopping || Date.now() >= deadline) return;
+      if (
+        closing.size >= policy.maxInFlight ||
+        cleanupInFlight >= policy.maxInFlight
+      ) {
+        scheduleCloseRetry(authorizationId);
+        return;
+      }
+      const current = [...sessions.values()].find(
+        (session) =>
+          session.authorizationId === authorizationId &&
+          session.closed &&
+          session.closeReason !== undefined,
+      );
+      if (!current) {
+        clearCloseRetry(authorizationId);
+        return;
+      }
+      retry.attempts++;
+      void closeRun(
+        authorizationId,
+        current.parentTerminationReason ?? current.closeReason!,
+        Math.min(deadline, Date.now() + policy.requestTimeoutMs),
+      ).catch(() => {});
+    }, delay);
+    retry.timer.unref();
+  }
   function closeRun(
     authorizationId: string,
     reason: c.Close["reason"],
     deadline?: number,
   ): Promise<c.Operation | { state: "unknown" } | { state: "applied" }> {
+    const retry = closeRetries.get(authorizationId);
+    if (retry?.timer) {
+      clearTimeout(retry.timer);
+      delete retry.timer;
+    }
     const owned = [...sessions.values()].filter(
       (session) => session.authorizationId === authorizationId,
     );
@@ -697,7 +771,6 @@ export function createReviewRunGatewayRelay(input: {
       session.closeReason ??= reason;
       if (parentReason !== undefined)
         session.parentTerminationReason ??= parentReason;
-      clearTimeout(session.timer);
       for (const controller of session.aborts.keys()) controller.abort();
     }
     const pending = closing.get(authorizationId);
@@ -710,6 +783,14 @@ export function createReviewRunGatewayRelay(input: {
         pending.terminate(parentReason),
       ]).then(([operation]) => operation);
     }
+    const owner = owned[0];
+    const matchesOwner = (auth: ReviewRunAuthorization | null) =>
+      owner === undefined ||
+      (auth !== null &&
+        auth.authorizationId === owner.authorizationId &&
+        auth.runtimeSnapshotCanonicalJson === owner.canonical &&
+        canonicalJson(reviewRunGatewayOwnedIdentity(auth)) === owner.identity &&
+        auth.maxExpiresAt.getTime() === owner.deadline);
     let termination: Promise<ReviewRunAuthorization | null> | undefined;
     const terminate = (terminalReason: c.Close["reason"]) => {
       parentReason ??= terminalReason;
@@ -719,6 +800,13 @@ export function createReviewRunGatewayRelay(input: {
         if (session.authorizationId === authorizationId)
           session.parentTerminationReason ??= parentReason;
       termination ??= (async () => {
+        if (
+          owner &&
+          !matchesOwner(
+            await input.queries.findReviewRunAuthorizationById(authorizationId),
+          )
+        )
+          return null;
         await input.authorizations.expireOrRevokeReviewRunAuthorization({
           authorizationId,
           state:
@@ -728,6 +816,7 @@ export function createReviewRunGatewayRelay(input: {
         });
         const auth =
           await input.queries.findReviewRunAuthorizationById(authorizationId);
+        if (!matchesOwner(auth)) return null;
         if (auth?.state === "active")
           throw new RelayFailure("close_pending", 409, "effect_unknown");
         return auth;
@@ -735,12 +824,24 @@ export function createReviewRunGatewayRelay(input: {
       return termination;
     };
     const work = (async () => {
+      const observedOwner = owner
+        ? await input.queries.findReviewRunAuthorizationById(authorizationId)
+        : null;
+      if (
+        (owner && sessions.get(owner.key) !== owner) ||
+        !matchesOwner(observedOwner)
+      )
+        return { state: "unknown" as const };
       const revokeFirst =
         parentReason !== undefined ||
         owned.some((session) => session.allocationId === undefined);
       let auth = revokeFirst
         ? await terminate(parentReason ?? reason)
-        : await input.queries.findReviewRunAuthorizationById(authorizationId);
+        : (observedOwner ??
+          (await input.queries.findReviewRunAuthorizationById(
+            authorizationId,
+          )));
+      if (!matchesOwner(auth)) return { state: "unknown" as const };
       const snapshot = parseReviewRunRuntimeSnapshot(
         auth?.runtimeSnapshotCanonicalJson,
       );
@@ -795,6 +896,7 @@ export function createReviewRunGatewayRelay(input: {
         if (termination) await termination;
       } finally {
         closing.delete(authorizationId);
+        scheduleCloseRetry(authorizationId);
       }
     });
     closing.set(authorizationId, { operation: work, terminate });
@@ -841,6 +943,7 @@ export function createReviewRunGatewayRelay(input: {
         // while its joined parent write is still pending or has failed.
         const pendingTermination = parentTermination();
         if (pendingTermination) await pendingTermination;
+        clearTimeout(session.timer);
         sessions.delete(session.key);
       } else if (
         session.aborts.size === 0 &&
@@ -863,8 +966,10 @@ export function createReviewRunGatewayRelay(input: {
           owner.maxExpiresAt.getTime() === session.deadline &&
           session.aborts.size === 0 &&
           session.preparation.canDetachUnknownWithoutCapability()
-        )
+        ) {
+          clearTimeout(session.timer);
           sessions.delete(session.key);
+        }
       }
       return operation;
     } finally {
@@ -1100,11 +1205,16 @@ export function createReviewRunGatewayRelay(input: {
         },
       };
     } catch (error) {
+      // Report the closed cause (Gateway code, local refusal, otherwise
+      // relay_unknown) next to the unchanged generic code: callers classify,
+      // retry and scope on `code`, so it must stay what it was.
+      const cause = safeFailure(error);
       emitRequestFailureDiagnostic(
         error,
         "companion",
         requestStage,
         requestRef,
+        cause.code,
       );
       if (upstream?.kind === "stream") await upstream.cancel().catch(() => {});
       // Only a positively local native no-dispatch proof settles unpaid.
@@ -1124,8 +1234,11 @@ export function createReviewRunGatewayRelay(input: {
       } else await unknown();
       dispose();
       const providerQuota = gatewayProviderQuota(error);
+      const code = providerQuota
+        ? "provider_quota_exhausted"
+        : "companion_request_failed";
       throw new RelayFailure(
-        providerQuota ? "provider_quota_exhausted" : "companion_request_failed",
+        code,
         502,
         failureEffect,
         requestRef,
@@ -1133,6 +1246,7 @@ export function createReviewRunGatewayRelay(input: {
         undefined,
         undefined,
         providerQuota,
+        cause.code === code ? undefined : cause.code,
       );
     }
   }
@@ -1740,6 +1854,7 @@ export function createReviewRunGatewayRelay(input: {
           allocationFailure ? "allocation" : "reviewer",
           lane.reviewer.concurrencyGroupId,
           providerQuota,
+          failure.failureCause,
         );
       }
     } catch (error) {
@@ -1875,6 +1990,9 @@ export function createReviewRunGatewayRelay(input: {
     },
     shutdown: async () => {
       stopping = true;
+      for (const authorizationId of closeRetries.keys())
+        clearCloseRetry(authorizationId);
+      for (const session of sessions.values()) clearTimeout(session.timer);
       for (const id of [
         ...new Set(
           [...sessions.values()].map((session) => session.authorizationId),
@@ -2193,6 +2311,9 @@ export async function registerReviewRunGatewayRelayRoutes(
                 ...(failure.dispatch ? { dispatch: failure.dispatch } : {}),
                 ...(failure.providerQuota
                   ? { providerQuota: failure.providerQuota }
+                  : {}),
+                ...(failure.failureCause
+                  ? { cause: failure.failureCause }
                   : {}),
               },
             });

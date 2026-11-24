@@ -15,9 +15,7 @@ import { PersonalAccountsPanel } from "./personal-accounts-panel";
 import { PersonalConnectPanel } from "./personal-connect-panel";
 import { personalManagementApi } from "./personal-management-api";
 import { WorkspaceAccountsPanel } from "./workspace-accounts-panel";
-import type { ApiKeySetupIntent } from "../../src/features/provider-setup/api-key-storage";
 import { accountsCopy } from "./accounts-copy";
-import { connectionSetupContinuation } from "../../src/features/provider-setup/connection-setup-continuation";
 import { getDashboardMutationStatus } from "../../src/server/dashboard-mutations";
 
 function ConnectionsSection({
@@ -46,13 +44,11 @@ export async function AccountGatewayAccountsSection({
   workspaceName,
   personalAccounts,
   personalAccountsApi,
-  setupIntent,
 }: {
   workspaceId: string;
   workspaceName?: string;
   personalAccounts?: PersonalAccountsBootstrap;
   personalAccountsApi?: PersonalAccountsApi;
-  setupIntent?: ApiKeySetupIntent | undefined;
 }) {
   const viewer = await getDashboardMutationStatus();
   let personalService: Awaited<ReturnType<typeof productionPersonalAccounts>> =
@@ -139,7 +135,7 @@ export async function AccountGatewayAccountsSection({
   const ownPanel = (
     extra: Pick<
       Parameters<typeof PersonalAccountsPanel>[0],
-      "initiallyOpenConnect" | "connectEntry" | "workspaceList"
+      "connectEntry" | "workspaceList"
     > = {},
   ) =>
     management && ownBootstrap && ownApi ? (
@@ -150,7 +146,6 @@ export async function AccountGatewayAccountsSection({
         api={ownApi}
         accessReadContext={management.context}
         workspaceId={workspaceId}
-        setupIntent={setupIntent}
         management={management}
         addToWorkspace={addToWorkspace}
         managementApi={personalManagementApi}
@@ -165,13 +160,7 @@ export async function AccountGatewayAccountsSection({
   if (personalScope)
     return (
       <ConnectionsSection description={accountsCopy.ownDescription}>
-        {ownPanel({
-          initiallyOpenConnect: connectionSetupContinuation({
-            intent: setupIntent,
-            workspace: undefined,
-            personal: management?.page,
-          }).autoOpen,
-        })}
+        {ownPanel()}
       </ConnectionsSection>
     );
 
@@ -182,19 +171,11 @@ export async function AccountGatewayAccountsSection({
           .then((reader) => reader.list({ limit: 25 }))
           .catch(() => ({ status: "unavailable" as const }))
       : undefined;
-  const continuation = connectionSetupContinuation({
-    intent: setupIntent,
-    workspace: bootstrap?.page,
-    personal: management?.page,
-    available: inventoryPage,
-  });
   const organizationControls = bootstrap ? (
     <AccountGatewayControls
       key={bootstrap.context || workspaceId}
       bootstrap={bootstrap}
       workspaceId={workspaceId}
-      setupIntent={setupIntent}
-      initiallyOpenConnect={continuation.autoOpen}
     />
   ) : (
     <p className="text-sm text-slate-400">
@@ -221,7 +202,6 @@ export async function AccountGatewayAccountsSection({
         workspaceName: workspaceName ?? "this workspace",
       }}
       initialPage={management.page}
-      setupIntent={setupIntent}
     />
   );
   return (
@@ -229,13 +209,10 @@ export async function AccountGatewayAccountsSection({
       {ownPanel({
         // Members connect their own account; the result says why it is not
         // added here. Owners and admins choose who owns it in Add account.
-        initiallyOpenConnect: !recipient.canDetach && continuation.autoOpen,
         connectEntry: recipient.canDetach ? (
           // Rendered beside the refresh button in a client toolbar.
           <AccountsAddDialog
             key="add-account"
-            initiallyOpen={continuation.autoOpen}
-            initialOwnership={continuation.ownership}
             personalConnect={personalConnect}
             organizationConnect={
               bootstrap ? (
@@ -243,7 +220,6 @@ export async function AccountGatewayAccountsSection({
                   bootstrap={bootstrap}
                   connectOnly
                   workspaceId={workspaceId}
-                  setupIntent={setupIntent}
                 />
               ) : null
             }

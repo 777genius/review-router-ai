@@ -11,29 +11,43 @@ import { afterEach, expect, test, vi } from "vitest";
 import { Button, Dialog, SelectField } from "@reviewrouter/ui";
 import { AccountsAddDialog } from "./accounts-add-dialog";
 import { AccountActionsMenu, AccountMenuItem } from "./account-actions-menu";
+import { CredentialImportFields } from "./credential-import-fields";
 
 afterEach(cleanup);
 
-test("an explicit continuation opens the requested ownership once and does not reopen after a refresh", async () => {
-  const props = {
-    workspaceName: "Acme",
-    personalConnect: <p>Personal key form</p>,
-    organizationConnect: <p>Workspace key form</p>,
-    initiallyOpen: true,
-    initialOwnership: "organization" as const,
-  };
-  const rendered = render(<AccountsAddDialog {...props} />);
-  const dialog = await screen.findByRole("dialog", { name: "Add account" });
-  expect(
-    within(dialog).getByRole("combobox", { name: "Owner" }).textContent,
-  ).toContain("Acme");
-  expect(
-    within(dialog).getByText("Workspace key form").closest("div[hidden]"),
-  ).toBeNull();
+test("clears credential import errors when a retained dialog is closed and reopened", async () => {
+  render(
+    <AccountsAddDialog
+      workspaceName="Test workspace"
+      organizationConnect={null}
+      personalConnect={
+        <CredentialImportFields method="oauth_auth_json" loading={vi.fn()} />
+      }
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Add account" }));
+  const dialog = await screen.findByRole("dialog");
+  fireEvent.change(
+    within(dialog).getByLabelText("Or choose an auth.json file"),
+    {
+      target: { files: [new File(["x".repeat(65537)], "auth.json")] },
+    },
+  );
+  expect(within(dialog).getByRole("alert").textContent).toContain("64 KiB");
   fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  rendered.rerender(<AccountsAddDialog {...props} />);
-  expect(screen.queryByRole("dialog")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Add account" }));
+  const reopened = await screen.findByRole("dialog");
+  expect(within(reopened).queryByRole("alert")).toBeNull();
+  expect(
+    within(reopened)
+      .getByLabelText("Or choose an auth.json file")
+      .hasAttribute("aria-invalid"),
+  ).toBe(false);
+  expect(
+    (within(reopened).getByLabelText("Codex auth.json") as HTMLTextAreaElement)
+      .value,
+  ).toBe("");
 });
 
 function Connect() {

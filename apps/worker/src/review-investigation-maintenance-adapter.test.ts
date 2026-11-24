@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  InvestigationExpiredTurnRecoveryFailureCause,
   InvestigationPrivateMaterialPruneBatchError,
   InvestigationPrivateMaterialPruneFailureCause,
+  type ExpiredActiveTurnSweepResult,
   type InvestigationPrunerPort,
 } from "@reviewrouter/features-review-investigations";
 import type { InvestigationShadowEvidencePrunerPort } from "@reviewrouter/features-review-evidence";
@@ -33,16 +35,16 @@ class CapturingPruner
   privateMaterialResults = [2];
   investigationResults = [1];
   shadowEvidenceResults = [3];
-  activeTurnResults = [1];
+  activeTurnResults: ExpiredActiveTurnSweepResult[] = [sweepResult(1)];
   privateMaterialError: Error | null = null;
   investigationError: Error | null = null;
   shadowEvidenceError: Error | null = null;
   activeTurnError: Error | null = null;
 
-  async sweep(): Promise<number> {
+  async sweep(): Promise<ExpiredActiveTurnSweepResult> {
     this.calls.push("active_turns");
     if (this.activeTurnError) throw this.activeTurnError;
-    return this.activeTurnResults.shift() ?? 0;
+    return this.activeTurnResults.shift() ?? sweepResult(0);
   }
 
   async reconcileExpiredPrivateMaterial(input: {
@@ -93,6 +95,7 @@ describe("review investigation maintenance adapter", () => {
       }),
     ).resolves.toEqual({
       recoveredActiveTurnCount: 1,
+      deferredActiveTurnCount: 0,
       expiredPrivateMaterialCount: 2,
       prunedInvestigationCount: 1,
       prunedShadowEvidenceCount: 3,
@@ -106,6 +109,7 @@ describe("review investigation maintenance adapter", () => {
       }),
     ).resolves.toEqual({
       recoveredActiveTurnCount: 0,
+      deferredActiveTurnCount: 0,
       expiredPrivateMaterialCount: 0,
       prunedInvestigationCount: 0,
       prunedShadowEvidenceCount: 0,
@@ -190,6 +194,7 @@ describe("review investigation maintenance adapter", () => {
       causeCode: null,
       outcome: {
         recoveredActiveTurnCount: 1,
+        deferredActiveTurnCount: 0,
         expiredPrivateMaterialCount: 0,
         prunedInvestigationCount: 1,
         prunedShadowEvidenceCount: 3,
@@ -219,6 +224,7 @@ describe("review investigation maintenance adapter", () => {
       causeCode: null,
       outcome: {
         recoveredActiveTurnCount: 1,
+        deferredActiveTurnCount: 0,
         expiredPrivateMaterialCount: 3,
         prunedInvestigationCount: 0,
         prunedShadowEvidenceCount: 3,
@@ -243,6 +249,7 @@ describe("review investigation maintenance adapter", () => {
       causeCode: null,
       outcome: {
         recoveredActiveTurnCount: 1,
+        deferredActiveTurnCount: 0,
         expiredPrivateMaterialCount: 4,
         prunedInvestigationCount: 2,
         prunedShadowEvidenceCount: 0,
@@ -274,6 +281,57 @@ describe("review investigation maintenance adapter", () => {
       failedInvestigationCount: 1,
       outcome: {
         recoveredActiveTurnCount: 1,
+        deferredActiveTurnCount: 0,
+        expiredPrivateMaterialCount: 7,
+        prunedInvestigationCount: 1,
+        prunedShadowEvidenceCount: 3,
+      },
+    } satisfies Partial<ReviewInvestigationPruneError>);
+    expect(pruner.calls).toEqual([
+      "active_turns",
+      "private_material",
+      "investigations",
+      "shadow_evidence",
+    ]);
+  });
+
+  it("keeps the batch running and reports the allowlisted cause when turns cannot be recovered", async () => {
+    const pruner = new CapturingPruner();
+    pruner.activeTurnResults = [
+      {
+        reconciledCount: 6,
+        failedCount: 42,
+        deferredCount: 3,
+        failureCause:
+          InvestigationExpiredTurnRecoveryFailureCause.DossierDigestInvalid,
+      },
+    ];
+    pruner.privateMaterialError =
+      new InvestigationPrivateMaterialPruneBatchError(
+        7,
+        1,
+        InvestigationPrivateMaterialPruneFailureCause.AggregateIncompatible,
+      );
+
+    await expect(
+      createAdapter(pruner).execute({
+        asOf,
+        privateMaterialLimit: 10,
+        investigationLimit: 10,
+        shadowEvidenceLimit: 10,
+      }),
+    ).rejects.toMatchObject({
+      code: ReviewInvestigationPruneFailureCode.ActiveTurns,
+      failureCodes: [
+        ReviewInvestigationPruneFailureCode.ActiveTurns,
+        ReviewInvestigationPruneFailureCode.PrivateMaterial,
+      ],
+      causeCode:
+        InvestigationExpiredTurnRecoveryFailureCause.DossierDigestInvalid,
+      failedInvestigationCount: 43,
+      outcome: {
+        recoveredActiveTurnCount: 6,
+        deferredActiveTurnCount: 3,
         expiredPrivateMaterialCount: 7,
         prunedInvestigationCount: 1,
         prunedShadowEvidenceCount: 3,
@@ -288,9 +346,20 @@ describe("review investigation maintenance adapter", () => {
   });
 });
 
+function sweepResult(reconciledCount: number): ExpiredActiveTurnSweepResult {
+  return {
+    reconciledCount,
+    failedCount: 0,
+    deferredCount: 0,
+    failureCause: null,
+  };
+}
+
 function createAdapter(
   pruner: InvestigationPrunerPort &
-    InvestigationShadowEvidencePrunerPort & { sweep(): Promise<number> },
+    InvestigationShadowEvidencePrunerPort & {
+      sweep(): Promise<ExpiredActiveTurnSweepResult>;
+    },
 ) {
   return new InvestigationPrunerMaintenanceAdapter({
     expiredTurns: pruner,

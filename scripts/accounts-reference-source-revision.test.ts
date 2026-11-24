@@ -186,6 +186,7 @@ describe("Accounts browser source revision", () => {
       "cli.ts",
       "contracts.ts",
       "source-revision.ts",
+      "warm-accounts-routes.ts",
       "warm-next-client-scripts.ts",
     ]) {
       copyFileSync(

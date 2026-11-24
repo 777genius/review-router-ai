@@ -6,6 +6,14 @@ import {
   assertOpaqueReference,
 } from "./provider-account";
 
+export type CredentialImportMethod = "refresh_token" | "oauth_auth_json";
+export function assertCredentialImportMethod(
+  value: unknown,
+): asserts value is CredentialImportMethod {
+  if (value !== "refresh_token" && value !== "oauth_auth_json")
+    throw new ProviderAccountError("invalid_input");
+}
+
 /** Safe immutable intent only. Credential bytes and fingerprints never belong here. */
 export type PersonalCanonicalIntent = {
   readonly actorUserId: string;
@@ -17,7 +25,11 @@ export type PersonalCanonicalIntent = {
   readonly expectedAuthorizationEpoch: number;
 } & (
   | { readonly action: "rename"; readonly displayName: string }
-  | { readonly action: "reconnect" | "retire" }
+  | {
+      readonly action: "reconnect";
+      readonly credentialImportMethod?: CredentialImportMethod;
+    }
+  | { readonly action: "retire" }
 );
 export function snapshotCanonicalIntent(
   input: PersonalCanonicalIntent,
@@ -60,6 +72,17 @@ export function snapshotCanonicalIntent(
   }
   if (input.action !== "reconnect" && input.action !== "retire")
     throw new ProviderAccountError("invalid_input");
+  if (
+    input.action === "reconnect" &&
+    input.credentialImportMethod !== undefined
+  ) {
+    assertCredentialImportMethod(input.credentialImportMethod);
+    return Object.freeze({
+      ...value,
+      action: input.action,
+      credentialImportMethod: input.credentialImportMethod,
+    });
+  }
   return Object.freeze({ ...value, action: input.action });
 }
 export function canonicalIntentHash(input: PersonalCanonicalIntent): string {

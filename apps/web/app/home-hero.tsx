@@ -30,8 +30,8 @@ export function HomeHero({
           <h1 id="rr-home-title">
             Open-source
             <br />
-            <span>AI code review.</span>
-            <strong>Full control and security.</strong>
+            <span>AI code review</span>
+            <strong>Full control and security</strong>
           </h1>
           <p className="rr-home-hero__lead">
             Fast, focused pull request reviews. Use a supported AI subscription
@@ -81,7 +81,6 @@ export function HomeHero({
           POWERED BY <b>OpenCodeReview</b>
           <ArrowUpRight size={13} aria-hidden="true" />
         </a>
-        <span className="rr-home-hero__divider" aria-hidden="true" />
         <HomeProviders />
       </div>
     </section>

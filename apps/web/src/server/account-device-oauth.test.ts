@@ -77,6 +77,8 @@ async function fixture(
     finalized = 0,
     loseBegin = false;
   let afterRead: (() => void) | undefined, afterPoll: (() => void) | undefined;
+  let catalogueUnavailable = false,
+    catalogueReads = 0;
   let pollState: "pending" | "applied" | "rejected" | "unknown" = "pending";
   const operations = new Map<string, c.Operation>();
   const rows = new Map<string, PersonalOperationResult>();
@@ -85,16 +87,54 @@ async function fixture(
   const completions: secretSubmission.OAuthComplete[] = [];
   const server = createServer(async (request, response) => {
     response.setHeader("content-type", "application/json");
-    // This fixture qualifies legacy OAuth operations. Its optional capabilities
-    // endpoint is absent, rather than returning an unrelated account as a 200.
-    if (request.url === "/v1/provider-connection-capabilities") {
-      response.statusCode = 404;
+    if (
+      request.url === "/v1/profiles" ||
+      request.url === "/v2/provider-connection-capabilities"
+    ) {
+      catalogueReads++;
+      if (catalogueUnavailable) {
+        response.statusCode = 503;
+        response.end("{}");
+        return;
+      }
+    }
+    if (request.url === "/v2/provider-connection-capabilities") {
       response.end(
         JSON.stringify({
-          code: "not_found",
-          traceRef: "fixture-missing-capabilities",
-          effect: "not_dispatched",
-          retry: { kind: "never" },
+          contract: "provider-connections/v2",
+          capabilities: [
+            {
+              profileId,
+              provider: {
+                id: claude ? "anthropic" : grok ? "grok" : "openai",
+                label: claude ? "Claude" : grok ? "Grok" : "Codex",
+              },
+              product: { id: "subscription", label: "Subscription" },
+              region: { id: "global", label: "Global" },
+              protocol: "openai-responses",
+              models: [
+                {
+                  modelId: "codex-fixture",
+                  reasoning: null,
+                  fast: null,
+                  tools: { allowed: ["function"], default: "function" },
+                },
+              ],
+              methods: [
+                {
+                  kind: "browser",
+                  completionInputKind: "callback_url",
+                  callbackMode: "manual_callback_url",
+                  create: true,
+                  reconnect: true,
+                },
+                { kind: "device_code", create: true, reconnect: true },
+              ],
+              accountInfo: true,
+              limitsContract: "account-limits/v1",
+              availability: "enabled",
+            },
+          ],
         }),
       );
       return;
@@ -316,7 +356,7 @@ async function fixture(
       throw new Error("unused");
     },
   };
-  const personal = () =>
+  const personal = (offline = false) =>
     createDisabledPersonalAccountsAdapter({
       authorizeUser: async () => actor,
       store,
@@ -325,19 +365,25 @@ async function fixture(
       ...(grok
         ? {
             connectionProfiles: [
-              {
-                id: grokProfileId,
-                label: "Grok",
-                oauthMethods: ["browser"] as const,
-                connection: {
-                  provider: "grok" as const,
-                  planLabel: "Subscription",
-                  regionLabel: "Global",
-                  completionInputKind: "authorization_code" as const,
-                  limitsContract: "account-limits/v2" as const,
-                  modelSettings: [],
-                },
-              },
+              offline
+                ? {
+                    id: grokProfileId,
+                    label: "Grok",
+                    authKind: "oauth" as const,
+                  }
+                : {
+                    id: grokProfileId,
+                    label: "Grok",
+                    oauthMethods: ["browser"] as const,
+                    connection: {
+                      provider: "grok" as const,
+                      planLabel: "Subscription",
+                      regionLabel: "Global",
+                      completionInputKind: "authorization_code" as const,
+                      limitsContract: "account-limits/v2" as const,
+                      modelSettings: [],
+                    },
+                  },
             ],
           }
         : {}),
@@ -378,6 +424,10 @@ async function fixture(
     begins,
     polls,
     completions,
+    catalogueReads: () => catalogueReads,
+    offlineCatalogue: () => {
+      catalogueUnavailable = true;
+    },
     counts: () => ({ beginCount, pollCount, finalized }),
     actor: (value: string) => {
       actor = value;
@@ -612,9 +662,14 @@ test("Claude workspace enrollment denies both browser and device before OAuth be
   expect(f.completions).toHaveLength(0);
 });
 
-test.each(["plain_code", "callback_url"] as const)(
-  "Grok personal browser completion forwards %s only under the saved Grok profile and owner",
-  async (representation) => {
+test.each([
+  ["plain_code", false],
+  ["callback_url", false],
+  ["plain_code", true],
+  ["callback_url", true],
+] as const)(
+  "Grok personal browser completion forwards %s under the saved profile and owner (offline recovery: %s)",
+  async (representation, offline) => {
     const f = await fixture(grokProfileId);
     const nonce = randomUUID();
     await f.personal().connect({
@@ -623,12 +678,16 @@ test.each(["plain_code", "callback_url"] as const)(
       label: "Own Grok",
       method: "browser",
     });
-    expect((await f.personal().operation(nonce)).completion).toMatchObject({
-      providerLabel: "Grok",
-      inputKind: "authorization_code",
-    });
+    if (offline) f.offlineCatalogue();
+    const recovery = f.personal(offline);
     await expect(
-      f.personal().completeOAuth({ nonce, authorizationCode }),
+      recovery.completeOAuth({ nonce, authorizationCode }),
+    ).rejects.toMatchObject({ code: "connection_unavailable" });
+    await expect(
+      recovery.completeOAuth({
+        nonce,
+        callbackURL: `http://localhost:1455/auth/callback?code=synthetic-codex&state=${"c".repeat(64)}`,
+      }),
     ).rejects.toMatchObject({ code: "connection_unavailable" });
     expect(f.completions).toHaveLength(0);
     const credential =
@@ -639,13 +698,18 @@ test.each(["plain_code", "callback_url"] as const)(
           };
     f.actor("foreign-owner");
     await expect(
-      f.personal().completeOAuth({ nonce, ...credential }),
+      recovery.completeOAuth({ nonce, ...credential }),
     ).rejects.toMatchObject({ code: "connection_unavailable" });
     expect(f.completions).toHaveLength(0);
     f.actor("device-owner");
-    expect(
-      (await f.personal().completeOAuth({ nonce, ...credential })).phase,
-    ).toBe("submitted");
+    expect((await recovery.completeOAuth({ nonce, ...credential })).phase).toBe(
+      "submitted",
+    );
+    expect((await recovery.operation(nonce)).completion).toMatchObject({
+      providerLabel: "Grok",
+      providerId: "grok",
+      inputKind: "authorization_code",
+    });
     expect(f.completions).toEqual([
       {
         operationId: personalOperationId("device-owner", nonce),
@@ -656,5 +720,7 @@ test.each(["plain_code", "callback_url"] as const)(
     expect(JSON.stringify([...f.rows.values()])).not.toMatch(
       /synthetic-grok|authorizationCode|callbackURL|auth.x.ai/,
     );
+    expect(f.catalogueReads()).toBe(0);
+    expect(f.counts()).toEqual({ beginCount: 1, pollCount: 0, finalized: 0 });
   },
 );

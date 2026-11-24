@@ -29,10 +29,10 @@ import {
   RepositoryStarsBadge,
 } from "../repository-row-display";
 import { RepositoryVisibilityBadge } from "../repository-visibility-badge";
-import { tokenizeRepositorySearch } from "../../src/server/repository-search";
 import {
   readRepositorySetupFilter,
   repositoryMatchesSetupFilter,
+  tokenizeRepositorySearch,
   writeRepositorySetupFilter,
   type RepositorySetupFilter,
   type RepositorySetupState,

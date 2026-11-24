@@ -1,5 +1,6 @@
 import { createReviewRunGatewayTerminalRunReader } from "./review-run-gateway-terminal-run.js";
 import type { HistoryCapture } from "@reviewrouter/features-review-history/composition";
+import type { Logger } from "@reviewrouter/platform-logger";
 import { attestCompiledReviewActionV2ProducerContract } from "./review-action-v2-producer-contract-attestation.js";
 import {
   validateReviewPublicationLifecycleVerification,
@@ -76,6 +77,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { App } from "@octokit/app";
 import { ProductionHostedReviewPreleaseGate } from "./hosted-review-prelease-gate.js";
 import { readHostedReviewMaxChangedLines } from "./hosted-review-config.js";
+import { OctokitReviewSizeLimitNoticeGateway } from "./github/octokit-review-size-limit-notice-gateway.js";
 import {
   HmacActionLedgerKey,
   JoseGitHubActionsOidcTokenVerifier,
@@ -154,6 +156,7 @@ import {
   ReviewWorkSlotState,
   ReviewInvocationLeasePurpose,
   ReviewTaskKind as ExecutionTaskKind,
+  projectionClaimsCompleteCoverage,
   type CurrentReviewRevisionPort,
   type ReviewExecution,
   type ReviewExecutionAuthorizationFactsPort,
@@ -166,7 +169,10 @@ import {
   PrismaReviewRequestedIntentStore,
   createReviewExecutionsUseCases,
 } from "@reviewrouter/features-review-executions/composition";
-import { createPrismaReviewProgressCapture } from "@reviewrouter/features-review-progress/composition";
+import {
+  createConfiguredReviewProgressCapture,
+  readReviewProgressSettings,
+} from "@reviewrouter/features-review-progress/composition";
 import {
   GitHubReviewPublicationLifecycleAdapter,
   HmacReviewCommandLedgerVerifier,
@@ -560,6 +566,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
         code: ReviewInvestigationOperationsDiagnosticCode,
       ) => Promise<void> | void)
     | undefined;
+  readonly logger?: Pick<Logger, "warn">;
 }): ReviewActionV2ProductionRoutes {
   if (!input.enabled) {
     return Object.freeze({
@@ -706,6 +713,10 @@ export function composeReviewActionV2ProductionRoutes(input: {
             maxChangedLines: readHostedReviewMaxChangedLines(
               input.env.REVIEW_ROUTER_HOSTED_MAX_CHANGED_LINES,
             ),
+            sizeLimitNotices: new OctokitReviewSizeLimitNoticeGateway({
+              appId: githubAppId,
+              privateKey: githubAppPrivateKey,
+            }),
           }),
         }
       : {}),
@@ -750,6 +761,9 @@ export function composeReviewActionV2ProductionRoutes(input: {
       ),
   } as const;
 
+  const progressCapture = createConfiguredReviewProgressCapture(
+    readReviewProgressSettings(input.env, input.logger),
+  );
   const executionStore = new PrismaReviewExecutionStore(input.prisma, {
     ...(historyWriter
       ? {
@@ -760,14 +774,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
     ...(input.memoryInputAdmission
       ? { inputAdmission: input.memoryInputAdmission }
       : {}),
-    ...(input.env.REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE === "1"
-      ? {
-          progressCapture: createPrismaReviewProgressCapture({
-            fileCoverageEnabled:
-              input.env.REVIEW_ROUTER_PROGRESS_FILE_COVERAGE === "1",
-          }),
-        }
-      : {}),
+    ...(progressCapture ? { progressCapture } : {}),
   });
   const currentRevision = new ProductionCurrentReviewRevisionAdapter({
     prisma: input.prisma,
@@ -2700,9 +2707,7 @@ class ProductionFinalizationFactsAdapter implements ReviewActionV2FinalizationFa
     input: Parameters<ReviewActionV2FinalizationFactsPort["resolve"]>[0],
     envelope: Record<string, unknown>,
   ) {
-    const producerCoverageComplete =
-      (envelope.coverage as { readonly state?: unknown } | null)?.state ===
-      "complete";
+    const producerCoverageComplete = projectionClaimsCompleteCoverage(envelope);
     const snapshot = parseReviewRunRuntimeSnapshot(
       input.authorization.runtimeSnapshotCanonicalJson,
     );

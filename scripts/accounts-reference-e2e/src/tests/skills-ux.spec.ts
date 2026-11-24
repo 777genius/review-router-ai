@@ -685,26 +685,40 @@ test.describe("Skills real Next UX resilience", () => {
     page,
     context,
   }) => {
-    const first = await ensurePaths(page, "122", "Fixture skill 057");
-    const original = (await binding("122", "rr-e2e-skill-057"))!;
-    await first.row
-      .getByRole("textbox", { name: "Include paths", exact: true })
-      .fill("stale-incarnation/**");
-    await first.dialog
-      .getByRole("button", { name: "Add skills", exact: true })
-      .click();
-    await first.dialog
-      .getByRole("button", { name: "Back to assigned skills", exact: true })
-      .click();
-    await first.row.getByText("File scope", { exact: true }).click();
-    await expect(
-      first.row.getByRole("textbox", { name: "Include paths", exact: true }),
-    ).toHaveValue("stale-incarnation/**");
+    await ensurePaths(page, "122", "Fixture skill 057");
     const second = await context.newPage();
     const network: string[] = [];
     await installLoopbackOnlyNetworkGuard(second, network);
     try {
       const current = await openOperation(second, "122", "Fixture skill 057");
+      // Next dev broadcasts a compilation sync when another tab connects.
+      // Establish both tabs before creating the draft whose document must
+      // survive the remove/re-add conflict; do not reload after this point.
+      const first = await ensurePaths(page, "122", "Fixture skill 057");
+      const originalDocumentTimeOrigin = await page.evaluate(
+        () => performance.timeOrigin,
+      );
+      const expectOriginalDocument = async () => {
+        expect(
+          await page.evaluate(() => performance.timeOrigin),
+          "The stale Paths draft must remain in its original document",
+        ).toBe(originalDocumentTimeOrigin);
+      };
+      const original = (await binding("122", "rr-e2e-skill-057"))!;
+      await first.row
+        .getByRole("textbox", { name: "Include paths", exact: true })
+        .fill("stale-incarnation/**");
+      await first.dialog
+        .getByRole("button", { name: "Add skills", exact: true })
+        .click();
+      await first.dialog
+        .getByRole("button", { name: "Back to assigned skills", exact: true })
+        .click();
+      await first.row.getByText("File scope", { exact: true }).click();
+      await expect(
+        first.row.getByRole("textbox", { name: "Include paths", exact: true }),
+      ).toHaveValue("stale-incarnation/**");
+      await expectOriginalDocument();
       await current.row
         .getByRole("button", {
           name: "Remove skill Fixture skill 057",
@@ -728,6 +742,7 @@ test.describe("Skills real Next UX resilience", () => {
       const recreated = (await binding("122", "rr-e2e-skill-057"))!;
       expect(recreated.version).toBe(original.version);
       expect(recreated.generation).not.toBe(original.generation);
+      await expectOriginalDocument();
       await first.row
         .getByRole("button", { name: "Save paths", exact: true })
         .click();
@@ -737,6 +752,7 @@ test.describe("Skills real Next UX resilience", () => {
       await expect(
         first.row.getByRole("textbox", { name: "Include paths", exact: true }),
       ).toHaveValue("stale-incarnation/**");
+      await expectOriginalDocument();
       expect(await binding("122", "rr-e2e-skill-057")).toEqual(recreated);
       await first.row
         .getByRole("button", {
@@ -750,6 +766,7 @@ test.describe("Skills real Next UX resilience", () => {
       await expect(
         first.row.getByRole("textbox", { name: "Include paths", exact: true }),
       ).toHaveValue("**");
+      await expectOriginalDocument();
       let unexpectedPrompt = false;
       page.once("dialog", (value) => {
         unexpectedPrompt = true;

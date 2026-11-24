@@ -100,6 +100,7 @@ describe("Review progress snapshot policy", () => {
       { ...validSnapshot, terminal: "failed" },
       { ...validSnapshot, updatedAt: "not-a-date" },
       { ...validSnapshot, updatedAt: "2026-08-12T12:00:00Z" },
+      { ...validSnapshot, startedAt: "yesterday" },
       { ...validSnapshot, generation: -1 },
     ]) {
       expect(() => parseSnapshot(invalid)).toThrow(
@@ -112,6 +113,8 @@ describe("Review progress snapshot policy", () => {
       terminal: "failed",
     };
     expect(parseSnapshot(terminal)).toBe(terminal);
+    const started = { ...validSnapshot, startedAt: "2026-08-12T11:58:00.000Z" };
+    expect(parseSnapshot(started)).toBe(started);
   });
 
   it("rejects inconsistent aggregate and required progress counts", () => {
@@ -205,6 +208,31 @@ describe("Review progress snapshot policy", () => {
       "review_progress_snapshot_invalid",
     );
 
+    // An ordered fallback completes without the parts it did not need.
+    const fallback = {
+      ...complete,
+      counts: {
+        ...incomplete.counts,
+        pending: 0,
+        cancelled: 1,
+        requiredCancelled: 1,
+      },
+    };
+    expect(parseSnapshot(fallback)).toBe(fallback);
+    const nothingFinished = {
+      ...complete,
+      counts: {
+        ...fallback.counts,
+        completed: 0,
+        requiredCompleted: 0,
+        cancelled: 2,
+        requiredCancelled: 2,
+      },
+    };
+    expect(() => parseSnapshot(nothingFinished)).toThrow(
+      "review_progress_snapshot_invalid",
+    );
+
     const partial = {
       ...complete,
       terminal: "complete_with_gaps",
@@ -218,8 +246,12 @@ describe("Review progress snapshot policy", () => {
     };
     expect(parseSnapshot(partial)).toBe(partial);
 
-    const falsePartial = { ...complete, terminal: "complete_with_gaps" };
-    expect(() => parseSnapshot(falsePartial)).toThrow(
+    // A review can end incomplete with every part finished (unverified native
+    // spans); the summary's coverage verdict decides, not the part counts.
+    const unverified = { ...complete, terminal: "complete_with_gaps" };
+    expect(parseSnapshot(unverified)).toBe(unverified);
+    const unsettled = { ...incomplete, terminal: "complete_with_gaps" };
+    expect(() => parseSnapshot(unsettled)).toThrow(
       "review_progress_snapshot_invalid",
     );
   });
