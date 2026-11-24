@@ -7,6 +7,23 @@ on:
     paths:
       - .github/workflows/skills-browser.yml
       - apps/web/**
+      # Public marketing-only paths do not execute dashboard, memory or OCR.
+      - "!apps/web/app/home-*"
+      - "!apps/web/app/page.tsx"
+      - "!apps/web/app/opengraph-image.tsx"
+      - "!apps/web/app/robots.ts"
+      - "!apps/web/app/sitemap.ts"
+      - "!apps/web/app/favicon.ico"
+      - "!apps/web/app/pricing/**"
+      - "!apps/web/app/privacy/**"
+      - "!apps/web/app/terms/**"
+      - "!apps/web/app/refund-policy/**"
+      - "!apps/web/app/security/**"
+      # Statistics-only UI routes are qualified by statistics-followthrough-browser.
+      - "!apps/web/app/dashboard/provider-usage-*"
+      - "!apps/web/app/dashboard/review-statistics-*"
+      - "!apps/web/app/api/dashboard/provider-usage/**"
+      - "!apps/web/app/api/dashboard/review-statistics/**"
       - apps/worker/**
       - apps/api/src/review-action-v2-production-composition.ts
       - apps/api/src/review-run-runtime-snapshot*
@@ -262,6 +279,9 @@ jobs:
         run: |
           pnpm --dir scripts/local-checks/native install --ignore-workspace --ignore-scripts --frozen-lockfile
           node scripts/local-checks/compiler-cli.ts --native --noEmit -p scripts/accounts-reference-e2e/tsconfig.json
+
+      - name: Verify HTTP response inspection across navigation
+        run: node --test scripts/accounts-reference-e2e/src/secret-leak-capture.spec.ts
 
       - name: Run all catalog browser scenarios
         run: |

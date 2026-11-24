@@ -6,6 +6,23 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - apps/web/**
+      # Public marketing-only paths do not execute dashboard, memory or OCR.
+      - "!apps/web/app/home-*"
+      - "!apps/web/app/page.tsx"
+      - "!apps/web/app/opengraph-image.tsx"
+      - "!apps/web/app/robots.ts"
+      - "!apps/web/app/sitemap.ts"
+      - "!apps/web/app/favicon.ico"
+      - "!apps/web/app/pricing/**"
+      - "!apps/web/app/privacy/**"
+      - "!apps/web/app/terms/**"
+      - "!apps/web/app/refund-policy/**"
+      - "!apps/web/app/security/**"
+      # Statistics-only UI routes are qualified by statistics-followthrough-browser.
+      - "!apps/web/app/dashboard/provider-usage-*"
+      - "!apps/web/app/dashboard/review-statistics-*"
+      - "!apps/web/app/api/dashboard/provider-usage/**"
+      - "!apps/web/app/api/dashboard/review-statistics/**"
       - packages/ui/**
       - scripts/memory-ui-e2e/**
       - apps/api/**
@@ -35,6 +52,23 @@ on:
     branches: [main]
     paths:
       - apps/web/**
+      # Public marketing-only paths do not execute dashboard, memory or OCR.
+      - "!apps/web/app/home-*"
+      - "!apps/web/app/page.tsx"
+      - "!apps/web/app/opengraph-image.tsx"
+      - "!apps/web/app/robots.ts"
+      - "!apps/web/app/sitemap.ts"
+      - "!apps/web/app/favicon.ico"
+      - "!apps/web/app/pricing/**"
+      - "!apps/web/app/privacy/**"
+      - "!apps/web/app/terms/**"
+      - "!apps/web/app/refund-policy/**"
+      - "!apps/web/app/security/**"
+      # Statistics-only UI routes are qualified by statistics-followthrough-browser.
+      - "!apps/web/app/dashboard/provider-usage-*"
+      - "!apps/web/app/dashboard/review-statistics-*"
+      - "!apps/web/app/api/dashboard/provider-usage/**"
+      - "!apps/web/app/api/dashboard/review-statistics/**"
       - packages/ui/**
       - scripts/memory-ui-e2e/**
       - apps/api/**
@@ -66,8 +100,8 @@ permissions:
 
 concurrency:
   # Manual qualification must not cancel branch/PR checks or another manual mode.
-  group: memory-authority-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+  group: memory-authority-${{ github.event_name }}-${{ github.event_name == 'pull_request' && (github.event.pull_request.number || github.ref) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   browser-ui:
