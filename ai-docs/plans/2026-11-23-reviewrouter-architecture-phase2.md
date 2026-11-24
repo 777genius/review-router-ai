@@ -3,8 +3,65 @@
 Date: 2026-11-23 (Europe/Chisinau)
 Baseline main: 06aae0faf17687e52b9d0be63717c8ccc16d1458
 Working branch: refactor/architecture-boundaries-phase2-20261123
-Status: priority expansion published; scoped local qualification passed; whole-PR release acceptance remains pending
+Status: further scoped refactoring and independent review in progress; final qualification and merge authorized
 Authority: AGENTS.md, Engineering Quality Standard, Feature Module Standard adopted profiles, current security/runtime protocols.
+
+## Final review and delivery — 2026-11-25
+
+The owner now requests further useful refactoring in priority order, repeated
+review and repair of all confirmed critical findings, followed by merging this
+existing PR. This supersedes the earlier expansion-only instruction to stop in
+Draft. Keep Draft while publishing coherent checked slices, then run the final
+ordinary gates and merge the reviewed head. Production deployment and changes
+to other product/provider contracts remain outside this delivery.
+
+The starting published source is `41ff719042420d8ff28c3e8054ddf6c8700f6936`:
+228 files, +22,510 / -8,411, or 30,921 changed lines. The previous volume target
+has already been met. Additional changes require a concrete ownership or
+correctness benefit; moved lines are not new implementation.
+
+The latest complete UI16 report at that exact source passes all 16 maintained
+scenarios without retries or skips using the explicit low-memory Webpack test
+profile. Independent verification reran the unchanged receipt checker, compared
+the before/after source manifests, and confirmed migration checksums and cleanup.
+Earlier failed or interrupted browser attempts retain their original outcomes.
+
+Priorities for this continuation:
+
+1. Independently review execution authority, replay/authentication and the
+   architecture enforcement changes against their actual contracts and existing
+   negative fixtures. Fix demonstrated defects before further extraction.
+2. Separate the remaining 3,129-line API execution/evidence host by existing
+   responsibilities: route composition, dependency types, authority, request
+   validation, execution lifecycle, lease handlers, observation handling and
+   evidence lookup/commit. Keep these host responsibilities API-owned. Preserve
+   all public declarations, function bodies, await/clock order, failure mapping,
+   fencing and final compare-and-swap semantics. Use direct private modules;
+   introduce no package, framework, registry, flag, migration or wire change.
+3. Complete the already-planned native lint adoption only from a verified
+   published Stack artifact with its real generated/frozen lock. Retain the
+   independent 20-rule oracle, exact native parser companion versions and the
+   pre-initialization legacy-load guard. A local candidate does not establish
+   registry publication or whole-root acceptance.
+4. Qualify the integrated candidate with the original strict projects, existing
+   behavioral suites, relevant real PostgreSQL/HTTP E2E, complete architecture,
+   lint/format, build and Action artifact gates. Reuse evidence only when its
+   inputs and covered behavior remain demonstrably unchanged.
+5. Independently review the resulting code and receipts, reconcile the complete
+   source commit identity list with its retained recovery history, and verify
+   ordinary successful required checks before an exact-head merge. Verify the
+   actual merged commit and resulting main checks afterward.
+
+Estimated extraction: 3,000 existing production lines relocated once,
+180–300 net lines for explicit imports/types/re-exports, no planned semantic
+change and no new mirror tests. Add regression tests only for reproduced bugs.
+Complexity 4/10; regression risk before qualification 4/10; target confidence
+after independent review and actual gates 9/10. These are engineering estimates.
+
+Review rounds are separate: initial contract/AST and failure-mode review;
+independent integrated extraction review; final source/evidence and merge-gate
+review. An incomplete automated review, queued check or skipped case is not a
+successful review or test.
 
 ## Correctness follow-through and E2E — 2026-11-24
 
