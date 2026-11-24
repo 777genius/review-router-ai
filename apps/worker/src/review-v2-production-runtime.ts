@@ -648,6 +648,8 @@ export function createProductionReviewV2WorkerRuntime(input: {
     { ids: intentIds, digest: intentDigest },
     intentDispatchPolicy,
   );
+  let preparationWasSaturated = false;
+  let submissionWasSaturated = false;
   const publicationExecutor = new ExecuteReviewV2PublicationOperation(
     {
       digestUtf8: sha256,
@@ -764,6 +766,22 @@ export function createProductionReviewV2WorkerRuntime(input: {
           ownerIdHash,
           limit,
         });
+        if (dispatch.preparationSaturated && !preparationWasSaturated) {
+          input.logger?.warn("Review request preparation capacity exhausted", {
+            inFlight: dispatch.preparationsInFlight,
+          });
+        } else if (!dispatch.preparationSaturated && preparationWasSaturated) {
+          input.logger?.info("Review request preparation capacity recovered");
+        }
+        preparationWasSaturated = dispatch.preparationSaturated;
+        if (dispatch.submissionSaturated && !submissionWasSaturated) {
+          input.logger?.warn("Review request submission capacity exhausted", {
+            inFlight: dispatch.submissionsInFlight,
+          });
+        } else if (!dispatch.submissionSaturated && submissionWasSaturated) {
+          input.logger?.info("Review request submission capacity recovered");
+        }
+        submissionWasSaturated = dispatch.submissionSaturated;
         return {
           scanned: recovery.scanned + dispatch.scanned,
           dispatched: dispatch.dispatched,

@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
+import { ReviewProgressGitHubError } from "./review-progress-github-error";
 import {
-  commentPageLinks,
+  CAPACITY_LIMIT_SCAN,
   commentPageScanDecision,
   confirmedReconciliation,
+  hasUnclassifiedMarker,
+  isCapacityLimitedScan,
   ownsMarker,
+  parseComment,
   parseCommentOrNull,
+  verifiedKnownComment,
 } from "./review-progress-github-comment-policy";
+import { commentPageLinks } from "./review-progress-github-link-policy";
 
 function hasNextCommentPage(
   headers: Parameters<typeof commentPageLinks>[0],
@@ -122,6 +128,14 @@ describe("Review progress GitHub comment policy", () => {
     ).toBe(false);
   });
 
+  it("does not certify a full page from a previous-only Link", () => {
+    const previous = '</comments?page=1>; rel="prev"';
+    const hint = hasNextCommentPage({ link: previous }, 2);
+    expect(hint).toBe(false);
+    expect(commentPageScanDecision(hint, 100, 2, 5)).toBe("continue");
+    expect(commentPageScanDecision(hint, 99, 2, 5)).toBe("complete");
+  });
+
   it("rejects misleading first links before accepting scan completion", () => {
     const misleading = '</comments?page=3>; rel="first"';
     const decision = hasNextCommentPage({ link: misleading }, 1);
@@ -156,8 +170,10 @@ describe("Review progress GitHub comment policy", () => {
 
   it("classifies bounded page scan outcomes", () => {
     const scenarios = [
+      [true, 101, 5, 5, "inconclusive"],
+      [true, 101, 1, 5, "inconclusive"],
       [false, 100, 5, 5, "inconclusive"],
-      [false, 100, 1, 5, "complete"],
+      [false, 100, 1, 5, "continue"],
       [undefined, 99, 5, 5, "complete"],
       [undefined, 100, 1, 5, "continue"],
       [true, 100, 1, 5, "continue"],
@@ -212,6 +228,97 @@ describe("Review progress GitHub comment policy", () => {
     }
   });
 
+  it("rejects a Link without the requested 100-comment window when issue-scoped", () => {
+    const expected = ["/repos/acme/rocket/issues/42/comments"];
+    const unbounded =
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next"';
+    const bounded =
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"';
+    expect(commentPageLinks({ link: unbounded }, 1, expected)).toEqual({
+      hasNextPage: "invalid",
+    });
+    expect(commentPageLinks({ link: bounded }, 1, expected)).toEqual({
+      hasNextPage: true,
+    });
+  });
+
+  it("rejects pagination hints for another issue collection", () => {
+    const expected = ["/repos/acme/rocket/issues/42/comments"];
+    const foreign =
+      '<https://api.github.com/repos/acme/rocket/issues/43/comments?page=1&per_page=100>; rel="last"';
+    const trusted =
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"';
+    expect(commentPageLinks({ link: foreign }, 1, expected)).toEqual({
+      hasNextPage: "invalid",
+    });
+    expect(commentPageLinks({ link: trusted }, 1, expected)).toEqual({
+      hasNextPage: true,
+    });
+  });
+
+  it("binds every Link relation to the requested issue collection", () => {
+    const expected = ["/repos/acme/rocket/issues/42/comments"];
+    const foreignIssue = "/repos/acme/rocket/issues/43/comments";
+    for (const [relation, currentPage, targetPage] of [
+      ["first", 2, 1],
+      ["last", 1, 3],
+      ["prev", 2, 1],
+      ["next", 1, 2],
+    ] as const) {
+      const href = `https://api.github.com${foreignIssue}?page=${targetPage}&per_page=100`;
+      const foreign = `<${href}>; rel="${relation}"`;
+      const parsed = commentPageLinks({ link: foreign }, currentPage, expected);
+      expect(parsed).toEqual({ hasNextPage: "invalid" });
+    }
+  });
+
+  it("allows canonical repository-ID Links only for the verified repository", () => {
+    const verified = [
+      "/repos/acme/rocket/issues/42/comments",
+      "/repositories/1300192/issues/42/comments",
+    ];
+    const valid =
+      '<https://api.github.com/repositories/1300192/issues/42/comments?page=2&per_page=100>; rel="next"';
+    const foreign =
+      '<https://api.github.com/repositories/1300193/issues/42/comments?page=1&per_page=100>; rel="last"';
+    expect(commentPageLinks({ link: valid }, 1, verified)).toEqual({
+      hasNextPage: true,
+    });
+    expect(commentPageLinks({ link: foreign }, 1, verified)).toEqual({
+      hasNextPage: "invalid",
+    });
+  });
+
+  it("rejects Link hints with ambiguous duplicate page parameters", () => {
+    const cases = [
+      ["next", 1, 2],
+      ["prev", 2, 1],
+      ["first", 2, 1],
+      ["last", 1, 1],
+    ] as const;
+    for (const [relation, currentPage, expectedPage] of cases) {
+      const link = `<https://api.github.com/comments?page=${expectedPage}&page=99>; rel="${relation}"`;
+      expect(commentPageLinks({ link }, currentPage)).toEqual({
+        hasNextPage: "invalid",
+      });
+    }
+  });
+
+  it("rejects Link hints for a different page size or filtered collection", () => {
+    for (const suffix of [
+      "&per_page=1",
+      "&per_page=99",
+      "&per_page=100&per_page=100",
+      "&since=2026-11-01T00%3A00%3A00Z",
+    ]) {
+      const link = `<https://api.github.com/comments?page=2${suffix}>; rel="next"`;
+      expect(hasNextCommentPage({ link }, 1)).toBe("invalid");
+    }
+    const trusted =
+      '<https://api.github.com/comments?page=2&per_page=100>; rel="next"';
+    expect(hasNextCommentPage({ link: trusted }, 1)).toBe(true);
+  });
+
   it("parses only comments with safe IDs, bodies and author logins", () => {
     const raw = { id: 7, body: desired, user: { login: "review-router[bot]" } };
     expect(parseCommentOrNull(raw)).toEqual(marked(7, desired));
@@ -239,5 +346,115 @@ describe("Review progress GitHub comment policy", () => {
         input,
       ),
     ).toBe(false);
+  });
+
+  it("treats unreadable comment rows as potential marked comments", () => {
+    const marker = "<!-- review-router:progress:review -->";
+    const bot = "review-router[bot]";
+    const cases = [
+      [null, true],
+      [{ body: marker }, true],
+      [{ body: "other" }, false],
+      [{ body: 42, user: { login: bot } }, true],
+      [{ body: 42, user: { login: "other[bot]" } }, false],
+      [{ body: 42, user: null }, true],
+    ] as const;
+    for (const [row, expected] of cases) {
+      expect(hasUnclassifiedMarker(row, marker, bot)).toBe(expected);
+    }
+  });
+
+  it("parses valid write replies and rejects malformed comments", () => {
+    const raw = { id: 7, body: desired, user: { login: "review-router[bot]" } };
+    expect(parseComment(raw)).toEqual(marked(7, desired));
+    expect(() => parseComment({ ...raw, id: "7" })).toThrowError(
+      "github_issue_comment_invalid",
+    );
+  });
+
+  it("recognizes only bounded-scan overflow for known-ID recovery", () => {
+    expect(
+      isCapacityLimitedScan(
+        new ReviewProgressGitHubError(
+          "pagination_inconclusive",
+          CAPACITY_LIMIT_SCAN,
+          { retryable: true },
+        ),
+      ),
+    ).toBe(true);
+    for (const [kind, message] of [
+      ["pagination_inconclusive", "github_issue_comments_offset_changed"],
+      ["invalid_response", CAPACITY_LIMIT_SCAN],
+    ] as const) {
+      expect(
+        isCapacityLimitedScan(
+          new ReviewProgressGitHubError(kind, message, { retryable: true }),
+        ),
+      ).toBe(false);
+    }
+  });
+
+  it("trusts only the expected known comment and target issue", () => {
+    const marker = "<!-- review-router:progress:review -->";
+    const input = {
+      owner: "acme",
+      repo: "rocket",
+      pullNumber: 42,
+      expectedBotLogin: "review-router[bot]",
+      marker,
+    };
+    const row = {
+      id: 900,
+      body: `working\n${marker}`,
+      user: { login: "review-router[bot]" },
+      issue_url: "https://api.github.com/repos/acme/rocket/issues/42",
+    };
+    const verified = verifiedKnownComment(row, input, 900);
+    expect(verified).toEqual(marked(900, row.body));
+    expect(
+      verifiedKnownComment(
+        {
+          ...row,
+          issue_url: "https://api.github.com/repos/acme/rocket/issues/43",
+        },
+        input,
+        900,
+      ),
+    ).toBeNull();
+    expect(
+      verifiedKnownComment({ ...row, body: "unrelated" }, input, 900),
+    ).toBeNull();
+    expect(
+      verifiedKnownComment(
+        { ...row, user: { login: "foreign[bot]" } },
+        input,
+        900,
+      ),
+    ).toBeNull();
+  });
+
+  it("fails closed on malformed known-comment responses", () => {
+    const input = {
+      owner: "acme",
+      repo: "rocket",
+      pullNumber: 42,
+      expectedBotLogin: "review-router[bot]",
+      marker: "<!-- review-router:progress:review -->",
+    };
+    const row = {
+      id: 900,
+      body: input.marker,
+      user: { login: input.expectedBotLogin },
+      issue_url: "https://api.github.com/repos/acme/rocket/issues/42",
+    };
+    for (const [value, errorMessage] of [
+      [null, "github_known_comment_invalid"],
+      [{ ...row, issue_url: undefined }, "github_known_comment_issue_missing"],
+      [{ ...row, id: 901 }, "github_known_comment_mismatch"],
+    ] as const) {
+      expect(() => verifiedKnownComment(value, input, 900)).toThrowError(
+        errorMessage,
+      );
+    }
   });
 });

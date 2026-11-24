@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { githubProgressCommentMarker } from "@reviewrouter/features-review-progress";
 import {
   ReviewRequestAdmissionState,
   ReviewRequestedIntentState,
@@ -36,7 +37,9 @@ describe("GitHubReviewRequestedStartNoticePublisher", () => {
 
   it("writes the waiting status with the absolute end of the wait", async () => {
     const f = fixture({ commentId: 501n });
-    await f.publish(ReviewRequestedStartNotice.WaitingForRunner);
+    await expect(
+      f.publish(ReviewRequestedStartNotice.WaitingForRunner),
+    ).resolves.toBe("published");
     const body = String(
       f.calls.find(([route]) => route.startsWith("PATCH"))?.[1]?.body,
     );
@@ -101,7 +104,14 @@ function fixture(options: {
       if (
         route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
       ) {
-        return { data: [comment("old progress")] };
+        return {
+          data: [comment(`old progress\n\n${githubProgressCommentMarker}`)],
+        };
+      }
+      if (route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}") {
+        return {
+          data: comment(`old progress\n\n${githubProgressCommentMarker}`),
+        };
       }
       if (
         route === "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}"
@@ -177,7 +187,7 @@ function fixture(options: {
 function comment(body: string) {
   return {
     id: 501,
-    body: `${body}\n\n<!-- review-router-live-progress -->`,
+    body,
     user: { login: "reviewrouter[bot]" },
     issue_url:
       "https://api.github.com/repos/777genius/social-monitor/issues/42",
