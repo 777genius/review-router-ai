@@ -106,6 +106,9 @@ export const nativeConnectionFlow: VisualFlow = {
   run: async (flow) => {
     const fixture = flow.env.nativeOperations;
     assert.ok(fixture, "native Gateway fixture required");
+    let reconnectedAccount:
+      | Awaited<ReturnType<typeof waitForAccount>>
+      | undefined;
     const page = await flow.open("owner", workspaceRoute("main", "setup"));
     // This synthetic authorization page is the only allowed off-app browser origin.
     await page.context().route("https://identity.example.invalid/**", (route) =>
@@ -259,6 +262,7 @@ export const nativeConnectionFlow: VisualFlow = {
           ],
         );
         await assertNoSecrets(page);
+        reconnectedAccount = after;
       },
     );
     await flow.shot(page, "native-structured-reconnected");
@@ -364,11 +368,48 @@ export const nativeConnectionFlow: VisualFlow = {
     await flow.check(
       "native provider edit persists without a direct setup definition",
       async () => {
-        const connection = await waitForAccount(
-          flow,
-          "Visual native structured",
-          2,
+        assert.ok(
+          reconnectedAccount,
+          "the reconnect check must have completed",
         );
+        const connection =
+          await flow.prisma.providerAccountConnection.findUniqueOrThrow({
+            where: { id: reconnectedAccount.id },
+          });
+        assert.equal(
+          connection.gatewayAccountRef,
+          reconnectedAccount.gatewayAccountRef,
+        );
+        assert.equal(connection.profileRef, VISUAL_NATIVE_PROFILE);
+        assert.equal(connection.displayName, "Visual native structured");
+        assert.equal(connection.state, "active");
+        // Other receipt projections may advance this local CAS revision without
+        // changing the reconnected Gateway account.
+        assert.ok(
+          connection.metadataRevision >= reconnectedAccount.metadataRevision,
+          "the local mirror revision must not precede the completed reconnect",
+        );
+        const connectionRow = page
+          .locator("div")
+          .filter({
+            has: page.getByText("Visual native structured", { exact: true }),
+          })
+          .filter({
+            has: page.getByRole("button", {
+              name: "Add to this workspace",
+              exact: true,
+            }),
+          })
+          .last();
+        await connectionRow
+          .getByRole("button", { name: "Add to this workspace", exact: true })
+          .click();
+        await page
+          .getByText(
+            "Visual native structured is available for workspace model selection.",
+            { exact: true },
+          )
+          .waitFor();
         const binding = await flow.prisma.workspaceAccountBinding.findFirst({
           where: {
             connectionId: connection.id,
