@@ -3,7 +3,7 @@
 Date: 2026-11-23 (Europe/Chisinau)
 Baseline main: 06aae0faf17687e52b9d0be63717c8ccc16d1458
 Working branch: refactor/architecture-boundaries-phase2-20261123
-Status: IN PROGRESS — source-bound local E2E passed; final-head acceptance and merge pending
+Status: priority expansion published; scoped local qualification passed; whole-PR release acceptance remains pending
 Authority: AGENTS.md, Engineering Quality Standard, Feature Module Standard adopted profiles, current security/runtime protocols.
 
 ## Priority expansion — 2026-11-24
@@ -24,11 +24,11 @@ PR's exact runner expression, which is stricter than main's substring checks.
 The resulting unchanged-scope fixture passed all 40 existing cases on Node
 24.22.3, with zero failures, skips or cancellations.
 
-| Priority | Owner and change | Estimated production scope | Required invariant |
-| --- | --- | --- | --- |
-| 1 | Review execution domain: separate preparation, lease, observation, finalization and terminal transitions | About 1,900 existing lines reorganized | Exact public decisions, validation order, replay identity, lease fences and immutable updates |
-| 2 | Context attestation API host: separate lease admission, gateway lifecycle, replay authority, validation and crypto | About 3,000 existing lines reorganized | Exact signed preimages, clock reads, status/error mapping and authorization before effects |
-| 3 | Architecture checker: typed inventory and owner-specific policies behind the existing CLI | About 1,200 existing lines migrated | Same governed roots, negative fixtures, diagnostic order and rejection behavior |
+| Priority | Owner and change                                                                                                   | Estimated production scope             | Required invariant                                                                            |
+| -------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------- | --------------------------------------------------------------------------------------------- |
+| 1        | Review execution domain: separate preparation, lease, observation, finalization and terminal transitions           | About 1,900 existing lines reorganized | Exact public decisions, validation order, replay identity, lease fences and immutable updates |
+| 2        | Context attestation API host: separate lease admission, gateway lifecycle, replay authority, validation and crypto | About 3,000 existing lines reorganized | Exact signed preimages, clock reads, status/error mapping and authorization before effects    |
+| 3        | Architecture checker: typed inventory and owner-specific policies behind the existing CLI                          | About 1,200 existing lines migrated    | Same governed roots, negative fixtures, diagnostic order and rejection behavior               |
 
 Keep cross-feature orchestration at the API host. Do not move concrete crypto,
 protocol or persistence dependencies into strict feature domain/application
@@ -51,6 +51,52 @@ separately. Existing main changes and generated/lockfile churn do not count as
 new substantive refactoring work. The missing published Stack lint dependency
 remains a separately identified baseline gap until its owning release and
 ordinary dependency installation are verified.
+
+### Published expansion result
+
+Source HEAD `a5ed3e93072002efc04b1581a991d0b798065b46` includes three
+independently reviewed refactoring commits after the main integration:
+
+| Slice                                              | Commit     | Additions / deletions | Changed lines |
+| -------------------------------------------------- | ---------- | --------------------- | ------------- |
+| Execution transitions                              | `69be662c` | +2,056 / -1,908       | 3,964         |
+| Context attestation host                           | `52a61f5c` | +4,012 / -3,729       | 7,741         |
+| Typed architectural policies and strict enrollment | `a5ed3e93` | +1,393 / -1,190       | 2,583         |
+| **New source batch**                               | 25 files   | **+7,461 / -6,827**   | **14,288**    |
+
+The whole PR at that source checkpoint has **28,353 changed lines in 204 files**
+against main `18c57630` (+20,018 / -8,335, normal rename detection). The three
+original source files contained 6,969 lines; this is reorganized source scope,
+not new implementation. Net source growth is 634 lines. No new package,
+dependency, lockfile, protocol, database migration or feature flag was added.
+
+The existing suites passed **450/450 tests without skips**: execution 134,
+context/consumer 101, architecture 102, CI routing 40, Fastify transport 28 and
+real PostgreSQL execution/recovery 45. The original complete execution, API and
+tooling strict projects passed with TypeScript 7.0.2. Two independent source
+reviews preserved all 69 execution and 107 context declarations and their
+44/18 public exports, with acyclic ownership graphs and no confirmed defect.
+The complete `pnpm architecture:check` also passed: 694 domain/application
+files, zero Foundation diagnostics, 23 Memory and six Statistics workspace
+cases, plus History and account-metadata gates. The old and new core checker
+produce byte-identical diagnostics and exit status on the integrated source.
+
+Actual PostgreSQL 17.12 qualification applied the maintained 165-migration full
+catalog and the historical 82-migration provider fixture, including canonical
+role handoff and verification. All ledger checksums match source; 261 captured
+inputs stayed unchanged, and the owned database was stopped and removed.
+The API dependency build passed 46/46 uncached tasks. A separately guarded
+original API build and production-condition import proved nine emitted context
+modules and declarations, seven runtime exports, 234 first-party dist modules
+and zero source fallbacks. The initial Turbo run did not forward its preload;
+it is build evidence, while the direct API build establishes guarded native emit.
+
+The [scoped evidence summary](../deployments/evidence/2026-11-24-priority-refactor.json)
+binds the source paths and local log hashes. These results do not relabel old
+browser, whole-Web, bundled Action or hosted CI results as current. The verified
+published Stack 0.3 adoption and ordinary whole-root lint remain separate from
+this completed refactoring batch. Every commit was immediately published; the
+PR stays Draft and no CI wait, merge or deployment was performed.
 
 ## Paired lifecycle and browser cleanup checkpoint — 2026-11-23
 
