@@ -2472,6 +2472,53 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(deleteAttempts).toBe(1);
   });
 
+  it.each([4, 7])(
+    "defers HTTP 429 from pre-delete verification of comment %i",
+    async (commentId) => {
+      const desired = formatReviewProgressComment("working", marker);
+      const fixture = githubFixture([
+        { id: 4, body: desired },
+        { id: 7, body: `duplicate\n${marker}` },
+      ]);
+      const request: ReviewProgressGitHubRequester = async (
+        route,
+        parameters,
+      ) => {
+        if (
+          route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}" &&
+          parameters.comment_id === commentId
+        ) {
+          throw { status: 429, response: { headers: { "retry-after": "60" } } };
+        }
+        return fixture.request(route, parameters);
+      };
+      const now = new Date("2026-08-12T12:00:00.000Z");
+      const caught = await gateway(request, {
+        now: () => now,
+        random: () => 0,
+      })
+        .upsert(input())
+        .catch((error: unknown) => error);
+      expect(caught).toMatchObject({
+        kind: "rate_limited",
+        message: "github_duplicate_cleanup_rate_limited",
+        metadata: {
+          status: 429,
+          retryable: true,
+          retryAt: new Date("2026-08-12T12:01:00.250Z"),
+        },
+      });
+      expect(
+        (caught as ReviewProgressGitHubError).metadata.mutationMayHaveLanded,
+      ).toBeUndefined();
+      expect(publicationRetryPlan(caught, () => now, 1_000)).toMatchObject({
+        countFailure: false,
+        installationCooldownUntil: new Date("2026-08-12T12:01:00.250Z"),
+      });
+      expect(mutations(fixture.calls)).toEqual([]);
+    },
+  );
+
   it("rechecks the PR head before patching a changed canonical comment", async () => {
     const fixture = githubFixture([{ id: 4, body: `old\n${marker}` }], {
       staleHeadAfterFirstRead: true,

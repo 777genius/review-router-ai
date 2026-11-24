@@ -254,11 +254,29 @@ export class ReviewProgressGitHubGateway {
   ): Promise<UpsertReviewProgressCommentResult> {
     const duplicate = duplicates[0];
     await this.assertRepositoryId(input, scannedRepositoryId);
+    // Read-only throttling must not consume the publication failure budget
+    // while duplicate cleanup is deferred.
+    const verifyForCleanup = async (commentId: number) => {
+      try {
+        return await this.includeVerifiedKnownComment(
+          { ...input, knownCommentId: commentId },
+          [],
+        );
+      } catch (error) {
+        const classified = this.classify(error, "github_unavailable");
+        if (classified.kind === "rate_limited") {
+          throw new ReviewProgressGitHubError(
+            "rate_limited",
+            "github_duplicate_cleanup_rate_limited",
+            classified.metadata,
+            { cause: classified },
+          );
+        }
+        throw classified;
+      }
+    };
     // The scanned canonical may have been deleted or repurposed before settling.
-    const verified = await this.includeVerifiedKnownComment(
-      { ...input, knownCommentId: canonicalId },
-      [],
-    );
+    const verified = await verifyForCleanup(canonicalId);
     if (verified[0]?.body !== desiredBody) {
       throw failure(
         "pagination_inconclusive",
@@ -276,10 +294,7 @@ export class ReviewProgressGitHubGateway {
       };
     }
     // Do not delete a once-marked comment repurposed since the offset scan.
-    const duplicateNow = await this.includeVerifiedKnownComment(
-      { ...input, knownCommentId: duplicate.id },
-      [],
-    );
+    const duplicateNow = await verifyForCleanup(duplicate.id);
     if (duplicateNow[0]?.body !== duplicate.body) {
       throw failure(
         "pagination_inconclusive",
