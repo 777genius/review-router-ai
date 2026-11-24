@@ -60,6 +60,18 @@ failed before the correction; all 17 receipt-checker tests and the original
 strict tooling project passed afterward. This qualifies the receipt validator,
 not execution of the 25 lifecycle scenarios.
 
+The restored paired run exposed a separate fixture-retention issue. Installed
+Vitest 4.1.10 restores spy descriptors without clearing their recorded calls,
+results or replacement implementations. The lifecycle fixture now resets that
+state before restoring descriptors. An independent probe of the installed spy
+module confirmed the retention and cleanup behavior; the existing E2E assertions
+and 120-second case timeout remain unchanged. Exact contribution to the observed
+heap exhaustion is not inferred from that probe. An exploratory native check of
+the combined root `tsconfig.json` failed with 1,058 diagnostics; this project is
+not invoked by the maintained `typecheck` command. Paired fixtures still have a
+separate static-coverage gap, including snapshot-union narrowing and legacy release
+module declarations. No compiler options, exclusions or required gates were weakened.
+
 Current production E2E passed 17/17 on `43a69f34`, with unchanged recorded source
 inputs and verified PostgreSQL migration/cleanup evidence. Paired Action and
 browser E2E remain ongoing until their actual stable-source execution and
