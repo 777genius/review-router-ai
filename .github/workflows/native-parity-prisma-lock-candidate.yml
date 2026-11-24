@@ -1,0 +1,92 @@
+name: Native parity Prisma lock candidate
+on:
+  push:
+    branches: [diagnostics/native-parity-prisma-29719]
+    paths:
+      - .github/workflows/native-parity-prisma-lock-candidate.yml
+permissions:
+  contents: read
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: 8d95759f47863f9fa083ca70c213933fd7dacf47
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.12.1
+      - name: Install exact repository package manager
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - name: Generate version-only candidate from exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 8d95759f47863f9fa083ca70c213933fd7dacf47
+          test "$(pnpm --version)" = 11.28.7
+          git diff --exit-code
+          mkdir -p "$RUNNER_TEMP/prisma-candidate"
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { execFileSync } from 'node:child_process';
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const paths = execFileSync('git', ['ls-files','-z'], {encoding:'utf8'}).split('\0');
+          const target = /^(?:package\.json|apps\/[^/]+\/package\.json|packages\/(?:context-memory|ui|shared|protocol-review-action-v2|protocol-review-workflow|(?:platform|features)\/[^/]+)\/package\.json)$/;
+          const names = new Set(['prisma','@prisma/client','@prisma/adapter-pg']);
+          const edits = [];
+          for (const path of paths.filter(p => target.test(p))) {
+            const before = readFileSync(path,'utf8');
+            const manifest = JSON.parse(before);
+            const selected = [];
+            for (const section of ['dependencies','devDependencies','optionalDependencies','peerDependencies']) {
+              for (const [name, version] of Object.entries(manifest[section] ?? {})) {
+                if (name !== 'prisma' && !name.startsWith('@prisma/')) continue;
+                assert.ok(names.has(name), 'Unreviewed Prisma dependency '+name+' in '+path);
+                assert.match(version, /^(?:\^|~)?7\.8\.0$/);
+                selected.push({section,name,version,next:section==='peerDependencies'?'^7.9.0':'7.9.0'});
+                manifest[section][name] = selected.at(-1).next;
+              }
+            }
+            if (!selected.length) continue;
+            let after = before.replace(/("(?:prisma|@prisma\/client|@prisma\/adapter-pg)"\s*:\s*")((?:\^|~)?7\.8\.0)(")/g, (all,prefix,version,suffix) => {
+              const name = JSON.parse(prefix.slice(0,prefix.lastIndexOf(':')).trim());
+              const candidates = selected.filter(e=>e.name===name && e.version===version);
+              assert.ok(candidates.length>0 && candidates.every(e=>e.next===candidates[0].next), 'Ambiguous version edit '+path);
+              return prefix+candidates[0].next+suffix;
+            });
+            assert.deepEqual(JSON.parse(after),manifest,'Only reviewed dependency values may change');
+            writeFileSync(path,after);
+            edits.push({path,selected});
+          }
+          assert.ok(edits.length>0);
+          for (const path of ['pnpm-workspace.yaml','scripts/install-private-dependencies.mjs']) {
+            const before=readFileSync(path,'utf8');
+            let after=before;
+            for (const name of ['@prisma/engines','prisma']) {
+              const old='"'+name+'@7.8.0"';
+              assert.equal(after.split(old).length,2,'Expected one exact build allowlist entry '+path+' '+name);
+              after=after.replace(old,'"'+name+'@7.9.0"');
+            }
+            writeFileSync(path,after);
+          }
+          writeFileSync(process.env.RUNNER_TEMP+'/prisma-candidate/manifest-edits.json', JSON.stringify(edits,null,2)+'\n');
+          console.log('Manifest count',edits.length,'dependency count',edits.reduce((n,x)=>n+x.selected.length,0));
+          JS
+          pnpm install --lockfile-only --ignore-scripts --ignore-pnpmfile --no-frozen-lockfile
+          pnpm install --lockfile-only --ignore-scripts --ignore-pnpmfile --frozen-lockfile
+          git diff --check
+          git diff --stat
+          git diff --binary HEAD > "$RUNNER_TEMP/prisma-candidate/writer-upgrade.patch"
+          cp pnpm-lock.yaml "$RUNNER_TEMP/prisma-candidate/pnpm-lock.yaml"
+          git grep -n -F '7.8.0' -- ':!pnpm-lock.yaml' ':!**/pnpm-lock.yaml' > "$RUNNER_TEMP/prisma-candidate/remaining-version-references.txt" || test "$?" = 1
+          cd "$RUNNER_TEMP/prisma-candidate"
+          sha256sum * > SHA256SUMS
+      - name: Retain generated candidate for independent review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: prisma-7.9-writer-lock-candidate
+          path: ${{ runner.temp }}/prisma-candidate/
+          if-no-files-found: error
+          retention-days: 14
