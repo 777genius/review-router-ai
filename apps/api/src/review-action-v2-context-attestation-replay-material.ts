@@ -6,8 +6,10 @@ import {
   canonicalContextDependencyOperation,
   canonicalContextDependencyResult,
   isLegacyContextDependencyManifest,
+  selectContextGatewayV4ReplayEvents,
   type ContextAttestationManifest,
   type ContextDependencyManifest,
+  type ContextGatewayV4Event,
   type ContextGatewayV4Manifest,
   type GatewaySession,
 } from "@reviewrouter/features-review-context-attestation";
@@ -35,37 +37,14 @@ export function targetManifestMatchesGatewayV4Plan(
     replayInput: Readonly<Record<string, unknown>>;
   }>[],
 ): boolean {
-  const successful = manifest.events.filter(
-    (event) => event.outcome === ContextGatewayV4OutcomeKind.Succeeded,
+  const targetEvents = gatewayV4ReplayOperationStarts(
+    manifest.events.filter(
+      (event) => event.outcome === ContextGatewayV4OutcomeKind.Succeeded,
+    ),
   );
-  const targetOperations: Array<
-    Readonly<{
-      operationKind: ContextGatewayV4OperationKind;
-      operationKey: string;
-    }>
-  > = [];
-  const seenPageGroups = new Set<string>();
-  for (const event of successful) {
-    if (
-      event.operationKind === ContextGatewayV4OperationKind.DirectoryList ||
-      event.operationKind === ContextGatewayV4OperationKind.TextSearch ||
-      event.operationKind === ContextGatewayV4OperationKind.CanonicalInventory
-    ) {
-      const group = gatewayV4ReplayGroupKey(event);
-      if (seenPageGroups.has(group)) continue;
-      seenPageGroups.add(group);
-      if (event.result?.pageOrdinal !== 0) return false;
-    }
-    targetOperations.push(
-      Object.freeze({
-        operationKind: event.operationKind,
-        operationKey: event.operationKey,
-      }),
-    );
-  }
-  if (targetOperations.length !== operations.length) return false;
+  if (!targetEvents || targetEvents.length !== operations.length) return false;
   return operations.every((operation, index) => {
-    const target = targetOperations[index];
+    const target = targetEvents[index];
     return (
       target?.operationKind === operation.operationKind &&
       target.operationKey ===
@@ -84,99 +63,81 @@ export function selectGatewayV4ReplayOperations(
       replayInput: Readonly<Record<string, unknown>>;
     }>[]
   | null {
-  const successful = manifest.events.filter(
-    (event) => event.outcome === ContextGatewayV4OutcomeKind.Succeeded,
+  const selectedEvents = selectContextGatewayV4ReplayEvents(
+    manifest.events,
+    selectedReceiptIds,
   );
-  const eventByReceipt = new Map(
-    successful.map((event) => [event.operationReceiptId!, event]),
-  );
-  if (selectedReceiptIds.some((receiptId) => !eventByReceipt.has(receiptId))) {
-    return null;
-  }
-  const selectedGroups = new Set(
-    selectedReceiptIds.map((receiptId) =>
-      gatewayV4ReplayGroupKey(eventByReceipt.get(receiptId)!),
-    ),
-  );
+  if (!selectedEvents) return null;
+  const operationStarts = gatewayV4ReplayOperationStarts(selectedEvents);
+  if (!operationStarts) return null;
   const entryBySequence = new Map(
     material.entries.map((entry) => [entry.sequence, entry]),
-  );
-  const groups = new Map<string, typeof successful>();
-  for (const event of successful) {
-    const key = gatewayV4ReplayGroupKey(event);
-    if (!selectedGroups.has(key)) continue;
-    const group = groups.get(key) ?? [];
-    group.push(event);
-    groups.set(key, group);
-  }
-  const orderedGroups = [...groups.values()].sort(
-    (left, right) => left[0]!.sequence - right[0]!.sequence,
   );
   const operations: Array<{
     operationKind: ContextGatewayV4OperationKind;
     replayInput: Readonly<Record<string, unknown>>;
   }> = [];
-  for (const events of orderedGroups) {
-    const kind = events[0]!.operationKind;
-    if (
-      kind === ContextGatewayV4OperationKind.DirectoryList ||
-      kind === ContextGatewayV4OperationKind.TextSearch ||
-      kind === ContextGatewayV4OperationKind.CanonicalInventory
-    ) {
-      const first = events.find((event) => event.result?.pageOrdinal === 0);
-      const entry = first ? entryBySequence.get(first.sequence) : null;
-      if (!entry) return null;
+  for (const event of operationStarts) {
+    const entry = entryBySequence.get(event.sequence);
+    if (!entry) return null;
+    if (isGatewayV4PagedOperation(event.operationKind)) {
       const { cursor, ...replayInput } = entry.replayInput;
       void cursor;
       operations.push(
         Object.freeze({
-          operationKind: kind,
+          operationKind: event.operationKind,
           replayInput: Object.freeze(replayInput),
         }),
       );
       continue;
     }
-    for (const event of events) {
-      const entry = entryBySequence.get(event.sequence);
-      if (!entry) return null;
-      operations.push(
-        Object.freeze({
-          operationKind: kind,
-          replayInput: entry.replayInput,
-        }),
-      );
-    }
+    operations.push(
+      Object.freeze({
+        operationKind: event.operationKind,
+        replayInput: entry.replayInput,
+      }),
+    );
   }
   return Object.freeze(operations);
 }
 
-function gatewayV4ReplayGroupKey(
-  event: ContextGatewayV4Manifest["events"][number],
-): string {
-  const result = event.result;
-  if (!result) return `failed:${event.sequence}`;
-  switch (event.operationKind) {
-    case ContextGatewayV4OperationKind.FileRead:
-      return stableJson({
-        kind: event.operationKind,
-        pathHash: result.pathHash,
-        revision: result.revision,
-      } as never);
-    case ContextGatewayV4OperationKind.DirectoryList:
-    case ContextGatewayV4OperationKind.TextSearch:
-    case ContextGatewayV4OperationKind.CanonicalInventory:
-      return stableJson({
-        kind: event.operationKind,
-        queryDigest: result.queryDigest,
-      } as never);
-    case ContextGatewayV4OperationKind.GitFact:
-      return stableJson({
-        kind: event.operationKind,
-        fact: result.fact,
-      } as never);
-    case ContextGatewayV4OperationKind.UnsupportedTool:
-      return `unsupported:${event.sequence}`;
+function gatewayV4ReplayOperationStarts(
+  events: readonly ContextGatewayV4Event[],
+): readonly ContextGatewayV4Event[] | null {
+  const starts: ContextGatewayV4Event[] = [];
+  let pendingPage: ContextGatewayV4Event | null = null;
+  for (const event of events) {
+    if (pendingPage !== null) {
+      // A v2 replay-plan operation drains a whole page chain. It cannot encode
+      // an intervening selected operation without reordering authenticated events.
+      if (
+        event.operationKind !== pendingPage.operationKind ||
+        event.result?.queryDigest !== pendingPage.result?.queryDigest ||
+        event.result?.pageOrdinal !==
+          Number(pendingPage.result?.pageOrdinal) + 1
+      ) {
+        return null;
+      }
+      pendingPage = event.result?.complete === true ? null : event;
+      continue;
+    }
+    if (isGatewayV4PagedOperation(event.operationKind)) {
+      if (event.result?.pageOrdinal !== 0) return null;
+      pendingPage = event.result.complete === true ? null : event;
+    }
+    starts.push(event);
   }
+  return pendingPage === null ? starts : null;
+}
+
+function isGatewayV4PagedOperation(
+  kind: ContextGatewayV4OperationKind,
+): boolean {
+  return (
+    kind === ContextGatewayV4OperationKind.DirectoryList ||
+    kind === ContextGatewayV4OperationKind.TextSearch ||
+    kind === ContextGatewayV4OperationKind.CanonicalInventory
+  );
 }
 
 type LegacyReplayMaterial = Readonly<{

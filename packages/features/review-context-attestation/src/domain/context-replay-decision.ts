@@ -96,11 +96,10 @@ export function decideContextGatewayV4Replay(
   if (source.gatewayBinaryHash !== target.gatewayBinaryHash) {
     return denied(ContextDependencyReplayDenialReason.GatewayBinaryMismatch);
   }
-  const selected = normalizeReceiptSelection(sourceOperationReceiptIds);
-  if (selected === null) {
-    return denied(ContextDependencyReplayDenialReason.ReceiptSelectionInvalid);
-  }
-  const sourceEvents = selectedSourceEvents(source.events, selected);
+  const sourceEvents = selectContextGatewayV4ReplayEvents(
+    source.events,
+    sourceOperationReceiptIds,
+  );
   if (sourceEvents === null) {
     return denied(ContextDependencyReplayDenialReason.ReceiptSelectionInvalid);
   }
@@ -151,10 +150,14 @@ function normalizeReceiptSelection(
   return selected;
 }
 
-function selectedSourceEvents(
+export function selectContextGatewayV4ReplayEvents(
   events: readonly ContextGatewayV4Event[],
-  selectedReceiptIds: ReadonlySet<string>,
+  sourceOperationReceiptIds: readonly string[],
 ): readonly ContextGatewayV4Event[] | null {
+  const selectedReceiptIds = normalizeReceiptSelection(
+    sourceOperationReceiptIds,
+  );
+  if (selectedReceiptIds === null) return null;
   const successful = events.filter(
     (event): event is ContextGatewayV4Event & { operationReceiptId: string } =>
       event.outcome === ContextGatewayV4OutcomeKind.Succeeded &&
