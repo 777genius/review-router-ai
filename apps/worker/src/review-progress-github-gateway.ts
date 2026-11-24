@@ -315,7 +315,6 @@ export class ReviewProgressGitHubGateway {
       await this.assertRepositoryId(input, scannedRepositoryId);
     } catch (error) {
       const classified = this.classify(error, "github_unavailable");
-      if (classified.kind === "revoked_app") throw classified;
       // A rejected verification GET does not undo the confirmed DELETE.
       throw new ReviewProgressGitHubError(
         classified.kind,
@@ -505,13 +504,13 @@ export class ReviewProgressGitHubGateway {
         );
       }
     }
-    // A stable earlier page cannot certify that the terminal page stayed
-    // empty while it was being rechecked. Fence new-comment creation too.
+    // An earlier-page recheck cannot certify the terminal page stayed stable.
+    // Recheck it after multipage scans and before creating a new comment.
     await this.recheckObservedCommentPages(
       input,
       observedPages,
       verifiedRepositoryId,
-      matches.length === 0,
+      matches.length === 0 || observedPages.length > 1,
     );
     return matches.sort((left, right) => left.id - right.id);
   }
@@ -528,7 +527,14 @@ export class ReviewProgressGitHubGateway {
         { ...input, knownCommentId: comment.id },
         [],
       );
-      if (verified?.body === comment.body) return verified;
+      if (verified) {
+        if (verified.body === comment.body) return verified;
+        throw failure(
+          "pagination_inconclusive",
+          "github_issue_comments_offset_changed",
+          true,
+        );
+      }
     }
     // Do not interpret a foreign or unverified marked row as absence.
     throw failure(
@@ -546,7 +552,7 @@ export class ReviewProgressGitHubGateway {
     includeTerminalPage = false,
   ): Promise<void> {
     // GitHub offset pages are not snapshots. Recheck preceding pages for
-    // shifts; for an empty scan, also recheck the terminal page before POST.
+    // shifts, including the terminal page for complete multipage scans.
     const finalPage = includeTerminalPage
       ? observedPages.length
       : observedPages.length - 1;

@@ -189,7 +189,8 @@ function comment(body: string) {
     id: 501,
     body,
     user: { login: "reviewrouter[bot]" },
-    issue_url: "https://api.github.com/repos/777genius/social-monitor/issues/42",
+    issue_url:
+      "https://api.github.com/repos/777genius/social-monitor/issues/42",
   };
 }
 

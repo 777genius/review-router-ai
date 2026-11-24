@@ -131,6 +131,30 @@ describe("ReviewProgressGitHubGateway", () => {
     },
   );
 
+  it("retries a verified body change as transient offset drift", async () => {
+    const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (!route.includes("/issues/{issue_number}/comments")) return response;
+      return {
+        data: (response.data as Record<string, unknown>[]).map((row) => ({
+          ...row,
+          body: `earlier\n${marker}`,
+          issue_url: undefined,
+        })),
+      };
+    };
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      message: "github_issue_comments_offset_changed",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("refuses PATCH after the repository switches following the scan", async () => {
     const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
     const pullRoute = "GET /repos/{owner}/{repo}/pulls/{pull_number}";
@@ -553,6 +577,7 @@ describe("ReviewProgressGitHubGateway", () => {
 
   it.each([
     { status: 200, kind: "invalid_response", retryable: false },
+    { status: 403, kind: "revoked_app", retryable: false },
     { status: 429, kind: "rate_limited", retryable: true },
   ] as const)(
     "preserves a confirmed DELETE when verification returns $status",
@@ -572,6 +597,7 @@ describe("ReviewProgressGitHubGateway", () => {
           if (status === 429) {
             throw { status, response: { headers: { "retry-after": "60" } } };
           }
+          if (status === 403) throw { status };
           return { data: null };
         }
         const response = await fixture.request(route, parameters);
@@ -991,7 +1017,7 @@ describe("ReviewProgressGitHubGateway", () => {
             "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
         )
         .map(({ parameters }) => parameters.page),
-    ).toEqual([1, 2, 1]);
+    ).toEqual([1, 2, 1, 2]);
     expect(mutations(calls)).toEqual([]);
   });
 
@@ -1023,7 +1049,7 @@ describe("ReviewProgressGitHubGateway", () => {
             "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
         )
         .map(({ parameters }) => parameters.page),
-    ).toEqual([1, 2, 1]);
+    ).toEqual([1, 2, 1, 2]);
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
@@ -1111,7 +1137,7 @@ describe("ReviewProgressGitHubGateway", () => {
           route.includes("/issues/{issue_number}/comments"),
         )
         .map(({ parameters }) => parameters.page),
-    ).toEqual([1, 2, 3, 1, 2]);
+    ).toEqual([1, 2, 3, 1, 2, 3]);
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
@@ -1251,57 +1277,64 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
-  it("blocks POST when a marker appears on the terminal page during recheck", async () => {
-    const firstPage = Array.from({ length: 100 }, (_, index) => ({
-      id: index + 1,
-      body: "unrelated",
-    }));
-    const fixture = githubFixture([], {
-      pagedComments: [firstPage, [{ id: 101, body: "unrelated" }]],
-      pageLinks: [
-        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',
-        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="prev"',
-      ],
-    });
-    const listRoute =
-      "GET /repos/{owner}/{repo}/issues/{issue_number}/comments";
-    let terminalReads = 0;
-    const request: ReviewProgressGitHubRequester = async (
-      route,
-      parameters,
-    ) => {
-      const response = await fixture.request(route, parameters);
-      if (route !== listRoute || parameters?.page !== 2) return response;
-      terminalReads += 1;
-      if (terminalReads !== 2) return response;
-      return {
-        ...response,
-        data: [
-          ...(response.data as unknown[]),
-          {
-            id: 102,
-            body: `another publication\n${marker}`,
-            user: { login: "review-router[bot]" },
-          },
-        ],
+  it.each([false, true])(
+    "blocks mutation when a marker appears on the terminal page (existing: %s)",
+    async (existing) => {
+      const firstPage = Array.from({ length: 100 }, (_, index) => ({
+        id: index + 1,
+        body: "unrelated",
+      }));
+      const terminal = {
+        id: 101,
+        body: existing ? `old\n${marker}` : "unrelated",
       };
-    };
+      const fixture = githubFixture(existing ? [terminal] : [], {
+        pagedComments: [firstPage, [terminal]],
+        pageLinks: [
+          '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',
+          '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="prev"',
+        ],
+      });
+      const listRoute =
+        "GET /repos/{owner}/{repo}/issues/{issue_number}/comments";
+      let terminalReads = 0;
+      const request: ReviewProgressGitHubRequester = async (
+        route,
+        parameters,
+      ) => {
+        const response = await fixture.request(route, parameters);
+        if (route !== listRoute || parameters?.page !== 2) return response;
+        terminalReads += 1;
+        if (terminalReads !== 2) return response;
+        return {
+          ...response,
+          data: [
+            ...(response.data as unknown[]),
+            {
+              id: 102,
+              body: `another publication\n${marker}`,
+              user: { login: "review-router[bot]" },
+            },
+          ],
+        };
+      };
 
-    await expect(
-      gateway(request, { maxCommentPages: 2 }).upsert(input()),
-    ).rejects.toMatchObject({
-      kind: "pagination_inconclusive",
-      message: "github_issue_comments_offset_changed",
-      metadata: { retryable: true },
-    });
-    expect(terminalReads).toBe(2);
-    expect(
-      fixture.calls
-        .filter(({ route }) => route === listRoute)
-        .map(({ parameters }) => parameters.page),
-    ).toEqual([1, 2, 1, 2]);
-    expect(mutations(fixture.calls)).toEqual([]);
-  });
+      await expect(
+        gateway(request, { maxCommentPages: 2 }).upsert(input()),
+      ).rejects.toMatchObject({
+        kind: "pagination_inconclusive",
+        message: "github_issue_comments_offset_changed",
+        metadata: { retryable: true },
+      });
+      expect(terminalReads).toBe(2);
+      expect(
+        fixture.calls
+          .filter(({ route }) => route === listRoute)
+          .map(({ parameters }) => parameters.page),
+      ).toEqual([1, 2, 1, 2]);
+      expect(mutations(fixture.calls)).toEqual([]);
+    },
+  );
 
   it("blocks known-ID fallback on offset drift", async () => {
     const known = { id: 101, body: `old\n${marker}` };
@@ -1462,7 +1495,7 @@ describe("ReviewProgressGitHubGateway", () => {
           route.includes("/issues/{issue_number}/comments"),
         )
         .map(({ parameters }) => parameters.page),
-    ).toEqual([1, 2, 1]);
+    ).toEqual([1, 2, 1, 2]);
     expect(mutations(fixture.calls)).toHaveLength(1);
   });
 
@@ -1491,7 +1524,7 @@ describe("ReviewProgressGitHubGateway", () => {
           route.includes("/issues/{issue_number}/comments"),
         )
         .map(({ parameters }) => parameters.page),
-    ).toEqual([1, 2, 3, 1, 2]);
+    ).toEqual([1, 2, 3, 1, 2, 3]);
     expect(mutations(fixture.calls)).toHaveLength(1);
   });
 
@@ -1727,7 +1760,7 @@ describe("ReviewProgressGitHubGateway", () => {
           route.includes("/issues/{issue_number}/comments"),
         )
         .map(({ parameters }) => parameters.page),
-    ).toEqual([1, 2, 1]);
+    ).toEqual([1, 2, 1, 2]);
     expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
       "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",
     ]);
@@ -1759,7 +1792,7 @@ describe("ReviewProgressGitHubGateway", () => {
           route.includes("/issues/{issue_number}/comments"),
         )
         .map(({ parameters }) => parameters.page),
-    ).toEqual([1, 2, 1]);
+    ).toEqual([1, 2, 1, 2]);
     expect(mutations(fixture.calls)).toEqual([
       expect.objectContaining({
         route: "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",
