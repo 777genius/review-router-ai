@@ -148,6 +148,8 @@ export type AcquireReviewInvocationLeaseCommand = {
   readonly now: Date;
   readonly expiresAt: Date;
   readonly resultReportUntil: Date;
+  /** Absolute authority bound; adapters must not shift it with caller clock skew. */
+  readonly notAfter?: Date;
   readonly retainUntil: Date;
   readonly limits: ReviewExecutionLimits;
 };

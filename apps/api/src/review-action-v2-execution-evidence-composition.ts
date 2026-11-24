@@ -105,6 +105,7 @@ import type {
   VerifiedReviewActionV2LeaseCapability,
 } from "./review-action-v2-execution-evidence-capabilities.js";
 import type { ReviewActionV2ContextReplayCoordinatorPort } from "./review-action-v2-context-attestation-composition.js";
+
 import {
   canonicalPayload,
   mutationResult,
@@ -126,6 +127,11 @@ import {
   assertPrDescriptionManifest,
   assertPrDescriptionWorkSlots,
 } from "./review-pr-description.js";
+
+type LeaseAuthorizationBinding = Pick<
+  VerifiedReviewActionV2LeaseCapability,
+  "authorizationId" | "scopeHash" | "reviewRevisionHash" | "mutationEpoch"
+>;
 
 export interface ReviewActionV2AuthorizationResolverPort {
   resolveReviewRunAuthorizationToken(input: {
@@ -660,8 +666,19 @@ async function acquireLease(
       "lease_safety_rejected",
     );
   const limits = await executionLimits(authorization, d);
-  const now = d.now();
   const identity = await d.capabilities.prepareIdentity();
+  const now = d.now();
+  const notAfter = minDate(
+    authorization.expiresAt,
+    authorization.maxExpiresAt,
+    snapshot.execution.executionDeadlineAt,
+  );
+  if (notAfter <= now)
+    throw failure(
+      410,
+      ReviewActionV2ProtocolErrorCode.ResourceGone,
+      "lease_authorization_deadline_invalid",
+    );
   const result = await d.executions.invocationFlights.execute({
     scope: executionScope,
     executionId: request.executionId,
@@ -697,14 +714,13 @@ async function acquireLease(
             : Number.POSITIVE_INFINITY,
         ),
       ),
-      snapshot.execution.executionDeadlineAt,
-      authorization.expiresAt,
+      notAfter,
     ),
     resultReportUntil: minDate(
       add(now, limits.maxResultReportDurationMs),
-      authorization.expiresAt,
-      snapshot.execution.executionDeadlineAt,
+      notAfter,
     ),
+    notAfter,
     retainUntil: add(now, d.timing.retentionDurationMs),
     limits,
   });
@@ -738,6 +754,17 @@ async function acquireLease(
   try {
     await requireCurrentExecutionRevision(
       { scope: executionScope, executionId: request.executionId },
+      d,
+    );
+    await requireCurrentLeaseAuthority(
+      {
+        authorizationId: authorization.authorizationId,
+        scopeHash,
+        reviewRevisionHash: authorization.reviewRevisionHash,
+        mutationEpoch: authorization.mutationEpoch,
+      },
+      lease,
+      snapshot.execution,
       d,
     );
   } catch (error) {
@@ -806,7 +833,7 @@ async function renewLease(
     d,
   );
   const renewRequestIdHash = await d.digest.digestUtf8(request.renewRequestId);
-  const hardDeadline = await requireLeaseRenewalAuthority(
+  const hardDeadline = await requireCurrentLeaseAuthority(
     authority,
     lease,
     snapshot.execution,
@@ -861,7 +888,7 @@ async function renewLease(
         },
         d,
       );
-      await requireLeaseRenewalAuthority(
+      await requireCurrentLeaseAuthority(
         authority,
         result.lease,
         snapshot.execution,
@@ -894,8 +921,8 @@ async function renewLease(
   };
 }
 
-async function requireLeaseRenewalAuthority(
-  authority: VerifiedReviewActionV2LeaseCapability,
+async function requireCurrentLeaseAuthority(
+  authority: LeaseAuthorizationBinding,
   lease: ReviewInvocationLease,
   execution: ReviewExecution,
   d: ReviewActionV2ExecutionHandlerDependencies,
@@ -916,6 +943,7 @@ async function requireLeaseRenewalAuthority(
   await assertLeaseAuthorization(authority, authorization, d);
   if (
     !sameExecutionAuthority(execution, authorization) ||
+    lease.executionId !== execution.executionId ||
     lease.authorizationId !== authorization.authorizationId ||
     lease.mutationEpoch !== authorization.mutationEpoch ||
     lease.reviewRevisionHash !== authorization.reviewRevisionHash ||
@@ -2118,7 +2146,7 @@ function requireLeaseOwnership(
   }
 }
 async function assertLeaseAuthorization(
-  authority: VerifiedReviewActionV2LeaseCapability,
+  authority: LeaseAuthorizationBinding,
   authorization: ReviewRunAuthorization,
   d: CommonDependencies,
 ) {
