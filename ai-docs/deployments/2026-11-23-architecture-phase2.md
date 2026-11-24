@@ -55,6 +55,13 @@ TypeScript 7.0.2 and PostgreSQL 17.12. The maintained Prisma deploy created
 both committed Action bundles. See the
 [local E2E receipt](evidence/2026-11-23-architecture-phase2-local-e2e.json).
 The full source-bound workspace typecheck and architecture gates also passed.
+On exact clean `e5279c73`, the complete modular qualification passed 25/25,
+and packed Foundation qualification passed its strict consumer and seven actual
+workspace boundary cases. The compiled API and worker passed the maintained
+runtime smoke on a new PostgreSQL 17.12 database after all 165 Prisma migrations.
+Both whole-build attempts failed at the Web native preflight with SIGKILL before
+Next started; neither is production Web or browser evidence. See the
+[runtime and tooling receipt](evidence/2026-11-23-architecture-phase2-runtime-tooling.json).
 Browser, offline-Prisma isolation, remaining lint/build qualifications and
 final-head CI remain separate prerequisites. These are local qualification results; no
 environment deployment or public Action publication was performed.
