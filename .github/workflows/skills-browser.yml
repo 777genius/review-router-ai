@@ -46,6 +46,8 @@ on:
       - scripts/accounts-reference-e2e/**
       - scripts/lib/next-generated-env.ts
       - scripts/lib/next-generated-env.test.ts
+      - scripts/lib/next-browser-test-compiler.ts
+      - scripts/lib/next-browser-test-compiler.test.ts
       - scripts/install-private-dependencies.mjs
       - scripts/generate-prisma-offline.mjs
       - scripts/prepare-pinned-subscription-runtime.ts

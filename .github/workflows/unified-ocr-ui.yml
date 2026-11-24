@@ -36,6 +36,8 @@ on:
       - packages/platform/db/**
       - packages/shared/**
       - scripts/accounts-reference-e2e/**
+      - scripts/lib/next-browser-test-compiler.ts
+      - scripts/lib/next-browser-test-compiler.test.ts
       - scripts/check-unified-ocr-results.ts
       - scripts/check-unified-ocr-results.test.ts
       - scripts/rewrite-dist-esm-imports.mjs

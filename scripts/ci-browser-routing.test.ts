@@ -210,13 +210,15 @@ function matchingPath(patterns: readonly string[], path: string): boolean {
   return selected;
 }
 
-test("browser receipt and cleanup changes select their owning acceptance workflows", () => {
+test("browser receipt, cleanup and compiler changes select their owning acceptance workflows", () => {
   for (const [workflow, paths] of [
     [
       "unified-ocr-ui.yml",
       [
         "scripts/check-unified-ocr-results.ts",
         "scripts/check-unified-ocr-results.test.ts",
+        "scripts/lib/next-browser-test-compiler.ts",
+        "scripts/lib/next-browser-test-compiler.test.ts",
       ],
     ],
     [
@@ -224,6 +226,8 @@ test("browser receipt and cleanup changes select their owning acceptance workflo
       [
         "scripts/lib/next-generated-env.ts",
         "scripts/lib/next-generated-env.test.ts",
+        "scripts/lib/next-browser-test-compiler.ts",
+        "scripts/lib/next-browser-test-compiler.test.ts",
       ],
     ],
     [
@@ -231,6 +235,8 @@ test("browser receipt and cleanup changes select their owning acceptance workflo
       [
         "scripts/lib/next-generated-env.ts",
         "scripts/lib/next-generated-env.test.ts",
+        "scripts/lib/next-browser-test-compiler.ts",
+        "scripts/lib/next-browser-test-compiler.test.ts",
       ],
     ],
   ] as const) {
