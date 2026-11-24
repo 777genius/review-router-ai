@@ -1,0 +1,37 @@
+{
+  "qualifiedConsumer": {
+    "typescript": "7.0.2",
+    "module": "NodeNext",
+    "skipLibCheck": false
+  },
+  "artifacts": [
+    {
+      "name": "@get-modular/core",
+      "version": "0.7.0",
+      "integrity": "sha512-zPUGjggUFClkqzinzKkR3UHaT6OnDNL/f4gnVaGMsvTC4ZuqDGn2kygoSu2Ktid1t9m3MY4mR+yh+icA3oW4zw==",
+      "exports": {
+        ".": {
+          "import": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+          },
+          "default": "./dist/index.js"
+        }
+      }
+    },
+    {
+      "name": "@get-modular/assembly",
+      "version": "0.7.0",
+      "integrity": "sha512-5gnrW39E/xW8BiNSivmTmUHD5xSrF7RKBtP57wMbXwVYS/+OtVza/2zuuU71l0oqqvFBgy0LNTKg0E4pu2h6OQ==",
+      "exports": {
+        ".": {
+          "import": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+          },
+          "default": "./dist/index.js"
+        }
+      }
+    }
+  ]
+}

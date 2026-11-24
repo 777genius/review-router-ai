@@ -1,4 +1,10 @@
-import type { BrowserContext, Locator, Page, Response } from "@playwright/test";
+import type {
+  BrowserContext,
+  Locator,
+  Page,
+  Request,
+  Response,
+} from "@playwright/test";
 import { expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -207,6 +213,7 @@ export async function noSecrets(page: Page, secrets: readonly string[]) {
 export function captureSecretLeaks(page: Page, secrets: readonly string[]) {
   const leakedChannels = new Set<string>();
   const pending = new Set<Promise<void>>();
+  const activePosts = new Map<Request, () => void>();
   let inspectedResponses = 0;
   const inspect = (channel: string, value: string) => {
     if (secrets.some((secret) => value.includes(secret)))
@@ -214,6 +221,21 @@ export function captureSecretLeaks(page: Page, secrets: readonly string[]) {
   };
   page.on("console", (message) => inspect("browser console", message.text()));
   page.on("pageerror", (error) => inspect("browser error", error.message));
+  page.on("request", (request) => {
+    if (request.method() !== "POST") return;
+    // A server action may still be sending its reply after the UI is ready.
+    // Register it before headers arrive so drain cannot race a reload.
+    const completed = new Promise<void>((resolve) =>
+      activePosts.set(request, resolve),
+    );
+    pending.add(completed);
+    void completed.then(() => pending.delete(completed));
+  });
+  const finishPost = (request: Request) => {
+    activePosts.get(request)?.();
+    activePosts.delete(request);
+  };
+  page.on("requestfailed", finishPost);
   page.on("requestfinished", (request) => {
     // Next may keep speculative navigation streams open. Inspect complete
     // responses instead of waiting forever after their headers arrive.
@@ -233,12 +255,15 @@ export function captureSecretLeaks(page: Page, secrets: readonly string[]) {
       } catch {
         leakedChannels.add("unreadable completed HTTP/SSR response");
       }
-    })().finally(() => pending.delete(reading));
+    })().finally(() => {
+      pending.delete(reading);
+      finishPost(request);
+    });
     pending.add(reading);
   });
   const drain = async () => {
-    // A body read can finish while another completed response is queued.
-    // Drain all of them before navigation can evict the previous document.
+    // Drain active actions and all completed body reads before navigation can
+    // evict the previous document. Speculative GET streams need not terminate.
     while (pending.size) await Promise.all([...pending]);
   };
   return {

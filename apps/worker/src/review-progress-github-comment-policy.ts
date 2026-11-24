@@ -1,4 +1,7 @@
+import { ReviewProgressGitHubError } from "./review-progress-github-error";
 import type { UpsertReviewProgressCommentInput } from "./review-progress-github-input-policy";
+
+export const CAPACITY_LIMIT_SCAN = "github_issue_comments_page_limit";
 
 export type ReviewProgressComment = {
   readonly id: number;
@@ -35,13 +38,14 @@ export function commentPageScanDecision(
   page: number,
   maxPages: number,
 ): "complete" | "continue" | "inconclusive" {
+  if (commentsOnPage > 100) return "inconclusive";
   // Offset pagination can shift after deletion between requests. A full
   // page at the configured cap is never proof that all comments were seen.
   if (page === maxPages && commentsOnPage === 100) return "inconclusive";
   // Without a complete Link header, a full page is not proof of completion.
   if (
-    hasNextPage === false ||
-    (hasNextPage === undefined && commentsOnPage < 100)
+    commentsOnPage < 100 &&
+    (hasNextPage === false || hasNextPage === undefined)
   ) {
     return "complete";
   }
@@ -51,150 +55,73 @@ export function commentPageScanDecision(
   return "continue";
 }
 
-/** Preserve GitHub's last-page hint across a multi-page scan. */
-export type CommentPageLinks = {
-  readonly hasNextPage: boolean | "invalid" | undefined;
-  readonly lastPage?: number;
-};
-
-/** Parse only trustworthy pagination hints; invalid metadata fails closed. */
-export function commentPageLinks(
-  headers: Readonly<Record<string, string | number | undefined>> | undefined,
-  currentPage: number,
-): CommentPageLinks {
-  const invalid: CommentPageLinks = { hasNextPage: "invalid" };
-  const link = Object.entries(headers ?? {}).find(
-    ([key]) => key.toLowerCase() === "link",
-  )?.[1];
-  if (!Number.isSafeInteger(currentPage) || currentPage < 1) return invalid;
-  if (link === undefined) return { hasNextPage: undefined };
-  if (typeof link !== "string" || !link.trim()) return invalid;
-  const entries = link.split(/,\s*(?=<)/u);
-  if (
-    !entries.every((entry) =>
-      /^\s*<[^>]+>\s*;\s*rel=(?:"(?:next|prev|first|last)"|(?:next|prev|first|last))\s*$/iu.test(
-        entry,
-      ),
-    )
-  ) {
-    return invalid;
-  }
-
-  // RFC 8288 targets may be relative, but never contain raw whitespace
-  // or malformed percent escapes. Bad Link metadata cannot prove completeness.
-  for (const entry of entries) {
-    const href = entry.match(/^\s*<([^>]+)>/u)?.[1];
-    if (!href || /%(?![\da-f]{2})/iu.test(href)) return invalid;
-    for (let index = 0; index < href.length; index += 1) {
-      const code = href.charCodeAt(index);
-      if (code <= 0x20 || code === 0x7f) return invalid;
-    }
-    try {
-      const target = new URL(href, "https://api.github.com");
-      if (
-        target.protocol !== "https:" ||
-        target.origin !== "https://api.github.com"
-      ) {
-        return invalid;
-      }
-    } catch {
-      return invalid;
-    }
-  }
-
-  const hasNext = entries.some((entry) =>
-    /;\s*rel=(?:"next"|next)\s*$/iu.test(entry),
-  );
-
-  // A malformed or forward previous-page hint cannot certify a final page.
-  const previousEntries = entries.filter((entry) =>
-    /;\s*rel=(?:"prev"|prev)\s*$/iu.test(entry),
-  );
-  if (previousEntries.length > 1) return invalid;
-  const previousHref = previousEntries[0]?.match(/^\s*<([^>]+)>/u)?.[1];
-  if (previousHref) {
-    const previousUrl = new URL(previousHref, "https://api.github.com");
-    const previousPageValue = previousUrl.searchParams.get("page");
-    if (!previousPageValue || !/^[1-9]\d*$/u.test(previousPageValue)) {
-      return invalid;
-    }
-    const previousPage = Number(previousPageValue);
-    if (!Number.isSafeInteger(previousPage) || previousPage >= currentPage) {
-      return invalid;
-    }
-  }
-
-  // A declared first page must really identify page one.
-  const firstEntries = entries.filter((entry) =>
-    /;\s*rel=(?:"first"|first)\s*$/iu.test(entry),
-  );
-  if (firstEntries.length > 1) return invalid;
-  const firstHref = firstEntries[0]?.match(/^\s*<([^>]+)>/u)?.[1];
-  if (firstHref) {
-    const firstTarget = new URL(firstHref, "https://api.github.com");
-    if (firstTarget.searchParams.get("page") !== "1") return invalid;
-  }
-
-  // The gateway reads numbered pages sequentially, never skipping a page.
-  const nextEntries = entries.filter((entry) =>
-    /;\s*rel=(?:"next"|next)\s*$/iu.test(entry),
-  );
-  if (nextEntries.length > 1) return invalid;
-  let nextPage: number | null = null;
-  if (hasNext) {
-    const nextHref = nextEntries[0]?.match(/^\s*<([^>]+)>/u)?.[1];
-    if (!nextHref) return invalid;
-    const nextTarget = new URL(nextHref, "https://api.github.com");
-    const pageValue = nextTarget.searchParams.get("page");
-    if (!pageValue || !/^[1-9]\d*$/u.test(pageValue)) return invalid;
-    nextPage = Number(pageValue);
-    if (!Number.isSafeInteger(nextPage) || nextPage !== currentPage + 1) {
-      return invalid;
-    }
-  }
-
-  const lastEntries = entries.filter((entry) =>
-    /;\s*rel=(?:"last"|last)\s*$/iu.test(entry),
-  );
-  // Multiple last-page declarations cannot establish a safe scan boundary.
-  if (lastEntries.length > 1) return invalid;
-  const last = lastEntries[0];
-  if (!last) {
-    return {
-      hasNextPage: hasNext ? true : previousHref ? false : undefined,
-    };
-  }
-  const href = last.match(/^\s*<([^>]+)>/u)?.[1];
-  if (!href) return invalid;
-  try {
-    const value = new URL(href, "https://api.github.com");
-    const pageValue = value.searchParams.get("page");
-    if (!pageValue || !/^[1-9]\d*$/u.test(pageValue)) return invalid;
-    const lastPage = Number(pageValue);
-    if (!Number.isSafeInteger(lastPage) || lastPage < currentPage) {
-      return invalid;
-    }
-    if (nextPage !== null && nextPage > lastPage) return invalid;
-    return { hasNextPage: hasNext || lastPage > currentPage, lastPage };
-  } catch {
-    return invalid;
-  }
-}
+export {
+  commentPageLinks,
+  type CommentPageLinks,
+} from "./review-progress-github-link-policy";
 
 export function parseCommentOrNull(
   value: unknown,
 ): ReviewProgressComment | null {
   const row = record(value);
+  const id = readableCommentId(value);
   const user = record(row?.user);
   return row &&
-    typeof row.id === "number" &&
-    Number.isSafeInteger(row.id) &&
-    row.id > 0 &&
+    id !== null &&
     typeof row.body === "string" &&
     typeof user?.login === "string" &&
     user.login.trim().length > 0
-    ? { id: row.id as number, body: row.body, authorLogin: user.login }
+    ? { id, body: row.body, authorLogin: user.login }
     : null;
+}
+
+/** Track readable IDs even when the rest of a list row is malformed. */
+export function readableCommentId(value: unknown): number | null {
+  const id = record(value)?.id;
+  return typeof id === "number" && Number.isSafeInteger(id) && id > 0
+    ? id
+    : null;
+}
+
+export function parseComment(value: unknown): ReviewProgressComment {
+  const comment = parseCommentOrNull(value);
+  if (!comment)
+    throw new ReviewProgressGitHubError(
+      "invalid_response",
+      "github_issue_comment_invalid",
+      { retryable: false },
+    );
+  return comment;
+}
+
+/** A successful HTTP write still needs an issue-scoped, bot-authored reply. */
+export function requireConfirmedMutationReply(
+  data: unknown,
+  input: Pick<
+    UpsertReviewProgressCommentInput,
+    "owner" | "repo" | "pullNumber" | "expectedBotLogin" | "marker"
+  >,
+  desiredBody: string,
+  expectedCommentId?: number,
+): ReviewProgressComment {
+  const comment = parseCommentOrNull(data);
+  const issueUrl = record(data)?.issue_url;
+  if (
+    !comment ||
+    (expectedCommentId !== undefined && comment.id !== expectedCommentId) ||
+    comment.body !== desiredBody ||
+    !ownsMarker(comment, input) ||
+    typeof issueUrl !== "string" ||
+    issueUrl.toLowerCase() !== expectedIssueUrl(input).toLowerCase()
+  ) {
+    // A malformed acknowledgement does not prove that the write failed.
+    throw new ReviewProgressGitHubError(
+      "ambiguous_mutation",
+      "github_issue_comment_mutation_reply_unconfirmed",
+      { retryable: true, mutationMayHaveLanded: true },
+    );
+  }
+  return comment;
 }
 
 export function ownsMarker(
@@ -212,4 +139,98 @@ function record(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function expectedIssueUrl(
+  input: Pick<
+    UpsertReviewProgressCommentInput,
+    "owner" | "repo" | "pullNumber"
+  >,
+): string {
+  return [
+    "https://api.github.com/repos",
+    input.owner,
+    input.repo,
+    "issues",
+    input.pullNumber,
+  ].join("/");
+}
+
+/** Missing list membership requires a by-ID read; foreign membership fails closed. */
+export function commentIssueMembership(
+  value: unknown,
+  input: Pick<
+    UpsertReviewProgressCommentInput,
+    "owner" | "repo" | "pullNumber"
+  >,
+): boolean | undefined {
+  const issueUrl = record(value)?.issue_url;
+  if (typeof issueUrl !== "string") return undefined;
+  return issueUrl.toLowerCase() === expectedIssueUrl(input).toLowerCase();
+}
+
+/** Unreadable rows may contain our marker; never certify a destructive scan. */
+export function hasUnclassifiedMarker(
+  value: unknown,
+  marker: string,
+  expectedBotLogin: string,
+): boolean {
+  if (typeof value !== "object" || value === null) return true;
+  const body = (value as { body?: unknown }).body;
+  if (typeof body === "string") return body.includes(marker);
+  const user = (value as { user?: unknown }).user;
+  // Neither an unknown author nor an unreadable body can rule out a match.
+  if (typeof user !== "object" || user === null) return true;
+  const login = (user as { login?: unknown }).login;
+  if (typeof login !== "string" || !login.trim()) return true;
+  return login.toLowerCase() === expectedBotLogin.toLowerCase();
+}
+
+export function isCapacityLimitedScan(
+  error: unknown,
+): error is ReviewProgressGitHubError {
+  return (
+    error instanceof ReviewProgressGitHubError &&
+    error.kind === "pagination_inconclusive" &&
+    error.message === CAPACITY_LIMIT_SCAN
+  );
+}
+
+/** Trust a recovered known comment only when it belongs to this PR and bot. */
+export function verifiedKnownComment(
+  data: unknown,
+  input: Pick<
+    UpsertReviewProgressCommentInput,
+    "owner" | "repo" | "pullNumber" | "expectedBotLogin" | "marker"
+  >,
+  knownId: number,
+): ReviewProgressComment | null {
+  if (typeof data !== "object" || data === null) {
+    throw new ReviewProgressGitHubError(
+      "invalid_response",
+      "github_known_comment_invalid",
+      { retryable: false },
+    );
+  }
+  const issueUrl = (data as { issue_url?: unknown }).issue_url;
+  if (typeof issueUrl !== "string") {
+    throw new ReviewProgressGitHubError(
+      "invalid_response",
+      "github_known_comment_issue_missing",
+      { retryable: false },
+    );
+  }
+  if (issueUrl.toLowerCase() !== expectedIssueUrl(input).toLowerCase()) {
+    return null;
+  }
+  const known = parseCommentOrNull(data);
+  if (!known || known.id !== knownId) {
+    throw new ReviewProgressGitHubError(
+      "invalid_response",
+      "github_known_comment_mismatch",
+      { retryable: false },
+    );
+  }
+  if (!ownsMarker(known, input)) return null;
+  return known;
 }
