@@ -29,6 +29,7 @@ import {
 import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config";
 import { createReviewRunGatewayPreparation } from "./review-run-gateway-preparation";
+import * as preparationModule from "./review-run-gateway-preparation";
 import {
   createReviewRunGatewayRelay,
   createReviewRunGatewayTerminalGate,
@@ -2018,7 +2019,9 @@ async function fixture(
     timeoutMs: 5000,
   };
   const queries = {
-    findReviewRunAuthorizationById: async (id: string) => {
+    findReviewRunAuthorizationById: async (
+      id: string,
+    ): Promise<ReviewRunAuthorization | null> => {
       lookups.push(id);
       if (lookupFailures.has(id)) throw Error("authorization_read_failed");
       return authorization(id);
@@ -2143,6 +2146,7 @@ async function fixture(
   return {
     preparation,
     queries,
+    relayInput,
     bindings,
     rejectPreparation(
       statusCode: number,
@@ -2675,10 +2679,50 @@ async function streamRun(
   return response.kind;
 }
 
+const reclaimBatchEvent = "review_run_gateway_relay_reclaim_batch";
+// Independent expected vector: extra fields, double counts and sensitive values
+// fail at the real relay boundary, without deriving expectations from its code.
+function expectReclaimBatch(
+  calls: readonly (readonly unknown[])[],
+  overrides: Partial<Record<string, number>>,
+) {
+  const events = calls.filter((call) => call[0] === reclaimBatchEvent);
+  expect(events).toEqual([
+    [
+      reclaimBatchEvent,
+      {
+        retainedBefore: 1,
+        retainedAfter: 1,
+        budget: 1,
+        visited: 1,
+        skippedClosing: 0,
+        skippedPreparing: 0,
+        rowMissing: 0,
+        rowMismatch: 0,
+        sourceUnavailable: 0,
+        sourceReturnedFalseUnknown: 0,
+        confirmationMissing: 0,
+        confirmationMismatch: 0,
+        deadlineReached: 0,
+        cursorEmpty: 0,
+        lookupFailed: 0,
+        sourceFailed: 0,
+        confirmationFailed: 0,
+        closeStarted: 0,
+        closeReturnedOutcomeUnknown: 0,
+        closeFailedCauseUnknown: 0,
+        batchAbortedCauseUnknown: 0,
+        ...overrides,
+      },
+    ],
+  ]);
+}
+
 it.each(["active", "different_identity", "read_failure"] as const)(
   "retains a capacity session with %s authority",
   async (mode) => {
     const f = await fixture(MiB, 0, 1);
+    const log = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       await streamRun(f, "authorization-1");
       if (mode === "active") {
@@ -2697,7 +2741,15 @@ it.each(["active", "different_identity", "read_failure"] as const)(
       expect(f.nativeCloses).toHaveLength(0);
       expect(f.intents).toHaveLength(1);
       expect(f.admissions).toHaveLength(1);
+      expectReclaimBatch(log.mock.calls, {
+        [mode === "active"
+          ? "sourceReturnedFalseUnknown"
+          : mode === "different_identity"
+            ? "rowMismatch"
+            : "lookupFailed"]: 1,
+      });
     } finally {
+      log.mockRestore();
       f.lookupFailures.clear();
       await f.relay.shutdown();
     }
@@ -2706,6 +2758,7 @@ it.each(["active", "different_identity", "read_failure"] as const)(
 
 it("retains an unknown native close and denies the old run without replay", async () => {
   const f = await fixture(MiB, 0, 1);
+  const log = vi.spyOn(console, "warn").mockImplementation(() => {});
   try {
     await streamRun(f, "authorization-1");
     f.revoke("authorization-1");
@@ -2721,13 +2774,19 @@ it("retains an unknown native close and denies the old run without replay", asyn
     });
     expect(f.intents).toHaveLength(1);
     expect(f.admissions).toHaveLength(1);
+    expectReclaimBatch(log.mock.calls, {
+      closeStarted: 1,
+      closeReturnedOutcomeUnknown: 1,
+    });
   } finally {
+    log.mockRestore();
     await f.relay.shutdown();
   }
 });
 
 it("shares one close under concurrent capacity pressure and admits at most one new run", async () => {
   const f = await fixture(MiB, 0, 1);
+  const log = vi.spyOn(console, "warn").mockImplementation(() => {});
   let release: (() => void) | undefined;
   try {
     await streamRun(f, "authorization-1");
@@ -2751,8 +2810,192 @@ it("shares one close under concurrent capacity pressure and admits at most one n
     expect(f.intents).toHaveLength(2);
     expect(f.admissions).toHaveLength(2);
     expect(f.nativeCloses).toHaveLength(1);
+    expectReclaimBatch(log.mock.calls, {
+      retainedAfter: 0,
+      closeStarted: 1,
+      closeReturnedOutcomeUnknown: 1,
+    });
   } finally {
+    log.mockRestore();
     release?.();
+    await f.relay.shutdown();
+  }
+});
+
+// Regressions here would misidentify the failed phase or let instrumentation
+// change the existing deny-first and unknown-capability custody decisions.
+it.each([
+  "source_failure",
+  "confirmation_mismatch",
+  "parent_write_failure",
+] as const)(
+  "reclaim diagnostics preserve custody and port order after %s",
+  async (mode) => {
+    const base = await fixture(MiB, 0, 1);
+    const sourceCalls: string[] = [];
+    const f = {
+      ...base,
+      relay: createReviewRunGatewayRelay({
+        ...base.relayInput,
+        isSourceRunTerminal: async (auth) => {
+          sourceCalls.push(auth.authorizationId);
+          if (mode === "source_failure")
+            throw Error("synthetic_secret_source_failure");
+          return true;
+        },
+      }),
+    };
+    const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const query = vi.spyOn(f.queries, "findReviewRunAuthorizationById");
+    const write = vi.spyOn(
+      f.authorizations,
+      "expireOrRevokeReviewRunAuthorization",
+    );
+    try {
+      await streamRun(f, "authorization-1");
+      if (mode === "parent_write_failure") {
+        f.revoke("authorization-1");
+        write.mockRejectedValue(Error("synthetic_secret_parent_write_failure"));
+      }
+      let reads = 0;
+      query.mockImplementation(async (id) => {
+        f.lookups.push(id);
+        reads++;
+        const row = f.authorization(id);
+        return mode === "confirmation_mismatch" && reads === 2
+          ? { ...row, sourceRunId: "foreign-synthetic-source" }
+          : row;
+      });
+      f.lookups.length = 0;
+      await expect(streamRun(f, "authorization-2")).rejects.toMatchObject({
+        code: "relay_saturated",
+        effect: "not_dispatched",
+      });
+      expectReclaimBatch(
+        log.mock.calls,
+        mode === "parent_write_failure"
+          ? { closeStarted: 1, closeFailedCauseUnknown: 1 }
+          : {
+              [mode === "source_failure"
+                ? "sourceFailed"
+                : "confirmationMismatch"]: 1,
+            },
+      );
+      // The current close path rereads the retained owner's authority before
+      // termination; a failed parent write follows those two guarded reads.
+      expect([...f.lookups]).toEqual(
+        Array(
+          mode === "parent_write_failure"
+            ? 3
+            : mode === "confirmation_mismatch"
+              ? 2
+              : 1,
+        ).fill("authorization-1"),
+      );
+      expect(sourceCalls).toEqual(
+        mode === "parent_write_failure" ? [] : ["authorization-1"],
+      );
+      expect(write).toHaveBeenCalledTimes(
+        mode === "parent_write_failure" ? 1 : 0,
+      );
+      expect(f.nativeCloses).toEqual([]);
+      expect([...f.nativeExecutions.values()]).toEqual(["active"]);
+      expect(f.intents).toHaveLength(1);
+      expect(f.admissions).toHaveLength(1);
+    } finally {
+      log.mockRestore();
+      query.mockRestore();
+      write.mockRestore();
+      await f.relay.shutdown();
+      await base.relay.shutdown();
+    }
+  },
+);
+
+it("throwing reclaim logger preserves HTTP refusal and unknown native custody", async () => {
+  const f = await fixture(MiB, 0, 1);
+  const app = Fastify();
+  await registerReviewRunGatewayRelayRoutes(app, f.relay);
+  await app.listen({ host: "127.0.0.1", port: 0 });
+  const log = vi.spyOn(console, "warn").mockImplementation((name) => {
+    if (name === reclaimBatchEvent)
+      throw Error("synthetic_secret_logger_failure");
+  });
+  try {
+    await streamRun(f, "authorization-1");
+    f.revoke("authorization-1");
+    f.setCloseState("unknown");
+    const response = await fetch(
+      `http://127.0.0.1:${(app.server.address() as AddressInfo).port}/api/action/v2/account-gateway/responses`,
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer authorization-2",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-5.6-sol",
+          input: [],
+          stream: true,
+          max_output_tokens: 32768,
+        }),
+      },
+    );
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: { code: "relay_saturated", effect: "not_dispatched" },
+    });
+    expectReclaimBatch(log.mock.calls, {
+      closeStarted: 1,
+      closeReturnedOutcomeUnknown: 1,
+    });
+    expect(f.nativeCloses).toHaveLength(1);
+    expect([...f.nativeExecutions.values()]).toEqual(["active"]);
+    expect(f.intents).toHaveLength(1);
+    expect(f.admissions).toHaveLength(1);
+  } finally {
+    log.mockRestore();
+    await app.close();
+    await f.relay.shutdown();
+  }
+});
+
+it("reclaim finally preserves an original guard exception when its logger also throws", async () => {
+  const originalError = Error("synthetic_original_guard_failure");
+  const originalFactory = preparationModule.createReviewRunGatewayPreparation;
+  let failGuard = false;
+  const factory = vi
+    .spyOn(preparationModule, "createReviewRunGatewayPreparation")
+    .mockImplementation((input) => {
+      const preparation = originalFactory(input);
+      return {
+        ...preparation,
+        isPreparing: () => {
+          if (failGuard) throw originalError;
+          return preparation.isPreparing();
+        },
+      };
+    });
+  const f = await fixture(MiB, 0, 1);
+  const log = vi.spyOn(console, "warn").mockImplementation((name) => {
+    if (name === reclaimBatchEvent)
+      throw Error("synthetic_secret_logger_failure");
+  });
+  try {
+    await streamRun(f, "authorization-1");
+    f.lookups.length = 0;
+    failGuard = true;
+    await expect(streamRun(f, "authorization-2")).rejects.toBe(originalError);
+    expectReclaimBatch(log.mock.calls, { batchAbortedCauseUnknown: 1 });
+    expect(f.lookups).toEqual([]);
+    expect(f.nativeCloses).toEqual([]);
+    expect([...f.nativeExecutions.values()]).toEqual(["active"]);
+    expect(f.intents).toHaveLength(1);
+    expect(f.admissions).toHaveLength(1);
+  } finally {
+    failGuard = false;
+    log.mockRestore();
+    factory.mockRestore();
     await f.relay.shutdown();
   }
 });
