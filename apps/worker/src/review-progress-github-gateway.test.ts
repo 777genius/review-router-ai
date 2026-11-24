@@ -1170,7 +1170,7 @@ describe("ReviewProgressGitHubGateway", () => {
     const pageNumbers = fixture.calls
       .filter(({ route }) => route === commentListRoute)
       .map(({ parameters }) => parameters.page);
-    expect(pageNumbers).toEqual([1, 2, 1]);
+    expect(pageNumbers).toEqual([1, 2, 1, 2]);
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
@@ -1978,10 +1978,46 @@ describe("ReviewProgressGitHubGateway", () => {
     const pageReads = fixture.calls
       .filter(({ route }) => route.includes("/issues/{issue_number}/comments"))
       .map(({ parameters }) => parameters.page);
-    expect(pageReads).toEqual([1, 2, 1]);
+    expect(pageReads).toEqual([1, 2, 1, 2]);
     expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
       "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
     ]);
+  });
+
+  it("blocks capped recovery after a terminal-page deletion", async () => {
+    const firstPage = fullUnrelatedPage();
+    const secondPage = firstPage.map((row) => ({ ...row, id: row.id + 100 }));
+    const fixture = githubFixture([{ id: 900, body: `old\n${marker}` }], {
+      pagedComments: [firstPage, secondPage],
+    });
+    let terminalReads = 0;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (
+        route !== "GET /repos/{owner}/{repo}/issues/{issue_number}/comments" ||
+        parameters?.page !== 2
+      ) {
+        return response;
+      }
+      terminalReads += 1;
+      if (terminalReads !== 2) return response;
+      return { ...response, data: (response.data as unknown[]).slice(0, -1) };
+    };
+
+    await expect(
+      gateway(request, { maxCommentPages: 2 }).upsert({
+        ...input(),
+        knownCommentId: 900,
+      }),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      message: "github_issue_comments_offset_changed",
+    });
+    expect(terminalReads).toBe(2);
+    expect(mutations(fixture.calls)).toEqual([]);
   });
 
   it("blocks capped recovery after an earlier deletion", async () => {
@@ -2390,7 +2426,7 @@ describe("ReviewProgressGitHubGateway", () => {
     ]);
   });
 
-  it("counts a definite 429 rejection of a duplicate DELETE", async () => {
+  it("defers a definite 429 rejection of a duplicate DELETE", async () => {
     const desired = formatReviewProgressComment("working", marker);
     const fixture = githubFixture([
       { id: 4, body: desired },
@@ -2427,6 +2463,12 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(
       (caught as ReviewProgressGitHubError).metadata.mutationMayHaveLanded,
     ).toBeUndefined();
+    expect(publicationRetryPlan(caught, () => now, 1_000)).toEqual({
+      safeCode: "review_progress_rate_limited",
+      retryAt: new Date("2026-08-12T12:01:00.250Z"),
+      installationCooldownUntil: new Date("2026-08-12T12:01:00.250Z"),
+      countFailure: false,
+    });
     expect(deleteAttempts).toBe(1);
   });
 
@@ -2759,7 +2801,7 @@ describe("ReviewProgressGitHubGateway", () => {
         route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
       ) {
         commentReads += 1;
-        if (commentReads === 2) return { data: fullUnrelatedPage() };
+        if (commentReads >= 2) return { data: fullUnrelatedPage() };
       }
       return fixture.request(route, parameters);
     };
@@ -2771,7 +2813,7 @@ describe("ReviewProgressGitHubGateway", () => {
       operation: "reconciled",
       duplicateCommentIds: [],
     });
-    expect(commentReads).toBe(2);
+    expect(commentReads).toBe(3);
     expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
       "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
     ]);
@@ -2792,7 +2834,7 @@ describe("ReviewProgressGitHubGateway", () => {
         route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
       ) {
         commentReads += 1;
-        if (commentReads === 2) return { data: fullUnrelatedPage() };
+        if (commentReads >= 2) return { data: fullUnrelatedPage() };
       }
       const response = await fixture.request(route, parameters);
       if (route !== pullRoute || ++pullReads !== 4) return response;
@@ -2817,7 +2859,7 @@ describe("ReviewProgressGitHubGateway", () => {
       },
     });
     expect(pullReads).toBe(4);
-    expect(commentReads).toBe(2);
+    expect(commentReads).toBe(3);
     expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
       "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
     ]);
@@ -3066,7 +3108,7 @@ describe("ReviewProgressGitHubGateway", () => {
         route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
       ) {
         commentReads += 1;
-        if (commentReads === 2) return { data: fullUnrelatedPage() };
+        if (commentReads >= 2) return { data: fullUnrelatedPage() };
       }
       return fixture.request(route, parameters);
     };
@@ -3089,7 +3131,7 @@ describe("ReviewProgressGitHubGateway", () => {
       retryAt: cooldown,
       installationCooldownUntil: cooldown,
     });
-    expect(commentReads).toBe(2);
+    expect(commentReads).toBe(3);
   });
 
   it("skips GET after definitive PATCH 403", async () => {

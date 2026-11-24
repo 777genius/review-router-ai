@@ -883,7 +883,7 @@ describe("ReviewProgressPublisher", () => {
       suppressed: 0,
       failed: 0,
     });
-    expect(pages).toEqual([1, 2, 1]);
+    expect(pages).toEqual([1, 2, 1, 2]);
     expect(store.retry).toHaveBeenCalledWith(
       expect.objectContaining({
         publication,
@@ -1273,6 +1273,68 @@ describe("ReviewProgressPublisher", () => {
     expect(store.retry).toHaveBeenCalledWith(
       expect.objectContaining({ maxFailures: 3 }),
     );
+  });
+
+  it("defers throttled duplicate cleanup at the publication failure bound", async () => {
+    const publication = { ...claimed(), commentId: 77n, failureCount: 2 };
+    const store = fakeStore(publication);
+    store.retry.mockImplementationOnce(async (input) => {
+      const mutation = retryMutationData(input);
+      expect(mutation.reachesLimit).toBe(false);
+      expect(mutation.data).not.toHaveProperty("publishedVersion");
+      expect(mutation.data).not.toHaveProperty("failureCount");
+      return "retried";
+    });
+    const body = formatReviewProgressComment(
+      formatGithubProgressComment(progressSnapshot()),
+      githubProgressCommentMarker,
+    );
+    const deletes: number[] = [];
+    const publisher = createPublisher(store, async () => ({
+      botLogin: "review-router[bot]",
+      request: async (route, parameters = {}) => {
+        if (route.includes("/pulls/")) return pull();
+        const known = testKnownComment(route, parameters, body);
+        if (known) return known;
+        if (route.startsWith("GET")) {
+          return {
+            data: [77, 78].map((id) => ({
+              id,
+              body,
+              user: { login: "review-router[bot]" },
+              issue_url: targetIssueUrl,
+            })),
+          };
+        }
+        if (route.startsWith("DELETE")) {
+          deletes.push(Number(parameters.comment_id));
+          throw { status: 429, response: { headers: { "retry-after": "60" } } };
+        }
+        throw new Error(`unexpected:${route}`);
+      },
+    }));
+
+    await expect(publisher.runMaintenance()).resolves.toEqual({
+      claimed: 1,
+      published: 0,
+      deferred: 1,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(deletes).toEqual([78]);
+    const retry = store.retry.mock.calls[0]?.[0];
+    expect(retry).toMatchObject({
+      publication,
+      safeCode: "review_progress_rate_limited",
+      countFailure: false,
+    });
+    expect(retry?.retryAt.getTime()).toBeGreaterThanOrEqual(
+      now.getTime() + 60_000,
+    );
+    expect(retry?.installationCooldownUntil).toEqual(retry?.retryAt);
+    expect(store.complete).not.toHaveBeenCalled();
+    expect(store.suppress).not.toHaveBeenCalled();
+    expect(store.requeueAfterClaimLoss).not.toHaveBeenCalled();
   });
 
   it("uses the GitHub rate-limit retry boundary as installation cooldown", async () => {

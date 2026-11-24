@@ -297,7 +297,17 @@ export class ReviewProgressGitHubGateway {
     } catch (error) {
       const classified = this.classify(error, "ambiguous_mutation");
       if (classified.kind === "revoked_app") throw classified;
-      throw unconfirmedMutation(classified);
+      const mutationFailure = unconfirmedMutation(classified);
+      if (mutationFailure.kind === "rate_limited") {
+        // Cleanup must wait for the installation cooldown, not consume retries.
+        throw new ReviewProgressGitHubError(
+          mutationFailure.kind,
+          "github_duplicate_cleanup_rate_limited",
+          mutationFailure.metadata,
+          { cause: mutationFailure },
+        );
+      }
+      throw mutationFailure;
     }
     try {
       // DELETE can succeed as another worker removes or changes the canonical.
@@ -488,11 +498,12 @@ export class ReviewProgressGitHubGateway {
           effectiveNextPage !== "invalid" &&
           (comments.length === 100 || effectiveNextPage === true);
         if (capacityLimited) {
-          // Stable earlier pages are required for capacity recovery.
+          // Recheck every observed page before permitting known-ID recovery.
           await this.recheckObservedCommentPages(
             input,
             observedPages,
             verifiedRepositoryId,
+            true,
           );
         }
         throw failure(

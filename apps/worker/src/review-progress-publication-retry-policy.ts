@@ -48,15 +48,16 @@ export function publicationRetryPlan(
   const installationCooldownUntil =
     mutationCooldown ??
     (githubError?.kind === "rate_limited" ? retryAt : undefined);
+  const deferWithoutCounting =
+    githubError?.kind === "pagination_inconclusive" ||
+    (githubError?.kind === "rate_limited" &&
+      githubError.message === "github_duplicate_cleanup_rate_limited");
   return {
     safeCode: githubError
       ? `review_progress_${githubError.kind}`
       : "review_progress_publish_failed",
     retryAt,
     ...(installationCooldownUntil ? { installationCooldownUntil } : {}),
-    // A bounded duplicate scan must never mutate comments or exhaust retries.
-    ...(githubError?.kind === "pagination_inconclusive"
-      ? { countFailure: false as const }
-      : {}),
+    ...(deferWithoutCounting ? { countFailure: false as const } : {}),
   };
 }
