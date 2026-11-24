@@ -653,12 +653,10 @@ export function createReviewRunGatewayRelay(input: {
       throw new RelayFailure("authorization_denied", 401);
     const timer = setTimeout(
       () => {
-        if (!cleanupOnly && !stopping)
+        if (!stopping)
           void closeRun(auth.authorizationId, "deadline").catch(() => {});
       },
-      cleanupOnly
-        ? 2_147_483_647
-        : Math.max(1, Math.min(deadline - Date.now(), 2_147_483_647)),
+      Math.max(1, Math.min(deadline - Date.now(), 2_147_483_647)),
     );
     timer.unref();
     session = {
@@ -783,7 +781,7 @@ export function createReviewRunGatewayRelay(input: {
         pending.terminate(parentReason),
       ]).then(([operation]) => operation);
     }
-    const owner = owned[0];
+    let owner = owned[0];
     const matchesOwner = (auth: ReviewRunAuthorization | null) =>
       owner === undefined ||
       (auth !== null &&
@@ -870,6 +868,12 @@ export function createReviewRunGatewayRelay(input: {
             auth && snapshot?.snapshotVersion === 4
               ? await sessionFor(auth, undefined, true, allocationId)
               : owned[0]!;
+          // A deadline/cancellation can join while restored cleanup awaits I/O.
+          // Pin its original authority before exposing that asynchronous window.
+          owner ??= session;
+          // Recovery can create a closed session after the entry-owned snapshot.
+          // Retain its original intent for pressure and bounded idle retries.
+          session.closeReason ??= parentReason ?? reason;
           if (parentReason !== undefined)
             session.parentTerminationReason ??= parentReason;
           operations.push(
@@ -1999,6 +2003,8 @@ export function createReviewRunGatewayRelay(input: {
         ),
       ])
         await closeRun(id, "cancelled").catch(() => {});
+      // Cleanup may restore additional allocations after the first timer sweep.
+      for (const session of sessions.values()) clearTimeout(session.timer);
     },
   });
 }

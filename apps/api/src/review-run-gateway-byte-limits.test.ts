@@ -4565,3 +4565,411 @@ it.each(["gpt-5.6-sol", "authorized-account-model-not-in-anchor"])(
     }
   },
 );
+
+it.each(["pressure", "timer"] as const)(
+  "v4 restored completed close recovers through %s without publication revocation or inference replay",
+  async (trigger) => {
+    const f = await fixture(
+      32768,
+      0,
+      1,
+      5000,
+      undefined,
+      undefined,
+      9,
+      undefined,
+      { models: ["gpt-5.6-sol"], independentAllocations: true },
+    );
+    const restored = f.restartRelay(1);
+    const revoke = vi.spyOn(
+      f.authorizations,
+      "expireOrRevokeReviewRunAuthorization",
+    );
+    try {
+      await streamRun(f, "authorization-1", "reviewer-0");
+      f.setCloseState("unknown");
+      expect(
+        await restored.closeRun("authorization-1", "completed"),
+      ).toMatchObject({ state: "unknown" });
+      expect(f.nativeCloses).toHaveLength(1);
+      expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+      expect(f.terminalRuns.size).toBe(0);
+      f.setCloseState("applied");
+      if (trigger === "timer") {
+        // Join the automatic close while its native ACK is held, then wait for
+        // custody release before the single new admission.
+        const gate = f.holdClose();
+        try {
+          await gate.started;
+          const joined = restored.closeRun("authorization-1", "completed");
+          gate.release();
+          expect(await joined).toMatchObject({ state: "applied" });
+        } finally {
+          gate.release();
+        }
+      }
+      await expect(
+        streamRun({ ...f, relay: restored }, "authorization-2", "reviewer-0"),
+      ).resolves.toBe("stream");
+      expect(f.nativeCloseReasons).toEqual(["completed", "completed"]);
+      expect(new Set(f.nativeCloseOperationIds).size).toBe(1);
+      expect(f.requestModels).toHaveLength(2);
+      expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+      expect(revoke).not.toHaveBeenCalled();
+    } finally {
+      revoke.mockRestore();
+      await restored.shutdown();
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it("v4 restored completed close bounds idle retries and retains its original deadline timer", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  const f = await fixture(
+    32768,
+    0,
+    1,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    { models: ["gpt-5.6-sol"], independentAllocations: true },
+  );
+  const restored = f.restartRelay(1);
+  try {
+    await streamRun(f, "authorization-1", "reviewer-0");
+    // The original process has exited: its in-memory timers cannot perform
+    // deadline cleanup for the independently restored process.
+    vi.clearAllTimers();
+    f.setCloseState("unknown");
+    await restored.closeRun("authorization-1", "completed");
+    for (let tick = 0; tick < 1100 && f.nativeCloses.length < 9; tick++) {
+      await vi.advanceTimersByTimeAsync(100);
+      await setImmediate();
+    }
+    await vi.waitFor(() => expect(f.nativeCloses).toHaveLength(9));
+    for (let tick = 0; tick < 10; tick++) await setImmediate();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(f.nativeCloses).toHaveLength(9);
+    expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+    await vi.advanceTimersByTimeAsync(
+      f.authorization().maxExpiresAt.getTime() - Date.now() + 1,
+    );
+    await vi.waitFor(() =>
+      expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Expired),
+    );
+    await vi.waitFor(() => expect(f.nativeCloses).toHaveLength(10));
+    for (let tick = 0; tick < 10; tick++) await setImmediate();
+    const closes = f.nativeCloses.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(f.nativeCloses).toHaveLength(closes);
+    expect(f.nativeCloseReasons).toEqual(
+      Array.from({ length: 10 }, () => "completed"),
+    );
+    expect(new Set(f.nativeCloseOperationIds).size).toBe(1);
+    expect(f.requestModels).toHaveLength(1);
+  } finally {
+    await restored.shutdown();
+    await f.relay.shutdown();
+    vi.useRealTimers();
+  }
+});
+
+it.each(["identity", "snapshot", "read_failure"] as const)(
+  "v4 restored completed close rejects changed %s during automatic owner validation",
+  async (changed) => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    const f = await fixture(
+      32768,
+      0,
+      1,
+      5000,
+      undefined,
+      undefined,
+      9,
+      undefined,
+      { models: ["gpt-5.6-sol"], independentAllocations: true },
+    );
+    const restored = f.restartRelay(1);
+    const originalRead = f.queries.findReviewRunAuthorizationById;
+    const read = vi.spyOn(f.queries, "findReviewRunAuthorizationById");
+    const revoke = vi.spyOn(
+      f.authorizations,
+      "expireOrRevokeReviewRunAuthorization",
+    );
+    let releaseRead: (() => void) | undefined;
+    try {
+      await streamRun(f, "authorization-1", "reviewer-0");
+      vi.clearAllTimers();
+      f.setCloseState("unknown");
+      await restored.closeRun("authorization-1", "completed");
+      const original = f.authorization();
+      let entered!: () => void;
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const held = new Promise<void>((resolve) => {
+        releaseRead = resolve;
+      });
+      read.mockImplementationOnce(async (id) => {
+        entered();
+        await held;
+        if (changed === "read_failure")
+          throw Error("synthetic_restored_owner_read_failure");
+        return originalRead(id);
+      });
+      await vi.advanceTimersByTimeAsync(1000);
+      await started;
+      if (changed === "identity")
+        f.overrides.set("authorization-1", { headSha: "e".repeat(40) });
+      if (changed === "snapshot") {
+        const snapshot = JSON.parse(original.runtimeSnapshotCanonicalJson!) as {
+          allocations: Array<{ allocationId: string }>;
+          reviewers: Array<{ transport: { allocationId: string } }>;
+        };
+        snapshot.allocations[0]!.allocationId = "replacement-allocation";
+        snapshot.reviewers[0]!.transport.allocationId =
+          "replacement-allocation";
+        f.overrides.set("authorization-1", {
+          runtimeSnapshotCanonicalJson: canonicalJson(snapshot),
+        });
+      }
+      // Join the in-progress timer close; it must retain custody and reject
+      // the changed or unreadable owner before issuing another native close.
+      const joined = restored.closeRun("authorization-1", "completed");
+      releaseRead!();
+      if (changed === "read_failure")
+        await expect(joined).rejects.toThrow(
+          "synthetic_restored_owner_read_failure",
+        );
+      else expect(await joined).toMatchObject({ state: "unknown" });
+      expect(f.nativeCloses).toHaveLength(1);
+      expect(f.requestModels).toHaveLength(1);
+      expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+      expect(revoke).not.toHaveBeenCalled();
+    } finally {
+      releaseRead?.();
+      read.mockRestore();
+      revoke.mockRestore();
+      f.overrides.clear();
+      await restored.shutdown();
+      await f.relay.shutdown();
+      vi.useRealTimers();
+    }
+  },
+);
+
+it("v4 restored completed close preserves joined cancellation for later restored allocations", async () => {
+  const f = await fixture(
+    32768,
+    0,
+    2,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    { models: ["gpt-5.6-sol", "gpt-5.5"], independentAllocations: true },
+  );
+  const restored = f.restartRelay(1);
+  let gate: ReturnType<typeof f.holdClose> | undefined;
+  let completed: ReturnType<typeof restored.closeRun> | undefined;
+  let cancelled: ReturnType<typeof restored.closeRun> | undefined;
+  try {
+    for (const reviewerId of ["reviewer-0", "reviewer-1"]) {
+      const response = await f.relay.responses(
+        "authorization-1",
+        Buffer.from("{}"),
+        new AbortController(),
+        undefined,
+        undefined,
+        reviewerId,
+      );
+      if (response.kind !== "stream") throw Error("stream_expected");
+      for await (const chunk of response.body)
+        expect(chunk.byteLength).toBeGreaterThan(0);
+    }
+    gate = f.holdClose();
+    completed = restored.closeRun("authorization-1", "completed");
+    await gate.started;
+    cancelled = restored.closeRun("authorization-1", "cancelled");
+    await vi.waitFor(() =>
+      expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Revoked),
+    );
+    gate.release();
+    expect(await Promise.all([completed, cancelled])).toEqual([
+      expect.objectContaining({ state: "applied" }),
+      expect.objectContaining({ state: "applied" }),
+    ]);
+    expect(f.nativeCloseReasons).toEqual(["completed", "cancelled"]);
+    expect(new Set(f.nativeCloses).size).toBe(2);
+    expect(f.requestModels).toHaveLength(2);
+  } finally {
+    gate?.release();
+    await Promise.allSettled([completed, cancelled]);
+    await restored.shutdown();
+    await f.relay.shutdown();
+  }
+});
+
+it.each([
+  { changed: "identity", alreadyExpired: false },
+  { changed: "snapshot", alreadyExpired: false },
+  { changed: "identity", alreadyExpired: true },
+] as const)(
+  "v4 first restored close pins $changed authority before its deadline joins: expired=$alreadyExpired",
+  async ({ changed, alreadyExpired }) => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    const f = await fixture(
+      32768,
+      0,
+      1,
+      5000,
+      undefined,
+      undefined,
+      9,
+      undefined,
+      { models: ["gpt-5.6-sol"], independentAllocations: true },
+    );
+    const restored = f.restartRelay(1);
+    const revoke = vi.spyOn(
+      f.authorizations,
+      "expireOrRevokeReviewRunAuthorization",
+    );
+    let gate: ReturnType<typeof f.holdClose> | undefined;
+    let completed: ReturnType<typeof restored.closeRun> | undefined;
+    try {
+      await streamRun(f, "authorization-1", "reviewer-0");
+      vi.clearAllTimers();
+      const original = f.authorization();
+      vi.setSystemTime(
+        original.maxExpiresAt.getTime() + (alreadyExpired ? 1 : -10),
+      );
+      f.setCloseState("unknown");
+      gate = f.holdClose();
+      completed = restored.closeRun("authorization-1", "completed");
+      void completed.catch(() => {});
+      await gate.started;
+      if (changed === "identity")
+        f.overrides.set("authorization-1", { headSha: "e".repeat(40) });
+      else {
+        const snapshot = JSON.parse(original.runtimeSnapshotCanonicalJson!) as {
+          deadline: string;
+        };
+        snapshot.deadline = new Date(
+          Date.parse(snapshot.deadline) - 1,
+        ).toISOString();
+        f.overrides.set("authorization-1", {
+          runtimeSnapshotCanonicalJson: canonicalJson(snapshot),
+        });
+      }
+      await vi.advanceTimersByTimeAsync(
+        Math.max(1, original.maxExpiresAt.getTime() - Date.now() + 1),
+      );
+      const joined = restored.closeRun("authorization-1", "deadline");
+      gate.release();
+      await Promise.all([completed, joined]);
+      expect(revoke).not.toHaveBeenCalled();
+      expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+      expect(f.nativeCloses).toHaveLength(1);
+      expect(f.requestModels).toHaveLength(1);
+    } finally {
+      gate?.release();
+      await Promise.allSettled([completed]);
+      revoke.mockRestore();
+      f.overrides.clear();
+      await restored.shutdown();
+      await f.relay.shutdown();
+      vi.useRealTimers();
+    }
+  },
+);
+
+it("v4 restored completed close clears deadline and retry timers at shutdown", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  const f = await fixture(
+    32768,
+    0,
+    1,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    { models: ["gpt-5.6-sol"], independentAllocations: true },
+  );
+  const restored = f.restartRelay(1);
+  const revoke = vi.spyOn(
+    f.authorizations,
+    "expireOrRevokeReviewRunAuthorization",
+  );
+  try {
+    await streamRun(f, "authorization-1", "reviewer-0");
+    vi.clearAllTimers();
+    f.setCloseState("unknown");
+    await restored.closeRun("authorization-1", "completed");
+    await restored.shutdown();
+    const closes = f.nativeCloses.length;
+    const writes = revoke.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(f.nativeCloses).toHaveLength(closes);
+    expect(revoke).toHaveBeenCalledTimes(writes);
+    expect(f.requestModels).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    revoke.mockRestore();
+    await f.relay.shutdown();
+    vi.useRealTimers();
+  }
+});
+
+it("shutdown clears timers for additional allocations restored during cleanup", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  const f = await fixture(
+    32768,
+    0,
+    2,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    {
+      models: ["gpt-5.6-sol", "gpt-5.5"],
+      independentAllocations: true,
+    },
+  );
+  const restored = f.restartRelay(2);
+  try {
+    for (const [relay, reviewerId] of [
+      [restored, "reviewer-0"],
+      [f.relay, "reviewer-1"],
+    ] as const) {
+      const response = await relay.responses(
+        "authorization-1",
+        Buffer.from("{}"),
+        new AbortController(),
+        undefined,
+        undefined,
+        reviewerId,
+      );
+      if (response.kind !== "stream") throw Error("stream_expected");
+      for await (const chunk of response.body) void chunk;
+    }
+    vi.clearAllTimers();
+    f.setCloseState("unknown");
+    await restored.shutdown();
+    expect(f.nativeCloses).toHaveLength(2);
+    expect(f.requestModels).toHaveLength(2);
+    // A request-timeout timer remains in the fixture transport.
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(f.nativeCloses).toHaveLength(2);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    await f.relay.shutdown();
+    vi.useRealTimers();
+  }
+});
