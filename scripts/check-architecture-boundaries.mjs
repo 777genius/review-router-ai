@@ -2,8 +2,11 @@
 import { existsSync, readFileSync, writeSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
-import ts from "typescript";
-import { collectModuleImportSpecifiers } from "./lib/module-import-specifiers.ts";
+import {
+  collectModuleImportSpecifiers,
+  parseSourceAst,
+  walkSourceAst,
+} from "./lib/module-import-specifiers.ts";
 import { checkApplicationCompositionBoundaries } from "./lib/application-composition-boundaries.ts";
 
 const root = process.env.REVIEWROUTER_ARCHITECTURE_ROOT
@@ -401,12 +404,7 @@ function checkAccountMetadataHostBoundaries(violations) {
   for (const [name, allowed] of Object.entries(files)) {
     const file = join(root, "apps/web/src/server", name);
     if (!existsSync(file)) continue;
-    const source = ts.createSourceFile(
-      file,
-      readFileSync(file, "utf8"),
-      ts.ScriptTarget.Latest,
-      true,
-    );
+    const source = parseSourceAst(file, readFileSync(file, "utf8"));
     function reject(imported) {
       violations.push({
         file,
@@ -418,16 +416,13 @@ function checkAccountMetadataHostBoundaries(violations) {
     for (const imported of collectModuleImportSpecifiers(source)) {
       if (!allowed.has(imported)) reject(imported);
     }
-    function visit(node) {
+    walkSourceAst(source.root, (node) => {
       if (
-        ts.isCallExpression(node) &&
-        ts.isIdentifier(node.expression) &&
-        node.expression.text === "fetch"
-      )
-        reject("direct fetch");
-      ts.forEachChild(node, visit);
-    }
-    visit(source);
+        node.type === "CallExpression" &&
+        node.callee?.type === "Identifier" &&
+        node.callee.name === "fetch"
+      ) reject("direct fetch");
+    });
   }
 }
 
@@ -610,29 +605,21 @@ async function checkActionConflictRuntimePublishedContract(
         "conflict-runtime needs an explicit pure published domain contract",
     });
   } else {
-    const source = ts.createSourceFile(
-      facade,
-      readFileSync(facade, "utf8"),
-      ts.ScriptTarget.Latest,
-      true,
-    );
-    const exports = source.statements.map((statement) => {
+    const source = parseSourceAst(facade, readFileSync(facade, "utf8"));
+    const exports = source.root.body.map((statement) => {
       if (
-        !ts.isExportDeclaration(statement) ||
-        !statement.moduleSpecifier ||
-        !ts.isStringLiteral(statement.moduleSpecifier) ||
-        !statement.exportClause ||
-        !ts.isNamedExports(statement.exportClause)
-      ) {
-        return null;
-      }
+        statement.type !== "ExportNamedDeclaration" ||
+        !statement.source ||
+        typeof statement.source.value !== "string" ||
+        !Array.isArray(statement.specifiers)
+      ) return null;
       return {
-        from: statement.moduleSpecifier.text,
-        typeOnly: statement.isTypeOnly,
-        names: statement.exportClause.elements.map((element) => ({
-          name: element.name.text,
-          source: element.propertyName?.text ?? element.name.text,
-          typeOnly: element.isTypeOnly,
+        from: statement.source.value,
+        typeOnly: statement.exportKind === "type",
+        names: statement.specifiers.map((element) => ({
+          name: element.exported.name ?? element.exported.value,
+          source: element.local.name ?? element.local.value,
+          typeOnly: element.exportKind === "type",
         })),
       };
     });
@@ -659,7 +646,7 @@ async function checkActionConflictRuntimePublishedContract(
       },
     ];
     if (
-      source.parseDiagnostics.length > 0 ||
+      source.errors.length > 0 ||
       JSON.stringify(exports) !== JSON.stringify(expected)
     ) {
       violations.push({
@@ -683,12 +670,7 @@ async function checkActionConflictRuntimePublishedContract(
         "conflict-runtime published contract needs its standalone domain owner",
     });
   } else {
-    const source = ts.createSourceFile(
-      owned,
-      readFileSync(owned, "utf8"),
-      ts.ScriptTarget.Latest,
-      true,
-    );
+    const source = parseSourceAst(owned, readFileSync(owned, "utf8"));
     for (const imported of collectModuleImportSpecifiers(source)) {
       if (imported !== "zod" && imported !== "@reviewrouter/shared") {
         violations.push({
@@ -710,12 +692,7 @@ async function checkActionConflictRuntimePublishedContract(
     for (const file of await collectAllSourceFiles(conflictSource)) {
       const relativePath = relative(conflictSource, file).replaceAll("\\", "/");
       if (allowedLegacyAdapters.has(relativePath)) continue;
-      const source = ts.createSourceFile(
-        file,
-        readFileSync(file, "utf8"),
-        ts.ScriptTarget.Latest,
-        true,
-      );
+      const source = parseSourceAst(file, readFileSync(file, "utf8"));
       const imports = collectModuleImportSpecifiers(source);
       if (
         imports.has("@reviewrouter/features-action-control-plane") ||
@@ -768,13 +745,7 @@ async function checkPrismaTransactionQuerySerialization(violations) {
       continue;
     }
     const source = readFileSync(file, "utf8");
-    const sourceFile = ts.createSourceFile(
-      file,
-      source,
-      ts.ScriptTarget.Latest,
-      true,
-      file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
-    );
+    const sourceFile = parseSourceAst(file, source);
     const aliases = concurrentPrismaTransactionAliases(sourceFile);
     if (aliases.length > 0) {
       violations.push({
@@ -787,23 +758,20 @@ async function checkPrismaTransactionQuerySerialization(violations) {
   }
 }
 
-function concurrentPrismaTransactionAliases(sourceFile) {
+function concurrentPrismaTransactionAliases(parsed) {
   const transactionCallbackNames = new Set();
-  visit(sourceFile, (node) => {
+  visit(parsed.root, (node) => {
     if (!isPrismaTransactionCall(node)) return;
     const callback = node.arguments[0];
-    if (callback && ts.isIdentifier(callback)) {
-      transactionCallbackNames.add(callback.text);
-    }
+    if (callback?.type === "Identifier")
+      transactionCallbackNames.add(callback.name);
   });
 
   const unsafeAliases = new Set();
-  visit(sourceFile, (node) => {
-    if (!ts.isFunctionLike(node) || !node.body) return;
+  visit(parsed.root, (node, parent) => {
+    if (!isFunctionNode(node) || !node.body) return;
     const aliases = transactionAliasesForFunction(
-      node,
-      sourceFile,
-      transactionCallbackNames,
+      node, parent, parsed.source, transactionCallbackNames,
     );
     if (aliases.size === 0) return;
     collectDirectAliases(node.body, aliases);
@@ -815,56 +783,56 @@ function concurrentPrismaTransactionAliases(sourceFile) {
         if (
           input &&
           nodeOrBoundInitializerReferencesIdentifier(
-            input,
-            alias,
-            bindings,
-            new Set(),
+            input, alias, bindings, new Set(),
           )
-        ) {
-          unsafeAliases.add(alias);
-        }
+        ) unsafeAliases.add(alias);
       }
     });
   });
   return [...unsafeAliases].sort();
 }
 
+function isFunctionNode(node) {
+  return [
+    "FunctionDeclaration",
+    "FunctionExpression",
+    "ArrowFunctionExpression",
+  ].includes(node.type);
+}
+
 function transactionAliasesForFunction(
-  node,
-  sourceFile,
-  transactionCallbackNames,
+  node, parent, source, transactionCallbackNames,
 ) {
   const aliases = new Set();
-  const bindingName = functionBindingName(node);
+  const bindingName = functionBindingName(node, parent);
   const namedCallback =
     bindingName !== null && transactionCallbackNames.has(bindingName);
   const inlineCallback =
-    ts.isCallExpression(node.parent) &&
-    node.parent.arguments[0] === node &&
-    isPrismaTransactionCall(node.parent);
-  for (const [index, parameter] of node.parameters.entries()) {
-    if (!ts.isIdentifier(parameter.name)) continue;
-    const type = parameter.type?.getText(sourceFile) ?? "";
+    parent?.type === "CallExpression" &&
+    parent.arguments[0] === node &&
+    isPrismaTransactionCall(parent);
+  for (const [index, parameter] of (node.params ?? []).entries()) {
+    if (parameter.type !== "Identifier") continue;
+    const annotation = parameter.typeAnnotation;
+    const type = annotation
+      ? source.slice(annotation.start, annotation.end)
+      : "";
     if (
-      parameter.name.text === "transaction" ||
-      /(?:^|\.)TransactionClient\b/u.test(type) ||
+      parameter.name === "transaction" ||
+      /(?:^|\\.)TransactionClient\\b/u.test(type) ||
       (index === 0 && (inlineCallback || namedCallback))
-    ) {
-      aliases.add(parameter.name.text);
-    }
+    ) aliases.add(parameter.name);
   }
   return aliases;
 }
 
-function functionBindingName(node) {
-  if (node.name && ts.isIdentifier(node.name)) return node.name.text;
+function functionBindingName(node, parent) {
+  if (node.id?.type === "Identifier") return node.id.name;
   if (
-    ts.isVariableDeclaration(node.parent) &&
-    node.parent.initializer === node &&
-    ts.isIdentifier(node.parent.name)
-  ) {
-    return node.parent.name.text;
-  }
+    parent?.type === "VariableDeclarator" &&
+    parent.init === node &&
+    parent.id?.type === "Identifier"
+  ) return parent.id.name;
   return null;
 }
 
@@ -874,37 +842,44 @@ function collectDirectAliases(node, aliases) {
     changed = false;
     visit(node, (candidate) => {
       if (
-        !ts.isVariableDeclaration(candidate) ||
-        !ts.isIdentifier(candidate.name) ||
-        !candidate.initializer ||
-        !ts.isIdentifier(candidate.initializer) ||
-        !aliases.has(candidate.initializer.text) ||
-        aliases.has(candidate.name.text)
-      ) {
-        return;
-      }
-      aliases.add(candidate.name.text);
+        candidate.type !== "VariableDeclarator" ||
+        candidate.id?.type !== "Identifier" ||
+        candidate.init?.type !== "Identifier" ||
+        !aliases.has(candidate.init.name) ||
+        aliases.has(candidate.id.name)
+      ) return;
+      aliases.add(candidate.id.name);
       changed = true;
     });
   }
 }
 
+function calleeMember(node) {
+  if (node?.type !== "CallExpression") return null;
+  return node.callee?.type === "ChainExpression"
+    ? node.callee.expression
+    : node.callee;
+}
+
 function isPrismaTransactionCall(node) {
+  const callee = calleeMember(node);
   return (
-    ts.isCallExpression(node) &&
-    (ts.isPropertyAccessExpression(node.expression) ||
-      ts.isPropertyAccessChain(node.expression)) &&
-    node.expression.name.text === "$transaction"
+    callee?.type === "MemberExpression" &&
+    !callee.computed &&
+    callee.property?.type === "Identifier" &&
+    callee.property.name === "$transaction"
   );
 }
 
 function isPromiseAllCall(node) {
+  const callee = calleeMember(node);
   return (
-    ts.isCallExpression(node) &&
-    ts.isPropertyAccessExpression(node.expression) &&
-    ts.isIdentifier(node.expression.expression) &&
-    node.expression.expression.text === "Promise" &&
-    node.expression.name.text === "all" &&
+    callee?.type === "MemberExpression" &&
+    !callee.computed &&
+    callee.object?.type === "Identifier" &&
+    callee.object.name === "Promise" &&
+    callee.property?.type === "Identifier" &&
+    callee.property.name === "all" &&
     node.arguments.length > 0
   );
 }
@@ -913,48 +888,38 @@ function variableInitializers(node) {
   const bindings = new Map();
   visit(node, (candidate) => {
     if (
-      ts.isVariableDeclaration(candidate) &&
-      ts.isIdentifier(candidate.name) &&
-      candidate.initializer
-    ) {
-      bindings.set(candidate.name.text, candidate.initializer);
-    }
+      candidate.type === "VariableDeclarator" &&
+      candidate.id?.type === "Identifier" &&
+      candidate.init
+    ) bindings.set(candidate.id.name, candidate.init);
   });
   return bindings;
 }
 
 function nodeOrBoundInitializerReferencesIdentifier(
-  node,
-  identifier,
-  bindings,
-  visitedBindings,
+  node, identifier, bindings, visitedBindings,
 ) {
   if (nodeReferencesIdentifier(node, identifier)) return true;
-  if (!ts.isIdentifier(node) || visitedBindings.has(node.text)) return false;
-  const initializer = bindings.get(node.text);
+  if (node.type !== "Identifier" || visitedBindings.has(node.name)) return false;
+  const initializer = bindings.get(node.name);
   if (!initializer) return false;
-  visitedBindings.add(node.text);
+  visitedBindings.add(node.name);
   return nodeOrBoundInitializerReferencesIdentifier(
-    initializer,
-    identifier,
-    bindings,
-    visitedBindings,
+    initializer, identifier, bindings, visitedBindings,
   );
 }
 
 function nodeReferencesIdentifier(node, identifier) {
   let found = false;
   visit(node, (candidate) => {
-    if (ts.isIdentifier(candidate) && candidate.text === identifier) {
+    if (candidate.type === "Identifier" && candidate.name === identifier)
       found = true;
-    }
   });
   return found;
 }
 
 function visit(node, visitor) {
-  visitor(node);
-  ts.forEachChild(node, (child) => visit(child, visitor));
+  walkSourceAst(node, visitor);
 }
 
 async function checkRevisionAwareReviewRatchet(violations) {
