@@ -38,6 +38,7 @@ export function commentPageScanDecision(
   page: number,
   maxPages: number,
 ): "complete" | "continue" | "inconclusive" {
+  if (commentsOnPage > 100) return "inconclusive";
   // Offset pagination can shift after deletion between requests. A full
   // page at the configured cap is never proof that all comments were seen.
   if (page === maxPages && commentsOnPage === 100) return "inconclusive";
@@ -63,15 +64,22 @@ export function parseCommentOrNull(
   value: unknown,
 ): ReviewProgressComment | null {
   const row = record(value);
+  const id = readableCommentId(value);
   const user = record(row?.user);
   return row &&
-    typeof row.id === "number" &&
-    Number.isSafeInteger(row.id) &&
-    row.id > 0 &&
+    id !== null &&
     typeof row.body === "string" &&
     typeof user?.login === "string" &&
     user.login.trim().length > 0
-    ? { id: row.id as number, body: row.body, authorLogin: user.login }
+    ? { id, body: row.body, authorLogin: user.login }
+    : null;
+}
+
+/** Track readable IDs even when the rest of a list row is malformed. */
+export function readableCommentId(value: unknown): number | null {
+  const id = record(value)?.id;
+  return typeof id === "number" && Number.isSafeInteger(id) && id > 0
+    ? id
     : null;
 }
 
@@ -146,6 +154,16 @@ function expectedIssueUrl(
     "issues",
     input.pullNumber,
   ].join("/");
+}
+
+/** Missing list membership requires a by-ID read; foreign membership fails closed. */
+export function commentIssueMembership(
+  value: unknown,
+  input: Pick<UpsertReviewProgressCommentInput, "owner" | "repo" | "pullNumber">,
+): boolean | undefined {
+  const issueUrl = record(value)?.issue_url;
+  if (typeof issueUrl !== "string") return undefined;
+  return issueUrl.toLowerCase() === expectedIssueUrl(input).toLowerCase();
 }
 
 /** Unreadable rows may contain our marker; never certify a destructive scan. */

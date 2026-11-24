@@ -35,6 +35,70 @@ describe("ReviewProgressGitHubGateway", () => {
     });
   });
 
+  it("refuses a foreign marked list row before PATCH", async () => {
+    const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (!route.includes("/issues/{issue_number}/comments")) return response;
+      return {
+        data: (response.data as Record<string, unknown>[]).map((row) => ({
+          ...row,
+          issue_url: "https://api.github.com/repos/acme/rocket/issues/43",
+        })),
+      };
+    };
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      message: "github_issue_comments_marked_row_issue_unverified",
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it.each([42, 43])(
+    "verifies missing list membership by ID before PATCH (issue %i)",
+    async (issue) => {
+      const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }], {
+        commentIssueUrls: {
+          8: `https://api.github.com/repos/acme/rocket/issues/${issue}`,
+        },
+      });
+      const request: ReviewProgressGitHubRequester = async (
+        route,
+        parameters,
+      ) => {
+        const response = await fixture.request(route, parameters);
+        if (!route.includes("/issues/{issue_number}/comments")) return response;
+        return {
+          data: (response.data as Record<string, unknown>[]).map((row) => ({
+            ...row,
+            issue_url: undefined,
+          })),
+        };
+      };
+      const result = gateway(request).upsert(input());
+      if (issue === 42) {
+        await expect(result).resolves.toMatchObject({
+          commentId: 8,
+          operation: "updated",
+        });
+        expect(fixture.calls.slice(-3).map(({ route }) => route)).toEqual([
+          "GET /repos/{owner}/{repo}/issues/comments/{comment_id}",
+          "GET /repos/{owner}/{repo}/pulls/{pull_number}",
+          "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+        ]);
+      } else {
+        await expect(result).rejects.toMatchObject({
+          kind: "pagination_inconclusive",
+          message: "github_issue_comments_marked_row_issue_unverified",
+        });
+        expect(mutations(fixture.calls)).toEqual([]);
+      }
+    },
+  );
+
   it("refuses PATCH after the repository switches following the scan", async () => {
     const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
     const pullRoute = "GET /repos/{owner}/{repo}/pulls/{pull_number}";
@@ -995,7 +1059,11 @@ describe("ReviewProgressGitHubGateway", () => {
     }));
     const desired = formatReviewProgressComment("working", marker);
     const fixture = githubFixture([{ id: 701, body: desired }], {
-      pagedComments: [full, full, [{ id: 701, body: desired }]],
+      pagedComments: [
+        full,
+        full.map((row) => ({ ...row, id: row.id + 100 })),
+        [{ id: 701, body: desired }],
+      ],
       pageLinks: [
         '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',
         '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1&per_page=100>; rel="prev"',
@@ -1780,6 +1848,49 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(fixture.calls.some(({ route }) => route.startsWith("POST "))).toBe(
       false,
     );
+  });
+
+  it("rejects oversized pages instead of recovering a known ID", async () => {
+    const fixture = githubFixture([{ id: 900, body: `old\n${marker}` }], {
+      pagedComments: [
+        Array.from({ length: 101 }, (_, index) => ({
+          id: index + 1,
+          body: "unrelated",
+        })),
+      ],
+      pageLinks: [
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',
+      ],
+    });
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 1 }).upsert({
+        ...input(),
+        knownCommentId: 900,
+      }),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      message: "github_issue_comments_pagination_inconclusive",
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("rejects overlapping pages before deleting a marked duplicate", async () => {
+    const canonical = {
+      id: 4,
+      body: formatReviewProgressComment("working", marker),
+    };
+    const duplicate = { id: 7, body: `duplicate\n${marker}` };
+    const fixture = githubFixture([canonical, duplicate], {
+      pagedComments: [[canonical, duplicate], [duplicate]],
+      pageLinks: [
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2&per_page=100>; rel="next"',
+      ],
+    });
+    await expect(gateway(fixture.request).upsert(input())).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      message: "github_issue_comments_offset_changed",
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
   });
 
   it("rechecks pages before capped known-ID recovery", async () => {

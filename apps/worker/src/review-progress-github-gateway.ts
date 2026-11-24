@@ -1,11 +1,13 @@
 import {
   CAPACITY_LIMIT_SCAN,
+  commentIssueMembership,
   commentPageScanDecision,
   confirmedReconciliation,
   hasUnclassifiedMarker,
   isCapacityLimitedScan,
   ownsMarker,
   parseCommentOrNull,
+  readableCommentId,
   requireConfirmedMutationReply,
   verifiedKnownComment,
   type ReviewProgressComment,
@@ -408,6 +410,7 @@ export class ReviewProgressGitHubGateway {
   ): Promise<ReviewProgressComment[]> {
     const matches: ReviewProgressComment[] = [];
     const observedPages: string[] = [];
+    const observedIds = new Set<number>();
     let advertisedLastPage: number | undefined;
     for (let page = 1; page <= this.maxCommentPages; page += 1) {
       const { comments, hasNextPage, lastPage } = await this.fetchCommentPage(
@@ -417,8 +420,21 @@ export class ReviewProgressGitHubGateway {
       );
       observedPages.push(JSON.stringify([comments, hasNextPage, lastPage]));
       for (const value of comments) {
+        const id = readableCommentId(value);
+        if (id !== null) {
+          if (observedIds.has(id)) {
+            throw failure(
+              "pagination_inconclusive",
+              "github_issue_comments_offset_changed",
+              true,
+            );
+          }
+          observedIds.add(id);
+        }
         const comment = parseCommentOrNull(value);
-        if (comment && ownsMarker(comment, input)) matches.push(comment);
+        if (comment && ownsMarker(comment, input)) {
+          matches.push(await this.verifyScannedComment(input, value, comment));
+        }
         if (
           !comment &&
           hasUnclassifiedMarker(value, input.marker, input.expectedBotLogin)
@@ -488,6 +504,28 @@ export class ReviewProgressGitHubGateway {
     return matches.sort((left, right) => left.id - right.id);
   }
 
+  private async verifyScannedComment(
+    input: UpsertReviewProgressCommentInput,
+    value: unknown,
+    comment: ReviewProgressComment,
+  ): Promise<ReviewProgressComment> {
+    const membership = commentIssueMembership(value, input);
+    if (membership === true) return comment;
+    if (membership === undefined) {
+      const [verified] = await this.includeVerifiedKnownComment(
+        { ...input, knownCommentId: comment.id },
+        [],
+      );
+      if (verified?.body === comment.body) return verified;
+    }
+    // Do not interpret a foreign or unverified marked row as absence.
+    throw failure(
+      "pagination_inconclusive",
+      "github_issue_comments_marked_row_issue_unverified",
+      true,
+    );
+  }
+
   /** Recheck earlier offset pages before authorizing any mutation. */
   private async recheckObservedCommentPages(
     input: UpsertReviewProgressCommentInput,
@@ -546,6 +584,13 @@ export class ReviewProgressGitHubGateway {
     }
     if (!Array.isArray(response.data)) {
       throw failure("invalid_response", "github_issue_comments_invalid", false);
+    }
+    if (response.data.length > 100) {
+      throw failure(
+        "pagination_inconclusive",
+        "github_issue_comments_pagination_inconclusive",
+        true,
+      );
     }
     const expectedCollectionPaths = expectedIssueCommentCollectionPaths(
       input,

@@ -128,6 +128,7 @@ describe("ReviewProgressPublisher", () => {
                   id: 77,
                   body: "<!-- review-router-live-progress -->",
                   user: { login: "review-router[bot]" },
+                  issue_url: targetIssueUrl,
                 },
               ],
             };
@@ -419,6 +420,7 @@ describe("ReviewProgressPublisher", () => {
     const comment = {
       body: "<!-- review-router-live-progress -->",
       user: { login: "review-router[bot]" },
+      issue_url: targetIssueUrl,
     };
     const firstComment = { ...comment, id: 77 };
     const secondComment = { ...comment, id: 78 };
@@ -469,6 +471,7 @@ describe("ReviewProgressPublisher", () => {
     const comment = {
       body: "<!-- review-router-live-progress -->",
       user: { login: "review-router[bot]" },
+      issue_url: targetIssueUrl,
     };
     const publisher = createPublisher(store, async () => ({
       botLogin: "review-router[bot]",
@@ -529,6 +532,7 @@ describe("ReviewProgressPublisher", () => {
     const comment = {
       body: canonicalBody,
       user: { login: "review-router[bot]" },
+      issue_url: targetIssueUrl,
     };
     const deletedIds: number[] = [];
     const publisher = createPublisher(store, async () => ({
@@ -605,6 +609,7 @@ describe("ReviewProgressPublisher", () => {
                 id,
                 body,
                 user: { login: "review-router[bot]" },
+                issue_url: targetIssueUrl,
               })),
             };
           }
@@ -666,6 +671,7 @@ describe("ReviewProgressPublisher", () => {
                 id,
                 body,
                 user: { login: "review-router[bot]" },
+                issue_url: targetIssueUrl,
               })),
             };
           }
@@ -732,6 +738,7 @@ describe("ReviewProgressPublisher", () => {
                 id,
                 body,
                 user: { login: "review-router[bot]" },
+                issue_url: targetIssueUrl,
               })),
             };
           }
@@ -779,6 +786,7 @@ describe("ReviewProgressPublisher", () => {
     const comment = {
       body: canonicalBody,
       user: { login: "review-router[bot]" },
+      issue_url: targetIssueUrl,
     };
     const deletedIds: number[] = [];
     const publisher = createPublisher(store, async () => ({
@@ -894,6 +902,7 @@ describe("ReviewProgressPublisher", () => {
                     id: 77,
                     body: "<!-- review-router-live-progress -->",
                     user: { login: "review-router[bot]" },
+                    issue_url: targetIssueUrl,
                   },
                 ],
               };
@@ -1017,6 +1026,7 @@ describe("ReviewProgressPublisher", () => {
                   id: 77,
                   body: "<!-- review-router-live-progress -->",
                   user: { login: "review-router[bot]" },
+                  issue_url: targetIssueUrl,
                 },
               ],
             };
@@ -1090,6 +1100,7 @@ describe("ReviewProgressPublisher", () => {
                         id: 77,
                         body: "<!-- review-router-live-progress -->",
                         user: { login: "review-router[bot]" },
+                        issue_url: targetIssueUrl,
                       },
                     ],
             };
@@ -1362,12 +1373,14 @@ describe("ReviewProgressPublisher", () => {
                   id: 77,
                   body: githubProgressCommentMarker,
                   user: { login: "review-router[bot]" },
+                  issue_url: targetIssueUrl,
                 },
               ]
             : [77, 78].map((id) => ({
                 id,
                 body,
                 user: { login: "review-router[bot]" },
+                issue_url: targetIssueUrl,
               }));
       const mutations: string[] = [];
       const publisher = createPublisher(store, async () => ({

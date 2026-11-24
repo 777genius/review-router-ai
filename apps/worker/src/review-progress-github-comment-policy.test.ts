@@ -170,6 +170,8 @@ describe("Review progress GitHub comment policy", () => {
 
   it("classifies bounded page scan outcomes", () => {
     const scenarios = [
+      [true, 101, 5, 5, "inconclusive"],
+      [true, 101, 1, 5, "inconclusive"],
       [false, 100, 5, 5, "inconclusive"],
       [false, 100, 1, 5, "continue"],
       [undefined, 99, 5, 5, "complete"],
