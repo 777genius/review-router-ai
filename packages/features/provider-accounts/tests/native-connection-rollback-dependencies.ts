@@ -219,7 +219,10 @@ export async function prepareReaderRuntime(input: {
     "fbffed18bd3fff4c36c70cf9acfa43c1ab6f94f53ae09e39cc0cf15767d79ee9",
     "exact immutable reader lock",
   );
-  const installedLock = await readFile(join(readerRoot, "pnpm-lock.yaml"), "utf8");
+  const installedLock = await readFile(
+    join(readerRoot, "pnpm-lock.yaml"),
+    "utf8",
+  );
   equalBytes(installedLock, input.oldLock, "installed historical lock");
   const closure = selectReaderClosure(input.oldLock, installedLock);
   const selected = new Map(closure.selected.map((entry) => [entry.key, entry]));

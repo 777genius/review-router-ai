@@ -43,7 +43,10 @@ assert.equal(
   }).trim(),
   compatibleReader,
 );
-const installedLock = await readFile(join(readerRoot, "pnpm-lock.yaml"), "utf8");
+const installedLock = await readFile(
+  join(readerRoot, "pnpm-lock.yaml"),
+  "utf8",
+);
 const readerRequire = createRequire(join(readerRoot, "package.json"));
 const client = readerRequire.resolve("@prisma/client");
 let temporary: string;
