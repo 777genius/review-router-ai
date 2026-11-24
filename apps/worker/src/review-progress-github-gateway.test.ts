@@ -2486,7 +2486,7 @@ describe("ReviewProgressGitHubGateway", () => {
       ) => {
         if (
           route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}" &&
-          parameters.comment_id === commentId
+          parameters?.comment_id === commentId
         ) {
           throw { status: 429, response: { headers: { "retry-after": "60" } } };
         }
