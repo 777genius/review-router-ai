@@ -1,6 +1,12 @@
 export type EmissionSubject = {
   path: string;
   config: string;
+  runtimeDependencies: {
+    name: string;
+    path: string;
+    config: string;
+    externalPackages: string[];
+  }[];
   imports: Record<string, string>;
   modules: {
     file: string;
@@ -19,6 +25,14 @@ export const emissionSubjects: EmissionSubject[] = [
   {
     path: "packages/protocol-review-workflow",
     config: "tsconfig.build.json",
+    runtimeDependencies: [
+      {
+        name: "@reviewrouter/shared",
+        path: "packages/shared",
+        config: "tsconfig.build.json",
+        externalPackages: ["zod"],
+      },
+    ],
     imports: { m: "index" },
     modules: [
       {
@@ -105,6 +119,7 @@ assert.throws(() => m.renderReviewRouterCaller({ controlPlaneUrl: "http://exampl
   {
     path: "packages/features/review-evidence",
     config: "tsconfig.contract-source.json",
+    runtimeDependencies: [],
     imports: {
       m: "contract-source/index",
       p: "domain/provider-invocation-manifest",
