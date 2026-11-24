@@ -70,6 +70,13 @@ The subsequent native AST policy correction passed 135/135 affected tests,
 40/40 CI routing tests, both original strict projects and the full architecture
 gate with all 4,800 tracked inputs unchanged; see the
 [native AST receipt](evidence/2026-11-23-architecture-phase2-native-ast.json).
+The native lint qualifier and complete Unified OCR receipt checks are now
+integrated into ordinary gates. The original combined strict projects, all
+16 rejecting/positive receipt-validator tests and the full guarded format check
+pass; exact-source native formatter/proof tests pass 47/47. Published Stack
+artifact/SRI and final frozen lint qualification are still pending. The
+[acceptance gate receipt](evidence/2026-11-23-architecture-phase2-acceptance-gates.json)
+keeps validator evidence separate from actual browser/paired execution.
 Browser, offline-Prisma isolation, remaining lint/build qualifications and
 final-head CI remain separate prerequisites. These are local qualification results; no
 environment deployment or public Action publication was performed.

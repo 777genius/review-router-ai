@@ -1,5 +1,5 @@
 import js from "@eslint/js";
-import tseslint from "typescript-eslint";
+import { configs as syntaxConfigs } from "stack-toolchain/eslint-syntax";
 
 // Web source files have at most `webMaxLines` lines. Files that were already
 // longer keep their size as a ceiling: lower it in the PR that shrinks the
@@ -64,7 +64,7 @@ export default [
     ],
   },
   js.configs.recommended,
-  ...tseslint.configs.recommended,
+  ...syntaxConfigs.recommended,
   {
     languageOptions: {
       globals: {

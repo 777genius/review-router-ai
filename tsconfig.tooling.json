@@ -8,6 +8,8 @@
     "scripts/manage-review-provider-scope-concurrency.test.ts",
     "scripts/check-provider-setup-postgres-results.ts",
     "scripts/check-provider-setup-postgres-results.test.ts",
+    "scripts/check-unified-ocr-results.ts",
+    "scripts/check-unified-ocr-results.test.ts",
     "scripts/review-action-v2-production-e2e/**/*.ts",
     "scripts/review-history-tooling/**/*.ts",
     "scripts/activate-review-history.ts",

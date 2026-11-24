@@ -299,7 +299,7 @@ jobs:
     name: Rotating installer lock (${{ matrix.os }})
     needs: impact
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (github.event_name != 'pull_request' || needs.impact.outputs.tier == 'full') }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && matrix.os || startsWith(matrix.os, 'ubuntu-') && (vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || matrix.os) || matrix.os }}
+    runs-on: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:github-hosted') && matrix.os || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && matrix.os || startsWith(matrix.os, 'ubuntu-') && (vars.CI_LOCK_PORTABILITY_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || matrix.os) || matrix.os }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -524,7 +524,7 @@ jobs:
     name: Static Checks
     needs: impact
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:github-hosted') && 'ubuntu-latest' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_STATIC_CHECKS_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -556,9 +556,15 @@ jobs:
         run: node --test scripts/ci-impact.test.mjs
 
       - name: Lint
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/native-lint-audit.jsonl
         run: pnpm lint
 
       - name: Format check
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/native-format-audit.jsonl
         run: pnpm format:check
 
       - name: Hetzner release verification contract
@@ -566,6 +572,9 @@ jobs:
 
       - name: Typecheck
         env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/native-typecheck-audit.jsonl
+          TURBO_ENV_MODE: loose
           TURBO_CONCURRENCY: "1"
         run: pnpm typecheck
 
@@ -764,6 +773,9 @@ jobs:
 
       - name: Build
         env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/native-build-audit.jsonl
+          TURBO_ENV_MODE: loose
           TURBO_CONCURRENCY: "2"
         run: pnpm build
 
@@ -1223,6 +1235,12 @@ jobs:
         run: |
           pnpm --dir apps/web exec next typegen
           pnpm compiler:pilot --maxWorkers=1
+
+      - name: Native lint and formatter qualification
+        env:
+          GOMAXPROCS: "2"
+          GOMEMLIMIT: "2048MiB"
+        run: pnpm lint:qualify --output "$RUNNER_TEMP/native-lint-qualification"
 
       - name: Packed Foundation consumer and real workspace boundaries
         env:
