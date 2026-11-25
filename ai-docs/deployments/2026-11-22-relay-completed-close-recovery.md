@@ -47,3 +47,9 @@ Before a rollout retry, reconcile the actual installed image and task evidence. 
 | Time (UTC)   | Environment          | Operator   | Actual version / image | Result                                                                    | Next action                                         |
 | ------------ | -------------------- | ---------- | ---------------------- | ------------------------------------------------------------------------- | --------------------------------------------------- |
 | Not executed | staging / production | Unassigned | Not verified           | Implementation and disposable verification only; no deployment performed. | Complete normal delivery and an authorized rollout. |
+
+## Production build attempt (2026-11-25)
+
+An authorized build of `95201f4e0d63d3ab7c4d585a1e55a6317e84ca6b` succeeded on production as `sha256:d27fe909487003c294ebe70e51d27acad505bd9b00e3ca36da4c158dab21e0c2`, but free disk dropped to 379,858,944 bytes. No backup, migration, fleet swap or verification was started. The newly built image was removed after confirming no container referenced it; free disk rose to 3,187,478,528 bytes. The installed fleet remains on the prior image; production remains pending. Preserve the build directory and log for reconciliation. Do not retry the build until adequate disk headroom is established.
+
+After the attempt, three exact private immutable cache records created by this build (`v70n9i4x9mglol4alhwis86ey`, `lnn9a9oe9xsxx24xh5ucg36me`, `p9dnr1ijjhd8hq45qspmptp49`) were removed in dependency order after reference checks. Free disk increased from 3,186,040,832 to 6,938,902,528 bytes. The source archive, checksum, source tree and build log remain in build custody; `image.id` is historical and no longer identifies an installed image.
