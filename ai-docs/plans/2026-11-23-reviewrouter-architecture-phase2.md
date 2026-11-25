@@ -6,6 +6,56 @@ Working branch: refactor/architecture-boundaries-phase2-20261123
 Status: further scoped refactoring and independent review in progress; final qualification and merge authorized
 Authority: AGENTS.md, Engineering Quality Standard, Feature Module Standard adopted profiles, current security/runtime protocols.
 
+## Current E2E follow-through — 2026-11-25
+
+**Status: incomplete.** This continuation follows the repeated request to finish
+E2E, keep Draft, push coherent commits immediately with `[skip ci]`, and avoid
+waiting for or manually dispatching CI/CD. Execution and preparation use
+`29e8386e`; the later `fcf03b67` adds CI preparation and documentation outside
+the recorded E2E source inputs. Preserve the native-adoption and prior merge
+authorization history below; neither establishes current E2E acceptance.
+
+| Qualification | Observed result |
+| --- | --- |
+| Current frozen install and Statistics preload/heap regressions | PASS; 9/9 regressions, including two real Node children |
+| Complete lint and lint qualification | PASS within the independently matched source/installed-graph scope |
+| Main current full tooling and parallel full architecture | FAIL with SIGKILL; initiating causes unproved |
+| Current production17 and paired45 | No new qualified cases. Corrected production workload blocked by available memory; paired not launched |
+| Current asset-complete UI16 | Latest actual attempt on `6b6f1d0`: 12 passed / 4 failed; current v2 not launched |
+| Statistics followthrough | Latest actual attempt on `6b6f1d0`: failed before browser, 0/18 journeys and 0/21 captures; current v2 not launched |
+
+Historical `6b6f1d0` qualification covers production17 and paired45 across six
+complete files, plus the full original tooling and architecture commands. The
+failed lifecycle20/5 file contributes zero. These executions keep their actual
+source bindings; the new dependency graph has no complete fresh E2E lane.
+
+The asset-restored UI run preserved all 3,000 inputs and all 28 public files.
+Two pages crashed and two navigations refused connections. Exact-body trace
+proof covers 28 logo responses; GitHub/GitLab icons were not reached. Statistics
+preserved its guard and 2072 MiB effective heap, then failed during authenticated
+SSR warmup. Its cleanup-phase SIGKILL does not establish an initiating OOM.
+
+A later backend preparation attempt used an unintended global tsx preload and
+Node24 instead of the previously qualified production Node26. Setup stalled,
+but neither difference is proven causal. It was aborted before tests. The
+original namespace shutdown is unverified; its owned cluster/logs are retained
+and both credential files removed. The restored runtime/PATH, preload and fresh
+evidence paths received independent static review; no corrected workload ran.
+
+The corrected backend admission window observed only 1.30–2.14 GB available
+memory. The final shared browser window also failed its bounded resource
+admission; no new browser or PostgreSQL process started. Earlier successful UI
+telemetry reached 5.48 GB aggregate RSS, which is not PSS or a guaranteed physical
+RAM requirement. No assertion, timeout, retry or original heap cap was relaxed.
+
+See the [current evidence](../deployments/evidence/2026-11-25-priority-e2e-followthrough.json)
+for exact sources, raw hashes, resources and unresolved cleanup. The earlier
+[executor-outage checkpoint](https://github.com/777genius/review-router-ai/blob/6b6f1d00bed23dc2dca87052783399c2d9738bbe/ai-docs/deployments/evidence/2026-11-25-priority-e2e-followthrough.json)
+remains immutable history. At `fcf03b67`, the diff is 41,960 changed lines
+(+30,428/−11,532; 243 files), including relocation and documentation. The 30k
+target is already exceeded. Complete 78/78, successful Statistics followthrough
+and release acceptance remain unestablished; no merge or deployment here.
+
 ## Published native lint adoption and remaining acceptance — 2026-11-25
 
 The consumer continuation is published as Statistics heap protection `6378ee3f`
@@ -62,42 +112,6 @@ failed reports keep their original revisions and limits.
 See the [native adoption checkpoint](../deployments/evidence/2026-11-25-pr977-native-adoption.json)
 for exact commits, hashes, retained failures and remaining acceptance.
 
-## E2E continuation checkpoint — 2026-11-25
-
-The latest repeated owner request remains completion of the affected E2E, with
-immediate `[skip ci]` publication and Draft status. The execution environment
-became unavailable during the read-only paired preflight. The remaining
-lifecycle25 and gateway4 runner, asset-complete UI16 and Statistics run had not
-started. This is an incomplete checkpoint, not final E2E or merge qualification.
-
-Commit `5dee232a` repairs Statistics child startup: inherited `NODE_OPTIONS`
-preloads survive and the existing 1/2 GiB scenario limit is appended last.
-The environment allowlist, assertions and timeouts stay unchanged. Two real
-Node child regressions first failed for the missing guard, then passed; native
-TS 7.0.2 strict for the helper/test passed with 215 ordinary transitive files.
-The original tooling check failed three times with SIGKILL, and a separate
-caller-inclusive check also failed. Their lack of diagnostics is not a PASS;
-these failures remain distinct from the successful focused check.
-
-Current production E2E (17 cases) is qualified on the identical API tree of `1169070c` and
-`fd1089e6`; later changes affect only documentation and the Statistics fixture.
-The fresh paired attempt has four complete passing files (7+6+2+1), followed by
-an unexpected lifecycle worker exit: raw assertions are 20 passed/5 pending,
-with process exit1. Its misleading `success:true` summary is rejected; the
-partial 20 contribute no qualification. PostgreSQL, all 165 migration checksums,
-source stability and cleanup were verified. The full25 and gateway4 remain.
-
-The earlier UI16 interaction run on `41ff719` passed every case once, but visual
-review found 28 absent public assets and actual logo/icon 404s. All 28 exact Git
-blobs were restored. A new full run with all 3000 inputs and real asset-response
-checks is prepared, not executed. The corrected Statistics followthrough run
-also remains pending; its older 18 journeys/21 screenshots ended in cleanup
-failure. Earlier passes and failed attempts retain their original scope.
-
-See the [durable E2E checkpoint](../deployments/evidence/2026-11-25-priority-e2e-followthrough.json)
-for exact source/report hashes, remaining work and last verified resource
-custody. After the executor returns, verify source and resources first; do not
-run the still-stale prepared profiles or assume temporary files survived.
 
 ## Final review and delivery — 2026-11-25
 

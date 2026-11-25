@@ -1,338 +1,1073 @@
 {
-  "schemaVersion": 1,
-  "kind": "PR 977 E2E follow-through checkpoint",
-  "status": "INCOMPLETE_EXECUTION_ENVIRONMENT_UNAVAILABLE",
-  "observedOn": "2026-11-25",
-  "pr": "https://github.com/777genius/review-router-ai/pull/977",
-  "source": {
-    "codeHead": "5dee232ac09e2a3590d93c1ce8ed98aafbdafd07",
-    "codeTree": "aacbc669d0e71f308ee3affca6d6466b7de91214",
-    "baseHead": "18c57630b69334c9bfc071dc2500a952edc66f7a",
+  "schemaVersion": 2,
+  "kind": "PR977 affected E2E continuation evidence",
+  "status": "INCOMPLETE_RESOURCE_BLOCKED",
+  "intendedDurablePath": "ai-docs/deployments/evidence/2026-11-25-priority-e2e-followthrough.json",
+  "e2eComplete": false,
+  "allPrGatesGreen": false,
+  "pr": {
+    "url": "https://github.com/777genius/review-router-ai/pull/977",
     "branch": "refactor/architecture-boundaries-phase2-20261123",
-    "parent": "1357cdfc9deac393c9e39877a62a7adda513b547",
-    "identityMapping": "ai-docs/deployments/evidence/2026-11-25-pr977-source-identity.json",
-    "priorReview": "ai-docs/deployments/evidence/2026-11-25-pr977-scoped-review.json"
+    "draftAtLastRemoteReadback": true
+  },
+  "source": {
+    "codeHead": "29e8386ed8490ce9e5a1765c6262ede2a0c18a75",
+    "codeTree": "b6ff9ca33b20d6c9848549319d71cf99c6aafbdb",
+    "gitCleanAtDraftReadback": true,
+    "baseHead": "18c57630b69334c9bfc071dc2500a952edc66f7a",
+    "identityMapping": {
+      "path": "ai-docs/deployments/evidence/2026-11-25-pr977-source-identity.json",
+      "sha256": "9e30222b6f7a168d0e92411b9cd7183bf0fb40411775cbb8d61e9e40d6680cb8"
+    },
+    "identityRule": "Preserve each actual tested SHA. Same-tree normalized aliases are explicit mappings, not a claim that every original tested object is current ancestry.",
+    "newCommitsSinceOutageCheckpoint": [
+      "6378ee3f35b1fc1fd2f1cdc7811e2624a418a388",
+      "29e8386ed8490ce9e5a1765c6262ede2a0c18a75"
+    ],
+    "latestRuntimeEquivalentRemoteHead": "fcf03b67c21369085839225154a772c848bb1de0",
+    "remoteDelta": {
+      "path": "tmp/round33-final/fcf03b67-source-delta.json",
+      "sha256": "2e325f6a7ea5e0ef4e9af233c5eb522d56c9f591271e635b2328c512e527ac32"
+    },
+    "documentationIdentity": "The containing Git commit identifies this record; actual tested and blocked source identities remain explicit."
   },
   "metrics": {
-    "beforeThisCheckpoint": {
-      "additions": 28404,
-      "deletions": 11372,
-      "changedLines": 39776,
-      "files": 241
-    },
-    "measurement": "Git additions plus deletions, including relocations and documentation; not net-new implementation.",
-    "earlierPreFinalEvidenceCheckpoint": {
-      "head": "41ff719042420d8ff28c3e8054ddf6c8700f6936",
-      "changedLines": 30921
-    },
-    "requested30000ThresholdAlreadyMet": true
+    "measuredHead": "fcf03b67c21369085839225154a772c848bb1de0",
+    "baseHead": "18c57630b69334c9bfc071dc2500a952edc66f7a",
+    "measurement": "git diff --numstat -M: additions plus deletions including relocation and documentation, not net-new implementation.",
+    "additions": 30428,
+    "deletions": 11532,
+    "changedLines": 41960,
+    "files": 243,
+    "requested30000ThresholdAlreadyMet": true,
+    "earlierPreFinalEvidenceChangedLines": 30921
   },
-  "executionAvailability": {
-    "status": "unavailable",
-    "environmentId": "ccarenv_b64_Y2NhcmVudl82YWQzMjM1ZjRlNjg4MTkxODlkMjFjMWFkNzRiM2VkMQ",
-    "errors": [
-      "exec-server transport disconnected",
-      "No usable execution environment is available."
-    ],
-    "remaining29Started": false,
-    "newUiStarted": false,
-    "newStatisticsStarted": false,
-    "rawArtifacts": "Paths and hashes below identify artifacts read and verified before the outage. The unavailable executor prevents fresh readback; persistence after restoration must be checked.",
-    "interruptedReadOnlyPairedPreflightSession": 67403
+  "priorPublishedCheckpoint": {
+    "commit": "6b6f1d00bed23dc2dca87052783399c2d9738bbe",
+    "url": "https://github.com/777genius/review-router-ai/blob/6b6f1d00bed23dc2dca87052783399c2d9738bbe/ai-docs/deployments/evidence/2026-11-25-priority-e2e-followthrough.json",
+    "documentSha256": "e45d6af9e3c5e58f8d70731db608b5ec7b2a1749e8941dadc0d9f49fe85afc9c",
+    "statusThen": "INCOMPLETE_EXECUTION_ENVIRONMENT_UNAVAILABLE",
+    "preservation": "Historical outage facts remain accessible at the immutable commit URL. Recovery and later attempts do not rewrite their original outcomes."
   },
-  "statisticsLauncherFix": {
-    "commit": "5dee232ac09e2a3590d93c1ce8ed98aafbdafd07",
-    "message": "fix(e2e): retain Statistics child qualification preloads [skip ci]",
-    "behavior": "Preserve the inherited NODE_OPTIONS string and append the maintained 1024/2048 MiB scenario heap cap last; keep the environment allowlist unchanged.",
-    "files": [
-      "scripts/statistics-e2e/browser-qualify.ts",
-      "scripts/statistics-e2e/node-options.ts",
-      "scripts/statistics-e2e/node-options.test.ts",
-      "scripts/statistics-e2e/README.md"
-    ],
-    "sourceFingerprintIncludesHelper": true,
-    "originalToolingGlob": "scripts/statistics-e2e/**/*.ts",
-    "permanentCompilerOptionsChanged": false,
-    "regressions": {
-      "red": {
-        "passed": 0,
-        "failed": 2,
-        "message": "inherited guard must run in child"
+  "requiredAcceptance": {
+    "expectedUniqueCases": 78,
+    "familySizes": {
+      "production17": 17,
+      "paired45": 45,
+      "ui16": 16
+    },
+    "qualifiedCompleteCurrentCases": 0,
+    "qualificationCountStatus": "CURRENT_GRAPH_INCOMPLETE_ZERO_NEW_COMPLETE_LANES",
+    "historical6bCompleteBackendCases": 62,
+    "singleAll78CommandClaimed": false,
+    "rule": "Only complete required files/lanes with exact roster, successful actual process exit, zero failures/pending/skips and verified source/cleanup qualify. Partial20 and failedUI12 contribute0.",
+    "statisticsJourneyRecordsAreAdditionalUniqueVitestCases": false,
+    "requiredCaseRosterSha256": "9c4df9a16b27b1fb450d217964615942beb2fbcd60e39abb9c2fceec39e44e7f",
+    "rosterHashEncoding": "UTF-8 JSON of requiredCaseRoster, sorted keys, compact separators, ensure_ascii=false"
+  },
+  "currentEndToEnd": {
+    "production17": {
+      "status": "BLOCKED_BEFORE_WORKLOAD_MEMORY_GATE",
+      "expectedCases": 17,
+      "actualExecutedHead": null,
+      "actualExecutedTree": null,
+      "receipt": null,
+      "rawReports": [],
+      "actualExitCodes": {
+        "controller": 2,
+        "testProcesses": []
       },
-      "green": {
-        "passed": 2,
-        "failed": 0,
-        "skipped": 0,
-        "kind": "Actual Node children: own-PID native guard event and observed scenario heap cap despite inherited 4096 MiB."
+      "actualCounts": {
+        "testGroupsStarted": 0,
+        "assertionsExecuted": 0
+      },
+      "sourceBinding": {
+        "expectedHead": "29e8386ed8490ce9e5a1765c6262ede2a0c18a75",
+        "observedPostControlHead": "29e8386ed8490ce9e5a1765c6262ede2a0c18a75",
+        "testExecutionClaimed": false
+      },
+      "canonicalMigrationProof": null,
+      "ownedCleanup": {
+        "workloadStarted": false,
+        "postgresStarted": false,
+        "cleanupRequiredForBlockedV2": false,
+        "priorV1Shutdown": "UNVERIFIED; retained separately"
+      },
+      "independentReview": "Receipt/status readback, all five v1 log hashes retained, credential absence and retained owned data verified; no new runtime checks.",
+      "qualifiedCompleteCases": 0,
+      "controllerReceipt": {
+        "path": "tmp/round34-backend/production-v2-control-receipt.json",
+        "sha256": "a1ce007490f535c309b9b5ae7cfc8ada5524bcdb925194523b17a1e40c52c0e3"
+      },
+      "controllerProcessStatus": {
+        "path": "tmp/round34-backend/production-v2-controller-process-status.json",
+        "sha256": "9454c3b609feacb2578214fb23a606c0c77960696d69529d07c2a3a4b9df5800"
+      },
+      "admission": {
+        "requiredMemAvailableBytes": 2000000000,
+        "requiredConsecutivePassingChecks": 2,
+        "intervalSeconds": 10,
+        "observations": 13,
+        "minimumObservedBytes": 1302536192,
+        "maximumObservedBytes": 2134884352,
+        "passingObservations": 1,
+        "admitted": false
+      },
+      "correctedProfileReview": "PASS_STATIC_DIFF_REVIEW_ONLY; corrected workload was NOT_LAUNCHED and is not runtime-qualified."
+    },
+    "paired45": {
+      "status": "NOT_STARTED_PRODUCTION_PREREQUISITE_AND_RESOURCE_BLOCK",
+      "expectedCases": 45,
+      "actualExecutedHead": null,
+      "actualExecutedTree": null,
+      "receipt": null,
+      "rawReports": [],
+      "actualExitCodes": null,
+      "actualCounts": {
+        "testGroupsStarted": 0,
+        "assertionsExecuted": 0
+      },
+      "sourceBinding": null,
+      "canonicalMigrationProof": null,
+      "ownedCleanup": {
+        "workloadStarted": false,
+        "postgresStarted": false,
+        "cleanupRequiredForUnstartedPaired": false
+      },
+      "independentReview": null,
+      "qualifiedCompleteCases": 0,
+      "expectedWholeFileCounts": [
+        7,
+        6,
+        2,
+        1,
+        25,
+        4
+      ],
+      "correctedPairedControllerStarted": false,
+      "blocker": "Corrected production prerequisite did not pass resource admission; the sequential paired controller and PG/tests were not launched. No paired test failure is claimed.",
+      "prerequisiteProcessStatus": {
+        "path": "tmp/round34-backend/production-v2-controller-process-status.json",
+        "sha256": "9454c3b609feacb2578214fb23a606c0c77960696d69529d07c2a3a4b9df5800"
       }
     },
-    "nativeStrict": {
-      "typeScript": "7.0.2",
-      "helperAndTest": {
-        "result": "PASS",
-        "filesIncludingTransitiveDependencies": 215,
-        "durationSeconds": 0.5,
-        "effectiveCompilerOptionsEqualOriginal": true
+    "ui16": {
+      "status": "NOT_LAUNCHED_SHARED_RESOURCE_BLOCK",
+      "expectedCases": 16,
+      "actualExecutedHead": null,
+      "actualExecutedTree": null,
+      "receipt": null,
+      "rawReports": [],
+      "actualExitCodes": null,
+      "actualCounts": {
+        "testGroupsStarted": 0,
+        "assertionsExecuted": 0
       },
-      "originalTooling": {
-        "result": "FAIL",
-        "project": "tsconfig.tooling.json",
-        "attemptDurationsSeconds": [19.97, 18.03, 46.55],
-        "signal": "SIGKILL",
-        "typeDiagnosticsObserved": false
+      "sourceBinding": null,
+      "canonicalMigrationProof": null,
+      "ownedCleanup": {
+        "workloadStarted": false,
+        "postgresStarted": false,
+        "newCleanupRequired": false
       },
-      "callerInclusiveFocused": {
-        "result": "FAIL",
-        "rootFiles": 3,
-        "durationSeconds": 55.74,
-        "signal": "SIGKILL",
-        "typeDiagnosticsObserved": false
+      "independentReview": null,
+      "qualifiedCompleteCases": 0,
+      "preparationStatusAtDraft": "Prepared and independently reviewed; not executed",
+      "staticAssets": {
+        "expectedMaterializedSourceFiles": 28,
+        "requiredHttpPaths": [
+          "/review-router-logo.png",
+          "/service-icons/github.svg",
+          "/service-icons/gitlab.svg"
+        ],
+        "verifiedHttpResponses": null,
+        "traceProof": null
       },
-      "limitation": "The helper/test strict pass does not replace the full tooling gate or qualify the caller-inclusive graph. SIGKILL does not establish OOM."
-    },
-    "formatAndDiff": "PASS before publication",
-    "independentSourceReviews": 2,
-    "qualification": {
-      "path": "tmp/round30-final/statistics-node-options-qualification/qualification-scoped.json",
-      "sha256": "d8dd01d51adc5ae500d7229a379fe4bf1685eb0bfc2faa381497d19ea8a48c33"
+      "resourceAdmission": "browserAdmissionWindow"
     }
   },
-  "endToEnd": {
+  "currentStatisticsFollowthrough": {
+    "status": "NOT_LAUNCHED_RESOURCE_WINDOW_EXHAUSTED",
+    "preparationStatusAtDraft": "Prepared and independently reviewed; not executed",
+    "actualExecutedHead": null,
+    "expectedJourneyRecords": 18,
+    "expectedCaptures": 21,
+    "completedJourneyRecords": 0,
+    "captures": 0,
+    "receipt": null,
+    "maintainedHarnessResult": null,
+    "actualChildGuardAndHeap": null,
+    "sourceBinding": null,
+    "canonicalMigrationProof": null,
+    "ownedCleanup": {
+      "workloadStarted": false,
+      "postgresStarted": false,
+      "newCleanupRequired": false
+    },
+    "independentReview": null,
+    "countsTowardRequired78": false,
+    "actualControllerExitCode": 75,
+    "resourceAdmission": "browserAdmissionWindow"
+  },
+  "currentGraphQualification": {
+    "frozenInstall": {
+      "status": "PASS",
+      "node": "26.11.1",
+      "pnpm": "11.28.7",
+      "actualExitCode": 0,
+      "durationSeconds": 12.331,
+      "reusedPackages": 19,
+      "downloadedPackages": 0,
+      "addedPackages": 19,
+      "removedPackages": 14,
+      "sourceUnchanged": true,
+      "publishedAndInstalledLockSha256": "bc640e13fd261f30b746ae9b422206f3619b0d1249b5c3658034dc3908bd9109",
+      "protectedPins": {
+        "typescript": "7.0.2",
+        "@agent-teams/engineering-foundation": "3.1.0",
+        "@get-modular/core": "0.8.0",
+        "@get-modular/assembly": "0.8.0",
+        "@get-modular/conformance": "0.5.2",
+        "@get-modular/resources": "0.2.2",
+        "stack-toolchain": "0.3.1"
+      },
+      "receipt": {
+        "path": "tmp/round33-recovery/frozen-install-29e8386/receipt.json",
+        "sha256": "d4dd7f5c0f378de6c0de77b67e34aceac1fa2673ce9e81abff10b1c6a29cf1d4"
+      }
+    },
+    "statisticsHelper": {
+      "status": "PASS",
+      "actualExecutedHead": "29e8386ed8490ce9e5a1765c6262ede2a0c18a75",
+      "passed": 9,
+      "failed": 0,
+      "pending": 0,
+      "todo": 0,
+      "actualExitCode": 0,
+      "durationSeconds": 1.904,
+      "realChildGuardAndHeapCases": 2,
+      "percentageOptionRejectionCases": 7,
+      "receipt": {
+        "path": "tmp/round33-recovery/statistics9-29e8386/receipt.json",
+        "sha256": "5ee623a345d358006312186a82657093f8c6472556f60b935af0b1417c88ca7c"
+      }
+    },
+    "lintAndQualification": {
+      "status": "PASS_FOR_EQUIVALENT_RECORDED_SOURCE_AND_GRAPH_SCOPE",
+      "actualExecutions": [
+        {
+          "gate": "lint",
+          "originalCommand": [
+            "pnpm",
+            "lint"
+          ],
+          "actualExitCode": 0,
+          "receipt": {
+            "path": "/workspace/scratch/0f054634e853/review-router-977-final/tmp/round32-lint/lint/receipt.json",
+            "sha256": "bd63b595473f1a639e37d47b344d5b3edf7d78e89673b8d897dfe591488b0293"
+          }
+        },
+        {
+          "gate": "qualify",
+          "originalCommand": [
+            "pnpm",
+            "lint:qualify",
+            "--output",
+            "/workspace/scratch/0f054634e853/review-router-977-final/tmp/round32-lint/qualify-retry/qualification"
+          ],
+          "actualExitCode": 0,
+          "receipt": {
+            "path": "/workspace/scratch/0f054634e853/review-router-977-final/tmp/round32-lint/qualify-retry/receipt.json",
+            "sha256": "fce005e09d1586912fa15a151aa79602cd1316310df44b717d706460b3db81fd"
+          }
+        }
+      ],
+      "reconciliation": {
+        "path": "tmp/round33-recovery/latest-graph-reconciliation-29e8386.json",
+        "sha256": "06fd6136c5e489c2285b7dc4f6184adc8e8e0d0eb95a6bc5dc9c41be815fa14e"
+      },
+      "exactTrackedSourceEntries": 4868,
+      "exactNonmetadataGraphFiles": 5308,
+      "exactGraphLinks": 2078,
+      "exactPackageIdentities": 3069,
+      "scope": "Root/native/Accounts package manifests and links plus complete admitted Stack/native-parser/scope/type/compiler payloads. Only checkout paths and pnpm validation/pruning timestamps normalized; other payload bytes not captured.",
+      "oldMissingStackFinding": "HISTORICAL_RESOLVED_BY_EXACT_FROZEN_STACK_0_3_1_ADOPTION",
+      "actualExecutionSource": {
+        "head": "6b6f1d00bed23dc2dca87052783399c2d9738bbe",
+        "state": "Nine uncommitted candidate files; all4868 captured tracked entries match published29."
+      }
+    },
+    "fullToolingMainAttempt": {
+      "status": "FAIL_SIGKILL",
+      "actualExecutedHead": "29e8386ed8490ce9e5a1765c6262ede2a0c18a75",
+      "command": "node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.tooling.json",
+      "actualExitCode": 1,
+      "durationSeconds": 74.944,
+      "node": "26.11.1",
+      "nativeTypeScript": "7.0.2",
+      "originalIncludes": 90,
+      "typeDiagnosticsObserved": false,
+      "sourceUnchanged": true,
+      "minimumHostMemAvailableBytes": 1378373632,
+      "peakSampledNativeRssBytes": 1715929088,
+      "ownedProcessesAtFinalSample": [],
+      "signalCause": "NOT_ESTABLISHED",
+      "receipt": {
+        "path": "tmp/round33-recovery/tooling-29e8386/receipt.json",
+        "sha256": "4b0ec3fac7b0e905ee4bac82ebf4fcd759b7719c6cf38449d0fa8d6dd79fe626"
+      }
+    },
+    "ownerFullToolingProof": {
+      "status": "PASS_WITH_BOUNDED_SOURCE_CAPTURE",
+      "actualBaseHead": "6b6f1d00bed23dc2dca87052783399c2d9738bbe",
+      "actualExitCode": 0,
+      "durationSeconds": 48.367,
+      "recordedSourceConfigUtilityPaths": 20,
+      "exhaustiveCompilerClosureCaptured": false,
+      "receipt": {
+        "path": "/workspace/scratch/0f054634e853/review-router-977-final/tmp/round32-statistics/tooling-strict-after-island-receipt.json",
+        "sha256": "2b28fc369a566a6e7716bc0aba16cb2c42b81443ce9ec744ae927a1e5919de27"
+      },
+      "limitation": "Separate successful execution with bounded input evidence; does not relabel or erase the failed complete-source main attempt."
+    },
+    "fullArchitectureOtherCheckout": {
+      "status": "FAIL_SIGKILL",
+      "actualExecutionCheckout": "/workspace/scratch/0f054634e853/review-router-977-final",
+      "actualExecutedHead": "29e8386ed8490ce9e5a1765c6262ede2a0c18a75",
+      "actualExecutedTree": "b6ff9ca33b20d6c9848549319d71cf99c6aafbdb",
+      "command": [
+        "pnpm",
+        "architecture:check"
+      ],
+      "startedAt": "2026-11-25T01:56:30.904440+00:00",
+      "finishedAt": "2026-11-25T01:59:25.860184+00:00",
+      "reportedCommandDurationSeconds": 168.702,
+      "actualExitCode": 1,
+      "failedAt": "Final original tsconfig.account-metadata.json native typecheck",
+      "passedEarlierStages": [
+        "Boundary694",
+        "Web host CMS source/profile",
+        "Foundation3.1.0 full, zero diagnostics",
+        "Foundation dev-only and registry",
+        "Memory23",
+        "Statistics6",
+        "History scoped pins/layout/import rejection",
+        "Account metadata layout"
+      ],
+      "sourceEntries": 4868,
+      "recordedInstalledGraphEntries": 4921,
+      "beforeAfterSourceAndRecordedGraphUnchanged": true,
+      "graphScope": "Installed package manifests, node_modules/.modules.yaml and .pnpm/lock.yaml, and symlink resolutions in root/native-compiler/Accounts node_modules. All tracked configuration and lockfiles are also bound by source snapshots.",
+      "node": "26.11.1",
+      "pnpm": "11.28.7",
+      "guardedProcesses": 95,
+      "nativeTypeScriptVersions": [
+        "7.0.2"
+      ],
+      "blockedLegacyLoads": 0,
+      "signalCause": "NOT_ESTABLISHED; earlier passing stages do not qualify the whole command.",
+      "receipt": {
+        "path": "/workspace/scratch/0f054634e853/review-router-977-final/tmp/round32-final/architecture/receipt.json",
+        "sha256": "9b6b9e8fbf124fa467281440facf1a3f3132c6bb38674f9803402a7820a64740"
+      },
+      "log": {
+        "path": "/workspace/scratch/0f054634e853/review-router-977-final/tmp/round32-final/architecture/architecture.log",
+        "sha256": "f6e9ade7d71b9436dfaaf199d0027fd6b5fd20d6661a947513fb482543b617ab"
+      },
+      "independentReadback": {
+        "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round33-final/architecture-current29-readback.json",
+        "sha256": "7b2aba011a467789518adde1308a0de16824b126fc3caff5a94e83d1c99ed434"
+      }
+    }
+  },
+  "historical6bBackendQualification": {
+    "qualifiedSnapshot": "6b6f1d00bed23dc2dca87052783399c2d9738bbe",
+    "tree": "c9a3ac9b02cd1fb434c8aed48a298ca4c9503507",
+    "uniqueCompleteCases": 62,
+    "countsTowardCurrent29Qualification": false,
     "production17": {
-      "result": "PASS_SCOPED_CURRENT_RUNTIME",
+      "status": "PASS_SOURCE_BOUND_TO_6B_OWNER_INPUTS",
+      "actualExecutedHead": "1169070c85d0c10fe044b39433717471e61bb883",
+      "sameTreeAlias": "fd1089e691a01b962dd321506867bbfe10e10ffd",
       "passed": 17,
       "failed": 0,
-      "skipped": 0,
-      "executedHead": "1169070c85d0c10fe044b39433717471e61bb883",
-      "equivalentTreeHead": "fd1089e691a01b962dd321506867bbfe10e10ffd",
-      "sourceInputs": 2726,
-      "sourceBinding": "1169070 and fd1089 have the same tree. The subsequent 1357 commit is documentation only; 5dee changes only the Statistics browser fixture, outside these production inputs.",
-      "postgres": "17.12",
-      "canonicalMigrationChecksums": 165,
-      "cleanup": "PASS: PostgreSQL stopped, TCP closed, owned data and credentials removed.",
+      "pending": 0,
+      "actualExitCode": 0,
+      "recordedOwnerInputs": 2726,
+      "canonicalSqlFiles": 165,
+      "sourceAndOwnedCleanupVerified": true,
       "receipt": {
         "path": "tmp/round31-execution/production-1169070c/receipt.json",
         "sha256": "a4225aea4535e283d783b3fc3dabcf3f33c4042b314bd62a98129358eff5ff08"
-      },
-      "rawReportSha256": "87b8170c2dece4e47aa53454ea3587fbc9b45e3a17c9ee270402f3efbc3fae14",
-      "independentRootVerification": {
-        "path": "tmp/round32-final/root-production-validation.json",
-        "sha256": "6ed90fb8d9e63a760cccc61ea714ca097a91083f44286582b99e2df84de32d26"
       }
     },
     "paired45": {
-      "result": "INCOMPLETE_CURRENT_RUNTIME",
-      "expected": 45,
-      "qualifiedCompleteFileCases": 16,
-      "remaining": 29,
-      "executedHead": "fd1089e691a01b962dd321506867bbfe10e10ffd",
-      "sourceInputs": 2754,
-      "sourceInputsUnchanged": true,
-      "sourceBinding": "Documentation and the four Statistics fixture files in 1357/5dee do not change the recorded paired inputs. A new execution-head preflight was pending when the executor became unavailable.",
-      "actionCommit": "1112a0f1de568f9fa927316ab68cef54fbcd4653",
-      "ocrBinarySha256": "9dd5f115747d24100f0767133a3288d268f3bc399675f5b826e7a867d101ee5c",
-      "completeFiles": [
-        {
-          "file": "scripts/review-investigation-paired-e2e/review-investigation-paired.e2e.test.ts",
-          "passed": 7,
-          "exitCode": 0,
-          "report": "tmp/round32-paired/paired-fd1089-v1/paired-e2e-group-1.json",
-          "sha256": "9e005decba29b559e6b9cdc517877a743a9ff3b18490f9ac5c35552c5c19a59a"
-        },
-        {
-          "file": "scripts/review-investigation-paired-e2e/openrouter-direct-paired.e2e.test.ts",
-          "passed": 6,
-          "exitCode": 0,
-          "report": "tmp/round32-paired/paired-fd1089-v1/paired-e2e-group-2.json",
-          "sha256": "1520a1ac2db75f45112a043b0afa929ef0fa140838641acb57609faa0866a2bb"
-        },
-        {
-          "file": "scripts/review-investigation-paired-e2e/pr-description-paired.e2e.test.ts",
-          "passed": 2,
-          "exitCode": 0,
-          "report": "tmp/round32-paired/paired-fd1089-v1/paired-e2e-group-3.json",
-          "sha256": "c102f195b24598674ebeb2bf60ec6e441a924b269ab96b39558f0b12f60d33fe"
-        },
-        {
-          "file": "scripts/review-investigation-paired-e2e/review-banner-comparison-paired.e2e.test.ts",
-          "passed": 1,
-          "exitCode": 0,
-          "report": "tmp/round32-paired/paired-fd1089-v1/paired-e2e-group-4.json",
-          "sha256": "a38cb2fa8880c98b238b2deb36463a3fa7b6ed5813c54f2b971c77282aaa623f"
-        }
+      "status": "PASS_COMPOSITE_SIX_COMPLETE_FILES",
+      "wholeFileCounts": [
+        7,
+        6,
+        2,
+        1,
+        25,
+        4
       ],
-      "failedLifecycle": {
-        "file": "scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts",
-        "expected": 25,
-        "actualPassed": 20,
-        "actualPending": 5,
-        "creditedCases": 0,
-        "processExitCode": 1,
-        "misleadingSummary": {
-          "success": true,
-          "numPendingTests": 1
-        },
-        "rawReport": "tmp/round32-paired/paired-fd1089-v1/paired-e2e-group-5.json",
-        "sha256": "917a00bdd2f5f123d85ade1209f89fa08f36cd70e0aafec9750cdfa1571a46b8",
-        "error": "Worker exited unexpectedly",
-        "assertionFailureObserved": false,
-        "v8FatalObserved": false,
-        "childSignal": "UNKNOWN",
-        "cause": "UNESTABLISHED",
-        "observedHeapLimitMiB": 1048,
-        "observedWorkerPeakRssBytes": 908587008
+      "first16ExecutedHead": "fd1089e691a01b962dd321506867bbfe10e10ffd",
+      "remaining29ExecutedHead": "6b6f1d00bed23dc2dca87052783399c2d9738bbe",
+      "passed": 45,
+      "failed": 0,
+      "pending": 0,
+      "single45CommandPassClaimed": false,
+      "oldPartialLifecycle20Credited": 0,
+      "recordedOwnerInputs": 2754,
+      "canonicalSqlFiles": 165,
+      "sourceAndOwnedCleanupVerified": true,
+      "remaining29Receipt": {
+        "path": "tmp/round32-paired/paired-current29-v1/receipt.json",
+        "sha256": "10c3bf5c7daaa0769836664467e5efbb5803d8f8234ca99499be750b09871fe7"
       },
-      "gateway4": {
-        "result": "NOT_RUN",
-        "file": "apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts"
+      "independentCompositeReview": {
+        "path": "tmp/round32-paired/paired45-independent-composite-qualification.json",
+        "sha256": "0e6bd9c7fab6812266c9ffadad08a25459b423c0f82f0c9e418844461cd9dac1"
       },
-      "postgres": "17.12",
-      "canonicalMigrationChecksums": 165,
-      "cleanup": {
-        "clusterStopped": true,
-        "dataRemoved": true,
-        "credentialsRemoved": true,
-        "originalNamespaceTcpErrno": 111
-      },
-      "wholeAttempt": "FAIL",
-      "receipt": {
-        "path": "tmp/round32-paired/paired-fd1089-v1/receipt.json",
-        "sha256": "e1ddb80dc2bd1dd3734e33ff7685f0eac24ca84d17d31b7b2859693ffb160bc8"
-      },
-      "independentReview": {
-        "path": "tmp/round32-paired/paired-fd1089-v1-independent-review.json",
-        "sha256": "65f709e2233347130c118e598f3099e0bbbc187f2e0e1798fa300fd6ae7efc51"
-      },
-      "continuation": {
-        "fullFiles": [25, 4],
-        "assertionsAndTimeoutsUnchanged": true,
-        "nodeOldSpaceMiB": 1024,
-        "nodeSemiSpaceMiB": 8,
-        "ownedCpuCount": 1,
-        "passiveObserver": "Native diagnostics_channel child_process observer; no API replacement or consuming error handler; no argv/environment recording.",
-        "observerSha256": "5847e0bba15203a167af33fc5124e9cb6662a0fa32f96d93cf68caffd10f2109",
-        "wrapperSha256": "78de54d018c3ede6dcfde648bfa2e498db8683d6b4b7492172a3f93abca21422",
-        "reviewSha256": "475834266fb1f3df979226dbb8b5f3e1b96f321ed4bbdfb3f9f46b86fea4a1fb",
-        "started": false
-      },
-      "earlier45": "The six-file composite at 305cd9f4/00160cdf remains historical PASS; it predates the later API extraction and is not current-source paired qualification."
+      "observedGuardInstallations": 8,
+      "observedHeapEvents": 12,
+      "workerObservation": "Both complete-file parents0, normal worker SIGTERM teardown; Action children0/0/1/0 with expected unavailable-primary1. Observed guard8/heap12;4 clean child envs omit guard audit destination."
     },
-    "ui16": {
-      "interactionResult": "PASS_AT_RECORDED_SOURCE",
-      "executedHead": "41ff719042420d8ff28c3e8054ddf6c8700f6936",
+    "whyFreshCurrentGraphRunsAreRequired": "Later root package/lock and Stats changes require actual current-graph runtime receipts."
+  },
+  "historical6bFullGates": {
+    "fullTooling": {
+      "status": "PASS",
+      "executedHead": "6b6f1d00bed23dc2dca87052783399c2d9738bbe",
+      "actualExitCode": 0,
+      "durationSeconds": 37.737,
+      "node": "24.22.3",
+      "nativeTypeScript": "7.0.2",
+      "receipt": {
+        "path": "tmp/round33-recovery/tooling/receipt.json",
+        "sha256": "46c947fe162fb30a793cf4194f4e6f9cae71ad5a38ae07a2de05817bb3480f94"
+      }
+    },
+    "fullArchitecture": {
+      "status": "PASS",
+      "executedHead": "6b6f1d00bed23dc2dca87052783399c2d9738bbe",
+      "command": "pnpm architecture:check",
+      "actualExitCode": 0,
+      "durationSeconds": 173.046,
+      "node": "26.11.1",
+      "pnpm": "11.28.7",
+      "stages": [
+        "694 boundary files",
+        "Foundation3.1.0, zero diagnostics",
+        "Memory23",
+        "Statistics6",
+        "History",
+        "Account metadata layout",
+        "Final original metadata native strict"
+      ],
+      "sourceAndFixtureRestorationVerified": true,
+      "guardInstallations": 94,
+      "blockedLegacyLoads": 0,
+      "receipt": {
+        "path": "tmp/round33-recovery/architecture/receipt.json",
+        "sha256": "4c219e0873f8463facdf05645df25313832a6f88250275bb8f19a10b45c9b82e"
+      }
+    },
+    "sourceScope": {
+      "trackedEntries": 4868,
+      "present": 4862,
+      "preexistingAbsentNonTypecheckArtifactCount": 6,
+      "detail": "Two action-dist Codex artifacts and four OCR doc images; no original include root absent."
+    },
+    "theseHistoricalRunsWereExecutedOnCurrent29": false
+  },
+  "browserAttemptHistory": {
+    "olderUi16WithAssetGap": {
+      "result": "PASS_INTERACTION_SCOPE_WITH_STATIC_ASSET_GAP",
+      "executionHead": "41ff719042420d8ff28c3e8054ddf6c8700f6936",
       "passed": 16,
       "failed": 0,
       "skipped": 0,
       "retries": 0,
-      "workers": 1,
-      "browser": "Chromium 153.0.8010.0",
-      "compilerProfile": "low-memory-webpack",
-      "guardAndServerClientProfileVerified": true,
-      "materializedSourceInputs": 2972,
-      "canonicalMigrationChecksums": 165,
-      "cleanup": "PASS: original-namespace app/gateway ECONNREFUSED 111, PostgreSQL stop 0, owned data/credentials/cache cleanup.",
+      "profile": "low-memory-webpack",
+      "browser": "Chromium153.0.8010.0",
       "receipt": {
         "path": "tmp/round30-browser/ui-low-memory-webpack-v1/receipt.json",
         "sha256": "c0f816d85a3eccd6f49284b93f0f601c8b12dd987ae7ec6281c8b751cb94d777"
       },
-      "rawReportSha256": "1aedc826e44bb1d2574e4be670f0fb6b49503176072107f56155a9d75c7e5167",
-      "independentReview": {
-        "path": "tmp/round30-final/ui-final-review/audit.json",
-        "sha256": "1b97ff25dea20c1da327d67c01f6d873312ded282cf7bbed84fd76a9be77218f"
+      "recordedExistingInputs": 2972,
+      "missingTrackedPublicAssetCount": 28,
+      "visualGap": "28 public source files were absent. Traces observed404 for the requested logo and service icons; this does not assert that every absent asset was requested.",
+      "countsTowardCurrent78": false
+    },
+    "assetMaterialization": {
+      "path": "tmp/round30-final/public-assets-materialization.json",
+      "sha256": "c5edefc9c8079d5c73b9444eafe104622170edb85be552a7ab415a46a8b82432",
+      "files": 28,
+      "bytes": 1331771
+    },
+    "uiAssetsV1": {
+      "status": "FAIL",
+      "executedHead": "6b6f1d00bed23dc2dca87052783399c2d9738bbe",
+      "executedTree": "c9a3ac9b02cd1fb434c8aed48a298ca4c9503507",
+      "passed": 12,
+      "failed": 4,
+      "skipped": 0,
+      "retries": 0,
+      "harnessExitCode": 2,
+      "qualifiedCompleteCases": 0,
+      "receipt": {
+        "path": "tmp/round30-browser/ui-current-assets-v1/receipt.json",
+        "sha256": "f8dbcc1d978d06f9a43b4ce88482ec8a19c5faf80279ce1195cda72c0b276283"
       },
-      "visualLimit": "28 tracked public assets were absent from the sparse checkout. Actual traces recorded logo/GitHub/GitLab asset404s; interaction PASS is not full visual/asset qualification.",
-      "restoredPublicAssets": {
-        "count": 28,
-        "totalBytes": 1331771,
-        "allExactPublishedGitBlobs": true,
-        "trackedSourceChanged": false,
-        "proof": {
-          "path": "tmp/round30-final/public-assets-materialization.json",
-          "sha256": "c5edefc9c8079d5c73b9444eafe104622170edb85be552a7ab415a46a8b82432"
+      "independentReview": {
+        "path": "tmp/round33-recovery/ui-current-failure-independent-review.json",
+        "sha256": "81cb9edf2dbfb9d8830e379fa08ed3092510da9b7db88b03958652664e424bd0"
+      },
+      "sourceInputs": 3000,
+      "allRecordedInputsUnchanged": true,
+      "canonicalSqlFiles": 165,
+      "ownedCleanup": "PASS in original namespaces; source restored, app/gateway ports refused, PostgreSQL stopped and credentials/data removed.",
+      "observedFailures": {
+        "providerUsage": {
+          "pageCrashed": 2
+        },
+        "runtimeReadiness": {
+          "connectionRefused": 2
         }
       },
-      "newRun": {
-        "result": "NOT_RUN",
-        "requiredSourceInputs": 3000,
-        "requiredCases": 16,
-        "requiresAssetHttp200AndBodyHash": true,
-        "preparedWrapperStillBoundTo": "fd1089e691a01b962dd321506867bbfe10e10ffd",
-        "rebindToPublishedHeadCompleted": false
+      "processEvidence": {
+        "exitCode": null,
+        "signal": "SIGKILL",
+        "exitObservedAt": "2026-11-25T01:29:15.059Z",
+        "minimumHostMemAvailableBytes": 1132343296,
+        "peakNextRssBytes": 2539204608,
+        "v8OutOfMemoryTextObserved": false,
+        "initiatingCause": "UNPROVEN",
+        "chronologyLimit": "First refusal began before the recorded Next exit callback; no precise causal chronology for all four failures is claimed."
       },
-      "scope": "Controlled Next development fixture with alternate Chromium153; not default compiler, CI-pinned Chromium156, live OAuth/provider or production build qualification."
+      "browserAndProfile": {
+        "browser": "Chromium153.0.8010.0",
+        "playwright": "1.64.1",
+        "next": "16.4.6",
+        "profile": "low-memory-webpack",
+        "oldSpaceMiB": 3584,
+        "semiSpaceMiB": 8,
+        "workers": 1
+      },
+      "assets": {
+        "materializedExactSourceFiles": 28,
+        "traceZipsRead": 16,
+        "logoExactBodyGet200": 28,
+        "githubSvgObservations": 0,
+        "gitlabSvgObservations": 0,
+        "threeAssetHttpQualification": "INCOMPLETE",
+        "proof": {
+          "path": "tmp/round30-browser/ui-current-assets-v1/static-assets-posthoc.json",
+          "sha256": "80a9846a5737587cf644c9e29fba3f8e3c81d0580a6eb94b92b340f6f669a1b3"
+        }
+      }
     },
-    "statisticsFollowthrough": {
-      "result": "NOT_RUN_AFTER_FIX",
-      "scenario": "followthrough",
-      "priorRun": {
-        "result": "FAIL",
-        "journeyRecords": 18,
-        "screenshots": 21,
-        "failure": "Next-generated metadata cleanup rejected root-params.d.ts; completed journeys were not aggregate PASS.",
-        "receipt": "ai-docs/deployments/evidence/2026-11-23-architecture-phase2-statistics-browser.json"
+    "olderStatisticsCi": {
+      "result": "FAIL_CLEANUP",
+      "proof": {
+        "path": "ai-docs/deployments/evidence/2026-11-23-architecture-phase2-statistics-browser.json",
+        "sha256": "889654c1a99277880cac851e5b2b07b20943c27420cec4fad1b4751ce692195e"
       },
-      "preparedProfile": "PENDING_STATISTICS_GUARD_FIX_PUBLICATION",
-      "rebindCompleted": false,
-      "resourcesCreated": false,
-      "required": "Original maintained scenario, 12 named viewport/theme matrix captures plus other scenario captures, real PG17 migrations, inherited guard, exact source, no browser/external-request failures and complete fixture/role/metadata cleanup.",
-      "journeyRecordsAreNotVitestCaseCount": true
+      "sourceCommit": "6013a91a39b8456c59b1a44e53fc7d495b13e0b8",
+      "workflowRun": 45255482669,
+      "observedJourneyRecords": 18,
+      "observedScreenshots": 21,
+      "cleanupErrors": 1,
+      "limitation": "Next16.4.6 run-owned root-params.d.ts import remained after cleanup; whole workflow failed and final receipt assertion was skipped. Journey records are not extra unique Vitest tests.",
+      "countsTowardCurrent78": false
+    },
+    "statisticsFollowthroughV1": {
+      "status": "FAIL_BEFORE_BROWSER",
+      "executedHead": "6b6f1d00bed23dc2dca87052783399c2d9738bbe",
+      "executedTree": "c9a3ac9b02cd1fb434c8aed48a298ca4c9503507",
+      "completedJourneyRecords": 0,
+      "expectedJourneyRecords": 18,
+      "captures": 0,
+      "expectedCaptures": 21,
+      "browserLaunched": false,
+      "countsTowardCurrent78": false,
+      "receipt": {
+        "path": "tmp/round30-browser/statistics-followthrough-current-v1/receipt.json",
+        "sha256": "de0358bb82c357d516ea7b3acfef6c588ffbee2dddf7cfcdeb80c5ccf782d1ec"
+      },
+      "maintainedHarnessResult": {
+        "path": "tmp/statistics-e2e/run-2026-11-25T01-35-06.140Z-4eb1098e04ba/result.json",
+        "sha256": "8571016fd00664fb90b3563b69c59980521b3d7f60135e18ea7490ca88083793"
+      },
+      "scopedAudit": {
+        "path": "tmp/round30-browser/statistics-followthrough-current-v1/scoped-failure-audit.json",
+        "sha256": "b49d46bf75c51107674c450ea9743e8eaf62e84c74fa0b9d4f522abbf5ee8171"
+      },
+      "sourceInputs": 3456,
+      "maintainedHashes": 51,
+      "allRecordedInputsUnchanged": true,
+      "canonicalSqlFiles": 165,
+      "startup": {
+        "nativeGuardInherited": true,
+        "scenarioOldSpaceMiB": 2048,
+        "observedHeapLimitBytes": 2172649472,
+        "observedCompilerTargets": [
+          "server",
+          "client"
+        ]
+      },
+      "failure": {
+        "message": "TypeError: fetch failed",
+        "phase": "Initial authenticated SSR warmup after health200, before browser launch",
+        "underlyingFetchCauseRecorded": false,
+        "appExit": {
+          "code": null,
+          "signal": "SIGKILL",
+          "phase": "cleanup"
+        },
+        "signalOrigin": "UNPROVEN: cleanup-phase labeling does not distinguish prior termination from owned10s shutdown escalation."
+      },
+      "cleanup": "PASS: fixture rows/roles0, capture restored, runtime/build absent, PGstop0, original-namespace app/PG ports ECONNREFUSED111, credentials removed."
     }
   },
-  "resourceCustody": {
-    "browser": {
-      "lastVerifiedExecutableSha256": "53a15d6c3a3d27dfb54c4ba60278b1683136f70cf1e67e989da7dfbd3d451ef0",
-      "bytes": 216952568,
-      "originalPath": "/tmp/rr977-round30-browser-runtime",
-      "ownedDiskCopy": "tmp/round32-browser-runtime",
-      "originalPathPreservedBySymlink": true,
-      "fullManifestSha256": "9b061ef0103c32d22599654dc405cae67f014fb34c33d14096e1fa8e1608b1bb"
+  "reviewFindingsResolved": {
+    "priorNineFindings": {
+      "index": {
+        "path": "tmp/round30-final/delivery-review/2026-11-25-e2e-evidence-candidate.json",
+        "sha256": "c739d6e3d231a48da27be35a62186f7110bc3b54268f3dfe6979c39b1a1b130e"
+      },
+      "topics": [
+        "Authenticated replay chronology",
+        "Lease authority and absolute expiry",
+        "Native import/transaction boundaries",
+        "Paired Action startup/guard inheritance",
+        "Exact lifecycle receipt roster",
+        "Lifecycle fixture retention",
+        "Shared low-memory compiler profile",
+        "Owning browser workflow routing",
+        "API host responsibility split"
+      ]
     },
-    "actionDependencies": {
-      "lastVerifiedPackages": 726,
-      "manifestEntries": 26742,
-      "manifestSha256": "303108c31f397bcda6c47041abcdfb78912a435bb9fdcf3588faec54e74648f6",
-      "lastPhysicalPath": "/tmp/rr977-current-paired-action-restored-5t65gjbv",
-      "logicalPath": "/tmp/rr977-current-paired-action-u517d2u9",
-      "workspaceCopyRemovedAfterVerifiedInverseCopy": true,
-      "receiptSha256": "959282007f02340e816cb81c4d2a50854c47dbfdc96d9aaf3a4b8c787cac6540",
-      "reason": "Temporary RAM-backed installation was first moved to disk for headroom, then moved back after workspace ENOSPC; exact package files/links/modes and resolution were verified before each switch."
+    "statisticsFixes": [
+      {
+        "change": "Statistics child native preload inheritance",
+        "commit": "5dee232ac09e2a3590d93c1ce8ed98aafbdafd07",
+        "resolution": "Retain Statistics child preloads and original fixed cap; clean environment allowlist unchanged."
+      },
+      {
+        "change": "Percentage heap flag precedence",
+        "commit": "6378ee3f35b1fc1fd2f1cdc7811e2624a418a388",
+        "resolution": "Reject percentage heap overrides before appending fixed cap;9 maintained cases pass."
+      }
+    ]
+  },
+  "supportingHistoricalScopedChecks": {
+    "index": {
+      "path": "tmp/round30-final/delivery-review/2026-11-25-e2e-evidence-candidate.json",
+      "sha256": "c739d6e3d231a48da27be35a62186f7110bc3b54268f3dfe6979c39b1a1b130e"
     },
-    "afterExecutorRestoration": "Verify all paths and hashes again; unavailable /tmp contents are not assumed to have survived.",
-    "olderRecovery": "Previously interrupted PostgreSQL/cache recovery remained untouched; unknown old shutdown/port closure is not upgraded to PASS."
+    "scopeRule": "Actual historical owner/source qualification only; no additional required78 cases or whole-current-HEAD claim.",
+    "compilerAndFixture30": {
+      "scope": "Shared browser compiler and Accounts fixture",
+      "passed": 30,
+      "proof": {
+        "path": "tmp/round30-final/compiler-profile-source-qualification.json",
+        "sha256": "931a298f35fc2a41e2e7305b70f37fac245c2c7be3cd8f83f6b514364b1dc3e2"
+      },
+      "rawReport": {
+        "path": "tmp/round30-browser/compiler-profile-final-unit.json",
+        "sha256": "f574e233ede40e02071b33e8b7fcc6e59561a3aa7fb075ab702f0056fd5d09a6"
+      }
+    },
+    "extractedApi250": {
+      "scope": "Extracted API execution/evidence behavior",
+      "passed": 250,
+      "files": 13,
+      "proof": {
+        "path": "tmp/round31-execution/qualification.json",
+        "sha256": "14cb3316a5044d127cc32705995ceb67169de03aaf4c75f49b13e5e8814009fa"
+      },
+      "rawReport": {
+        "path": "tmp/round31-execution/focused-results.json",
+        "sha256": "2a484dd43b2131f2a08255820075e3d710bdb080b9c44c7179ac9b8892f0c948"
+      }
+    },
+    "historicalPassCountsByScope": {
+      "Context/API replay": 79,
+      "Execution/API/flight": 154,
+      "RealPG domain/adapter": 48,
+      "Architecture/import parser": 167,
+      "Action worktree": 5,
+      "Receipt checker": 17,
+      "Shared compiler/fixture": 30,
+      "Extracted API": 250,
+      "Computed transaction boundary": 157,
+      "Browser routing": 3
+    }
+  },
+  "historicalNativeAndPackagingChecks": {
+    "compilerFixture": {
+      "result": "PASS",
+      "typeScript": "7.0.2",
+      "originalProjects": [
+        "tsconfig.tooling.json",
+        "scripts/accounts-reference-e2e/tsconfig.json"
+      ],
+      "proof": {
+        "path": "tmp/round30-final/compiler-profile-source-qualification.json",
+        "sha256": "931a298f35fc2a41e2e7305b70f37fac245c2c7be3cd8f83f6b514364b1dc3e2"
+      }
+    },
+    "apiOriginalStrict": {
+      "result": "PASS",
+      "typeScript": "7.0.2",
+      "project": "apps/api/tsconfig.json",
+      "proof": {
+        "path": "tmp/round31-execution/qualification.json",
+        "sha256": "14cb3316a5044d127cc32705995ceb67169de03aaf4c75f49b13e5e8814009fa"
+      }
+    },
+    "apiPackaging": {
+      "result": "PASS",
+      "executionHead": "1169070c85d0c10fe044b39433717471e61bb883",
+      "executionTree": "6fdbb27aa48531c315231c641843067d873e0821",
+      "proof": {
+        "path": "tmp/round31-execution/packaging-qualification.json",
+        "sha256": "566bbf5aae7f447b8d8c6ff5074aded43a4f235e7f7a529ff4674d710cd2dcb9"
+      },
+      "sourceInputs": 2595,
+      "emittedModules": 9,
+      "firstPartyDistModules": 246,
+      "sourceFallbacks": 0,
+      "apiEmitExitCode": 0,
+      "rewriteExitCode": 0,
+      "productionImportExitCode": 0,
+      "runtimeExportsVerified": 4
+    }
+  },
+  "failureInterpretation": {
+    "partialOrAbsentReportsQualifyCompleteLane": false,
+    "signalAloneProvesOom": false,
+    "rule": "Prior failures retain their original outcomes. Explicit V8 exhaustion, Next exit77, ENOSPC, SIGKILL and executor loss are distinct observations."
+  },
+  "requiredCaseRoster": {
+    "production17": [
+      {
+        "file": "scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts",
+        "cases": [
+          "Review Action v2 production PostgreSQL E2E and fault recovery publishes discovery with captured lifecycle capability before resolution history activation",
+          "Review Action v2 production PostgreSQL E2E and fault recovery adopts a committed observation after provider restart without another semantic attempt",
+          "Review Action v2 production PostgreSQL E2E and fault recovery takes over expired outbox and publication claims with monotonic fencing",
+          "Review Action v2 production PostgreSQL E2E and fault recovery rejects every SCM mutation when the persisted current head moves",
+          "Review Action v2 production PostgreSQL E2E and fault recovery fails closed on a live SCM revision race while persisted current revision stays unchanged",
+          "Review Action v2 production PostgreSQL E2E and fault recovery recovers a permanently dead-lettered finalized event and resumes the same process",
+          "Review Action v2 production PostgreSQL E2E and fault recovery publishes only the partial summary and never commits a reusable snapshot",
+          "Review Action v2 production PostgreSQL E2E and fault recovery bounds and completes paginated marker reconciliation before creating one canonical summary",
+          "Review Action v2 production PostgreSQL E2E and fault recovery rewrites the existing summary comment for a new revision instead of adding one",
+          "Review Action v2 production PostgreSQL E2E and fault recovery repairs an older PATCH after a newer progress publication settles",
+          "Review Action v2 production PostgreSQL E2E and fault recovery publishes durable 108-file progress, recovers six retried units, and reconciles duplicate comments",
+          "Review Action v2 production PostgreSQL E2E and fault recovery renders complete with gaps below 100 percent after durable exhaustion",
+          "Review Action v2 production PostgreSQL E2E and fault recovery ends the progress comment incomplete when the published review is incomplete with every part finished",
+          "Review Action v2 production PostgreSQL E2E and fault recovery finalizes exhausted work without regressing durable progress",
+          "Review Action v2 production PostgreSQL E2E and fault recovery admits a successor over an exhausted active execution",
+          "Review History joined production owners cleans a failed borrowed History construction without changing its workspace or pre-existing activation",
+          "Review History joined production owners captures two manual runs of one SHA through dispatch, publication, the registered queue and authorized reads"
+        ]
+      }
+    ],
+    "paired45": [
+      {
+        "file": "scripts/review-investigation-paired-e2e/review-investigation-paired.e2e.test.ts",
+        "cases": [
+          "paired disposable Review Action investigation to control plane PostgreSQL E2E runs the real Action orchestration through attested expansion and critic to a persisted certificate",
+          "paired disposable Review Action investigation to control plane PostgreSQL E2E normalizes high-risk proposals and accepts a fresh same-provider critic",
+          "paired disposable Review Action investigation to control plane PostgreSQL E2E rejects a seed whose hash no longer matches the leased provider manifest",
+          "paired disposable Review Action investigation to control plane PostgreSQL E2E rejects a stale review revision before creating an investigation",
+          "paired disposable Review Action investigation to control plane PostgreSQL E2E stays inconclusive when an attested relation closure omits one required path",
+          "paired disposable Review Action investigation to control plane PostgreSQL E2E replays independent evidence and completes the target with a fresh critic",
+          "paired disposable Review Action investigation to control plane PostgreSQL E2E replays dependency evidence and completes the target with a fresh critic"
+        ]
+      },
+      {
+        "file": "scripts/review-investigation-paired-e2e/openrouter-direct-paired.e2e.test.ts",
+        "cases": [
+          "starts the 'openrouter-api' caller with read-only permissions and every required released-workflow input",
+          "starts the 'mimo-token-plan-api' caller with read-only permissions and every required released-workflow input",
+          "starts the 'kimi-code-api' caller with read-only permissions and every required released-workflow input",
+          "admits the actual 'openrouter-api' manifest against its frozen private policy with Gateway relay disabled",
+          "admits the actual 'mimo-token-plan-api' manifest against its frozen private policy with Gateway relay disabled",
+          "admits the actual 'kimi-code-api' manifest against its frozen private policy with Gateway relay disabled"
+        ]
+      },
+      {
+        "file": "scripts/review-investigation-paired-e2e/pr-description-paired.e2e.test.ts",
+        "cases": [
+          "pairs the real public description factory/manifest with PG auxiliary authority and App publication (body conflict=false)",
+          "pairs the real public description factory/manifest with PG auxiliary authority and App publication (body conflict=true)"
+        ]
+      },
+      {
+        "file": "scripts/review-investigation-paired-e2e/review-banner-comparison-paired.e2e.test.ts",
+        "cases": [
+          "publishes first, pending, then receipt-confirmed updated reviews across three heads"
+        ]
+      },
+      {
+        "file": "scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts",
+        "cases": [
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (1 / 'success' / undefined)",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'success' / undefined)",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (1 / 'denied' / undefined)",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'denied' / undefined)",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (1 / 'unknown' / undefined)",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'unknown' / undefined)",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (1 / 'missing_verdict' / undefined)",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'missing_verdict' / undefined)",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (1 / 'invalid_quote' / undefined)",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'invalid_quote' / undefined)",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (1 / 'wrong_packet' / undefined)",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'wrong_packet' / undefined)",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (1 / 'forged_claim' / undefined)",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'forged_claim' / undefined)",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'report_only' / undefined)",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'paid_unknown' / undefined)",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'budget_exhausted' / undefined)",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'stale_head' / undefined)",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'production_runner' / undefined)",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'production_runner' / 'openrouter-api')",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'production_runner' / 'mimo-token-plan-api')",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'production_runner' / 'kimi-code-api')",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'production_runner' / 'codex-subscription')",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'production_runner' / 'hosted-pool')",
+          "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'production_runner' / 'claude-subscription')"
+        ]
+      },
+      {
+        "file": "apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts",
+        "cases": [
+          "runs the compiled entrypoint through real API/SQL with shared Gateway allocations",
+          "runs the compiled entrypoint through real API/SQL with independent Gateway allocations",
+          "runs the compiled entrypoint through real API/SQL with unavailable-primary Gateway allocations",
+          "runs the compiled entrypoint through real API/SQL with mixed-engines Gateway allocations"
+        ]
+      }
+    ],
+    "ui16": [
+      {
+        "file": "account-limits.spec.ts",
+        "cases": [
+          "account limits are present in the first server paint with UTC observation time",
+          "account limits preserve observations across reset without automatic reads and allow one explicit cached reread",
+          "account limits partial and absent observations never imply free quota on mobile",
+          "account limits restrict shared rows before native reads and fence a delayed response on workspace switch",
+          "account limits keep two windows compact with keyboard-accessible details",
+          "Claude account limits distinguish all-model and model windows on desktop and mobile with keyboard details",
+          "Claude account limits preserve unknown and stale observations on mobile without provider reads",
+          "Claude account limits follow the personal owner across workspace sharing"
+        ]
+      },
+      {
+        "file": "memory-settings.spec.ts",
+        "cases": [
+          "desktop: Memory confirmation settings persist across repository selections",
+          "mobile: Memory confirmation settings persist across repository selections"
+        ]
+      },
+      {
+        "file": "provider-usage.spec.ts",
+        "cases": [
+          "provider usage overview keeps complete period totals, charts, models and runs across pages",
+          "provider usage isolates workspace navigation and reloads stable known totals",
+          "provider usage renders native lag and partial producer coverage truthfully",
+          "provider usage operator report permits administrators and denies members and signed-out users"
+        ]
+      },
+      {
+        "file": "review-runtime-readiness.spec.ts",
+        "cases": [
+          "desktop: current, same-transport update, unknown and candidate states stay coherent",
+          "mobile: current, same-transport update, unknown and candidate states stay coherent"
+        ]
+      }
+    ]
   },
   "remainingQualification": {
-    "completeCurrentE2e": false,
-    "requiredDistinctCases": 78,
-    "currentCompleteProductionAndPairedFileCases": 33,
-    "uiInteractionPassRetainedSeparately": true,
+    "currentProduction17": "Corrected original-profile workload NOT_LAUNCHED; bounded memory admission failed. Previous aborted setup has zero test credit and unresolved old-namespace shutdown evidence.",
+    "currentPaired45": "NOT_LAUNCHED after blocked production prerequisite; no fresh45 result.",
+    "currentUi16AndThreeAssetHttpChecks": "NOT_LAUNCHED under the shared insufficient resource budget; previous actual UI attempt remains FAIL12/4.",
+    "currentStatistics18Journeys21Captures": "NOT_LAUNCHED after one bounded resource window; previous actual Statistics attempt remains FAIL before browser.",
+    "currentFullTooling": "Main attempt FAIL_SIGKILL; separate bounded owner proof retained.",
     "allPrGatesGreen": false,
-    "fullTooling": "FAIL/SIGKILL as recorded above",
-    "fullArchitecture": "Prior complete command failed at final metadata native typecheck with SIGKILL; passed sub-gates are not aggregate PASS.",
-    "fullLint": "Prior full lint failed to import stack-toolchain; publication/frozen graph and whole-root acceptance remain separate.",
-    "releaseAcceptance": "NOT_ESTABLISHED"
+    "releaseAcceptance": "NOT_ESTABLISHED",
+    "browserLimits": "Alternate Chromium153 development profile does not establish CI Chromium156, default compiler or a production browser build.",
+    "liveBoundaryLimits": "Controlled PostgreSQL/HTTP/Action/OCR fixtures do not establish live provider, OAuth, fleet or release activation.",
+    "currentFullArchitecture": "FAIL on exact29 in the parallel checkout at final metadata native strict (SIGKILL); signal cause unproven. Historical6b PASS remains separate."
   },
-  "nextSteps": [
-    "Restore an execution environment, fetch the current published branch, check exact source/lock/runtime identities and reconcile preserved resources before starting processes.",
-    "Finish the complete lifecycle25 and gateway4, preserving all original assertions/timeouts; retain the four complete16-case reports only after unchanged paired input verification.",
-    "Rebind and run all16 maintained UI cases with all3000 inputs and28 restored public assets; verify raw results, actual compiler/guard/browser identities, asset responses,165 SQL checksums and original-namespace cleanup.",
-    "Rebind and run the original Statistics followthrough scenario and its complete cleanup/receipt assertions.",
-    "Update this record only from complete actual results; keep original failures and source provenance."
-  ],
+  "ownedResourceEvidence": {
+    "rule": "Only each receipt’s owned original-namespace cleanup is claimed. Earlier unknown interrupted PG/cache resources remain untouched. /tmp custody must be rechecked after environment resets.",
+    "currentControllersFinalCleanup": null,
+    "productionV1Recovery": {
+      "receipt": {
+        "path": "tmp/round34-backend/production-v1-aborted-recovery.json",
+        "sha256": "7abba87ee3bd323e75c1bbbc97c1b6eb204ad8c2453d82120a4a3779ac5e1006"
+      },
+      "retainedLogHashesVerified": 5,
+      "credentialsAbsent": true,
+      "ownedPostgresDataRetained": "/tmp/rr977-final29-production-pg-ccvemvv8/data",
+      "originalNamespacePostgresShutdown": "UNVERIFIED",
+      "originalNamespacePortClosure": "UNVERIFIED",
+      "signalSentToPidInDifferentNamespace": false
+    },
+    "completedBrowserTraceRelocation": {
+      "path": "tmp/round33-final/completed-browser-evidence-custody.json",
+      "sha256": "8f0397462713043dcdf5fcfcec02c41349a1908aa242fe0dc5861ed167e20e1c"
+    }
+  },
   "delivery": {
-    "draft": true,
-    "skipCiMarker": "[skip ci]",
-    "sourceFixPushedImmediately": true,
-    "ciWaitedFor": false,
-    "workflowDispatched": false,
-    "merged": false,
-    "deployed": false,
-    "checkpointType": "Documentation only; records an unavailable executor and incomplete qualification, not completion.",
-    "checksForThisCheckpoint": "Remote JSON structure and source/document review; no local formatter, Git checkout readback or runtime check after environment became unavailable."
+    "keepDraft": true,
+    "commitMarker": "[skip ci]",
+    "pushReadyCommitsImmediately": true,
+    "ciWaitedForByThisContinuation": false,
+    "workflowDispatchedByThisContinuation": false,
+    "mergedByThisContinuation": false,
+    "deployedByThisContinuation": false,
+    "rawEvidencePolicy": "Raw reports remain in owned scratch with hashes in this bounded record. Do not imply remote preservation of raw scratch files.",
+    "publicationParent": "fcf03b67c21369085839225154a772c848bb1de0",
+    "publicationCommitMessage": "docs(e2e): record follow-through results and remaining blockers [skip ci]",
+    "draftRestoredAfterConcurrentReadyTransition": true,
+    "concurrentCiChange": "The separate fcf03b67 continuation published CI prerequisites and marked Ready; this continuation restored Draft, did not dispatch/wait for/cancel CI, and preserves that source and review history."
   },
-  "e2eComplete": false,
-  "documentationCheckpointOnly": true,
-  "documentationReview": {
-    "root": "Remote JSON structure, source facts and document insertion review completed; no local formatter or runtime check after the outage.",
-    "independent": "Retained-fact review confirmed counts, source scope, excluded partial lifecycle cases, focused/full strict distinction and last-verified resource wording; no new execution."
+  "draftReview": {
+    "author": "e2e_completion_audit",
+    "trackedFilesChanged": false,
+    "testsOrHeavyProcessesRunForThisDraft": false,
+    "rootDisposition": "Pending fields replaced from observed controller outcomes. Current workload not run is distinguished from failed earlier runs. No new test pass inferred from static review or resource admission."
+  },
+  "retainedFailureHistory": {
+    "earlier21Attempts": {
+      "count": 21,
+      "index": {
+        "path": "tmp/round30-final/delivery-review/2026-11-25-e2e-evidence-candidate.json",
+        "sha256": "c739d6e3d231a48da27be35a62186f7110bc3b54268f3dfe6979c39b1a1b130e"
+      },
+      "scope": "Original21 failed/interrupted paired/browser attempts; original path/hash/outcome/limitation records retained unchanged."
+    },
+    "statisticsPreloadFixStrictFailures": {
+      "wholeToolingAttemptsSeconds": [
+        19.97,
+        18.03,
+        46.55
+      ],
+      "callerInclusiveAttemptSeconds": 55.74,
+      "result": "FAIL_SIGKILL",
+      "proof": {
+        "path": "tmp/round30-final/statistics-node-options-qualification/qualification-scoped.json",
+        "sha256": "d8dd01d51adc5ae500d7229a379fe4bf1685eb0bfc2faa381497d19ea8a48c33"
+      },
+      "signalCause": "UNPROVEN"
+    },
+    "earlierWholeGateFailures": {
+      "index": {
+        "path": "tmp/round30-final/delivery-review/2026-11-25-e2e-evidence-candidate.json",
+        "sha256": "c739d6e3d231a48da27be35a62186f7110bc3b54268f3dfe6979c39b1a1b130e"
+      },
+      "scope": "Three architecture failures, missing-Stack lint failure and exploratory1058-diagnostic root check remain historical. Later6b architecture/tooling passes and29 lint reconciliation are recorded separately."
+    },
+    "failedPairedFdAttempt": {
+      "path": "tmp/round32-paired/paired-fd1089-v1/receipt.json",
+      "sha256": "e1ddb80dc2bd1dd3734e33ff7685f0eac24ca84d17d31b7b2859693ffb160bc8",
+      "outcome": "FAIL",
+      "limitation": "Four complete passing files contributed16 only to historical6b composite. Incomplete lifecycle20 passed/5 pending with actual exit1 contributes0; raw success:true rejected; gateway not launched."
+    },
+    "uiAssetsV1": "browserAttemptHistory.uiAssetsV1: FAIL12/4, wholeUI16 contribution0",
+    "statisticsV1": "browserAttemptHistory.statisticsFollowthroughV1: FAIL before browser,0journeys/0captures",
+    "currentTooling": "currentGraphQualification.fullToolingMainAttempt: FAIL_SIGKILL, cause unproven",
+    "currentArchitecture": "currentGraphQualification.fullArchitectureOtherCheckout: original full command FAIL on exact29, final metadata compiler SIGKILL.",
+    "currentBackendSetupV1": {
+      "result": "ABORTED_BEFORE_TESTS",
+      "actualToolExitCode": 130,
+      "testGroupsStarted": 0,
+      "testsCredited": 0,
+      "executionProfile": "Confirmed deviations from the earlier qualified production profile: global tsx preload and Node24 instead of Node26. Setup stall observed before product tests; root authorized stop.",
+      "recoveryReceipt": {
+        "path": "tmp/round34-backend/production-v1-aborted-recovery.json",
+        "sha256": "7abba87ee3bd323e75c1bbbc97c1b6eb204ad8c2453d82120a4a3779ac5e1006"
+      },
+      "finalWrapperReceiptPresent": false,
+      "originalNamespaceShutdown": "UNVERIFIED",
+      "originalNamespacePortClosure": "UNVERIFIED",
+      "limitation": "Tool cancellation did not reach wrapper finally. Exact credential files removed; owned PG data/logs retained. No clean-shutdown or product-test result is inferred.",
+      "causality": "Neither profile deviation is proven to have caused the setup stall. Corrected profile received independent static review only; its actual workload was not launched."
+    },
+    "currentBackendAdmissionBlocks": {
+      "initialSerial": {
+        "result": "BLOCKED_MEMORY_GATE",
+        "actualControllerExitCode": 2,
+        "workloadsStarted": 0,
+        "receipt": {
+          "path": "tmp/round34-backend/serial-control-receipt.json",
+          "sha256": "59f9ff5b9faa5e455e3cb167ea9ffdc717871b947733a30f42259660ab6d5f30"
+        },
+        "processStatus": {
+          "path": "tmp/round34-backend/serial-controller-process-status.json",
+          "sha256": "0f3bbe66d38da23fbe3ee26e4c02f8d1f89e9fb5db98dcad95a40a7f462c2ad6"
+        }
+      },
+      "correctedProductionV2": "currentEndToEnd.production17: BLOCKED before PG/tests, exit2; no additional test failure."
+    }
+  },
+  "updatedAt": "2026-11-25T02:40:23.148250+00:00",
+  "browserAdmissionWindow": {
+    "status": "NOT_LAUNCHED_RESOURCE_WINDOW_EXHAUSTED",
+    "controllerLane": "statistics-followthrough-current-v2",
+    "controllerProcessExitCode": 75,
+    "observedAtStart": "2026-11-25T02:35:07.904049+00:00",
+    "observedAtEnd": "2026-11-25T02:39:07.908843+00:00",
+    "observations": 4,
+    "minimumMemAvailableBytes": 1272999936,
+    "maximumMemAvailableBytes": 2224181248,
+    "minimumWorkspaceFreeBytes": 178176000,
+    "maximumWorkspaceFreeBytes": 178819072,
+    "rootOnlyAdmissionPolicy": {
+      "minimumMemAvailableBytes": 8000000000,
+      "twoObservationsSecondsApart": 10,
+      "minimumWorkspaceFreeBytes": 300000000,
+      "boundedWindowSeconds": 240,
+      "maintainedTestAcceptanceCriterion": false
+    },
+    "rawObservations": {
+      "path": "tmp/round30-browser/statistics-followthrough-current-v2-launch-control.jsonl",
+      "sha256": "11e5f23762a1399d6e1bf2a16300a819494d9392ed80e41bfae741c6e780ea62"
+    },
+    "processStatus": {
+      "path": "tmp/round33-final/browser-v2-controller-process-status.json",
+      "sha256": "f6be61692cbf5823bccdc08c9bfcb0026d8918dae8026f0c7a6542ff53a3abc2"
+    },
+    "historicalMeasuredBudget": {
+      "path": "tmp/round33-final/historical-browser-resource-budget.json",
+      "sha256": "76816f2c1f674ce65a9724e5ae3e4247669dff68ab270ceef4a006950318669c"
+    },
+    "statisticsRunnerStarted": false,
+    "uiRunnerStarted": false,
+    "uiInterpretation": "No separate UI controller or test attempt. The shared budget was insufficient throughout the one Statistics admission window; UI stays NOT_LAUNCHED under the same resource condition.",
+    "newBrowserOrPostgresProcesses": 0
+  },
+  "browserV2Preparation": {
+    "preparation": {
+      "path": "tmp/round30-browser/current-browser-v2-preparation.json",
+      "sha256": "b7eac661e39e228ef03bee2bd0dea904f468680f07fe892c37852ae6841d41c8"
+    },
+    "wrapperIndependentReview": {
+      "path": "tmp/round33-final/browser-v2-independent-wrapper-review.json",
+      "sha256": "c051e28f0ee50901717a3ed6d039cf0e49c6ac33548cd1da115294a84636fb78"
+    },
+    "launcher": {
+      "path": "tmp/round30-browser/launch-current-v2.py",
+      "sha256": "795e5cab48f20519e1e15f44c5e7caf859a4a9c09c80289353da581973de6c26"
+    },
+    "launcherReview": "Independent reviewer found failed-handoff cache-link ownership gap; exact-link cleanup fixed and follow-up read-only review passed. No maintained assertions, timeouts, retries or heaps changed.",
+    "passiveDiagnostics": "Separate observer records loopback/dashboard error names/codes/causes without messages/query/headers/body, and original Statistics parent negative-PID SIGTERM/SIGKILL requests with unchanged forwarding. No signal0 events or signal handlers.",
+    "runtimeQualified": false
   }
 }
