@@ -139,9 +139,9 @@ describe("Get Modular default for new feature packages", () => {
     const root = fixture();
     newPackage(root);
     put(root, "packages/features/new-feature/src/composition/root.ts",
-      "import { declareModule } from '@get-modular/assembly'; export const item = declareModule({});\\n");
+      "import { declareModule } from '@get-modular/assembly'; export const item = declareModule({});\n");
     put(root, "packages/features/new-feature/src/composition/root.test.ts",
-      "import { it } from 'vitest'; it('composition', () => {});\\n");
+      "import { it } from 'vitest'; it('composition', () => {});\n");
     expect((await violations(root)).map(({ reason }) => reason)).toContain(
       "New feature packages must be covered by Engineering Foundation source dependencies",
     );
