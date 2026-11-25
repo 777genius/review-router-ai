@@ -136,6 +136,40 @@ async function seedRows(prisma: PrismaClient, rows: Prisma.Sql) {
     FROM projections
   `);
 }
+
+async function measureProjectionBaseline(
+  prisma: PrismaClient,
+  filters: readonly Prisma.Sql[],
+) {
+  const started = performance.now();
+  let rows = 0;
+  let bytes = 2; // JSON array brackets, including the empty result.
+  let after: string | undefined;
+  for (;;) {
+    // Measure the original payload without reintroducing its unbounded Node
+    // hydration into the qualification process itself. EXPLAIN still replays
+    // the original one-shot SQL below; elapsedMs here includes paged reads.
+    const page = await prisma.$queryRaw<
+      { callId: string; projection: UsageProjection }[]
+    >(Prisma.sql`
+      SELECT "callId",projection FROM "UsageCall" WHERE ${Prisma.join(filters, " AND ")}
+      ${after ? Prisma.sql`AND "callId">${after}` : Prisma.empty}
+      ORDER BY "callId" LIMIT 1000`);
+    for (const { projection } of page) {
+      bytes += Buffer.byteLength(json({ projection })) + (rows ? 1 : 0);
+      rows++;
+    }
+    if (page.length < 1000) break;
+    after = page.at(-1)!.callId;
+  }
+  return {
+    rows,
+    bytes,
+    elapsedMs: performance.now() - started,
+    timingScope:
+      "Bounded keyset SQL reads, driver decoding and exact original JSON payload byte accounting; excludes old JS selection/aggregation and is not one-shot latency",
+  };
+}
 async function seedOrdinary(
   prisma: PrismaClient,
   workspace: string,
@@ -362,8 +396,9 @@ export async function qualifyUsageSqlReport(
     status: "running",
     cases: [],
     boundary:
-      "Synthetic migrated PostgreSQL data; exact totals still scan period rows. Family metadata, facets/groups and grant coverage can grow. Bytes are JSON re-encoding measurements, excluding transport framing. Baseline timing includes full-projection SQL read, driver decoding and JSON byte accounting, but excludes the previous JS selection/aggregation. New report runs with the production transaction timeout unchanged. No latency gate or production capacity claim.",
+      "Synthetic migrated PostgreSQL data; exact totals still scan period rows and facets/groups scale with distinct dimensions. Family metadata stays in SQL; only scalar family counts and bounded loss details cross into Node. Bytes are JSON re-encoding measurements, excluding transport framing. Baseline payload accounting uses bounded keyset reads to avoid hydrating the old entire payload in this test process; its timing is not old one-shot latency. EXPLAIN still measures the original full-projection SQL. New report runs with the production transaction timeout unchanged. No latency gate or production capacity claim.",
   };
+  writeFileSync(`${output}/result.json`, json(evidence));
   try {
     evidence.postgres =
       await prisma.$queryRaw`SELECT version() AS version, current_setting('work_mem') AS work_mem, current_setting('jit') AS jit`;
@@ -387,6 +422,16 @@ export async function qualifyUsageSqlReport(
     await seedOrdinary(prisma, "volume", 50000, true);
     await seedFamilies(prisma, "volume", 100);
     await seedFamilies(prisma, "volume-families", 1000);
+    await prisma.$executeRaw`
+      INSERT INTO "ProviderUsageGrant" (id,"tokenHash","workspaceId","invocationId","repositoryId",
+        "runId","runAttempt","authorizationId","actorId","producerDigest","workflowIdentity",
+        "jobIdentity","publicKey","issuedAt","expiresAt","producerCoverage")
+      SELECT 'volume-grant-' || lpad(n::text,5,'0'),'volume-hash-' || n::text,'volume',
+        'volume-invocation-' || n::text,'123','volume-run-' || lpad((n%1000)::text,4,'0'),
+        1,'volume-auth','volume-member-' || (n%1000)::text,'synthetic','workflow','job','public-key',
+        '2026-10-01'::timestamptz,'2026-11-01'::timestamptz,
+        CASE WHEN n%4=0 THEN '{"schemaVersion":1,"revision":1,"state":"partial","reason":"spool_overflow","droppedEvents":2,"occurredAt":"2026-10-21T00:00:00Z"}'::jsonb ELSE NULL END
+      FROM generate_series(1,10000) n`;
     await prisma.$executeRaw`ANALYZE "UsageCall"`;
     if (actorIndexProbe) {
       // Fresh migrations now install this index. Remove only its exact name for
@@ -490,17 +535,7 @@ export async function qualifyUsageSqlReport(
       if (sample.query.runId)
         filters.push(Prisma.sql`"runId"=${sample.query.runId}`);
       const baselineSql = Prisma.sql`SELECT projection FROM "UsageCall" WHERE ${Prisma.join(filters, " AND ")} ORDER BY "callId"`;
-      const baselineStart = performance.now();
-      const oldRows =
-        await prisma.$queryRaw<{ projection: UsageProjection }[]>(baselineSql);
-      const baseline = {
-        rows: oldRows.length,
-        bytes: Buffer.byteLength(json(oldRows)),
-        elapsedMs: performance.now() - baselineStart,
-        timingScope:
-          "SQL read, driver decoding and JSON byte accounting; excludes old JS selection/aggregation",
-      };
-      oldRows.length = 0;
+      const baseline = await measureProjectionBaseline(prisma, filters);
       const statements: Statement[] = [];
       evidence.activeStatements = statements;
       evidence.activeBaseline = baseline;
@@ -555,10 +590,24 @@ export async function qualifyUsageSqlReport(
       );
       equal(hydrated, report.rows.length);
       ok(hydrated <= 25);
+      for (const statement of statements) {
+        if (statement.text.includes("usage-report:families")) {
+          equal(statement.rows, 1);
+          ok(statement.bytes < 256);
+        }
+        if (statement.text.includes("usage-report:coverage-page"))
+          ok(statement.rows <= 26);
+      }
       if (sample.name === "full") {
         equal(report.partialChildCount, 450);
         equal(report.totals.reportedSummaries, 50);
         equal(report.totals.costs[0]?.amount, "0.00000010055");
+        deepStrictEqual(report.deliveryCoverageTotals, {
+          sessions: 10000,
+          lossSessions: 2500,
+          droppedEvents: 5000,
+        });
+        equal(report.deliveryCoverage.length, 25);
         evidence.completedFirstReport = {
           elapsedMs,
           hydrated,
@@ -575,6 +624,7 @@ export async function qualifyUsageSqlReport(
             limit: 1,
             after: report.nextCursor!,
             runAfter: report.overview.nextRunCursor!,
+            coverageAfter: report.nextCoverageCursor!,
           });
         } catch (error) {
           evidence.failedRequest = "full-cursor";
@@ -589,6 +639,17 @@ export async function qualifyUsageSqlReport(
         deepStrictEqual(next.overview.daily, report.overview.daily);
         deepStrictEqual(next.overview.models, report.overview.models);
         deepStrictEqual(next.overview.topModels, report.overview.topModels);
+        deepStrictEqual(
+          next.deliveryCoverageTotals,
+          report.deliveryCoverageTotals,
+        );
+        equal(next.deliveryCoverage.length, 1);
+        ok(
+          !report.deliveryCoverage.some(
+            (row) =>
+              row.invocationId === next.deliveryCoverage[0]!.invocationId,
+          ),
+        );
         delete evidence.completedFirstReport;
         delete evidence.cursorStatements;
       }
