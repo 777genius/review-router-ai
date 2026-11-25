@@ -6,6 +6,32 @@ Working branch: refactor/architecture-boundaries-phase2-20261123
 Status: priority expansion published; scoped local qualification passed; whole-PR release acceptance remains pending
 Authority: AGENTS.md, Engineering Quality Standard, Feature Module Standard adopted profiles, current security/runtime protocols.
 
+## Correctness follow-through and E2E — 2026-11-24
+
+The owner increased the target to at least 30,000 total Git changed lines and
+requested repeated correctness review plus completion of the affected E2E.
+Continue to publish each qualified slice immediately, retain Draft status and
+do not wait for hosted CI. Volume is a reporting threshold, not justification
+for unrelated edits. Preserve all deployment and merge boundaries below.
+
+Review now includes ordinary failure scenarios and independent behavioral
+oracles, beyond checking that extraction preserved existing function bodies.
+The first new confirmed finding was replay ordering: grouping all reads of a
+file together reordered an authenticated A/B/A source sequence, while repeated
+complete paged queries collapsed into one operation. The host planner now uses
+the domain-owned chronological receipt selection and preserves repeated query
+starts. A selected page chain interleaved with another selected operation is
+declined because the existing whole-query plan cannot represent that tape.
+The positional domain comparison, signed preimages and protocol stay intact.
+
+Five focused tests failed on the previous implementation for the intended
+ordering reasons; the repaired focused suites passed 19/19. The wider affected
+context/API consumer suites passed 79/79 without skips, including the existing
+signed gateway, replay, AEAD and cancellation coverage. Both original strict
+context and API projects passed on TypeScript 7.0.2. Further checker findings,
+lease deadline/revocation races, independent review and the current local
+production/paired Action E2E are tracked as ongoing work, not completed gates.
+
 ## Priority expansion — 2026-11-24
 
 The owner requested at least 25,000 total changed lines in this existing PR,
