@@ -37,6 +37,7 @@ const reviewedMinimumReleaseAgeExclusions = new Set([
   "@get-modular/conformance@0.5.2",
   "@get-modular/core@0.8.0",
   "@get-modular/resources@0.2.2",
+  "stack-toolchain@0.3.1",
 ]);
 
 function validateDeployKeyInstallConfiguration() {
@@ -86,14 +87,18 @@ function validateDeployKeyInstallConfiguration() {
       continue;
     }
     if (section === "allowBuilds") {
-      const match = /^ {2}"([^"]+)": true\s*$/u.exec(line);
-      const reviewedBuilds = new Set([
-        "@prisma/engines@7.8.0",
-        "esbuild@0.28.1",
-        "prisma@7.8.0",
-        "@vioxen/subscription-runtime@https://codeload.github.com/777genius/ar/tar.gz/c7543bc716411a5f899a790a735d09ed2530f779",
+      const match = /^ {2}"([^"]+)": (true|false)\s*$/u.exec(line);
+      const reviewedBuilds = new Map([
+        ["@prisma/engines@7.8.0", true],
+        ["esbuild@0.28.1", true],
+        ["prisma@7.8.0", true],
+        [
+          "@vioxen/subscription-runtime@https://codeload.github.com/777genius/ar/tar.gz/c7543bc716411a5f899a790a735d09ed2530f779",
+          true,
+        ],
+        ["bun@1.4.3", false],
       ]);
-      if (!match || !reviewedBuilds.has(match[1]))
+      if (!match || reviewedBuilds.get(match[1]) !== (match[2] === "true"))
         throw new Error("pnpm-workspace executable configuration denied");
       continue;
     }

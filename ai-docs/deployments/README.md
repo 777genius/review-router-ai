@@ -31,7 +31,12 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+The two native-tooling entries below retain separate execution inputs. Their
+source-bound results do not qualify the combined source.
+
 PR #977 native adoption checkpoint (2026-11-25): [published Stack and remaining acceptance](2026-11-23-architecture-phase2.md#published-native-lint-adoption-checkpoint--2026-11-25), [source-bound evidence](evidence/2026-11-25-pr977-native-adoption.json) — Statistics `6378ee3f` and Stack `29e8386e`; ordinary frozen installation, 9 regressions, original full tooling/lint-format strict, complete 47+90 lint qualification and whole-repository guarded lint pass. The 20-rule oracle and 624-row ledger remain intact; six expected negative loads are blocked before initialization. First install/strict/qualification failures remain recorded. Full architecture still fails at the final metadata compiler SIGKILL after earlier subgates pass. Ordinary Ready CI, complete current E2E, merge and deployment remain pending; earlier reports keep their original sources.
+
+PR #977 native tooling continuation (2026-11-25): [published Stack and retained consumer graph](2026-11-23-architecture-phase2.md#published-native-lint-dependency--2026-11-25), [evidence](evidence/2026-11-25-stack031-consumer.json) — protected Stack 0.3.1 publication, ordinary retained-lock/frozen install, physical graph admission, original native strict lint project, formatter 47/47, safety/qualification 90/90 and whole-repository native lint/format passed. Owner Statistics 9/9, installer 31/31 and Next fixture 2/2 passed on their recorded inputs. FMS stays 0.3.2. Original full tooling strict was attempted twice and received SIGKILL without a TypeScript diagnostic; final tooling/application/browser/E2E/CI remain required. Earlier checkpoints retain their original scope. No deployment.
 
 PR #977 E2E continuation (2026-11-25): [durable checkpoint](evidence/2026-11-25-priority-e2e-followthrough.json) — Statistics child preload fix `5dee232a` published with two real-child regression passes and focused native strict; full tooling still fails with SIGKILL. Production17 passes; current paired has 16 complete-file passes with lifecycle25 incomplete and gateway4 unrun. Earlier UI16 interaction PASS retains the missing-public-assets limitation; assets are restored, full UI/Statistics reruns are pending. Executor unavailable; Draft, no CI wait, merge or deployment.
 
