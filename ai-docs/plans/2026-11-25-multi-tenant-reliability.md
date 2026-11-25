@@ -273,6 +273,12 @@ are the authoritative current-head integration record. The final acceptance
 record in that PR identifies completed workflow runs and the merge result. This
 source record does not pre-claim a queued, skipped or unexecuted check.
 
+The first [Provider accounts C1 integration run](https://github.com/777genius/review-router-ai/actions/runs/45714949799)
+failed because the new retention helper was missing from Foundation's explicit
+source classification. It is now listed in the existing `usage.infrastructure`
+roots. No entrypoint, dependency permission or adopted scope was widened; the
+current-head run must verify the correction before acceptance.
+
 The existing **Statistics Usage Reviews browser** journey now also opens the
 old authorized workspace, paginates 101 loss details through real GETs, denies a
 foreign workspace visibly, and exercises the GitLab credential UI with keyboard
