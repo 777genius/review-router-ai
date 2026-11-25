@@ -63,6 +63,70 @@ independent integrated extraction review; final source/evidence and merge-gate
 review. An incomplete automated review, queued check or skipped case is not a
 successful review or test.
 
+### Published continuation result
+
+The additional API extraction is published as original `1169070c85d0c10fe044b39433717471e61bb883`.
+Its composition entrypoint decreases from 3,129 to 166 lines. Eight API-owned
+siblings hold the existing contracts, authority, validation, lifecycle, leases,
+observations and evidence operations. The nine-file source change is
++3,367/-2,998, or 6,365 changed lines; net growth is 369 import/export and
+separation lines. The complete PR at that code snapshot has 37,292 changed lines
+in 236 files, before this evidence update. No new product behavior, dependency,
+protocol, migration or feature flag belongs to this extraction.
+
+Independent review preserved all 86 declaration ASTs, 11 public exports,
+external import bindings and an acyclic runtime graph. Existing focused tests
+passed 250/250 across 13 files; the original API and tooling strict projects
+passed with native TypeScript 7.0.2. Original API emission, maintained ESM rewrite
+and plain Node production import passed: nine modules/declarations, four public
+runtime exports, 246 first-party dist modules and zero source fallbacks.
+
+Fresh maintained production HTTP/PostgreSQL E2E passed 17/17 on that exact
+published source. PostgreSQL 17.12 applied all 165 migrations with exact SQL
+checksums; 2,726 captured inputs stayed unchanged and the owned cluster, port
+and credential files were cleaned up. These controlled external fixtures do not
+establish live provider publication or deployment.
+
+Two additional review findings were corrected. Static computed `$transaction`
+and `Promise.all` members now use the existing AST member-name reader; three
+new rejecting cases first failed, then the full checker suite passed 157/157.
+The shared browser compiler helper and its test now select all three actual
+owning browser workflows; the original routing suite passed 3/3 after a
+reproduced rejecting case. Existing runner/event/timeout behavior is preserved.
+
+The documented source-identity repair is complete. Original `1169070c` remains
+reachable through `recovery/rr977-original-1169070c-20261125`. One expected-head
+ref update published `fd1089e691a01b962dd321506867bbfe10e10ffd`, with exactly the
+same tree `6fdbb27aa48531c315231c641843067d873e0821`. Independent raw-object
+review verified all 49 reconstructed objects, 57 untouched originals, all 106
+source commits, exact raw messages and ordered merge parents. Integration
+timestamps change; original metadata and the automated artifact's bot provenance
+remain inspectable in the backup and [identity mapping](../deployments/evidence/2026-11-25-pr977-source-identity.json).
+Executed receipts retain their original source revisions.
+
+Whole-PR acceptance is still incomplete. The complete architecture command
+passed boundary/Foundation/Memory/Statistics/History/layout checks, then its
+final metadata native compiler received SIGKILL without a diagnostic. A single
+isolated retry of that exact strict project with an independently verified 1 GiB
+Go memory limit also received SIGKILL. All 4,829 source hashes stayed unchanged;
+the full command remains failed. Shared `/tmp` had no free bytes during the
+isolated run, but this observation does not prove the signal's cause.
+
+Ordinary lint still fails because its configured native adapter is not installed:
+the required Stack release has not been published. At the recorded upstream
+observation, [Foundation #472](https://github.com/agent-teams-ai/engineering-foundation/pull/472)
+at `9422347d` has 35 successful CI jobs and successful release-PR attestation;
+its required CodeQL context is neutral with a missing-configuration warning,
+the PR is open/blocked, and `stack-toolchain@0.3.1` is still absent from npm.
+The producer release remains its separately owned scope. Consumer adoption,
+original full lint qualification and final-head CI must follow the actual
+published artifact. Do not reinterpret attestation as publication or take over
+producer release ownership through this consumer checkpoint.
+
+The [source-bound review receipt](../deployments/evidence/2026-11-25-pr977-scoped-review.json)
+records successful checks, retained failures and precise historical UI16/paired45
+bindings. No complete-PR green, merge or deployment is claimed.
+
 ## Correctness follow-through and E2E — 2026-11-24
 
 The owner increased the target to at least 30,000 total Git changed lines and

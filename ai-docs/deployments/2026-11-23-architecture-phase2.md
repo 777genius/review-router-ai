@@ -6,7 +6,42 @@
 - Implementation: [PR #977](https://github.com/777genius/review-router-ai/pull/977); [bounded plan](../plans/2026-11-23-reviewrouter-architecture-phase2.md).
 - Implementation reference: draft source branch `refactor/architecture-boundaries-phase2-20261123`; provenance is **not** evidence of a merged commit or installed image. The final shipping SHA is unknown.
 - Dependencies: reconcile prior [#810](https://github.com/777genius/review-router-ai/pull/810) and [#914](https://github.com/777genius/review-router-ai/pull/914) (already merged), active Native/Gateway provider [#959](https://github.com/777genius/review-router-ai/pull/959), compiler stack #967–#975 and qualified modular consumer #976; preserve their actual owners. No unrelated upstream merge is authorized.
-- Last updated: 2026-11-24.
+- Last updated: 2026-11-25.
+
+## Scoped review continuation — 2026-11-25
+
+The owner has authorized additional scoped refactoring, repeated correctness
+review and eventual merge of this PR. Application deployment remains outside
+this request. The latest execution/evidence API extraction reduces its entrypoint
+from 3,129 to 166 lines and moves existing responsibilities into eight API-owned
+modules. Source change: nine files, +3,367/-2,998, net 369 lines. Independent
+review preserves all 86 declarations, 11 exports and acyclic dependency wiring.
+
+Actual qualification at original source `1169070c` includes 250/250 focused
+tests, 157/157 architecture checker cases, 3/3 browser routing cases, original
+API/tooling native strict projects, nine emitted modules/declarations and plain
+production imports with no source fallback. Fresh production HTTP/PostgreSQL
+E2E passes 17/17 with all 165 migration checksums and owned-resource cleanup.
+The browser UI16 and paired45 receipts retain their earlier source bindings;
+they are not relabeled as new API-source execution.
+
+Source-identity normalization is complete at `fd1089e6`, with the exact same
+tree as qualified `1169070c`; the original history is retained under
+`recovery/rr977-original-1169070c-20261125`. The independent audit verifies all
+49 mapped objects, 57 unchanged originals, exact raw messages and ordered
+parents. Original bot-generated artifact provenance remains recorded.
+
+Whole-PR gates remain incomplete. Full lint fails on the unavailable native
+Stack adapter; upstream Stack 0.3.1 is still unpublished at the recorded
+observation. The full architecture command and its isolated metadata strict
+diagnostic fail because the native compiler receives SIGKILL, without a
+TypeScript diagnostic. Preserve these failures and obtain final ordinary gates
+on the eventual installed dependency graph. No merge, deployment or new runtime
+configuration is established by this checkpoint.
+
+See the [scoped review receipt](evidence/2026-11-25-pr977-scoped-review.json),
+[original-to-normalized source mapping](evidence/2026-11-25-pr977-source-identity.json)
+and [maintained plan](../plans/2026-11-23-reviewrouter-architecture-phase2.md#final-review-and-delivery--2026-11-25).
 
 ## Priority refactoring checkpoint — 2026-11-24
 
