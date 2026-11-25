@@ -1,6 +1,8 @@
 name: One-shot formatter qualification 20261125
 # Temporary read-only capture; never promote to main.
 on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches:
       - work/formatter-exact-20261125
