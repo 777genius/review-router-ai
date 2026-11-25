@@ -12,9 +12,14 @@ it("loads the actual trust-root JSON with Node's production ESM loader", async (
     ),
     "utf8",
   );
-  const statement = source.match(
-    /^import activationCatalogRawPromotionTrustRootData from "\.\/activation-catalog-policy-raw-promotion-trust-root\.json" with \{ type: "json" \};$/mu,
-  )?.[0];
+  const start = source.indexOf("import activationCatalogRawPromotionTrustRootData");
+  const end = source.indexOf(";", start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  const statement = source.slice(start, end + 1);
+  expect(statement).toMatch(
+    /from "\.\/activation-catalog-policy-raw-promotion-trust-root\.json" with \{\s*type: "json",?\s*\};$/u,
+  );
   expect(statement).toBeDefined();
 
   const dir = await mkdtemp(join(tmpdir(), "rr-runtime-json-"));
