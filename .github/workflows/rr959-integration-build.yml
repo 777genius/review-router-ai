@@ -58,10 +58,9 @@ jobs:
           ref: 919a5add21a40d9adee064bf23b2e4217bd7e040
           path: product
           persist-credentials: false
-          # The ordinary merge needs ancestry; blob filtering avoids downloading
-          # historical binary archives. Helpers never enter this checkout.
+          # The ordinary merge needs complete local objects and ancestry.
+          # Helpers never enter this checkout.
           fetch-depth: 0
-          filter: blob:none
 
       - name: Setup exact Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
