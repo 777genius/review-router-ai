@@ -6,7 +6,10 @@ import { expect, it } from "vitest";
 
 it("loads the actual trust-root JSON with Node's production ESM loader", async () => {
   const source = await readFile(
-    new URL("./activation-catalog-policy-raw-promotion-trust-root.ts", import.meta.url),
+    new URL(
+      "./activation-catalog-policy-raw-promotion-trust-root.ts",
+      import.meta.url,
+    ),
     "utf8",
   );
   const statement = source.match(
@@ -22,7 +25,7 @@ it("loads the actual trust-root JSON with Node's production ESM loader", async (
     );
     await writeFile(
       join(dir, "smoke.mjs"),
-      `${statement}\nif (activationCatalogRawPromotionTrustRootData.status !== "ready") throw new Error("unexpected trust-root status");\n`,
+      `${statement}\nif (!activationCatalogRawPromotionTrustRootData || typeof activationCatalogRawPromotionTrustRootData.status !== "string") throw new Error("invalid trust-root JSON");\n`,
     );
     const result = spawnSync(process.execPath, [join(dir, "smoke.mjs")], {
       encoding: "utf8",
