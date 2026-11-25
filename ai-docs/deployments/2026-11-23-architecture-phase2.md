@@ -3,7 +3,7 @@
 - Task ID: `2026-11-23-architecture-phase2`
 - Goal: the approved ReviewRouter version uses feature-owned workflow admission, setup authority and context-gateway configuration with a narrow conflict-runtime published contract, plus a qualified Foundation/Get Modular toolchain; existing review/setup behavior and recovery remain unchanged.
 - Affected targets: Web, API, worker, source-bound conflict-runtime bundled Action; ordinary private application image/release only after the generated Action artifact has been independently qualified.
-- Implementation: [Draft PR #977](https://github.com/777genius/review-router-ai/pull/977); [bounded plan](../plans/2026-11-23-reviewrouter-architecture-phase2.md).
+- Implementation: [PR #977](https://github.com/777genius/review-router-ai/pull/977); [bounded plan](../plans/2026-11-23-reviewrouter-architecture-phase2.md).
 - Implementation reference: draft source branch `refactor/architecture-boundaries-phase2-20261123`; provenance is **not** evidence of a merged commit or installed image. The final shipping SHA is unknown.
 - Dependencies: reconcile prior [#810](https://github.com/777genius/review-router-ai/pull/810) and [#914](https://github.com/777genius/review-router-ai/pull/914) (already merged), active Native/Gateway provider [#959](https://github.com/777genius/review-router-ai/pull/959), compiler stack #967–#975 and qualified modular consumer #976; preserve their actual owners. No unrelated upstream merge is authorized.
 - Last updated: 2026-11-23.
@@ -77,9 +77,47 @@ pass; exact-source native formatter/proof tests pass 47/47. Published Stack
 artifact/SRI and final frozen lint qualification are still pending. The
 [acceptance gate receipt](evidence/2026-11-23-architecture-phase2-acceptance-gates.json)
 keeps validator evidence separate from actual browser/paired execution.
-Browser, offline-Prisma isolation, remaining lint/build qualifications and
-final-head CI remain separate prerequisites. These are local qualification results; no
-environment deployment or public Action publication was performed.
+The complete paired lifecycle on exact `6013a91a` / Action `1112a0f1` subsequently
+passed 25/25 with zero skips, all seven real OCR routes, PostgreSQL 17.12 and
+165 Prisma migration-ledger entries. Its
+[receipt](evidence/2026-11-23-architecture-phase2-paired-lifecycle.json) identifies
+the historical local evidence lost in the executor reset and does not claim a
+successful source OCR rebuild or browser run.
+The ordinary [Statistics browser run](https://github.com/777genius/review-router-ai/actions/runs/45255482669)
+passed frozen installation, required offline Prisma generation, migrations and
+Web native typecheck; all 18 journey records and 21 screenshots completed.
+Its aggregate result remains **failed** because Next-generated metadata cleanup
+rejected the additional `root-params.d.ts` import. The
+[recovered CI receipt](evidence/2026-11-23-architecture-phase2-statistics-browser.json)
+and [bounded cleanup repair](evidence/2026-11-23-architecture-phase2-native-next.json)
+keep original failure, actual writer controls, unit tests and pending corrected
+browser execution separate.
+The restored ordinary frozen graph subsequently passed the complete maintained
+`pnpm build`: 56/56 tasks, zero cached tasks, 588 emitted-file rewrites and all
+production Next phases, in 157.430 seconds. The 4,815 captured source inputs stayed
+unchanged, and all 176 guarded Node processes avoided legacy initialization.
+The actual production `BUILD_ID` is `AA-TcjEF_ASr0li-DgkYK`.
+The complete `pnpm web:smoke` then passed all 12 pages and two redirects in
+4.342 seconds after the reviewed localized hostname/readiness-timeout repair.
+All original assertions remain; the owned server and process group stopped.
+The original strict tooling project, 13 cleanup cases, three routing cases and
+40 unchanged CI cases pass on the recorded v3 routing inputs. The subsequent v4
+extension and published graph still need their combined root check.
+The complete Action artifact check also passed again,
+with its native strict project, source bundle comparisons and required binary
+archive/manifest; all 4,816 source inputs stayed unchanged.
+
+The completed [Self-hosted E2E job](https://github.com/777genius/review-router-ai/actions/runs/45255482350/job/138022980855)
+provides independent actual filtered Docker production build, network-isolated
+Prisma and 17+2 database E2E evidence. Its real checkout `6aeb2203` has the same tree
+as `6013`; it is not the final candidate. The bootstrap ran 36 passed controls and
+one optional skipped control. Product PostgreSQL 18, separate native Memory PG17,
+partial Memory qualification and synthetic Action identity remain explicit in
+the [scoped receipt](evidence/2026-11-23-architecture-phase2-native-next.json).
+
+Published frozen native-lint qualification, complete corrected browser execution
+and final-head CI remain prerequisites. These are source-bound qualification
+results; no environment deployment or public Action publication was performed.
 
 | Time (UTC)             | Environment | Operator                 | Actual version / image              | Observed result                                                                                                                                                                                           | Next step                                                                                                              |
 | ---------------------- | ----------- | ------------------------ | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |

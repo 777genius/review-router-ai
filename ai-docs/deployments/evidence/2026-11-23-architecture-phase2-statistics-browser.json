@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-11-23",
+  "source": {
+    "commit": "6013a91a39b8456c59b1a44e53fc7d495b13e0b8",
+    "tree": "4d0927bcf7977cf17eafc5c9de9b3e6a0ccf2988",
+    "verifiedSourceInputCount": 49
+  },
+  "workflow": {
+    "runId": 45255482669,
+    "jobId": 137976057107,
+    "url": "https://github.com/777genius/review-router-ai/actions/runs/45255482669/job/137976057107",
+    "conclusion": "failure",
+    "artifactId": 14862006948
+  },
+  "runtime": {
+    "nodeVersion": "v26.11.1",
+    "nextVersion": "16.4.6",
+    "browserVersion": "156.0.8078.4",
+    "serverVersion": "17.10 (Debian 17.10-1.pgdg13+1)",
+    "nextMode": "development-webpack-cache-disabled-test-server",
+    "authentication": "synthetic signed NextAuth JWT with real user, identity and membership DB reads",
+    "data": "real migrated PostgreSQL; direct compact-fact fixtures; capture/projector qualification is separate"
+  },
+  "observed": {
+    "frozenInstall": "passed",
+    "requiredOfflinePrismaGeneration": "passed in ordinary CI",
+    "prismaMigrationsApplied": 165,
+    "webNativeTypecheck": "passed",
+    "completedJourneyRecords": 18,
+    "screenshots": 21,
+    "browserErrors": [],
+    "externalRequests": [],
+    "cleanupErrors": 1,
+    "outcome": "failed",
+    "finalWorkflowReceiptAssertion": "skipped after cleanup failure"
+  },
+  "failure": "Cleanup normalized routes.d.ts but left the Next16.4.6 run-owned root-params.d.ts import. The full file comparison correctly rejected restoration.",
+  "recoveredEvidence": {
+    "jobLogSha256": "678a006af011f51e913f56df8912636a8092d70502bcb4400c1d1c88c024cb6c",
+    "resultSha256": "1494748216df0be5a4b6dd6d67ebac3e09b2ed48dbc3a1704d0733b75543e3c2",
+    "artifactZipSha256": "e7d7dbab38e9352bff6baecedc07959772081fd9e3465a12737297fa573308aa",
+    "artifactZipBytes": 6225506,
+    "artifactMembers": 26,
+    "availability": "Log and original artifact downloaded again from GitHub after executor reset; result and log hashes match the previous observation. All49 recorded source hashes match immutable6013 Git bytes."
+  },
+  "aggregatePassed": false,
+  "productionBuildQualified": false,
+  "repair": "See native-next receipt for the separately reconstructed candidate hashes and actual Next writer controls. A corrected full browser run remains required."
+}
