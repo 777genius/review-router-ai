@@ -1063,12 +1063,8 @@ export class PrismaReviewExecutionStore
             activeLeases: snapshot.activeLeases,
             ...command,
             now,
-            publicationNotAfter: databaseRelativeDate(
-              now,
-              command.now,
-              command.publicationNotAfter,
-              "publication_deadline",
-            ),
+            // This absolute authority bound must not grow while acquiring locks.
+            publicationNotAfter: command.publicationNotAfter,
             retainUntil: databaseRelativeDate(
               now,
               command.now,

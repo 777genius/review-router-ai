@@ -2556,6 +2556,53 @@ describe("observation references and finalization", () => {
     ).toBe(source.leaseId);
   });
 
+  it.each([0, 1])(
+    "honors the inclusive adoption result-report deadline at offset %i ms",
+    async (offsetMs) => {
+      const store = new InMemoryReviewExecutionStore();
+      await prepareAndAdmit(store);
+      const source = (await store.acquireLease(leaseCommand())).lease!;
+      const target = (await store.findExecution(source.executionId))!;
+      const result = await store.adoptObservation({
+        scope,
+        executionId: source.executionId,
+        expectedStreamVersion: target.stream.version,
+        expectedExecutionVersion: target.execution.version,
+        workSlotId: source.workSlotId,
+        sourceLeaseId: source.leaseId,
+        sourceFencingToken: source.fencingToken,
+        sourceObservationId: "observation-1",
+        observationRefId: "observation-ref-1",
+        providerInvocationKey: source.providerInvocationKey,
+        providerVoteIdentityHash: source.providerVoteIdentityHash,
+        payloadHash: hash("6"),
+        byteCount: 100,
+        findingCount: 1,
+        eligibilityPolicyVersion: "eligibility-v1",
+        adoptionLeaseId: "adoption-lease-1",
+        adoptionAcquireRequestIdHash: hash("2"),
+        adoptionAcquireRequestHash: hash("3"),
+        ownerIdHash: source.ownerIdHash,
+        leaseCapabilityId: "capability-adoption",
+        capabilitySigningKeyId: "signing-key-1",
+        leaseSafetyDecisionHash: hash("4"),
+        now: new Date(source.resultReportUntil.getTime() + offsetMs),
+        retainUntil: plus(300_000),
+      });
+
+      expect(result.status).toBe(
+        offsetMs === 0
+          ? ReviewObservationAttachmentStatus.Attached
+          : ReviewObservationAttachmentStatus.Ineligible,
+      );
+      if (offsetMs > 0) {
+        expect(await store.findExecution(source.executionId)).toEqual(target);
+        expect(await store.findLease(source.leaseId)).toEqual(source);
+        expect(await store.findLease("adoption-lease-1")).toBeNull();
+      }
+    },
+  );
+
   it("derives completed coverage from persisted required slots and issues an immutable permit", async () => {
     const store = new InMemoryReviewExecutionStore();
     await prepareAndAdmit(store);

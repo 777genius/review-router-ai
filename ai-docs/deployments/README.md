@@ -11,6 +11,10 @@ remains authoritative for release gates, migration order, approvals, and tags.
 Task files add feature-specific instructions and actual environment evidence.
 They do not grant deployment permission or replace existing operational runbooks.
 
+PR #977 follow-up: [observation retry and absolute deadline repairs](2026-11-25-pr977-observation-recovery.md)
+are under implementation and qualification; ordinary API rollout pending, with
+no migration or configuration change.
+
 <a id="current-coordinated-rollout-reconciliation-2026-11-14"></a>
 
 ## Current coordinated rollout reconciliation (2026-11-15)

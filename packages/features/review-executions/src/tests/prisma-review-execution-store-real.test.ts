@@ -19,7 +19,12 @@ import {
   ReviewRequestedTriggerKind,
   type ReviewRequestedIntent,
 } from "../domain/review-requested-intent";
-import type { ReviewExecutionScope } from "../domain/review-execution";
+import {
+  PublicationPermitValidationStatus,
+  validatePublicationPermit,
+  type ReviewExecutionScope,
+  type ReviewExecutionSnapshot,
+} from "../domain/review-execution";
 import {
   ReviewExecutionAdmissionStatus,
   ReviewExecutionAdmissionVerdict,
@@ -27,6 +32,8 @@ import {
   ReviewExecutionPrepareStatus,
   ReviewExecutionLifecycleTransitionStatus,
   ReviewInvocationLeaseAcquireStatus,
+  ReviewObservationAttachmentStatus,
+  type FinalizeReviewExecutionCommand,
 } from "../application/ports/review-execution-ports";
 import {
   ReviewRequestedClaimStatus,
@@ -500,6 +507,111 @@ if (databaseUrl) {
           where: { artifactId },
         }),
       ).resolves.toBe(2);
+    });
+
+    it("preserves the absolute publication deadline when finalization uses a lagging caller clock", async () => {
+      const harness = await createHarness();
+      const running = await prepareAndAdmit(harness, "finalize-fixed-window");
+      const actualNow = await databaseClock();
+      const publicationNotAfter = new Date(actualNow.getTime() + 20_000);
+      const command = finalizationCommand(harness, running.snapshot, {
+        now: new Date(actualNow.getTime() - 5_000),
+        publicationNotAfter,
+      });
+
+      const result = await harness.executions.finalizeExecution(command);
+      expect(result.status).toBe(ReviewExecutionFinalizeStatus.Finalized);
+      expect(result.artifact?.createdAt.getTime()).toBeGreaterThanOrEqual(
+        actualNow.getTime(),
+      );
+      expect(result.artifact?.publicationPermit.publicationNotAfter).toEqual(
+        publicationNotAfter,
+      );
+      expect(
+        (await harness.executions.findExecution(command.executionId))?.artifact
+          ?.publicationPermit.publicationNotAfter,
+      ).toEqual(publicationNotAfter);
+    });
+
+    it("does not persist finalization once the absolute publication window has closed at database time", async () => {
+      const harness = await createHarness();
+      const running = await prepareAndAdmit(harness, "finalize-closed-window");
+      const actualNow = await databaseClock();
+      const command = finalizationCommand(harness, running.snapshot, {
+        now: new Date(actualNow.getTime() - 5_000),
+        publicationNotAfter: new Date(actualNow.getTime() - 1),
+      });
+      const outboxBefore = await prisma.outboxEvent.count({
+        where: { workspaceId: harness.scope.workspaceId },
+      });
+
+      await harness.executions.finalizeExecution(command).then(
+        (result) => {
+          expect(result.status).toBe(ReviewExecutionFinalizeStatus.NotRunnable);
+        },
+        (error: unknown) => {
+          expect(error).toMatchObject({
+            message: "review_execution_invalid_finalization_window",
+          });
+        },
+      );
+      expect(
+        await harness.executions.findExecution(command.executionId),
+      ).toEqual(running.snapshot);
+      expect(
+        await prisma.finalizedReviewProjectionArtifactV2.count({
+          where: { executionId: command.executionId },
+        }),
+      ).toBe(0);
+      expect(
+        await prisma.outboxEvent.count({
+          where: { workspaceId: harness.scope.workspaceId },
+        }),
+      ).toBe(outboxBefore);
+    });
+
+    it("restores an already issued publication permit without broadening its internal grace after authorization expiry", async () => {
+      const harness = await createHarness();
+      const running = await prepareAndAdmit(harness, "finalize-issued-grace");
+      const now = await databaseClock();
+      const command = finalizationCommand(harness, running.snapshot, {
+        now,
+        publicationNotAfter: new Date(now.getTime() + 60_000),
+      });
+      const finalized = await harness.executions.finalizeExecution(command);
+      expect(finalized.status).toBe(ReviewExecutionFinalizeStatus.Finalized);
+      const artifact = finalized.artifact!;
+      const persisted = await harness.executions.findExecution(
+        command.executionId,
+      );
+      const retryAt = await databaseClock();
+      await prisma.reviewRunAuthorization.update({
+        where: { authorizationId: harness.authorizationId },
+        data: { expiresAt: new Date(retryAt.getTime() - 1) },
+        select: { authorizationId: true },
+      });
+
+      const restored = await harness.executions.finalizeExecution({
+        ...command,
+        now: retryAt,
+      });
+      expect(restored.status).toBe(ReviewExecutionFinalizeStatus.Restored);
+      expect(restored.artifact).toMatchObject(artifact);
+      expect(
+        await harness.executions.findExecution(command.executionId),
+      ).toEqual(persisted);
+      expect(
+        validatePublicationPermit({
+          permit: restored.artifact!.publicationPermit,
+          stream: restored.snapshot!.stream,
+          projectionHash: artifact.projectionHash,
+          lifecycleStateHash: artifact.lifecycleStateHash,
+          commandLedgerWatermark: artifact.commandLedgerWatermark,
+          authorizationActive: true,
+          producerReleaseActive: true,
+          now: retryAt,
+        }),
+      ).toBe(PublicationPermitValidationStatus.Current);
     });
 
     it("serializes concurrent requested intents into one pending successor", async () => {
@@ -2230,6 +2342,75 @@ if (databaseUrl) {
       expect(persisted?.execution.workSlots[0]?.activeLeaseId).toBeNull();
     });
 
+    it("rejects adoption beyond the persisted result-report deadline despite a lagging caller clock", async () => {
+      const harness = await createHarness();
+      const running = await prepareAndAdmit(harness, "adoption-db-deadline");
+      const acquired = await harness.executions.acquireLease(
+        leaseCommand(harness, running.snapshot, "adoption-db-deadline"),
+      );
+      const source = acquired.lease!;
+      const sourceObservationId = "observation-adoption-db-deadline";
+      const payloadHash = hash(9);
+      await harness.ensureObservation({
+        observationId: sourceObservationId,
+        executionId: source.executionId,
+        workSlotId: source.workSlotId,
+        attemptId: source.attemptId!,
+        leaseId: source.leaseId,
+        fencingToken: source.fencingToken,
+        providerInvocationKey: source.providerInvocationKey,
+        providerVoteIdentityHash: source.providerVoteIdentityHash,
+        payloadHash,
+        createdAt: source.acquiredAt,
+      });
+      const resultReportUntil = await databaseClock();
+      await prisma.reviewInvocationLeaseV2.update({
+        where: { leaseId: source.leaseId },
+        data: { expiresAt: resultReportUntil, resultReportUntil },
+      });
+      const before = (await harness.executions.findExecution(
+        source.executionId,
+      ))!;
+      const beforeLease = await harness.executions.findLease(source.leaseId);
+      const adoptionLeaseId = "lease-adopted-db-deadline";
+
+      const result = await harness.executions.adoptObservation({
+        scope: harness.scope,
+        executionId: source.executionId,
+        expectedStreamVersion: before.stream.version,
+        expectedExecutionVersion: before.execution.version,
+        workSlotId: source.workSlotId,
+        sourceLeaseId: source.leaseId,
+        sourceFencingToken: source.fencingToken,
+        sourceObservationId,
+        observationRefId: "observation-ref-adoption-db-deadline",
+        providerInvocationKey: source.providerInvocationKey,
+        providerVoteIdentityHash: source.providerVoteIdentityHash,
+        payloadHash,
+        byteCount: 2,
+        findingCount: 0,
+        eligibilityPolicyVersion: "eligibility-v1",
+        adoptionLeaseId,
+        adoptionAcquireRequestIdHash: hash(10),
+        adoptionAcquireRequestHash: hash(11),
+        ownerIdHash: source.ownerIdHash,
+        leaseCapabilityId: "capability-adopted-db-deadline",
+        capabilitySigningKeyId: "signing-key-v1",
+        leaseSafetyDecisionHash: hash(12),
+        now: source.acquiredAt,
+        retainUntil: source.retainUntil,
+      });
+
+      expect(result.status).toBe(ReviewObservationAttachmentStatus.Ineligible);
+      expect(
+        await harness.executions.findExecution(source.executionId),
+      ).toEqual(before);
+      expect(await harness.executions.findLease(source.leaseId)).toEqual(
+        beforeLease,
+      );
+      expect(await harness.executions.findLease(adoptionLeaseId)).toBeNull();
+    });
+
     it("preserves absolute renewal deadlines across caller clock skew", async () => {
       const harness = await createHarness();
       const running = await prepareAndAdmit(harness, "renew-db-time");
@@ -2755,6 +2936,45 @@ if (databaseUrl) {
     it("requires REVIEW_ROUTER_PROVIDER_SCOPE_TEST_DATABASE_URL", () =>
       undefined);
   });
+}
+
+function finalizationCommand(
+  harness: ReviewExecutionStoreContractHarness,
+  snapshot: ReviewExecutionSnapshot,
+  timing: { readonly now: Date; readonly publicationNotAfter: Date },
+): FinalizeReviewExecutionCommand {
+  const projectionEnvelopeJson = '{"findings":[]}';
+  return {
+    scope: harness.scope,
+    executionId: snapshot.execution.executionId,
+    expectedStreamVersion: snapshot.stream.version,
+    expectedExecutionVersion: snapshot.execution.version,
+    artifactId: `artifact-${randomUUID()}`,
+    artifactHash: hash(11),
+    projectionEnvelopeVersion: 1,
+    projectionEnvelopeJson,
+    projectionHash: hash(12),
+    byteCount: new TextEncoder().encode(projectionEnvelopeJson).byteLength,
+    findingCount: 0,
+    lifecycleStateHash: hash(13),
+    commandLedgerWatermark: 7n,
+    projectionPolicyVersion: "projection-v1",
+    publicationSafetyDecisionHash: hash(14),
+    publicationNotAfter: timing.publicationNotAfter,
+    permitEpoch: 1n,
+    allowPartial: true,
+    limits: {
+      profileId: limitsProfileId,
+      maxWorkSlots: 16,
+      maxAttemptBudget: 4,
+      maxProjectionBytes: 1_000_000,
+      maxFindingCount: 1_000,
+      maxLeaseDurationMs: 120_000,
+      maxResultReportDurationMs: 180_000,
+    },
+    now: timing.now,
+    retainUntil: new Date(timing.now.getTime() + 86_400_000),
+  };
 }
 
 async function createHarness(

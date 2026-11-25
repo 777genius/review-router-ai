@@ -234,7 +234,9 @@ export async function attachObservation(
   const lease = await requireLease(
     leaseAuthority,
     d.executionQueries,
-    true,
+    // A successful attachment releases its lease. The domain restores exact
+    // retries and still requires an active lease for every new attachment.
+    false,
     now,
   );
   requireEqual(
@@ -436,14 +438,6 @@ export async function adoptObservation(
     };
   }
 
-  const now = d.now();
-  if (now.getTime() > sourceLease.resultReportUntil.getTime()) {
-    throw failure(
-      412,
-      ReviewActionV2ProtocolErrorCode.StalePrecondition,
-      "adoption_result_report_expired",
-    );
-  }
   requireEqual(
     snapshot.stream.version,
     decimal(request.expectedStreamVersion),
@@ -472,6 +466,9 @@ export async function adoptObservation(
     );
   }
   const adoptionCapabilityIdentity = await d.capabilities.prepareIdentity();
+  const now = d.now();
+  // The atomic store decides expiry for new effects and restores exact retries,
+  // including a concurrent retry whose preparation outlasted the report window.
   const outcome = await d.executions.observationAttachments.adoptAccepted({
     scope: toExecutionScope(authorization),
     executionId: request.executionId,
@@ -498,6 +495,16 @@ export async function adoptObservation(
     now,
     retainUntil: new Date(snapshot.execution.retainUntil),
   });
+  if (
+    outcome.status === ReviewObservationAttachmentStatus.Ineligible &&
+    d.now() > sourceLease.resultReportUntil
+  ) {
+    throw failure(
+      412,
+      ReviewActionV2ProtocolErrorCode.StalePrecondition,
+      "adoption_result_report_expired",
+    );
+  }
   const resultSnapshot = outcome.snapshot ?? snapshot;
   const status = mapAttachmentStatus(outcome.status);
   return {

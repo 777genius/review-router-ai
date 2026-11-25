@@ -215,9 +215,6 @@ export function decideObservationAdoption(input: {
 }): ObservationAttachmentDecision {
   assertObservationFacts(input.facts);
   assertObservationTarget(input.stream, input.execution, input.slot);
-  if (input.existingAdoptionLease !== null) {
-    return { status: ObservationAttachmentDecisionStatus.Conflict };
-  }
   const restored = decideExistingObservation(
     input.existingRefForSlot,
     input.existingRefByIdentity,
@@ -230,7 +227,40 @@ export function decideObservationAdoption(input: {
       sourceFencingToken: input.sourceFencingToken,
     },
   );
-  if (restored !== null) return restored;
+  const existingLease = input.existingAdoptionLease;
+  if (existingLease !== null || restored !== null) {
+    // Concurrent retries can reach the store before the API sees the first ref.
+    // Restore the persisted intent, never newly prepared capability identities.
+    if (
+      restored?.status !== ObservationAttachmentDecisionStatus.Restored ||
+      existingLease === null ||
+      existingLease.leaseId !== input.adoptionLeaseId ||
+      existingLease.purpose !==
+        ReviewInvocationLeasePurpose.ObservationAdoption ||
+      existingLease.state !== ReviewInvocationLeaseState.Released ||
+      scopeKey(existingLease) !== scopeKey(input.execution) ||
+      existingLease.executionId !== input.execution.executionId ||
+      existingLease.executionGeneration !== input.execution.generation ||
+      existingLease.authorizationId !== input.execution.authorizationId ||
+      existingLease.producerReleaseId !== input.execution.producerReleaseId ||
+      existingLease.reviewRevisionHash !==
+        input.execution.revision.reviewRevisionHash ||
+      existingLease.mutationEpoch !== input.execution.mutationEpoch ||
+      existingLease.workSlotId !== input.slot.workSlotId ||
+      existingLease.sourceObservationId !== input.facts.observationId ||
+      existingLease.providerInvocationKey !==
+        input.facts.providerInvocationKey ||
+      existingLease.providerVoteIdentityHash !==
+        input.facts.providerVoteIdentityHash ||
+      existingLease.ownerIdHash !== input.ownerIdHash ||
+      existingLease.acquireRequestIdHash !==
+        input.adoptionAcquireRequestIdHash ||
+      existingLease.acquireRequestHash !== input.adoptionAcquireRequestHash
+    ) {
+      return { status: ObservationAttachmentDecisionStatus.Conflict };
+    }
+    return restored;
+  }
   const source = input.sourceLease;
   if (
     !isCurrentRunning(input.stream, input.execution) ||
@@ -239,6 +269,7 @@ export function decideObservationAdoption(input: {
     source === null ||
     source.leaseId !== input.sourceLeaseId ||
     source.fencingToken !== input.sourceFencingToken ||
+    source.resultReportUntil < input.facts.now ||
     scopeKey(source) !== scopeKey(input.execution) ||
     source.executionId !== input.execution.executionId ||
     source.workSlotId !== input.slot.workSlotId ||

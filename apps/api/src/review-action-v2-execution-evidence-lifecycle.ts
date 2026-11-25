@@ -417,6 +417,21 @@ export async function finalizeExecution(
     request.artifactHash,
     "artifact_hash_mismatch",
   );
+  const finalizationNow = d.now();
+  if (authorization.expiresAt <= finalizationNow) {
+    throw failure(
+      410,
+      ReviewActionV2ProtocolErrorCode.ResourceGone,
+      "authorization_inactive",
+    );
+  }
+  if (facts.publicationNotAfter <= finalizationNow) {
+    throw failure(
+      410,
+      ReviewActionV2ProtocolErrorCode.ResourceGone,
+      "publication_permit_expired",
+    );
+  }
   const result = await d.executions.finalizeReviewExecution.execute({
     scope: executionScope,
     executionId: request.executionId,
@@ -440,7 +455,7 @@ export async function finalizeExecution(
       ? { coverageExceptions: facts.coverageExceptions }
       : {}),
     limits,
-    now,
+    now: finalizationNow,
     retainUntil: facts.retainUntil,
   });
   if (result.artifact) {
@@ -449,9 +464,10 @@ export async function finalizeExecution(
       d,
     );
   }
+  const publicationNow = d.now();
   if (
     result.artifact &&
-    result.artifact.publicationPermit.publicationNotAfter <= now
+    result.artifact.publicationPermit.publicationNotAfter <= publicationNow
   ) {
     throw failure(
       410,
@@ -462,7 +478,7 @@ export async function finalizeExecution(
   const permit = result.artifact
     ? await d.capabilities.issuePublicationPermit(
         result.artifact.publicationPermit,
-        now,
+        publicationNow,
       )
     : null;
   return {
