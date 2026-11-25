@@ -66,7 +66,7 @@ describe("organization ruleset settings extraction", () => {
       />,
     );
     expect(html).toContain("Plan upgrade required");
-    expect(html).toContain("Use setup PR fallback");
+    expect(html).toContain("Open repositories");
     expect(html).not.toContain("Ruleset enforcement");
   });
 
@@ -80,5 +80,6 @@ describe("organization ruleset settings extraction", () => {
     expect(html).toContain("Repository scope");
     expect(html).toContain("Ruleset enforcement");
     expect(html).toContain("Enable ruleset");
+    expect(html).toContain("Use setup PR fallback");
   });
 });
