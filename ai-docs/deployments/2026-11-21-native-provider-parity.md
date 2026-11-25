@@ -13,7 +13,7 @@
   [native ownership](../architecture/64-gateway-native-ownership-and-model-catalog.md),
   and the producer/SDK revisions in
   [SDK provenance](../../vendor/account-gateway/native-provider-parity-sdk-provenance.json).
-- Last updated: `2026-11-23`.
+- Last updated: `2026-11-24`.
 
 ## Environment status
 
@@ -82,6 +82,11 @@ not just a successful credential submission.
   adds no production dependency, migration, configuration or activation step.
 - A pinned receipt remains readable and continuable after catalog loss without
   rediscovering or substituting a method. An ambiguous effect stays readback-only.
+- Personal native enrollment validates the same lowercase UUIDv4 nonce used by
+  read and continuation before reserving an operation or contacting Gateway.
+- Existing native providers remain editable without a direct-provider setup
+  definition. Edits preserve the profile, account binding and model authority;
+  credential storage alternatives appear only when that provider supports them.
 - Browser qualification uses the real authenticated Next app, real PostgreSQL
   and Chromium against a controlled Gateway contract fixture. Joined native and
   live-provider evidence must be recorded separately.

@@ -1,8 +1,9 @@
-import type {
-  PersonalAccountDependencies as Dependencies,
-  PersonalAdapter,
-  QualifiedProfile,
-  PersonalCanonicalOperationView,
+import {
+  personalCanonicalNonce as nonce,
+  type PersonalAccountDependencies as Dependencies,
+  type PersonalAdapter,
+  type QualifiedProfile,
+  type PersonalCanonicalOperationView,
 } from "./personal-account-adapter-contract";
 import {
   snapshotAccountCredential,
@@ -50,12 +51,6 @@ import {
   suggestedAccountLabel,
 } from "../features/account-gateway/connection-options";
 
-const nonce = z
-  .string()
-  .uuid()
-  .regex(
-    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
-  );
 const revision = z.number().int().min(1).max(2147483646);
 const label = z
   .string()
@@ -1024,6 +1019,7 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
       let inputFields: Record<string, string>;
       try {
         request = snapshotNativeConnectionRequest(raw);
+        nonce.parse(request.nonce);
         inputFields = snapshotNativeConnectionInputs(values);
       } catch {
         return { status: "invalid" as const };

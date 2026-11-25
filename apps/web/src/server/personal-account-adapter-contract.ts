@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { ConsumerControlClient } from "@agent-teams/account-gateway/http";
 import type { PersonalAccountOperationStore } from "@reviewrouter/features-provider-accounts";
 import type { PersonalCanonicalOperationStore } from "@reviewrouter/features-provider-accounts/synchronization";
@@ -10,6 +11,13 @@ import type {
   AccountProfileView,
   createDisabledPersonalAccountsAdapter,
 } from "./account-gateway-accounts";
+
+export const personalCanonicalNonce = z
+  .string()
+  .uuid()
+  .regex(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  );
 
 export type PersonalAdapter = Pick<
   ReturnType<typeof createDisabledPersonalAccountsAdapter>,
