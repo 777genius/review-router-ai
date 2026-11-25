@@ -138,6 +138,7 @@ import {
   reviewV2WorkerEnabledEnv,
 } from "../../../apps/worker/src/review-v2-worker-runtime.js";
 import { FakeGitHubTransport, type FakeGitHubRevision } from "./fake-github.js";
+import { settleReviewWorker } from "./settle-review-worker.js";
 
 const lifecycleVerificationExtensionV1 = {
   extensionId: lifecycleVerificationContract.extensionId,
@@ -1569,21 +1570,55 @@ export class ReviewActionV2E2EHarness {
   }
 
   async runWorkerUntilSettled(maxPasses = 12): Promise<void> {
-    for (let pass = 0; pass < maxPasses; pass += 1) {
-      await this.worker.runMaintenance();
-      const active = await this.prisma.reviewCompletionProcess.count({
-        where: {
-          state: {
-            in: [
-              "pending_publication",
-              "awaiting_publication",
-              "pending_snapshot",
-            ],
+    const settled = await settleReviewWorker({
+      maxPasses,
+      runMaintenance: () => this.worker.runMaintenance(),
+      hasActiveWork: async () =>
+        (await this.prisma.reviewCompletionProcess.count({
+          where: {
+            state: {
+              in: [
+                "pending_publication",
+                "awaiting_publication",
+                "pending_snapshot",
+              ],
+            },
           },
-        },
-      });
-      if (active === 0) return;
-    }
+        })) > 0,
+      nextEligibleAt: async () => {
+        const now = new Date();
+        const [next] = await this.prisma.$queryRaw<
+          { nextEligibleAt: Date | null }[]
+        >`
+          WITH active_completion AS (
+            SELECT "publicationAttemptId", "nextActionAt"
+            FROM "ReviewCompletionProcess"
+            WHERE state IN (
+              'pending_publication', 'awaiting_publication', 'pending_snapshot'
+            )
+              AND "retainUntil" > ${now}
+          )
+          SELECT MIN(wakeup."nextEligibleAt") AS "nextEligibleAt"
+          FROM (
+            SELECT "nextActionAt" AS "nextEligibleAt" FROM active_completion
+            UNION ALL
+            SELECT operation."nextEligibleAt"
+            FROM active_completion completion
+            JOIN "ReviewPublicationAttemptV2" attempt
+              ON attempt."publicationAttemptId" = completion."publicationAttemptId"
+            JOIN "ReviewPublicationOperationV2" operation
+              ON operation."publicationAttemptId" = attempt."publicationAttemptId"
+            WHERE attempt.state IN ('pending', 'publishing', 'reconciling')
+              AND attempt."retainUntil" > ${now}
+              AND operation.state IN (
+                'planned', 'in_flight', 'effect_observed', 'reconciling'
+              )
+          ) wakeup
+        `;
+        return next?.nextEligibleAt ?? null;
+      },
+    });
+    if (settled) return;
     // Retain safe publication state diagnostics for paired CI failures.
     // No receipt bodies, credentials, repository identifiers or secrets.
     const pending = await this.prisma.reviewPublicationOperationV2.findMany({
