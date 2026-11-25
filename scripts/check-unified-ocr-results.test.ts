@@ -187,6 +187,34 @@ it.each([
 });
 
 function pairedFixture() {
+  // Independent captured names, not imported from the validator's roster.
+  const cases = [
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (1 / 'success' / undefined)",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'success' / undefined)",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (1 / 'denied' / undefined)",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'denied' / undefined)",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (1 / 'unknown' / undefined)",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'unknown' / undefined)",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (1 / 'missing_verdict' / undefined)",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'missing_verdict' / undefined)",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (1 / 'invalid_quote' / undefined)",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'invalid_quote' / undefined)",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (1 / 'wrong_packet' / undefined)",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'wrong_packet' / undefined)",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (1 / 'forged_claim' / undefined)",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'forged_claim' / undefined)",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'report_only' / undefined)",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'paid_unknown' / undefined)",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'budget_exhausted' / undefined)",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'stale_head' / undefined)",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'production_runner' / undefined)",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'production_runner' / 'openrouter-api')",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'production_runner' / 'mimo-token-plan-api')",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'production_runner' / 'kimi-code-api')",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'production_runner' / 'codex-subscription')",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'production_runner' / 'hosted-pool')",
+    "pairs bounded lifecycle verification with immutable publication and honest native receipts (2 / 'production_runner' / 'claude-subscription')",
+  ] as const;
   return {
     success: true,
     numTotalTests: 25,
@@ -200,8 +228,8 @@ function pairedFixture() {
           "scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts",
         ),
         status: "passed",
-        assertionResults: Array.from({ length: 25 }, (_, index) => ({
-          fullName: `reviewed paired case ${index}`,
+        assertionResults: cases.map((fullName) => ({
+          fullName: String(fullName),
           status: "passed",
         })),
       },
@@ -233,6 +261,13 @@ it.each([
     },
   ],
   [
+    "an unrelated passing scenario replacing a required paired case",
+    (f: PairedFixture) => {
+      f.testResults[0]!.assertionResults[0]!.fullName =
+        "unrelated passing lifecycle case";
+    },
+  ],
+  [
     "a missing paired case",
     (f: PairedFixture) => {
       f.testResults[0]!.assertionResults.pop();
@@ -242,7 +277,7 @@ it.each([
     "a duplicate paired case",
     (f: PairedFixture) => {
       f.testResults[0]!.assertionResults[1]!.fullName =
-        "reviewed paired case 0";
+        f.testResults[0]!.assertionResults[0]!.fullName;
     },
   ],
   [
