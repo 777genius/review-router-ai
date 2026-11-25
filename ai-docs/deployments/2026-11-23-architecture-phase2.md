@@ -8,7 +8,34 @@
 - Dependencies: reconcile prior [#810](https://github.com/777genius/review-router-ai/pull/810) and [#914](https://github.com/777genius/review-router-ai/pull/914) (already merged), active Native/Gateway provider [#959](https://github.com/777genius/review-router-ai/pull/959), compiler stack #967–#975 and qualified modular consumer #976; preserve their actual owners. No unrelated upstream merge is authorized.
 - Last updated: 2026-11-25.
 
-## Current final qualification and paired compiler blocker — 2026-11-25
+## Current consumer-native paired qualification — 2026-11-25
+
+PR #977 remains Ready and unmerged. The consumer now prepares an explicit native
+qualification profile for immutable Action `1112a0f1`, preserving its source,
+lockfile, runtime artifacts and five full producer suites. This replaces the
+earlier proposed requirement for a producer-wide toolchain migration; it makes
+no claim that the Action's default legacy Jest/lint route is native-qualified.
+
+The runner first performs the complete original Action strict project with
+TypeScript 7.0.2 and the producer's documented native module settings, then uses
+its existing Babel/Jest 29.7 with pinned Next 16.4.6's TypeScript/CommonJS Babel
+components in one transform pass. Native guards, original selection/setup/
+timeouts/assertions and artifact checks remain. Cache reuse is disabled and the
+actual Jest JSON report is retained alongside the guard audit. The exact pinned
+private Babel components and actual mock/type/syntax fixtures receive explicit
+qualification; local partial probes do not count as the five-suite result.
+
+Three local native/configuration regressions, scoped lint/formatting and the
+complete original tooling strict project pass (TypeScript 7.0.2, no legacy loads).
+The first strict attempt's concrete typing error is fixed; its failed result is
+retained. Actual paired Jest execution
+and current browser/paired45/required CI acceptance remain pending. Earlier full
+architecture/tooling and fresh production17 results retain their actual source
+`980583c6`. See the [current bounded plan](../plans/2026-11-23-reviewrouter-architecture-phase2.md#current-consumer-native-paired-qualification--2026-11-25).
+No product contract, activation, migration, staging or production deployment is
+changed or authorized by this test-tooling correction.
+
+## Earlier guarded compiler checkpoint on e521d3ec — 2026-11-25
 
 PR #977 is Ready and unmerged. Clean `980583c6` passes the original complete
 architecture and tooling strict gates, changed-launcher format/lint/two tests,

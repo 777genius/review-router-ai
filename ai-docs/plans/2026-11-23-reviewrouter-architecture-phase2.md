@@ -6,7 +6,66 @@ Working branch: refactor/architecture-boundaries-phase2-20261123
 Status: further scoped refactoring and independent review in progress; final qualification and merge authorized
 Authority: AGENTS.md, Engineering Quality Standard, Feature Module Standard adopted profiles, current security/runtime protocols.
 
-## Current final qualification and paired compiler blocker — 2026-11-25
+## Current consumer-native paired qualification — 2026-11-25
+
+The continuation authorizes completing the original review/refactor/E2E/merge
+outcome. The consumer owns the paired CI qualification step. A producer-wide
+migration is not an entry prerequisite when an explicitly qualified consumer
+profile can preserve the immutable producer inputs and all required assertions.
+This supersedes the earlier proposed producer-owned-only resolution below; it
+does not change the producer's default toolchain or certify that legacy route.
+
+The candidate `scripts/paired-action-qualification/run.ts` keeps Action
+`1112a0f1de568f9fa927316ab68cef54fbcd4653`, its frozen dependencies, original
+Jest settings, setup, five complete files, timeouts and committed-artifact
+assertions. It checks the complete original Action project with the existing
+native TypeScript 7.0.2 compiler and the producer's documented `--module preserve
+--moduleResolution bundler` settings. Only after that succeeds does it run the
+same Jest 29.7.0 suites through a compiler-free Babel profile. No installed
+compiler is aliased or replaced and no producer file is edited.
+
+The profile combines the Action lock's `babel-jest` 29.7.0 with the TypeScript
+preset and CommonJS plugin already bundled in pinned Next 16.4.6. Its private
+entrypoints are deliberately version-checked. One Babel pass retains Jest's
+mock hoisting; a separately probed esbuild-last alternative was rejected because
+it moved dependency imports back before the hoisted mock. Babel configuration
+discovery is disabled and the Jest transform cache is disabled so qualification
+actually transforms the current inputs. The producer's selection, setup, module
+mapping and assertion settings are carried through unchanged. Babel is not a
+typechecker; native strict checking remains a separate mandatory operation.
+
+The native load guard is retained for the runner, compiler and Jest processes.
+The frozen artifact test supplies its own sanitized child environment, so the
+parent guard audit does not by itself establish coverage of every artifact child.
+The frozen artifact assertions remain intact. CI retains the compiler audit and
+adds the actual five-suite JSON report to the same evidence artifact.
+
+Local configuration/native-error regressions pass 3/3. All three new sources
+pass the existing native lint and complete original tooling strict project
+(32.903 seconds), and scoped formatting passes. The failed first strict attempt
+exposed a captured-unknown typing error; it is retained as failed and corrected
+without a type assertion or weaker option. The successful candidate receipt is
+SHA-256 `6a976a38ce77e0538fa66afb90b2b2a6ad8c35885db01ad316d26a2534eb3c3e`;
+its checked source files are unchanged and compiler loads are 7.0.2 only, with
+zero blocked legacy loads. Documentation is subsequently updated with these
+results; no Action-suite qualification is inferred from them.
+
+The separate pinned Next
+Babel probe verifies TypeScript removal, class/parameter-property behavior,
+interop and syntax rejection. Neither establishes the as-yet unexecuted Action
+Babel/Jest integration. The candidate also verifies real mock/import ordering
+and rejecting fixtures with the actual installed Action transformer before
+executing the five suites. All new maintained TypeScript is included in the
+original required tooling project.
+
+Actual Action installation is still unavailable locally after registry DNS
+failure; the locked browser installer also remains unavailable. Current CI and
+browser runs are allowed to finish normally. Existing full architecture/tooling
+and production17 passes retain source `980583c6`; paired45, affected browser
+acceptance, exact-head required checks, merge and post-merge verification remain
+outstanding. No deployment or product/provider contract change is included.
+
+## Earlier guarded compiler checkpoint on e521d3ec — 2026-11-25
 
 The final review/merge continuation remains authorized; PR #977 is Ready but
 merge acceptance is incomplete. Clean `980583c6` (tree `a47721db`) passes the
