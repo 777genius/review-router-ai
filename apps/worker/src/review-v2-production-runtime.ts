@@ -5,7 +5,7 @@ import { PrismaWorkspaceReviewSettings } from "@reviewrouter/features-review-con
 import { assertUnreservedCheckIdentity } from "@reviewrouter/features-sdk-growth-authority";
 import { createHash, randomUUID } from "node:crypto";
 import { hostname } from "node:os";
-import { App } from "@octokit/app";
+import { createProgressInstallationRequester } from "./review-progress-installation-requester";
 import {
   HmacActionLedgerKey,
   PrismaActionControlPlaneRepository,
@@ -815,52 +815,6 @@ function progressMaxCommentPages(
     5,
     "review_progress_max_comment_pages_invalid",
   );
-}
-
-/** One GitHub App client for every writer of the progress comment. */
-function createProgressInstallationRequester(input: {
-  readonly githubAppId: string;
-  readonly githubPrivateKey: string;
-}): ReviewProgressInstallationRequesterFactory {
-  const app = new App({
-    appId: input.githubAppId,
-    privateKey: input.githubPrivateKey,
-  });
-  let botLogin: Promise<string> | null = null;
-  const resolveBotLogin = () => {
-    botLogin ??= app.octokit
-      .request("GET /app")
-      .then((response) => {
-        const slug = response.data?.slug;
-        if (!slug) throw new Error("review_progress_github_app_slug_missing");
-        return `${slug}[bot]`;
-      })
-      .catch((error: unknown) => {
-        botLogin = null;
-        throw error;
-      });
-    return botLogin;
-  };
-  return async (installationId) => {
-    const numericInstallationId = Number(installationId);
-    if (
-      !Number.isSafeInteger(numericInstallationId) ||
-      numericInstallationId < 1
-    ) {
-      throw new Error("review_progress_github_installation_id_invalid");
-    }
-    const octokit = await app.getInstallationOctokit(numericInstallationId);
-    return {
-      request: async (route, parameters) => {
-        const response = await octokit.request(
-          route as "GET /rate_limit",
-          parameters as never,
-        );
-        return { data: response.data, headers: response.headers };
-      },
-      botLogin: await resolveBotLogin(),
-    };
-  };
 }
 
 function createHostedReviewProgressRuntime(input: {
