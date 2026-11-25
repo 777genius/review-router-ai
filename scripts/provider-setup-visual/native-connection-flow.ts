@@ -426,7 +426,7 @@ export const nativeConnectionFlow: VisualFlow = {
         );
         await chooseSource(page, setup, /^New native provider$/);
         await setup
-          .getByRole("combobox", { name: "Account", exact: true })
+          .getByRole("combobox", { name: /^Account\b/ })
           .click();
         await page
           .getByRole("option", { name: /^Visual native structured/ })

@@ -188,7 +188,9 @@ export async function chooseModel(
   container: Locator,
   model: string,
 ): Promise<void> {
-  await container.getByRole("textbox", { name: "Model" }).fill(model);
+  await container
+    .getByRole("combobox", { name: "Model", exact: true })
+    .fill(model);
   const listed = container.getByRole("option").filter({
     has: container.page().getByText(model, { exact: true }),
   });
