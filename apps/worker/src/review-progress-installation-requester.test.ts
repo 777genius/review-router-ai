@@ -77,9 +77,8 @@ describe("createProgressInstallationRequester", () => {
     const response = { data: { id: 42 }, headers: { "retry-after": "2" } };
     mocks.requestInstallation.mockResolvedValue(response);
     const parameters = { owner: "owner", repo: "repo" };
-    await expect(
-      request("GET /repos/{owner}/{repo}", parameters),
-    ).resolves.toEqual(response);
+    const actual = await request("GET /repos/{owner}/{repo}", parameters);
+    expect(actual).toEqual(response);
     expect(mocks.requestInstallation).toHaveBeenCalledExactlyOnceWith(
       "GET /repos/{owner}/{repo}",
       parameters,
