@@ -548,11 +548,7 @@ function calleeMember(node: SyntaxNode): SyntaxNode | null {
 function isPrismaTransactionCall(node: SyntaxNode): boolean {
   const callee = calleeMember(node);
   return (
-    callee?.type === "MemberExpression" &&
-    !callee.computed &&
-    isSyntaxNode(callee.property) &&
-    callee.property.type === "Identifier" &&
-    callee.property.name === "$transaction"
+    callee?.type === "MemberExpression" && memberName(callee) === "$transaction"
   );
 }
 
@@ -560,13 +556,10 @@ function isPromiseAllCall(node: SyntaxNode): boolean {
   const callee = calleeMember(node);
   return (
     callee?.type === "MemberExpression" &&
-    !callee.computed &&
     isSyntaxNode(callee.object) &&
     callee.object.type === "Identifier" &&
     callee.object.name === "Promise" &&
-    isSyntaxNode(callee.property) &&
-    callee.property.type === "Identifier" &&
-    callee.property.name === "all" &&
+    memberName(callee) === "all" &&
     Array.isArray(node.arguments) &&
     node.arguments.length > 0
   );

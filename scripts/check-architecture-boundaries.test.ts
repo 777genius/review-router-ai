@@ -193,6 +193,18 @@ describe("transaction reference regressions", () => {
       "prisma.$transaction((async db => Promise.all([db.first(), db.second()])));",
     ],
     [
+      "static computed transaction callback",
+      'prisma["$transaction"](async db => Promise.all([db.first(), db.second()]));',
+    ],
+    [
+      "static computed Promise.all member",
+      'prisma.$transaction(async db => Promise["all"]([db.first(), db.second()]));',
+    ],
+    [
+      "static computed transaction and Promise.all members",
+      'prisma["$transaction"](async db => Promise["all"]([db.first(), db.second()]));',
+    ],
+    [
       "renamed callback",
       "const operation = async db => Promise.all([db.first(), db.second()]); const run = operation; prisma.$transaction(run);",
     ],
@@ -264,6 +276,14 @@ describe("transaction reference regressions", () => {
     [
       "a different object method with the same name",
       "const pooled = { execute: async (db: Pool) => Promise.all([db.first(), db.second()]) }; const transactional = { execute: async db => db.first() }; prisma.$transaction(transactional.execute);",
+    ],
+    [
+      "an unresolved computed callback member",
+      "prisma[operation](async db => Promise.all([db.first(), db.second()]));",
+    ],
+    [
+      "an unresolved computed Promise member",
+      "async function load(db: Prisma.TransactionClient) { return Promise[operation]([db.first(), db.second()]); }",
     ],
     [
       "already awaited query values",
