@@ -6,7 +6,36 @@
 - Implementation: [PR #977](https://github.com/777genius/review-router-ai/pull/977); [bounded plan](../plans/2026-11-23-reviewrouter-architecture-phase2.md).
 - Implementation reference: draft source branch `refactor/architecture-boundaries-phase2-20261123`; provenance is **not** evidence of a merged commit or installed image. The final shipping SHA is unknown.
 - Dependencies: reconcile prior [#810](https://github.com/777genius/review-router-ai/pull/810) and [#914](https://github.com/777genius/review-router-ai/pull/914) (already merged), active Native/Gateway provider [#959](https://github.com/777genius/review-router-ai/pull/959), compiler stack #967–#975 and qualified modular consumer #976; preserve their actual owners. No unrelated upstream merge is authorized.
-- Last updated: 2026-11-23.
+- Last updated: 2026-11-24.
+
+## Priority refactoring checkpoint — 2026-11-24
+
+Source `a5ed3e93072002efc04b1581a991d0b798065b46` additionally separates execution
+lifecycle decisions, Context Attestation API host responsibilities and typed
+architectural policies. The original public contracts, cryptographic preimages,
+authorization order, lease/CAS fences and recovery semantics are preserved.
+The new source batch is 25 files, +7,461/-6,827; the PR exceeds 25,000 changed
+lines without expanding dependencies or adding product features.
+
+Local qualification passed 450 existing tests with zero skips, including 45
+real PostgreSQL 17.12 execution/recovery cases and 28 Fastify transport cases.
+The original native TS7 execution/API/tooling projects passed. The maintained
+full database catalog and historical provider fixture have 165/82 successful
+migrations with exact source checksums. The API build passed 46/46 tasks;
+separate guarded native emission and production-condition loading verified
+all nine context modules/declarations with no TS-source fallback. Two independent
+source reviews found no new confirmed defect. See the
+[source-bound summary](evidence/2026-11-24-priority-refactor.json).
+The complete architecture gate passed on 694 domain/application files with
+zero Foundation diagnostics, 23 Memory and six Statistics workspace cases,
+and the retained History/account-metadata checks.
+
+No runtime configuration, schema migration or data conversion belongs to this
+new batch. An eventual approved application release includes the API and worker
+code; the architecture checker affects development gates only. Use the existing
+artifact, acceptance and rollback process below. The owner requested Draft
+publication without waiting for CI. Whole-PR lint/Stack adoption, browser and
+release gates remain pending; no deployment or merge is implied by this evidence.
 
 ## Environment status
 
