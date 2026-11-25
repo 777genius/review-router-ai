@@ -65,6 +65,10 @@ changes and explain material deviations instead of adding speculative layers.
   authority before HTTP, never stamp stale evidence with a newly read generation.
   Read authority and cache consistently, scope negative entries by app/generation,
   and invalidate existing unversioned cache rows during additive migration.
+  Use one revision plus a persisted refresh-attempt ID; advance authority when
+  claiming so old-token 401s cannot revoke an in-flight newer attempt. Distinguish
+  a concurrent attempt from a durable unknown outcome; only explicit successful
+  refresh or reauthorization clears the attempt.
 - GitLab: masking or protecting a shared CI variable is insufficient. Never
   substitute the user's broad installation token as the review credential.
   Existing exposed tokens, if any, require separately recorded operator rotation.
@@ -82,6 +86,8 @@ changes and explain material deviations instead of adding speculative layers.
   unseen inserts. Choose admission using durable selected IDs under installation
   serialization, outside GitHub IO; preserve reconnect/transfer fencing and update
   the quota runbook to retain admitted repositories then deterministically fill slots.
+  Use one bounded inventory transaction and an installation generation watermark,
+  retaining existing global repository-scope guard ordering.
 - Rulesets: an after-the-fact database CAS alone cannot fence a GitHub mutation.
   The existing PostgresAdvisoryLock name aliases a finite lease; do not mistake it
   for a session lock. Bound HTTP and check ownership/revision before each subsequent
@@ -91,6 +97,9 @@ changes and explain material deviations instead of adding speculative layers.
   existing outbox cannot retain this work. Finite retry exhaustion stays visible.
   This promises honest unresolved state and convergence after observable effects,
   not impossible fencing of arbitrarily delayed writes inside GitHub.
+  Selected recovery owner: existing outbox stale-claim retry. Read back before
+  configured; a late superseded completion atomically queues current-revision
+  repair. No new generic reconciler or always-on GitHub polling is introduced.
 - Database: cleanup batches release locks promptly, are safe across replicas,
   and cannot erase a new rate-limit window. Keep all owned maintenance work awaited
   through allSettled, inspect failures, and release the per-process pending guard
@@ -104,6 +113,8 @@ changes and explain material deviations instead of adding speculative layers.
   filtering; match null parentScope with IS NOT DISTINCT FROM and keep invocation
   identity. Preserve summary/complete-children preference, partial/unbounded counts
   and missing-child conflicts using the existing in-memory implementation as oracle.
+  Coverage details have their own cursor, query-key participation and filter/scope
+  reset; whole-period counts remain independent of that details page.
 - Workspace selection: explicit missing/unauthorized identifiers must not fall
   back to another workspace. Preserve supported ID/slug/account URL keys and
   installation links; default selection without an explicit key stays unchanged.
@@ -143,7 +154,7 @@ changes and explain material deviations instead of adding speculative layers.
 | Worker recovery | Hanging observation times out; later work proceeds; retained in-flight bound; late result and retry never duplicate workflow effects |
 | Repository sync | At/over quota, new alphabetical first item, rename, true removal, concurrent stale generation, stable admitted membership |
 | Ruleset/outbox | Competing desired revisions with reversed response order, duplicate event, persistence/enqueue failure atomicity, uncertain effect recovery |
-| PostgreSQL | Real two-session rate-limit race, bounded retention backlog and overlapping workers, cutoff/index query behavior, migration rehearsal for added schema |
+| PostgreSQL | Real two-session rate-limit race, concurrently renewed tombstone, bounded retention backlog and overlapping workers, cutoff/index query behavior, migration rehearsal for added schema |
 | Usage reads | Large-period coverage and family fixtures: bounded response/working set, exact totals, stable pagination and cross-workspace denial |
 | Workspace | More than ten memberships; explicit old workspace opens correctly; denied ID never opens another workspace; default selection remains valid |
 | Action proxy | Real loopback client disconnect/slow consumer/normal stream; upstream signal and reader closed; no protocol corruption |
@@ -165,7 +176,13 @@ modify customer repositories or weaken required checks to make tests pass.
   pool-error qualification, SQL family parity and a narrower truthful memory bound.
   Estimates increased only for the identified concurrency/migration work. Root
   added existing workspace URL-key compatibility and pre-response disconnect cases.
-- Round 2: pending.
+- Round 2: all three independent reviewers approved the revised plan. Final
+  acceptance details added: advance auth revision at durable refresh claim,
+  distinguish concurrent/unknown refresh state, one transactional inventory
+  admission fence, existing outbox recovery plus readback/current-revision repair
+  for rulesets, an independent coverage cursor, and renewed-tombstone concurrency.
+  No unresolved critical design finding remains. The unknown external-effect
+  limitation stays explicit; implementation review must verify these guarantees.
 
 ## Implementation and verification record
 
