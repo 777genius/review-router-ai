@@ -4,15 +4,17 @@
 - Goal: recover exact result retries without duplicate effects and preserve the
   authorization-bound deadlines for new adoption/finalization.
 - Affected service: API; development architecture/fixture checks.
-- Implementation PR: pending creation; follow-up to [#977](https://github.com/777genius/review-router-ai/pull/977).
-- Implementation reference: current working branch, based on
-  `c47d1c75742088e989f9c00a7f8d71724f51aa2f`; not yet a release reference.
+- Implementation PR: [#1003](https://github.com/777genius/review-router-ai/pull/1003),
+  follow-up to [#977](https://github.com/777genius/review-router-ai/pull/977).
+- Implementation reference: core checkpoint
+  `ce0d75ff32e6f7a7f28ccb7ab23d48eade791081`, based on
+  `919a5add21a40d9adee064bf23b2e4217bd7e040`; not yet a release reference.
 - Dependencies: none beyond the normal qualified application release.
 - Last updated: `2026-11-25`.
 
 This bounded follow-up to #977 repairs exact observation retry handling and
 deadline checks during adoption/finalization. The source baseline is
-`c47d1c75742088e989f9c00a7f8d71724f51aa2f`; see the
+`919a5add21a40d9adee064bf23b2e4217bd7e040`; see the
 [review and qualification plan](../plans/2026-11-25-pr977-post-merge-correctness.md).
 
 ## Environment status
@@ -30,7 +32,8 @@ currently installed fleet. This review does not authorize an application deploy.
 Ordinary API code rollout using the normal signed release process. No schema
 migration, new flag, environment change, provider rollout, public Action source
 change or worker policy change is required. The architecture/provider-fixture
-oracle repairs affect development checks only. Merge and automatic artifact
+oracle repairs and disposable E2E reset correction affect development checks
+only. Merge and automatic artifact
 publication do not by themselves establish an application rollout.
 
 Before an authorized rollout, identify the exact signed release containing this

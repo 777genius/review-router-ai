@@ -514,6 +514,96 @@ describeWithDatabase.sequential(
       await expectTerminalSuccess(fixture, flow.executionId);
     }, 60_000);
 
+    it("resets retained progress and installation cooldown before a new fixture publishes", async () => {
+      const previous = requiredHarness(harness);
+      const previousFlow = await previous.createCommittedFlow({
+        slotCount: 3,
+        attachSlotCount: 0,
+      });
+      await previous.setProgressFixture({
+        executionId: previousFlow.executionId,
+        completed: 1,
+      });
+      await previous.makeProgressDue();
+      const repository =
+        await previous.prisma.repositoryConnection.findUniqueOrThrow({
+          where: { id: previous.repositoryConnectionId },
+          select: { installation: { select: { githubInstallationId: true } } },
+        });
+      if (!repository.installation)
+        throw new Error("review_v2_e2e_installation_missing");
+      const githubInstallationId = repository.installation.githubInstallationId;
+      const now = new Date();
+      const cooldownUntil = new Date(now.getTime() + 60_000);
+      const budget = {
+        nextMutationAt: cooldownUntil,
+        cooldownUntil,
+        updatedAt: now,
+      };
+      await previous.prisma.reviewProgressInstallationBudgetV1.upsert({
+        where: { githubInstallationId },
+        create: { githubInstallationId, ...budget },
+        update: budget,
+      });
+      await expect(
+        previous.prisma.reviewExecutionProgressV1.count({
+          where: { executionId: previousFlow.executionId },
+        }),
+      ).resolves.toBe(1);
+      await expect(
+        previous.prisma.reviewProgressPublicationV1.count({
+          where: { workspaceId: previous.workspaceId },
+        }),
+      ).resolves.toBe(1);
+      await previous.close();
+      harness = null;
+      await resetReviewActionV2E2EDatabase(databaseUrl!);
+
+      const probe = createPrismaClient({
+        databaseUrl: databaseUrl!,
+        poolMax: 2,
+      });
+      try {
+        await expect(
+          probe.reviewExecutionProgressV1.count({
+            where: { executionId: previousFlow.executionId },
+          }),
+        ).resolves.toBe(0);
+        await expect(
+          probe.reviewProgressPublicationV1.count({
+            where: { workspaceId: previous.workspaceId },
+          }),
+        ).resolves.toBe(0);
+        await expect(
+          probe.reviewProgressInstallationBudgetV1.findUnique({
+            where: { githubInstallationId },
+          }),
+        ).resolves.toBeNull();
+      } finally {
+        await probe.$disconnect();
+      }
+
+      harness = await createReviewActionV2E2EHarness(databaseUrl!);
+      const current = requiredHarness(harness);
+      const currentFlow = await current.createCommittedFlow({
+        slotCount: 3,
+        attachSlotCount: 0,
+      });
+      await current.setProgressFixture({
+        executionId: currentFlow.executionId,
+        completed: 1,
+      });
+      await current.makeProgressDue();
+      await expect(current.publishProgress()).resolves.toEqual({
+        claimed: 1,
+        published: 1,
+        deferred: 0,
+        suppressed: 0,
+        failed: 0,
+      });
+      expect(progressComments(current)).toHaveLength(1);
+    }, 60_000);
+
     it("repairs an older PATCH after a newer progress publication settles", async () => {
       const fixture = requiredHarness(harness);
       const flow = await fixture.createCommittedFlow({

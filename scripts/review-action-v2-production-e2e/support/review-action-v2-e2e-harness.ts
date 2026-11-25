@@ -2290,9 +2290,13 @@ export async function resetReviewActionV2E2EDatabase(
   assertDisposableDatabaseUrl(databaseUrl);
   const prisma = createPrismaClient({ databaseUrl, poolMax: 2 });
   try {
+    // These progress tables have no foreign keys, so CASCADE cannot reset them.
     await prisma.$executeRawUnsafe(`
       TRUNCATE TABLE
         "OutboxEvent",
+        "ReviewExecutionProgressV1",
+        "ReviewProgressPublicationV1",
+        "ReviewProgressInstallationBudgetV1",
         "ReviewCompletionProcess",
         "ReviewPublicationOutcomeCorrectionV2",
         "ReviewPublicationAuditTombstoneV2",
