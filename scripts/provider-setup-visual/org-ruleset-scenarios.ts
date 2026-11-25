@@ -31,7 +31,7 @@ export const ORG_RULESET_SCENARIOS: readonly VisualScenario[] = [
       );
       await scope.click();
       await page
-        .getByRole("option", { name: "All organization repos", exact: true })
+        .getByRole("option", { name: /^All organization repos(?:\s|$)/ })
         .click();
       assert.equal(
         await card.locator('input[name="scope"]').inputValue(),
@@ -39,17 +39,17 @@ export const ORG_RULESET_SCENARIOS: readonly VisualScenario[] = [
       );
       await scope.click();
       await page
-        .getByRole("option", { name: "Selected App repos", exact: true })
+        .getByRole("option", { name: /^Selected App repos(?:\s|$)/ })
         .click();
       await card.getByRole("combobox", { name: "Ruleset enforcement" }).click();
-      await page.getByRole("option", { name: "Active", exact: true }).click();
+      await page.getByRole("option", { name: /^Active(?:\s|$)/ }).click();
       assert.equal(
         await card.locator('input[name="enforcement"]').inputValue(),
         "active",
       );
       await card.getByRole("combobox", { name: "Ruleset enforcement" }).click();
       await page
-        .getByRole("option", { name: "Evaluate first", exact: true })
+        .getByRole("option", { name: /^Evaluate first(?:\s|$)/ })
         .click();
       assert.equal(
         await card.getByRole("button", { name: "Enable org-wide" }).isEnabled(),
