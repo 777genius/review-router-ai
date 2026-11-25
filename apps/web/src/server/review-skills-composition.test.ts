@@ -21,7 +21,12 @@ vi.mock("./prisma", () => ({
   }),
 }));
 vi.mock("next-auth", () => ({ getServerSession: h.session }));
-vi.mock("@reviewrouter/features-auth", () => ({}));
+vi.mock("@reviewrouter/features-auth", () => ({
+  readGitHubUserAuthorizationAuthority: async () => ({
+    appSlug: "reviewrouter-test",
+    revision: 0,
+  }),
+}));
 vi.mock("@reviewrouter/platform-config", () => ({
   requireGitHubAppPrivateKey: () => "synthetic-private-key",
 }));
@@ -97,7 +102,7 @@ describe("production Skills repository proof adapter", () => {
           ? facts("write", "write")
           : facts("read", "read"),
     );
-    h.cachePermission.mockResolvedValue(undefined);
+    h.cachePermission.mockResolvedValue(true);
     vi.stubEnv("GITHUB_APP_ID", "789");
     vi.stubEnv("REVIEW_ROUTER_ENABLE_DASHBOARD_MUTATIONS", "1");
   });

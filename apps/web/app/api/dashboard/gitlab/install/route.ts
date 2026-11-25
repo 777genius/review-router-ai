@@ -33,7 +33,18 @@ export async function POST(request: Request): Promise<NextResponse> {
 }
 
 function gitLabConnectErrorResponse(error: unknown): NextResponse {
-  const message = error instanceof Error ? error.message : "unknown_error";
+  const missingReviewToken =
+    error instanceof z.ZodError &&
+    error.issues.some(
+      (issue) =>
+        issue.path[0] === "reviewToken" &&
+        (issue.code === "invalid_type" || issue.code === "too_small"),
+    );
+  const message = missingReviewToken
+    ? "gitlab_review_token_missing"
+    : error instanceof Error
+      ? error.message
+      : "unknown_error";
   return NextResponse.json(
     {
       error: {

@@ -88,6 +88,32 @@ describe("GitLab install route", () => {
     expect(JSON.stringify(body)).not.toContain("project-review-token");
   });
 
+  it.each([undefined, "", "   "])(
+    "gives an actionable error for a missing review token: %j",
+    async (reviewToken) => {
+      const response = await POST(
+        jsonRequest({
+          workspaceId: "workspace_1",
+          sourceUrl: "https://gitlab.com/acme/platform",
+          token: "glpat-secret-token",
+          reviewToken,
+          selectedProjectIds: ["101"],
+        }),
+      );
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({
+        error: {
+          code: "gitlab_review_token_missing",
+          message: "gitlab review token missing",
+        },
+      });
+      expect(
+        mocks.assertDashboardWorkspaceAdminMutationAllowed,
+      ).not.toHaveBeenCalled();
+      expect(mocks.installGitLabConnectProjects).not.toHaveBeenCalled();
+    },
+  );
+
   it.each([
     "gitlab_repository_already_owned",
     "gitlab_install_superseded",
