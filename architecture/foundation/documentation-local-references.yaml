@@ -1,0 +1,6 @@
+schemaVersion: 1
+markdownRoots:
+  - docs
+  - ai-docs
+  - architecture
+anchorProfile: github
