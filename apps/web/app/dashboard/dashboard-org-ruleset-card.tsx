@@ -3,10 +3,16 @@ import {
   defaultOrgRulesetSourceRepositoryName,
   type PrismaOrgRulesetProvisioningRepository,
 } from "@reviewrouter/features-org-ruleset-provisioning";
-import type { DashboardWorkspace } from "./dashboard-workspace-navigation";
-import { dashboardWorkspaceUrlKey } from "./dashboard-workspace-navigation";
+import {
+  dashboardWorkspaceUrlKey,
+  type DashboardWorkspace,
+} from "./dashboard-workspace-navigation";
 import { dashboardSectionHref } from "./dashboard-section";
-import { buildInstallationSettingsUrl, orgRulesetErrorText, orgRulesetStatusTone } from "./dashboard-copy";
+import {
+  buildInstallationSettingsUrl,
+  orgRulesetErrorText,
+  orgRulesetStatusTone,
+} from "./dashboard-copy";
 import { safeGitHubDashboardLink } from "../../src/server/safe-dashboard-link";
 import { DashboardActionForm } from "./dashboard-action-form";
 import { enableOrgRulesetWorkflowClientAction } from "./actions";
@@ -22,7 +28,11 @@ export function OrgRulesetAdvancedCard({
   permissionUpgradeNeeded,
 }: {
   readonly workspace: DashboardWorkspace;
-  readonly orgRuleset: Awaited<ReturnType<PrismaOrgRulesetProvisioningRepository["findByWorkspaceId"]>> | null;
+  readonly orgRuleset:
+    | Awaited<
+        ReturnType<PrismaOrgRulesetProvisioningRepository["findByWorkspaceId"]>
+      >
+    | null;
   readonly mutationsEnabled: boolean;
   readonly appInstallUrl: string | null;
   readonly permissionUpgradeNeeded: boolean;
