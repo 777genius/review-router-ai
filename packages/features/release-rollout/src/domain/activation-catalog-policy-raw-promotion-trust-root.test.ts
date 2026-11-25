@@ -20,12 +20,13 @@ it("loads the actual trust-root JSON with Node's production ESM loader", async (
   expect(statement).toMatch(
     /from "\.\/activation-catalog-policy-raw-promotion-trust-root\.json" with \{\s*type: "json",?\s*\};$/u,
   );
-  expect(statement).toBeDefined();
-
   const dir = await mkdtemp(join(tmpdir(), "rr-runtime-json-"));
   try {
     await copyFile(
-      new URL("./activation-catalog-policy-raw-promotion-trust-root.json", import.meta.url),
+      new URL(
+        "./activation-catalog-policy-raw-promotion-trust-root.json",
+        import.meta.url,
+      ),
       join(dir, "activation-catalog-policy-raw-promotion-trust-root.json"),
     );
     await writeFile(
