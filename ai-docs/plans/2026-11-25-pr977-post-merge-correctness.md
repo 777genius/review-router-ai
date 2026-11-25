@@ -114,9 +114,20 @@ runs on the same database. The first complete run passed 18/18. The second passe
 16/18: the existing discovery scenario timed out, and its still-running provider
 account binding queries overlapped teardown, producing PostgreSQL `40P01` in
 reset and the following setup. The new progress tables were not in the observed
-lock cycle. The initial delayed stage is under diagnosis; neither a timeout
-increase nor a reset retry is being used to hide the failed run.
+lock cycle. The initial delay's cause is not established. A further isolated
+diagnostic process terminated with `SIGKILL` during module loading, before
+`beforeEach` or application SQL, after long event-loop pauses. It produced no
+test report. Neither a timeout increase nor a reset retry hides these attempts.
+The current local process interruption is recorded explicitly; final full
+qualification proceeds through the repository's ordinary required CI lanes.
 The source/Vitest E2E exercises the production routes, database and worker with a
 fake GitHub transport; it is not a live production deployment or a compiled
 release qualification. Evidence is retained under `tmp/deep-review-evidence/`.
-Exact-head CI and merge remain pending.
+A bounded [qualification record](../deployments/evidence/2026-11-25-pr977-observation-recovery.json)
+binds the changed source bytes, passed suites, failed attempts and limitations.
+Both disposable PostgreSQL instances are stopped and their recovery evidence is
+retained. Independent production and fixture reviewers report no remaining
+confirmed blocking findings in the corrected diff. Exact-head required CI,
+merge readback and resulting main checks are tracked on
+[PR #1003](https://github.com/777genius/review-router-ai/pull/1003); local receipts
+do not substitute for those gates.

@@ -72,7 +72,13 @@ be preserved.
 
 ## Qualification evidence
 
-Pending final integrated tests, exact-head CI, merge readback and main checks.
+The [local qualification record](evidence/2026-11-25-pr977-observation-recovery.json)
+binds the source files and preserves passing and failed attempts separately.
+It includes the 150-case API/domain suite, 56-case real PostgreSQL suite, full
+18-case production-source E2E pass, and the later local process interruption.
+The exact-head required CI, merge readback and main checks are tracked on
+[PR #1003](https://github.com/777genius/review-router-ai/pull/1003). These are source
+qualification records, not staging or production deployment evidence.
 
 ## Related links
 
