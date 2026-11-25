@@ -434,11 +434,14 @@ describe.skipIf(!adminUrl)(
     it("reads a valid cache using a SELECT-only read-only PostgreSQL role", async () => {
       await refreshGitHubUserRepositoryAccess(input());
       const role = `rr_auth_reader_${randomUUID().replaceAll("-", "")}`;
+      const password = randomUUID();
       const setup = new pg.Client({ connectionString: dbUrl });
       await setup.connect();
       let reader: PrismaClient | undefined;
       try {
-        await setup.query(`CREATE ROLE "${role}" LOGIN`);
+        await setup.query(
+          `CREATE ROLE "${role}" LOGIN PASSWORD ${pg.escapeLiteral(password)}`,
+        );
         await setup.query(
           `ALTER ROLE "${role}" SET default_transaction_read_only = on`,
         );
@@ -448,7 +451,7 @@ describe.skipIf(!adminUrl)(
         );
         const readUrl = new URL(dbUrl);
         readUrl.username = role;
-        readUrl.password = "";
+        readUrl.password = password;
         reader = createPrismaClient({
           databaseUrl: readUrl.toString(),
           poolMax: 2,
