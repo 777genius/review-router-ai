@@ -89,6 +89,9 @@ import {
   type WorkflowSetupGatewayPort,
   ciSecretsWorkflowProviderKind,
   defaultReviewDiscussionMode,
+  assertManagedWorkflowSetupOptions,
+  classifySetupPullRequestHead,
+  assertCurrentWorkflowSetup,
   isClaudeSubscriptionConfiguration,
   readManagedReviewRouterCallerSource,
   requiredWorkflowTransport,
@@ -99,6 +102,7 @@ import {
 import {
   OctokitWorkflowSetupGateway,
   PrismaWorkflowProvisioningRepository,
+  PrismaCurrentWorkflowSetupQuery,
   PrismaWorkflowProvisioningStatusAuthority,
   PrismaWorkflowProvisioningTarget,
   createInstalledGatewayReviewConfirmation,
@@ -1275,18 +1279,12 @@ async function createSetupPullRequestMutation(
       ? providerApiConfigurationMode(resolvedRuntime.config)
       : undefined;
     const managedReview = accountGateway || openRouterDirect;
-    if (
-      managedReview &&
-      (workflowStyle === "explicit" ||
-        (discussionMode === "suggest" &&
-          !(accountGateway && gatewayInteractionRuntimeSha)))
-    ) {
-      throw new Error(
-        openRouterDirect
-          ? "openrouter_direct_workflow_options_not_supported"
-          : "account_gateway_workflow_options_not_supported",
-      );
-    }
+    assertManagedWorkflowSetupOptions({
+      transport,
+      workflowStyle,
+      discussionMode,
+      gatewayInteractionRuntimeAvailable: Boolean(gatewayInteractionRuntimeSha),
+    });
     const gatewayActionRef = accountGateway
       ? validateAccountGatewayActionRef(
           process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ACTION_REF,
@@ -1780,19 +1778,13 @@ async function confirmSetupPullRequestMergedMutation(
         )
       : null;
     const setupPullRequestStatus = setupPullRequestInspection?.status ?? null;
-    // Missing or changed PR heads cannot establish the original artifact.
-    // Recover only through independent installed-workflow verification and CAS.
-    const historicalMergedSetupPullRequest =
-      setupPullRequestInspection?.merged === true &&
-      (setupProvisioning?.pullRequestHeadSha === null ||
-        (setupPullRequestStatus === "merged" &&
-          setupProvisioning?.pullRequestHeadSha !==
-            setupPullRequestInspection.headSha));
-    const setupPullRequestMerged =
-      setupPullRequestStatus === "merged" &&
-      setupProvisioning?.pullRequestHeadSha != null &&
-      setupProvisioning.pullRequestHeadSha ===
-        setupPullRequestInspection?.headSha;
+    // Missing/changed PR heads are not authorization; independent installed
+    // workflow verification and the attempt CAS remain mandatory.
+    const { historicalMergedSetupPullRequest, setupPullRequestMerged } =
+      classifySetupPullRequestHead({
+        persistedHeadSha: setupProvisioning?.pullRequestHeadSha,
+        inspection: setupPullRequestInspection,
+      });
     const setupBaseBranch = historicalMergedSetupPullRequest
       ? repository.defaultBranch
       : (setupPullRequestInspection?.baseBranch ??
@@ -2327,50 +2319,28 @@ async function confirmSetupPullRequestMergedMutation(
         ? reviewRouterWorkflowContract.channel
         : verifiedWorkflowActionRef,
     };
+    const currentSetupQuery = new PrismaCurrentWorkflowSetupQuery(prisma);
     const assertCurrentSetup = async (artifact: {
       readonly workflowPath: string;
       readonly workflowStyle: ReviewRouterWorkflowStyle;
       readonly actionVersion: string;
     }) => {
-      // Probes can outlive a transfer or replacement attempt. Refuse activation
-      // for stale recovery evidence; the authority still fences the final write.
-      const currentRepository = await prisma.repositoryConnection.findFirst({
-        where: {
-          id: repositoryId,
-          workspaceId,
-          installationId: repository.installationId,
-          provider: "github",
-          selected: true,
-          archived: false,
-          installation: { status: "active" },
+      await assertCurrentWorkflowSetup(
+        {
+          scope: {
+            repositoryId,
+            workspaceId,
+            installationId: repository.installationId,
+          },
+          expectedBaseBranch: setupBaseBranch,
+          expectedAttempt: setupProvisioning,
+          historicalMergedSetupPullRequest,
+          verifiedArtifact: artifact,
         },
-        select: { defaultBranch: true },
-      });
-      const currentProvisioning = await prisma.workflowProvisioning.findUnique({
-        where: { repositoryId },
-      });
-      if (
-        currentRepository?.defaultBranch !== setupBaseBranch ||
-        (setupProvisioning === null
-          ? currentProvisioning !== null
-          : !currentProvisioning ||
-            currentProvisioning.workspaceId !== workspaceId ||
-            currentProvisioning.installationId !== repository.installationId ||
-            currentProvisioning.attemptId !== setupProvisioning.attemptId ||
-            currentProvisioning.revision !== setupProvisioning.revision ||
-            currentProvisioning.pullRequestHeadSha !==
-              setupProvisioning.pullRequestHeadSha ||
-            currentProvisioning.branch !== setupProvisioning.branch ||
-            currentProvisioning.pullRequestUrl !==
-              setupProvisioning.pullRequestUrl ||
-            ((historicalMergedSetupPullRequest ||
-              setupProvisioning.pullRequestHeadSha !== null) &&
-              (currentProvisioning.workflowPath !== artifact.workflowPath ||
-                currentProvisioning.workflowStyle !== artifact.workflowStyle ||
-                currentProvisioning.actionVersion !== artifact.actionVersion)))
-      )
-        throw new Error("workflow_provisioning_match_not_found");
+        { query: currentSetupQuery },
+      );
     };
+
     const assertCurrentBinding = async () => {
       if (!hostedBinding) return;
       const currentBinding =

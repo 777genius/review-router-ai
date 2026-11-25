@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ActionConflictReviewRuntimeConfig } from "@reviewrouter/features-action-control-plane";
+import type { ActionConflictReviewRuntimeConfig } from "@reviewrouter/features-action-control-plane/conflict-runtime-contract";
 import { ActionControlPlaneConflictPostingClient } from "../infrastructure/action-control-plane-conflict-posting-client.js";
 
 const runtimeConfig: ActionConflictReviewRuntimeConfig = {

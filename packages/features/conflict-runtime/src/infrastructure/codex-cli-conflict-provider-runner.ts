@@ -8,7 +8,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ActionConflictReviewRuntimeConfig } from "@reviewrouter/features-action-control-plane";
+import type { ActionConflictReviewRuntimeConfig } from "@reviewrouter/features-action-control-plane/conflict-runtime-contract";
 import type { ConflictRuntimeProviderRunnerPort } from "../application/conflict-runtime-runner.js";
 import {
   parseConflictRuntimeModelOutput,

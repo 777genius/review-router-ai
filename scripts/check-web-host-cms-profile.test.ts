@@ -78,7 +78,7 @@ describe("WEB Host CMS profile gate (ADR-030)", () => {
       "node scripts/check-architecture-boundaries.mjs && pnpm architecture:web-host-cms && pnpm foundation:check && pnpm foundation:assert-dev-only && pnpm foundation:assert-registry && pnpm foundation:qualify-memory && pnpm foundation:qualify-statistics && pnpm history:architecture && pnpm metadata:architecture && pnpm metadata:typecheck",
     );
     expect(scripts["architecture:web-host-cms"]).toBe(
-      "tsx scripts/check-web-host-cms-profile-cli.ts",
+      "node --import tsx scripts/check-web-host-cms-profile-cli.ts",
     );
     expect(real.read(CI_PATH)).toMatch(
       /name: Architecture boundaries\s*\n\s+run: pnpm architecture:check/u,

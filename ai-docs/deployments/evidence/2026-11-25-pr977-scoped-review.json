@@ -1,0 +1,984 @@
+{
+  "schemaVersion": 1,
+  "kind": "pr977-scoped-review-and-qualification",
+  "reviewedAt": "2026-11-25T00:18:38.124191+00:00",
+  "status": "PARTIAL_QUALIFICATION_NOT_MERGE_APPROVAL",
+  "allPrGreenClaimed": false,
+  "pr": "https://github.com/777genius/review-router-ai/pull/977",
+  "publishedSource": {
+    "commit": "1169070c85d0c10fe044b39433717471e61bb883",
+    "tree": "6fdbb27aa48531c315231c641843067d873e0821",
+    "parent": "f7fae59bb4443e7bec2a080a71b2ee7177ceb7db",
+    "base": "18c57630b69334c9bfc071dc2500a952edc66f7a",
+    "sourceFiles": [
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-composition.ts",
+        "blob": "b116d7f327b224efa31e109b675b3c2d7b317d23",
+        "sha256": "7796b22f0c53e3598ba0d150d52e90794b40fe02fc04dd5062d42b07a5a92225"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-authority.ts",
+        "blob": "f20c4998c67775b5830ef76ea290a29e9bad23c6",
+        "sha256": "0381c848fda89395dc43f6287b36e3e164a1b18898c39d0778e75ce067b64fb2"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-dependencies.ts",
+        "blob": "66ce21fef7fc5500b926050fd418c752c0e6a8f1",
+        "sha256": "a4baaf360aaa32cc66881534c7f17cce651e518e5571db27b0c00ddf31f7ed0e"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-leases.ts",
+        "blob": "b24f33d451cfb17947bcd1e7919b9c027a26a631",
+        "sha256": "cc79d9c8ca84e9bcc8d56b923213bf00860044e381224e893dc48e2274a70169"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-lifecycle.ts",
+        "blob": "a0f268cafe803a203ee4bbfe5e117d5de54b59bf",
+        "sha256": "7aa55cf789f6b9c648d915aaaebc04ca1d53c5cce5a9ab0446b7bd6910941820"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-observation-validation.ts",
+        "blob": "186d8c575d459b9624b7e7c4f6eb23274d655449",
+        "sha256": "62a53c6110b8acfbf8bca18be65659d574aa65f00f3b51d3264a935b454c6e5c"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-observations.ts",
+        "blob": "0b9dd497381a61d3e2c869f75695bd688cac4f0d",
+        "sha256": "4d3baec438d29e5d37a77f88c29dc371a9e91aff8ec02d47bd239b0f18dd915f"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-validation.ts",
+        "blob": "e758b2db05a79c045ca587a861850b1ecf1caa0f",
+        "sha256": "c9ef45b7fa815b87d9ec87374b9792e9d0993357531a7103dcb2998d3a24f1d6"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-evidence-handlers.ts",
+        "blob": "1ca286c8dfbdd3c17c81d48193b6daa1e3b15431",
+        "sha256": "52cc632357ca4f5fa2a3a49e8331e35c2cbbb0c865873be2cd8ba7910445f985"
+      }
+    ],
+    "binding": "All 9 extraction file hashes, 2,595 packaging input hashes, 2,726 production E2E input hashes and 4,829 tracked architecture before/after hashes independently compared against immutable blobs at this commit; no mismatches.",
+    "currentWorktreeCleanClaimed": false,
+    "worktreeObservationLimit": "The completed full architecture receipt records a clean worktree and restores all 4,829 tracked hashes. This packet binds immutable published objects and run receipts; it does not assert a permanent live-worktree state during concurrent integration.",
+    "equivalentMetadataNormalizedCommit": "fd1089e691a01b962dd321506867bbfe10e10ffd"
+  },
+  "reviewedChanges": [
+    {
+      "commit": "c2eb500f6f3a5e84b19ba12e9f6dc34d2f9c5bca",
+      "scope": "Architecture transaction serialization guard recognizes static computed members; three bypass regressions reproduced before fix."
+    },
+    {
+      "commit": "f7fae59bb4443e7bec2a080a71b2ee7177ceb7db",
+      "scope": "Shared browser compiler helper and its test now select all three actual owning browser workflows; no runner, event, timeout or job semantics changed."
+    },
+    {
+      "commit": "1169070c85d0c10fe044b39433717471e61bb883",
+      "scope": "Existing API execution/evidence owner split into 9 modules while preserving operation declarations, 11 public exports, external symbol bindings and runtime dependency set."
+    }
+  ],
+  "currentQualification": {
+    "focusedTests": {
+      "files": 13,
+      "actualAssertions": {
+        "passed": 250
+      },
+      "totalAssertions": 250,
+      "reportSuccess": true,
+      "reportedCounts": {
+        "numTotalTests": 250,
+        "numPassedTests": 250,
+        "numFailedTests": 0,
+        "numPendingTests": 0,
+        "numTodoTests": 0
+      },
+      "result": "PASS",
+      "source": "Pre-commit execution on the exact 9 source hashes subsequently published in 1169070c; not a claim that 250 tests were newly authored.",
+      "exitCode": 0,
+      "nativeGuard": {
+        "guardedProcesses": 14,
+        "typeScriptVersions": [],
+        "blockedBeforeInitialization": 0
+      },
+      "artifacts": [
+        "executionQualification",
+        "focusedReport",
+        "focusedLog",
+        "focusedNativeAudit"
+      ]
+    },
+    "architectureCheckerTests": {
+      "result": "PASS",
+      "passed": 157,
+      "failed": 0,
+      "skipped": 0,
+      "files": 1,
+      "source": "Complete maintained checker test file after c2eb500f; checker/test blobs are unchanged through 1169070c. Distinct from the failed full architecture command.",
+      "nativeGuard": {
+        "guardedProcesses": 162,
+        "typeScriptVersions": [],
+        "blockedBeforeInitialization": 0
+      },
+      "artifacts": ["architectureTestsLog", "architectureTestsNativeAudit"]
+    },
+    "browserRoutingTests": {
+      "files": 1,
+      "actualAssertions": {
+        "passed": 3
+      },
+      "totalAssertions": 3,
+      "reportSuccess": true,
+      "reportedCounts": {
+        "numTotalTests": 3,
+        "numPassedTests": 3,
+        "numFailedTests": 0,
+        "numPendingTests": 0,
+        "numTodoTests": 0
+      },
+      "result": "PASS",
+      "commit": "1169070c85d0c10fe044b39433717471e61bb883",
+      "nativeGuard": {
+        "guardedProcesses": 2,
+        "typeScriptVersions": [],
+        "blockedBeforeInitialization": 0
+      },
+      "artifacts": ["routingReport", "routingLog", "routingNativeAudit"]
+    },
+    "apiOriginalStrict": {
+      "command": "node scripts/local-checks/compiler-cli.ts --native --noEmit -p apps/api/tsconfig.json",
+      "exitCode": 0,
+      "node": "26.11.1",
+      "typeScript": "7.0.2",
+      "GOMAXPROCS": "1",
+      "GOMEMLIMIT": "1073741824",
+      "diagnosticLogBytes": 0,
+      "result": "PASS",
+      "binding": "Original apps/api/tsconfig.json, unchanged tsconfig; the exact extraction source hashes were later committed.",
+      "artifacts": [
+        "executionQualification",
+        "apiStrictLog",
+        "apiStrictNativeAudit"
+      ]
+    },
+    "toolingOriginalStrict": {
+      "result": "PASS_AFTER_FIX",
+      "command": "node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.tooling.json",
+      "exitCode": 0,
+      "exitEvidence": "Independent context reviewer observed completed session 5714, chunk 247d20; earlier session 96075 exited 1 with three missing-import diagnostics.",
+      "nativeGuard": {
+        "guardedProcesses": 2,
+        "typeScriptVersions": ["7.0.2"],
+        "blockedBeforeInitialization": 0
+      },
+      "diagnosticLogBytes": 0,
+      "artifacts": [
+        "toolingStrictInitialLog",
+        "toolingStrictFixedLog",
+        "toolingStrictFixedNativeAudit"
+      ]
+    },
+    "independentExtractionReview": {
+      "result": "NO_CONFIRMED_CRITICAL_OR_HIGH_EXTRACTION_DEFECT",
+      "reviewer": "independent context_review agent",
+      "declarations": {
+        "before": 86,
+        "after": 86,
+        "missing": [],
+        "added": [],
+        "changed": [],
+        "duplicates": []
+      },
+      "publicExportCount": 11,
+      "publicExports": [
+        "ReviewActionV2AuthorizationResolverPort",
+        "ReviewActionV2DigestPort",
+        "ReviewActionV2EvidenceHandlerDependencies",
+        "ReviewActionV2ExecutionHandlerDependencies",
+        "ReviewActionV2ExecutionTimingPolicy",
+        "ReviewActionV2FinalizationFactsPort",
+        "ReviewActionV2LeaseSafetyPort",
+        "composeReviewActionV2EvidenceRoutes",
+        "composeReviewActionV2ExecutionRoutes",
+        "createReviewActionV2EvidenceHandlers",
+        "createReviewActionV2ExecutionHandlers"
+      ],
+      "moduleCount": 9,
+      "runtimeCycles": [],
+      "externalImportBindingChanges": [],
+      "externalRuntimeSourceChanges": {
+        "removed": [],
+        "added": []
+      },
+      "manualReview": {
+        "scope": [
+          "route composition",
+          "lease acquisition current-authority/fence and deadline order",
+          "execution lifecycle admission and finalization",
+          "type-only dependency boundary"
+        ],
+        "finding": "No confirmed critical/high extraction defect. Existing operation bodies, type declarations, validation and await/clock order preserved."
+      },
+      "limit": "Static independent extraction review; behavioral/API tests are separately executed by implementation owner. AST ignores source positions and literal spelling metadata; compares actual literal values and declaration structure.",
+      "artifacts": ["independentReview"]
+    },
+    "plainProductionPackaging": {
+      "result": "PASS",
+      "commit": "1169070c85d0c10fe044b39433717471e61bb883",
+      "tree": "6fdbb27aa48531c315231c641843067d873e0821",
+      "inputCount": 2595,
+      "independentlyVerifiedPublishedInputCount": 2595,
+      "apiEmitExitCode": 0,
+      "rewriteExitCode": 0,
+      "plainProductionImportExitCode": 0,
+      "emittedModules": 9,
+      "firstPartyDistModules": 246,
+      "runtimeSummary": {
+        "result": "PASS",
+        "node": "v26.11.1",
+        "conditions": ["production"],
+        "publicRuntimeExports": [
+          "composeReviewActionV2EvidenceRoutes",
+          "composeReviewActionV2ExecutionRoutes",
+          "createReviewActionV2EvidenceHandlers",
+          "createReviewActionV2ExecutionHandlers"
+        ],
+        "sourceFallbacks": 0,
+        "executionHandlerCount": 10,
+        "evidenceHandlerCount": 2
+      },
+      "artifacts": [
+        "packagingQualification",
+        "packagingSourceBefore",
+        "apiEmitLog",
+        "apiEmitNativeAudit",
+        "esmRewriteLog",
+        "productionImportReport",
+        "productionImportLog"
+      ]
+    },
+    "productionPostgresE2E": {
+      "files": 1,
+      "actualAssertions": {
+        "passed": 17
+      },
+      "totalAssertions": 17,
+      "reportSuccess": true,
+      "reportedCounts": {
+        "numTotalTests": 17,
+        "numPassedTests": 17,
+        "numFailedTests": 0,
+        "numPendingTests": 0,
+        "numTodoTests": 0
+      },
+      "result": "PASS",
+      "commitAtStart": "1169070c85d0c10fe044b39433717471e61bb883",
+      "commitAtFinish": "1169070c85d0c10fe044b39433717471e61bb883",
+      "startedAt": "2026-11-24T23:59:06.448951+00:00",
+      "finishedAt": "2026-11-24T23:59:48.195500+00:00",
+      "suite": "scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts",
+      "testProcessExitCode": 0,
+      "exactCaseRosterIndependentlyReparsed": true,
+      "inputCount": 2726,
+      "publishedInputsIndependentlyVerified": 2726,
+      "sourceBeforeEqualsAfter": true,
+      "postgres": {
+        "version": "PostgreSQL 17.12 on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 7.5.0-3ubuntu1~18.04) 7.5.0, 64-bit",
+        "server_version_num": "170012",
+        "listen_addresses": "127.0.0.1"
+      },
+      "migrationCount": 165,
+      "migrationChecksumsIndependentlyComparedToPublishedSource": true,
+      "cleanup": {
+        "tcpPortClosed": true,
+        "clusterStopped": true,
+        "ownedDataRemoved": true,
+        "passwordRemoved": true,
+        "connectionFileRemoved": true,
+        "stopStatus": 0
+      },
+      "ownedPostgresDataAbsenceIndependentlyChecked": true,
+      "scopeLimit": "One complete maintained production E2E file; no claim of current-code UI or paired Action qualification.",
+      "artifacts": [
+        "productionE2EReceipt",
+        "productionE2EReport",
+        "productionE2ELog",
+        "productionSourceBefore",
+        "databaseSetupReceipt",
+        "migrationProcessResult",
+        "productionStopLog"
+      ]
+    },
+    "metadataStrictDiagnostic": {
+      "result": "FAIL",
+      "head": "fd1089e691a01b962dd321506867bbfe10e10ffd",
+      "tree": "6fdbb27aa48531c315231c641843067d873e0821",
+      "command": [
+        "node",
+        "scripts/local-checks/compiler-cli.ts",
+        "--native",
+        "--noEmit",
+        "-p",
+        "tsconfig.account-metadata.json"
+      ],
+      "durationSeconds": 15.207,
+      "launcherExitCode": 1,
+      "nativeStatus": null,
+      "nativeSignal": "SIGKILL",
+      "compilerDiagnostic": null,
+      "nativeVersion": "7.0.2",
+      "effectiveGoEnvironment": {
+        "GOMAXPROCS": "1",
+        "GOMEMLIMIT": "1073741824"
+      },
+      "maxObservedNativeRssKiB": 833072,
+      "tmpFreeBytesBeforeAndAfter": 0,
+      "sourceFilesUnchanged": 4829,
+      "receiptSha256": "6f6f4b288f15c9b88506d5143407f5bd14c343ed421851636ba384090b8b91b0",
+      "limit": "A native process termination, not a TypeScript diagnostic; available resource observations do not independently establish its cause."
+    }
+  },
+  "historicalQualification": {
+    "ui": {
+      "result": "PASS_HISTORICAL",
+      "commit": "41ff719042420d8ff28c3e8054ddf6c8700f6936",
+      "actualTests": {
+        "passed": 16,
+        "failed": 0,
+        "skipped": 0,
+        "failures": []
+      },
+      "profile": "low-memory-webpack",
+      "sourceInputs": 2972,
+      "migrationCount": 165,
+      "cleanup": {
+        "clusterStopped": true,
+        "ownedPgParent": "/tmp/rr977-round30-ui-pg-ui-low-memory-webpack-v1-yn6sjvx0",
+        "runtimePortsClosed": {
+          "appUrl": true,
+          "gatewayUrl": true
+        },
+        "runtimePortProofs": {
+          "appUrl": {
+            "closed": true,
+            "errno": 111,
+            "reason": "connection_refused"
+          },
+          "gatewayUrl": {
+            "closed": true,
+            "errno": 111,
+            "reason": "connection_refused"
+          }
+        },
+        "nextEnvRestoreCode": 0,
+        "stopStatus": 0,
+        "ownedDataRemoved": true,
+        "ownedPgParentRemoved": true,
+        "passwordRemoved": true,
+        "connectionFileRemoved": true,
+        "webpackCache": {
+          "ordinaryDirectoryRestored": true,
+          "ownedCacheRemoved": true,
+          "generatedBytes": 0,
+          "path": "/workspace/scratch/d86a8e224bfa/review-router-977/apps/web/.next/dev/cache/webpack",
+          "ownedTarget": "/tmp/rr977-round30-ui-resources-8nkehveu/webpack"
+        }
+      },
+      "limitation": "Exact 41ff7190 pre-extraction source. This is not 1169070c UI coverage. Actual Next runtime with synthetic metadata; not a live provider/OAuth/deployment qualification.",
+      "artifacts": [
+        "historicalUiResult",
+        "historicalUiRuntime",
+        "historicalUiRawReport",
+        "historicalUiReceipt",
+        "historicalUiSourceBefore",
+        "historicalUiSourceAfter"
+      ]
+    },
+    "paired": {
+      "result": "PASS_HISTORICAL_COMPOSITE",
+      "passed": 45,
+      "sourceRuns": 3,
+      "completeFiles": 6,
+      "singleCommandPassClaimed": false,
+      "reports": [
+        {
+          "file": "scripts/review-investigation-paired-e2e/review-investigation-paired.e2e.test.ts",
+          "passed": 7,
+          "rawReportSha256": "93eaf1269b2333cb5b240333d2b44d6c5ff428f4a3526802d283e03c7c822d32",
+          "sourceHead": "305cd9f4bc34255fac5a7ef408463c1dea41705a"
+        },
+        {
+          "file": "scripts/review-investigation-paired-e2e/openrouter-direct-paired.e2e.test.ts",
+          "passed": 6,
+          "rawReportSha256": "9d5f1b1b50c74cd461c31303cb4132580ac8e651c22d38b32943bb8842945903",
+          "sourceHead": "305cd9f4bc34255fac5a7ef408463c1dea41705a"
+        },
+        {
+          "file": "scripts/review-investigation-paired-e2e/pr-description-paired.e2e.test.ts",
+          "passed": 2,
+          "rawReportSha256": "a1efd340e07b07dd29075cd30bc492b0107ef67c6844435be45205bc0997d75f",
+          "sourceHead": "305cd9f4bc34255fac5a7ef408463c1dea41705a"
+        },
+        {
+          "file": "scripts/review-investigation-paired-e2e/review-banner-comparison-paired.e2e.test.ts",
+          "passed": 1,
+          "rawReportSha256": "c3093a6b47cfd21a4e57dedcec4dd12e2cb3ff657b2e9dec4e034f22877f7916",
+          "sourceHead": "305cd9f4bc34255fac5a7ef408463c1dea41705a"
+        },
+        {
+          "file": "scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts",
+          "passed": 25,
+          "rawReportSha256": "7e9268c33b0e9346616a2b790532a8a6596363913abe23653042c599405fa3c3",
+          "sourceHead": "00160cdf434cc66ff1c686056f04dc14f8e2faa5"
+        },
+        {
+          "file": "apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts",
+          "passed": 4,
+          "rawReportSha256": "2ed35c5ac0b372737394dfdad080cd7bf03f1fc69cb476a8d33de4e81da200cf",
+          "sourceHead": "00160cdf434cc66ff1c686056f04dc14f8e2faa5"
+        }
+      ],
+      "recordedScopeException": "Only paired lifecycle test changed between source revisions; that full25file was rerun on00160.",
+      "limitation": "Six complete reports from three runs across 305cd9f4 and 00160cdf, before the API extraction; not a fresh 45-case run or current-code paired acceptance.",
+      "artifacts": ["historicalPairedVerification", "historicalReconciliation"]
+    }
+  },
+  "failuresRetained": [
+    {
+      "result": "FAIL_UNRESOLVED_AT_DRAFT",
+      "scope": "Original full pnpm architecture:check",
+      "commit": "1169070c85d0c10fe044b39433717471e61bb883",
+      "exitCode": 1,
+      "cause": "Final metadata:typecheck native compiler received SIGKILL with no TypeScript diagnostic; no cause inferred.",
+      "precedingSubgates": [
+        "694-file architectural boundary scan",
+        "WEB boundary",
+        "Foundation",
+        "Memory 23 cases",
+        "Statistics 6 cases",
+        "History",
+        "metadata layout"
+      ],
+      "sourceUnchanged": true,
+      "trackedSourceHashesIndependentlyComparedToPublishedSource": 4829,
+      "nativeGuard": {
+        "guardedProcesses": 94,
+        "typeScriptVersions": ["7.0.2"],
+        "blockedBeforeInitialization": 0
+      },
+      "artifacts": [
+        "fullArchitectureReceipt",
+        "fullArchitectureLog",
+        "fullArchitectureNativeAudit",
+        "fullArchitectureSourceBefore",
+        "fullArchitectureSourceAfter"
+      ]
+    },
+    {
+      "result": "FAIL_UNRESOLVED_AT_DRAFT",
+      "scope": "Whole-repository eslint",
+      "exitCode": 2,
+      "cause": "ERR_MODULE_NOT_FOUND: stack-toolchain imported by eslint.config.mjs; no successful final lint receipt in this packet.",
+      "artifacts": ["initialLintFailure", "initialLintNativeAudit"]
+    },
+    {
+      "result": "EXPECTED_RED_THEN_FIXED",
+      "scope": "Three architecture computed-member bypass regressions",
+      "redActual": {
+        "failed": 3,
+        "passed": 3,
+        "skipped": 151
+      },
+      "followup": "Complete 157-case test file passed after fix.",
+      "artifacts": ["architectureRedLog", "architectureTestsLog"]
+    },
+    {
+      "result": "FAIL_THEN_FIXED",
+      "scope": "Initial original tooling strict",
+      "missingTypes": [
+        "ReviewInvocationLease",
+        "ReviewObservationAttachmentKind",
+        "ReviewRunAuthorizationTokenResolution"
+      ],
+      "followup": "Missing type-only imports repaired; original tooling and API projects rerun successfully.",
+      "artifacts": [
+        "toolingStrictInitialLog",
+        "toolingStrictFixedLog",
+        "apiStrictLog"
+      ]
+    },
+    {
+      "result": "HISTORICAL_FAILED_OR_UNQUALIFIED_ATTEMPTS_RETAINED",
+      "scope": "Earlier parallel/serial production, paired and browser attempts; reports with skipped/pending assertions, process failures or changed source remain unqualified.",
+      "details": "Parallel production had 6 passed / 5 failed / 6 pending; paired had 30 passed / 9 failed / 6 pending. Earlier production-final had 17 passes but changed inputs. Later independent success does not rewrite those outcomes.",
+      "artifacts": [
+        "failedParallelAttempts",
+        "earlierAttemptRegister",
+        "historicalReconciliation"
+      ]
+    },
+    {
+      "kind": "metadata-strict-isolated-diagnostic",
+      "result": "FAIL",
+      "head": "fd1089e691a01b962dd321506867bbfe10e10ffd",
+      "signal": "SIGKILL",
+      "receiptSha256": "6f6f4b288f15c9b88506d5143407f5bd14c343ed421851636ba384090b8b91b0"
+    }
+  ],
+  "externalLintDependencyGate": {
+    "observedAt": "2026-11-25T00:10:43Z",
+    "registryObservedAt": "2026-11-25T00:11:19.893781+00:00",
+    "requiresRefreshBeforeMerge": true,
+    "registry": "https://registry.npmjs.org/stack-toolchain/0.3.1",
+    "registryStatus": 404,
+    "publishedLatestAtObservation": "0.2.0",
+    "upstreamPr": "https://github.com/agent-teams-ai/engineering-foundation/pull/472",
+    "upstreamHead": "9422347d486fdfbfd7fef73669236512c81f4cca",
+    "upstreamState": "open; ready; mergeable true; mergeable_state blocked; auto_merge null",
+    "ciRun": "https://github.com/agent-teams-ai/engineering-foundation/actions/runs/45510009570",
+    "ciAtObservation": "35 completed successful jobs, 0 remaining, 0 failed; all jobs match exact upstream head 9422347d.",
+    "requiredChecks": [
+      {
+        "name": "CodeQL",
+        "requiredAppId": 57789,
+        "checkRunId": 138856167032,
+        "head": "9422347d486fdfbfd7fef73669236512c81f4cca",
+        "status": "completed",
+        "conclusion": "neutral",
+        "url": "https://github.com/agent-teams-ai/engineering-foundation/runs/138856167032",
+        "completedAt": "2026-11-24T23:29:13Z",
+        "commitStatus": null,
+        "qualificationWarning": "1 configuration not found",
+        "summary": "**Warning**: Code scanning cannot determine the alerts introduced by this pull request, because 1 configuration present on `refs/heads/main` was not found:\n\n### Actions workflow (`codeql.yml`)\n\n* :hourglass:&nbsp;&nbsp;`.github/workflows/codeql.yml:analyze`\n\n\n[View all branch alerts](/agent-teams-ai/engineering-foundation/security/code-scanning?query=pr%3A472+tool%3ACodeQL+is%3Aopen)."
+      },
+      {
+        "name": "analyze",
+        "requiredAppId": 15368,
+        "checkRunId": 138855003904,
+        "head": "9422347d486fdfbfd7fef73669236512c81f4cca",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/agent-teams-ai/engineering-foundation/actions/runs/45510012580/job/138855003904",
+        "completedAt": "2026-11-24T23:29:17Z",
+        "commitStatus": {
+          "state": "success",
+          "description": "Release PR analyze: success",
+          "url": "https://github.com/agent-teams-ai/engineering-foundation/actions/runs/45510012580/job/138855003904"
+        }
+      },
+      {
+        "name": "check",
+        "requiredAppId": 15368,
+        "checkRunId": 138865078929,
+        "head": "9422347d486fdfbfd7fef73669236512c81f4cca",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/agent-teams-ai/engineering-foundation/actions/runs/45510009570/job/138865078929",
+        "completedAt": "2026-11-24T23:48:07Z",
+        "commitStatus": {
+          "state": "success",
+          "description": "Release PR check: success",
+          "url": "https://github.com/agent-teams-ai/engineering-foundation/actions/runs/45510009570/job/138865078929"
+        }
+      },
+      {
+        "name": "macos-qualification",
+        "requiredAppId": 15368,
+        "checkRunId": 138872539247,
+        "head": "9422347d486fdfbfd7fef73669236512c81f4cca",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/agent-teams-ai/engineering-foundation/actions/runs/45510009570/job/138872539247",
+        "completedAt": "2026-11-25T00:04:27Z",
+        "commitStatus": {
+          "state": "success",
+          "description": "Release PR macos-qualification: success",
+          "url": "https://github.com/agent-teams-ai/engineering-foundation/actions/runs/45510009570/job/138872539247"
+        }
+      },
+      {
+        "name": "windows-check",
+        "requiredAppId": 15368,
+        "checkRunId": 138871570856,
+        "head": "9422347d486fdfbfd7fef73669236512c81f4cca",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/agent-teams-ai/engineering-foundation/actions/runs/45510009570/job/138871570856",
+        "completedAt": "2026-11-25T00:02:25Z",
+        "commitStatus": {
+          "state": "success",
+          "description": "Release PR windows-check: success",
+          "url": "https://github.com/agent-teams-ai/engineering-foundation/actions/runs/45510009570/job/138871570856"
+        }
+      },
+      {
+        "name": "full-ci",
+        "requiredAppId": 15368,
+        "checkRunId": 138872539333,
+        "head": "9422347d486fdfbfd7fef73669236512c81f4cca",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/agent-teams-ai/engineering-foundation/actions/runs/45510009570/job/138872539333",
+        "completedAt": "2026-11-25T00:04:39Z",
+        "commitStatus": {
+          "state": "success",
+          "description": "Release PR full-ci: success",
+          "url": "https://github.com/agent-teams-ai/engineering-foundation/actions/runs/45510009570/job/138872539333"
+        }
+      }
+    ],
+    "requiredChecksQualification": "Five required checks succeeded. Required CodeQL check is neutral with a missing-configuration warning, not a successful PR alert comparison. PR still reports blocked; this packet does not infer the sole cause.",
+    "releaseRun": "https://github.com/agent-teams-ai/engineering-foundation/actions/runs/45509492618",
+    "releaseAtObservation": "Release workflow completed success; attest-release-pr completed success at 2026-11-25T00:05:23Z. This proves release-PR refresh/attestation, not npm publication.",
+    "consumerAdoptionStillRequired": "After an actual qualified published 0.3.1 artifact exists: exact dependency and pnpm11.28.7 lock/frozen install, metadata/parser/scope/visitor8.73/TS7.0.2 admission, typecheck:lint-format, unchanged 20-rule lint:qualify oracle and full guarded lint. Preserve existing Foundation/FMS pins and reject legacy TypeScript initialization.",
+    "upstreamMutationsPerformedByThisReview": false,
+    "producerOwnership": "The existing producer owner retains responsibility for upstream review, merge and package publication. Current consumer task does not authorize taking over that release. Consume the qualified published artifact when available; otherwise request specific authorization as a final blocked step.",
+    "artifacts": ["upstreamReleaseObservation", "stackRegistryObservation"]
+  },
+  "identityPreparation": {
+    "status": "IDENTITY_REPAIR_COMPLETED_BY_ROOT_AND_REF_INDEPENDENTLY_VERIFIED",
+    "originalHead": "1169070c85d0c10fe044b39433717471e61bb883",
+    "replacementHead": "fd1089e691a01b962dd321506867bbfe10e10ffd",
+    "originalTree": "6fdbb27aa48531c315231c641843067d873e0821",
+    "replacementTree": "6fdbb27aa48531c315231c641843067d873e0821",
+    "counts": {
+      "originalSourceCommits": 106,
+      "replacementSourceCommits": 106,
+      "reconstructed": 49,
+      "unchanged": 57,
+      "mergesReconstructed": 5
+    },
+    "wholeTreeByteIdentity": true,
+    "perCommitChecks": {
+      "count": 49,
+      "allTreesEqual": true,
+      "allParentOrdersPreserved": true,
+      "allRawMessagesEqual": true,
+      "detailPath": "/workspace/scratch/0f054634e853/tmp/identity-review-objects.json",
+      "detailSha256": "be4ecc68383128487a44bb7e5dfa9bf24f913600fc80a90a52bebe85ebac6e71"
+    },
+    "backupVerification": {
+      "transport": "independent git ls-remote origin",
+      "observedAt": "2026-11-25T00:06:18.090023+00:00",
+      "refs": {
+        "refs/heads/recovery/rr977-original-1169070c-20261125": "1169070c85d0c10fe044b39433717471e61bb883",
+        "refs/heads/refactor/architecture-boundaries-phase2-20261123": "1169070c85d0c10fe044b39433717471e61bb883"
+      },
+      "backupMatchesOriginal": true,
+      "liveBranchMatchesOriginal": true
+    },
+    "postUpdateVerification": {
+      "observedAt": "2026-11-25T00:12:45.003675+00:00",
+      "reviewer": "independent acceptance_review agent",
+      "command": "git ls-remote origin refs/heads/refactor/architecture-boundaries-phase2-20261123 refs/heads/recovery/rr977-original-1169070c-20261125",
+      "exitCode": 0,
+      "remoteRefs": {
+        "refs/heads/recovery/rr977-original-1169070c-20261125": "1169070c85d0c10fe044b39433717471e61bb883",
+        "refs/heads/refactor/architecture-boundaries-phase2-20261123": "fd1089e691a01b962dd321506867bbfe10e10ffd"
+      },
+      "localHead": "fd1089e691a01b962dd321506867bbfe10e10ffd",
+      "localTree": "6fdbb27aa48531c315231c641843067d873e0821",
+      "localGitStatus": "",
+      "rootReportedMutation": "One force compare-and-swap using expected original head 1169070c; owner also verified API branch ref and fresh PR metadata.",
+      "limit": "Source/ref verification only; not a CI or merge result."
+    },
+    "limitations": [
+      "Replacement author/committer dates are current integration dates; original metadata remains in the reviewed mapping and backup.",
+      "The three recorded API message differences are response presentation only: every reconstructed raw Git message matches its original bytes, including terminal newlines.",
+      "This metadata/source review is not exact-head CI, protected merge, or resulting-main verification."
+    ],
+    "refUpdatePerformedByThisReview": false,
+    "artifacts": [
+      "identityReview",
+      "identityObjectReview",
+      "identityRefVerification"
+    ]
+  },
+  "remainingAcceptance": [
+    "Complete actual published native lint adapter adoption and obtain original full lint plus unchanged qualification-oracle results.",
+    "The complete architecture command and the one isolated metadata native strict diagnostic both failed with SIGKILL. Obtain a successful original full architecture/typecheck gate on a suitable executor; no compiler rules, inputs or assertions may be weakened.",
+    "Identity repair is complete at fd1089e6 with exactly the same tree. Root must obtain fresh required remote CI and review state before merge. Existing receipts remain bound to their actually executed 1169070c head and are connected by the explicit same-tree identity mapping, not silently relabeled.",
+    "UI16 and paired45 are historical receipts; refresh affected acceptance at final source as required by the maintained plan. No whole-PR green or final merge approval is claimed."
+  ],
+  "artifacts": {
+    "executionQualification": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/qualification.json",
+      "sha256": "14cb3316a5044d127cc32705995ceb67169de03aaf4c75f49b13e5e8814009fa",
+      "bytes": 4283
+    },
+    "extractionManifest": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/extraction-manifest.json",
+      "sha256": "bbbf98ee91ed0dfd0ff3d7a41e11b304565ef82b9c9ba1d611046458f329e144",
+      "bytes": 47389
+    },
+    "focusedReport": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/focused-results.json",
+      "sha256": "2a484dd43b2131f2a08255820075e3d710bdb080b9c44c7179ac9b8892f0c948",
+      "bytes": 89458
+    },
+    "focusedLog": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/focused.log",
+      "sha256": "7d247bca3f278e17b5f72c1c256882cde773f8a2877fdb893bc1015aedbf13c9",
+      "bytes": 3773
+    },
+    "focusedNativeAudit": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/focused-native.jsonl",
+      "sha256": "149631e3485b9f274dd7df6300580bced635b78a06d69f061977cb9e6a148dc2",
+      "bytes": 872
+    },
+    "apiStrictLog": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/api-strict.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "apiStrictNativeAudit": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/api-strict-native.jsonl",
+      "sha256": "635c135b794200bc522f0c4482f5fc694da05b96c8710217fc4b14c783fa3324",
+      "bytes": 811
+    },
+    "executionFormatLog": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/format.log",
+      "sha256": "e2e009560ac886b8a261ed532e78e6b15471519399937b259ea61985ef218e2a",
+      "bytes": 611
+    },
+    "executionFormatNativeAudit": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/format-native.jsonl",
+      "sha256": "634fffd963306a426c8cd2ecf6724cb0b4f7e25d85104c3c96dd31927d9202e6",
+      "bytes": 1773
+    },
+    "independentReview": {
+      "path": "/workspace/scratch/0f054634e853/tmp/context-independent-review-1169070c.json",
+      "sha256": "64a04eeff98759cf40105c208c1911a89fdc3547f35bc129a3fbb160e5eb2a47",
+      "bytes": 6235
+    },
+    "architectureTestsLog": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-architecture/green.log",
+      "sha256": "bee13992b417efaa8d8dff00a483459e56a45fcfa855a8216f23e9731d4ef3ac",
+      "bytes": 238
+    },
+    "architectureTestsNativeAudit": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-architecture/green-native.jsonl",
+      "sha256": "cee4d4d698fa4da6f5bff7260ed0330345f05d2120474614b9f26d1ee78de95b",
+      "bytes": 227923
+    },
+    "architectureRedLog": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-architecture/red.log",
+      "sha256": "4b54739b4d059ec57b0280d89109fc4a9102f9aea52fee031fc9bb4bab0dbe3a",
+      "bytes": 1655
+    },
+    "toolingStrictInitialLog": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-architecture/strict.log",
+      "sha256": "dfde60de2537d775885c7eab0d5333d51d7f00fe8012489a25bb6b68d5557cde",
+      "bytes": 444
+    },
+    "toolingStrictFixedLog": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-architecture/strict-fixed.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "toolingStrictFixedNativeAudit": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-architecture/strict-fixed-native.jsonl",
+      "sha256": "635c135b794200bc522f0c4482f5fc694da05b96c8710217fc4b14c783fa3324",
+      "bytes": 811
+    },
+    "routingReport": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/merge977-review/routing-current-results.json",
+      "sha256": "81a10c9471b610e7b9f032285b543ca67d700a64dadd9d77ddcc1710f6b29a10",
+      "bytes": 1576
+    },
+    "routingLog": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/merge977-review/routing-current.log",
+      "sha256": "1ad3ad9f79af67eec7ac4a450a115fe8ef94243fece6c97a7632f1512504c1fc",
+      "bytes": 408
+    },
+    "routingNativeAudit": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/merge977-review/routing-current-native.jsonl",
+      "sha256": "a20f5a188a1fc768236625f6d2e69a2df1ae0ef28ae3535748c4405556a6596a",
+      "bytes": 123
+    },
+    "packagingQualification": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/packaging-qualification.json",
+      "sha256": "566bbf5aae7f447b8d8c6ff5074aded43a4f235e7f7a529ff4674d710cd2dcb9",
+      "bytes": 1944
+    },
+    "packagingSourceBefore": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/packaging-before.json",
+      "sha256": "8daba8ccbcc313badc173e6b6b7f905648d31d200b8b41af33ad9280cd68838f",
+      "bytes": 394519
+    },
+    "apiEmitLog": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/api-emit.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "apiEmitNativeAudit": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/api-emit-native.jsonl",
+      "sha256": "6c6280d0f309f8d3765924915eb67e32143376a934eb0ff7bc0f96330689850c",
+      "bytes": 812
+    },
+    "esmRewriteLog": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/api-rewrite.log",
+      "sha256": "1604ddbe9383025a5dfbd41e4d3093be6e7499d6da7709beebd56c3bbbd0e349",
+      "bytes": 52
+    },
+    "productionImportReport": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/production-import.json",
+      "sha256": "33220b17fcb1cc405e8b5f06ee06c795bcfe6a2928b5f40ac03324e9deeca704",
+      "bytes": 39902
+    },
+    "productionImportLog": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/production-import.log",
+      "sha256": "2cc2bee95deeed364d2da9a5aea5e38e9e61bc85a1de0887e6890532b4040258",
+      "bytes": 195
+    },
+    "productionE2EReceipt": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/production-1169070c/receipt.json",
+      "sha256": "a4225aea4535e283d783b3fc3dabcf3f33c4042b314bd62a98129358eff5ff08",
+      "bytes": 868871
+    },
+    "productionE2EReport": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/production-1169070c/production-e2e-group-1.json",
+      "sha256": "87b8170c2dece4e47aa53454ea3587fbc9b45e3a17c9ee270402f3efbc3fae14",
+      "bytes": 7820
+    },
+    "productionE2ELog": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/production-1169070c/production-e2e-group-1.log",
+      "sha256": "376dbbdcaadbbe525d9ce946790c8f7f36c3c60cac65fed6d527f99ec39bbcea",
+      "bytes": 12597
+    },
+    "productionSourceBefore": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/production-1169070c/source-before.json",
+      "sha256": "2f846448b0f737146871992fabcaf17cea29a455b890e7603ce7d007a7cc71a8",
+      "bytes": 406793
+    },
+    "databaseSetupReceipt": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/production-1169070c/database-setup-receipt.json",
+      "sha256": "78c2bf0fd3b683b3ec453c449b5e66eea6218a606c5d8e75e80f66c646a271af",
+      "bytes": 35772
+    },
+    "migrationProcessResult": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/production-1169070c/migration-process-result.json",
+      "sha256": "7695942f0a97eea9841403a8c600a001de86175209e6286bf3feaf7a93c596ad",
+      "bytes": 70
+    },
+    "productionStopLog": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/production-1169070c/stop.log",
+      "sha256": "ca19178a35ab4153b75b494963b66ce8243e1b94c173107c87b44d09db23652d",
+      "bytes": 56
+    },
+    "initialLintFailure": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/merge977-review/lint-initial.log",
+      "sha256": "bce63b5e8da479d3ab31f1a6d2502be022bb712c4665906b3f25b7ec97b2ca75",
+      "bytes": 975
+    },
+    "initialLintNativeAudit": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/merge977-review/lint-initial-native.jsonl",
+      "sha256": "6531335fd940fac1de8c6cdbc7fb51297186fc84d94d5a06b8446cffcbfb6fdf",
+      "bytes": 123
+    },
+    "historicalUiResult": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/accounts-reference-e2e/runs/round30-ui-low-memory-webpack-v1/result.json",
+      "sha256": "43c6dd46f0f36be7cfce5b630eaa3147f80ad500f150a0615d788ee79a5dbb3e",
+      "bytes": 1181
+    },
+    "historicalUiRuntime": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/accounts-reference-e2e/runs/round30-ui-low-memory-webpack-v1/runtime.json",
+      "sha256": "194e607eadb7ce1f3abe35f9b34047ccf9403d76fc731024c93fde293538e348",
+      "bytes": 799
+    },
+    "historicalUiRawReport": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/accounts-reference-e2e/runs/round30-ui-low-memory-webpack-v1/playwright-result.json",
+      "sha256": "1aedc826e44bb1d2574e4be670f0fb6b49503176072107f56155a9d75c7e5167",
+      "bytes": 28374
+    },
+    "historicalUiReceipt": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round30-browser/ui-low-memory-webpack-v1/receipt.json",
+      "sha256": "c0f816d85a3eccd6f49284b93f0f601c8b12dd987ae7ec6281c8b751cb94d777",
+      "bytes": 49383
+    },
+    "historicalUiSourceBefore": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round30-browser/ui-low-memory-webpack-v1/source-before.json",
+      "sha256": "421d1a92ee71791e7d004261a699e1e66d6d07a286af5ae8a713163ec1e783b7",
+      "bytes": 436137
+    },
+    "historicalUiSourceAfter": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round30-browser/ui-low-memory-webpack-v1/source-after.json",
+      "sha256": "421d1a92ee71791e7d004261a699e1e66d6d07a286af5ae8a713163ec1e783b7",
+      "bytes": 436137
+    },
+    "historicalPairedVerification": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round30-final/paired-root-verification.json",
+      "sha256": "56d87c32332bce584298e27456c76dbb99f14f5dcda265f2bf86fd814a98f560",
+      "bytes": 2226
+    },
+    "historicalReconciliation": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round30-final/reconciliation.json",
+      "sha256": "42edaec2d833e854c3bb6f44ab42695b24d8c67b9c243998c71e5cf085d62abd",
+      "bytes": 11603
+    },
+    "failedParallelAttempts": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round30-e2e/failed-parallel-attempts.json",
+      "sha256": "7f1dcbb990889bb4f813dc1f55f13134f4c429fcb4829825b9bf52b908dd573a",
+      "bytes": 1998
+    },
+    "earlierAttemptRegister": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round30-e2e/attempt-status.json",
+      "sha256": "bc2f47966f82cb9fa5b5a295484e935b5f70dcf81ffbed28fdda04f4441d0721",
+      "bytes": 7858
+    },
+    "fullArchitectureReceipt": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/architecture/receipt.json",
+      "sha256": "f519b7cba66261c42b67888dafa682d92923697031c6f84ca0eb0491b2c9199e",
+      "bytes": 1848
+    },
+    "fullArchitectureLog": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/architecture/architecture.log",
+      "sha256": "5689be240152ba7ac33b3638cb2ff3fff6b56453053be887e2cd9d63428abc52",
+      "bytes": 3116
+    },
+    "fullArchitectureNativeAudit": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/architecture/native-audit.jsonl",
+      "sha256": "06cfea07bd7b1d4a7fea903769aef9e6f8298033ca0c5571aaf69dddb6218d8e",
+      "bytes": 100496
+    },
+    "fullArchitectureSourceBefore": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/architecture/source-before.json",
+      "sha256": "bc98771d6c4288c12f9b5b8366deccab54e6b59938b9206176e47b077e71b81e",
+      "bytes": 669114
+    },
+    "fullArchitectureSourceAfter": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/architecture/source-after.json",
+      "sha256": "bc98771d6c4288c12f9b5b8366deccab54e6b59938b9206176e47b077e71b81e",
+      "bytes": 669114
+    },
+    "identityReview": {
+      "path": "/workspace/scratch/0f054634e853/tmp/identity-review.json",
+      "sha256": "071e8d172083fcaa8f220f6e40938cc8a9f1127fb1e8869e7abef6413937417b",
+      "bytes": 6293
+    },
+    "identityObjectReview": {
+      "path": "/workspace/scratch/0f054634e853/tmp/identity-review-objects.json",
+      "sha256": "be4ecc68383128487a44bb7e5dfa9bf24f913600fc80a90a52bebe85ebac6e71",
+      "bytes": 54782
+    },
+    "identityRefVerification": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/merge977-review/identity-ref-verification.json",
+      "sha256": "02c043817a5a979d6a2407eb9e9304ba2e800469e31fb992b4fbcd133b1123c9",
+      "bytes": 877
+    },
+    "upstreamReleaseObservation": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/merge977-review/upstream-release-observation.json",
+      "sha256": "aa43b7255072ce40a1e23758f430e12a71f030c24c00d5d3d2a6fe288d44072a",
+      "bytes": 8825
+    },
+    "stackRegistryObservation": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/merge977-review/stack-registry-observation.json",
+      "sha256": "6bdb12907972add3e7ce509910f19208699c5d5a8bff3267288207766498564f",
+      "bytes": 1439
+    },
+    "metadataStrictDiagnostic": {
+      "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/metadata-diagnostic/receipt.json",
+      "sha256": "6f6f4b288f15c9b88506d5143407f5bd14c343ed421851636ba384090b8b91b0",
+      "bytes": 3629
+    }
+  },
+  "rawEvidenceAvailability": "Raw local logs and input manifests are retained at the recorded workflow paths. This persisted summary includes their actual hashes and independently observed source bindings; these are not GitHub Actions artifacts or a final-head hosted CI result."
+}

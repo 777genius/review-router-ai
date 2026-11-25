@@ -1,0 +1,324 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-11-23",
+  "sourceBase": "6013a91a39b8456c59b1a44e53fc7d495b13e0b8",
+  "historicalProductionBuildAttempts": [
+    {
+      "scope": "Unchanged direct Next production component",
+      "status": "failed",
+      "elapsedSeconds": 112.81,
+      "productionCompilationSeconds": 20.8,
+      "mandatoryNativeCheck": "failed without diagnostic; Next discarded child status/signal",
+      "buildIdProduced": false
+    },
+    {
+      "scope": "Exact native command used by Next, observed separately",
+      "status": "failed",
+      "elapsedSeconds": 114.86,
+      "signal": "SIGKILL",
+      "maximumRssKiB": 2942580,
+      "compilerDiagnostic": null,
+      "observerTerminatedChild": false,
+      "oomAttribution": "Global counter increment is not job-specific attribution."
+    }
+  ],
+  "historicalRawEvidenceAvailability": "Original local packets were lost during executor reset; the source-bound observations remain recorded in PR #977. Neither failure was converted into PASS.",
+  "cleanupRepair": {
+    "candidateInputs": {
+      "scripts/lib/next-generated-env.ts": "ec40ea7de7454124cda959d8d2e03ae18653ee586ca6975b1f56e0e5e4ad1a54",
+      "scripts/lib/next-generated-env.test.ts": "09fa927a17a3acf46bcd2b46fcec0c432f06a717ef0465eda26425798c2ff5e7",
+      "scripts/statistics-e2e/browser-qualify.ts": "440d05fccff8bacf5f9416d397616f44e80e3f8a14cf3581ac6911ff040ac068",
+      ".github/workflows/skills-browser.yml": "7ea01b0b924030b3e000a532782909f8f8ecb762ad335f509be8f4394a49b318",
+      "tsconfig.tooling.json": "bf0abbeb86b19377658becba4a7c5feda5c95ca91baa7baa2126a8b02561af67"
+    },
+    "releasedNextVersion": "16.4.6",
+    "releasedWriterSha256": "3973ebf0093b08136059a790442951ba498421627a52bfcf06e1584360e034c9",
+    "actualCallerDifferential": {
+      "oldStatistics": "failed as expected",
+      "oldSkills": "failed as expected",
+      "correctedStatistics": "passed",
+      "correctedSkills": "passed",
+      "foreignSourceControls": 2,
+      "foreignSourceControlsRejected": 2,
+      "ownedFixturesRemoved": true,
+      "receiptSha256": "02859746b44bab7340964ea969651e2fe383f31c6225914eb44dda9fae8cb1c2"
+    },
+    "helperTests": {
+      "total": 13,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0,
+      "todo": 0
+    },
+    "originalStrictProject": {
+      "sourceBase": "6013a91a39b8456c59b1a44e53fc7d495b13e0b8",
+      "sourceInputs": 4815,
+      "inputManifestSha256": "0d6b9403cf4a5f45315556aa13a9d9b3495908636c46164b6f5c18cecac80bb7",
+      "status": "passed",
+      "exitCode": 0,
+      "elapsedSeconds": 9.373,
+      "sourceUnchanged": true,
+      "command": [
+        "/workspace/scratch/e324fe5d5324/runtime/node-v26.11.1-linux-x64/bin/node",
+        "scripts/local-checks/compiler-cli.ts",
+        "--native",
+        "--noEmit",
+        "-p",
+        "tsconfig.tooling.json",
+        "--pretty",
+        "false"
+      ],
+      "effectiveStrict": true,
+      "effectiveNoUncheckedIndexedAccess": true,
+      "effectiveExactOptionalPropertyTypes": true,
+      "effectiveInheritedSkipLibCheck": true,
+      "newHelperAndTestsIncluded": true,
+      "guardedNodeProcesses": 4,
+      "blockedLegacyLoads": [],
+      "typescriptVersions": ["7.0.2"],
+      "scope": "Complete unchanged original tooling compiler project with only explicit Next helper/test enrollment; conditional Stack/routing successor is not yet applied."
+    },
+    "scope": "Only exact routes.d.ts and root-params.d.ts imports from the run-owned types directory may normalize; the complete resulting file must equal its baseline before any write.",
+    "inputScope": "Exact helper and caller inputs before the independently reviewed additive CI routing change; later root integrated tests and original strict project are recorded separately."
+  },
+  "productionWebBuildQualified": true,
+  "browserRepairExecutionQualified": false,
+  "integratedRoutingAndCleanup": {
+    "sourceBase": "6013a91a39b8456c59b1a44e53fc7d495b13e0b8",
+    "sourceInputs": 4816,
+    "inputManifestSha256": "978c88552ac45e85b450b23b9d36c1b9621164f8221bb75821c842d111a9b63e",
+    "status": "passed",
+    "commands": [
+      {
+        "command": ["node", "--test", "scripts/ci-impact.test.mjs"],
+        "exitCode": 0,
+        "timedOut": false,
+        "elapsedSeconds": 0.365,
+        "logSha256": "a9fb2a37025c1ae46c974ddb9fa6c4164d663bffd063e3e429d2e52f4a010706"
+      },
+      {
+        "command": [
+          "pnpm",
+          "exec",
+          "vitest",
+          "run",
+          "--configLoader",
+          "native",
+          "scripts/ci-browser-routing.test.ts",
+          "scripts/lib/next-generated-env.test.ts",
+          "--maxWorkers=1",
+          "--no-file-parallelism"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "elapsedSeconds": 1.519,
+        "logSha256": "6a57da890433b7ee48f80335459fca5cd401e7cd74a4936b16fa4a46578ef46a"
+      },
+      {
+        "command": [
+          "node",
+          "scripts/local-checks/compiler-cli.ts",
+          "--native",
+          "--noEmit",
+          "-p",
+          "tsconfig.tooling.json",
+          "--pretty",
+          "false"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "elapsedSeconds": 8.636,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "elapsedSeconds": 10.728,
+    "changedInputs": [],
+    "guardedNodeProcesses": 7,
+    "blockedLegacyLoads": [],
+    "typescriptVersions": ["7.0.2"],
+    "scope": "Actual root integrated routing and owned Next cleanup; original 40-case CI test unchanged; full original tooling project with additive enrollment. Stack published dependency not yet adopted.",
+    "counts": {
+      "unchangedCiImpact": {
+        "passed": 40,
+        "failed": 0,
+        "skipped": 0
+      },
+      "nativeRoutingAndCleanup": {
+        "passed": 16,
+        "failed": 0,
+        "skipped": 0
+      }
+    },
+    "independentRoutingReviewSha256": "9892e617215260f76c4cd81b3a55401c0c187a2d08718f7687fb92c428ecbf25",
+    "routingRevision": "v3; immutable tested input manifest is recorded above. Later v4 selector/test extensions still require their combined full root check after published Stack adoption."
+  },
+  "productionBuild": {
+    "sourceBase": "6013a91a39b8456c59b1a44e53fc7d495b13e0b8",
+    "sourceInputs": 4815,
+    "inputsManifestSha256": "7f91b71a45b10f5812e36a5a488dc37fd5440650e3e24234bf435a618db22bce",
+    "exitCode": 0,
+    "elapsedSeconds": 157.43,
+    "observerTerminated": false,
+    "status": "passed",
+    "changedInputs": [],
+    "logSha256": "10fff101ee3bdb928eb664bb5aacbe62ea16b62e48f011c18304497759eebc31",
+    "maximumSampledDescendantRssSum": 4973142016,
+    "minimumSampledGlobalAvailable": 4312838144,
+    "guardedNodeProcesses": 176,
+    "blockedLegacyLoads": [],
+    "typescriptVersions": ["7.0.2"],
+    "nextBuildId": "AA-TcjEF_ASr0li-DgkYK",
+    "resourceObservationLimits": "Global available memory and sampled descendant RSS sums are contextual observations, not per-job OOM attribution.",
+    "scope": "Actual whole maintained build on restored baseline frozen graph and recorded source delta; final published Stack adoption and final-head CI remain separate.",
+    "command": ["pnpm", "build"],
+    "tasks": {
+      "passed": 56,
+      "total": 56,
+      "cached": 0
+    },
+    "rewrittenEmittedFiles": 588,
+    "resourceProfile": {
+      "node": "26.11.1",
+      "pnpm": "11.28.7",
+      "nodeMaximumOldSpaceMiB": 2048,
+      "goProcessors": 2,
+      "goMemoryLimit": "2048MiB",
+      "turboConcurrency": 1
+    }
+  },
+  "productionHttpBeforeRepair": {
+    "sourceBase": "6013a91a39b8456c59b1a44e53fc7d495b13e0b8",
+    "sourceInputs": 4815,
+    "inputManifestSha256": "7f91b71a45b10f5812e36a5a488dc37fd5440650e3e24234bf435a618db22bce",
+    "sourceUnchanged": true,
+    "status": "failed",
+    "exitCode": -15,
+    "elapsedSeconds": 90.463,
+    "timedOut": true,
+    "nextBuildId": "AA-TcjEF_ASr0li-DgkYK",
+    "command": ["pnpm", "web:smoke"],
+    "logSha256": "58a4f2a329feb6d1f4694f6e71262f0c99cdbe867b52e557852aaa4ad913def0",
+    "guardedNodeProcesses": 5,
+    "blockedLegacyLoads": [],
+    "ownedServerPortClosed": true,
+    "ownedProcessGroupStopped": true,
+    "cleanupSignals": ["timeout-SIGTERM"],
+    "scope": "Maintained production Next HTTP, signed-out/setup, discovery/structured-data/redirect assertions. No browser interaction, authenticated dashboard or final published-root qualification inferred."
+  },
+  "productionHttpRepair": {
+    "source": "scripts/check-web-pages.mjs",
+    "sha256": "d98bbe4b9c2edabb58d1eef62be96478ebf53325a180d93e7cb2755459bf0c2f",
+    "change": "Pass the existing loopback host explicitly to Next and bound each readiness fetch by the remaining readiness deadline. All original response, page, structured-data, discovery and redirect assertions are unchanged.",
+    "diagnosis": "The original default-hostname listener invoked restricted os.networkInterfaces() after opening its socket; the first unbounded fetch then exceeded the nominal readiness loop. The separate trace and loopback probe are diagnostic, not maintained acceptance.",
+    "diagnosisReceiptSha256": "15016994f73dafacb27f413c7d2b4da780c146e270ce1a26fb90a3e5492ccaec",
+    "independentReviewSha256": "a8813311c558ea16ea44940cd4ccf7bb3068ad67df486c13258b1723804c1b08",
+    "languageScope": "Localized five-line correction in the existing JavaScript harness; no new maintained JavaScript test/runtime module. It is covered by the complete maintained HTTP smoke and is not claimed as strict TypeScript coverage."
+  },
+  "productionHttpAfterRepair": {
+    "sourceBase": "6013a91a39b8456c59b1a44e53fc7d495b13e0b8",
+    "sourceInputs": 4815,
+    "inputManifestSha256": "0d6b9403cf4a5f45315556aa13a9d9b3495908636c46164b6f5c18cecac80bb7",
+    "sourceUnchanged": true,
+    "status": "passed",
+    "exitCode": 0,
+    "elapsedSeconds": 4.342,
+    "timedOut": false,
+    "nextBuildId": "AA-TcjEF_ASr0li-DgkYK",
+    "command": ["pnpm", "web:smoke"],
+    "logSha256": "1d29827d33d411eab6e426b1c0608dda318d527d7ef0008eed7d79cd4584896c",
+    "guardedNodeProcesses": 5,
+    "blockedLegacyLoads": [],
+    "ownedServerPort": 55985,
+    "ownedServerPortClosed": true,
+    "ownedProcessGroupStopped": true,
+    "cleanupSignals": [],
+    "scope": "Complete maintained production Next HTTP assertions against the recorded production build; browser and final published-root qualification remain separate.",
+    "counts": {
+      "pages": 12,
+      "redirects": 2
+    }
+  },
+  "actionArtifactRestored": {
+    "sourceBase": "6013a91a39b8456c59b1a44e53fc7d495b13e0b8",
+    "sourceInputs": 4816,
+    "inputManifestSha256": "978c88552ac45e85b450b23b9d36c1b9621164f8221bb75821c842d111a9b63e",
+    "status": "passed",
+    "commands": [
+      {
+        "command": ["pnpm", "action:artifact:check"],
+        "exitCode": 0,
+        "timedOut": false,
+        "elapsedSeconds": 9.28,
+        "logSha256": "d4492620150cb3f981c1bb680000e18ca135132a27782f0c04844ae20c5b4a75"
+      }
+    ],
+    "elapsedSeconds": 9.484,
+    "changedInputs": [],
+    "guardedNodeProcesses": 6,
+    "blockedLegacyLoads": [],
+    "typescriptVersions": ["7.0.2"],
+    "scope": "Complete maintained Action strict/source/bundle/archive/manifest qualification, binary required; baseline frozen native graph and current integrated source delta. Not live external publication.",
+    "bundleSha256": {
+      "action-dist/index.cjs": "2bb673a9739690edb734929a2a49483df3e1c316707f973dde4843425e4af02b",
+      "action-dist/conflict-runtime.cjs": "a3ac19a1be5ddb9dbb897ff6db3fe5ea495fe537dc420d919f2797ab786fc9cb"
+    }
+  },
+  "recoveredSelfHostedCi": {
+    "runId": 45255482350,
+    "jobId": 138022980855,
+    "url": "https://github.com/777genius/review-router-ai/actions/runs/45255482350/job/138022980855",
+    "conclusion": "success",
+    "actualCheckout": {
+      "sha": "6aeb2203cf91d6c1f783bfefb793dccdf184af8c",
+      "tree": "4d0927bcf7977cf17eafc5c9de9b3e6a0ccf2988",
+      "orderedParents": [
+        "e180f4a958359726c18e048c8c85e71d5b43aa69",
+        "6013a91a39b8456c59b1a44e53fc7d495b13e0b8"
+      ],
+      "identityBasis": "Checkout fetch/log and runner terminal control-plane-commit both print6aeb2203; fresh Git Data commit confirms its tree exactly equals6013. run.head_sha alone was not used.",
+      "witnesses": [
+        "2026-11-23T22:10:04.8966938Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +6aeb2203cf91d6c1f783bfefb793dccdf184af8c:refs/remotes/pull/977/merge",
+        "2026-11-23T22:10:07.7775938Z  * [new ref]         6aeb2203cf91d6c1f783bfefb793dccdf184af8c -> pull/977/merge",
+        "2026-11-23T22:10:08.4878885Z 6aeb2203cf91d6c1f783bfefb793dccdf184af8c",
+        "2026-11-23T22:24:01.7171596Z control-plane-commit=6aeb2203cf91d6c1f783bfefb793dccdf184af8c"
+      ]
+    },
+    "rawLogSha256": "6b9011904051560cbaa5ac6e7f497340fa5709826055637eefede68453f73cf7",
+    "scopedReceiptSha256": "263dd7d4006dffe4d17ffdb253c96a7e8bbd552674fa57ca7dd13bfe0561bf28",
+    "bootstrap": {
+      "passed": 36,
+      "skipped": 1,
+      "failed": 0,
+      "skip": "Optional foreign-UID cleanup-image control absent; never credited PASS."
+    },
+    "actualProductionBuild": "Maintained filtered Docker build of 55/57 workspace projects, including full production Next; not a claim of the whole root build.",
+    "offlinePrisma": "Actual Docker RUN --network=none, Prisma 7.8.0.",
+    "runtime": "Compiled API, worker and production Next health; 165 application migrations; application postgres:18-alpine and separate native Memory PG17 sandbox.",
+    "e2e": {
+      "reviewActionV2": {
+        "passed": 17,
+        "failed": 0,
+        "skipped": 0
+      },
+      "sameReleasePaths": {
+        "passed": 2,
+        "failed": 0,
+        "skipped": 0
+      }
+    },
+    "limits": [
+      "Old merge checkout has the same tree as 6013; not final-head acceptance.",
+      "Conversation unqualified; setup-resume URL derivation not exercised; physical Forget not claimed.",
+      "Synthetic Action ref aaaa is not paired Action 1112 or real OCR acceptance.",
+      "No run artifact existed; original raw job log and embedded structured receipts were recovered."
+    ],
+    "independentReviewSha256": "fbebc4bb65ea86bfbd1d395c1955c3066b4ab4e81aec13bafcae5e6c7ffd562b"
+  },
+  "qualificationScope": "The complete local build, HTTP smoke, Action checks and original tooling checks qualify only their recorded source-input manifests and baseline frozen dependency graph. Actual published Stack adoption, final source HEAD and complete corrected browser jobs remain separate gates.",
+  "additionalRoutingReview": {
+    "revision": "v4",
+    "patchSha256": "ea4d423a38a45ef59a3042977cd3cfcff11edf47f103826f23771af9d03a16e1",
+    "independentReviewSha256": "bcd0b584f06c13e09ea407cce4ebad0c8a30d426a84c73241bfe2ba4b223e039",
+    "scope": "Seven additional explicit-label selectors across six actually queued workflows. Every original default/fork route, assertion, timeout and privileged manual job remains. Full root and hosted execution pending on this extension."
+  }
+}

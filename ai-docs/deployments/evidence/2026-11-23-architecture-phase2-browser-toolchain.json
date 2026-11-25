@@ -1,0 +1,95 @@
+{
+  "status": "native-toolchain-qualified-browser-execution-pending",
+  "sourceBase": "34bb72c6e6e04439e29744f8f1ffd5c0e279f984",
+  "node": "26.11.1",
+  "pnpm": "11.28.7",
+  "installed": {
+    "typescript": "7.0.2",
+    "next": "16.4.6",
+    "@playwright/test": "1.64.1",
+    "tsx": "4.23.1"
+  },
+  "manifestsAndConfigSha256": {
+    "package.json": "b2f02007a5db52776864ce562e51c124315beaa2ed274192747fb6f98b33973d",
+    "pnpm-workspace.yaml": "6bd2befb022b34c9e56fba1806c04042ebcced0349e4f5515eb9a93e64e9f326",
+    "pnpm-lock.yaml": "b22e4d4fc57061191ba487af2c780191d0ed6d65b3c7008dd21dd10ec59169ce",
+    "README.md": "012ba1b76113aa6e121a97bd13d2029160012701a5ebcf023742e55e8ec0478a",
+    "tsconfig.json": "f1c12ec682aec47bccfd9461efb00f4ff650c6d506c846c8764479fd2e614fbf",
+    "playwright.config.ts": "43e8bb6d46f28a635104cb1f5f600fd85eb56fa8dc30f63741e62dd3948967bb"
+  },
+  "sourceSha256": {
+    "src/account-models-fixture.ts": "327183c12a73fecaa2f3b27f002f083858506f2b298c254f40631f02bfba4f70",
+    "src/app.ts": "276675d3b506c80d573ac466e6dab09140911c8ca63ff1d2518baf1a719ae004",
+    "src/auth.ts": "14f4b7e6228c1dd97466fbbdbca1b725b83739e87e7dea57ccd38ff7ed4c7707",
+    "src/catalog-fetch-fixture.ts": "1ae009bb52ab82c5b4730669444c66c25e1e8fd779280d7272c82d6e7f71e767",
+    "src/cli.ts": "4c27105ef111bc85f276d105345df8d781b82592c9d24125dfddfa5b26806120",
+    "src/contracts.ts": "6dfcc12e2d5366a135fe3dd77fa069daf03cbb049ee2a1c0f31397c1eae39b1e",
+    "src/database.ts": "71374eee416293e8bc8477e610b5b20331034a286b77532916ae9d10480f5fba",
+    "src/gateway-fixture.ts": "f4ba9b1f432c34c06b8077de5de6b3d3911afa2f49adaf6b7d94876cd564f57e",
+    "src/limits-fixture.ts": "4d80a99e425aabd3e0322f01266aa058e48f77898a210abd96f5cd7aed6d1655",
+    "src/next-performance-diagnostics.mjs": "82961cdc9fd8628a4b8a5cc7c524d0a2a63ec7c1460580d7db21c51acea3d28e",
+    "src/review-runtime-fixture.ts": "43486e2d27f4d965f35c0bdbf5a4ddbb1c37945c0b074f6335b06f77677ac46d",
+    "src/run.ts": "a8a434c7041389757ef8d6901563e85dd665666d2515c31adadd228d7bd4a694",
+    "src/secret-leak-capture.spec.ts": "3ab35a4cf07c215ef95a22e8cd3a9a15748f0a1e7341919037c53cb6470cb29a",
+    "src/skill-catalog-fixture.ts": "45b9c129e64c4ceb7f70cb1504ce0a8c3fbc60b98cf969f31c9f6f2b0d6f2f15",
+    "src/skills-fixtures.ts": "8005ffc0a0b732901d63b1f86354eddbae242623ba98f7dd60161641180477ee",
+    "src/skills-github-fixture.ts": "b0f82460505033d9d2b2453aff762c18abfbf9da56db82e183f844148d3a8a09",
+    "src/skills-network-guard.ts": "a44b2d5504552d37f5c4bc813c3c484d2c9a78bd2bb534b81d239dd064438eea",
+    "src/skills-readiness-fixture.ts": "27f96131aba0cfccf3699c9a7bb0caa9da3c4b1f6165b9cfc9e3ec3190fc830b",
+    "src/source-revision.ts": "87facea67e8e1feed40126d1d13c1316af03699641d7c9f4d3bcbf3f0e3a1e16",
+    "src/subscription-fixture.ts": "a685af56ef1f9ec0a339a45b02b0fb8fa2d58ac75382e46a234b9107179d2236",
+    "src/tests/account-limits.spec.ts": "0768a20a04f4b9b650b5d9da5142dc365eb4d1226104136793d4ae62a9803211",
+    "src/tests/account-model-list-refresh.spec.ts": "0433c3d9999c86152d0f0bfc1e4c48eeb01516bacef5e55f569b8fbae230512b",
+    "src/tests/accounts-reference.spec.ts": "7f7e9e4cde448e23dc48cd20d0b180ad1cfca44870d1b5f7131172ffbf036845",
+    "src/tests/api-key-storage.spec.ts": "3d40b63c793a6f9dea82a5d3618259f8000af96f63541256c4cf51e5aa9e1476",
+    "src/tests/codex-credential-imports.spec.ts": "52bac48079b8a2b5da39b5515630ce2c3552be7396aa4f4f89ae2457133cc8b1",
+    "src/tests/daily-limit-notice.spec.ts": "86fe3c46f6daccc3388addb49e5777f18dc74e84572df52840c6c2e6f4c4a106",
+    "src/tests/gateway-account-models.spec.ts": "ff07e6edf0819a05bffb662d95d6fbb32555cdbdeb7b4ea785bb59c7db6d829c",
+    "src/tests/gateway-connection-probe.spec.ts": "636594370477abf2559cdbddc1ba62342abf87d40b5ad87361a0d76829274978",
+    "src/tests/memory-settings.spec.ts": "3c2fc13f17981b12cb016a68255a5ad9a617dfe1a6f2ce57aff809405d66742f",
+    "src/tests/one-step-add-provider.spec.ts": "6814c954e72955eeccf46fb407bdec50f84b6be1efdf83f077e122205c66f112",
+    "src/tests/provider-model-catalog.spec.ts": "eb0ecca9c2fb489d0f56137c8f4ffd1b499019b295c62a1e20ac0550b13603eb",
+    "src/tests/provider-setup-support.ts": "413524cbc523ae92b2c013b9567e441388442b3c3d183acc26a082517fe19fb3",
+    "src/tests/provider-usage.spec.ts": "cf62f1de29d2ecdd0ef310aa2269e96ba2681af22460314a3b23058858217721",
+    "src/tests/review-runtime-readiness.spec.ts": "a6d9284046353422259c22694ec51981996ece5a1374d360082203c04e17ba05",
+    "src/tests/skills-catalog.spec.ts": "926b065c18fcd83242d4944742b3063826f08141dfc69633eecf914cbef52fb8",
+    "src/tests/skills-ux.spec.ts": "1ecd915e9a6638262867fb8edcd5d461004195ee069ecd7fe270709423ecdd8f",
+    "src/tests/skills.spec.ts": "c09fac1b62d2e5959d389a122b9338496ff97c00ba397ecdd5fb471e6b8b1f71",
+    "src/tests/subscription-connections.spec.ts": "fa46e301f8e8ecc5614fe64c059ced9d826b771e3f6042845f73d7b2a990476f",
+    "src/tests/support.ts": "2cdcafcbfc836ba7f7906ab0bb217ea2847bda6ab3e0190bf9ba5a71f2c8423c",
+    "src/verify-macos-network-sandbox.ts": "6432c86f8f0c3685bf54b86f16ab39b6816593f4724d1ffb55eef61400eecf0b",
+    "src/warm-accounts-routes.ts": "4b8ae8c7f10632dbcd5789b63c2c16cf9c8ab0590a39dfa2c1eb79ccc3c43221",
+    "src/warm-next-client-scripts.ts": "79111ab997b9f86854ea84f6f9cc082177e8860f4dbeec400f8e1ed6dcf8b3dd"
+  },
+  "frozenInstall": {
+    "exitCode": 0,
+    "declaredLifecycleExecuted": true,
+    "logSha256": "80410eb43466d8d8071b96e7addfdac5b3e01bfa2478fd2243a6156d150ed92a"
+  },
+  "browserDiscovery": {
+    "exitCode": 0,
+    "tests": 77,
+    "files": 17,
+    "logSha256": "ee02e202149622610ebfd4b2f3ee60433fff6174632590ff489df358374d0fec",
+    "isBrowserExecution": false
+  },
+  "guard": "scripts/local-checks/lint-format-native-load-guard.ts",
+  "limitations": [
+    "Frozen installation and native strict project check passed; Playwright --list is discovery, not browser execution.",
+    "The supported ordinary browser runner must execute the actual tests."
+  ],
+  "nativeCheck": {
+    "command": [
+      "pnpm",
+      "--dir",
+      "scripts/accounts-reference-e2e",
+      "run",
+      "check"
+    ],
+    "exitCode": 0,
+    "sourceBeforeEqualsAfter": true,
+    "logSha256": "37f87ea5c513b234d7442f3845c0646606a4045f205d5a9678211fa7b2e75872",
+    "auditSha256": "65434a137782d00648f680127a2d5a057433076725b16272f972b3b45e74ed03"
+  },
+  "installedDependencyRoute": "The harness owns its generated lock and completed an independent frozen installation with its declared lifecycle. The integrated native check used that exact installed graph."
+}

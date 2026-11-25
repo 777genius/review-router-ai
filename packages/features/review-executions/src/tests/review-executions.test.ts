@@ -1921,6 +1921,66 @@ describe("start and admission saga", () => {
 });
 
 describe("work slots and fenced invocation leases", () => {
+  it.each(["execution", "authority"] as const)(
+    "caps lease and report windows at the absolute %s deadline",
+    async (owner) => {
+      const store = new InMemoryReviewExecutionStore();
+      const running = await prepareAndAdmit(store);
+      const notAfter = plus(10_000);
+      const input = {
+        ...leaseCommand(),
+        stream: running.stream,
+        execution: {
+          ...running.execution,
+          executionDeadlineAt:
+            owner === "execution"
+              ? notAfter
+              : running.execution.executionDeadlineAt,
+        },
+        ...(owner === "authority" ? { notAfter } : {}),
+        activeLease: null,
+        fencingToken: 1n,
+      };
+      const result = decideLeaseAcquire(input);
+      expect(result.status).toBe(LeaseAcquireDecisionStatus.Acquired);
+      if (result.status !== LeaseAcquireDecisionStatus.Acquired)
+        throw new Error("fixture_lease_not_acquired");
+      expect(result.lease.expiresAt).toEqual(notAfter);
+      expect(result.lease.resultReportUntil).toEqual(notAfter);
+      expect(result.lease.retainUntil).toEqual(input.retainUntil);
+      expect(result.execution.workSlots[0]?.nextAttemptOrdinal).toBe(2);
+    },
+  );
+
+  it.each(["execution", "authority"] as const)(
+    "does not charge a lease attempt at an expired %s deadline",
+    async (owner) => {
+      const store = new InMemoryReviewExecutionStore();
+      const running = await prepareAndAdmit(store);
+      const command = leaseCommand();
+      const input = {
+        ...command,
+        stream: running.stream,
+        execution: {
+          ...running.execution,
+          executionDeadlineAt:
+            owner === "execution"
+              ? command.now
+              : running.execution.executionDeadlineAt,
+        },
+        ...(owner === "authority" ? { notAfter: command.now } : {}),
+        activeLease: null,
+        fencingToken: 1n,
+      };
+      const before = structuredClone(input.execution);
+      expect(decideLeaseAcquire(input)).toEqual({
+        status: LeaseAcquireDecisionStatus.NotRunnable,
+      });
+      expect(input.execution).toEqual(before);
+      expect(input.execution.workSlots[0]?.nextAttemptOrdinal).toBe(1);
+    },
+  );
+
   it("reports exhausted slots after the final lease is released", () => {
     const prepared = decideExecutionPreparation({
       stream: createEmptyReviewExecutionStream(scope, baseTime),

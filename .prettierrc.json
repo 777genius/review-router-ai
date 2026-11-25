@@ -1,0 +1,3 @@
+{
+  "plugins": ["./scripts/local-checks/lint-format-native.ts"]
+}

@@ -1,0 +1,70 @@
+{
+  "status": "passed",
+  "revision": "34bb72c6e6e04439e29744f8f1ffd5c0e279f984",
+  "tree": "c1f001d40f13721e8daaf1ed3cfc72c7e5013456",
+  "node": "v26.11.1",
+  "pnpm": "11.28.7",
+  "startedAt": "2026-11-23T17:41:28.405857+00:00",
+  "finishedAt": "2026-11-23T17:44:42.729627+00:00",
+  "exitCode": 0,
+  "treeUnchanged": true,
+  "sourceUnchanged": true,
+  "locksUnchanged": true,
+  "sourceSha256": {
+    "package.json": "06ca8fdf0de3c9f3a018a4e015fb589d34b086be3105e52f2ab11fc38c55cb52",
+    "tsconfig.base.json": "0903851ee6027cdee8678f97468d09684acd834f9cd1ab88e8e41dd780e96dfc",
+    "tsconfig.tooling.json": "9d75a85a93d3581f6f432d022d31d64318a4d3bfdd2d8041e93f1f36d81b21c3",
+    "scripts/local-checks/compiler-cli.ts": "1e2294702d295253888bb7a892c3c6de8cd8fa78c6a635ac5cc5def58582c576",
+    "scripts/local-checks/compiler-cli.pilot.ts": "b91964a8641c8646560db7ef10cd3f8060d1b6799679e8f78ea294126045d6df",
+    "scripts/local-checks/compiler-pilot-fixtures.ts": "12fba77b4e3941d9bb006923b1494f6660a0b0bb2ea4ae63d6e0873961d45498",
+    "scripts/local-checks/compiler-public-surface.ts": "d317d0a5a23ddd192da491f9822a1f272578e45592ee9e614bb12b18c153c92e",
+    "scripts/local-checks/compiler-public-surface.test.ts": "70916ec460f6f434caf8fa6c97d955506e14a5b553a6c165eee12cc3760797a2",
+    "scripts/local-checks/compiler-vitest.config.ts": "8a319fcfb24986674659b60bedbf3a025056814bfabcdd0897ba365fa3e82ca3",
+    "scripts/local-checks/lint-format-native-load-guard.ts": "8c9f9a699eb7ca107fd1bc8f7d66329d4f185729b06cc8f7997dab45074a0c2a",
+    "scripts/lib/server-rendered-heading.ts": "60b4602f245388a8ed63f6eb933fca456e3e9aeb664a44091e3dc6777dc17ab3",
+    "scripts/lib/server-rendered-heading.test.ts": "67ad73c8da8e5961385b9a0d04f31253b8e42b2ea1ced3480ac400db48e2f99b",
+    "scripts/check-architecture-boundaries.mjs": "e970aa8b36888ef489fbe635937749842f967c453f8c631a4d88f2ee53ad2d21",
+    "scripts/manage-review-provider-scope-concurrency.test.ts": "0feaf6c9e9112aa6144ec0271f3e8000bf38de03a0fa92c49ff1dddb0c26df37",
+    "apps/web/app/dashboard/actions-hosted-workflow-recovery.test.ts": "be402f459a352faebcd8b708e7ac070d845aaea4a4f8604876e017cb1dcb888f",
+    "packages/protocol-review-workflow/tsconfig.build.json": "8d4729b2a26eef0c8196e8cea9ec7e45c143e5928b4c585e0cc57c01b6680d54",
+    "packages/shared/package.json": "3bf8d606451230316594b9cfa3fd5195e00c98e3c0054550d111ebb1e69fe95e",
+    "packages/shared/tsconfig.build.json": "b6d386965e52d67cc78447fbe4e564c86186851215429577e506aa6ad5905816",
+    "packages/shared/tsconfig.json": "f02e838c0efbb90723bb46ce22ba158f28d6fa46d20c81bcef848faabe9c6e62",
+    "packages/shared/src/index.ts": "c2d998b979172f6741eaf952eb1e035a4e9128ad9ea2cddd9dae07aeef6eda92",
+    "scripts/rewrite-dist-esm-imports.mjs": "c05e3ce8a8cb03f8ebc92e026c09125743ab29619debcd125224149acdc9c9df",
+    "packages/features/review-evidence/tsconfig.contract-source.json": "92233617544bb248ff6f4f358e39a0a785811adc634049f800ba40d85b4b3738"
+  },
+  "lockSha256": {
+    "pnpm-lock.yaml": "586b8b0964a6dfd02511ebf575720672fbff0b256c7d67a1366037a39149ecea",
+    "scripts/local-checks/native/pnpm-lock.yaml": "cb1892cc3de13311ca5e3d26f775bb454b4f126f6d3d29ae57928826d42a136d",
+    "scripts/review-skills-tooling/pnpm-lock.yaml": "b0316c5023e4fc350133ba3196f14fd75b0ed8921cf7060a80933a3d95029772",
+    "scripts/accounts-reference-e2e/pnpm-lock.yaml": "aba82f86213dfe72b957fa7659dab882f9acd735a887656266bd264be91c72b2"
+  },
+  "guardInstalledProcesses": 50,
+  "blockedLegacyLoads": 0,
+  "compilerVersions": ["7.0.2"],
+  "evidenceSha256": {
+    "compiler-proof.ndjson": "123f11bc8ca15feebee4983e90054f47103e29ae36524df9398f8f9ea8eb1b52",
+    "native-load-audit.ndjson": "e867200eea531a0447860e1960ad27b4511b67178aada7cfcfd0fa80a697363e",
+    "compiler-pilot.log": "5aea6004d648f74f7e93296cd246d251cdc4a5d805659a4fa5a7cd2a19662d6b"
+  },
+  "command": ["pnpm", "compiler:pilot", "--maxWorkers=1"],
+  "tests": {
+    "total": 19,
+    "passed": 19,
+    "failed": 0,
+    "skipped": 0,
+    "files": 3
+  },
+  "completeStrictToolingPreflightPassed": true,
+  "toolingRoots": 65,
+  "localSourceClosure": 1125,
+  "receiptSha256": "edd48574b3a30477cabdd7f28327790b0f44b9df003acbc1ba5181f62ddec0cd",
+  "environment": {
+    "NODE_OPTIONS": "--max-old-space-size=512 plus the repository pre-initialization load guard",
+    "GOMAXPROCS": "2",
+    "GOMEMLIMIT": "512MiB"
+  },
+  "scope": "Complete unfiltered native compiler pilot. Earlier failed attempts remain failed; this is not the separate application build, lint or browser qualification.",
+  "copiedCompilerFileInventory": 3271
+}

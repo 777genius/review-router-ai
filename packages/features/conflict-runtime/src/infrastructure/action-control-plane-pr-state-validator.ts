@@ -1,4 +1,4 @@
-import type { ActionConflictReviewRuntimeConfig } from "@reviewrouter/features-action-control-plane";
+import type { ActionConflictReviewRuntimeConfig } from "@reviewrouter/features-action-control-plane/conflict-runtime-contract";
 import type {
   ConflictRuntimePrStateValidatorPort,
   ConflictRuntimeValidationPhase,

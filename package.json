@@ -131,7 +131,7 @@
     "subscription-runtime:sync-public-mirrors": "node -e \"console.log('subscription-runtime mirrors are deprecated; use 777genius/ar')\"",
     "subscription-runtime:check": "node scripts/check-external-subscription-runtime.mjs && pnpm action:artifact:check:smoke && pnpm subscription-runtime:live-e2e:smoke",
     "subscription-runtime:release-gate": "pnpm subscription-runtime:check && pnpm codex-rotating:secret-write-boundary && pnpm action:artifact:check && pnpm exec vitest run packages/features/codex-oauth-rotating/src/tests/codex-oauth-rotating.test.ts packages/features/codex-oauth-rotating/src/tests/github-action.test.ts && pnpm architecture:check && pnpm typecheck && git diff --check",
-    "architecture:web-host-cms": "tsx scripts/check-web-host-cms-profile-cli.ts",
+    "architecture:web-host-cms": "node --import tsx scripts/check-web-host-cms-profile-cli.ts",
     "architecture:check": "node scripts/check-architecture-boundaries.mjs && pnpm architecture:web-host-cms && pnpm foundation:check && pnpm foundation:assert-dev-only && pnpm foundation:assert-registry && pnpm foundation:qualify-memory && pnpm foundation:qualify-statistics && pnpm history:architecture && pnpm metadata:architecture && pnpm metadata:typecheck",
     "github-app:check": "node scripts/run-with-env.mjs node scripts/check-github-app-readiness.mjs",
     "github-app:create": "node scripts/create-github-app-manifest.mjs",
@@ -147,7 +147,8 @@
     "release:sync-major": "node scripts/sync-major-release-tag.mjs",
     "lint:native:files": "node scripts/local-checks/lint-format-lint.mts",
     "typecheck:lint-format": "node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.lint-format.json",
-    "compiler:pilot": "node scripts/local-checks/compiler-cli.ts --legacy --noEmit -p tsconfig.tooling.json && vitest run --config scripts/local-checks/compiler-vitest.config.ts",
+    "lint:qualify": "node scripts/local-checks/lint-format-qualify.ts",
+    "compiler:pilot": "node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.tooling.json && vitest run --config scripts/local-checks/compiler-vitest.config.ts",
     "compiler:prepare": "pnpm --dir scripts/local-checks/native install --ignore-workspace --ignore-scripts --frozen-lockfile",
     "foundation:check": "agent-teams-foundation check",
     "foundation:assert-dev-only": "agent-teams-foundation assert-dev-only",
@@ -177,7 +178,7 @@
     "fastify": "^5.10.0",
     "jose": "^6.2.3",
     "lucide-react": "^1.14.0",
-    "next": "^16.2.11",
+    "next": "16.4.6",
     "nuqs": "^2.8.9",
     "pg-boss": "^12.18.2",
     "react": "^19.2.5",
@@ -189,8 +190,8 @@
     "tailwindcss": "^4.2.4",
     "zod": "^4.4.2",
     "zustand": "^5.0.12",
-    "@get-modular/core": "0.7.0",
-    "@get-modular/assembly": "0.7.0"
+    "@get-modular/core": "0.8.0",
+    "@get-modular/assembly": "0.8.0"
   },
   "optionalDependencies": {
     "@777genius/subscription-runtime": "git+https://github.com/777genius/ar.git#c7543bc716411a5f899a790a735d09ed2530f779"
@@ -198,6 +199,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "acorn": "8.16.0",
+    "@prettier/plugin-oxc": "0.2.4",
     "@prisma/adapter-pg": "7.8.0",
     "@tailwindcss/postcss": "4.2.4",
     "@testing-library/react": "^16.3.2",
@@ -207,22 +209,23 @@
     "esbuild": "0.28.1",
     "eslint": "^10.3.0",
     "jsdom": "^29.1.1",
+    "oxc-parser": "0.159.0",
     "pg": "8.23.0",
     "prettier": "^3.8.3",
     "prisma": "^7.8.0",
+    "stack-toolchain": "0.3.1",
     "tsx": "^4.23.1",
     "turbo": "^2.10.6",
-    "typescript": "^6.0.3",
-    "typescript-eslint": "^8.59.1",
+    "typescript": "7.0.2",
     "vitest": "^4.1.10",
     "yaml": "^2.9.0",
     "oxlint": "1.87.0",
     "oxfmt": "0.72.0",
-    "@agent-teams/engineering-foundation": "2.1.0",
+    "@agent-teams/engineering-foundation": "3.1.0",
     "playwright-core": "1.64.1",
     "@types/pg": "8.23.1",
-    "@get-modular/conformance": "0.5.0",
-    "@get-modular/resources": "0.2.1"
+    "@get-modular/conformance": "0.5.2",
+    "@get-modular/resources": "0.2.2"
   },
   "license": "Apache-2.0"
 }
