@@ -48,6 +48,7 @@ function fixture(legacyFeaturePackages: readonly string[] = ["legacy"]): string 
   }));
   put(root, "architecture/consumer-module-standard/legacy-feature-packages.json",
     JSON.stringify({ schemaVersion: 1, legacyFeaturePackages }));
+  put(root, "architecture/foundation/provider-seams.yaml", "schemaVersion: 1\ngovernedRoots: []\n");
   return root;
 }
 
@@ -126,7 +127,22 @@ describe("Get Modular default for new feature packages", () => {
       "import { declareModule } from '@get-modular/assembly'; export const item = declareModule({});\n");
     put(root, "packages/features/new-feature/src/composition/root.test.ts",
       "import { it } from 'vitest'; it('composition', () => {});\n");
+    // Adding the new package to the Foundation profile is mandatory.
+    put(root, "architecture/foundation/provider-seams.yaml",
+      "schemaVersion: 1\\ngovernedRoots:\\n  - packages/features/new-feature/src\\n");
     expect(await violations(root)).toEqual([]);
+  });
+
+  it("rejects new packages omitted from Engineering Foundation governance", async () => {
+    const root = fixture();
+    newPackage(root);
+    put(root, "packages/features/new-feature/src/composition/root.ts",
+      "import { declareModule } from '@get-modular/assembly'; export const item = declareModule({});\\n");
+    put(root, "packages/features/new-feature/src/composition/root.test.ts",
+      "import { it } from 'vitest'; it('composition', () => {});\\n");
+    expect((await violations(root)).map(({ reason }) => reason)).toContain(
+      "New feature packages must be covered by Engineering Foundation source dependencies",
+    );
   });
 
   it("rejects edits that silently duplicate legacy baseline entries", async () => {
