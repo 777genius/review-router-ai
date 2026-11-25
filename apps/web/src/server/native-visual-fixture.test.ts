@@ -4,8 +4,8 @@ import {
   VISUAL_NATIVE_DOCUMENT,
   VISUAL_NATIVE_PROFILE,
   VISUAL_NATIVE_SECRET,
-} from "./native-catalog-fixture.js";
-import { startGatewayCatalogFixture } from "./gateway-catalog-fixture.js";
+} from "../../../../scripts/provider-setup-visual/native-catalog-fixture.js";
+import { startGatewayCatalogFixture } from "../../../../scripts/provider-setup-visual/gateway-catalog-fixture.js";
 
 it("serves native models and metadata only for the current enrolled authority", async () => {
   const fixture = await startGatewayCatalogFixture({
@@ -16,7 +16,6 @@ it("serves native models and metadata only for the current enrolled authority", 
     fixture.environment.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "";
   const token =
     fixture.environment.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN ?? "";
-  const client = createManagementClient({ role: "management", origin, token });
   const post = (path: string, body: unknown) =>
     fetch(origin + path, {
       method: "POST",
@@ -40,6 +39,11 @@ it("serves native models and metadata only for the current enrolled authority", 
     secret: VISUAL_NATIVE_SECRET,
   };
   try {
+    const client = createManagementClient({
+      role: "management",
+      origin,
+      token,
+    });
     const enrolled = await post("/v3/accounts/connections/begin", {
       operationId: "10000000-0000-4000-8000-000000000001",
       ownerRef,
@@ -113,12 +117,17 @@ it("serves native models and metadata only for the current enrolled authority", 
       expect(response.status).toBe(403);
       expect(await response.json()).toEqual({ error: "binding_unavailable" });
     }
-    const malformed = await post("/v2/account-models/read", {
-      ...current,
-      unexpected: true,
-    });
-    expect(malformed.status).toBe(400);
-    expect(await malformed.json()).toEqual({ error: "invalid_models_request" });
+    for (const malformed of [
+      null,
+      [],
+      { ...current, unexpected: true },
+      { ...current, expectedAuthorizationEpoch: "2" },
+      { ...current, forceRefresh: "true" },
+    ]) {
+      const response = await post("/v2/account-models/read", malformed);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "invalid_models_request" });
+    }
     const legacy = await post("/v1/account-models/read", current);
     expect(legacy.status).toBe(404);
     await legacy.arrayBuffer();

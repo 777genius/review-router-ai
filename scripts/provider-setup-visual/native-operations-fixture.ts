@@ -1,5 +1,4 @@
 import type { IncomingMessage } from "node:http";
-import * as c from "@agent-teams/account-gateway/contracts";
 import {
   VISUAL_NATIVE_COMPLETION,
   VISUAL_NATIVE_DOCUMENT,
@@ -19,6 +18,39 @@ type Account = {
   metadataRevision: number;
   authorizationEpoch: number;
 };
+type ModelRead = {
+  ownerRef: string;
+  accountRef: string;
+  profileId: string;
+  expectedAuthorizationEpoch: number;
+  forceRefresh?: boolean;
+};
+const modelReadFields = new Set([
+  "ownerRef",
+  "accountRef",
+  "profileId",
+  "expectedAuthorizationEpoch",
+  "forceRefresh",
+]);
+
+function isModelRead(input: unknown): input is ModelRead {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return false;
+  return (
+    Object.keys(input).every((key) => modelReadFields.has(key)) &&
+    "ownerRef" in input &&
+    typeof input.ownerRef === "string" &&
+    "accountRef" in input &&
+    typeof input.accountRef === "string" &&
+    "profileId" in input &&
+    typeof input.profileId === "string" &&
+    "expectedAuthorizationEpoch" in input &&
+    typeof input.expectedAuthorizationEpoch === "number" &&
+    Number.isSafeInteger(input.expectedAuthorizationEpoch) &&
+    input.expectedAuthorizationEpoch > 0 &&
+    (!("forceRefresh" in input) || typeof input.forceRefresh === "boolean")
+  );
+}
+
 type Receipt = {
   operation: Record<string, unknown>;
   connection: {
@@ -86,11 +118,13 @@ export function createNativeOperationsFixture() {
       send: (status: number, body: unknown) => void,
     ): Promise<boolean> {
       if (request.method === "POST" && path === "/v2/account-models/read") {
-        let input: c.AccountModelsRequest;
+        let input: ModelRead;
         try {
           let raw = "";
           for await (const chunk of request) raw += String(chunk);
-          input = c.accountModelsRequest.parse(JSON.parse(raw));
+          const parsed: unknown = JSON.parse(raw);
+          if (!isModelRead(parsed)) throw new Error("invalid model request");
+          input = parsed;
         } catch {
           send(400, { error: "invalid_models_request" });
           return true;
