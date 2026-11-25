@@ -1,5 +1,6 @@
 /** Loopback-only Codex Responses proxy and its upstream boundaries. */
 import { randomBytes } from "node:crypto";
+import { once } from "node:events";
 import http from "node:http";
 import type { UsageDelivery } from "./provider-usage-delivery.js";
 import {
@@ -80,6 +81,15 @@ export async function startCodexLocalProviderProxy(input: {
           return;
         }
         const upstreamController = new AbortController();
+        const cancelDisconnectedClient = () => {
+          if (!res.writableFinished)
+            upstreamController.abort(new Error("proxy_client_disconnected"));
+        };
+        res.once("close", cancelDisconnectedClient);
+        if (res.destroyed) {
+          res.off("close", cancelDisconnectedClient);
+          return;
+        }
         activeUpstreamRequests.add(upstreamController);
         const usage = input.usageDelivery
           ? createResponsesUsageObserver(input.usageDelivery, "", "codex")
@@ -98,13 +108,19 @@ export async function startCodexLocalProviderProxy(input: {
           });
           usage?.responseReceived();
           failed = !upstream.ok;
-          await writeProxyUpstreamResponse(res, upstream, usage);
+          await writeProxyUpstreamResponse(
+            res,
+            upstream,
+            upstreamController.signal,
+            usage,
+          );
         } catch (error) {
           failed = true;
           throw error;
         } finally {
           usage?.finish(failed, upstreamController.signal.aborted);
           activeUpstreamRequests.delete(upstreamController);
+          res.off("close", cancelDisconnectedClient);
         }
       } catch {
         writeProxyError(res, 502, "proxy_upstream_failed");
@@ -221,8 +237,14 @@ function readProxyRequestBody(req: http.IncomingMessage): Promise<Buffer> {
 async function writeProxyUpstreamResponse(
   res: http.ServerResponse,
   upstream: Response,
+  signal: AbortSignal,
   usage?: ReturnType<typeof createResponsesUsageObserver>,
 ): Promise<void> {
+  if (signal.aborted || res.destroyed) {
+    void upstream.body?.cancel().catch(() => undefined);
+    signal.throwIfAborted();
+    return;
+  }
   const headers: Record<string, string> = {};
   const contentType = upstream.headers.get("content-type");
   if (contentType) {
@@ -234,19 +256,27 @@ async function writeProxyUpstreamResponse(
     return;
   }
   const reader = upstream.body.getReader();
+  const cancelReader = () => {
+    void reader.cancel(signal.reason).catch(() => undefined);
+  };
+  signal.addEventListener("abort", cancelReader, { once: true });
   const usageStream = usage
     ? createResponsesUsageStreamObserver(usage, contentType)
     : undefined;
   try {
     for (;;) {
       const { done, value } = await reader.read();
+      signal.throwIfAborted();
       if (done) break;
       usageStream?.chunk(value);
-      res.write(Buffer.from(value));
+      if (!res.write(Buffer.from(value))) await once(res, "drain", { signal });
     }
     usageStream?.end();
     res.end();
   } finally {
+    signal.removeEventListener("abort", cancelReader);
+    // Also cancel on a downstream write error before releasing the reader.
+    if (signal.aborted || res.destroyed) cancelReader();
     reader.releaseLock();
   }
 }
