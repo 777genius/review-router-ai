@@ -7,7 +7,7 @@ import { PrismaGitHubInstallationRepository } from "../../../github-installation
 function fixture() {
   const events: string[] = [];
   const guarded = (name: string, value: unknown) =>
-    vi.fn(async (_input?: unknown) => {
+    vi.fn<(input?: unknown) => Promise<unknown>>(async () => {
       events.push(name);
       return value;
     });

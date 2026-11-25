@@ -227,13 +227,11 @@ describe("GitHub user authorization", () => {
       const { prisma, row, deleteMany } = fixture(
         expired ? { refreshTokenExpiresAt: new Date(0) } : {},
       );
-      const fetchMock = vi
-        .fn()
-        .mockResolvedValue(
-          new Response(JSON.stringify({ error: "bad_refresh_token" }), {
-            status: 400,
-          }),
-        );
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: "bad_refresh_token" }), {
+          status: 400,
+        }),
+      );
       await expect(
         getValidGitHubUserAccessToken({
           prisma,
