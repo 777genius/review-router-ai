@@ -28,9 +28,32 @@ Five focused tests failed on the previous implementation for the intended
 ordering reasons; the repaired focused suites passed 19/19. The wider affected
 context/API consumer suites passed 79/79 without skips, including the existing
 signed gateway, replay, AEAD and cancellation coverage. Both original strict
-context and API projects passed on TypeScript 7.0.2. Further checker findings,
-lease deadline/revocation races, independent review and the current local
-production/paired Action E2E are tracked as ongoing work, not completed gates.
+context and API projects passed on TypeScript 7.0.2.
+
+The next confirmed finding concerned lease authority across awaited work:
+acquisition could issue a capability after authorization expiry/revocation or
+with a stored deadline extended beyond its authority by database-clock
+rebasing. Acquisition now reuses the renewal path's current-authority validator
+before signing and releases rejected grants. A separate absolute `notAfter`
+bound survives clock rebasing; the domain caps both windows at that bound and
+the execution deadline, and rejects expired bounds before charging an attempt.
+An additional review found expiry during admission/identity preparation; the
+host now rejects it before submitting a malformed relative-duration command.
+Exact acquisition retries retain their original immutable term and undergo
+the same current-authority check. No wire format or migration changed.
+
+Nine API/domain regressions were first observed failing on the corresponding
+previous behavior. The final affected execution/API/flight suites passed
+154/154; real PostgreSQL execution/recovery passed 48/48, including three new
+absolute-bound cases, with 165 full and 82 historical migrations plus canonical
+role handoff. The original execution strict project passed. Two concurrent API
+strict attempts were terminated by SIGKILL without a diagnostic; a subsequent
+isolated original API strict run passed. Failed attempts remain failed evidence;
+no timeout, compiler rule or project scope was weakened. Independent review
+checked deadline clipping, current authority, immutable retries and budget order.
+
+Checker corrections and current production/paired Action/browser E2E remain
+ongoing until their actual stable-source execution and cleanup are recorded.
 
 ## Priority expansion — 2026-11-24
 

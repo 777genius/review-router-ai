@@ -134,6 +134,7 @@ export type LeaseAcquireTransitionInput = {
   readonly now: Date;
   readonly expiresAt: Date;
   readonly resultReportUntil: Date;
+  readonly notAfter?: Date;
   readonly retainUntil: Date;
   readonly limits: ReviewExecutionLimits;
 };
@@ -144,9 +145,14 @@ export function decideLeaseAcquire(
   assertLeaseAcquireInput(input);
   assertSameScope(input.stream, input.execution, "lease_execution");
   assertSameScope(input.execution, input.scope, "lease_command");
+  const notAfter = Math.min(
+    input.execution.executionDeadlineAt.getTime(),
+    input.notAfter?.getTime() ?? Number.POSITIVE_INFINITY,
+  );
   if (
     input.stream.activeExecutionId !== input.execution.executionId ||
-    input.execution.state !== ReviewExecutionState.Running
+    input.execution.state !== ReviewExecutionState.Running ||
+    notAfter <= input.now.getTime()
   ) {
     return { status: LeaseAcquireDecisionStatus.NotRunnable };
   }
@@ -246,8 +252,10 @@ export function decideLeaseAcquire(
     state: ReviewInvocationLeaseState.Active,
     acquiredAt: new Date(input.now),
     renewedAt: new Date(input.now),
-    expiresAt: new Date(input.expiresAt),
-    resultReportUntil: new Date(input.resultReportUntil),
+    expiresAt: new Date(Math.min(input.expiresAt.getTime(), notAfter)),
+    resultReportUntil: new Date(
+      Math.min(input.resultReportUntil.getTime(), notAfter),
+    ),
     retainUntil: new Date(input.retainUntil),
   };
   return {
@@ -480,6 +488,8 @@ function assertLeaseExecutionRelation(
 
 function assertLeaseAcquireInput(input: LeaseAcquireTransitionInput): void {
   assertReviewExecutionScope(input.scope);
+  if (input.notAfter !== undefined)
+    assertDate(input.notAfter, "lease_not_after");
   for (const [value, field] of [
     [input.workSlotId, "work_slot_id"],
     [input.leaseId, "lease_id"],
