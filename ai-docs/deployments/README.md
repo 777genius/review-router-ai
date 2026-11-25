@@ -31,6 +31,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+Scoped dashboard/worker modular refactor: [combined delivery and qualification](2026-11-25-scoped-modular-refactor.md), [PR #998](https://github.com/777genius/review-router-ai/pull/998) — includes the source of #999–#1002 and #1004; current-head E2E/CI qualification remains pending. Ordinary Web/worker rollout only, no migration or activation change; staging/production `pending`, no deployment authorized.
+
 Review dispatch past busy pull requests: [filter already occupied scopes before limiting due work](2026-11-23-review-requested-busy-scopes.md), [PR #994](https://github.com/777genius/review-router-ai/pull/994) - API/worker ordinary rollout; staging and production `pending`. No migration; transactional claim and fencing remain authoritative.
 
 PR #977 current CI correction (2026-11-25): [bounded installer, Skills and compiler-pilot repairs and recovered E2E](2026-11-23-architecture-phase2.md#current-ci-corrections-and-recovered-e2e--2026-11-25), [source-bound evidence](evidence/2026-11-25-pr977-ci-corrections.json) — `03aef06c` passed native Action72, exact OCR, complete fresh PostgreSQL paired45 and actual Native Accounts34. Its main installer failures and Skills23/24 timeout remain recorded. Exact reviewed workspace decisions, the held-response helper and the stale compiler-pilot wrapper check are corrected; all 35 installer cases, all 19 compiler-pilot cases, original full tooling strict and scoped lint/format pass with TypeScript 7.0.2 only. Corrected-head CI and full Skills/browser acceptance, protected merge and post-merge verification remain pending. Ready, unmerged; no deployment.
