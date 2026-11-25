@@ -461,6 +461,34 @@ describe("usage producer protocol transport boundary", () => {
     expect(() => runChecker(root)).toThrow(/narrow published contracts/);
   });
 
+
+  it.each([
+    'void import(`@reviewrouter/features-action-control-plane`);\n',
+    'void import(/* reviewed */ "@reviewrouter/features-action-control-plane");\n',
+    'type Contract = import(/* reviewed */ "@reviewrouter/features-action-control-plane").ActionConflictReviewRuntimeConfig;\n',
+    'import Contract = require("@reviewrouter/features-action-control-plane");\n',
+    'const target = "@reviewrouter/features-action-control-plane"; void import(target);\n',
+    'const target = "@reviewrouter/features-action-control-plane"; require(target);\n',
+  ])("rejects hidden or computed eager-root imports in conflict runtime", (leak) => {
+    const root = protocolFixture();
+    writeFile(
+      root,
+      "packages/features/conflict-runtime/src/application/leaked.ts",
+      leak,
+    );
+    expect(() => runChecker(root)).toThrow(/narrow published contracts/);
+  });
+
+  it("ignores module syntax inside comments and strings in the contract owner", () => {
+    const root = protocolFixture();
+    writeFile(
+      root,
+      "packages/features/action-control-plane/src/domain/conflict-review-runtime-contract.ts",
+      '// import("unapproved-example");\nconst example = \'import("unapproved-example")\';\n',
+    );
+    expect(runChecker(root)).toContain("Architecture boundary check passed");
+  });
+
   it("permits the two pre-existing outer adapters to consume unrelated legacy Action APIs", () => {
     const root = protocolFixture();
     writeFile(
@@ -493,6 +521,12 @@ describe("usage producer protocol transport boundary", () => {
     'export { PrismaActionControlPlaneRepository } from "../infrastructure/prisma/prisma-action-control-plane-repository.js";\n',
     'import type { GatewaySession } from "@reviewrouter/features-review-context-attestation";\n',
     'export * from "../index.js";\n',
+    'void import(`../infrastructure/prisma/prisma-action-control-plane-repository.js`);\n',
+    'void import(/* reviewed */ "../infrastructure/prisma/prisma-action-control-plane-repository.js");\n',
+    'type Adapter = import(/* reviewed */ "../infrastructure/prisma/prisma-action-control-plane-repository.js").PrismaActionControlPlaneRepository;\n',
+    'import Adapter = require("../infrastructure/prisma/prisma-action-control-plane-repository.js");\n',
+    'const target = "../infrastructure/prisma/prisma-action-control-plane-repository.js"; void import(target);\n',
+    'const target = "zod"; require(target);\n',
   ])("rejects leaking dependencies from the standalone domain owner", (leak) => {
     const root = protocolFixture();
     writeFile(
