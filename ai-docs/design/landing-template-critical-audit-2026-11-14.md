@@ -1,4 +1,5 @@
 # ReviewRouter landing — critical template audit
+
 As of 2026-11-14. **This is source-level research, not a rendered browser audit.** Read [deep candidate comparison](./landing-template-deep-research-2026-11-13.md) first.
 
 ## Decision to reconsider
@@ -6,6 +7,7 @@ As of 2026-11-14. **This is source-level research, not a rendered browser audit.
 Previous reports ranked Tailark Dusk 7 as if it were already a "living" ready-to-deploy website. This overstates what is shipped: hero 7 is a mostly static React Server Component whose product is an image. It has two example links with `href="#"`, a generic `/mail2.png` screenshot, an external Unsplash image and a logo cloud. Its full landing composition imports pricing, generic stats and other marketing blocks. User wants **a live product story with minimal text**, not a generic CRM landing with new colors. Therefore the exact complete page is **not** a drop-in replacement. Treat it as a high-quality layout reference and reusable shell.
 
 Other previously overstated facts:
+
 - Velora free has **one complete SaaS landing design across nine routes**, not nine alternative landing designs; marketing claims about "perfect Lighthouse" are not independently verified.
 - Launch UI has one free site with 9 marketing sections, not 9 separate template worlds.
 - Actual browser-rendered and keyboard comparisons of vendor demo sites have not yet been performed because the available GitHub source connection cannot run their pages, and local container DNS cannot reach external sites.
@@ -16,6 +18,7 @@ Other previously overstated facts:
 
 **Tailark Dusk hero 7:**
 `registry/bases/radix/dusk/blocks/hero-section/seven/hero-section.tsx`
+
 - 84 LOC; server component, no state/JS interaction; contains a CRM headline, two placeholder `#` CTAs, product image `/mail2.png`, one Unsplash image and logo cloud.
 - It returns its own header AND `<main>`; copying directly into ReviewRouter's existing `<main>` and global header would duplicate landmarks and navigation.
 - Page 7 composition imports 9 blocks incl. pricing, FAQ, call-to-action and footer. Porting the entire page adds filler or false claims; copy layout scaffolding rather than every block.
@@ -24,6 +27,7 @@ Other previously overstated facts:
 
 **Velora complete SaaS:**
 `src/app/templates/saas/page.tsx` ~673 LOC; imports many decorative pieces (Aurora, blur reveals, animated text, marquee, Dock, Bento, NumberTicker) and sample testimonials, numbers, pricing and logos. Good full landing example, poor drop-in: you'd delete large parts.
+
 - Core `src/components/velora/blur-fade.tsx` and `number-ticker.tsx` use `useReducedMotion`; this is a positive real implementation detail, but it doesn't guarantee accessibility for the whole page.
 - `src/components/blocks/hero-screenshot.tsx` is ~334 lines and demonstrates a FAKE analytics screen, not an authenticated ReviewRouter preview. Importing this along with real dashboard components creates duplicate UI and risks invented data.
 - Repository docs supply compressed per-component sizes but those are not **measured full-page bundle/LCP/INP** in the ReviewRouter build. Avoid conflating.
@@ -38,6 +42,7 @@ Other previously overstated facts:
 ## Product-claim gate
 
 Existing ReviewRouter `docs/capabilities.md` supports provider selection, review statistics and **known** token/cost data, but coverage can be incomplete and optional features vary by rollout. The account-limit docs explicitly distinguish observed quotas/estimated usage from enforceable dollar spending limits. **Do not advertise "enforced budgets", absolute "full cost control" or exact zero dollars unless implemented and proven.** Preferred copy: **Bring your AI. Choose the model. See known tokens and estimated costs.** Point to details for missing coverage.
+
 - Free-to-start is under `/fair-use` quotas; AI/CI charges are external.
 - Default self-managed CI executes the review, but selected model provider receives review context; avoid "code never leaves the network".
 - Alibaba upstream benchmark reports roughly 9× fewer tokens than Claude Code in test conditions, faster average time and *lower recall*; not ReviewRouter's own 9× wall-clock or cost measurement.
@@ -46,16 +51,16 @@ Existing ReviewRouter `docs/capabilities.md` supports provider selection, review
 
 Subjective engineering/product-fit assessment (1–10, source-backed where noted, unmeasured UX columns marked subjective). WEIGHTS: visual comprehension/section hierarchy 30%, compatibility/risk 25%, ready-made usable source 20%, functional motion 15%, license/maintainability 10%. These are not Lighthouse scores or comparative controlled browser tests.
 
-| Candidate | Hierarchy 30 | Fit/integration 25 | Reuse 20 | Motion 15 | License/maturity 10 | Decision |
-| --- | --- | --- | --- | --- | --- | --- |
-| Tailark Dusk 7 **as complete page** | 8.5 | 6.5 | 6 | 2 | 7 | Not an actual ready dynamic site; includes CRM filler |
-| Tailark Dusk 7 **as section shell** | 9 | 8 | 8 | 3 | 8 | **Preferred shell donor** |
-| Tailark Dusk 2 **as hero shell** | 9 | 8 | 8 | 2 | 8 | Good wide screenshot alternative, check mobile crop |
-| Launch UI sections | 8.5 | 9 | 8.5 | 3 | 8 | Safest engineering/SEO donor |
-| Velora **whole SaaS site** | 7 | 5 | 5.5 | 9 | 6.5 | High decoration and code/UX clean-up |
-| Velora **selected screenshot/motion blocks** | 8 | 7.5 | 7 | 8 | 6.5 | Good selectively, avoid duplicate dashboard |
-| Page UI Gnomie **whole site** | 7 | 3.5 | 5 | 6.5 | 7 | Theme and externally hosted video problem |
-| Page UI **product-tour interaction only** | 9 | 8 | 7 | 8.5 | 7 | Most effective single product-UX pattern |
+| Candidate                                    | Hierarchy 30 | Fit/integration 25 | Reuse 20 | Motion 15 | License/maturity 10 | Decision                                              |
+| -------------------------------------------- | ------------ | ------------------ | -------- | --------- | ------------------- | ----------------------------------------------------- |
+| Tailark Dusk 7 **as complete page**          | 8.5          | 6.5                | 6        | 2         | 7                   | Not an actual ready dynamic site; includes CRM filler |
+| Tailark Dusk 7 **as section shell**          | 9            | 8                  | 8        | 3         | 8                   | **Preferred shell donor**                             |
+| Tailark Dusk 2 **as hero shell**             | 9            | 8                  | 8        | 2         | 8                   | Good wide screenshot alternative, check mobile crop   |
+| Launch UI sections                           | 8.5          | 9                  | 8.5      | 3         | 8                   | Safest engineering/SEO donor                          |
+| Velora **whole SaaS site**                   | 7            | 5                  | 5.5      | 9         | 6.5                 | High decoration and code/UX clean-up                  |
+| Velora **selected screenshot/motion blocks** | 8            | 7.5                | 7        | 8         | 6.5                 | Good selectively, avoid duplicate dashboard           |
+| Page UI Gnomie **whole site**                | 7            | 3.5                | 5        | 6.5       | 7                   | Theme and externally hosted video problem             |
+| Page UI **product-tour interaction only**    | 9            | 8                  | 7        | 8.5       | 7                   | Most effective single product-UX pattern              |
 
 Scores are illustrative evaluations to make trade-offs explicit. Do not cite them as benchmarks.
 
@@ -126,6 +131,7 @@ Build three **same-brand/same-content** isolated preview routes using the true R
 ### A. Why the live page is cognitively crowded (verified content structure)
 
 The root App Router page `apps/web/app/page.tsx` renders `HomeHero`, `HomeFeatures`, `CompareSection`, `HomeFaq`, `HomeFinalCta` in sequence. The corresponding 7 TSX source files including `HomeCtaCluster` total ~58 KB **source text** (NOT network payload), and the main public `compare-section.tsx` is ~25 KB source. The page has:
+
 - The hero contains three setup steps with explanatory paragraphs, three extra security/status signals and GitHub/GitLab calls to action. Desktop/mobile step markups both exist in source for breakpoints; do NOT count both as simultaneously visible.
 - Six feature rows repeat privacy, keys and source themes, each with explanatory copy, plus a separate boundary diagram.
 - A long eight-competitor matrix and execution-boundary comparison consume homepage real estate despite a dedicated `/compare` page already rendering `CompareSection` with heading-level support.
@@ -163,6 +169,7 @@ The root App Router page `apps/web/app/page.tsx` renders `HomeHero`, `HomeFeatur
 ### E. Do not overpay for proving a template
 
 Previous plans suggested three **complete** template prototypes; that would be inefficient given a mature Next.js production app. Instead:
+
 1. Record screenshots/current behavior of baseline (not yet done). Freeze same brand, copy, logo and sanitized fixture in each candidate.
 2. Build only **two first-viewport prototypes**: native-layout simplification vs Launch UI section shell. Dusk 7 is challenger if it materially improves hierarchy/visual identity in source/wireframe evaluation; Forge only donates one interaction concept.
 3. Run one desktop+one mobile accessibility/legibility pass; show user the two actual browser captures. Short 5-second comprehension review by non-contributor readers (what is it, free vs paid, what CTA does) helps judge hierarchy; tiny samples are qualitative, not statistical A/B results.
