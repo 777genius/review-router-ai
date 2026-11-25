@@ -27,7 +27,7 @@ env:
 jobs:
   recover-and-qualify:
     if: ${{ github.repository == '777genius/review-router-ai' && github.ref == 'refs/heads/work/rr959-integration-build-20261125' }}
-    runs-on: ubuntu-latest
+    runs-on: hci-review-router-linux
     timeout-minutes: 60
     defaults:
       run:
