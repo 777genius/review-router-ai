@@ -1,4 +1,5 @@
 name: One-shot formatter qualification 20261125
+# Temporary read-only capture; never promote to main.
 on:
   push:
     branches:
