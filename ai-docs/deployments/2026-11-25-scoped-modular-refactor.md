@@ -3,7 +3,7 @@
 - Task ID: `2026-11-25-scoped-modular-refactor`
 - Goal: retain dashboard setup and review-worker behavior while moving the changed responsibilities into focused modules and enforcing the accepted new-feature composition policy.
 - Affected services/targets: Web and worker; provider catalog composition and repository verification tooling.
-- Implementation PR: [#998](https://github.com/777genius/review-router-ai/pull/998), consolidating #999, #1000, #1001, #1002, and #1004.
+- Implementation PR: [#998](https://github.com/777genius/review-router-ai/pull/998), consolidating #999, #1000, #1001, #1004, and the agent-workflow/suppression portion of #1002. The new global Markdown capability remains a separate candidate in existing Draft [#1002](https://github.com/777genius/review-router-ai/pull/1002).
 - Implementation reference: consolidation `284c4a8b9ba76020d1e507ec49f4f29713e7fd3b`; correction checkpoint `5f4e6db90cd3072489d8c2ffb49ce7a2e397a6fc`. Later qualification commits remain in #998. Neither checkpoint is evidence of merge or installation.
 - Dependencies: the normal authorized application release and its required checks. Parallel provider work #959 and observation recovery #1003 are outside this implementation batch.
 - Last updated: `2026-11-25`.
@@ -25,6 +25,8 @@ of verified completion, not an observation that the code is absent.
 - Keep Get Modular Core/Assembly 0.8.0 and Engineering Foundation 3.1.0 at their
   accepted pins. The 43-package historical composition baseline and six documented
   legacy suppression gaps are not claims of complete legacy conformance.
+- Keep the global Markdown activation pending in #1002 until its native policy
+  can preserve the frozen release-evidence bytes and the full intended roots.
 - Require exact-head quality CI, strict native TypeScript 7.0.2, the existing
   production database E2E, and authenticated Next/browser qualification before merge.
 - Select a reviewed release containing this implementation under the

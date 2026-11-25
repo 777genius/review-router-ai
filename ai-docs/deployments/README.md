@@ -31,7 +31,7 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
-Scoped dashboard/worker modular refactor: [combined delivery and qualification](2026-11-25-scoped-modular-refactor.md), [PR #998](https://github.com/777genius/review-router-ai/pull/998) — includes the source of #999–#1002 and #1004; current-head E2E/CI qualification remains pending. Ordinary Web/worker rollout only, no migration or activation change; staging/production `pending`, no deployment authorized.
+Scoped dashboard/worker modular refactor: [combined delivery and qualification](2026-11-25-scoped-modular-refactor.md), [PR #998](https://github.com/777genius/review-router-ai/pull/998) — combines #999, #1000, #1001, #1004 and the agent-workflow/suppression portion of #1002; the global Markdown candidate remains in Draft #1002. Current-head E2E/CI qualification remains pending. Ordinary Web/worker rollout only, no migration or activation change; staging/production `pending`, no deployment authorized.
 
 Review dispatch past busy pull requests: [filter already occupied scopes before limiting due work](2026-11-23-review-requested-busy-scopes.md), [PR #994](https://github.com/777genius/review-router-ai/pull/994) - API/worker ordinary rollout; staging and production `pending`. No migration; transactional claim and fencing remain authoritative.
 
