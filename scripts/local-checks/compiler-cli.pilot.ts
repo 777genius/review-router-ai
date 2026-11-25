@@ -560,8 +560,11 @@ describe("pinned native compiler boundary", () => {
     expect(() =>
       transformSync("export const value: = 42;", { loader: "ts" }),
     ).toThrow();
+    const architectureWrapper = "scripts/check-architecture-boundaries.mjs";
     for (const path of [
-      "scripts/check-architecture-boundaries.mjs",
+      architectureWrapper,
+      "scripts/architecture-boundaries/check.ts",
+      "scripts/architecture-boundaries/transaction-serialization.ts",
       "scripts/manage-review-provider-scope-concurrency.test.ts",
       "apps/web/app/dashboard/actions-hosted-workflow-recovery.test.ts",
     ]) {
@@ -569,7 +572,46 @@ describe("pinned native compiler boundary", () => {
       const source = readFileSync(consumer, "utf8");
       const parsed = parseSync(consumer, source);
       expect(parsed.errors).toEqual([]);
-      expect(parsed.program.body.length).toBeGreaterThan(10);
+      if (path === architectureWrapper) {
+        // The CLI delegates to the separately qualified TypeScript policy.
+        const checkerImport = parsed.program.body.find(
+          (node) =>
+            node.type === "ImportDeclaration" &&
+            node.source.value === "./architecture-boundaries/check.ts",
+        );
+        expect(checkerImport).toMatchObject({
+          specifiers: [
+            {
+              type: "ImportSpecifier",
+              imported: { name: "checkArchitectureBoundaries" },
+              local: { name: "checkArchitectureBoundaries" },
+            },
+          ],
+        });
+        const initializers = parsed.program.body.flatMap((node) =>
+          node.type === "VariableDeclaration"
+            ? node.declarations.map((declaration) => declaration.init)
+            : [],
+        );
+        expect(initializers).toContainEqual(
+          expect.objectContaining({
+            type: "AwaitExpression",
+            argument: expect.objectContaining({
+              type: "CallExpression",
+              callee: expect.objectContaining({
+                type: "Identifier",
+                name: "checkArchitectureBoundaries",
+              }),
+              arguments: [
+                expect.objectContaining({ type: "Identifier", name: "root" }),
+              ],
+              optional: false,
+            }),
+          }),
+        );
+      } else {
+        expect(parsed.program.body.length).toBeGreaterThan(10);
+      }
       const output = transformSync(source, {
         loader: path.endsWith(".mjs") ? "js" : "ts",
         sourcefile: consumer,

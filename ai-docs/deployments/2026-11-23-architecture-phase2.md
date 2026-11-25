@@ -8,7 +8,34 @@
 - Dependencies: reconcile prior [#810](https://github.com/777genius/review-router-ai/pull/810) and [#914](https://github.com/777genius/review-router-ai/pull/914) (already merged), active Native/Gateway provider [#959](https://github.com/777genius/review-router-ai/pull/959), compiler stack #967–#975 and qualified modular consumer #976; preserve their actual owners. No unrelated upstream merge is authorized.
 - Last updated: 2026-11-25.
 
-## Current consumer-native paired qualification — 2026-11-25
+## Current CI corrections and recovered E2E — 2026-11-25
+
+PR #977 remains Ready and unmerged. The [correction evidence](evidence/2026-11-25-pr977-ci-corrections.json)
+binds completed `03aef06c` native Action72, exact OCR reproduction, complete
+paired45 on a fresh 165-migration PostgreSQL 17 database and the independently
+validated Native Accounts34 artifact. Original failed attempts remain failed;
+the local paired history prerequisite was repaired by ordinary authentic fetch,
+with no verifier or producer-source change.
+
+The next bounded correction fixes the actual main CI install-policy mismatch
+for already-reviewed `stack-toolchain@0.3.1` and `bun@1.4.3: false`, retaining exact identities and
+all credential lifecycle fences. It also replaces the unresolved Skills helper
+transport-finish wait with an explicit successful exact browser-response check.
+All original product/browser assertions, 24 scenarios and time budgets remain.
+All 35 installer cases, guarded lint/format and the original full tooling strict
+project pass; actual corrected-head main and Skills browser qualification is
+pending. A third correction replaces the stale compiler-pilot CLI-size check
+with native AST delegation checks and adds the extracted coordinator/transaction
+visitor to the real governed sources; the original full strict command and
+all 19 maintained pilot cases pass in 52.681 seconds, with TypeScript 7.0.2
+only and unchanged four-file code inputs. These are
+CI/test-tooling changes, not a provider or product contract
+change. Staging and production remain pending; no rollout is authorized.
+
+See the [current plan](../plans/2026-11-23-reviewrouter-architecture-phase2.md#current-ci-corrections-and-recovered-e2e--2026-11-25).
+The earlier checkpoints below preserve their original source/time boundaries.
+
+## Earlier consumer-native paired qualification checkpoint — 2026-11-25
 
 PR #977 remains Ready and unmerged. The consumer now prepares an explicit native
 qualification profile for immutable Action `1112a0f1`, preserving its source,
@@ -31,7 +58,7 @@ The first strict attempt's concrete typing error is fixed; its failed result is
 retained. Actual paired Jest execution
 and current browser/paired45/required CI acceptance remain pending. Earlier full
 architecture/tooling and fresh production17 results retain their actual source
-`980583c6`. See the [current bounded plan](../plans/2026-11-23-reviewrouter-architecture-phase2.md#current-consumer-native-paired-qualification--2026-11-25).
+`980583c6`. See the [current bounded plan](../plans/2026-11-23-reviewrouter-architecture-phase2.md#earlier-consumer-native-paired-qualification-checkpoint--2026-11-25).
 No product contract, activation, migration, staging or production deployment is
 changed or authorized by this test-tooling correction.
 

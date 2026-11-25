@@ -6,7 +6,58 @@ Working branch: refactor/architecture-boundaries-phase2-20261123
 Status: further scoped refactoring and independent review in progress; final qualification and merge authorized
 Authority: AGENTS.md, Engineering Quality Standard, Feature Module Standard adopted profiles, current security/runtime protocols.
 
-## Current consumer-native paired qualification — 2026-11-25
+## Current CI corrections and recovered E2E — 2026-11-25
+
+Current source `03aef06c` completed the original native Action project, real
+Babel/Jest qualification and all five full suites: **72/72**, zero skips. The
+exact Go 1.26.10 OCR rebuild matches the immutable manifest and binary digest.
+A full six-file paired run first failed **44/45** because the locally restored
+Action checkout was shallow. Ordinary history recovery restored the original
+ancestor fence without changing its source or pins; a new complete run passed
+**45/45** on fresh PostgreSQL 17.12 with all 165 canonical migration checksums.
+Both attempts and verified cluster/port/data/credential cleanup remain recorded.
+Native Accounts also passed its unchanged complete 34-shot workflow assertion,
+independently replayed against the actual artifact and exact clean source.
+These executions retain `03aef06c`; they are not relabeled as later-head runs.
+
+Actual main CI found two private-installer compatibility failures: its exact
+workspace policy had not adopted Stack 0.3.1's reviewed age exclusion or the
+already-declared `bun@1.4.3: false` decision. The bounded correction records
+exact package/Boolean pairs, preserves the four prior allowed builds and the
+entire credential teardown/rebuild sequence, and adds nine rejecting cases for
+wrong decisions, identities, versions and ranges. It accepts no arbitrary false
+selector or package-family age exclusion. All **35** installer cases pass.
+
+Skills completed **23/24**: the genuine committed readback was fetched,
+fulfilled and rendered, but the helper's transport-finish promise never settled.
+The trace does not prove cancellation. The helper now observes that exact
+browser response and requires HTTP success; the existing caller assertions
+verify consumption. All 24 scenarios, genuine response bytes, SQL/loading/state
+assertions, timeouts and retries remain unchanged. Full corrected browser
+execution still requires hosted CI; the exact local Chromium download returns HTTP 403.
+
+Source/Certification also exposed a stale compiler-pilot monolith-size check:
+the extracted CLI wrapper has seven top-level nodes. Its native AST now must
+contain the actual checker import and awaited non-optional invocation with the
+repository root. The real coordinator and dense transaction visitor are added
+to the governed parser/transformer subjects, retaining the original size check
+for real implementations and every syntax/error/warning/output assertion.
+The complete maintained `pnpm compiler:pilot --maxWorkers=1` passes in
+**52.681 seconds**: the original full tooling strict command and all **19**
+cases across the three original pilot files, with zero failures/skips/todos.
+Its 51 guard installations load TypeScript 7.0.2 only; no blocked load is recorded.
+The four corrected code inputs remain unchanged during that complete run.
+
+The initial installer/Skills changes pass scoped formatting/lint and the original full
+tooling strict project in **31.212 seconds**, TypeScript **7.0.2 only**, with
+47 guard installations and no blocked loads. Independent reviews confirm both
+bounded fixes. The [source-bound correction record](../deployments/evidence/2026-11-25-pr977-ci-corrections.json)
+retains original failures, actual passes and the pending corrected-head gates.
+Publish this coherent correction, complete required CI/browser acceptance and
+fresh merge checks, then perform the authorized squash and verify resulting
+main. No deployment or product/provider contract change is included.
+
+## Earlier consumer-native paired qualification checkpoint — 2026-11-25
 
 The continuation authorizes completing the original review/refactor/E2E/merge
 outcome. The consumer owns the paired CI qualification step. A producer-wide

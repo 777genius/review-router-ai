@@ -188,7 +188,9 @@ async function holdAction(
       committed = true;
       await released;
       await route.fulfill({ response });
-      await (await request.response())?.finished();
+      // Observe this browser response; caller assertions verify UI consumption.
+      const browserResponse = await request.response();
+      expect(browserResponse?.ok()).toBe(true);
       delivered();
     } else await route.fallback();
   });
