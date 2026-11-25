@@ -35,8 +35,7 @@ function legacyFeatureNames(root: string): ReadonlySet<string> {
     policy.schemaVersion !== 1 ||
     !Array.isArray(policy.legacyFeaturePackages) ||
     policy.legacyFeaturePackages.some(
-      (name) =>
-        typeof name !== "string" || !/^[a-z0-9][a-z0-9-]*$/u.test(name),
+      (name) => typeof name !== "string" || !/^[a-z0-9][a-z0-9-]*$/u.test(name),
     ) ||
     new Set(policy.legacyFeaturePackages).size !==
       policy.legacyFeaturePackages.length
@@ -168,11 +167,7 @@ export async function checkNewFeaturePackageCompositions(
       (file) =>
         (file.startsWith(compositionPrefix) ||
           file.includes(sep + "tests" + sep)) &&
-        hasCompositionConformanceTest(
-          file,
-          compositionFiles,
-          manifest.name,
-        ),
+        hasCompositionConformanceTest(file, compositionFiles, manifest.name),
     );
     if (!hasCompositionTest) {
       reject(
