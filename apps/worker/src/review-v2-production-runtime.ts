@@ -112,7 +112,10 @@ import {
 } from "@reviewrouter/features-review-snapshots/v2/composition";
 import type { createPrismaClient } from "@reviewrouter/platform-db";
 import { JoseRotatingCapabilityCodec } from "@reviewrouter/platform-signed-capabilities";
-import { positiveInteger, readCapabilityKeyRing } from "./review-v2-capability-key-config";
+import {
+  positiveInteger,
+  readCapabilityKeyRing,
+} from "./review-v2-capability-key-config";
 export {
   reviewV2CapabilityActiveKeyIdEnv,
   reviewV2CapabilityKeysEnv,
@@ -194,7 +197,6 @@ export {
 } from "./review-v2-publication-maintenance";
 
 type PrismaClient = ReturnType<typeof createPrismaClient>;
-
 
 export type ProductionReviewV2WorkerRuntime = {
   readonly runtime: ReviewV2CompletionRuntime;
@@ -1577,7 +1579,6 @@ function mapSnapshotPublicationOutcome(
       return SnapshotEffectivePublicationOutcome.TerminalUnknown;
   }
 }
-
 
 export function mapPersistedContextReuseProviderKind(
   value: string,

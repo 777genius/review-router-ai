@@ -51,9 +51,70 @@ describe("review v2 capability key configuration", () => {
       readCapabilityKeyRing({
         ...base,
         [reviewV2CapabilityKeysEnv]: JSON.stringify([
-          { ...shortKey, unexpected: true },
+          {
+            ...shortKey,
+            secretBase64: Buffer.alloc(32, 7).toString("base64"),
+            unexpected: true,
+          },
         ]),
       }),
     ).toThrow("review_v2_capability_key_invalid");
+  });
+
+  it("preserves configured key bytes and the exact retirement deadline", async () => {
+    const activeSecret = Buffer.alloc(32, 7);
+    const retiredSecret = Buffer.alloc(32, 8);
+    const retirement = "2026-11-25T12:00:00.000Z";
+    const ring = readCapabilityKeyRing({
+      [reviewV2CapabilityActiveKeyIdEnv]: " key-2 ",
+      [reviewV2CapabilityKeysEnv]: JSON.stringify([
+        {
+          keyId: "key-1",
+          secretBase64: retiredSecret.toString("base64"),
+          verifyUntil: retirement,
+        },
+        {
+          keyId: "key-2",
+          secretBase64: activeSecret.toString("base64"),
+          verifyUntil: null,
+        },
+      ]),
+    });
+
+    await expect(ring.activeSigningKey()).resolves.toEqual({
+      keyId: "key-2",
+      secret: new Uint8Array(activeSecret),
+    });
+    await expect(
+      ring.verificationKey("key-1", new Date(retirement)),
+    ).resolves.toEqual({
+      keyId: "key-1",
+      secret: new Uint8Array(retiredSecret),
+    });
+    await expect(
+      ring.verificationKey("key-1", new Date("2026-11-25T12:00:00.001Z")),
+    ).resolves.toBeNull();
+  });
+
+  it("rejects noncanonical key encodings and timestamps", () => {
+    const key = {
+      keyId: "key-1",
+      secretBase64: Buffer.alloc(32, 7).toString("base64"),
+      verifyUntil: null,
+    };
+    for (const invalid of [
+      { ...key, secretBase64: `${key.secretBase64}\n` },
+      { ...key, secretBase64: key.secretBase64.replace(/=$/u, "") },
+      { ...key, verifyUntil: "2026-11-25T12:00:00Z" },
+      { ...key, verifyUntil: "invalid" },
+      { ...key, verifyUntil: undefined },
+    ]) {
+      expect(() =>
+        readCapabilityKeyRing({
+          [reviewV2CapabilityActiveKeyIdEnv]: "key-1",
+          [reviewV2CapabilityKeysEnv]: JSON.stringify([invalid]),
+        }),
+      ).toThrow("review_v2_capability_key_invalid");
+    }
   });
 });
