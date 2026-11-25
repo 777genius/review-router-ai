@@ -133,16 +133,19 @@ Add exact dev dependencies; preserve existing defaults and baseline lock pins:
 ```
 
 The harness additionally requires existing `eslint@10.3.0`, `prettier@3.8.3`,
-`typescript@7.0.2`, `stack-toolchain@0.3.0`, `@eslint/js@10.0.1`,
+`typescript@7.0.2`, `stack-toolchain@0.3.1`, `@eslint/js@10.0.1`,
 `@prettier/plugin-oxc@0.2.4`, `esbuild@0.28.1`, `vitest@4.1.10` and the
 repository's frozen `@types/node` declaration package.
-The source candidate names the planned Foundation `stack-toolchain@0.3.0`
+The source candidate names the published Foundation `stack-toolchain@0.3.1`
 release. That name is an admission expectation, not evidence of publication.
 Before applying the dependency pin and running full qualification, verify the
 actual registry artifact, integrity and upstream qualification, then generate
 the ordinary frozen lock. Do not substitute a source link or hand-edit lock
 integrities. The legacy `typescript-eslint` package is removed from the direct
 dependencies; no legacy plugin execution is permitted.
+The consumer executes the syntax adapter under Node. Its exact optional
+`bun@1.4.3` postinstall is explicitly denied in `allowBuilds`; existing required
+dependency builds and the normal root lifecycle remain enabled.
 
 Before any fixture creation, metadata-only admission resolves the native parser
 0.1.1, scope-manager 8.73.0 and TypeScript 7.0.2 from the physical Stack package.

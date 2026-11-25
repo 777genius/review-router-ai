@@ -16,7 +16,7 @@ export const toolVersions = {
   eslint: "10.3.0",
   prettier: "3.8.3",
   typescript: "7.0.2",
-  "stack-toolchain": "0.3.0",
+  "stack-toolchain": "0.3.1",
   "@eslint/js": "10.0.1",
   "@prettier/plugin-oxc": "0.2.4",
   esbuild: "0.28.1",

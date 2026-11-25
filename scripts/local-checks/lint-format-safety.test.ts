@@ -116,7 +116,7 @@ for (const fixture of [
     const implementation = `require("node:fs").writeFileSync(${JSON.stringify(sentinel)}, "called");\n`;
     new Script(implementation);
     for (const [name, version] of [
-      ["stack-toolchain", "0.3.0"],
+      ["stack-toolchain", "0.3.1"],
       ["typescript", "7.0.2"],
       ["eslint-parser-oxc", fixture.parserVersion],
       ["@typescript-eslint/scope-manager", fixture.scopeVersion],
@@ -147,7 +147,7 @@ for (const fixture of [
     const output = join(bad, "output");
     mkdirSync(output);
     assert.throws(
-      () => createTestSubject(bad, output, { "stack-toolchain": "0.3.0" }),
+      () => createTestSubject(bad, output, { "stack-toolchain": "0.3.1" }),
       fixture.rejection,
     );
     assert.equal(existsSync(sentinel), false);
