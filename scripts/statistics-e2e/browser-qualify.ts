@@ -31,6 +31,7 @@ import type {
   StatisticsIssuePage,
 } from "../../packages/features/review-statistics/src/domain/statistics.js";
 import { restoreOwnedNextEnv } from "../lib/next-generated-env.ts";
+import { statisticsNodeOptions } from "./node-options.ts";
 import {
   seedHistoryFixtures,
   restoreHistoryCoverage,
@@ -213,6 +214,7 @@ const sourceFiles = [
   "packages/platform/db/prisma/schema.prisma",
   "scripts/statistics-e2e/browser-qualify.ts",
   "scripts/statistics-e2e/dev-server.ts",
+  "scripts/statistics-e2e/node-options.ts",
   "scripts/lib/next-browser-test-compiler.ts",
 ];
 const isHistory = scenario === "history" || scenario === "history-source";
@@ -374,7 +376,10 @@ try {
         ...cleanEnvironment(),
         TMPDIR: runtimeTmp,
         NODE_ENV: "development",
-        NODE_OPTIONS: `--max-old-space-size=${nextOldSpaceLimitMiB}`,
+        NODE_OPTIONS: statisticsNodeOptions(
+          process.env.NODE_OPTIONS,
+          nextOldSpaceLimitMiB,
+        ),
         NEXT_TELEMETRY_DISABLED: "1",
         NEXT_PRIVATE_TEST_MODE: "1",
         DATABASE_URL: appDatabaseUrl,
