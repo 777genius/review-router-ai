@@ -79,7 +79,9 @@ const occurrenceStateMap = {
   suppressed_by_human: SnapshotOccurrenceState.SuppressedByHuman,
 } as const;
 
-export function toOccurrence(value: ProjectionOccurrence): OccurrenceProvenanceDto {
+export function toOccurrence(
+  value: ProjectionOccurrence,
+): OccurrenceProvenanceDto {
   const state = occurrenceStateMap[value.state];
   if (!state) throw new Error("review_v2_projection_occurrence_state_invalid");
   return {
