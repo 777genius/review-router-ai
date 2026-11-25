@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { format } from "prettier";
+import { format } from "./local-checks/lint-format-native.ts";
 import { reviewActionCompanionContractsSource } from "./lib/review-action-companion-contracts.mjs";
 import {
   assembleReviewActionV2Contract,

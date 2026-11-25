@@ -13,7 +13,7 @@
   [native ownership](../architecture/64-gateway-native-ownership-and-model-catalog.md),
   and the producer/SDK revisions in
   [SDK provenance](../../vendor/account-gateway/native-provider-parity-sdk-provenance.json).
-- Last updated: `2026-11-24`.
+- Last updated: `2026-11-25`.
 
 ## Environment status
 
@@ -21,6 +21,27 @@
 | -------------------- | --------- | ----------------------- | ------------- | ---------------------------------------------------------------------------------- |
 | staging              | `pending` | Not verified            | Not verified  | Qualify exact native, Gateway and consumer revisions before an authorized rollout. |
 | production           | `pending` | Not verified            | Not verified  | This implementation task does not authorize production deployment.                 |
+
+## Current acceptance scope
+
+On `2026-11-25`, the owner explicitly excluded TypeSafe from mandatory provider
+acceptance. The other 52 provider/method scenarios remain required. The exact
+excluded row is
+`typesafe-systemone-apikey-v1/api_key/provider_api_key`. Preserve the original
+53-row inventory and historical results: TypeSafe's unsupported review observation
+is an explicit exclusion, not a successful generative review. The Gateway
+qualification applies the exact exclusion and still requires all 52 remaining
+reviews, terminal state, erasure and reader checks.
+
+The current integration combines provider source
+`98228d9f58c476b6faba34324af9841e28e3f530` with main
+`919a5add21a40d9adee064bf23b2e4217bd7e040`. It retains the native TypeScript toolchain,
+Prisma `7.9.0`, the exact native SDK and reviewed dependency policies. Earlier
+green checks on `1a2d85c3c93222263775784e3313ccc9c5f09f70` do not qualify this
+combined source. Record the final immutable integration revision and its actual
+consumer, browser and joined-producer checks before marking implementation
+acceptance complete. Staging and production remain separate pending rollout
+targets.
 
 ## Applicability and prerequisites
 
@@ -113,10 +134,12 @@ with the owning `check-conversation-source-stamp.ts --write` and
 code-byte change is the SDK provenance digest; parser behavior, declarations
 and bundled dependency license remain unchanged.
 
-On Node `26.11.1`, both source-coherence checks pass after regeneration. The
-existing memory bootstrap, setup and fleet-overlay tests pass 57 cases; two
+On the earlier SDK-only source, Node `26.11.1` source-coherence checks passed
+after regeneration. The existing memory bootstrap, setup and fleet-overlay tests
+passed 57 cases; two
 real Docker Compose cases remain skipped locally because Docker is unavailable.
-These local results do not replace the required CI gates.
+Those historical local results do not replace the current integration's required
+source-coherence checks or CI gates.
 
 The stamp records installed source identity, not conversation qualification.
 Existing operator declarations remain intact, and a declaration for the old SDK

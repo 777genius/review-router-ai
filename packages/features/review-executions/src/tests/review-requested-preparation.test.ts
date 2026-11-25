@@ -519,6 +519,15 @@ describe("pre-submission preparation recovery", () => {
     await store.registerIntent({ candidate: candidate("lane-new", "7") });
     const at = after(reviewRequestedPreparationTimeoutMs + 1);
     const current = await claim(store, "lane-new", at, "new-owner");
+    expect(
+      (
+        await store.listDue({
+          now: at,
+          limit: 10,
+          excludeRequestIds: ["lane-old"],
+        })
+      ).map((intent) => intent.requestId),
+    ).toEqual(["lane-old"]);
     const expired = await store.claimIntent({
       requestId: "lane-old",
       claimId: "reclaimer",

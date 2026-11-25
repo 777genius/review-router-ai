@@ -42,6 +42,11 @@ The disposable programmatic Next dev server delegates to the installed config
 loader and changes only compiler settings: run-local output, no persistent
 webpack cache or debugger source-map plugin, existing webpack memory
 optimization, a bounded Node heap, and post-response GC through `--expose-gc`.
+Inherited `NODE_OPTIONS` qualification preloads are retained explicitly without
+copying the parent environment. Next's existing option tokenizer inspects names
+without rewriting accepted input, including quoted preload paths. Percentage
+old-space options are rejected because Node gives them precedence over absolute
+limits regardless of order. The scenario's absolute heap option is appended last.
 The Next child's V8 old-space limit is fixed at 2 GiB for the expanded
 `followthrough` scenario and 1 GiB for every other scenario. The receipt records
 the chosen budget as `nextOldSpaceLimitMiB`; this qualification setting does not

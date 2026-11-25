@@ -22,8 +22,8 @@
   },
   "dependencies": {
     "@prisma/client": "7.9.0",
-    "@get-modular/core": "0.7.0",
-    "@get-modular/assembly": "0.7.0"
+    "@get-modular/core": "0.8.0",
+    "@get-modular/assembly": "0.8.0"
   },
   "devDependencies": {
     "vitest": "4.1.10",

@@ -54,7 +54,8 @@ it("serves native models and metadata only for the current enrolled authority", 
     expect(enrolled.status).toBe(200);
     await enrolled.arrayBuffer();
     const [account] = fixture.nativeOperations.accounts();
-    if (!account) throw new Error("native enrollment did not create an account");
+    if (!account)
+      throw new Error("native enrollment did not create an account");
     const request = {
       ownerRef,
       accountRef: account.accountRef,
@@ -126,7 +127,9 @@ it("serves native models and metadata only for the current enrolled authority", 
     ]) {
       const response = await post("/v2/account-models/read", malformed);
       expect(response.status).toBe(400);
-      expect(await response.json()).toEqual({ error: "invalid_models_request" });
+      expect(await response.json()).toEqual({
+        error: "invalid_models_request",
+      });
     }
     const legacy = await post("/v1/account-models/read", current);
     expect(legacy.status).toBe(404);

@@ -34,6 +34,7 @@ import {
   type RunAccessConfig,
 } from "./account-gateway-run-access";
 import { createReviewRunGatewayPreparation } from "./review-run-gateway-preparation";
+import { createCloseAuthorityGate } from "./review-run-gateway-close-authority-gate";
 import {
   parseReviewReviewerId,
   reviewerPlanContract,
@@ -325,7 +326,10 @@ export function createReviewRunGatewayRelay(input: {
   const sessions = new Map<string, Session>();
   let inFlight = 0;
   let cleanupInFlight = 0;
+  const cleanupWaiters: Array<() => void> = [];
   let closeAuthorityInFlight = 0;
+  let unrestoredCloseInFlight = 0;
+  const closeAuthorityGate = createCloseAuthorityGate(policy.maxInFlight);
   const closing = new Map<
     string,
     {
@@ -906,6 +910,17 @@ export function createReviewRunGatewayRelay(input: {
         pending.terminate(parentReason),
       ]).then(([operation]) => operation);
     }
+    // A retained session itself bounds one close record. An internal caller can
+    // also ask to restore a close with no local session; cap those separately so
+    // stalled authority I/O cannot accumulate unbounded queued records. Unknown
+    // means no terminal proof and leaves durable custody unchanged for retry.
+    const unrestored = owned.length === 0;
+    if (
+      unrestored &&
+      (stopping || unrestoredCloseInFlight >= policy.maxInFlight)
+    )
+      return Promise.resolve({ state: "unknown" });
+    if (unrestored) unrestoredCloseInFlight++;
     let owner = owned[0];
     const matchesOwner = (auth: ReviewRunAuthorization | null) =>
       owner === undefined ||
@@ -922,7 +937,7 @@ export function createReviewRunGatewayRelay(input: {
       for (const session of sessions.values())
         if (session.authorizationId === authorizationId)
           session.parentTerminationReason ??= parentReason;
-      termination ??= (async () => {
+      termination ??= closeAuthorityGate("urgent", async () => {
         if (
           owner &&
           !matchesOwner(
@@ -943,12 +958,14 @@ export function createReviewRunGatewayRelay(input: {
         if (auth?.state === "active")
           throw new RelayFailure("close_pending", 409, "effect_unknown");
         return auth;
-      })();
+      });
       return termination;
     };
     const work = (async () => {
       const observedOwner = owner
-        ? await input.queries.findReviewRunAuthorizationById(authorizationId)
+        ? await closeAuthorityGate("normal", () =>
+            input.queries.findReviewRunAuthorizationById(authorizationId),
+          )
         : null;
       if (
         (owner && sessions.get(owner.key) !== owner) ||
@@ -961,8 +978,8 @@ export function createReviewRunGatewayRelay(input: {
       let auth = revokeFirst
         ? await terminate(parentReason ?? reason)
         : (observedOwner ??
-          (await input.queries.findReviewRunAuthorizationById(
-            authorizationId,
+          (await closeAuthorityGate("normal", () =>
+            input.queries.findReviewRunAuthorizationById(authorizationId),
           )));
       if (!matchesOwner(auth)) return { state: "unknown" as const };
       const snapshot = parseReviewRunRuntimeSnapshot(
@@ -1025,6 +1042,7 @@ export function createReviewRunGatewayRelay(input: {
         if (termination) await termination;
       } finally {
         closing.delete(authorizationId);
+        if (unrestored) unrestoredCloseInFlight--;
         scheduleCloseRetry(authorizationId);
       }
     });
@@ -1038,8 +1056,13 @@ export function createReviewRunGatewayRelay(input: {
     deadline: number | undefined,
     parentTermination: () => Promise<ReviewRunAuthorization | null> | undefined,
   ) {
-    if (cleanupInFlight >= policy.maxInFlight)
-      throw new RelayFailure("close_pending", 409, "effect_unknown");
+    // Runtime close attempts remain fail-fast under pressure. During shutdown,
+    // accepted closes must instead drain without exceeding the same I/O limit.
+    while (cleanupInFlight >= policy.maxInFlight) {
+      if (!stopping)
+        throw new RelayFailure("close_pending", 409, "effect_unknown");
+      await new Promise<void>((resolve) => cleanupWaiters.push(resolve));
+    }
     cleanupInFlight++;
     try {
       const remaining =
@@ -1103,6 +1126,7 @@ export function createReviewRunGatewayRelay(input: {
       return operation;
     } finally {
       cleanupInFlight--;
+      cleanupWaiters.shift()?.();
     }
   }
   async function scopedResponse(
@@ -2122,12 +2146,29 @@ export function createReviewRunGatewayRelay(input: {
       for (const authorizationId of closeRetries.keys())
         clearCloseRetry(authorizationId);
       for (const session of sessions.values()) clearTimeout(session.timer);
-      for (const id of [
-        ...new Set(
-          [...sessions.values()].map((session) => session.authorizationId),
-        ),
-      ])
-        await closeRun(id, "cancelled").catch(() => {});
+      // Deny every retained session synchronously before waiting for any DB or
+      // native I/O. A close already accepted before shutdown can restore its
+      // first session later, so inspect again after all accepted closes settle.
+      const cancelled = new Set<string>();
+      for (;;) {
+        const ids = [
+          ...new Set(
+            [...sessions.values()].map((session) => session.authorizationId),
+          ),
+        ].filter((id) => !cancelled.has(id));
+        for (const id of ids) cancelled.add(id);
+        await Promise.allSettled(ids.map((id) => closeRun(id, "cancelled")));
+        while (closing.size > 0)
+          await Promise.allSettled(
+            [...closing.values()].map(({ operation }) => operation),
+          );
+        if (
+          ![...sessions.values()].some(
+            (session) => !cancelled.has(session.authorizationId),
+          )
+        )
+          break;
+      }
       // Cleanup may restore additional allocations after the first timer sweep.
       for (const session of sessions.values()) clearTimeout(session.timer);
     },

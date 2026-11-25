@@ -54,6 +54,8 @@ async function main(): Promise<void> {
                   ? PROBE_FIXTURE_BOUNDARY
                   : "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof";
   const options = parseCliOptions(process.argv);
+  const compilerProfile: RuntimeDescriptor["compilerProfile"] =
+    options.lowMemoryWebpack ? "low-memory-webpack" : "default";
   const revision = await readSourceRevision(
     options.repoRoot,
     options.expectedRevision,
@@ -94,6 +96,7 @@ async function main(): Promise<void> {
       "packages/features/provider-usage",
       "packages/platform/db",
       "scripts/accounts-reference-e2e/src",
+      "scripts/lib/next-browser-test-compiler.ts",
       ...(process.argv.includes("--skill-catalog-fixture")
         ? [
             "packages/features/review-skills",
@@ -167,6 +170,7 @@ async function main(): Promise<void> {
       gatewayUrl: gateway.url,
       secrets,
       browserExecutable: options.browserExecutable,
+      lowMemoryWebpack: options.lowMemoryWebpack,
       ...(skillsGitHub ? { skillsGitHub } : {}),
       ...(skillCatalog ? { skillCatalog } : {}),
     });
@@ -198,6 +202,7 @@ async function main(): Promise<void> {
       repoRoot: options.repoRoot,
       revision,
       baselineExpected: options.expectedRevision,
+      compilerProfile,
       secretsGenerated: true,
       externalNetworkAllowed: false,
       fixtureBoundary,
@@ -249,6 +254,7 @@ async function main(): Promise<void> {
     outcome: failure ? "failed" : summary.failed ? "partial" : "done",
     baselineRevision: BASELINE_REVISION,
     actualRevision: revision,
+    compilerProfile,
     sourceDeltaSha256: sourceDelta,
     databaseBaseline:
       process.argv.includes("--restored-empty-baseline") ||
@@ -272,6 +278,7 @@ async function main(): Promise<void> {
       outcome: final.outcome,
       workDir: options.workDir,
       actualRevision: revision,
+      compilerProfile,
       databaseMode: final.databaseMode,
       tests: summary,
       fixtureBoundary: final.fixtureBoundary,

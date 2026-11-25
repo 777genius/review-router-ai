@@ -1,0 +1,386 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-11-23T16:10:04.756325+00:00",
+  "status": "focused_qualified_integration_pending",
+  "repository": "777genius/review-router-ai",
+  "pullRequest": 987,
+  "branch": "fix/native-only-compiler-pilot-20261123",
+  "baseCommit": "8b63574eeaee32fa081cadc83d40bfc526d17ce4",
+  "publishedPlanCommit": "9b3bd4e228397b4d07ef56a922dd07e57b3caed3",
+  "sourceBinding": "Implementation files are bound by SHA256 below; this receipt was prepared before the implementation commit. No integrated full-pilot or final-head CI pass is claimed.",
+  "implementationSha256": {
+    "package.json": "4d3cf12f0dbfb2759f4f0d2820dad073d4a034d502d282f4f6fd2bbd27ab55d8",
+    "scripts/local-checks/compiler-cli.ts": "1e2294702d295253888bb7a892c3c6de8cd8fa78c6a635ac5cc5def58582c576",
+    "scripts/local-checks/compiler-cli.pilot.ts": "795900cd839aaf18effbbba4db37eb94c6e750438a4de1d6cc85f5db98b91f75",
+    "scripts/local-checks/compiler-public-surface.ts": "d317d0a5a23ddd192da491f9822a1f272578e45592ee9e614bb12b18c153c92e",
+    "scripts/local-checks/compiler-public-surface.test.ts": "70916ec460f6f434caf8fa6c97d955506e14a5b553a6c165eee12cc3760797a2",
+    "scripts/local-checks/compiler-pilot-fixtures.ts": "a5aa233af6ec314fb46b358a4a2fd17f0954bc0dc3d645feed559c2adc3bdc5c",
+    "scripts/local-checks/compiler-vitest.config.ts": "8a319fcfb24986674659b60bedbf3a025056814bfabcdd0897ba365fa3e82ca3"
+  },
+  "unchangedGovernedInputSha256": {
+    "tsconfig.base.json": "0903851ee6027cdee8678f97468d09684acd834f9cd1ab88e8e41dd780e96dfc",
+    "tsconfig.tooling.json": "f2b64fbec7fe2468bef9c151a0bc6ceb5253ecb4803f815b1cd171518ed22a9d",
+    "packages/protocol-review-workflow/tsconfig.json": "055076ab4314c141b41809604316512a8f25456a4f435145d8e154c5db940621",
+    "packages/protocol-review-workflow/tsconfig.build.json": "8d4729b2a26eef0c8196e8cea9ec7e45c143e5928b4c585e0cc57c01b6680d54",
+    "packages/protocol-review-workflow/package.json": "7b4e1090960629122fade5f81b48c2765d2ed5ee9fe740981002d3afb492f5fa",
+    "packages/protocol-review-workflow/src/index.ts": "c7f7e3ab382578af15bf5fdf8aac8e3cc4732a4bb4ddc28b3cb012898066a0f4",
+    "packages/protocol-review-workflow/src/mcp-secrets.test.ts": "c698a0d2ac4e833728d1af1ea681f77c4d42e7f49c0cb9a11fa21fd0e4e7bbdd",
+    "packages/features/review-evidence/tsconfig.json": "c1a7f26ff0cf12d1678e790c3f298468d75333351d35558d8be15f53f52222ef",
+    "packages/features/review-evidence/tsconfig.contract-source.json": "92233617544bb248ff6f4f358e39a0a785811adc634049f800ba40d85b4b3738",
+    "packages/features/review-evidence/package.json": "cfe8658b10bfe779d198a71f0adaecc2cf122b561839f447f3b2c9331a80d8e5",
+    "packages/features/review-evidence/src/contract-source/index.ts": "7854ad44ee8701b1f7896452f944dc64a6dcf26c772efbce4b2218627076015f",
+    "packages/features/review-evidence/src/domain/provider-invocation-manifest.ts": "c7bf81e73d2086e2823c11a41e32a1aa09f174645321877ebd42af0fb4638ef9",
+    "packages/features/review-evidence/src/domain/review-evidence-primitives.ts": "5d977d070cba4e771e7fd0138924fbc9d47a46cb5de312a6057a104f25306a3d",
+    "scripts/rewrite-dist-esm-imports.mjs": "c05e3ce8a8cb03f8ebc92e026c09125743ab29619debcd125224149acdc9c9df",
+    "scripts/check-architecture-boundaries.mjs": "0a94079d9d381a20bdb6f621590ee42dc1e70b7e983752cc8328e4b7d40cc102",
+    "scripts/manage-review-provider-scope-concurrency.test.ts": "5647913cc6ef3b405a99e83b079513234e5bfbcce8b33007e0deded3376fe73f",
+    "apps/web/app/dashboard/actions-hosted-workflow-recovery.test.ts": "9a83c2e8ba53d7c6297bb8e4bf1c0cb91327be3f4bfad506651b9e6920f16f15",
+    "scripts/lib/server-rendered-heading.ts": "60b4602f245388a8ed63f6eb933fca456e3e9aeb664a44091e3dc6777dc17ab3",
+    "scripts/lib/server-rendered-heading.test.ts": "67ad73c8da8e5961385b9a0d04f31253b8e42b2ea1ced3480ac400db48e2f99b"
+  },
+  "historicalReceipts": {
+    "sha256": {
+      "ai-docs/deployments/2026-11-22-native-logger-tooling-compiler-routes.md": "93b163917cd7abfca830c04785217806e685adde1c6ba15c089c380ddb5a9f08",
+      "ai-docs/deployments/2026-11-22-native-contract-foundation-compilers.md": "f1a7f17241f7f080518ffc50fdff27afd1c7f36b00ec2f291b819831a1219601"
+    },
+    "originalPilotCommit": "9c52c250b279f81470703b35fae0e787880a08ea",
+    "originalPilotSha256": "70cc7681d064080fef2292b06614553405ffd99596c334b9b5b12617bcf3be7f",
+    "rawOriginalTwoSubjectArchive": "not_found_in_bounded_audit",
+    "liveClassicComparison": "retired_under_native_compiler_requirement",
+    "newClassicParityClaim": false
+  },
+  "qualificationEnvironment": {
+    "node": "v26.11.1",
+    "borrowedExistingDependencyWorktree": "/workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123",
+    "nativeManifestUnchanged": true,
+    "packageInstalls": 0,
+    "guard": {
+      "path": "/workspace/scratch/b7799b790d14/review-router-ai-native-format-20261123/scripts/local-checks/lint-format-native-load-guard.ts",
+      "sha256": "8c9f9a699eb7ca107fd1bc8f7d66329d4f185729b06cc8f7997dab45074a0c2a",
+      "preloadedWith": "NODE_OPTIONS=--import <guard>",
+      "childProcessesInherit": true
+    },
+    "packages": {
+      "nativeCompiler": {
+        "name": "typescript",
+        "version": "7.0.2",
+        "manifestSha256": "3722b30210616a13a3213ded11575ba6b2dbab10c32a5ef67afca8513e27017e",
+        "resolvedManifest": "/workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/scripts/local-checks/native/node_modules/.pnpm/typescript@7.0.2/node_modules/typescript/package.json"
+      },
+      "oxcParser": {
+        "name": "oxc-parser",
+        "version": "0.159.0",
+        "manifestSha256": "ab443bca97b1430c7444289a70319d13f68e1a36cec1ce46d19a28c6ea64b000",
+        "resolvedManifest": "/workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/.pnpm/oxc-parser@0.159.0/node_modules/oxc-parser/package.json"
+      },
+      "esbuild": {
+        "name": "esbuild",
+        "version": "0.28.1",
+        "manifestSha256": "d55d1d19fcc5b6079e4a71dd4111340c79c682bc36835ac7058a0c364c7db58a",
+        "resolvedManifest": "/workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/.pnpm/esbuild@0.28.1/node_modules/esbuild/package.json"
+      },
+      "vitest": {
+        "name": "vitest",
+        "version": "4.1.10",
+        "manifestSha256": "caa41f04799bd42f3cfd100c4282e630d77ffc7deb1e7e4927794fcb7f137f34",
+        "resolvedManifest": "/workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/.pnpm/vitest@4.1.10_@types+node@22.19.17_jsdom@29.1.1_vite@8.1.5_@types+node@22.19.17_esbuild_3bdd1d42b04b35cc8ea1f89c453d3a16/node_modules/vitest/package.json"
+      }
+    },
+    "dependencyLockSha256": "9f6536118944d759b43ad56adb3668f01072fbffbcb51079a2ad2d3e31c0e9a0",
+    "productionSharedSourceTree": {
+      "files": 32,
+      "sha256OfSortedCompactJsonFileHashes": "1bb7e4ea25773abe0a6a0904da151350ac2a2e31075c03ced248e7f3584a6701"
+    },
+    "productionSharedBuiltTree": {
+      "files": 42,
+      "sha256OfSortedCompactJsonFileHashes": "6c58de04b8052737e22f9326e026c4548ec73b6e557b46409dd2f71d9c4c2a0e"
+    },
+    "treeHashAlgorithm": "SHA256 of UTF-8 JSON with sorted relative-path keys, compact separators, each value SHA256 of that file; no directories."
+  },
+  "commands": [
+    {
+      "name": "format-final-source",
+      "argv": [
+        "/tmp/review-router-ai-node26-runtime-20261123/node-v26.11.1-linux-x64/bin/node",
+        "/workspace/scratch/b7799b790d14/review-router-ai-native-format-20261123/node_modules/prettier/bin/prettier.cjs",
+        "--config",
+        "/workspace/scratch/b7799b790d14/review-router-ai-native-format-20261123/.prettierrc.json",
+        "--write",
+        "package.json",
+        "scripts/local-checks/compiler-cli.ts",
+        "scripts/local-checks/compiler-cli.pilot.ts",
+        "scripts/local-checks/compiler-public-surface.ts",
+        "scripts/local-checks/compiler-public-surface.test.ts",
+        "scripts/local-checks/compiler-pilot-fixtures.ts",
+        "scripts/local-checks/compiler-vitest.config.ts",
+        "scripts/local-checks/compiler-README.md",
+        "ai-docs/plans/2026-11-23-native-only-compiler-pilot.md"
+      ],
+      "cwd": "/workspace/scratch/b7799b790d14/review-router-ai-provider-native-20261123",
+      "startedAt": "2026-11-23T16:07:24.170364+00:00",
+      "exitCode": 0,
+      "elapsedSeconds": 0.657031,
+      "log": "tmp/compiler-native-qualification/format-final-source.log",
+      "sha256": "880850d4bb07b509eefc2cbe834ebfccaeb69a96bebb99caca336d0e01bd38a9"
+    },
+    {
+      "name": "bounded-strict-final",
+      "argv": [
+        "/tmp/review-router-ai-node26-runtime-20261123/node-v26.11.1-linux-x64/bin/node",
+        "scripts/local-checks/compiler-cli.ts",
+        "--native",
+        "--noEmit",
+        "-p",
+        "/workspace/scratch/b7799b790d14/review-router-ai-provider-native-20261123/tmp/compiler-native-qualification/tsconfig.bounded.json"
+      ],
+      "cwd": "/workspace/scratch/b7799b790d14/review-router-ai-provider-native-20261123",
+      "startedAt": "2026-11-23T16:07:24.827613+00:00",
+      "exitCode": 0,
+      "elapsedSeconds": 0.72759,
+      "log": "tmp/compiler-native-qualification/bounded-strict-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "bounded-pilot-final",
+      "argv": [
+        "/tmp/review-router-ai-node26-runtime-20261123/node-v26.11.1-linux-x64/bin/node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--config",
+        "scripts/local-checks/compiler-vitest.config.ts",
+        "--testNamePattern",
+        "^(?!.*checks the real tooling project)"
+      ],
+      "cwd": "/workspace/scratch/b7799b790d14/review-router-ai-provider-native-20261123",
+      "startedAt": "2026-11-23T16:07:25.555434+00:00",
+      "exitCode": 0,
+      "elapsedSeconds": 14.837773,
+      "log": "tmp/compiler-native-qualification/bounded-pilot-final.log",
+      "sha256": "2d893189e220eccb365033bb211ed8ef0f18ba1145652f0690e03e6c17c21926"
+    }
+  ],
+  "results": {
+    "ownedStrictCheck": {
+      "pass": true,
+      "configuration": {
+        "extends": "/workspace/scratch/b7799b790d14/review-router-ai-provider-native-20261123/tsconfig.base.json",
+        "compilerOptions": {
+          "noEmit": true,
+          "allowImportingTsExtensions": true
+        },
+        "files": [
+          "/workspace/scratch/b7799b790d14/review-router-ai-provider-native-20261123/scripts/local-checks/compiler-cli.ts",
+          "/workspace/scratch/b7799b790d14/review-router-ai-provider-native-20261123/scripts/local-checks/compiler-cli.pilot.ts",
+          "/workspace/scratch/b7799b790d14/review-router-ai-provider-native-20261123/scripts/local-checks/compiler-public-surface.ts",
+          "/workspace/scratch/b7799b790d14/review-router-ai-provider-native-20261123/scripts/local-checks/compiler-public-surface.test.ts",
+          "/workspace/scratch/b7799b790d14/review-router-ai-provider-native-20261123/scripts/local-checks/compiler-pilot-fixtures.ts",
+          "/workspace/scratch/b7799b790d14/review-router-ai-provider-native-20261123/scripts/local-checks/compiler-vitest.config.ts"
+        ],
+        "include": []
+      },
+      "isWholeToolingCheck": false
+    },
+    "focusedVitest": {
+      "pass": true,
+      "passed": 18,
+      "skipped": 1,
+      "total": 19,
+      "deliberatelyUnselectedTest": "checks the real tooling project and rejects an invalid heading assignment",
+      "reason": "Integrated owner AST/lint prerequisites and full workspace builds are not present in this isolated worktree. The test remains mandatory and enabled in committed config."
+    },
+    "normalToolingShowConfig": {
+      "exitCode": 0,
+      "roots": 57,
+      "files": [
+        "./scripts/check-provider-setup-postgres-results.ts",
+        "./scripts/check-provider-setup-postgres-results.test.ts",
+        "./scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts",
+        "./scripts/review-action-v2-production-e2e/support/fake-github.ts",
+        "./scripts/review-action-v2-production-e2e/support/review-action-v2-e2e-harness.test.ts",
+        "./scripts/review-action-v2-production-e2e/support/review-action-v2-e2e-harness.ts",
+        "./scripts/review-history-tooling/check.ts",
+        "./scripts/review-history-tooling/collect-layout.ts",
+        "./scripts/activate-review-history.ts",
+        "./scripts/context-tools-e2e/browser-acceptance.test.ts",
+        "./scripts/context-tools-e2e/browser-acceptance.ts",
+        "./scripts/update-mcp-catalog.ts",
+        "./scripts/lib/server-rendered-heading.ts",
+        "./scripts/lib/server-rendered-heading.test.ts",
+        "./scripts/lib/review-model-dispatch-release-profile.ts",
+        "./scripts/lib/review-model-dispatch-release-profile.test.ts",
+        "./scripts/local-checks/compiler-cli.pilot.ts",
+        "./scripts/local-checks/compiler-cli.ts",
+        "./scripts/local-checks/compiler-pilot-fixtures.ts",
+        "./scripts/local-checks/compiler-public-surface.test.ts",
+        "./scripts/local-checks/compiler-public-surface.ts",
+        "./scripts/local-checks/compiler-vitest.config.ts",
+        "./scripts/local-checks/lint-format-fixtures.ts",
+        "./scripts/local-checks/lint-format-lint.mts",
+        "./scripts/local-checks/lint-format-qualification.mts",
+        "./scripts/local-checks/lint-format-safety.test.mts",
+        "./scripts/local-checks/lint-format-test-support.mts",
+        "./scripts/memory-foundation/host-boundaries.test.ts",
+        "./scripts/memory-foundation/host-boundaries.ts",
+        "./scripts/memory-foundation/qualify-boundaries.ts",
+        "./scripts/memory-ui-e2e/browser-qualify.ts",
+        "./scripts/memory-e2e/paired-action-memory.pg.test.ts",
+        "./scripts/memory-e2e/support/approved-memory-fixture.ts",
+        "./scripts/statistics-foundation/qualify-boundaries.ts",
+        "./scripts/statistics-e2e/browser-qualify.ts",
+        "./scripts/statistics-e2e/dev-server.ts",
+        "./scripts/statistics-e2e/followthrough-scenario.ts",
+        "./scripts/statistics-e2e/history-scenario.ts",
+        "./scripts/statistics-e2e/history-source.ts",
+        "./scripts/migrate-provider-profiles.ts",
+        "./scripts/provider-setup-visual/capture.ts",
+        "./scripts/provider-setup-visual/fixture-contract.ts",
+        "./scripts/provider-setup-visual/flows.ts",
+        "./scripts/provider-setup-visual/gateway-catalog-fixture.ts",
+        "./scripts/provider-setup-visual/github-fixture.test.ts",
+        "./scripts/provider-setup-visual/github-fixture.ts",
+        "./scripts/provider-setup-visual/next-app.test.ts",
+        "./scripts/provider-setup-visual/next-app.ts",
+        "./scripts/provider-setup-visual/onboarding-qualification.test.ts",
+        "./scripts/provider-setup-visual/onboarding-qualification.ts",
+        "./scripts/provider-setup-visual/preload.ts",
+        "./scripts/provider-setup-visual/run.ts",
+        "./scripts/provider-setup-visual/scenarios.ts",
+        "./scripts/provider-setup-visual/seed.postgres.test.ts",
+        "./scripts/provider-setup-visual/seed.ts",
+        "./scripts/provider-setup-visual/ui.ts",
+        "./scripts/migrate-provider-profiles.postgres.test.ts"
+      ],
+      "strict": true,
+      "noUncheckedIndexedAccess": true,
+      "exactOptionalPropertyTypes": true,
+      "noEmit": true,
+      "allSixOwnedFilesEnrolled": true
+    },
+    "runtimeTypeScriptVersions": ["7.0.2"],
+    "guardEventCounts": {
+      "guard-installed": 46,
+      "formatter-module": 25,
+      "native-typescript-module": 69
+    },
+    "blockedBeforeInitialization": 0,
+    "oxc159RuntimeUrls": [
+      "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/.pnpm/@oxc-parser+binding-linux-x64-gnu@0.159.0/node_modules/@oxc-parser/binding-linux-x64-gnu/package.json",
+      "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/.pnpm/oxc-parser@0.159.0/node_modules/oxc-parser/src-js/bindings.js",
+      "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/.pnpm/oxc-parser@0.159.0/node_modules/oxc-parser/src-js/generated/visit/keys.js",
+      "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/.pnpm/oxc-parser@0.159.0/node_modules/oxc-parser/src-js/index.js",
+      "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/.pnpm/oxc-parser@0.159.0/node_modules/oxc-parser/src-js/raw-transfer/supported.js",
+      "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/.pnpm/oxc-parser@0.159.0/node_modules/oxc-parser/src-js/visit/index.js",
+      "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/.pnpm/oxc-parser@0.159.0/node_modules/oxc-parser/src-js/wrap.js"
+    ],
+    "processRecordKinds": {
+      "process": 34,
+      "native-compiler": 19,
+      "native-consumer-project": 16,
+      "native-emission": 2,
+      "native-runtime-outputs": 2
+    },
+    "independentDiagnosticCases": {
+      "rejected": [
+        "exact_optional_TS2375",
+        "indexed_access_TS2322",
+        "null_TS2322",
+        "alias_downstream_TS2322"
+      ],
+      "validAliasPass": true
+    },
+    "contractCases": {
+      "modules": 5,
+      "emittedFiles": 10,
+      "publicNamedExports": 66,
+      "typeOnlyExports": 10,
+      "negativeDeclarationConsumers": 9,
+      "sourceDeclarationCompatibility": "bidirectional_assignability_for_all_value_and_type_only_exports",
+      "fixedIndependentExpectations": [
+        "literal_values",
+        "union_members",
+        "readonly_objects",
+        "readonly_literal_tuple",
+        "optional_return",
+        "NUL_domain_strings",
+        "runtime_canonical_secret_expression",
+        "runtime_canonical_json",
+        "runtime_frozen_descriptors",
+        "runtime_invalid_inputs"
+      ]
+    },
+    "boundedStrictSourceFiles": 6
+  },
+  "nativeEmissionBeforeEsmRewrite": [
+    {
+      "package": "packages/protocol-review-workflow",
+      "config": "tsconfig.build.json",
+      "files": {
+        "index.d.ts": "d5b38d59672a9d27943b265c68ef40e964c0e4834969ce1259fc582a0b0ea1d7",
+        "index.js": "00b6a4fe578babc35e50bd621bb08a534631f9d0f68bfebda027c68fdb395965",
+        "mcp-secrets.test.d.ts": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881",
+        "mcp-secrets.test.js": "3bbead6716d8a82288adf19b9060dfd0a8c09bbfa08761cdd06e91570e3c0f77"
+      }
+    },
+    {
+      "package": "packages/features/review-evidence",
+      "config": "tsconfig.contract-source.json",
+      "files": {
+        "contract-source/index.d.ts": "9a7ade7fe5741a426e50490c3e7d67e40b46082e61cb53cc121e7899208b28a9",
+        "contract-source/index.js": "7e506be964293cc466490f61d0f6b3b84d6fca9e4c72407bc74a2b582df5ca08",
+        "domain/provider-invocation-manifest.d.ts": "7624c89dec25c218d0e049b0a56f65e4aab4754c159e5c7bb637c65cf3ae13cf",
+        "domain/provider-invocation-manifest.js": "c6b84ee7d487b78c0a879d80b1ad1b7a7e7c77f91742a0dee211dbf8b6cfeedf",
+        "domain/review-evidence-primitives.d.ts": "b3b1837b4f2fb71320fd67369a462d6ef66a51757fae3dde01c924861f05520c",
+        "domain/review-evidence-primitives.js": "6e21f29747adcf8a22a0f2f6784771a3fed292572a936930e1c0b68ca6f289a5"
+      }
+    }
+  ],
+  "nativeRuntimeJavaScriptAfterEsmRewrite": [
+    {
+      "package": "packages/protocol-review-workflow",
+      "files": {
+        "index.js": "00b6a4fe578babc35e50bd621bb08a534631f9d0f68bfebda027c68fdb395965",
+        "mcp-secrets.test.js": "d9695843f013f99bfd5644036aa481ad2b288c1216b474d60c85f593f69c9791"
+      }
+    },
+    {
+      "package": "packages/features/review-evidence",
+      "files": {
+        "contract-source/index.js": "7e506be964293cc466490f61d0f6b3b84d6fca9e4c72407bc74a2b582df5ca08",
+        "domain/provider-invocation-manifest.js": "659495b3f89d0d7d47f569b3c5fcc54abfe5eab379337907c966ae6f2a81d922",
+        "domain/review-evidence-primitives.js": "6e21f29747adcf8a22a0f2f6784771a3fed292572a936930e1c0b68ca6f289a5"
+      }
+    }
+  ],
+  "initialFindings": [
+    {
+      "log": "tmp/compiler-native-qualification/tooling-initial.log",
+      "result": "1350 diagnostics on initial source in bare reused worktree: missing workspace links/build prerequisites and classic API owner files; two owned readdir overload errors were also found and fixed. No repeat or final whole-tooling pass is claimed."
+    },
+    {
+      "log": "tmp/compiler-native-qualification/bounded-pilot-initial.log",
+      "result": "Null package JSON is rejected by Node before custom manifest validation; expected error now reflects that. Runtime fixture now requests real production package exports and links actual package dependencies."
+    },
+    {
+      "log": "tmp/compiler-native-qualification/declaration-consumer.log",
+      "result": "Exact internal-type equality rejected separately declared enum identities. Compatibility now uses bidirectional assignability, retaining independent fixed equality/literal/readonly expectations."
+    }
+  ],
+  "remainingRequiredGates": [
+    "Integrate reviewed native dependency and AST/lint prerequisite owners without overwriting overlaps.",
+    "Run complete real tooling preflight and full dedicated compiler pilot, including copied real-project invalid-heading rejection.",
+    "Run required integrated CI and independent review; no Ready/merge claimed by this receipt."
+  ],
+  "rawLocalEvidenceSha256": {
+    "tmp/compiler-native-qualification/format-final-source.log": "880850d4bb07b509eefc2cbe834ebfccaeb69a96bebb99caca336d0e01bd38a9",
+    "tmp/compiler-native-qualification/bounded-strict-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tmp/compiler-native-qualification/bounded-pilot-final.log": "2d893189e220eccb365033bb211ed8ef0f18ba1145652f0690e03e6c17c21926",
+    "tmp/compiler-native-qualification/final-loads.jsonl": "8ce69f77c63c5479d5b1b3f630472d29baeb518f961c4a004ead5090b3d624ec",
+    "tmp/compiler-native-qualification/final-processes.jsonl": "8ea31505a6d5a3d99a45e5739962cc44871dfc824019dbcdd7dfc39fb3acfc89",
+    "tmp/compiler-native-qualification/tooling-show-config-final.json": "7c926c5147d3bb163d9553bc4ced754edb7f46801fbfdad0c9c625594925620b",
+    "tmp/compiler-native-qualification/tsconfig.bounded.json": "cf82138006836809d682c326ef85339e145a2c533052182456f4019302e7f4aa",
+    "tmp/compiler-native-qualification/tooling-initial.log": "33847e8c187fa2360e463557f3172803d22ebfa6c48c17441f0187d6795e3207",
+    "tmp/compiler-native-qualification/bounded-pilot-initial.log": "dc7b4376e8c9eb09044453dff25b50e8d81850623af0a4f90a82aced245abbc6",
+    "tmp/compiler-native-qualification/declaration-consumer.log": "c633b2bb9380d0004ace50e606f1356c1af370003d2ebeaeb01ef6383c089fc2",
+    "tmp/compiler-native-qualification/declaration-assignability.log": "cda04db9667fb036f824cfd787573c0ef70bf0948c90ce75b43b97cb5a4c2d86"
+  }
+}

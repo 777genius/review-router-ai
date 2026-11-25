@@ -265,7 +265,7 @@ describe("private dependency installer", () => {
     );
     writeFileSync(
       join(repository, "pnpm-workspace.yaml"),
-      'packages:\n  - packages/*\n\nallowBuilds:\n  "prisma@7.8.0": true\n',
+      'packages:\n  - packages/*\n\nallowBuilds:\n  "prisma@7.9.0": true\n',
     );
     writeFileSync(join(repository, path), value);
     expect(spawnSync("git", ["init", "-q"], { cwd: repository }).status).toBe(
@@ -297,10 +297,21 @@ describe("private dependency installer", () => {
     'allowBuilds:\n  "@vioxen/subscription-runtime": true\n',
     'allowBuilds:\n  "@vioxen/subscription-runtime@git+https://github.com/777genius/ar.git": true\n',
     'allowBuilds:\n  "@vioxen/subscription-runtime@https://codeload.github.com/777genius/ar/tar.gz/0000000000000000000000000000000000000000": true\n',
+    'allowBuilds:\n  "bun@1.4.3": true\n',
+    'allowBuilds:\n  "bun@1.4.4": false\n',
+    'allowBuilds:\n  "bun": false\n',
+    'allowBuilds:\n  "bun@*": false\n',
+    'allowBuilds:\n  "prisma@7.9.0": false\n',
+    'allowBuilds:\n  "prisma@7.8.0": true\n',
+    'allowBuilds:\n  "@prisma/engines@7.8.0": true\n',
+    'allowBuilds:\n  "unreviewed@1.0.0": false\n',
+    'minimumReleaseAgeExclude:\n  - "stack-toolchain@0.3.0"\n',
+    'minimumReleaseAgeExclude:\n  - "stack-toolchain@0.3.2"\n',
+    'minimumReleaseAgeExclude:\n  - "stack-toolchain@*"\n',
     'minimumReleaseAgeExclude:\n  - "@get-modular/assembly@0.7.1"\n',
     'minimumReleaseAgeExclude:\n  - "@get-modular/conformance@0.5.1"\n',
     'minimumReleaseAgeExclude:\n  - "@get-modular/core@0.7.1"\n',
-    'minimumReleaseAgeExclude:\n  - "@get-modular/resources@0.2.2"\n',
+    'minimumReleaseAgeExclude:\n  - "@get-modular/resources@0.2.3"\n',
     'minimumReleaseAgeExclude:\n  - "@get-modular/unreviewed@0.7.0"\n',
     'minimumReleaseAgeExclude:\n  - "@get-modular/core@*"\n',
     'minimumReleaseAgeExclude:\n  - "@get-modular/core@https://example.test/core.tgz"\n',
@@ -318,7 +329,7 @@ describe("private dependency installer", () => {
     );
     writeFileSync(
       join(repository, "pnpm-workspace.yaml"),
-      `packages:\n  - packages/*\n\nallowBuilds:\n  "prisma@7.8.0": true\n${addition}`,
+      `packages:\n  - packages/*\n\nallowBuilds:\n  "prisma@7.9.0": true\n${addition}`,
     );
     expect(spawnSync("git", ["init", "-q"], { cwd: repository }).status).toBe(
       0,

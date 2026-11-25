@@ -1,0 +1,158 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "parents": [
+      "3ba31fce3401c0799373a42f0d86d37726f1ad3b",
+      "e180f4a958359726c18e048c8c85e71d5b43aa69"
+    ],
+    "qualificationInput": "Reviewed uncommitted integration delta; exact file SHA-256 map below. Main changes and existing stricter CI test contract are retained.",
+    "changedFiles": {
+      ".github/workflows/ci.yml": "1337851ba24d677fc164940a4221ccf3fb00e0ef01a66a56ddc8e0908b4e2888",
+      ".github/workflows/unified-ocr-ui.yml": "d6fd0a36df21f40a6d163c2361f2fc42c18dd9073d07ab940a98f6239a837786",
+      "eslint.config.mjs": "7c1aa7b62c51f8123d29685bf793492058ae8ce62ffb9f58ff66642f068df2d4",
+      "package.json": "da8d0469e381819149328de65f9458a69b359fd815dd183a822c99c811106787",
+      "scripts/check-unified-ocr-results.test.ts": "cccbd4076e3cdbd3ec0cf4d34201a45190aaf259065dc07b9e12242ef23eabcd",
+      "scripts/check-unified-ocr-results.ts": "71c51db358e143ae3248388347cf78cc01093b80317d3846ede7ad136eab9f87",
+      "scripts/local-checks/lint-format-eslint-oracle.ts": "a7391b6df3ffb095932d861a6af680139b097aed66c3165d4ce4d60a1b512a1e",
+      "scripts/local-checks/lint-format-native-load-guard.ts": "83004bc5b1d7fa05472bef881cc6c8a38510ea908fa0bb81fc93a3bacd56a6ac",
+      "scripts/local-checks/lint-format-pilot.md": "8129b2a33bb3ea8e4f77b3c062a496da39dd0ad4f5805d0134624b14fa048369",
+      "scripts/local-checks/lint-format-proof.test.ts": "6bc463bb92583f8780a6312bf1927605ac9369f5d5bf02e3c74dd822297dcfe9",
+      "scripts/local-checks/lint-format-proof.ts": "1a658a2b2936e09e9b4d0b02c6460e3cdf8634c78fb7d5136308973d916fb5cf",
+      "scripts/local-checks/lint-format-qualification.ts": "5f040756752c2b794df6da8b1fd8af40bc6d7a8435fb9c39c7218b928b29d051",
+      "scripts/local-checks/lint-format-qualify.ts": "0ecc94343e54364a618affe315ac47485f6c95f11016c942bb3b60b882170f41",
+      "scripts/local-checks/lint-format-safety.test.mts": null,
+      "scripts/local-checks/lint-format-safety.test.ts": "0002f41f7292cb3c7fd15ac512d2a5959e13c122f70ba43ac9e88e9a17ff1224",
+      "scripts/local-checks/lint-format-test-support.mts": null,
+      "scripts/local-checks/lint-format-test-support.ts": "1218528b33401e95768228ba62fcef4d900f5cba4c02ceb36f4696c16d7589c3",
+      "scripts/local-checks/lint-format-vitest.config.ts": "118fc4aec786972e5cf801605faf1f6371872c55109c9f5ecbddbcf7eeeeeee2",
+      "tsconfig.lint-format.json": "a766c77c7094d95395b8b51ef4fd5bb2994e99877023be80a7bfc9955b55c8f3",
+      "tsconfig.tooling.json": "e39b703bedf6bf71c5a03128843b198e72948030df289ee2f9b8e13e242fb848",
+      "vitest.config.ts": "99616bf92419a78f901411e395bd6f432a6f948630956521732399d6a35df947"
+    },
+    "sourceInventoryEntries": 4811,
+    "unchangedDuringStrictAndFullFormat": true
+  },
+  "toolchain": {
+    "node": "26.11.1",
+    "pnpm": "11.28.7",
+    "typescript": "7.0.2"
+  },
+  "strictProjects": [
+    {
+      "name": "tooling",
+      "command": [
+        "node",
+        "scripts/local-checks/compiler-cli.ts",
+        "--native",
+        "--noEmit",
+        "-p",
+        "tsconfig.tooling.json"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 69.7482559439959,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "lint-format",
+      "command": [
+        "node",
+        "scripts/local-checks/compiler-cli.ts",
+        "--native",
+        "--noEmit",
+        "-p",
+        "tsconfig.lint-format.json"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 3.287862273005885,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "fullFormat": {
+    "command": "pnpm format:check",
+    "exitCode": 0,
+    "logSha256": "1d66faad74f5e8709353f7288592866bd3a9095da1174a916e7aa632949971e2"
+  },
+  "ocrReceiptValidation": {
+    "command": "vitest run scripts/check-unified-ocr-results.test.ts --maxWorkers=1",
+    "passed": 16,
+    "failed": 0,
+    "skipped": 0,
+    "todo": 0,
+    "reportSha256": "d479fe478e819f30c9bf570f36c8c160ae30e2f8ffda55c4f25f2efa1d6873a8",
+    "scope": "Synthetic complete, skipped, wrong-case, wrong-revision, dirty-source, wrong-database, retry, malformed JSON and incomplete/duplicate paired receipt checks; not browser or paired E2E execution."
+  },
+  "ciImpact": {
+    "command": "node --test scripts/ci-impact.test.mjs",
+    "passed": 40,
+    "failed": 0,
+    "skipped": 0,
+    "todo": 0,
+    "logSha256": "fbbe8f587db0ea83a6654572e44649a105976c936ae7f2325a678f56fb0d0195"
+  },
+  "lintCandidate": {
+    "sourcePatchSha256": "c1356bdb54e527750ca701fb2adc9c20a33d92ad24d2c8b3a0f6b4dd4432e100",
+    "matchedSourceSha256": {
+      "eslint.config.mjs": "7c1aa7b62c51f8123d29685bf793492058ae8ce62ffb9f58ff66642f068df2d4",
+      "scripts/local-checks/lint-format-eslint-oracle.ts": "a7391b6df3ffb095932d861a6af680139b097aed66c3165d4ce4d60a1b512a1e",
+      "scripts/local-checks/lint-format-native-load-guard.ts": "83004bc5b1d7fa05472bef881cc6c8a38510ea908fa0bb81fc93a3bacd56a6ac",
+      "scripts/local-checks/lint-format-pilot.md": "8129b2a33bb3ea8e4f77b3c062a496da39dd0ad4f5805d0134624b14fa048369",
+      "scripts/local-checks/lint-format-qualification.ts": "5f040756752c2b794df6da8b1fd8af40bc6d7a8435fb9c39c7218b928b29d051",
+      "scripts/local-checks/lint-format-safety.test.ts": "0002f41f7292cb3c7fd15ac512d2a5959e13c122f70ba43ac9e88e9a17ff1224",
+      "scripts/local-checks/lint-format-test-support.ts": "1218528b33401e95768228ba62fcef4d900f5cba4c02ceb36f4696c16d7589c3",
+      "tsconfig.lint-format.json": "a766c77c7094d95395b8b51ef4fd5bb2994e99877023be80a7bfc9955b55c8f3",
+      "vitest.config.ts": "99616bf92419a78f901411e395bd6f432a6f948630956521732399d6a35df947",
+      "scripts/local-checks/lint-format-qualify.ts": "0ecc94343e54364a618affe315ac47485f6c95f11016c942bb3b60b882170f41",
+      "scripts/local-checks/lint-format-vitest.config.ts": "118fc4aec786972e5cf801605faf1f6371872c55109c9f5ecbddbcf7eeeeeee2",
+      "scripts/local-checks/lint-format-proof.ts": "1a658a2b2936e09e9b4d0b02c6460e3cdf8634c78fb7d5136308973d916fb5cf",
+      "scripts/local-checks/lint-format-proof.test.ts": "6bc463bb92583f8780a6312bf1927605ac9369f5d5bf02e3c74dd822297dcfe9"
+    },
+    "independentReviewSha256": "046ead155b9df3fae60eb5937422cab7ef57f89f8886a75df22d49fef438c998",
+    "candidateReceiptSha256": "c326e60389cfa67216deecd168b49bf75292953e90226ce60e5bebbfe9044106",
+    "nativeFormatterAndProofTests": {
+      "passed": 47,
+      "failed": 0,
+      "skipped": 0,
+      "todo": 0,
+      "scope": "Actual isolated formatter/proof tests from candidate receipt; exact source hashes match integrated files."
+    },
+    "fullWrapperQualified": false,
+    "publishedStack030Verified": false,
+    "conditionalDependencyPinApplied": false,
+    "reason": "Published qualified Stack0.3.0 artifact/SRI and ordinary pnpm generated/frozen root lock remain pending; no preview manifest or integrity substitution."
+  },
+  "ciChanges": {
+    "sourceAndCertification": "Enroll maintained lint:qualify; original compiler/Foundation qualifiers retained.",
+    "ordinaryGates": "Pre-initialization guard on lint/format/typecheck/build; explicit Turbo environment forwarding.",
+    "unifiedOcr": "Exact candidate checkout with full history; explicit16-case UI and25-case paired receipt acceptance. Ordinary CI merge checks remain intact.",
+    "mainRunners": "Preserve main #992 Static Checks and lock-portability runner routes; stricter compatible impact test includes main #995 regex fix."
+  },
+  "audits": {
+    "native-audit.jsonl": {
+      "sha256": "65e3627090d91179692ef43cdb81c28c46248fd2cc844247f94939b105205d2b",
+      "guardedProcesses": 4,
+      "nativeVersions": ["7.0.2"],
+      "blockedLegacyLoads": 0
+    },
+    "format-native-audit.jsonl": {
+      "sha256": "083bc5cc30f8e993684747e19152c586f4fc60045750b7caaa65d197a1aa2775",
+      "guardedProcesses": 2,
+      "nativeVersions": [],
+      "blockedLegacyLoads": 0
+    },
+    "ocr-validation-audit.jsonl": {
+      "sha256": "a20f5a188a1fc768236625f6d2e69a2df1ae0ef28ae3535748c4405556a6596a",
+      "guardedProcesses": 2,
+      "nativeVersions": [],
+      "blockedLegacyLoads": 0
+    },
+    "ci-impact-e180-audit.jsonl": {
+      "sha256": "86af6826978fbaf4f539e6869c7a144deac3ff36a638bf67d393efa81919e37d",
+      "guardedProcesses": 1,
+      "nativeVersions": [],
+      "blockedLegacyLoads": 0
+    }
+  },
+  "productBrowserExecuted": false,
+  "fullProductionBuildQualified": false,
+  "finalHeadCiQualified": false
+}
