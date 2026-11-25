@@ -5716,3 +5716,38 @@ it("bounds simultaneous closes without retained sessions and reports unknown ove
     await f.relay.shutdown();
   }
 });
+
+it("drains more retained sessions than cleanup slots during shutdown", async () => {
+  const f = await fixture(MiB, 0, 4);
+  const ids = Array.from(
+    { length: 4 },
+    (_, index) => `authorization-${index + 1}`,
+  );
+  let gate: ReturnType<typeof f.holdClose> | undefined;
+  let first: ReturnType<typeof f.relay.closeRun> | undefined;
+  let shutdown: ReturnType<typeof f.relay.shutdown> | undefined;
+  try {
+    for (const id of ids) await streamRun(f, id);
+    gate = f.holdClose();
+    first = f.relay.closeRun(ids[0]!, "cancelled");
+    void first.catch(() => {});
+    await gate.started;
+    shutdown = f.relay.shutdown();
+    await vi.waitFor(() => {
+      expect(f.nativeCloses).toHaveLength(f.relay.policy.maxInFlight);
+      for (const id of ids)
+        expect(f.authorization(id).state).toBe(
+          ReviewRunAuthorizationState.Revoked,
+        );
+    });
+    gate.release();
+    await Promise.all([first, shutdown]);
+    expect(f.nativeCloses).toHaveLength(ids.length);
+    expect(new Set(f.nativeCloses)).toEqual(new Set(f.nativeExecutions.keys()));
+    expect([...f.nativeExecutions.values()]).toEqual(ids.map(() => "closed"));
+  } finally {
+    gate?.release();
+    await Promise.allSettled([first, shutdown]);
+    await f.relay.shutdown();
+  }
+});

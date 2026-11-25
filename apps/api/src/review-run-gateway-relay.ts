@@ -295,6 +295,7 @@ export function createReviewRunGatewayRelay(input: {
   const sessions = new Map<string, Session>();
   let inFlight = 0;
   let cleanupInFlight = 0;
+  const cleanupWaiters: Array<() => void> = [];
   let closeAuthorityInFlight = 0;
   let unrestoredCloseInFlight = 0;
   const closeAuthorityGate = createCloseAuthorityGate(policy.maxInFlight);
@@ -1024,8 +1025,13 @@ export function createReviewRunGatewayRelay(input: {
     deadline: number | undefined,
     parentTermination: () => Promise<ReviewRunAuthorization | null> | undefined,
   ) {
-    if (cleanupInFlight >= policy.maxInFlight)
-      throw new RelayFailure("close_pending", 409, "effect_unknown");
+    // Runtime close attempts remain fail-fast under pressure. During shutdown,
+    // accepted closes must instead drain without exceeding the same I/O limit.
+    while (cleanupInFlight >= policy.maxInFlight) {
+      if (!stopping)
+        throw new RelayFailure("close_pending", 409, "effect_unknown");
+      await new Promise<void>((resolve) => cleanupWaiters.push(resolve));
+    }
     cleanupInFlight++;
     try {
       const remaining =
@@ -1089,6 +1095,7 @@ export function createReviewRunGatewayRelay(input: {
       return operation;
     } finally {
       cleanupInFlight--;
+      cleanupWaiters.shift()?.();
     }
   }
   async function scopedResponse(
