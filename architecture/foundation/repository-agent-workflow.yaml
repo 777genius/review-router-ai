@@ -1,0 +1,31 @@
+schemaVersion: 1
+instructions:
+  canonical: AGENTS.md
+  claude: CLAUDE.md
+  gemini: GEMINI.md
+  copilot: .github/copilot-instructions.md
+scripts:
+  changed: check:changed
+  fast: check:fast
+  full: check
+changedChecks:
+  - id: lint
+    script: lint
+    extensions: [.ts, .tsx, .mts, .cts, .js, .mjs, .cjs]
+    passPaths: false
+  - id: typecheck
+    script: typecheck
+    extensions: [.ts, .tsx, .mts, .cts]
+    passPaths: false
+  - id: architecture
+    script: architecture:check
+    extensions: [.ts, .tsx, .mts, .cts, .yaml, .json]
+    passPaths: false
+fullScanPaths:
+  - .github/workflows
+  - architecture
+  - foundation.config.yaml
+  - eslint.config.mjs
+  - pnpm-lock.yaml
+  - pnpm-workspace.yaml
+  - tsconfig.base.json

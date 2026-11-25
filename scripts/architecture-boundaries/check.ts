@@ -5,6 +5,7 @@ import { collectBoundaryFiles, extractImportSpecifiers } from "./sources.ts";
 import { checkReviewActionV2ProtocolBoundaries } from "./action-protocol.ts";
 import { checkRevisionAwareReviewRatchet } from "./strict-review-contexts.ts";
 import { checkPrismaTransactionQuerySerialization } from "./transaction-serialization.ts";
+import { checkNewFeaturePackageCompositions } from "./new-feature-packages.ts";
 import {
   checkCodexRuntimeOwnershipBoundaries,
   checkReviewExecutionExtractionBoundaries,
@@ -20,6 +21,10 @@ const forbiddenImports = [
   {
     pattern: /^@prisma\/client(?:\/.*)?$/,
     reason: "Prisma is an infrastructure adapter",
+  },
+  {
+    pattern: /^@get-modular\/(?:.*)$/,
+    reason: "Get Modular belongs in composition and tests, not domain/application",
   },
   {
     pattern: /^@octokit(?:\/.*)?$/,
@@ -95,6 +100,7 @@ export async function checkArchitectureBoundaries(
     });
   }
 
+  await checkNewFeaturePackageCompositions(root, violations);
   await checkReviewActionV2ProtocolBoundaries(root, violations);
   await checkRevisionAwareReviewRatchet(root, violations);
   await checkPrismaTransactionQuerySerialization(root, violations);
