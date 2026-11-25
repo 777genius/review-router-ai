@@ -56,7 +56,7 @@ session or credential.
 ## Install and typecheck
 
 The harness owns its lockfile and a separate pnpm workspace. Its build policy
-approves only the locked `esbuild@0.28.2` and `sharp@0.34.5` lifecycle scripts;
+approves only the locked `esbuild@0.28.2` and `sharp@0.35.5` lifecycle scripts;
 these permissions do not extend to the application workspace. Do not pass
 `--ignore-workspace`: pnpm would also ignore this local build policy.
 
@@ -69,10 +69,12 @@ Both Skills browser CI jobs perform the equivalent isolated installation
 explicitly in their typecheck step, then invoke the native entrypoint against
 the same harness project.
 
-The existing TypeScript 6.0.3 dependency remains available to Next's separate
-compiler API profile. A native harness check qualifies this harness's source;
-it does not qualify Next's compiler API or migrate the wider repository's
-compiler routes. See the [compiler profiles](../local-checks/compiler-README.md).
+The harness also pins TypeScript 7.0.2 and Next 16.4.6, matching the application
+workspace. Its independent lockfile must keep those versions aligned; no
+legacy compiler is admitted for Next or the browser harness. A native harness
+check qualifies this harness's source. The full browser run separately exercises
+the application through Next and Chromium. See the
+[compiler profiles](../local-checks/compiler-README.md).
 
 Run from the repository root:
 
