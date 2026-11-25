@@ -24,7 +24,8 @@ const forbiddenImports = [
   },
   {
     pattern: /^@get-modular\/(?:.*)$/,
-    reason: "Get Modular belongs in composition and tests, not domain/application",
+    reason:
+      "Get Modular belongs in composition and tests, not domain/application",
   },
   {
     pattern: /^@octokit(?:\/.*)?$/,

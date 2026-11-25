@@ -146,9 +146,7 @@ function importedCall(
     if (
       imports.some(
         (item) =>
-          item.source === source &&
-          item.name === "*" &&
-          item.local === local,
+          item.source === source && item.name === "*" && item.local === local,
       )
     ) {
       return callee.property.name;
@@ -195,10 +193,7 @@ export function compositionEntrypoints(
   sources: ReadonlySet<string>,
 ): string[] {
   const resolved = runtimeTargets(target).map((value) => {
-    if (
-      value === null ||
-      !/^\.\/(?:src|dist)\/composition\//u.test(value)
-    ) {
+    if (value === null || !/^\.\/(?:src|dist)\/composition\//u.test(value)) {
       return;
     }
     return sourceTarget(
@@ -206,10 +201,7 @@ export function compositionEntrypoints(
       sources,
     );
   });
-  if (
-    resolved.length === 0 ||
-    resolved.some((value) => value === undefined)
-  ) {
+  if (resolved.length === 0 || resolved.some((value) => value === undefined)) {
     return [];
   }
   return [
@@ -273,10 +265,7 @@ export function hasAssemblyComposition(
       ) {
         return;
       }
-      const target = sourceTarget(
-        resolve(dirname(file), specifier),
-        sources,
-      );
+      const target = sourceTarget(resolve(dirname(file), specifier), sources);
       if (target) pending.push(target);
     });
   }
@@ -309,10 +298,7 @@ function vitestFunction(
   }
 }
 
-function activeTest(
-  callee: unknown,
-  imports: readonly ValueImport[],
-): boolean {
+function activeTest(callee: unknown, imports: readonly ValueImport[]): boolean {
   const root = vitestFunction(callee, imports);
   return (
     root !== undefined &&

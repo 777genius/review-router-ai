@@ -133,17 +133,20 @@ describe("Get Modular default for new feature packages", () => {
     { import: null, default: "./src/composition/root.ts" },
     { import: "./src/composition/root.ts", default: null },
     { node: { import: null }, default: "./src/composition/root.ts" },
-  ])("rejects a missing or blocked runtime composition export: %j", async (target) => {
-    const root = fixture();
-    completePackage(root);
-    newPackage(root, {
-      ...validManifest,
-      exports: { ...validManifest.exports, "./composition": target },
-    });
-    expect(await reasons(root)).toContainEqual(
-      expect.stringContaining("./composition entrypoint"),
-    );
-  });
+  ])(
+    "rejects a missing or blocked runtime composition export: %j",
+    async (target) => {
+      const root = fixture();
+      completePackage(root);
+      newPackage(root, {
+        ...validManifest,
+        exports: { ...validManifest.exports, "./composition": target },
+      });
+      expect(await reasons(root)).toContainEqual(
+        expect.stringContaining("./composition entrypoint"),
+      );
+    },
+  );
 
   it.each([
     "export const create = () => ({});",
@@ -157,12 +160,15 @@ describe("Get Modular default for new feature packages", () => {
     "import { declareModule } from '@get-modular/assembly'; export function root(declareModule: () => object) { return declareModule(); }",
     "import { declareModule } from '@get-modular/assembly'; export function root() { const declareModule = () => ({}); return declareModule(); }",
     "import * as assembly from '@get-modular/assembly'; export function root({ assembly }: { assembly: { declareModule: () => object } }) { return assembly.declareModule(); }",
-  ])("rejects decorative, shadowed or invalid descriptor source: %s", async (source) => {
-    const root = fixture();
-    completePackage(root);
-    put(root, prefix + "/src/composition/root.ts", source);
-    expect(await reasons(root)).toContain(descriptorReason);
-  });
+  ])(
+    "rejects decorative, shadowed or invalid descriptor source: %s",
+    async (source) => {
+      const root = fixture();
+      completePackage(root);
+      put(root, prefix + "/src/composition/root.ts", source);
+      expect(await reasons(root)).toContain(descriptorReason);
+    },
+  );
 
   it("ignores real declarations disconnected from the composition export", async () => {
     const root = fixture();
@@ -188,7 +194,10 @@ describe("Get Modular default for new feature packages", () => {
     "export {};",
     "import { it } from 'vitest'; it('unrelated', () => {});",
     regression.replace("it('composition'", "it.skip('composition'"),
-    regression.replace("import { checkNamespaces }", "import type { checkNamespaces }"),
+    regression.replace(
+      "import { checkNamespaces }",
+      "import type { checkNamespaces }",
+    ),
     regression.replace("import { item }", "import type { item }"),
     regression.replace(
       "checkNamespaces({ namespace: 'reviewrouter', declarations: [item] });",
@@ -206,12 +215,15 @@ describe("Get Modular default for new feature packages", () => {
       "() => { checkNamespaces",
       "() => { const item = {}; checkNamespaces",
     ),
-  ])("requires an active conformance regression using composition: %s", async (source) => {
-    const root = fixture();
-    completePackage(root);
-    put(root, prefix + "/src/composition/root.test.ts", source);
-    expect(await reasons(root)).toContain(testReason);
-  });
+  ])(
+    "requires an active conformance regression using composition: %s",
+    async (source) => {
+      const root = fixture();
+      completePackage(root);
+      put(root, prefix + "/src/composition/root.test.ts", source);
+      expect(await reasons(root)).toContain(testReason);
+    },
+  );
 
   it.each([
     "describe.skip",
@@ -221,10 +233,13 @@ describe("Get Modular default for new feature packages", () => {
   ])("rejects conformance tests inside %s", async (suite) => {
     const root = fixture();
     completePackage(root);
-    const source = regression
-      .replace("import { it }", "import { it, describe }")
-      .replace("it('composition'", suite + "('suite', () => { it('composition'") +
-      "});\n";
+    const source =
+      regression
+        .replace("import { it }", "import { it, describe }")
+        .replace(
+          "it('composition'",
+          suite + "('suite', () => { it('composition'",
+        ) + "});\n";
     put(root, prefix + "/src/composition/root.test.ts", source);
     expect(await reasons(root)).toContain(testReason);
   });
@@ -249,12 +264,15 @@ describe("Get Modular default for new feature packages", () => {
     declaration
       .replace("{ declareModule }", "* as assembly")
       .replace("= declareModule(", "= assembly.declareModule("),
-  ])("accepts direct, aliased and namespace descriptor calls", async (source) => {
-    const root = fixture();
-    completePackage(root);
-    put(root, prefix + "/src/composition/root.ts", source);
-    expect(await reasons(root)).toEqual([]);
-  });
+  ])(
+    "accepts direct, aliased and namespace descriptor calls",
+    async (source) => {
+      const root = fixture();
+      completePackage(root);
+      put(root, prefix + "/src/composition/root.ts", source);
+      expect(await reasons(root)).toEqual([]);
+    },
+  );
 
   it("follows runtime re-exports and server-only package conditions", async () => {
     const root = fixture();
@@ -316,7 +334,9 @@ describe("Get Modular default for new feature packages", () => {
         },
       }),
     );
-    await expect(reasons(root)).rejects.toThrow("get_modular_root_pins_missing");
+    await expect(reasons(root)).rejects.toThrow(
+      "get_modular_root_pins_missing",
+    );
   });
 
   it("enforces admission through the real architecture CLI", () => {

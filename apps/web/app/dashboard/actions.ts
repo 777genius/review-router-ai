@@ -177,7 +177,7 @@ import {
   assertRepositoryVisibleToGitHubApp,
   assertOrgRulesetOrganizationPlanAllowed,
   githubApiStatus,
-} from "./dashboard-github-verification.ts";
+} from "./dashboard-github-verification";
 import {
   changeHostedPoolAccountState,
   changeHostedRepositorySessionSource,

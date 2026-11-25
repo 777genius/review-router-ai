@@ -37,7 +37,13 @@ does not resolve it.
 Preserve the evidence bytes, provenance checks, and full intended roots. Qualify
 a compatible native policy before activating this candidate; do not rename the
 artifact or remove governed documentation merely to obtain a passing check.
-Editorial link repairs in #1002 do not establish complete capability acceptance.
+Editorial link repairs are independently deliverable in #998; they do not
+establish complete capability acceptance. The remaining mechanism belongs to
+Engineering Foundation. Its published 4.0.0 and current upstream
+`fac03920e50ebde038ae415edeb7aa9e3d610ada` retain the same limitation. The open
+choice is a bounded native policy for exact immutable evidence, qualified and
+published before consumer adoption, or an explicit owner decision to defer this
+activation. Neither choice is accepted by this record.
 
 ## Required next phases before whole-workspace claim
 
