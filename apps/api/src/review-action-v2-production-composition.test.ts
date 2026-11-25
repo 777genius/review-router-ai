@@ -84,6 +84,54 @@ const runtime = {
 };
 
 describe("Review Action v2 production composition", () => {
+  it("reports maintenance failure through the production logger after every task settles", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const artifactQuery = vi.fn(async () => {
+      throw new Error("private-maintenance-database-details");
+    });
+    let finishPrune!: (counts: number[]) => void;
+    const pruning = new Promise<number[]>((resolve) => {
+      finishPrune = resolve;
+    });
+    const transaction = vi.fn(async () => pruning);
+    let app: Awaited<ReturnType<typeof createApiApp>> | undefined;
+    try {
+      app = await createApiApp({
+        prisma: {
+          providerUsageGrant: { findMany: artifactQuery },
+          $transaction: transaction,
+        } as unknown as PrismaClient,
+        healthDependencies: [],
+        reviewRunControlV2Enabled: true,
+        reviewActionV2Env: productionEnv(),
+      });
+      expect(app.log.level).toBeUndefined();
+      await app.ready();
+      expect(artifactQuery).toHaveBeenCalledOnce();
+      expect(transaction).toHaveBeenCalledOnce();
+      expect(warn).not.toHaveBeenCalled();
+      let closed = false;
+      const closing = app.close().then(() => {
+        closed = true;
+      });
+      await Promise.resolve();
+      expect(closed).toBe(false);
+      finishPrune([0, 0, 0, 0]);
+      await closing;
+      expect(warn.mock.calls).toEqual([
+        [
+          "Provider usage maintenance failed",
+          { event: "provider_usage_recovery_failed" },
+        ],
+      ]);
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("private-");
+    } finally {
+      finishPrune([0, 0, 0, 0]);
+      await app?.close();
+      warn.mockRestore();
+    }
+  });
+
   it("records closed claim rejection through the production logger with Fastify logging disabled", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     let app: Awaited<ReturnType<typeof createApiApp>> | undefined;
@@ -1257,5 +1305,8 @@ function productionEnv(): Record<string, string> {
 }
 
 function inertPrisma(): PrismaClient {
-  return {} as PrismaClient;
+  return {
+    providerUsageGrant: { findMany: async () => [] },
+    $transaction: async () => [0, 0, 0, 0],
+  } as unknown as PrismaClient;
 }

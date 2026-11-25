@@ -261,6 +261,10 @@ Resolved review findings include:
   checks the exact cursor, invocation and actor/workspace scope, not just row count.
 - Usage qualification gets its own transient PostgreSQL cluster so fixture role
   cleanup cannot affect concurrently running application/authorization suites.
+- A final independent SQL/maintenance cross-review confirmed the model-API pool
+  timeout against real PostgreSQL. Background maintenance failure now uses the
+  existing production logger, because this host disables the Fastify logger; an
+  actual createApiApp test verifies sanitized reporting after all work settles.
 
 ### Final integration evidence and acceptance
 

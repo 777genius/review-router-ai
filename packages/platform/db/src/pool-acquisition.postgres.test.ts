@@ -37,6 +37,10 @@ describe.skipIf(!adminUrl)(
         );
         expect(isDatabaseAcquisitionTimeout(error)).toBe(true);
         expect(performance.now() - started).toBeLessThan(1500);
+        const modelError: unknown = await prisma.workspace
+          .findMany({ take: 1, select: { id: true } })
+          .catch((cause: unknown) => cause);
+        expect(isDatabaseAcquisitionTimeout(modelError)).toBe(true);
         const transactionError: unknown = await prisma
           .$transaction((tx) => tx.$queryRaw`SELECT 5`, { maxWait: 50 })
           .catch((cause: unknown) => cause);

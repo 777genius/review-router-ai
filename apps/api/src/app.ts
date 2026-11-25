@@ -1105,6 +1105,10 @@ export async function createApiApp(
   ) {
     const usage = providerUsageDependencies;
     registerProviderUsageRecovery(app, {
+      onFailure: () =>
+        logger.warn("Provider usage maintenance failed", {
+          event: "provider_usage_recovery_failed",
+        }),
       runBatch: async () =>
         settleProviderUsageMaintenance([
           ...(usage.providerUsageRecovery
