@@ -2,20 +2,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createProgressInstallationRequester } from "./review-progress-installation-requester";
 
 const mocks = vi.hoisted(() => {
-  const requestInstallation = vi.fn<
-    (
-      route: string,
-      parameters?: Readonly<Record<string, unknown>>,
-    ) => Promise<{ data: unknown; headers: Record<string, string> }>
-  >();
+  const requestInstallation =
+    vi.fn<
+      (
+        route: string,
+        parameters?: Readonly<Record<string, unknown>>,
+      ) => Promise<{ data: unknown; headers: Record<string, string> }>
+    >();
   return {
     construct: vi.fn<(input: { appId: string; privateKey: string }) => void>(),
-    requestApp: vi.fn<
-      (route: string) => Promise<{ data: { slug?: string } }>
-    >(),
-    getInstallationOctokit: vi.fn<
-      (id: number) => Promise<{ request: typeof requestInstallation }>
-    >(),
+    requestApp:
+      vi.fn<(route: string) => Promise<{ data: { slug?: string } }>>(),
+    getInstallationOctokit:
+      vi.fn<(id: number) => Promise<{ request: typeof requestInstallation }>>(),
     requestInstallation,
   };
 });
