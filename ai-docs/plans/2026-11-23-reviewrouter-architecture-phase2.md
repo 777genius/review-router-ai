@@ -6,6 +6,43 @@ Working branch: refactor/architecture-boundaries-phase2-20261123
 Status: further scoped refactoring and independent review in progress; final qualification and merge authorized
 Authority: AGENTS.md, Engineering Quality Standard, Feature Module Standard adopted profiles, current security/runtime protocols.
 
+## E2E continuation checkpoint — 2026-11-25
+
+The latest repeated owner request remains completion of the affected E2E, with
+immediate `[skip ci]` publication and Draft status. The execution environment
+became unavailable during the read-only paired preflight. The remaining
+lifecycle25 and gateway4 runner, asset-complete UI16 and Statistics run had not
+started. This is an incomplete checkpoint, not final E2E or merge qualification.
+
+Commit `5dee232a` repairs Statistics child startup: inherited `NODE_OPTIONS`
+preloads survive and the existing 1/2 GiB scenario limit is appended last.
+The environment allowlist, assertions and timeouts stay unchanged. Two real
+Node child regressions first failed for the missing guard, then passed; native
+TS 7.0.2 strict for the helper/test passed with 215 ordinary transitive files.
+The original tooling check failed three times with SIGKILL, and a separate
+caller-inclusive check also failed. Their lack of diagnostics is not a PASS;
+these failures remain distinct from the successful focused check.
+
+Current production E2E (17 cases) is qualified on the identical API tree of `1169070c` and
+`fd1089e6`; later changes affect only documentation and the Statistics fixture.
+The fresh paired attempt has four complete passing files (7+6+2+1), followed by
+an unexpected lifecycle worker exit: raw assertions are 20 passed/5 pending,
+with process exit1. Its misleading `success:true` summary is rejected; the
+partial 20 contribute no qualification. PostgreSQL, all 165 migration checksums,
+source stability and cleanup were verified. The full25 and gateway4 remain.
+
+The earlier UI16 interaction run on `41ff719` passed every case once, but visual
+review found 28 absent public assets and actual logo/icon 404s. All 28 exact Git
+blobs were restored. A new full run with all 3000 inputs and real asset-response
+checks is prepared, not executed. The corrected Statistics followthrough run
+also remains pending; its older 18 journeys/21 screenshots ended in cleanup
+failure. Earlier passes and failed attempts retain their original scope.
+
+See the [durable E2E checkpoint](../deployments/evidence/2026-11-25-priority-e2e-followthrough.json)
+for exact source/report hashes, remaining work and last verified resource
+custody. After the executor returns, verify source and resources first; do not
+run the still-stale prepared profiles or assume temporary files survived.
+
 ## Final review and delivery — 2026-11-25
 
 The owner now requests further useful refactoring in priority order, repeated

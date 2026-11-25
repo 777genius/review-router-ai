@@ -1,0 +1,345 @@
+{
+  "schemaVersion": 1,
+  "kind": "PR 977 E2E follow-through checkpoint",
+  "status": "INCOMPLETE_EXECUTION_ENVIRONMENT_UNAVAILABLE",
+  "observedOn": "2026-11-25",
+  "pr": "https://github.com/777genius/review-router-ai/pull/977",
+  "source": {
+    "codeHead": "5dee232ac09e2a3590d93c1ce8ed98aafbdafd07",
+    "codeTree": "aacbc669d0e71f308ee3affca6d6466b7de91214",
+    "baseHead": "18c57630b69334c9bfc071dc2500a952edc66f7a",
+    "branch": "refactor/architecture-boundaries-phase2-20261123",
+    "parent": "1357cdfc9deac393c9e39877a62a7adda513b547",
+    "identityMapping": "ai-docs/deployments/evidence/2026-11-25-pr977-source-identity.json",
+    "priorReview": "ai-docs/deployments/evidence/2026-11-25-pr977-scoped-review.json"
+  },
+  "metrics": {
+    "beforeThisCheckpoint": {
+      "additions": 28404,
+      "deletions": 11372,
+      "changedLines": 39776,
+      "files": 241
+    },
+    "measurement": "Git additions plus deletions, including relocations and documentation; not net-new implementation.",
+    "earlierPreFinalEvidenceCheckpoint": {
+      "head": "41ff719042420d8ff28c3e8054ddf6c8700f6936",
+      "changedLines": 30921
+    },
+    "requested30000ThresholdAlreadyMet": true
+  },
+  "executionAvailability": {
+    "status": "unavailable",
+    "environmentId": "ccarenv_b64_Y2NhcmVudl82YWQzMjM1ZjRlNjg4MTkxODlkMjFjMWFkNzRiM2VkMQ",
+    "errors": [
+      "exec-server transport disconnected",
+      "No usable execution environment is available."
+    ],
+    "remaining29Started": false,
+    "newUiStarted": false,
+    "newStatisticsStarted": false,
+    "rawArtifacts": "Paths and hashes below identify artifacts read and verified before the outage. The unavailable executor prevents fresh readback; persistence after restoration must be checked.",
+    "interruptedReadOnlyPairedPreflightSession": 67403
+  },
+  "statisticsLauncherFix": {
+    "commit": "5dee232ac09e2a3590d93c1ce8ed98aafbdafd07",
+    "message": "fix(e2e): retain Statistics child qualification preloads [skip ci]",
+    "behavior": "Preserve the inherited NODE_OPTIONS string and append the maintained 1024/2048 MiB scenario heap cap last; keep the environment allowlist unchanged.",
+    "files": [
+      "scripts/statistics-e2e/browser-qualify.ts",
+      "scripts/statistics-e2e/node-options.ts",
+      "scripts/statistics-e2e/node-options.test.ts",
+      "scripts/statistics-e2e/README.md"
+    ],
+    "sourceFingerprintIncludesHelper": true,
+    "originalToolingGlob": "scripts/statistics-e2e/**/*.ts",
+    "permanentCompilerOptionsChanged": false,
+    "regressions": {
+      "red": {
+        "passed": 0,
+        "failed": 2,
+        "message": "inherited guard must run in child"
+      },
+      "green": {
+        "passed": 2,
+        "failed": 0,
+        "skipped": 0,
+        "kind": "Actual Node children: own-PID native guard event and observed scenario heap cap despite inherited 4096 MiB."
+      }
+    },
+    "nativeStrict": {
+      "typeScript": "7.0.2",
+      "helperAndTest": {
+        "result": "PASS",
+        "filesIncludingTransitiveDependencies": 215,
+        "durationSeconds": 0.5,
+        "effectiveCompilerOptionsEqualOriginal": true
+      },
+      "originalTooling": {
+        "result": "FAIL",
+        "project": "tsconfig.tooling.json",
+        "attemptDurationsSeconds": [
+          19.97,
+          18.03,
+          46.55
+        ],
+        "signal": "SIGKILL",
+        "typeDiagnosticsObserved": false
+      },
+      "callerInclusiveFocused": {
+        "result": "FAIL",
+        "rootFiles": 3,
+        "durationSeconds": 55.74,
+        "signal": "SIGKILL",
+        "typeDiagnosticsObserved": false
+      },
+      "limitation": "The helper/test strict pass does not replace the full tooling gate or qualify the caller-inclusive graph. SIGKILL does not establish OOM."
+    },
+    "formatAndDiff": "PASS before publication",
+    "independentSourceReviews": 2,
+    "qualification": {
+      "path": "tmp/round30-final/statistics-node-options-qualification/qualification-scoped.json",
+      "sha256": "d8dd01d51adc5ae500d7229a379fe4bf1685eb0bfc2faa381497d19ea8a48c33"
+    }
+  },
+  "endToEnd": {
+    "production17": {
+      "result": "PASS_SCOPED_CURRENT_RUNTIME",
+      "passed": 17,
+      "failed": 0,
+      "skipped": 0,
+      "executedHead": "1169070c85d0c10fe044b39433717471e61bb883",
+      "equivalentTreeHead": "fd1089e691a01b962dd321506867bbfe10e10ffd",
+      "sourceInputs": 2726,
+      "sourceBinding": "1169070 and fd1089 have the same tree. The subsequent 1357 commit is documentation only; 5dee changes only the Statistics browser fixture, outside these production inputs.",
+      "postgres": "17.12",
+      "canonicalMigrationChecksums": 165,
+      "cleanup": "PASS: PostgreSQL stopped, TCP closed, owned data and credentials removed.",
+      "receipt": {
+        "path": "tmp/round31-execution/production-1169070c/receipt.json",
+        "sha256": "a4225aea4535e283d783b3fc3dabcf3f33c4042b314bd62a98129358eff5ff08"
+      },
+      "rawReportSha256": "87b8170c2dece4e47aa53454ea3587fbc9b45e3a17c9ee270402f3efbc3fae14",
+      "independentRootVerification": {
+        "path": "tmp/round32-final/root-production-validation.json",
+        "sha256": "6ed90fb8d9e63a760cccc61ea714ca097a91083f44286582b99e2df84de32d26"
+      }
+    },
+    "paired45": {
+      "result": "INCOMPLETE_CURRENT_RUNTIME",
+      "expected": 45,
+      "qualifiedCompleteFileCases": 16,
+      "remaining": 29,
+      "executedHead": "fd1089e691a01b962dd321506867bbfe10e10ffd",
+      "sourceInputs": 2754,
+      "sourceInputsUnchanged": true,
+      "sourceBinding": "Documentation and the four Statistics fixture files in 1357/5dee do not change the recorded paired inputs. A new execution-head preflight was pending when the executor became unavailable.",
+      "actionCommit": "1112a0f1de568f9fa927316ab68cef54fbcd4653",
+      "ocrBinarySha256": "9dd5f115747d24100f0767133a3288d268f3bc399675f5b826e7a867d101ee5c",
+      "completeFiles": [
+        {
+          "file": "scripts/review-investigation-paired-e2e/review-investigation-paired.e2e.test.ts",
+          "passed": 7,
+          "exitCode": 0,
+          "report": "tmp/round32-paired/paired-fd1089-v1/paired-e2e-group-1.json",
+          "sha256": "9e005decba29b559e6b9cdc517877a743a9ff3b18490f9ac5c35552c5c19a59a"
+        },
+        {
+          "file": "scripts/review-investigation-paired-e2e/openrouter-direct-paired.e2e.test.ts",
+          "passed": 6,
+          "exitCode": 0,
+          "report": "tmp/round32-paired/paired-fd1089-v1/paired-e2e-group-2.json",
+          "sha256": "1520a1ac2db75f45112a043b0afa929ef0fa140838641acb57609faa0866a2bb"
+        },
+        {
+          "file": "scripts/review-investigation-paired-e2e/pr-description-paired.e2e.test.ts",
+          "passed": 2,
+          "exitCode": 0,
+          "report": "tmp/round32-paired/paired-fd1089-v1/paired-e2e-group-3.json",
+          "sha256": "c102f195b24598674ebeb2bf60ec6e441a924b269ab96b39558f0b12f60d33fe"
+        },
+        {
+          "file": "scripts/review-investigation-paired-e2e/review-banner-comparison-paired.e2e.test.ts",
+          "passed": 1,
+          "exitCode": 0,
+          "report": "tmp/round32-paired/paired-fd1089-v1/paired-e2e-group-4.json",
+          "sha256": "a38cb2fa8880c98b238b2deb36463a3fa7b6ed5813c54f2b971c77282aaa623f"
+        }
+      ],
+      "failedLifecycle": {
+        "file": "scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts",
+        "expected": 25,
+        "actualPassed": 20,
+        "actualPending": 5,
+        "creditedCases": 0,
+        "processExitCode": 1,
+        "misleadingSummary": {
+          "success": true,
+          "numPendingTests": 1
+        },
+        "rawReport": "tmp/round32-paired/paired-fd1089-v1/paired-e2e-group-5.json",
+        "sha256": "917a00bdd2f5f123d85ade1209f89fa08f36cd70e0aafec9750cdfa1571a46b8",
+        "error": "Worker exited unexpectedly",
+        "assertionFailureObserved": false,
+        "v8FatalObserved": false,
+        "childSignal": "UNKNOWN",
+        "cause": "UNESTABLISHED",
+        "observedHeapLimitMiB": 1048,
+        "observedWorkerPeakRssBytes": 908587008
+      },
+      "gateway4": {
+        "result": "NOT_RUN",
+        "file": "apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts"
+      },
+      "postgres": "17.12",
+      "canonicalMigrationChecksums": 165,
+      "cleanup": {
+        "clusterStopped": true,
+        "dataRemoved": true,
+        "credentialsRemoved": true,
+        "originalNamespaceTcpErrno": 111
+      },
+      "wholeAttempt": "FAIL",
+      "receipt": {
+        "path": "tmp/round32-paired/paired-fd1089-v1/receipt.json",
+        "sha256": "e1ddb80dc2bd1dd3734e33ff7685f0eac24ca84d17d31b7b2859693ffb160bc8"
+      },
+      "independentReview": {
+        "path": "tmp/round32-paired/paired-fd1089-v1-independent-review.json",
+        "sha256": "65f709e2233347130c118e598f3099e0bbbc187f2e0e1798fa300fd6ae7efc51"
+      },
+      "continuation": {
+        "fullFiles": [
+          25,
+          4
+        ],
+        "assertionsAndTimeoutsUnchanged": true,
+        "nodeOldSpaceMiB": 1024,
+        "nodeSemiSpaceMiB": 8,
+        "ownedCpuCount": 1,
+        "passiveObserver": "Native diagnostics_channel child_process observer; no API replacement or consuming error handler; no argv/environment recording.",
+        "observerSha256": "5847e0bba15203a167af33fc5124e9cb6662a0fa32f96d93cf68caffd10f2109",
+        "wrapperSha256": "78de54d018c3ede6dcfde648bfa2e498db8683d6b4b7492172a3f93abca21422",
+        "reviewSha256": "475834266fb1f3df979226dbb8b5f3e1b96f321ed4bbdfb3f9f46b86fea4a1fb",
+        "started": false
+      },
+      "earlier45": "The six-file composite at 305cd9f4/00160cdf remains historical PASS; it predates the later API extraction and is not current-source paired qualification."
+    },
+    "ui16": {
+      "interactionResult": "PASS_AT_RECORDED_SOURCE",
+      "executedHead": "41ff719042420d8ff28c3e8054ddf6c8700f6936",
+      "passed": 16,
+      "failed": 0,
+      "skipped": 0,
+      "retries": 0,
+      "workers": 1,
+      "browser": "Chromium 153.0.8010.0",
+      "compilerProfile": "low-memory-webpack",
+      "guardAndServerClientProfileVerified": true,
+      "materializedSourceInputs": 2972,
+      "canonicalMigrationChecksums": 165,
+      "cleanup": "PASS: original-namespace app/gateway ECONNREFUSED 111, PostgreSQL stop 0, owned data/credentials/cache cleanup.",
+      "receipt": {
+        "path": "tmp/round30-browser/ui-low-memory-webpack-v1/receipt.json",
+        "sha256": "c0f816d85a3eccd6f49284b93f0f601c8b12dd987ae7ec6281c8b751cb94d777"
+      },
+      "rawReportSha256": "1aedc826e44bb1d2574e4be670f0fb6b49503176072107f56155a9d75c7e5167",
+      "independentReview": {
+        "path": "tmp/round30-final/ui-final-review/audit.json",
+        "sha256": "1b97ff25dea20c1da327d67c01f6d873312ded282cf7bbed84fd76a9be77218f"
+      },
+      "visualLimit": "28 tracked public assets were absent from the sparse checkout. Actual traces recorded logo/GitHub/GitLab asset404s; interaction PASS is not full visual/asset qualification.",
+      "restoredPublicAssets": {
+        "count": 28,
+        "totalBytes": 1331771,
+        "allExactPublishedGitBlobs": true,
+        "trackedSourceChanged": false,
+        "proof": {
+          "path": "tmp/round30-final/public-assets-materialization.json",
+          "sha256": "c5edefc9c8079d5c73b9444eafe104622170edb85be552a7ab415a46a8b82432"
+        }
+      },
+      "newRun": {
+        "result": "NOT_RUN",
+        "requiredSourceInputs": 3000,
+        "requiredCases": 16,
+        "requiresAssetHttp200AndBodyHash": true,
+        "preparedWrapperStillBoundTo": "fd1089e691a01b962dd321506867bbfe10e10ffd",
+        "rebindToPublishedHeadCompleted": false
+      },
+      "scope": "Controlled Next development fixture with alternate Chromium153; not default compiler, CI-pinned Chromium156, live OAuth/provider or production build qualification."
+    },
+    "statisticsFollowthrough": {
+      "result": "NOT_RUN_AFTER_FIX",
+      "scenario": "followthrough",
+      "priorRun": {
+        "result": "FAIL",
+        "journeyRecords": 18,
+        "screenshots": 21,
+        "failure": "Next-generated metadata cleanup rejected root-params.d.ts; completed journeys were not aggregate PASS.",
+        "receipt": "ai-docs/deployments/evidence/2026-11-23-architecture-phase2-statistics-browser.json"
+      },
+      "preparedProfile": "PENDING_STATISTICS_GUARD_FIX_PUBLICATION",
+      "rebindCompleted": false,
+      "resourcesCreated": false,
+      "required": "Original maintained scenario, 12 named viewport/theme matrix captures plus other scenario captures, real PG17 migrations, inherited guard, exact source, no browser/external-request failures and complete fixture/role/metadata cleanup.",
+      "journeyRecordsAreNotVitestCaseCount": true
+    }
+  },
+  "resourceCustody": {
+    "browser": {
+      "lastVerifiedExecutableSha256": "53a15d6c3a3d27dfb54c4ba60278b1683136f70cf1e67e989da7dfbd3d451ef0",
+      "bytes": 216952568,
+      "originalPath": "/tmp/rr977-round30-browser-runtime",
+      "ownedDiskCopy": "tmp/round32-browser-runtime",
+      "originalPathPreservedBySymlink": true,
+      "fullManifestSha256": "9b061ef0103c32d22599654dc405cae67f014fb34c33d14096e1fa8e1608b1bb"
+    },
+    "actionDependencies": {
+      "lastVerifiedPackages": 726,
+      "manifestEntries": 26742,
+      "manifestSha256": "303108c31f397bcda6c47041abcdfb78912a435bb9fdcf3588faec54e74648f6",
+      "lastPhysicalPath": "/tmp/rr977-current-paired-action-restored-5t65gjbv",
+      "logicalPath": "/tmp/rr977-current-paired-action-u517d2u9",
+      "workspaceCopyRemovedAfterVerifiedInverseCopy": true,
+      "receiptSha256": "959282007f02340e816cb81c4d2a50854c47dbfdc96d9aaf3a4b8c787cac6540",
+      "reason": "Temporary RAM-backed installation was first moved to disk for headroom, then moved back after workspace ENOSPC; exact package files/links/modes and resolution were verified before each switch."
+    },
+    "afterExecutorRestoration": "Verify all paths and hashes again; unavailable /tmp contents are not assumed to have survived.",
+    "olderRecovery": "Previously interrupted PostgreSQL/cache recovery remained untouched; unknown old shutdown/port closure is not upgraded to PASS."
+  },
+  "remainingQualification": {
+    "completeCurrentE2e": false,
+    "requiredDistinctCases": 78,
+    "currentCompleteProductionAndPairedFileCases": 33,
+    "uiInteractionPassRetainedSeparately": true,
+    "allPrGatesGreen": false,
+    "fullTooling": "FAIL/SIGKILL as recorded above",
+    "fullArchitecture": "Prior complete command failed at final metadata native typecheck with SIGKILL; passed sub-gates are not aggregate PASS.",
+    "fullLint": "Prior full lint failed to import stack-toolchain; publication/frozen graph and whole-root acceptance remain separate.",
+    "releaseAcceptance": "NOT_ESTABLISHED"
+  },
+  "nextSteps": [
+    "Restore an execution environment, fetch the current published branch, check exact source/lock/runtime identities and reconcile preserved resources before starting processes.",
+    "Finish the complete lifecycle25 and gateway4, preserving all original assertions/timeouts; retain the four complete16-case reports only after unchanged paired input verification.",
+    "Rebind and run all16 maintained UI cases with all3000 inputs and28 restored public assets; verify raw results, actual compiler/guard/browser identities, asset responses,165 SQL checksums and original-namespace cleanup.",
+    "Rebind and run the original Statistics followthrough scenario and its complete cleanup/receipt assertions.",
+    "Update this record only from complete actual results; keep original failures and source provenance."
+  ],
+  "delivery": {
+    "draft": true,
+    "skipCiMarker": "[skip ci]",
+    "sourceFixPushedImmediately": true,
+    "ciWaitedFor": false,
+    "workflowDispatched": false,
+    "merged": false,
+    "deployed": false,
+    "checkpointType": "Documentation only; records an unavailable executor and incomplete qualification, not completion.",
+    "checksForThisCheckpoint": "Remote JSON structure and source/document review; no local formatter, Git checkout readback or runtime check after environment became unavailable."
+  },
+  "e2eComplete": false,
+  "documentationCheckpointOnly": true,
+  "documentationReview": {
+    "root": "Remote JSON structure, source facts and document insertion review completed; no local formatter or runtime check after the outage.",
+    "independent": "Retained-fact review confirmed counts, source scope, excluded partial lifecycle cases, focused/full strict distinction and last-verified resource wording; no new execution."
+  }
+}

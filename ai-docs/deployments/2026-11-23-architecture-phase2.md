@@ -8,6 +8,26 @@
 - Dependencies: reconcile prior [#810](https://github.com/777genius/review-router-ai/pull/810) and [#914](https://github.com/777genius/review-router-ai/pull/914) (already merged), active Native/Gateway provider [#959](https://github.com/777genius/review-router-ai/pull/959), compiler stack #967–#975 and qualified modular consumer #976; preserve their actual owners. No unrelated upstream merge is authorized.
 - Last updated: 2026-11-25.
 
+## E2E follow-through checkpoint — 2026-11-25
+
+The source fix `5dee232a` preserves inherited Statistics qualification preloads
+while retaining the original scenario heap caps and clean environment boundary.
+Two real Node regressions and focused native strict passed. The full tooling
+and caller-inclusive native checks ended with SIGKILL and remain failed.
+
+Production E2E (17 cases) is qualified against unchanged API inputs. A fresh paired run
+completed four files/16 cases, then failed during lifecycle25 with 20 passed and
+5 pending; none of that partial file is credited, and gateway4 was not run.
+The original UI16 interaction PASS remains source-bound:28 sparse public assets
+were absent and returned 404. They are now restored, but the asset-complete rerun
+and Statistics followthrough are pending. The executor became unavailable before
+those new runs started. No complete current E2E, merge or rollout is claimed.
+
+The [E2E continuation record](evidence/2026-11-25-priority-e2e-followthrough.json)
+keeps raw hashes, failed outcomes, cleanup and remaining steps explicit. Preserve
+Draft status and existing release gates; resume actual execution after source
+and resource readback in an available environment.
+
 ## Scoped review continuation — 2026-11-25
 
 The owner has authorized additional scoped refactoring, repeated correctness
