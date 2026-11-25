@@ -36,7 +36,7 @@ images. See [the implementation plan](../../plans/2026-10-22-memory-engine-adapt
   actual theme surfaces and the notice's composited text colors; its minimum
   measured contrast was 7.2882:1. This is focused notice QA, not a full
   accessibility audit.
-  See [the reproducible browser harness](../../../scripts/memory-e2e/browser-README.md)
+  See [the reproducible browser harness](https://github.com/777genius/review-router-ai/blob/9cc02f68fe8f8bcef9a52bd6c5eeddbb51f6b8ca/scripts/memory-e2e/browser-README.md)
   for commands, artifact locations and the development-server/schema-preparation
   limits of this evidence.
 
