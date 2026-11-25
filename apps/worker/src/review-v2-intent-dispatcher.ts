@@ -106,19 +106,17 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
 
   async findByRequestIdentity(input: {
     readonly intent: ReviewRequestedIntent;
+    readonly signal?: AbortSignal;
   }): ReturnType<ReviewRequestedDispatchGatewayPort["findByRequestIdentity"]> {
-    const target = await this.resolveTarget(input.intent);
-    const octokit = await this.installations.forInstallation(
-      installationId(target.githubInstallationId),
-    );
-    return this.findExistingRun(octokit, target, input.intent);
+    const { target, octokit } = await this.observationClient(input);
+    return this.findExistingRun(octokit, target, input.intent, input.signal);
   }
 
-  async inspectKnownRun(input: { readonly intent: ReviewRequestedIntent }) {
-    const target = await this.resolveTarget(input.intent);
-    const octokit = await this.installations.forInstallation(
-      installationId(target.githubInstallationId),
-    );
+  async inspectKnownRun(input: {
+    readonly intent: ReviewRequestedIntent;
+    readonly signal?: AbortSignal;
+  }) {
+    const { target, octokit } = await this.observationClient(input);
     const response = await octokit.request(
       "GET /repos/{owner}/{repo}/actions/runs/{run_id}",
       {
@@ -129,8 +127,10 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
           "review_requested_inspection_run_missing",
         ),
         headers: { "X-GitHub-Api-Version": "2026-03-10" },
+        ...(input.signal ? { request: { signal: input.signal } } : {}),
       },
     );
+    input.signal?.throwIfAborted();
     const run = parseInspectionResponse(
       response.data,
       input.intent,
@@ -158,8 +158,10 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
         repo: target.repo,
         pull_number: input.intent.pullRequestNumber,
         headers: { "X-GitHub-Api-Version": "2026-03-10" },
+        ...(input.signal ? { request: { signal: input.signal } } : {}),
       },
     );
+    input.signal?.throwIfAborted();
     return parseRevisionInspection(pullRequest.data, input.intent);
   }
 
@@ -171,11 +173,9 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
    */
   async inspectRunnerWait(input: {
     readonly intent: ReviewRequestedIntent;
+    readonly signal?: AbortSignal;
   }): Promise<ReviewRequestedRunnerWaitInspection> {
-    const target = await this.resolveTarget(input.intent);
-    const octokit = await this.installations.forInstallation(
-      installationId(target.githubInstallationId),
-    );
+    const { target, octokit } = await this.observationClient(input);
     const runId = requiredRunIdentity(
       input.intent.sourceRunId,
       "review_requested_inspection_run_missing",
@@ -193,8 +193,10 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
         attempt_number: attempt,
         per_page: 100,
         headers: { "X-GitHub-Api-Version": "2026-03-10" },
+        ...(input.signal ? { request: { signal: input.signal } } : {}),
       },
     );
+    input.signal?.throwIfAborted();
     const jobFacts = parseRunnerJobs(jobs.data, runId, attempt);
     const pullRequest = await octokit.request(
       "GET /repos/{owner}/{repo}/pulls/{pull_number}",
@@ -203,8 +205,10 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
         repo: target.repo,
         pull_number: input.intent.pullRequestNumber,
         headers: { "X-GitHub-Api-Version": "2026-03-10" },
+        ...(input.signal ? { request: { signal: input.signal } } : {}),
       },
     );
+    input.signal?.throwIfAborted();
     return {
       // Every job still queued means the attempt has not completed either.
       waitingForRunner: jobFacts.neverStarted && jobFacts.allQueued,
@@ -262,11 +266,9 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
 
   async cancelKnownRun(input: {
     readonly intent: ReviewRequestedIntent;
+    readonly signal?: AbortSignal;
   }): Promise<void> {
-    const target = await this.resolveTarget(input.intent);
-    const octokit = await this.installations.forInstallation(
-      installationId(target.githubInstallationId),
-    );
+    const { target, octokit } = await this.observationClient(input);
     // Cancellation addresses a run, not an attempt. Read the CURRENT attempt
     // immediately before the effect and reject a rerun visible at this boundary.
     const current = await octokit.request(
@@ -279,8 +281,10 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
           "review_requested_cancellation_run_missing",
         ),
         headers: { "X-GitHub-Api-Version": "2026-03-10" },
+        ...(input.signal ? { request: { signal: input.signal } } : {}),
       },
     );
+    input.signal?.throwIfAborted();
     const inspected = parseInspectionResponse(
       current.data,
       input.intent,
@@ -297,6 +301,7 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
           "review_requested_cancellation_run_missing",
         ),
         headers: { "X-GitHub-Api-Version": "2026-03-10" },
+        ...(input.signal ? { request: { signal: input.signal } } : {}),
       },
     );
   }
@@ -305,6 +310,7 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
     octokit: OctokitRequester,
     target: DispatchTarget,
     intent: ReviewRequestedIntent,
+    signal?: AbortSignal,
   ): ReturnType<ReviewRequestedDispatchGatewayPort["findByRequestIdentity"]> {
     const submissionStartedAt = intent.submissionStartedAt;
     if (submissionStartedAt === null) {
@@ -321,6 +327,7 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
       { readonly sourceRunId: string; readonly sourceRunAttempt: string }
     >();
     for (let page = 1; page <= 5; page += 1) {
+      signal?.throwIfAborted();
       const response = await octokit.request(
         "GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs",
         {
@@ -332,8 +339,10 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
           per_page: 100,
           page,
           headers: { "X-GitHub-Api-Version": "2026-03-10" },
+          ...(signal ? { request: { signal } } : {}),
         },
       );
+      signal?.throwIfAborted();
       const parsed = parseWorkflowRunsPage(
         response.data,
         intent.requestId,
@@ -357,6 +366,22 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
       }
     }
     return { status: ReviewRequestedDispatchLookupStatus.Inconclusive };
+  }
+
+  private async observationClient(input: {
+    readonly intent: ReviewRequestedIntent;
+    readonly signal?: AbortSignal;
+  }): Promise<{ target: DispatchTarget; octokit: OctokitRequester }> {
+    input.signal?.throwIfAborted();
+    const target = await this.resolveTarget(input.intent);
+    input.signal?.throwIfAborted();
+    const octokit = await this.installations.forInstallation(
+      installationId(target.githubInstallationId),
+    );
+    // Credential acquisition may ignore cancellation; never continue a late read
+    // into another request (especially a cancellation POST) after its budget.
+    input.signal?.throwIfAborted();
+    return { target, octokit };
   }
 
   private async resolveTarget(

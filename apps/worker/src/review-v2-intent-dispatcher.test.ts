@@ -13,6 +13,64 @@ import { GitHubActionsReviewRequestedDispatchGateway } from "./review-v2-intent-
 
 describe("GitHubActionsReviewRequestedDispatchGateway", () => {
   it.each([
+    "findByRequestIdentity",
+    "inspectKnownRun",
+    "inspectRunnerWait",
+    "cancelKnownRun",
+  ] as const)(
+    "stops %s after cancellation during credential acquisition",
+    async (method) => {
+      let release!: () => void;
+      const acquired = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const request = vi.fn(async () => ({ data: {} }));
+      const gateway = gatewayWith(request, async () => {
+        await acquired;
+        return { request };
+      });
+      const controller = new AbortController();
+      const result = gateway[method]({
+        intent: intentFixture(),
+        signal: controller.signal,
+      });
+      controller.abort();
+      release();
+      await expect(result).rejects.toMatchObject({ name: "AbortError" });
+      expect(request).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not send cancellation after its inspection finishes beyond the budget", async () => {
+    let release!: () => void;
+    const response = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const controller = new AbortController();
+    const request = vi.fn(
+      async (
+        _route: string,
+        parameters?: Readonly<Record<string, unknown>>,
+      ) => {
+        expect(parameters).toMatchObject({
+          request: { signal: controller.signal },
+        });
+        await response;
+        return { data: {} };
+      },
+    );
+    const result = gatewayWith(request).cancelKnownRun({
+      intent: { ...intentFixture(), sourceRunId: "702", sourceRunAttempt: "1" },
+      signal: controller.signal,
+    });
+    await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+    controller.abort();
+    release();
+    await expect(result).rejects.toMatchObject({ name: "AbortError" });
+    expect(request).toHaveBeenCalledOnce();
+  });
+
+  it.each([
     ["failure", true],
     ["cancelled", true],
     ["timed_out", true],
@@ -760,6 +818,7 @@ function gatewayWith(
     route: string,
     parameters?: Readonly<Record<string, unknown>>,
   ) => Promise<{ readonly data: unknown }>,
+  forInstallation?: () => Promise<{ request: typeof request }>,
 ) {
   const prisma = {
     repositoryConnection: {
@@ -782,7 +841,7 @@ function gatewayWith(
     prisma as never,
     { appId: "1", privateKey: "unused-in-test" },
     undefined,
-    { forInstallation: async () => ({ request }) },
+    { forInstallation: forInstallation ?? (async () => ({ request })) },
   );
 }
 
