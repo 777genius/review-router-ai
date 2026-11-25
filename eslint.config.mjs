@@ -10,7 +10,7 @@ const webMaxLinesCeilings = {
   "apps/web/app/dashboard/account-gateway-account-controls.tsx": 3135,
   "apps/web/app/dashboard/account-lifecycle-controls.tsx": 812,
   "apps/web/app/dashboard/actions.ts": 3949,
-  "apps/web/app/dashboard/dashboard-copy.ts": 921,
+  "apps/web/app/dashboard/dashboard-copy.ts": 825,
   "apps/web/app/dashboard/dashboard-workspace-page.tsx": 3463,
   "apps/web/app/dashboard/personal-account-controls.tsx": 1869,
   "apps/web/app/dashboard/provider-setup-actions.ts": 1020,
@@ -31,7 +31,7 @@ const webMaxLinesCeilings = {
   "apps/web/src/features/memory/interface/components/memory-knowledge-screen.tsx": 859,
   "apps/web/src/features/provider-setup/provider-setup-model.ts": 623,
   "apps/web/src/server/account-gateway-accounts.ts": 2508,
-  "apps/web/src/server/dashboard-mutations.ts": 1105,
+  "apps/web/src/server/dashboard-mutations.ts": 1098,
   "apps/web/src/server/personal-account-composition.ts": 848,
   "apps/web/src/server/personal-canonical-accounts.ts": 1148,
 };

@@ -37,6 +37,7 @@ describe("GitHub user repository access", () => {
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
       },
       gitHubUserAuthorization: {
+        findFirst: vi.fn().mockResolvedValue({ revision: 0 }),
         findUnique: vi.fn().mockResolvedValue({
           encryptedAccessToken: encryptServerToken("ghu_access", env),
           encryptedRefreshToken: null,
@@ -139,6 +140,7 @@ describe("GitHub user repository access", () => {
         createMany,
       },
       gitHubUserAuthorization: {
+        findFirst: vi.fn().mockResolvedValue({ revision: 0 }),
         findUnique: vi.fn().mockResolvedValue({
           encryptedAccessToken: encryptServerToken("ghu_access", env),
           encryptedRefreshToken: null,
@@ -279,6 +281,7 @@ describe("GitHub user repository access", () => {
         createMany,
       },
       gitHubUserAuthorization: {
+        findFirst: vi.fn().mockResolvedValue({ revision: 0 }),
         findUnique: vi.fn().mockResolvedValue({
           encryptedAccessToken: encryptServerToken("ghu_access", env),
           encryptedRefreshToken: null,

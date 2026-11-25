@@ -56,6 +56,8 @@ vi.mock("../../../../../src/server/github-user-repository-access", () => ({
 }));
 vi.mock("../../../../../src/server/github-user-authorization", () => ({
   getValidGitHubUserAccessToken: vi.fn(),
+  readGitHubUserAuthorizationAuthority: () =>
+    Promise.resolve({ appSlug: "reviewrouter-test", revision: 0 }),
 }));
 
 const prisma = {

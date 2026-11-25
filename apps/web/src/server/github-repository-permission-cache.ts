@@ -40,6 +40,7 @@ export async function readFreshRepositoryPermissionCache(input: {
   return (
     (await withGitHubUserAuthorizationAuthority({
       ...input,
+      readOnly: true,
       run: async (tx, authority) => {
         const rows = await tx.repositoryPermissionCache.findMany({
           where: {
@@ -121,7 +122,13 @@ export async function replaceRepositoryPermissionCache(input: {
     expectedRevision: input.authority.revision,
     run: async (tx) => {
       await tx.repositoryPermissionCache.deleteMany({
-        where: { userId: input.userId },
+        where: {
+          userId: input.userId,
+          OR: [
+            { authorizationAppSlug: input.authority.appSlug },
+            { repositoryId: { in: input.rows.map((row) => row.repositoryId) } },
+          ],
+        },
       });
       if (input.rows.length)
         await tx.repositoryPermissionCache.createMany({
@@ -163,8 +170,8 @@ export async function updateRepositoryPermissionCacheObservation(input: {
   readonly roleName: string;
   readonly canManage: boolean;
   readonly now: Date;
-}): Promise<void> {
-  await withGitHubUserAuthorizationAuthority({
+}): Promise<boolean> {
+  const published = await withGitHubUserAuthorizationAuthority({
     prisma: input.prisma,
     userId: input.userId,
     appSlug: input.authority.appSlug,
@@ -194,8 +201,10 @@ export async function updateRepositoryPermissionCacheObservation(input: {
           repositoryId: input.repositoryId,
         },
       });
+      return true;
     },
   });
+  return published === true;
 }
 
 export function clearEmptyRepositoryAccessCacheForUser(userId: string): void {

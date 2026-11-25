@@ -26,7 +26,11 @@ import {
 import { readDashboardRepositoryPermissionFacts } from "./dashboard-repository-permission-facts";
 import { updateRepositoryPermissionCacheFromLiveCheck } from "./github-user-repository-access";
 import { getPrisma } from "./prisma";
-import { DashboardMutationRefusedError } from "./dashboard-mutation-errors";
+import {
+  DashboardMutationRefusedError,
+  repositoryAccessRefreshErrorCode,
+} from "./dashboard-mutation-errors";
+export { repositoryAccessRefreshErrorCode } from "./dashboard-mutation-errors";
 
 // Both the persistent shell and the section ask for identity during one RSC
 // request. React's request-scoped cache avoids repeating the session and
@@ -516,13 +520,11 @@ async function assertRepositoryPermissionForActor(input: {
     throw new Error("repository_mutation_forbidden");
   }
 
-  const authority =
-    input.permissionCacheMode === "read_only"
-      ? null
-      : await readGitHubUserAuthorizationAuthority({
-          prisma: getPrisma(),
-          userId: githubActor.userId,
-        });
+  const authority = await readGitHubUserAuthorizationAuthority({
+    prisma: getPrisma(),
+    userId: githubActor.userId,
+  });
+  if (!authority) throw new Error("repository_mutation_forbidden");
   const octokit = await createGitHubAppInstallationOctokit(
     input.repository.installation.githubInstallationId.toString(),
   );
@@ -565,6 +567,18 @@ async function assertRepositoryPermissionForActor(input: {
     githubActor,
   );
 
+  const currentAuthority = await readGitHubUserAuthorizationAuthority({
+    prisma: getPrisma(),
+    userId: githubActor.userId,
+  });
+  if (
+    !currentAuthority ||
+    currentAuthority.appSlug !== authority.appSlug ||
+    currentAuthority.revision !== authority.revision
+  ) {
+    throw new Error("repository_mutation_forbidden");
+  }
+
   const permission = data.permission;
   const roleName = data.role_name ?? "";
   const canManage = repositoryPermissionAllowsRepoManagement({
@@ -586,7 +600,7 @@ async function assertRepositoryPermissionForActor(input: {
     );
   }
   if (input.repository.id && input.permissionCacheMode !== "read_only") {
-    await updateRepositoryPermissionCacheFromLiveCheck({
+    const published = await updateRepositoryPermissionCacheFromLiveCheck({
       prisma: getPrisma(),
       actor: githubActor,
       authority,
@@ -596,6 +610,7 @@ async function assertRepositoryPermissionForActor(input: {
       roleName,
       canManage,
     });
+    if (!published) throw new Error("repository_mutation_forbidden");
   }
   if (!canManage)
     throw new DashboardMutationRefusedError("repository_mutation_forbidden");
@@ -917,15 +932,6 @@ async function readGitHubResponseBody(response: Response): Promise<unknown> {
   }
 
   return text;
-}
-
-export function repositoryAccessRefreshErrorCode(result: {
-  readonly status: string;
-  readonly errorCode?: string;
-}): string {
-  return result.errorCode === "github_oauth_client_misconfigured"
-    ? "dashboard_auth_misconfigured"
-    : `repository_access_${result.status}`;
 }
 
 function githubUserTokenStatusToDashboardError(

@@ -14,3 +14,17 @@ export class DashboardMutationRefusedError extends Error {
     this.name = "DashboardMutationRefusedError";
   }
 }
+
+export function repositoryAccessRefreshErrorCode(result: {
+  readonly status: string;
+  readonly errorCode?: string;
+}): string {
+  if (result.errorCode === "github_oauth_client_misconfigured")
+    return "dashboard_auth_misconfigured";
+  if (
+    result.errorCode === "github_user_token_refresh_reauthorization_required"
+  ) {
+    return "repository_access_reauthorization_required";
+  }
+  return `repository_access_${result.status}`;
+}

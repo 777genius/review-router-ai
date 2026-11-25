@@ -290,10 +290,10 @@ export async function updateRepositoryPermissionCacheFromLiveCheck(input: {
   readonly roleName: string;
   readonly canManage: boolean;
   readonly now?: Date;
-}): Promise<void> {
-  if (!input.authority) return;
+}): Promise<boolean> {
+  if (!input.authority) return false;
   clearEmptyRepositoryAccessCacheForUser(input.actor.userId);
-  await updateRepositoryPermissionCacheObservation({
+  return updateRepositoryPermissionCacheObservation({
     ...input,
     authority: input.authority,
     userId: input.actor.userId,

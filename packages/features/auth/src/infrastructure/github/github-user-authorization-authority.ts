@@ -43,27 +43,44 @@ export async function withGitHubUserAuthorizationAuthority<T>(input: {
   readonly userId: string;
   readonly appSlug: string;
   readonly expectedRevision?: number;
+  readonly readOnly?: boolean;
   readonly run: (
     tx: Prisma.TransactionClient,
     authority: GitHubUserAuthorizationAuthority,
   ) => Promise<T>;
 }): Promise<T | null> {
-  return input.prisma.$transaction(async (tx) => {
-    // FOR SHARE serializes this cache read/publication with every authority
-    // UPDATE, including webhook revocation and OAuth callback reauthorization.
-    const rows = await tx.$queryRaw<readonly { revision: number }[]>`
-      SELECT "revision" FROM "GitHubUserAuthorization"
-      WHERE "userId" = ${input.userId} AND "appSlug" = ${input.appSlug}
-        AND "revokedAt" IS NULL AND "refreshAttemptId" IS NULL
-      FOR SHARE
-    `;
-    const revision = rows[0]?.revision;
-    if (
-      revision === undefined ||
-      (input.expectedRevision !== undefined &&
-        revision !== input.expectedRevision)
-    )
-      return null;
-    return input.run(tx, { appSlug: input.appSlug, revision });
-  });
+  return input.prisma.$transaction(
+    async (tx) => {
+      // Snapshot reads work with the dashboard's SELECT-only role. Publication
+      // instead holds FOR SHARE against every revocation/reauthorization writer.
+      const revision = input.readOnly
+        ? (
+            await tx.gitHubUserAuthorization.findFirst({
+              where: {
+                userId: input.userId,
+                appSlug: input.appSlug,
+                revokedAt: null,
+                refreshAttemptId: null,
+              },
+              select: { revision: true },
+            })
+          )?.revision
+        : (
+            await tx.$queryRaw<readonly { revision: number }[]>`
+          SELECT "revision" FROM "GitHubUserAuthorization"
+          WHERE "userId" = ${input.userId} AND "appSlug" = ${input.appSlug}
+            AND "revokedAt" IS NULL AND "refreshAttemptId" IS NULL
+          FOR SHARE
+        `
+          )[0]?.revision;
+      if (
+        revision === undefined ||
+        (input.expectedRevision !== undefined &&
+          revision !== input.expectedRevision)
+      )
+        return null;
+      return input.run(tx, { appSlug: input.appSlug, revision });
+    },
+    input.readOnly ? { isolationLevel: "RepeatableRead" } : undefined,
+  );
 }
