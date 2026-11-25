@@ -2,6 +2,7 @@ import { type PrismaClient } from "@prisma/client";
 import { UsageError } from "../domain/usage";
 import type { UsageIngestContext, UsageSourcePage } from "../application/ports";
 import { PrismaUsageStore } from "./prisma-usage-store";
+import { pruneUsageRetention } from "./prisma-usage-retention";
 export interface UsageCheckpointLease {
   sourceInstance: string;
   workspaceId: string;
@@ -95,12 +96,7 @@ export class PrismaUsageReconciliation {
     if (count !== 1) throw new UsageError("usage_checkpoint_stale");
   }
   async prune(now: Date): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`DELETE FROM "UsageUnattributedObservation" WHERE "receivedAt"<${new Date(now.getTime() - 35 * 86400000)}`;
-      await tx.$executeRaw`DELETE FROM "UsageSourceFact" WHERE "receivedAt"<${new Date(now.getTime() - 90 * 86400000)}`;
-      await tx.$executeRaw`DELETE FROM "UsageCall" WHERE "occurredAt"<${new Date(now.getTime() - 365 * 86400000)}`;
-      await tx.$executeRaw`DELETE FROM "UsageDedupeTombstone" WHERE "expiresAt"<${now}`;
-    });
+    await pruneUsageRetention(this.prisma, now);
   }
   /** Called by the existing deletion workflow, under its workspace deletion guard. */
   async deleteWorkspace(workspaceId: string, now: Date): Promise<void> {

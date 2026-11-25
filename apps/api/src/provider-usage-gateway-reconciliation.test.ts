@@ -46,6 +46,34 @@ describe("usage maintenance source scheduling", () => {
     });
     expect(m.prune).toHaveBeenCalled();
   });
+  it("continues reconciliation while cleanup fails and surfaces the failure", async () => {
+    let finish!: () => void;
+    m.replay.mockImplementationOnce(
+      () =>
+        new Promise<number>((resolve) => {
+          finish = () => resolve(0);
+        }),
+    );
+    m.prune.mockRejectedValueOnce(new Error("retention failed"));
+    const query = vi.fn().mockResolvedValue([]);
+    const maintenance = createProviderUsageGatewayReconciliation(
+      { $queryRaw: query } as unknown as PrismaClient,
+      {
+        REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN: "http://127.0.0.1:3999",
+        REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER:
+          "synthetic-test-only-token",
+        REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY: "configured",
+      },
+    );
+    const result = maintenance.runBatch();
+    const rejection = expect(result).rejects.toThrow(
+      "provider_usage_maintenance_failed",
+    );
+    expect(m.replay).toHaveBeenCalled();
+    finish();
+    await rejection;
+    expect(query).toHaveBeenCalled();
+  });
   it("uses bounded parameterized keyset pages and wraps after the final workspace", async () => {
     const query = vi
       .fn()

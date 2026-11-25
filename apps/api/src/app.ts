@@ -25,6 +25,7 @@ import {
 } from "./review-memory-runtime.js";
 import { createProviderUsageSessionComposition } from "./provider-usage-session-composition.js";
 import { registerProviderUsageRecovery } from "./provider-usage-artifact-recovery.js";
+import { settleProviderUsageMaintenance } from "./provider-usage-maintenance.js";
 import { registerProviderUsageRoutes } from "./provider-usage-routes.js";
 import { registerContextToolsRoutes } from "./review-context-tools.js";
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
@@ -1096,7 +1097,7 @@ export async function createApiApp(
     const usage = providerUsageDependencies;
     registerProviderUsageRecovery(app, {
       runBatch: async () =>
-        Promise.allSettled([
+        settleProviderUsageMaintenance([
           ...(usage.providerUsageRecovery
             ? [usage.providerUsageRecovery.runBatch()]
             : []),

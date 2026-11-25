@@ -10,6 +10,7 @@ import {
   PrismaUsageReconciliation,
 } from "@reviewrouter/features-provider-usage/composition";
 import { createGatewayUsageSource } from "./provider-usage-gateway-source";
+import { settleProviderUsageMaintenance } from "./provider-usage-maintenance";
 import {
   quarantineGatewayObservation,
   replayGatewayQuarantine,
@@ -55,85 +56,91 @@ export function createProviderUsageGatewayReconciliation(
           responseBytes: 1024 * 1024,
         })
       : null;
-  return {
-    async runBatch() {
-      await reconciliation.prune(new Date());
-      if (!client || !deployment) return { status: "native_unavailable" };
-      await replayGatewayQuarantine(prisma, deployment);
-      let scopes = await prisma.$queryRaw<
+  const reconcile = async () => {
+    if (!client || !deployment) return { status: "native_unavailable" };
+    await replayGatewayQuarantine(prisma, deployment);
+    let scopes = await prisma.$queryRaw<
+      { workspaceId: string }[]
+    >`SELECT DISTINCT "workspaceId" FROM "UsageCall" WHERE "route"='gateway' AND "workspaceId">${afterWorkspace} ORDER BY "workspaceId" ASC LIMIT 10`;
+    if (!scopes.length && afterWorkspace) {
+      afterWorkspace = "";
+      scopes = await prisma.$queryRaw<
         { workspaceId: string }[]
       >`SELECT DISTINCT "workspaceId" FROM "UsageCall" WHERE "route"='gateway' AND "workspaceId">${afterWorkspace} ORDER BY "workspaceId" ASC LIMIT 10`;
-      if (!scopes.length && afterWorkspace) {
-        afterWorkspace = "";
-        scopes = await prisma.$queryRaw<
-          { workspaceId: string }[]
-        >`SELECT DISTINCT "workspaceId" FROM "UsageCall" WHERE "route"='gateway' AND "workspaceId">${afterWorkspace} ORDER BY "workspaceId" ASC LIMIT 10`;
-      }
-      afterWorkspace = scopes.at(-1)?.workspaceId ?? "";
-      return Promise.allSettled(
-        scopes.map(async (scope) => {
-          const sourceInstance = deployment + "/" + scope.workspaceId;
-          const lease = await reconciliation.claim({
-            sourceInstance,
-            workspaceId: scope.workspaceId,
-            owner,
-            now: new Date(),
-            leaseMs: 60_000,
-            coveredFrom: activation,
-          });
-          if (!lease)
-            return { workspaceId: scope.workspaceId, status: "not_due" };
-          const source = createGatewayUsageSource({
-            workspaceId: scope.workspaceId,
-            sourceInstance,
-            client: {
-              async listUsage(query) {
-                try {
-                  return await client.listUsage(query);
-                } catch (error) {
-                  if (transientGatewayRead(error))
-                    throw new GatewayUsageTemporarilyUnavailable();
-                  throw error;
-                }
-              },
+    }
+    afterWorkspace = scopes.at(-1)?.workspaceId ?? "";
+    return settleProviderUsageMaintenance(
+      scopes.map(async (scope) => {
+        const sourceInstance = deployment + "/" + scope.workspaceId;
+        const lease = await reconciliation.claim({
+          sourceInstance,
+          workspaceId: scope.workspaceId,
+          owner,
+          now: new Date(),
+          leaseMs: 60_000,
+          coveredFrom: activation,
+        });
+        if (!lease)
+          return { workspaceId: scope.workspaceId, status: "not_due" };
+        const source = createGatewayUsageSource({
+          workspaceId: scope.workspaceId,
+          sourceInstance,
+          client: {
+            async listUsage(query) {
+              try {
+                return await client.listUsage(query);
+              } catch (error) {
+                if (transientGatewayRead(error))
+                  throw new GatewayUsageTemporarilyUnavailable();
+                throw error;
+              }
             },
-            attribution: new PrismaUsageAttributionReader(prisma),
-            quarantine: (observation, reason) =>
-              quarantineGatewayObservation(
-                prisma,
-                deployment,
-                observation,
-                reason,
-              ),
+          },
+          attribution: new PrismaUsageAttributionReader(prisma),
+          quarantine: (observation, reason) =>
+            quarantineGatewayObservation(
+              prisma,
+              deployment,
+              observation,
+              reason,
+            ),
+        });
+        try {
+          const page = await source.listUsage({
+            afterCursor: lease.cursor,
+            limit: 100,
+            highWaterMark: lease.highWaterMark,
           });
-          try {
-            const page = await source.listUsage({
-              afterCursor: lease.cursor,
-              limit: 100,
-              highWaterMark: lease.highWaterMark,
-            });
-            await reconciliation.commitPage(lease, page, {
-              workspaceId: scope.workspaceId,
-              invocationId: "native-reconciliation",
-              source: "native",
-              now: new Date(),
-              replayUntil: new Date(Date.now() + 60_000),
-            });
-            return { workspaceId: scope.workspaceId, status: "accepted" };
-          } catch (error) {
-            await reconciliation.fail(lease, {
-              code:
-                error instanceof UsageError
-                  ? error.code
-                  : error instanceof GatewayUsageTemporarilyUnavailable
-                    ? "native_source_unavailable"
-                    : "native_source_error",
-              now: new Date(),
-            });
-            return { workspaceId: scope.workspaceId, status: "retry_pending" };
-          }
-        }),
-      );
+          await reconciliation.commitPage(lease, page, {
+            workspaceId: scope.workspaceId,
+            invocationId: "native-reconciliation",
+            source: "native",
+            now: new Date(),
+            replayUntil: new Date(Date.now() + 60_000),
+          });
+          return { workspaceId: scope.workspaceId, status: "accepted" };
+        } catch (error) {
+          await reconciliation.fail(lease, {
+            code:
+              error instanceof UsageError
+                ? error.code
+                : error instanceof GatewayUsageTemporarilyUnavailable
+                  ? "native_source_unavailable"
+                  : "native_source_error",
+            now: new Date(),
+          });
+          return { workspaceId: scope.workspaceId, status: "retry_pending" };
+        }
+      }),
+    );
+  };
+  return {
+    async runBatch() {
+      const [result] = await settleProviderUsageMaintenance<unknown>([
+        reconcile(),
+        reconciliation.prune(new Date()),
+      ]);
+      return result;
     },
   };
 }
