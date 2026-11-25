@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createProgressInstallationRequester } from "./review-progress-installation-requester";
 
+type AppIdentityResponse = { data: { slug?: string } };
+
 const mocks = vi.hoisted(() => {
   const requestInstallation = vi.fn<
     (
@@ -10,9 +12,7 @@ const mocks = vi.hoisted(() => {
   >();
   return {
     construct: vi.fn<(input: { appId: string; privateKey: string }) => void>(),
-    requestApp: vi.fn<
-      (route: string) => Promise<{ data: { slug?: string } }>
-    >(),
+    requestApp: vi.fn<(route: string) => Promise<AppIdentityResponse>>(),
     getInstallationOctokit: vi.fn<
       (id: number) => Promise<{ request: typeof requestInstallation }>
     >(),
