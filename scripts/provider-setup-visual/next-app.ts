@@ -49,6 +49,8 @@ export async function startNextApp(input: {
       env: {
         ...baseProcessEnvironment(),
         ...input.environment,
+        // This noninteractive harness must not query Next's upgrade advisories.
+        CI: "1",
         NODE_ENV: "development",
         NEXT_TELEMETRY_DISABLED: "1",
         // Next's fork checks NODE_OPTIONS before overriding its heap limit.

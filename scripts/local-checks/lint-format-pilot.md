@@ -136,13 +136,22 @@ The harness additionally requires existing `eslint@10.3.0`, `prettier@3.8.3`,
 `typescript@7.0.2`, `stack-toolchain@0.3.1`, `@eslint/js@10.0.1`,
 `@prettier/plugin-oxc@0.2.4`, `esbuild@0.28.1`, `vitest@4.1.10` and the
 repository's frozen `@types/node` declaration package.
-The source candidate names the published Foundation `stack-toolchain@0.3.1`
-release. That name is an admission expectation, not evidence of publication.
-Before applying the dependency pin and running full qualification, verify the
-actual registry artifact, integrity and upstream qualification, then generate
-the ordinary frozen lock. Do not substitute a source link or hand-edit lock
-integrities. The legacy `typescript-eslint` package is removed from the direct
-dependencies; no legacy plugin execution is permitted.
+The protected Foundation [release run 45516866453, attempt 2](https://github.com/agent-teams-ai/engineering-foundation/actions/runs/45516866453)
+published `stack-toolchain@0.3.1` from `fac03920e50ebde038ae415edeb7aa9e3d610ada`.
+The publisher verified the exact packed manifest and archive, npm signatures,
+SLSA source identity and final registry tag; both pre-merge and resulting-main
+CI passed 35/35 jobs. The qualified archive is SHA-256
+`2cef8769bfa8408025f4c30f5c2702abc0c4b43a43937fdb1b67a4cb33c892ed`, with SRI
+`sha512-chxhm1Hn/lfE/y+ttOeqL6JmjJqq8IVNXs6fdEUNDmdVHmmXXbhBfHLVh2W9EUBhp+s+DrskUaKy6QbehLUE3w==`.
+
+Consumer acceptance still requires the retained root graph to be resolved by
+pinned pnpm 11.28.7, an ordinary frozen installation with its required builds,
+and complete native lint qualification on that installed graph. Preserve
+Foundation 3.1.0, FMS 0.3.2 and the accepted Get Modular coordinates. Do not
+substitute a source link or hand-edit lock integrities. The legacy
+`typescript-eslint` package is removed from the direct dependencies; no legacy
+plugin execution is permitted.
+
 The consumer executes the syntax adapter under Node. Its exact optional
 `bun@1.4.3` postinstall is explicitly denied in `allowBuilds`; existing required
 dependency builds and the normal root lifecycle remain enabled.

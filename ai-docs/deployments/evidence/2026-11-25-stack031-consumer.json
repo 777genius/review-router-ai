@@ -1,0 +1,664 @@
+{
+  "schemaVersion": 1,
+  "observedDateUtc": "2026-11-25",
+  "task": "2026-11-23-architecture-phase2",
+  "sourceBase": "29e8386ed8490ce9e5a1765c6262ede2a0c18a75",
+  "ownerCommitsPreserved": [
+    "6378ee3f35b1fc1fd2f1cdc7811e2624a418a388",
+    "29e8386ed8490ce9e5a1765c6262ede2a0c18a75"
+  ],
+  "implementationInputs": {
+    "scripts/install-private-dependencies.mjs": {
+      "gitBlob": "126f5d2cde269de3f7196080af8e079b77cf855e",
+      "sha256": "fb14c336adc0fc737724b94cb5e7c72b1c603114892b7865f68680f05d97cf35"
+    },
+    "scripts/install-private-dependencies.test.ts": {
+      "gitBlob": "5b36b3af1c08904f1dd92fab4226faa52d1b3875",
+      "sha256": "efd8cdd50582b79b6e3ea9f0f59a7372348f62758d4250e14b8782cac02237ae"
+    },
+    "scripts/provider-setup-visual/next-app.ts": {
+      "gitBlob": "e6a59987fbf1683c60d9fc45dac999a953c307a5",
+      "sha256": "7d751d0b0028128f1dbbbb69195977c6f5ef1f5cd4212c2ff525d25d9b23ffec"
+    },
+    "scripts/provider-setup-visual/next-app.test.ts": {
+      "gitBlob": "118a5d88256d24c06a7f9d94621eba359842554c",
+      "sha256": "af5f2037a1bc8f1f26b6dc60ea72bcb0b12ee7a3bb97082a6546b5018b708542"
+    },
+    "scripts/statistics-e2e/node-options.ts": {
+      "gitBlob": "f5be7e76c8b104f7167b5c943ef4b1e97b7019fe",
+      "sha256": "e982d68c6cd07d6dc560dffd0065cdf780919e74d79ac068f1e8e0495b15cdc4"
+    },
+    "scripts/statistics-e2e/node-options.test.ts": {
+      "gitBlob": "d1242b8705e56a01d75ace129e208a8dea1e409e",
+      "sha256": "90edcf9b9c0ca39f1fc7949f88d95b8ac6556db5daba629bd146fc652bc66662"
+    }
+  },
+  "publishedSource": "fac03920e50ebde038ae415edeb7aa9e3d610ada",
+  "protectedRelease": "https://github.com/agent-teams-ai/engineering-foundation/actions/runs/45516866453/attempts/2",
+  "releaseStatus": "success",
+  "protectedPremergeCiJobs": {
+    "passed": 35,
+    "total": 35
+  },
+  "postmergeCiJobs": {
+    "runId": 45516866538,
+    "passed": 35,
+    "total": 35
+  },
+  "registryArtifacts": [
+    {
+      "name": "stack-toolchain",
+      "version": "0.3.1",
+      "metadataUrl": "https://registry.npmjs.org/stack-toolchain/0.3.1",
+      "integrity": "sha512-chxhm1Hn/lfE/y+ttOeqL6JmjJqq8IVNXs6fdEUNDmdVHmmXXbhBfHLVh2W9EUBhp+s+DrskUaKy6QbehLUE3w==",
+      "signatureCount": 2,
+      "attestations": {
+        "url": "https://registry.npmjs.org/-/npm/v1/attestations/stack-toolchain@0.3.1",
+        "provenance": {
+          "predicateType": "https://slsa.dev/provenance/v1"
+        }
+      },
+      "archiveSha256": "2cef8769bfa8408025f4c30f5c2702abc0c4b43a43937fdb1b67a4cb33c892ed",
+      "dependencies": {
+        "@eslint/core": "1.2.1",
+        "@typescript-eslint/scope-manager": "8.73.0",
+        "@typescript-eslint/visitor-keys": "8.73.0",
+        "eslint-parser-oxc": "0.1.1",
+        "jsonc-parser": "3.3.1",
+        "node-or-bun": "0.2.5",
+        "oxfmt": "0.74.0",
+        "oxlint": "1.83.0",
+        "oxlint-tsgolint": "7.0.2001",
+        "typescript": "7.0.2"
+      },
+      "peerDependencies": {
+        "eslint": "10.3.0"
+      }
+    },
+    {
+      "name": "@agent-teams/feature-module-standard",
+      "version": "0.4.1",
+      "metadataUrl": "https://registry.npmjs.org/@agent-teams%2ffeature-module-standard/0.4.1",
+      "integrity": "sha512-x7oAuoxUCz4v3SX9owHZbXL30ikshC6M3bHjq+aSAWhJxQYm3wRflbGfeErCV7guTM5+jK90XLwZp4ns4yWvAg==",
+      "signatureCount": 2,
+      "attestations": {
+        "url": "https://registry.npmjs.org/-/npm/v1/attestations/@agent-teams%2ffeature-module-standard@0.4.1",
+        "provenance": {
+          "predicateType": "https://slsa.dev/provenance/v1"
+        }
+      }
+    }
+  ],
+  "registryProvenanceBinding": [
+    {
+      "package": "stack-toolchain",
+      "version": "0.3.1",
+      "url": "https://registry.npmjs.org/-/npm/v1/attestations/stack-toolchain@0.3.1",
+      "source": [
+        {
+          "uri": "git+https://github.com/agent-teams-ai/engineering-foundation@refs/heads/main",
+          "digest": {
+            "gitCommit": "fac03920e50ebde038ae415edeb7aa9e3d610ada"
+          }
+        }
+      ],
+      "subject": [
+        {
+          "name": "pkg:npm/stack-toolchain@0.3.1",
+          "digest": {
+            "sha512": "721c619b51e7fe57c4ff2fadb4e7aa2fa2668c9aaaf0854d5ece9f74450d0e67551e69975db8417c72d58765bd114061a7eb3e0ebb2451a2b2e906de84b504df"
+          }
+        }
+      ],
+      "runDetails": {
+        "builder": {
+          "id": "https://github.com/actions/runner/github-hosted"
+        },
+        "metadata": {
+          "invocationId": "https://github.com/agent-teams-ai/engineering-foundation/actions/runs/45516866453/attempts/2"
+        }
+      },
+      "predicates": [
+        "https://github.com/npm/attestation/tree/main/specs/publish/v0.1",
+        "https://slsa.dev/provenance/v1"
+      ],
+      "rawSha256": "bf2a4f097329c872f0e085b6294130605f5e123d01eb7aa702bc0c446d8b535b",
+      "independentEvidence": "registry structure/archive/source binding; cryptographic verification performed by maintained protected publisher"
+    },
+    {
+      "package": "@agent-teams/feature-module-standard",
+      "version": "0.4.1",
+      "url": "https://registry.npmjs.org/-/npm/v1/attestations/@agent-teams%2ffeature-module-standard@0.4.1",
+      "source": [
+        {
+          "uri": "git+https://github.com/agent-teams-ai/engineering-foundation@refs/heads/main",
+          "digest": {
+            "gitCommit": "fac03920e50ebde038ae415edeb7aa9e3d610ada"
+          }
+        }
+      ],
+      "subject": [
+        {
+          "name": "pkg:npm/%40agent-teams/feature-module-standard@0.4.1",
+          "digest": {
+            "sha512": "c7ba00ba8c540b3e2fdd25fda301d96d72f7d2292c842e8cddb1e3abe692016849c50626df045f95b19f784ac257b82e4cce7e8caf745cbc19a789ece325af02"
+          }
+        }
+      ],
+      "runDetails": {
+        "builder": {
+          "id": "https://github.com/actions/runner/github-hosted"
+        },
+        "metadata": {
+          "invocationId": "https://github.com/agent-teams-ai/engineering-foundation/actions/runs/45516866453/attempts/2"
+        }
+      },
+      "predicates": [
+        "https://github.com/npm/attestation/tree/main/specs/publish/v0.1",
+        "https://slsa.dev/provenance/v1"
+      ],
+      "rawSha256": "a123b99821d4979b324da2c4b6279b7a9aa20b20be95d66edd895e28bf673bf5",
+      "independentEvidence": "registry structure/archive/source binding; cryptographic verification performed by maintained protected publisher"
+    }
+  ],
+  "retainedCoordinates": {
+    "@agent-teams/engineering-foundation": "3.1.0",
+    "@agent-teams/feature-module-standard": "0.3.2",
+    "@get-modular/core": "0.8.0",
+    "@get-modular/assembly": "0.8.0",
+    "@get-modular/conformance": "0.5.2",
+    "@get-modular/resources": "0.2.2"
+  },
+  "toolchain": {
+    "node": "26.11.1",
+    "pnpm": "11.28.7",
+    "typescript": "7.0.2"
+  },
+  "managerLockDelta": {
+    "changedImporters": [
+      {
+        "importer": ".",
+        "changes": [
+          {
+            "group": "devDependencies",
+            "name": "oxlint",
+            "before": {
+              "specifier": "1.87.0",
+              "version": "1.87.0"
+            },
+            "after": {
+              "specifier": "1.87.0",
+              "version": "1.87.0(oxlint-tsgolint@7.0.2001)"
+            }
+          },
+          {
+            "group": "devDependencies",
+            "name": "typescript-eslint",
+            "before": {
+              "specifier": "^8.59.1",
+              "version": "8.59.1(eslint@10.3.0(jiti@2.6.1)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@7.0.2)"
+            },
+            "after": null
+          },
+          {
+            "group": "devDependencies",
+            "name": "stack-toolchain",
+            "before": null,
+            "after": {
+              "specifier": "0.3.1",
+              "version": "0.3.1(eslint@10.3.0(jiti@2.6.1)(supports-color@8.1.1))"
+            }
+          }
+        ]
+      }
+    ],
+    "packageCounts": {
+      "old": 1131,
+      "new": 1210,
+      "added": 92,
+      "removed": 13
+    },
+    "changedExistingPackageMetadata": [],
+    "added": [
+      "@oven/bun-darwin-aarch64@1.4.3",
+      "@oven/bun-darwin-x64@1.4.3",
+      "@oven/bun-freebsd-aarch64@1.4.3",
+      "@oven/bun-freebsd-x64@1.4.3",
+      "@oven/bun-linux-aarch64-android@1.4.3",
+      "@oven/bun-linux-aarch64-musl@1.4.3",
+      "@oven/bun-linux-aarch64@1.4.3",
+      "@oven/bun-linux-x64-android@1.4.3",
+      "@oven/bun-linux-x64-musl@1.4.3",
+      "@oven/bun-linux-x64@1.4.3",
+      "@oven/bun-windows-aarch64@1.4.3",
+      "@oven/bun-windows-x64@1.4.3",
+      "@oxc-parser/binding-android-arm-eabi@0.148.0",
+      "@oxc-parser/binding-android-arm64@0.148.0",
+      "@oxc-parser/binding-darwin-arm64@0.148.0",
+      "@oxc-parser/binding-darwin-x64@0.148.0",
+      "@oxc-parser/binding-freebsd-x64@0.148.0",
+      "@oxc-parser/binding-linux-arm-gnueabihf@0.148.0",
+      "@oxc-parser/binding-linux-arm-musleabihf@0.148.0",
+      "@oxc-parser/binding-linux-arm64-gnu@0.148.0",
+      "@oxc-parser/binding-linux-arm64-musl@0.148.0",
+      "@oxc-parser/binding-linux-ppc64-gnu@0.148.0",
+      "@oxc-parser/binding-linux-riscv64-gnu@0.148.0",
+      "@oxc-parser/binding-linux-riscv64-musl@0.148.0",
+      "@oxc-parser/binding-linux-s390x-gnu@0.148.0",
+      "@oxc-parser/binding-linux-x64-gnu@0.148.0",
+      "@oxc-parser/binding-linux-x64-musl@0.148.0",
+      "@oxc-parser/binding-openharmony-arm64@0.148.0",
+      "@oxc-parser/binding-win32-arm64-msvc@0.148.0",
+      "@oxc-parser/binding-win32-ia32-msvc@0.148.0",
+      "@oxc-parser/binding-win32-x64-msvc@0.148.0",
+      "@oxc-project/types@0.148.0",
+      "@oxfmt/binding-android-arm-eabi@0.74.0",
+      "@oxfmt/binding-android-arm64@0.74.0",
+      "@oxfmt/binding-darwin-arm64@0.74.0",
+      "@oxfmt/binding-darwin-x64@0.74.0",
+      "@oxfmt/binding-freebsd-x64@0.74.0",
+      "@oxfmt/binding-linux-arm-gnueabihf@0.74.0",
+      "@oxfmt/binding-linux-arm-musleabihf@0.74.0",
+      "@oxfmt/binding-linux-arm64-gnu@0.74.0",
+      "@oxfmt/binding-linux-arm64-musl@0.74.0",
+      "@oxfmt/binding-linux-ppc64-gnu@0.74.0",
+      "@oxfmt/binding-linux-riscv64-gnu@0.74.0",
+      "@oxfmt/binding-linux-riscv64-musl@0.74.0",
+      "@oxfmt/binding-linux-s390x-gnu@0.74.0",
+      "@oxfmt/binding-linux-x64-gnu@0.74.0",
+      "@oxfmt/binding-linux-x64-musl@0.74.0",
+      "@oxfmt/binding-openharmony-arm64@0.74.0",
+      "@oxfmt/binding-win32-arm64-msvc@0.74.0",
+      "@oxfmt/binding-win32-ia32-msvc@0.74.0",
+      "@oxfmt/binding-win32-x64-msvc@0.74.0",
+      "@oxlint-tsgolint/darwin-arm64@7.0.2001",
+      "@oxlint-tsgolint/darwin-x64@7.0.2001",
+      "@oxlint-tsgolint/linux-arm64@7.0.2001",
+      "@oxlint-tsgolint/linux-x64@7.0.2001",
+      "@oxlint-tsgolint/win32-arm64@7.0.2001",
+      "@oxlint-tsgolint/win32-x64@7.0.2001",
+      "@oxlint/binding-android-arm-eabi@1.83.0",
+      "@oxlint/binding-android-arm64@1.83.0",
+      "@oxlint/binding-darwin-arm64@1.83.0",
+      "@oxlint/binding-darwin-x64@1.83.0",
+      "@oxlint/binding-freebsd-x64@1.83.0",
+      "@oxlint/binding-linux-arm-gnueabihf@1.83.0",
+      "@oxlint/binding-linux-arm-musleabihf@1.83.0",
+      "@oxlint/binding-linux-arm64-gnu@1.83.0",
+      "@oxlint/binding-linux-arm64-musl@1.83.0",
+      "@oxlint/binding-linux-ppc64-gnu@1.83.0",
+      "@oxlint/binding-linux-riscv64-gnu@1.83.0",
+      "@oxlint/binding-linux-riscv64-musl@1.83.0",
+      "@oxlint/binding-linux-s390x-gnu@1.83.0",
+      "@oxlint/binding-linux-x64-gnu@1.83.0",
+      "@oxlint/binding-linux-x64-musl@1.83.0",
+      "@oxlint/binding-openharmony-arm64@1.83.0",
+      "@oxlint/binding-win32-arm64-msvc@1.83.0",
+      "@oxlint/binding-win32-ia32-msvc@1.83.0",
+      "@oxlint/binding-win32-x64-msvc@1.83.0",
+      "@tsrs/darwin-arm64@0.18.0-ts7.1.0-dev.20260929",
+      "@tsrs/linux-arm64-gnu@0.18.0-ts7.1.0-dev.20260929",
+      "@tsrs/linux-arm64-musl@0.18.0-ts7.1.0-dev.20260929",
+      "@tsrs/linux-x64-gnu@0.18.0-ts7.1.0-dev.20260929",
+      "@tsrs/linux-x64-musl@0.18.0-ts7.1.0-dev.20260929",
+      "@typescript-eslint/scope-manager@8.73.0",
+      "@typescript-eslint/types@8.73.0",
+      "@typescript-eslint/visitor-keys@8.73.0",
+      "bun@1.4.3",
+      "eslint-parser-oxc@0.1.1",
+      "oxc-parser@0.148.0",
+      "oxfmt@0.74.0",
+      "oxlint-tsgolint@7.0.2001",
+      "oxlint@1.83.0",
+      "stack-toolchain@0.3.1",
+      "tsrs@0.18.0-ts7.1.0-dev.20260929"
+    ],
+    "removed": [
+      "@typescript-eslint/eslint-plugin@8.59.1",
+      "@typescript-eslint/parser@8.59.1",
+      "@typescript-eslint/project-service@8.59.1",
+      "@typescript-eslint/scope-manager@8.59.1",
+      "@typescript-eslint/tsconfig-utils@8.59.1",
+      "@typescript-eslint/type-utils@8.59.1",
+      "@typescript-eslint/types@8.59.1",
+      "@typescript-eslint/typescript-estree@8.59.1",
+      "@typescript-eslint/utils@8.59.1",
+      "@typescript-eslint/visitor-keys@8.59.1",
+      "ignore@7.0.5",
+      "ts-api-utils@2.5.0",
+      "typescript-eslint@8.59.1"
+    ],
+    "newLockSha256": "bc640e13fd261f30b746ae9b422206f3619b0d1249b5c3658034dc3908bd9109"
+  },
+  "frozenInstall": {
+    "command": [
+      "node",
+      "scripts/install-private-dependencies.mjs",
+      "--frozen-lockfile",
+      "--store-dir",
+      "/home/agent/rr977-pnpm-store-20261125",
+      "--network-concurrency=1",
+      "--child-concurrency=1"
+    ],
+    "nodeOptions": "--import=/home/agent/rr977-adoption-20261125/scripts/local-checks/lint-format-native-load-guard.ts --max-old-space-size=768",
+    "status": 0,
+    "seconds": 13.64318487300261,
+    "maxChildRssKiB": 570848,
+    "lockBefore": "bc640e13fd261f30b746ae9b422206f3619b0d1249b5c3658034dc3908bd9109",
+    "lockAfter": "bc640e13fd261f30b746ae9b422206f3619b0d1249b5c3658034dc3908bd9109"
+  },
+  "physicalAdmission": {
+    "admission": "PASS",
+    "node": "v26.11.1",
+    "packages": [
+      {
+        "owner": "stack",
+        "name": "stack-toolchain",
+        "version": "0.3.1",
+        "path": "/home/agent/rr977-adoption-20261125/node_modules/.pnpm/stack-toolchain@0.3.1_eslint@10.3.0_jiti@2.6.1_supports-color@8.1.1_/node_modules/stack-toolchain/package.json"
+      },
+      {
+        "owner": "stack",
+        "name": "eslint-parser-oxc",
+        "version": "0.1.1",
+        "path": "/home/agent/rr977-adoption-20261125/node_modules/.pnpm/eslint-parser-oxc@0.1.1_eslint@10.3.0_jiti@2.6.1_supports-color@8.1.1_/node_modules/eslint-parser-oxc/package.json"
+      },
+      {
+        "owner": "stack",
+        "name": "@typescript-eslint/scope-manager",
+        "version": "8.73.0",
+        "path": "/home/agent/rr977-adoption-20261125/node_modules/.pnpm/@typescript-eslint+scope-manager@8.73.0/node_modules/@typescript-eslint/scope-manager/package.json"
+      },
+      {
+        "owner": "stack",
+        "name": "@typescript-eslint/visitor-keys",
+        "version": "8.73.0",
+        "path": "/home/agent/rr977-adoption-20261125/node_modules/.pnpm/@typescript-eslint+visitor-keys@8.73.0/node_modules/@typescript-eslint/visitor-keys/package.json"
+      },
+      {
+        "owner": "stack",
+        "name": "typescript",
+        "version": "7.0.2",
+        "path": "/home/agent/rr977-adoption-20261125/node_modules/.pnpm/typescript@7.0.2/node_modules/typescript/package.json"
+      },
+      {
+        "owner": "parser",
+        "name": "@typescript-eslint/scope-manager",
+        "version": "8.73.0",
+        "path": "/home/agent/rr977-adoption-20261125/node_modules/.pnpm/@typescript-eslint+scope-manager@8.73.0/node_modules/@typescript-eslint/scope-manager/package.json"
+      },
+      {
+        "owner": "parser",
+        "name": "@typescript-eslint/visitor-keys",
+        "version": "8.73.0",
+        "path": "/home/agent/rr977-adoption-20261125/node_modules/.pnpm/@typescript-eslint+visitor-keys@8.73.0/node_modules/@typescript-eslint/visitor-keys/package.json"
+      },
+      {
+        "owner": "scope",
+        "name": "@typescript-eslint/types",
+        "version": "8.73.0",
+        "path": "/home/agent/rr977-adoption-20261125/node_modules/.pnpm/@typescript-eslint+types@8.73.0/node_modules/@typescript-eslint/types/package.json"
+      },
+      {
+        "owner": "scope",
+        "name": "@typescript-eslint/visitor-keys",
+        "version": "8.73.0",
+        "path": "/home/agent/rr977-adoption-20261125/node_modules/.pnpm/@typescript-eslint+visitor-keys@8.73.0/node_modules/@typescript-eslint/visitor-keys/package.json"
+      }
+    ]
+  },
+  "focusedTests": {
+    "installer": {
+      "passed": 31,
+      "total": 31,
+      "sourceUnchangedFromQualifiedCandidate": true
+    },
+    "nextFixture": {
+      "passed": 2,
+      "total": 2,
+      "sourceUnchangedFromQualifiedCandidate": true
+    },
+    "ownerStatistics": {
+      "passed": 9,
+      "total": 9,
+      "pending": 0,
+      "failed": 0,
+      "reportSha256": "ef120a92ae22eae231092344d3ac4c8aba0d2fabde9133bacdb6b59ab8b2ac86"
+    }
+  },
+  "nativeLintQualification": {
+    "status": "passed",
+    "results": {
+      "nativeFormatter": {
+        "total": 47,
+        "passed": 47
+      },
+      "safetyAndQualification": {
+        "total": 90,
+        "passed": 90
+      }
+    },
+    "stages": [
+      {
+        "name": "strict-original-project",
+        "status": 0,
+        "signal": null,
+        "elapsedMilliseconds": 1252.48188,
+        "outputSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "native-formatter-goldens",
+        "status": 0,
+        "signal": null,
+        "elapsedMilliseconds": 2192.531229,
+        "outputSha256": "a8cae251742b6cb2d91000af5c203d53341ed8ae8ee2116d0ff5fe8bc36c3779"
+      },
+      {
+        "name": "safety-and-full-qualification",
+        "status": 0,
+        "signal": null,
+        "elapsedMilliseconds": 36202.256844,
+        "outputSha256": "c13795299f891ab7bcf1b70abdafc002db6c1434634adfcb5776d3c3bc3fc948"
+      }
+    ],
+    "originalInputs": {
+      ".gitignore": "b5280b6184a99c618cd52f3e3de6f3493ccb23a1c836a6bcbd47d0f658f5190a",
+      ".oxfmtrc.json": "af7380077c993929bbf9d724d0a1e7a5f9718bfb942e4451cc5aa4ad1b1b9f77",
+      ".oxlintrc.json": "9a0c10f1bf9d65b9ed2e527dcc15d7519395c45898d2a39c36156e5d90293d83",
+      ".prettierignore": "813a7775bb2574a274ef7ad54d62e368a0fa56cb1c5872f648017138e7f60e2a",
+      ".prettierrc.json": "757385313f4efd46a7b6557f4ec67a7d592d16a0b627afa84ef0c82b57a1c29b",
+      "ai-docs/design/impeccable/NOTICE.md": "c60a093c2845fd9fb82f9c6f742ece31f379f8190b535309d32d66c45ccffdcb",
+      "deploy/self-hosted/conversation-verifier.inputs.json": "20bb9affa11c0147f71b3ce4f0fa984271b2c475f9bf050e793a673ea90a5391",
+      "docs/release-evidence/activation-catalog-policy-raw-independent-review.md": "2470ad6966179f9c9939e5e03d89892a98a60489349cf6272bb9189025e2c7bd",
+      "docs/release-evidence/activation-catalog-policy-raw-reviewer-runtime.json": "cbcf4e4a54dde0f06bd29946f317238a45d9670293e9c47736fc56f79ece44a6",
+      "docs/release-evidence/activation-catalog-policy-v28-independent-review.md": "050b952c3566c8b8792de874a4d2223e5d35ef01d28d0db74d01bfe4e0a6ac56",
+      "docs/release-evidence/activation-catalog-policy-v28-reviewer-runtime.json": "0057254b74da940ca9394d9449700d603cd6eee79090be34b8df2261f5179604",
+      "docs/release-evidence/activation-catalog-policy-v29-independent-review.md": "08df458e97033dae692f04153285f9c68a6d6f3d11dea5f2e626fb687cebcd6f",
+      "docs/release-evidence/activation-catalog-policy-v29-reviewer-runtime.json": "4620e71b3ea9369fda0396d506e0d9d0984123d0d5d28af6b237fc0f6042a3a8",
+      "docs/release-evidence/activation-catalog-policy-v29-schema-v5-independent-review.md": "7abaefccd0fa7771c6594824df794415801771f68f14bf0521d2d2461b360528",
+      "docs/release-evidence/activation-catalog-policy-v29-schema-v5-pr245-candidate.json": "b138eb3ece6553d505debff1dc978a9b6fd8ea854cf70c037c05e364b3d0aa28",
+      "eslint.config.mjs": "7c1aa7b62c51f8123d29685bf793492058ae8ce62ffb9f58ff66642f068df2d4",
+      "eslint.native-fallback.config.mjs": "496445a4ad42c7b24ace8fdf714cf72a500a0ecd2df198d81b2c50f47aaf7126",
+      "package.json": "c1ad34edc2265413e5e251e4ae9faac91b80b1ca7a9b52132fb0cbe1180b5a84",
+      "packages/features/release-rollout/src/domain/activation-catalog-policy-artifact.generated.js": "d6ff4e160988fa4f08c26c7450245de9ad49601a1c6673a29693f9d63edbb52e",
+      "pnpm-lock.yaml": "bc640e13fd261f30b746ae9b422206f3619b0d1249b5c3658034dc3908bd9109",
+      "pnpm-workspace.yaml": "ddcdb9714277bfde7098245c6ac9f1924328aa19120d07408e5c546a47293549",
+      "scripts/local-checks/lint-format-eslint-oracle.ts": "a7391b6df3ffb095932d861a6af680139b097aed66c3165d4ce4d60a1b512a1e",
+      "scripts/local-checks/lint-format-fixtures.ts": "d2f91f17477c3fa03d3a1cb36803206866a5a548247ff8dae1283c1a2191f09e",
+      "scripts/local-checks/lint-format-lint.mts": "4018d5718e6e59137bec669f95e791411caefb62dc2b6190a9d365111a62b2c6",
+      "scripts/local-checks/lint-format-native-fixtures.ts": "06978edee5ad615f91df15bd941a771d1c7df31f7dab72c44705ba23cc629113",
+      "scripts/local-checks/lint-format-native-load-guard.ts": "83004bc5b1d7fa05472bef881cc6c8a38510ea908fa0bb81fc93a3bacd56a6ac",
+      "scripts/local-checks/lint-format-native.test.ts": "980a4e615a8d1902ba8323e261f984dc307da420f23d923cf7c45dd3e962ce3c",
+      "scripts/local-checks/lint-format-native.ts": "6d2eeec170f846fd3575e4e01c67611c67e4c063fe6205436f73ba7504c9852b",
+      "scripts/local-checks/lint-format-pilot.md": "4ace890301ef4d79434e8a9e6af5d00cabcefd2214e9aa14781d3778571655d0",
+      "scripts/local-checks/lint-format-proof.test.ts": "6bc463bb92583f8780a6312bf1927605ac9369f5d5bf02e3c74dd822297dcfe9",
+      "scripts/local-checks/lint-format-proof.ts": "1a658a2b2936e09e9b4d0b02c6460e3cdf8634c78fb7d5136308973d916fb5cf",
+      "scripts/local-checks/lint-format-qualification.ts": "5f040756752c2b794df6da8b1fd8af40bc6d7a8435fb9c39c7218b928b29d051",
+      "scripts/local-checks/lint-format-qualify.ts": "0ecc94343e54364a618affe315ac47485f6c95f11016c942bb3b60b882170f41",
+      "scripts/local-checks/lint-format-safety.test.ts": "fa561269b766af6f955cc40b41776ae0d1e4b685ac3d8de566070219bce99e0b",
+      "scripts/local-checks/lint-format-test-support.ts": "cf0bb4d1b6d0d2e8ba0b304f0d4cffe8d6b40a896422aedc6102aa3ab95f1278",
+      "scripts/local-checks/lint-format-vitest.config.ts": "118fc4aec786972e5cf801605faf1f6371872c55109c9f5ecbddbcf7eeeeeee2",
+      "tsconfig.base.json": "0903851ee6027cdee8678f97468d09684acd834f9cd1ab88e8e41dd780e96dfc",
+      "tsconfig.lint-format.json": "a766c77c7094d95395b8b51ef4fd5bb2994e99877023be80a7bfc9955b55c8f3"
+    },
+    "finalInputs": {
+      ".gitignore": "b5280b6184a99c618cd52f3e3de6f3493ccb23a1c836a6bcbd47d0f658f5190a",
+      ".oxfmtrc.json": "af7380077c993929bbf9d724d0a1e7a5f9718bfb942e4451cc5aa4ad1b1b9f77",
+      ".oxlintrc.json": "9a0c10f1bf9d65b9ed2e527dcc15d7519395c45898d2a39c36156e5d90293d83",
+      ".prettierignore": "813a7775bb2574a274ef7ad54d62e368a0fa56cb1c5872f648017138e7f60e2a",
+      ".prettierrc.json": "757385313f4efd46a7b6557f4ec67a7d592d16a0b627afa84ef0c82b57a1c29b",
+      "ai-docs/design/impeccable/NOTICE.md": "c60a093c2845fd9fb82f9c6f742ece31f379f8190b535309d32d66c45ccffdcb",
+      "deploy/self-hosted/conversation-verifier.inputs.json": "20bb9affa11c0147f71b3ce4f0fa984271b2c475f9bf050e793a673ea90a5391",
+      "docs/release-evidence/activation-catalog-policy-raw-independent-review.md": "2470ad6966179f9c9939e5e03d89892a98a60489349cf6272bb9189025e2c7bd",
+      "docs/release-evidence/activation-catalog-policy-raw-reviewer-runtime.json": "cbcf4e4a54dde0f06bd29946f317238a45d9670293e9c47736fc56f79ece44a6",
+      "docs/release-evidence/activation-catalog-policy-v28-independent-review.md": "050b952c3566c8b8792de874a4d2223e5d35ef01d28d0db74d01bfe4e0a6ac56",
+      "docs/release-evidence/activation-catalog-policy-v28-reviewer-runtime.json": "0057254b74da940ca9394d9449700d603cd6eee79090be34b8df2261f5179604",
+      "docs/release-evidence/activation-catalog-policy-v29-independent-review.md": "08df458e97033dae692f04153285f9c68a6d6f3d11dea5f2e626fb687cebcd6f",
+      "docs/release-evidence/activation-catalog-policy-v29-reviewer-runtime.json": "4620e71b3ea9369fda0396d506e0d9d0984123d0d5d28af6b237fc0f6042a3a8",
+      "docs/release-evidence/activation-catalog-policy-v29-schema-v5-independent-review.md": "7abaefccd0fa7771c6594824df794415801771f68f14bf0521d2d2461b360528",
+      "docs/release-evidence/activation-catalog-policy-v29-schema-v5-pr245-candidate.json": "b138eb3ece6553d505debff1dc978a9b6fd8ea854cf70c037c05e364b3d0aa28",
+      "eslint.config.mjs": "7c1aa7b62c51f8123d29685bf793492058ae8ce62ffb9f58ff66642f068df2d4",
+      "eslint.native-fallback.config.mjs": "496445a4ad42c7b24ace8fdf714cf72a500a0ecd2df198d81b2c50f47aaf7126",
+      "package.json": "c1ad34edc2265413e5e251e4ae9faac91b80b1ca7a9b52132fb0cbe1180b5a84",
+      "packages/features/release-rollout/src/domain/activation-catalog-policy-artifact.generated.js": "d6ff4e160988fa4f08c26c7450245de9ad49601a1c6673a29693f9d63edbb52e",
+      "pnpm-lock.yaml": "bc640e13fd261f30b746ae9b422206f3619b0d1249b5c3658034dc3908bd9109",
+      "pnpm-workspace.yaml": "ddcdb9714277bfde7098245c6ac9f1924328aa19120d07408e5c546a47293549",
+      "scripts/local-checks/lint-format-eslint-oracle.ts": "a7391b6df3ffb095932d861a6af680139b097aed66c3165d4ce4d60a1b512a1e",
+      "scripts/local-checks/lint-format-fixtures.ts": "d2f91f17477c3fa03d3a1cb36803206866a5a548247ff8dae1283c1a2191f09e",
+      "scripts/local-checks/lint-format-lint.mts": "4018d5718e6e59137bec669f95e791411caefb62dc2b6190a9d365111a62b2c6",
+      "scripts/local-checks/lint-format-native-fixtures.ts": "06978edee5ad615f91df15bd941a771d1c7df31f7dab72c44705ba23cc629113",
+      "scripts/local-checks/lint-format-native-load-guard.ts": "83004bc5b1d7fa05472bef881cc6c8a38510ea908fa0bb81fc93a3bacd56a6ac",
+      "scripts/local-checks/lint-format-native.test.ts": "980a4e615a8d1902ba8323e261f984dc307da420f23d923cf7c45dd3e962ce3c",
+      "scripts/local-checks/lint-format-native.ts": "6d2eeec170f846fd3575e4e01c67611c67e4c063fe6205436f73ba7504c9852b",
+      "scripts/local-checks/lint-format-pilot.md": "4ace890301ef4d79434e8a9e6af5d00cabcefd2214e9aa14781d3778571655d0",
+      "scripts/local-checks/lint-format-proof.test.ts": "6bc463bb92583f8780a6312bf1927605ac9369f5d5bf02e3c74dd822297dcfe9",
+      "scripts/local-checks/lint-format-proof.ts": "1a658a2b2936e09e9b4d0b02c6460e3cdf8634c78fb7d5136308973d916fb5cf",
+      "scripts/local-checks/lint-format-qualification.ts": "5f040756752c2b794df6da8b1fd8af40bc6d7a8435fb9c39c7218b928b29d051",
+      "scripts/local-checks/lint-format-qualify.ts": "0ecc94343e54364a618affe315ac47485f6c95f11016c942bb3b60b882170f41",
+      "scripts/local-checks/lint-format-safety.test.ts": "fa561269b766af6f955cc40b41776ae0d1e4b685ac3d8de566070219bce99e0b",
+      "scripts/local-checks/lint-format-test-support.ts": "cf0bb4d1b6d0d2e8ba0b304f0d4cffe8d6b40a896422aedc6102aa3ab95f1278",
+      "scripts/local-checks/lint-format-vitest.config.ts": "118fc4aec786972e5cf801605faf1f6371872c55109c9f5ecbddbcf7eeeeeee2",
+      "tsconfig.base.json": "0903851ee6027cdee8678f97468d09684acd834f9cd1ab88e8e41dd780e96dfc",
+      "tsconfig.lint-format.json": "a766c77c7094d95395b8b51ef4fd5bb2994e99877023be80a7bfc9955b55c8f3"
+    },
+    "copiedInputsMatch": true,
+    "failures": [],
+    "cleanupCompleted": true,
+    "receiptSha256": "70c47e986ecd19cdb8e2d3b3df678784303dea48b44171f7f9ca389752352f82",
+    "qualificationScope": "Complete maintained lint/format fixture suites and original strict project; whole-repository lint remains a separate gate.",
+    "bindingNote": "Executed on the same package/lock/config/implementation graph before owner Statistics integration; the pilot Markdown changed to retain the owner Bun policy paragraph. No changed implementation is relabeled as execution evidence."
+  },
+  "wholeRepositoryLint": {
+    "command": ["pnpm", "lint"],
+    "status": 0,
+    "observedCompletedUtc": "2026-11-25T01:57:01Z",
+    "sourceBase": "29e8386ed8490ce9e5a1765c6262ede2a0c18a75",
+    "sourcePatchSha256": "e3b40e2ff181e73c0f529c31582940aff8c931a257d27a0667d91de3a16bc832",
+    "logSha256": "050c69da23536758722729aeda55a8d0fb9d557495ef6d33d70873a3b64a71c1",
+    "node": "26.11.1",
+    "nativeGuard": true,
+    "maxOldSpaceMiB": 768
+  },
+  "earlierFailures": [
+    {
+      "stage": "initial lock generation",
+      "outcome": "SIGKILL",
+      "lockChanged": false,
+      "cause": "unestablished"
+    },
+    {
+      "stage": "first frozen lifecycle at Prisma generation",
+      "outcome": "SIGKILL",
+      "cause": "unestablished",
+      "supersededBy": "ordinary cached frozen installation with all lifecycle steps enabled"
+    },
+    {
+      "stage": "first full format check",
+      "outcome": "one maintained internal JSON checkpoint formatting discrepancy",
+      "supersededBy": "native formatting with parsed-value equality and a successful complete format:check"
+    }
+  ],
+  "pending": [
+    "original full tooling/application checks on the integrated source",
+    "corrected full browser/E2E journeys",
+    "final exact-head protected CI and merge"
+  ],
+  "deploymentPerformed": false,
+  "paidProvidersAccepted": false,
+  "wholeRepositoryFormat": {
+    "command": ["pnpm", "format:check"],
+    "status": 0,
+    "seconds": 126.87632605899853,
+    "nodeOptions": "--import=/home/agent/rr977-adoption-20261125/scripts/local-checks/lint-format-native-load-guard.ts --max-old-space-size=768"
+  },
+  "checkpointFormattingPreservation": {
+    "path": "ai-docs/deployments/evidence/2026-11-25-priority-e2e-followthrough.json",
+    "beforeSha256": "e45d6af9e3c5e58f8d70731db608b5ec7b2a1749e8941dadc0d9f49fe85afc9c",
+    "afterSha256": "36421aca99e128dda6fbc1633aa5cd1be7ae96f765a10e740538642a7dc55bbe",
+    "jsonValuesUnchanged": true,
+    "originalRetainedAt": "29e8386ed8490ce9e5a1765c6262ede2a0c18a75",
+    "purpose": "Format maintained internal checkpoint without changing statuses, raw hashes or source bindings"
+  },
+  "originalToolingStrict": {
+    "status": "FAILED_LOCAL_SIGKILL",
+    "diagnosticsObserved": false,
+    "cause": "unestablished",
+    "stages": {
+      "sourceBase": "29e8386ed8490ce9e5a1765c6262ede2a0c18a75",
+      "nodeOptions": "--import=/home/agent/rr977-adoption-20261125/scripts/local-checks/lint-format-native-load-guard.ts --max-old-space-size=768",
+      "GOMAXPROCS": "2",
+      "GOMEMLIMIT": "1024MiB",
+      "stages": [
+        {
+          "stage": "shared-build",
+          "command": ["pnpm", "--filter", "@reviewrouter/shared", "build"],
+          "status": 0,
+          "seconds": 1.596838483997999
+        },
+        {
+          "stage": "shared-esm",
+          "command": ["node", "scripts/rewrite-dist-esm-imports.mjs"],
+          "status": 0,
+          "seconds": 0.09956459499881021
+        },
+        {
+          "stage": "next-typegen",
+          "command": ["pnpm", "--dir", "apps/web", "exec", "next", "typegen"],
+          "status": 0,
+          "seconds": 0.9310745750008209
+        },
+        {
+          "stage": "original-tooling-strict",
+          "command": [
+            "node",
+            "scripts/local-checks/compiler-cli.ts",
+            "--native",
+            "--noEmit",
+            "-p",
+            "tsconfig.tooling.json"
+          ],
+          "status": 1,
+          "seconds": 14.472009417000663
+        }
+      ],
+      "maxChildRssKiB": 1582304
+    },
+    "boundedRecovery": {
+      "command": [
+        "node",
+        "scripts/local-checks/compiler-cli.ts",
+        "--native",
+        "--noEmit",
+        "-p",
+        "tsconfig.tooling.json"
+      ],
+      "status": 1,
+      "seconds": 9.29201064299923,
+      "maxChildRssKiB": 884936,
+      "GOMAXPROCS": "1",
+      "GOMEMLIMIT": "512MiB",
+      "nodeOptions": "--import=/home/agent/rr977-adoption-20261125/scripts/local-checks/lint-format-native-load-guard.ts --max-old-space-size=384"
+    },
+    "remainingGate": "The unchanged original full tsconfig.tooling.json strict check remains mandatory on the final integrated source in ordinary hosted CI. No local pass is claimed."
+  }
+}
