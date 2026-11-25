@@ -60,8 +60,8 @@ export async function checkNewFeaturePackageCompositions(
     throw new Error("foundation_feature_coverage_missing");
   }
   const governed = new Set(foundationPolicy.governedRoots);
-  const expectedCore = rootPackage.devDependencies?.["@get-modular/core"];
-  const expectedAssembly = rootPackage.devDependencies?.["@get-modular/assembly"];
+  const expectedCore = rootPackage.dependencies?.["@get-modular/core"] ?? rootPackage.devDependencies?.["@get-modular/core"];
+  const expectedAssembly = rootPackage.dependencies?.["@get-modular/assembly"] ?? rootPackage.devDependencies?.["@get-modular/assembly"];
   const expectedConformance = rootPackage.devDependencies?.["@get-modular/conformance"];
   if (!expectedCore || !expectedAssembly || !expectedConformance) {
     throw new Error("get_modular_root_pins_missing");
