@@ -213,6 +213,7 @@ const sourceFiles = [
   "packages/platform/db/prisma/schema.prisma",
   "scripts/statistics-e2e/browser-qualify.ts",
   "scripts/statistics-e2e/dev-server.ts",
+  "scripts/lib/next-browser-test-compiler.ts",
 ];
 const isHistory = scenario === "history" || scenario === "history-source";
 if (isHistory || scenario === "followthrough")
