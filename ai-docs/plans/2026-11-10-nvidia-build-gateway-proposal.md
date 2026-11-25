@@ -1,5 +1,34 @@
 # Proposal: NVIDIA Build as a separate ReviewRouter provider
 
+## Status reconciliation — 2026-11-25 (documentation only)
+
+This plan preserves the **2026-11-10–12 decisions and evidence** as historical
+records. Statements below saying that implementation PR #854 was still open or
+that an App-authored review had not yet occurred describe the earlier checkpoint,
+**not current status**. Do not interpret merging this document as approving a
+provider rollout, customer-data use or a fresh E2E result.
+
+- [ReviewRouter #854](https://github.com/777genius/review-router-ai/pull/854)
+  **merged on 2026-11-13** as `287a5bbfe0b9a7f5bdb4a10f796c262ea0c30908`,
+  after its exact-head required CI. Native [#94](https://github.com/agent-teams-ai/sub2api/pull/94),
+  native [#95](https://github.com/agent-teams-ai/sub2api/pull/95) and
+  [Gateway #105](https://github.com/agent-teams-ai/account-gateway/pull/105)
+  also merged. These merges did **not** activate production NVIDIA inference.
+- The documented sandbox App-first path posted **two bot-authored reviews
+  and four comments** on the synthetic
+  [fixture PR #32](https://github.com/777genius/rr-hosted-pool-e2e-20260927/pull/32).
+  The supported source-owned retry [run 43511461227, attempt 2](https://github.com/777genius/rr-hosted-pool-e2e-20260927/actions/runs/43511461227/attempts/2)
+  succeeded and consumed its publication/close receipt.
+- **End-to-end lifecycle qualification is still incomplete**: source/file
+  coverage was 2/2, but one lifecycle response ended `effect_unknown` after
+  303,709 bytes / 29.633 seconds, leaving one `not_verified` lifecycle
+  outcome. The affected execution was fenced and closed, with uncertain history
+  retained rather than replayed. Do not relabel transport or source-review
+  success as complete lifecycle PASS or infer the remote timeout cause.
+- Production/customer activation **gate G remains unapproved**; the original
+  synthetic-only privacy boundary remains. No production rollout or live
+  provider call was performed as part of this documentation reconciliation.
+
 **Status:** OWNER AUTHORIZED sandbox-only development/E2E on synthetic PRs (2026-11-11 continuation); production/customer use and deployment forbidden. Merge only after actual required E2E acceptance, not documentation/fixture-only proof.  
 **Date:** 2026-11-10  
 **Primary repository:** [ReviewRouter](https://github.com/777genius/review-router-ai)  
