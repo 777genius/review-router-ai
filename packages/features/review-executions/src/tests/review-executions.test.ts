@@ -2622,6 +2622,28 @@ describe("observation references and finalization", () => {
     },
   );
 
+  it.each([0, 1])(
+    "rejects publication at or after its deadline without effects (offset %i ms)",
+    async (offsetMs) => {
+      const store = new InMemoryReviewExecutionStore();
+      await prepareAndAdmit(store);
+      const lease = (await store.acquireLease(leaseCommand())).lease!;
+      const attached = await store.attachObservation(attachmentCommand(lease));
+      const before = attached.snapshot!;
+      const command = finalizeCommand(before);
+
+      await expect(
+        store.finalizeExecution({
+          ...command,
+          now: new Date(command.publicationNotAfter.getTime() + offsetMs),
+        }),
+      ).resolves.toEqual({
+        status: ReviewExecutionFinalizeStatus.PublicationWindowExpired,
+      });
+      expect(await store.findExecution(command.executionId)).toEqual(before);
+    },
+  );
+
   it("derives completed coverage from persisted required slots and issues an immutable permit", async () => {
     const store = new InMemoryReviewExecutionStore();
     await prepareAndAdmit(store);
@@ -2648,9 +2670,18 @@ describe("observation references and finalization", () => {
 
     const restored = await store.finalizeExecution(command);
     expect(restored.status).toBe(ReviewExecutionFinalizeStatus.Restored);
+    const restoredAfterDeadline = await store.finalizeExecution({
+      ...command,
+      now: new Date(command.publicationNotAfter),
+    });
+    expect(restoredAfterDeadline.status).toBe(
+      ReviewExecutionFinalizeStatus.Restored,
+    );
+    expect(restoredAfterDeadline.artifact).toEqual(result.artifact);
     const conflict = await store.finalizeExecution({
       ...command,
       artifactHash: hash("9"),
+      now: new Date(command.publicationNotAfter),
     });
     expect(conflict.status).toBe(ReviewExecutionFinalizeStatus.Conflict);
 

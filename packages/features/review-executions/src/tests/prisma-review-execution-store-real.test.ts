@@ -543,16 +543,11 @@ if (databaseUrl) {
         where: { workspaceId: harness.scope.workspaceId },
       });
 
-      await harness.executions.finalizeExecution(command).then(
-        (result) => {
-          expect(result.status).toBe(ReviewExecutionFinalizeStatus.NotRunnable);
-        },
-        (error: unknown) => {
-          expect(error).toMatchObject({
-            message: "review_execution_invalid_finalization_window",
-          });
-        },
-      );
+      await expect(
+        harness.executions.finalizeExecution(command),
+      ).resolves.toEqual({
+        status: ReviewExecutionFinalizeStatus.PublicationWindowExpired,
+      });
       expect(
         await harness.executions.findExecution(command.executionId),
       ).toEqual(running.snapshot);

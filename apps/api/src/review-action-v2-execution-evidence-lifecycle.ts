@@ -458,6 +458,15 @@ export async function finalizeExecution(
     now: finalizationNow,
     retainUntil: facts.retainUntil,
   });
+  if (
+    result.status === ReviewExecutionFinalizeStatus.PublicationWindowExpired
+  ) {
+    throw failure(
+      410,
+      ReviewActionV2ProtocolErrorCode.ResourceGone,
+      "publication_permit_expired",
+    );
+  }
   let permit: string | null = null;
   if (result.artifact) {
     await requireCurrentExecutionRevision(

@@ -28,6 +28,7 @@ import {
 export enum ExecutionFinalizationDecisionStatus {
   Finalized = "finalized",
   NotRunnable = "not_runnable",
+  PublicationWindowExpired = "publication_window_expired",
   RequiredCoverageIncomplete = "required_coverage_incomplete",
 }
 
@@ -89,6 +90,9 @@ export type ExecutionFinalizationDecision =
       readonly status: ExecutionFinalizationDecisionStatus.NotRunnable;
     }
   | {
+      readonly status: ExecutionFinalizationDecisionStatus.PublicationWindowExpired;
+    }
+  | {
       readonly status: ExecutionFinalizationDecisionStatus.RequiredCoverageIncomplete;
     };
 
@@ -122,6 +126,11 @@ export function decideExecutionFinalization(
   assertFinalizeInput(input);
   assertSameScope(input.stream, input.execution, "finalization_execution");
   assertSameScope(input.execution, input.scope, "finalization_command");
+  if (input.publicationNotAfter <= input.now) {
+    return {
+      status: ExecutionFinalizationDecisionStatus.PublicationWindowExpired,
+    };
+  }
   if (
     !isCurrentRunning(input.stream, input.execution) ||
     input.stream.currentRevision === null ||
@@ -215,7 +224,6 @@ function assertFinalizeInput(input: FinalizeExecutionTransitionInput): void {
   assertDate(input.publicationNotAfter, "publication_not_after");
   assertDate(input.retainUntil, "artifact_retain_until");
   if (
-    input.publicationNotAfter <= input.now ||
     input.retainUntil <= input.publicationNotAfter ||
     input.commandLedgerWatermark < 0n ||
     input.permitEpoch <= 0n

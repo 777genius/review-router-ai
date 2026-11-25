@@ -231,3 +231,47 @@ additional correction also ended with SIGKILL and no TypeScript diagnostics.
 These interruptions remain separate from passing suites. Full original strict
 and complete E2E qualification of the final corrected head are required from
 ordinary CI before merge.
+
+## Final publication-window review follow-up
+
+The full ordinary CI and all four related workflows completed successfully for
+`97be9156e4ca1b115b1d5f4bb34e3f39c80116c2`. CI run 45665988909 finished at
+23:10:37 UTC on 2026-11-25 after one normal retry of an unexplained exit-137
+Quality interruption. The retry passed the original complete command and later
+steps; no worker, timeout, isolation or selection change was made. The original
+interruption remains a failed attempt. These results qualify that source, not a
+subsequent correction.
+
+Main then advanced through documentation-only #1009. Normal integration
+`61ec1cb63ffc7d949fa5e040490930048e272032` incorporates
+`1912bb61b54de8af113e0dccd5d4a144382e19e2` and adds only eight Markdown lines
+relative to `97be9156`. All application, tests, tooling and workflow inputs were
+unchanged. Git's actual merge tree matched the published tree.
+
+A fresh CodeRabbit review of `61ec1cb6` identified two further narrow gaps.
+The finalization deadline test asserted only HTTP 410, so the publication guard
+could conceal a missing authorization guard. It now requires the exact protocol
+code and distinct authorization/publication issue while retaining assertions for
+no finalization, no signature and unchanged persisted state.
+
+The store already refused new finalization after the absolute publication
+deadline, but database-time expiry used the same generic invariant error as
+malformed retention or epoch input. A distinct internal
+`PublicationWindowExpired` domain/port result now reaches the API as the existing
+HTTP 410 `ResourceGone` / `publication_permit_expired`. Both adapters preserve
+immutable replay and stale-version checks before the domain decision. Input and
+scope validation still precede expiry; no execution, lease, artifact or outbox
+write occurs for the expired outcome. No public protocol enum or schema changes.
+
+Regressions cover equality and past-deadline requests through the maintained
+store and API, an invalid-retention negative control, and exact immutable replay
+versus changed-hash conflict after the deadline. The existing real PostgreSQL
+closed-window case now accepts only the precise expired outcome and still
+requires unchanged execution, zero artifacts and unchanged outbox count.
+
+This follow-up was prepared while the local executor was unavailable. No new
+local compiler, formatter or test result is claimed, and no legacy toolchain or
+reduced configuration substitutes for the pinned tools. Independent review and
+ordinary exact-head CI, including the complete native strict, PostgreSQL and E2E
+lanes, are required before merge; final run links and dispositions are tracked in
+[PR #1003](https://github.com/777genius/review-router-ai/pull/1003).

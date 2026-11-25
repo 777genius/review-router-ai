@@ -11,14 +11,15 @@
   `919a5add21a40d9adee064bf23b2e4217bd7e040`; current-base integration
   `bfbece593a64232d934115755a5fc42de72ab56b` incorporates
   `95201f4e0d63d3ab7c4d585a1e55a6317e84ca6b`. These are not release references;
-  the final correction and its source hashes are tracked by the PR/evidence.
+  later documentation-only integration `61ec1cb6` incorporates main `1912bb61`.
+  The final correction and its source hashes are tracked by the PR/evidence.
 - Dependencies: none beyond the normal qualified application release.
 - Last updated: `2026-11-25`.
 
 This bounded follow-up to #977 repairs exact observation retry handling and
 deadline checks during adoption/finalization, including exact error mapping and
 database-time validation before replayed permit issuance. The integrated source
-baseline is `95201f4e0d63d3ab7c4d585a1e55a6317e84ca6b`; see the
+baseline is `1912bb61b54de8af113e0dccd5d4a144382e19e2`; see the
 [review and qualification plan](../plans/2026-11-25-pr977-post-merge-correctness.md).
 
 ## Environment status
@@ -61,7 +62,10 @@ lease/ref/effect; and changed replay intent remains rejected. Confirm that a new
 adoption/finalization cannot pass an expired deadline after external awaits or
 database lock waits. Expired new adoption must receive the existing HTTP 412
 from the atomic store decision, while unrelated rejections retain their own
-meaning. Permit issuance must respect both database and API time and fail closed
+meaning. Database-time publication expiry must likewise return the existing
+HTTP 410 `publication_permit_expired` without persisting finalization or masking
+unrelated invariant errors. Permit issuance must respect both database and API
+time and fail closed
 when the database clock cannot be read; valid skew must preserve local token
 verification. Preserve already-issued permit reconciliation behavior.
 
@@ -89,6 +93,13 @@ clock/error-mapping corrections. The expanded API/domain suite passes 158/158.
 The real PostgreSQL suite passes 56/56 again, and the bounded worker-drain helper
 passes seven focused tests. Current full E2E and native compiler interruptions
 are preserved as failed attempts; their exact-head CI gates remain required.
+Subsequent full CI and related workflows passed at `97be9156`, including the
+complete native compiler, real PostgreSQL execution 56/56 and source E2E 18/18.
+A single ordinary Quality retry passed after the preserved exit-137 interruption.
+The documentation-only `61ec1cb6` integration retained all those source inputs.
+A later exact-head review required the precise database-expiry result and stronger
+deadline assertions. That correction has new source bindings; previous passes do
+not qualify it. Its original-scope CI is required before merge.
 The exact-head required CI, merge readback and main checks are tracked on
 [PR #1003](https://github.com/777genius/review-router-ai/pull/1003). These are source
 qualification records, not staging or production deployment evidence.

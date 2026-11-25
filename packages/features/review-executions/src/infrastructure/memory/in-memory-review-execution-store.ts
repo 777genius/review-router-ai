@@ -803,6 +803,14 @@ export class InMemoryReviewExecutionStore
         activeLeases,
         ...command,
       });
+      if (
+        decision.status ===
+        ExecutionFinalizationDecisionStatus.PublicationWindowExpired
+      ) {
+        return {
+          status: ReviewExecutionFinalizeStatus.PublicationWindowExpired,
+        };
+      }
       if (decision.status === ExecutionFinalizationDecisionStatus.NotRunnable) {
         return { status: ReviewExecutionFinalizeStatus.NotRunnable };
       }

@@ -2440,8 +2440,92 @@ describe("Review Action v2 execution/evidence composition", () => {
 
       await expect(
         createReviewActionV2ExecutionHandlers(d).finalize.execute(request),
-      ).rejects.toMatchObject({ statusCode: 410 });
+      ).rejects.toMatchObject({
+        statusCode: 410,
+        errorCode: ReviewActionV2ProtocolErrorCode.ResourceGone,
+        issues: [
+          deadlineOwner === "authorization"
+            ? "authorization_inactive"
+            : "publication_permit_expired",
+        ],
+      });
       expect(finalize).not.toHaveBeenCalled();
+      expect(issuePublicationPermit).not.toHaveBeenCalled();
+      expect(await store.findExecution(sourceLease.executionId)).toEqual(
+        before,
+      );
+    },
+  );
+
+  it.each([
+    { label: "deadline equality", offsetMs: 0, invalidRetention: false },
+    { label: "past deadline", offsetMs: 1, invalidRetention: false },
+    { label: "invalid retention", offsetMs: 0, invalidRetention: true },
+  ])(
+    "preserves the store finalization outcome: $label",
+    async ({ offsetMs, invalidRetention }) => {
+      const {
+        d: dependencies,
+        store,
+        sourceLease,
+        request: attach,
+      } = await persistedObservationFixture();
+      await createReviewActionV2ExecutionHandlers(
+        dependencies,
+      ).attachObservation.execute(attach);
+      const before = (await store.findExecution(sourceLease.executionId))!;
+      const fixture = await finalizationFixture(
+        new Date(now.getTime() + 60_000),
+      );
+      const d = { ...dependencies };
+      const finalize = vi.fn(
+        (command: Parameters<typeof store.finalizeExecution>[0]) =>
+          store.finalizeExecution({
+            ...command,
+            now: new Date(command.publicationNotAfter.getTime() + offsetMs),
+            retainUntil: invalidRetention
+              ? command.publicationNotAfter
+              : command.retainUntil,
+          }),
+      );
+      d.executions.finalizeReviewExecution.execute = finalize;
+      d.finalizationFacts.resolve = fixture.finalizationFacts;
+      const readServerTime = vi.spyOn(d, "readServerTime");
+      const issuePublicationPermit = vi.spyOn(
+        d.capabilities,
+        "issuePublicationPermit",
+      );
+      const request = await withBodyHash(
+        ReviewActionV2OperationId.ReviewExecutionFinalize,
+        {
+          ...fixture.request,
+          expectedStreamVersion: before.stream.version.toString(10),
+          expectedExecutionVersion: before.execution.version.toString(10),
+        },
+      );
+
+      const result =
+        createReviewActionV2ExecutionHandlers(d).finalize.execute(request);
+      if (invalidRetention) {
+        await expect(result).rejects.toThrowError(
+          "review_execution_invalid_finalization_window",
+        );
+      } else {
+        await expect(result).rejects.toMatchObject({
+          statusCode: 410,
+          errorCode: ReviewActionV2ProtocolErrorCode.ResourceGone,
+          issues: ["publication_permit_expired"],
+        });
+      }
+      expect(finalize).toHaveBeenCalledTimes(1);
+      expect(finalize).toHaveBeenCalledWith(
+        expect.objectContaining({
+          now,
+          publicationNotAfter:
+            fixture.artifact.publicationPermit.publicationNotAfter,
+        }),
+      );
+      expect(readServerTime).not.toHaveBeenCalled();
       expect(issuePublicationPermit).not.toHaveBeenCalled();
       expect(await store.findExecution(sourceLease.executionId)).toEqual(
         before,

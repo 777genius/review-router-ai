@@ -77,6 +77,7 @@ export enum ReviewExecutionFinalizeStatus {
   Conflict = "conflict",
   Missing = "missing",
   NotRunnable = "not_runnable",
+  PublicationWindowExpired = "publication_window_expired",
   RequiredCoverageIncomplete = "required_coverage_incomplete",
 }
 

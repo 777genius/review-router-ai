@@ -1399,5 +1399,165 @@
       "Resulting main CI and automatic artifact publication verification"
     ],
     "applicationDeployment": "Not performed; staging and production remain pending in the registry."
+  },
+  "publicationWindowReviewFollowup": {
+    "recordedAtUtc": "2026-11-25T23:51:06.115Z",
+    "parentCheckpoint": "61ec1cb63ffc7d949fa5e040490930048e272032",
+    "integrationBase": "1912bb61b54de8af113e0dccd5d4a144382e19e2",
+    "sourceBindingFormat": "Exact Git blob object identities for all cumulative changed TypeScript files; prior SHA-256 receipts and source bindings remain unchanged in their historical sections.",
+    "sourceBindings": [
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-composition.test.ts",
+        "gitBlob": "30f8d57c5cec9409f12fca93c5861679fc2d8f8b"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-dependencies.ts",
+        "gitBlob": "0f872a1e535485f67061cc1ea5ec1f73944a8b4c"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-lifecycle.ts",
+        "gitBlob": "54fdc70b6ff0c0f056f9a75078da3051aa4140fe"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-observations.ts",
+        "gitBlob": "6bdd124e5eea665c895625095cb7dbb7d0d56888"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-production-composition.ts",
+        "gitBlob": "1f39bb660c098129aa2a6e79354e206bc4b1ab46"
+      },
+      {
+        "path": "packages/features/review-executions/src/application/ports/review-execution-ports.ts",
+        "gitBlob": "989d61e6a7d2433cd7ec65c31c08caeaf3c22825"
+      },
+      {
+        "path": "packages/features/review-executions/src/domain/review-execution-finalization-transitions.ts",
+        "gitBlob": "ad31f56b1da16867f418918d0aed4650a77109f2"
+      },
+      {
+        "path": "packages/features/review-executions/src/domain/review-execution-observation-transitions.ts",
+        "gitBlob": "a05cbf9d074d1d1ff7cbcb303d4093976e775462"
+      },
+      {
+        "path": "packages/features/review-executions/src/infrastructure/memory/in-memory-review-execution-store.ts",
+        "gitBlob": "919dd3642481ea502fa397dff1b24deffc777edf"
+      },
+      {
+        "path": "packages/features/review-executions/src/infrastructure/prisma/prisma-review-execution-store.ts",
+        "gitBlob": "ab11f3ce2586557f0d393a373f7f42bace2c175c"
+      },
+      {
+        "path": "packages/features/review-executions/src/tests/prisma-review-execution-store-real.test.ts",
+        "gitBlob": "b7e791fe2edd8d535bbabd8f84af2e681aabc82f"
+      },
+      {
+        "path": "packages/features/review-executions/src/tests/review-executions.test.ts",
+        "gitBlob": "6da54e36871958a097dee4901ccfddc033a593f5"
+      },
+      {
+        "path": "scripts/architecture-boundaries/transaction-serialization.ts",
+        "gitBlob": "16f26dc60a2d5adc57f427a9c274827884e65ffb"
+      },
+      {
+        "path": "scripts/check-architecture-boundaries.test.ts",
+        "gitBlob": "66f32ca6e18ae473e6b9806501e490d077c44aeb"
+      },
+      {
+        "path": "scripts/manage-review-provider-scope-concurrency.test.ts",
+        "gitBlob": "67b690dcfd459a7393f6f6e2b9764d6912cf5de8"
+      },
+      {
+        "path": "scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts",
+        "gitBlob": "e760ee9284e86d857af5b6a89dc6d8d4b4089e2a"
+      },
+      {
+        "path": "scripts/review-action-v2-production-e2e/support/review-action-v2-e2e-harness.ts",
+        "gitBlob": "a80fb9ba728fd8b70e303d366d7df4ceb282f883"
+      },
+      {
+        "path": "scripts/review-action-v2-production-e2e/support/review-action-v2-worker-drain.test.ts",
+        "gitBlob": "18dcbd2fc2a278a6f5d521d8853d745d2cb95caf"
+      },
+      {
+        "path": "scripts/review-action-v2-production-e2e/support/review-action-v2-worker-drain.ts",
+        "gitBlob": "473222a6892ead9634bfd1326c47dc42c51a63d7"
+      }
+    ],
+    "reviewSource": "CodeRabbit review submitted 2026-11-25T23:39:57Z for exact head 61ec1cb6, independently checked against source.",
+    "reviewThreads": [
+      "PRRT_kwDOSTxTWc68J7vt",
+      "PRRT_kwDOSTxTWc68J7vx"
+    ],
+    "corrections": [
+      "Assert the precise authorization/publication deadline reason, retaining no-finalization, no-signing and unchanged-state checks.",
+      "Return explicit internal PublicationWindowExpired through the domain and both adapters; API emits existing HTTP 410 ResourceGone/publication_permit_expired.",
+      "Keep full input and scope validation before expiry, and preserve immutable replay and version conflicts before the domain decision.",
+      "Require the real-PostgreSQL closed-window test to observe only the exact expired outcome with no persisted artifact/outbox/execution changes."
+    ],
+    "addedRegressionCases": [
+      "Maintained in-memory store: publication deadline equality and past deadline, unchanged snapshot.",
+      "Maintained API/store: lagging API time, simulated authoritative decision time at and after expiry, exact HTTP error and no signing.",
+      "Invalid retention remains a generic invariant failure instead of being relabeled as publication expiry.",
+      "Existing exact artifact replay remains Restored after its publication deadline; changed hash remains Conflict."
+    ],
+    "precedingQualification": {
+      "sourceCheckpoint": "97be9156e4ca1b115b1d5f4bb34e3f39c80116c2",
+      "ci": "https://github.com/777genius/review-router-ai/actions/runs/45665988909",
+      "completedAtUtc": "2026-11-25T23:10:37Z",
+      "conclusion": "success",
+      "manualJobRetries": 1,
+      "interruptedJob": "https://github.com/777genius/review-router-ai/actions/runs/45665988909/job/139390753477",
+      "successfulRetry": "https://github.com/777genius/review-router-ai/actions/runs/45665988909/job/139491255220",
+      "interruptionCause": "Unknown; exit 137/SIGKILL does not establish OOM. Original command, selection, timeouts, isolation and worker settings were retained.",
+      "fullNativeStrict": "TypeScript 7.0.2; 56/56 workspace tasks and original spikes, handoff and tooling configurations.",
+      "vitest": {
+        "passedFiles": 1076,
+        "skippedFiles": 71,
+        "passedTests": 15748,
+        "skippedTests": 891,
+        "failedTests": 0
+      },
+      "nodeEvalRisk": {
+        "passed": 47,
+        "failed": 0,
+        "skipped": 0
+      },
+      "realPostgresExecution": {
+        "passed": 56,
+        "failed": 0,
+        "skipped": 0
+      },
+      "productionSourceE2E": {
+        "passed": 18,
+        "failed": 0,
+        "skipped": 0
+      },
+      "relatedWorkflows": [
+        "https://github.com/777genius/review-router-ai/actions/runs/45665988913",
+        "https://github.com/777genius/review-router-ai/actions/runs/45665988968",
+        "https://github.com/777genius/review-router-ai/actions/runs/45665988922",
+        "https://github.com/777genius/review-router-ai/actions/runs/45665988918"
+      ],
+      "relatedConclusion": "success",
+      "qualifiesLaterSourceChanges": false,
+      "note": "Counts overlap. Skipped unit tests are reported as observed, not individually re-audited; real PostgreSQL and production E2E qualified separately without skips."
+    },
+    "documentationOnlyIntegration": {
+      "commit": "61ec1cb63ffc7d949fa5e040490930048e272032",
+      "tree": "2586dde16542ea38bccbd2fcf28240b23193c0a9",
+      "previousHead": "97be9156e4ca1b115b1d5f4bb34e3f39c80116c2",
+      "main": "1912bb61b54de8af113e0dccd5d4a144382e19e2",
+      "changedMarkdownFiles": 2,
+      "addedLines": 8,
+      "applicationAndQualificationInputsUnchanged": true,
+      "actualGitMergeTreeEqualsPublishedTree": true
+    },
+    "localQualification": "Not run for this follow-up while the local executor was unavailable. No fallback compiler, formatter, reduced configuration or fabricated RED result is claimed.",
+    "pendingQualification": [
+      "Independent review of the concrete prepared correction before publication.",
+      "Ordinary exact-head full CI and related workflows, using pinned original native tools and complete PostgreSQL/E2E lanes.",
+      "Normal protected merge, merge readback, main CI and automatic artifact verification."
+    ],
+    "applicationDeployment": "Not performed; staging and production remain pending in the registry."
   }
 }
