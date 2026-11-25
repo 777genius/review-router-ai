@@ -6,7 +6,7 @@ import {
 import {
   dashboardWorkspaceUrlKey,
   type DashboardWorkspace,
-} from "./dashboard-workspace-navigation";
+} from "../../src/server/dashboard-workspace-model";
 import { dashboardSectionHref } from "./dashboard-section";
 import {
   buildInstallationSettingsUrl,
