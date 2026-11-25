@@ -31,6 +31,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+Production relay build attempt 2026-11-25: image built but removed after disk headroom fell to 380 MB; no backup or fleet swap. Production remains pending; see [attempt](2026-11-22-relay-completed-close-recovery.md#production-build-attempt-2026-11-25).
+
 Multi-tenant reliability: [authorization, bounded recovery/maintenance, inventory and ruleset concurrency, usage pagination, workspace selection and Action streaming](2026-11-25-multi-tenant-reliability.md), [PR #1007](https://github.com/777genius/review-router-ai/pull/1007) — Web/API/worker, four additive migrations and the ordinary public Action runtime release; staging and production `pending`. Old writers must be drained for the revised guarantees; unknown external-effect evidence is retained. No deployment is claimed.
 
 Review dispatch past busy pull requests: [filter already occupied scopes before limiting due work](2026-11-23-review-requested-busy-scopes.md), [PR #994](https://github.com/777genius/review-router-ai/pull/994) - API/worker ordinary rollout; staging and production `pending`. No migration; transactional claim and fencing remain authoritative.
