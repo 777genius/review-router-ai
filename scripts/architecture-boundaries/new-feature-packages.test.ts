@@ -129,7 +129,7 @@ describe("Get Modular default for new feature packages", () => {
       "import { it } from 'vitest'; it('composition', () => {});\n");
     // Adding the new package to the Foundation profile is mandatory.
     put(root, "architecture/foundation/provider-seams.yaml",
-      "schemaVersion: 1\\ngovernedRoots:\\n  - packages/features/new-feature/src\\n");
+      "schemaVersion: 1\ngovernedRoots:\n  - packages/features/new-feature/src\n");
     expect(await violations(root)).toEqual([]);
   });
 
