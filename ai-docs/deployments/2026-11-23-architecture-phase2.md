@@ -62,6 +62,14 @@ runtime smoke on a new PostgreSQL 17.12 database after all 165 Prisma migrations
 Both whole-build attempts failed at the Web native preflight with SIGKILL before
 Next started; neither is production Web or browser evidence. See the
 [runtime and tooling receipt](evidence/2026-11-23-architecture-phase2-runtime-tooling.json).
+Skills qualification on exact clean `a8925fe7` passed 139 module/PG and five
+API cases, including pinned paired Action HTTP transport, the real nested
+frozen toolchain and a fresh 165-entry Prisma migration ledger; see the
+[Skills receipt](evidence/2026-11-23-architecture-phase2-skills.json).
+The subsequent native AST policy correction passed 135/135 affected tests,
+40/40 CI routing tests, both original strict projects and the full architecture
+gate with all 4,800 tracked inputs unchanged; see the
+[native AST receipt](evidence/2026-11-23-architecture-phase2-native-ast.json).
 Browser, offline-Prisma isolation, remaining lint/build qualifications and
 final-head CI remain separate prerequisites. These are local qualification results; no
 environment deployment or public Action publication was performed.

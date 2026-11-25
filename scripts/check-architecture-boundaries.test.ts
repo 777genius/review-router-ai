@@ -319,6 +319,99 @@ describe("review-investigations architecture ratchet", () => {
     );
   });
 
+  it.each([
+    [
+      "qualified alias",
+      "export async function load(db: Prisma.TransactionClient) { return Promise.all([db.first(), db.second()]); }",
+    ],
+    [
+      "unqualified alias",
+      "export async function load(db: TransactionClient) { return Promise.all([db.first(), db.second()]); }",
+    ],
+    [
+      "optional typed alias",
+      "export async function load(db?: Prisma.TransactionClient) { return Promise.all([db?.first(), db?.second()]); }",
+    ],
+    [
+      "defaulted transaction name",
+      "export async function load(transaction = fallback) { return Promise.all([transaction.first(), transaction.second()]); }",
+    ],
+    [
+      "defaulted typed alias",
+      "export async function load(db: Prisma.TransactionClient = fallback) { return Promise.all([db.first(), db.second()]); }",
+    ],
+    [
+      "typed method parameter",
+      "export class Store { async load(db: Prisma.TransactionClient) { return Promise.all([db.first(), db.second()]); } }",
+    ],
+    [
+      "constructor parameter property",
+      "export class Store { constructor(private db: Prisma.TransactionClient) { void Promise.all([db.first(), db.second()]); } }",
+    ],
+    [
+      "defaulted constructor parameter property",
+      "export class Store { constructor(private db: TransactionClient = fallback) { void Promise.all([db.first(), db.second()]); } }",
+    ],
+    [
+      "rest parameter annotation",
+      "export async function load(...db: TransactionClient[]) { return Promise.all([db[0].first(), db[0].second()]); }",
+    ],
+  ])("rejects concurrent queries through a %s", (_name, source) => {
+    const root = createFixture("export type Investigation = string;\n");
+    writeFile(
+      root,
+      "packages/features/review-investigations/src/infrastructure/prisma-store.ts",
+      source,
+    );
+    expect(() => runChecker(root)).toThrow(
+      /Prisma interactive transaction clients use one database connection/,
+    );
+  });
+
+  it.each([
+    [
+      "object method",
+      "const methods = { execute(db: Db) { return Promise.all([db.first(), db.second()]); } }; const execute = methods.execute; prisma.$transaction(execute);",
+    ],
+    [
+      "class method",
+      "class Queries { static execute(db: Db) { return Promise.all([db.first(), db.second()]); } } const execute = Queries.execute; prisma.$transaction(execute);",
+    ],
+  ])("rejects aliased named %s transaction callbacks", (_name, source) => {
+    const root = createFixture("export type Investigation = string;\n");
+    writeFile(
+      root,
+      "packages/features/review-investigations/src/infrastructure/prisma-store.ts",
+      source,
+    );
+    expect(() => runChecker(root)).toThrow(
+      /Prisma interactive transaction clients use one database connection/,
+    );
+  });
+
+  it.each([
+    [
+      "sequential typed alias",
+      "export async function load(db: Prisma.TransactionClient) { const first = await db.first(); const second = await db.second(); return { first, second }; }",
+    ],
+    [
+      "unrelated type suffix",
+      "export async function load(db: TransactionClientPool) { return Promise.all([db.first(), db.second()]); }",
+    ],
+    [
+      "ordinary pooled client",
+      "export async function load(db: PrismaClient) { return Promise.all([db.first(), db.second()]); }",
+    ],
+  ])("accepts a %s", (_name, source) => {
+    const root = createFixture("export type Investigation = string;\n");
+    writeFile(
+      root,
+      "packages/features/review-investigations/src/infrastructure/prisma-store.ts",
+      source,
+    );
+    expect(runChecker(root)).toContain("Architecture boundary check passed");
+  });
+
   it("accepts sequential queries through a Prisma transaction client", () => {
     const root = createFixture(
       'export enum InvestigationState { Open = "open" }\n',

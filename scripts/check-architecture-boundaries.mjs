@@ -823,15 +823,31 @@ function transactionAliasesForFunction(
     parent?.type === "CallExpression" &&
     parent.arguments[0] === node &&
     isPrismaTransactionCall(parent);
-  for (const [index, parameter] of (node.params ?? []).entries()) {
+  for (const [index, originalParameter] of (node.params ?? []).entries()) {
+    let parameter = originalParameter;
+    let annotation = parameter.typeAnnotation?.typeAnnotation;
+    // Oxc represents defaults, rest parameters and constructor properties as
+    // wrappers. Preserve the former compiler's identifier-parameter coverage.
+    while (
+      parameter.type === "AssignmentPattern" ||
+      parameter.type === "RestElement" ||
+      parameter.type === "TSParameterProperty"
+    ) {
+      parameter =
+        parameter.type === "AssignmentPattern"
+          ? parameter.left
+          : parameter.type === "RestElement"
+            ? parameter.argument
+            : parameter.parameter;
+      annotation ??= parameter.typeAnnotation?.typeAnnotation;
+    }
     if (parameter.type !== "Identifier") continue;
-    const annotation = parameter.typeAnnotation;
     const type = annotation
       ? source.slice(annotation.start, annotation.end)
       : "";
     if (
       parameter.name === "transaction" ||
-      /(?:^|\\.)TransactionClient\\b/u.test(type) ||
+      /(?:^|\.)TransactionClient\b/u.test(type) ||
       (index === 0 && (inlineCallback || namedCallback))
     )
       aliases.add(parameter.name);
@@ -841,6 +857,17 @@ function transactionAliasesForFunction(
 
 function functionBindingName(node, parent) {
   if (node.id?.type === "Identifier") return node.id.name;
+  const method =
+    (parent?.type === "MethodDefinition" && parent.kind !== "constructor") ||
+    (parent?.type === "Property" &&
+      (parent.method || parent.kind === "get" || parent.kind === "set"));
+  if (
+    method &&
+    parent.value === node &&
+    !parent.computed &&
+    parent.key?.type === "Identifier"
+  )
+    return parent.key.name;
   if (
     parent?.type === "VariableDeclarator" &&
     parent.init === node &&

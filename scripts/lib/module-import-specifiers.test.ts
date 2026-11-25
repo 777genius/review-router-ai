@@ -53,3 +53,18 @@ test("native import collector ignores comments, prose and type member names", ()
   assert.deepEqual(parsed.errors, []);
   assert.deepEqual([...collectModuleImportSpecifiers(parsed)], []);
 });
+
+test.each([
+  'const load = () => import(("permitted-contract"));',
+  'const contract = require(("permitted-contract"));',
+])(
+  "native import collector keeps parenthesized targets computed: %s",
+  (source) => {
+    const parsed = parseSourceAst("subject.ts", source);
+    assert.deepEqual(parsed.errors, []);
+    assert.deepEqual(
+      [...collectModuleImportSpecifiers(parsed)],
+      ["computed module import"],
+    );
+  },
+);
