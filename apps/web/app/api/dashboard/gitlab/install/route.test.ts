@@ -48,6 +48,7 @@ describe("GitLab install route", () => {
         workspaceId: "workspace_1",
         sourceUrl: "https://gitlab.com/acme/platform",
         token: "glpat-secret-token",
+        reviewToken: "project-review-token",
         selectedProjectIds: ["101"],
       }),
     );
@@ -68,6 +69,7 @@ describe("GitLab install route", () => {
         workspaceId: "workspace_1",
         sourceUrl: "https://gitlab.com/acme/platform",
         token: "glpat-secret-token",
+        reviewToken: "project-review-token",
         selectedProjectIds: ["101"],
       }),
     );
@@ -78,10 +80,12 @@ describe("GitLab install route", () => {
       workspaceId: "workspace_1",
       sourceUrl: "https://gitlab.com/acme/platform",
       token: "glpat-secret-token",
+      reviewToken: "project-review-token",
       selectedProjectIds: ["101"],
       installedByUserId: "user_1",
     });
     expect(JSON.stringify(body)).not.toContain("glpat-secret-token");
+    expect(JSON.stringify(body)).not.toContain("project-review-token");
   });
 
   it.each([
@@ -95,6 +99,7 @@ describe("GitLab install route", () => {
         workspaceId: "workspace_1",
         sourceUrl: "https://gitlab.com/acme/platform",
         token: "glpat-secret-token",
+        reviewToken: "project-review-token",
         selectedProjectIds: ["101"],
       }),
     );
@@ -114,6 +119,7 @@ describe("GitLab install route", () => {
         workspaceId: "workspace_1",
         sourceUrl: "https://gitlab.com/acme/platform",
         token: "glpat-secret-token",
+        reviewToken: "project-review-token",
         selectedProjectIds: ["101"],
       }),
     );
@@ -127,6 +133,7 @@ describe("GitLab install route", () => {
       },
     });
     expect(JSON.stringify(body)).not.toContain("glpat-secret-token");
+    expect(JSON.stringify(body)).not.toContain("project-review-token");
   });
 });
 

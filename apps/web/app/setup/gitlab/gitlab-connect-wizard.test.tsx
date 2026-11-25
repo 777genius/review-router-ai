@@ -46,6 +46,9 @@ describe("GitLabConnectWizard", () => {
     expect(await screen.findByText("Select repositories")).toBeTruthy();
     expect(screen.getByText("acme/platform/api")).toBeTruthy();
 
+    fireEvent.change(screen.getByLabelText("Project or group review token"), {
+      target: { value: "project-review-token" },
+    });
     fireEvent.click(
       screen.getByRole("button", { name: "Install ReviewRouter" }),
     );
@@ -79,12 +82,15 @@ describe("GitLabConnectWizard", () => {
       workspaceId: "workspace_1",
       selectedProjectIds: ["101"],
       token: "glpat-test-secret",
+      reviewToken: "project-review-token",
     });
     expect(bodies[2]).toEqual({
       workspaceId: "workspace_1",
       installationId: "gitlab_install_1",
     });
     expect(JSON.stringify(bodies[2])).not.toContain("glpat-test-secret");
+    expect(JSON.stringify(bodies[0])).not.toContain("project-review-token");
+    expect(JSON.stringify(bodies[2])).not.toContain("project-review-token");
   });
 
   it("shows setup MR action needed when ci_config_path cannot be changed directly", async () => {
@@ -119,6 +125,9 @@ describe("GitLabConnectWizard", () => {
     );
     await screen.findByText("Select repositories");
 
+    fireEvent.change(screen.getByLabelText("Project or group review token"), {
+      target: { value: "project-review-token" },
+    });
     fireEvent.click(
       screen.getByRole("button", { name: "Install ReviewRouter" }),
     );
@@ -150,6 +159,9 @@ describe("GitLabConnectWizard", () => {
     );
     await screen.findByText("Select repositories");
 
+    fireEvent.change(screen.getByLabelText("Project or group review token"), {
+      target: { value: "project-review-token" },
+    });
     fireEvent.click(
       screen.getByRole("button", { name: "Install ReviewRouter" }),
     );

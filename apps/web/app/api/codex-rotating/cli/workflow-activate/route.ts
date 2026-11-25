@@ -1,3 +1,4 @@
+import { readBoundedRequestJson } from "../../../../../src/server/bounded-request-body";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
@@ -24,7 +25,9 @@ const requestSchema = z
 export async function POST(request: Request): Promise<NextResponse> {
   try {
     const accessToken = readBearerToken(request);
-    const body = requestSchema.parse(await request.json());
+    const body = requestSchema.parse(
+      await readBoundedRequestJson(request, 32_768),
+    );
     const authorized = await authorizeGitHubCliRepository({
       accessToken,
       repositoryFullName: body.repository,

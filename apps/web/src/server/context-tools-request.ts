@@ -1,4 +1,8 @@
 import { resolveReviewRouterPublicWebUrl } from "./codex-seed-script-url";
+import {
+  readBoundedRequestJson,
+  RequestBodyTooLargeError,
+} from "./bounded-request-body";
 const headers = { "Cache-Control": "no-store" };
 export const invalidContextRequest = () =>
   Response.json(
@@ -35,30 +39,14 @@ export async function readContextToolsRequest(
         { status: 403, headers },
       );
   }
-  const reader = request.body?.getReader();
-  if (!reader) return invalidContextRequest();
-  let size = 0;
-  const chunks: Uint8Array[] = [];
   try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > 32768) {
-        await reader.cancel();
-        return Response.json(
-          { error: "context_request_too_large" },
-          { status: 413, headers },
-        );
-      }
-      chunks.push(value);
-    }
-    return JSON.parse(
-      new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)),
-    );
-  } catch {
+    return await readBoundedRequestJson(request, 32768);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError)
+      return Response.json(
+        { error: "context_request_too_large" },
+        { status: 413, headers },
+      );
     return invalidContextRequest();
-  } finally {
-    reader.releaseLock();
   }
 }

@@ -59,6 +59,7 @@ export function GitLabConnectWizard({
 }): React.ReactElement {
   const [sourceUrl, setSourceUrl] = useState(initialSourceUrl);
   const [token, setToken] = useState("");
+  const [reviewToken, setReviewToken] = useState("");
   const [phase, setPhase] = useState<Phase>("discover");
   const [discovery, setDiscovery] = useState<DiscoveryResult | null>(null);
   const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(
@@ -109,10 +110,12 @@ export function GitLabConnectWizard({
           workspaceId,
           sourceUrl,
           token,
+          reviewToken,
           selectedProjectIds: [...selectedProjectIds],
         },
       );
       setToken("");
+      setReviewToken("");
       setInstallResult(result);
       setCodexCommand(null);
       setPhase("result");
@@ -246,13 +249,40 @@ export function GitLabConnectWizard({
             ))}
           </div>
 
+          <FieldLabel htmlFor="gitlab-review-token">
+            Project or group review token
+          </FieldLabel>
+          <input
+            id="gitlab-review-token"
+            value={reviewToken}
+            onChange={(event) => setReviewToken(event.target.value)}
+            type="password"
+            autoComplete="off"
+            maxLength={16_384}
+            placeholder="glpat-..."
+            aria-describedby="gitlab-review-token-help"
+            className="min-h-12 rounded-xl border border-cyan-200/15 bg-slate-950/70 px-4 text-cyan-50 outline-none transition placeholder:text-slate-600 focus:border-cyan-200/45 focus:ring-2 focus:ring-cyan-300/20"
+          />
+          <p
+            id="gitlab-review-token-help"
+            className="-mt-2 text-xs leading-5 text-slate-500"
+          >
+            Use a separate token with access only to these projects. It is saved
+            in GitLab CI/CD variables for reviews. Your installation token is
+            not copied to CI, and ReviewRouter does not store either token.
+          </p>
+
           {error ? <ErrorNotice message={error} /> : null}
 
           <div className="flex flex-wrap items-center gap-3">
             <Button
               type="button"
               onClick={() => void install()}
-              disabled={selectedCount === 0}
+              disabled={
+                selectedCount === 0 ||
+                !reviewToken.trim() ||
+                reviewToken.trim() === token.trim()
+              }
               className="rounded-xl"
             >
               Install ReviewRouter
@@ -514,6 +544,10 @@ function errorText(error: unknown): string {
       return "GitLab could not find that group or project for this token.";
     case "gitlab_connect_projects_required":
       return "Select at least one GitLab project.";
+    case "gitlab_review_token_missing":
+      return "Enter a separate project or group token for reviews.";
+    case "gitlab_review_token_must_be_separate":
+      return "Use a separate review token limited to the selected projects.";
     default:
       return code.replaceAll("_", " ");
   }

@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import {
+  readBoundedRequestJson,
+  RequestBodyTooLargeError,
+} from "../../../../src/server/bounded-request-body";
+import {
   codexRotatingSetupLedger,
   codexRotatingSetupLedgerHttpError,
 } from "../../../../src/server/codex-rotating-setup-ledger";
@@ -7,12 +11,13 @@ import {
 export async function POST(request: Request): Promise<NextResponse> {
   let payload: unknown;
   try {
-    payload = await request.json();
-  } catch {
+    payload = await readBoundedRequestJson(request, 1_100_000);
+  } catch (error) {
+    const tooLarge = error instanceof RequestBodyTooLargeError;
     return NextResponse.json(
-      { error: "invalid_json" },
+      { error: tooLarge ? "request_body_too_large" : "invalid_json" },
       {
-        status: 400,
+        status: tooLarge ? 413 : 400,
         headers: { "Cache-Control": "no-store" },
       },
     );
