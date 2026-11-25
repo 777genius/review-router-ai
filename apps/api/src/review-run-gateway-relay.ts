@@ -33,6 +33,7 @@ import {
   type RunAccessConfig,
 } from "./account-gateway-run-access";
 import { createReviewRunGatewayPreparation } from "./review-run-gateway-preparation";
+import { createCloseAuthorityGate } from "./review-run-gateway-close-authority-gate";
 import {
   parseReviewReviewerId,
   reviewerPlanContract,
@@ -294,7 +295,10 @@ export function createReviewRunGatewayRelay(input: {
   const sessions = new Map<string, Session>();
   let inFlight = 0;
   let cleanupInFlight = 0;
+  const cleanupWaiters: Array<() => void> = [];
   let closeAuthorityInFlight = 0;
+  let unrestoredCloseInFlight = 0;
+  const closeAuthorityGate = createCloseAuthorityGate(policy.maxInFlight);
   const closing = new Map<
     string,
     {
@@ -502,81 +506,174 @@ export function createReviewRunGatewayRelay(input: {
   function reclaimCapacity() {
     if (capacityCleanup) return capacityCleanup;
     capacityCleanup = (async () => {
+      // One fixed-cardinality observation per shared pressure batch. All fields
+      // describe observed branches; none establishes why retained work exists.
+      const retainedBefore = sessions.size;
+      const counts = {
+        visited: 0,
+        skippedClosing: 0,
+        skippedPreparing: 0,
+        rowMissing: 0,
+        rowMismatch: 0,
+        sourceUnavailable: 0,
+        sourceReturnedFalseUnknown: 0,
+        confirmationMissing: 0,
+        confirmationMismatch: 0,
+        deadlineReached: 0,
+        cursorEmpty: 0,
+        lookupFailed: 0,
+        sourceFailed: 0,
+        confirmationFailed: 0,
+        closeStarted: 0,
+        closeReturnedOutcomeUnknown: 0,
+        closeFailedCauseUnknown: 0,
+        batchAbortedCauseUnknown: 0,
+      };
       // Pressure only: one shared, fair batch. Do not turn a POST into a scan of
       // every retained capability or poll/replay an unresolved native operation.
-      const budget = Math.min(sessions.size, policy.maxInFlight, 16);
+      const budget = Math.min(retainedBefore, policy.maxInFlight, 16);
       const deadline = Date.now() + Math.min(policy.requestTimeoutMs, 30_000);
-      for (let i = 0; i < budget && sessions.size >= policy.maxSessions; i++) {
-        if (Date.now() >= deadline) break;
-        let next = cleanupCursor.next();
-        if (next.done) {
-          cleanupCursor = sessions.entries();
-          next = cleanupCursor.next();
-        }
-        if (next.done) break;
-        const [, session] = next.value;
-        const authorizationId = session.authorizationId;
-        if (closing.has(authorizationId) || session.preparation.isPreparing())
-          continue;
-        try {
-          const row =
-            await input.queries.findReviewRunAuthorizationById(authorizationId);
-          if (
-            !row ||
-            row.authorizationId !== authorizationId ||
-            row.runtimeSnapshotCanonicalJson !== session.canonical ||
-            canonicalJson(reviewRunGatewayOwnedIdentity(row)) !==
-              session.identity ||
-            row.maxExpiresAt.getTime() !== session.deadline
-          )
+      try {
+        for (
+          let i = 0;
+          i < budget && sessions.size >= policy.maxSessions;
+          i++
+        ) {
+          if (Date.now() >= deadline) {
+            counts.deadlineReached++;
+            break;
+          }
+          let next = cleanupCursor.next();
+          if (next.done) {
+            cleanupCursor = sessions.entries();
+            next = cleanupCursor.next();
+          }
+          if (next.done) {
+            counts.cursorEmpty++;
+            break;
+          }
+          const [, session] = next.value;
+          const authorizationId = session.authorizationId;
+          counts.visited++;
+          if (closing.has(authorizationId)) {
+            counts.skippedClosing++;
             continue;
-          const retryReason = session.closed ? session.closeReason : undefined;
-          if (
-            retryReason === undefined &&
-            row.state === ReviewRunAuthorizationState.Active &&
-            Date.now() < session.deadline
-          ) {
-            if (!input.isSourceRunTerminal || Date.now() >= deadline) continue;
-            const terminal = await input.isSourceRunTerminal(row, {
-              signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
-            });
-            if (!terminal) continue;
-            // A failed workflow can leave paid/unknown native work behind. The
-            // existing deny-first close below must settle that exact capability;
-            // SCM completion alone must never free a slot or retry inference.
-            const current =
+          }
+          if (session.preparation.isPreparing()) {
+            counts.skippedPreparing++;
+            continue;
+          }
+          let phase: "lookup" | "source" | "confirmation" | "close" = "lookup";
+          try {
+            const row =
               await input.queries.findReviewRunAuthorizationById(
                 authorizationId,
               );
-            if (
-              !current ||
-              current.authorizationId !== authorizationId ||
-              current.runtimeSnapshotCanonicalJson !== session.canonical ||
-              canonicalJson(reviewRunGatewayOwnedIdentity(current)) !==
-                session.identity ||
-              current.maxExpiresAt.getTime() !== session.deadline
-            )
+            if (!row) {
+              counts.rowMissing++;
               continue;
-          }
-          // Keep durable deny-first and the exact retained-capability close.
-          // Unknown attempted prepares/closes never release a memory slot.
-          if (
-            Date.now() >= deadline ||
-            closing.has(authorizationId) ||
-            session.preparation.isPreparing()
-          )
-            continue;
-          await closeRun(
-            authorizationId,
-            row.state === ReviewRunAuthorizationState.Expired ||
+            }
+            if (
+              row.authorizationId !== authorizationId ||
+              row.runtimeSnapshotCanonicalJson !== session.canonical ||
+              canonicalJson(reviewRunGatewayOwnedIdentity(row)) !==
+                session.identity ||
+              row.maxExpiresAt.getTime() !== session.deadline
+            ) {
+              counts.rowMismatch++;
+              continue;
+            }
+            const retryReason = session.closed
+              ? session.closeReason
+              : undefined;
+            if (
+              retryReason === undefined &&
+              row.state === ReviewRunAuthorizationState.Active &&
+              Date.now() < session.deadline
+            ) {
+              phase = "source";
+              if (!input.isSourceRunTerminal) {
+                counts.sourceUnavailable++;
+                continue;
+              }
+              if (Date.now() >= deadline) {
+                counts.deadlineReached++;
+                continue;
+              }
+              const terminal = await input.isSourceRunTerminal(row, {
+                signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+              });
+              if (!terminal) {
+                counts.sourceReturnedFalseUnknown++;
+                continue;
+              }
+              // Source completion does not prove that native work is settled.
+              phase = "confirmation";
+              const current =
+                await input.queries.findReviewRunAuthorizationById(
+                  authorizationId,
+                );
+              if (!current) {
+                counts.confirmationMissing++;
+                continue;
+              }
+              if (
+                current.authorizationId !== authorizationId ||
+                current.runtimeSnapshotCanonicalJson !== session.canonical ||
+                canonicalJson(reviewRunGatewayOwnedIdentity(current)) !==
+                  session.identity ||
+                current.maxExpiresAt.getTime() !== session.deadline
+              ) {
+                counts.confirmationMismatch++;
+                continue;
+              }
+            }
+            // Keep the original short-circuit ordering and deny-first close.
+            if (Date.now() >= deadline) {
+              counts.deadlineReached++;
+              continue;
+            }
+            if (closing.has(authorizationId)) {
+              counts.skippedClosing++;
+              continue;
+            }
+            if (session.preparation.isPreparing()) {
+              counts.skippedPreparing++;
+              continue;
+            }
+            phase = "close";
+            const reason =
+              row.state === ReviewRunAuthorizationState.Expired ||
               (row.state === ReviewRunAuthorizationState.Active &&
                 Date.now() >= session.deadline)
-              ? "deadline"
-              : (retryReason ?? "cancelled"),
-            deadline,
-          );
+                ? "deadline"
+                : (retryReason ?? "cancelled");
+            counts.closeStarted++;
+            await closeRun(authorizationId, reason, deadline);
+            // A resolved call may still return unknown and retain custody.
+            // Do not inspect its result or infer parent/native success here.
+            counts.closeReturnedOutcomeUnknown++;
+          } catch {
+            if (phase === "lookup") counts.lookupFailed++;
+            else if (phase === "source") counts.sourceFailed++;
+            else if (phase === "confirmation") counts.confirmationFailed++;
+            else counts.closeFailedCauseUnknown++;
+            // Failed reads/unknown close never justify eviction.
+          }
+        }
+      } catch (error) {
+        counts.batchAbortedCauseUnknown++;
+        throw error;
+      } finally {
+        try {
+          console.warn("review_run_gateway_relay_reclaim_batch", {
+            retainedBefore,
+            retainedAfter: sessions.size,
+            budget,
+            ...counts,
+          });
         } catch {
-          // Missing authority/failed read/unknown close cannot justify eviction.
+          // Observation cannot change admission, rejection or retained custody.
         }
       }
     })().finally(() => {
@@ -584,6 +681,7 @@ export function createReviewRunGatewayRelay(input: {
     });
     return capacityCleanup;
   }
+
   async function sessionFor(
     auth: ReviewRunAuthorization,
     reviewerId?: string,
@@ -781,6 +879,17 @@ export function createReviewRunGatewayRelay(input: {
         pending.terminate(parentReason),
       ]).then(([operation]) => operation);
     }
+    // A retained session itself bounds one close record. An internal caller can
+    // also ask to restore a close with no local session; cap those separately so
+    // stalled authority I/O cannot accumulate unbounded queued records. Unknown
+    // means no terminal proof and leaves durable custody unchanged for retry.
+    const unrestored = owned.length === 0;
+    if (
+      unrestored &&
+      (stopping || unrestoredCloseInFlight >= policy.maxInFlight)
+    )
+      return Promise.resolve({ state: "unknown" });
+    if (unrestored) unrestoredCloseInFlight++;
     let owner = owned[0];
     const matchesOwner = (auth: ReviewRunAuthorization | null) =>
       owner === undefined ||
@@ -797,7 +906,7 @@ export function createReviewRunGatewayRelay(input: {
       for (const session of sessions.values())
         if (session.authorizationId === authorizationId)
           session.parentTerminationReason ??= parentReason;
-      termination ??= (async () => {
+      termination ??= closeAuthorityGate("urgent", async () => {
         if (
           owner &&
           !matchesOwner(
@@ -818,12 +927,14 @@ export function createReviewRunGatewayRelay(input: {
         if (auth?.state === "active")
           throw new RelayFailure("close_pending", 409, "effect_unknown");
         return auth;
-      })();
+      });
       return termination;
     };
     const work = (async () => {
       const observedOwner = owner
-        ? await input.queries.findReviewRunAuthorizationById(authorizationId)
+        ? await closeAuthorityGate("normal", () =>
+            input.queries.findReviewRunAuthorizationById(authorizationId),
+          )
         : null;
       if (
         (owner && sessions.get(owner.key) !== owner) ||
@@ -836,8 +947,8 @@ export function createReviewRunGatewayRelay(input: {
       let auth = revokeFirst
         ? await terminate(parentReason ?? reason)
         : (observedOwner ??
-          (await input.queries.findReviewRunAuthorizationById(
-            authorizationId,
+          (await closeAuthorityGate("normal", () =>
+            input.queries.findReviewRunAuthorizationById(authorizationId),
           )));
       if (!matchesOwner(auth)) return { state: "unknown" as const };
       const snapshot = parseReviewRunRuntimeSnapshot(
@@ -900,6 +1011,7 @@ export function createReviewRunGatewayRelay(input: {
         if (termination) await termination;
       } finally {
         closing.delete(authorizationId);
+        if (unrestored) unrestoredCloseInFlight--;
         scheduleCloseRetry(authorizationId);
       }
     });
@@ -913,8 +1025,13 @@ export function createReviewRunGatewayRelay(input: {
     deadline: number | undefined,
     parentTermination: () => Promise<ReviewRunAuthorization | null> | undefined,
   ) {
-    if (cleanupInFlight >= policy.maxInFlight)
-      throw new RelayFailure("close_pending", 409, "effect_unknown");
+    // Runtime close attempts remain fail-fast under pressure. During shutdown,
+    // accepted closes must instead drain without exceeding the same I/O limit.
+    while (cleanupInFlight >= policy.maxInFlight) {
+      if (!stopping)
+        throw new RelayFailure("close_pending", 409, "effect_unknown");
+      await new Promise<void>((resolve) => cleanupWaiters.push(resolve));
+    }
     cleanupInFlight++;
     try {
       const remaining =
@@ -978,6 +1095,7 @@ export function createReviewRunGatewayRelay(input: {
       return operation;
     } finally {
       cleanupInFlight--;
+      cleanupWaiters.shift()?.();
     }
   }
   async function scopedResponse(
@@ -1997,12 +2115,29 @@ export function createReviewRunGatewayRelay(input: {
       for (const authorizationId of closeRetries.keys())
         clearCloseRetry(authorizationId);
       for (const session of sessions.values()) clearTimeout(session.timer);
-      for (const id of [
-        ...new Set(
-          [...sessions.values()].map((session) => session.authorizationId),
-        ),
-      ])
-        await closeRun(id, "cancelled").catch(() => {});
+      // Deny every retained session synchronously before waiting for any DB or
+      // native I/O. A close already accepted before shutdown can restore its
+      // first session later, so inspect again after all accepted closes settle.
+      const cancelled = new Set<string>();
+      for (;;) {
+        const ids = [
+          ...new Set(
+            [...sessions.values()].map((session) => session.authorizationId),
+          ),
+        ].filter((id) => !cancelled.has(id));
+        for (const id of ids) cancelled.add(id);
+        await Promise.allSettled(ids.map((id) => closeRun(id, "cancelled")));
+        while (closing.size > 0)
+          await Promise.allSettled(
+            [...closing.values()].map(({ operation }) => operation),
+          );
+        if (
+          ![...sessions.values()].some(
+            (session) => !cancelled.has(session.authorizationId),
+          )
+        )
+          break;
+      }
       // Cleanup may restore additional allocations after the first timer sweep.
       for (const session of sessions.values()) clearTimeout(session.timer);
     },

@@ -146,7 +146,8 @@ vi.mock(
 // the dashboard method, use case, Prisma adapters and configuration writes run.
 vi.mock("../../src/server/prisma-hosted-pool-mutations", async () => {
   const { readFileSync } = await import("node:fs");
-  const ts = await import("typescript");
+  const { compileProductionDeclarations } =
+    await import("./actions-hosted-workflow-recovery.test-support");
   const configuration = await import("@reviewrouter/features-review-config");
   const { switchRepositoryConfigurationAuthMode } =
     await import("@reviewrouter/features-workflow-provisioning/composition");
@@ -159,34 +160,15 @@ vi.mock("../../src/server/prisma-hosted-pool-mutations", async () => {
     dependencies: Record<string, unknown>,
     names: string[],
   ) {
-    const parsed = ts.createSourceFile(
-      "production.ts",
-      source,
-      ts.ScriptTarget.Latest,
-      true,
-    );
-    const declarations = parsed.statements
-      .filter(
-        (statement) =>
-          (ts.isFunctionDeclaration(statement) ||
-            ts.isClassDeclaration(statement)) &&
-          statement.name &&
-          names.includes(statement.name.getText(parsed)),
-      )
-      .map((statement) => statement.getText(parsed))
-      .join("\n");
-    const js = ts.transpileModule(declarations, {
-      compilerOptions: {
-        module: ts.ModuleKind.CommonJS,
-        target: ts.ScriptTarget.ES2022,
-      },
-    }).outputText;
+    const js = compileProductionDeclarations(source, names);
     const exports = {};
+    const module = { exports };
     return new Function(
       "exports",
+      "module",
       ...Object.keys(dependencies),
       js + `\nreturn { ${names.join(", ")} };`,
-    )(exports, ...Object.values(dependencies));
+    )(exports, module, ...Object.values(dependencies));
   }
   const adapters = evaluate(
     readFileSync(

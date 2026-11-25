@@ -1202,6 +1202,126 @@ describe("Review Action v2 execution/evidence composition", () => {
     expect(acquire).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    "expired",
+    "revoked",
+    "extended",
+    "expired-before-acquire",
+    "expired-during-identity",
+  ] as const)(
+    "revalidates %s acquisition authority before issuing a lease capability",
+    async (scenario) => {
+      let acquired = false;
+      let currentNow = now;
+      const capabilities = capabilityAdapter();
+      const issue = vi.spyOn(capabilities, "issueLease");
+      const expiresBeforeAcquire =
+        scenario === "expired-before-acquire" ||
+        scenario === "expired-during-identity";
+      if (scenario === "expired-during-identity") {
+        const prepareIdentity = capabilities.prepareIdentity.bind(capabilities);
+        vi.spyOn(capabilities, "prepareIdentity").mockImplementation(
+          async () => {
+            const identity = await prepareIdentity();
+            currentNow = authorization.expiresAt;
+            return identity;
+          },
+        );
+      }
+      const acquiredLease = lease(
+        scenario === "extended"
+          ? {
+              expiresAt: new Date(authorization.expiresAt.getTime() + 1),
+              resultReportUntil: new Date(
+                authorization.expiresAt.getTime() + 1,
+              ),
+            }
+          : {},
+      );
+      const release = vi.fn(async () => ({
+        status: ReviewInvocationLeaseTransitionStatus.Applied,
+        lease: { ...acquiredLease, state: ReviewInvocationLeaseState.Released },
+      }));
+      const acquire = vi.fn(async () => {
+        acquired = true;
+        if (scenario === "expired") currentNow = authorization.expiresAt;
+        return {
+          status: AcquireOrJoinInvocationFlightStatus.OwnerAcquired,
+          flight: invocationFlight(acquiredLease),
+        };
+      });
+      const dependencies = executionDependencies({
+        capabilities,
+        release,
+        now: () => currentNow,
+        currentLease: acquiredLease,
+        acquire,
+        leaseSafety: async () => {
+          if (scenario === "expired-before-acquire")
+            currentNow = authorization.expiresAt;
+          return { allowed: true, decisionHash: hash("6") };
+        },
+      });
+      const handlers = createReviewActionV2ExecutionHandlers({
+        ...dependencies,
+        authorizationQueries: {
+          findReviewRunAuthorizationById: async () => ({
+            ...authorization,
+            state:
+              acquired && scenario === "revoked"
+                ? ReviewRunAuthorizationState.Revoked
+                : ReviewRunAuthorizationState.Active,
+          }),
+        },
+      });
+      const prepared = manifest();
+      const identity = await buildProviderInvocationIdentity(digest, {
+        manifest: prepared,
+        providerVoteIdentityHash: hash("c"),
+      });
+      const request = await withBodyHash(
+        ReviewActionV2OperationId.ReviewInvocationLeaseAcquire,
+        {
+          ...envelope("acquire-authority-race"),
+          authorizationToken: "authorization-token",
+          idempotencyKey: "acquire-authority-race",
+          requestBodyHash: hash("0"),
+          executionId: snapshot.execution.executionId,
+          workSlotId: "slot-1",
+          purpose: ReviewInvocationLeasePurpose.ProviderExecution,
+          manifestCanonicalJson:
+            serializeProviderInvocationManifestCanonicalWireJson(prepared),
+          manifestKey: identity.manifestKey,
+          providerVoteIdentityHash: hash("c"),
+          providerInvocationKey: identity.providerInvocationKey,
+          acquireRequestId: "acquire-authority-race",
+          ownerIdHash: hash("d"),
+        } satisfies ReviewInvocationLeaseAcquireRequest,
+      );
+
+      await expect(
+        handlers.acquireLease.execute(request),
+      ).rejects.toMatchObject({
+        statusCode: 410,
+        errorCode: ReviewActionV2ProtocolErrorCode.ResourceGone,
+      });
+      expect(issue).not.toHaveBeenCalled();
+      if (expiresBeforeAcquire) {
+        expect(acquire).not.toHaveBeenCalled();
+        expect(release).not.toHaveBeenCalled();
+        return;
+      }
+      expect(release).toHaveBeenCalledOnce();
+      expect(release).toHaveBeenCalledWith({
+        leaseId: acquiredLease.leaseId,
+        ownerIdHash: acquiredLease.ownerIdHash,
+        leaseCapabilityId: acquiredLease.leaseCapabilityId,
+        fencingToken: acquiredLease.fencingToken,
+        now: currentNow,
+      });
+    },
+  );
+
   it("acquires and renews a valid lease when authorization has less than the initial lease duration left", async () => {
     const delayedNow = new Date(now.getTime() + 1_000);
     let currentNow = delayedNow;

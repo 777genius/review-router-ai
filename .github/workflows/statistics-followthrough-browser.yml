@@ -7,6 +7,10 @@ on:
     paths:
       - ".github/workflows/statistics-followthrough-browser.yml"
       - "scripts/statistics-e2e/**"
+      - "scripts/lib/next-generated-env.ts"
+      - "scripts/lib/next-generated-env.test.ts"
+      - "scripts/lib/next-browser-test-compiler.ts"
+      - "scripts/lib/next-browser-test-compiler.test.ts"
       - "apps/web/app/dashboard/provider-usage-*"
       - "apps/web/app/dashboard/review-statistics-*"
       - "apps/web/app/dashboard/dashboard-workspace-page.tsx"

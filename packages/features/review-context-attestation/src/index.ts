@@ -6,6 +6,7 @@ export * from "./domain/encrypted-context-replay-material";
 export * from "./domain/context-replay-decision";
 export * from "./domain/gateway-session";
 export * from "./domain/target-replay-proof";
+export * from "./domain/gateway-session-configuration";
 
 export * from "./application/ports/context-attestation-ports";
 export * from "./application/use-cases/abandon-context-gateway-session";

@@ -147,7 +147,7 @@ const result = await prepared.prepared.run();
 assert.equal(result.status, "succeeded");
 assert(result.status === "succeeded");
 assert.equal(result.roots.query.execute(), 42);
-// Assembly 0.7 exposes created instances; it does not invent lifecycle ownership.
+// Assembly 0.8 exposes created instances; it does not invent lifecycle ownership.
 for (const created of [...result.created].reverse()) {
   if (
     created.instance ===
@@ -163,5 +163,5 @@ assert.equal(closed, 1);
 assert.equal(unrelatedClosed, 0);
 void unrelated;
 console.log(
-  "Packed Get Modular 0.7 consumer: typed construction, invalid wiring before I/O, owned cleanup passed.",
+  "Packed Get Modular 0.8 consumer: typed construction, invalid wiring before I/O, owned cleanup passed.",
 );

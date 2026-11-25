@@ -43,6 +43,9 @@ export enum ReviewRequestAdmissionState {
 
 export const reviewRequestedAdmissionHandoffMinimumMs = 30_000;
 
+/** Measured from the first pre-submission claim, not from registration. */
+export const reviewRequestedPreparationTimeoutMs = 24 * 60 * 60 * 1_000;
+
 export type ReviewRequestAdmission =
   | {
       readonly state: ReviewRequestAdmissionState.NotEvaluated;
@@ -569,6 +572,11 @@ export function claimReviewRequestedIntent(input: {
     ...input.intent,
     version: input.intent.version + 1n,
     state: ReviewRequestedIntentState.Dispatching,
+    // In dispatching this is the preparation deadline. Once submission
+    // begins, the existing submission deadline replaces it atomically.
+    resolutionDeadlineAt:
+      input.intent.resolutionDeadlineAt ??
+      new Date(input.now.getTime() + reviewRequestedPreparationTimeoutMs),
     claim: {
       claimId: input.claimId,
       ownerIdHash: input.ownerIdHash,
@@ -578,6 +586,40 @@ export function claimReviewRequestedIntent(input: {
     },
     updatedAt: new Date(input.now),
   };
+}
+
+/** Pure eligibility check shared by due selection and locked expiration. */
+export function isReviewRequestedPreparationExpired(
+  intent: ReviewRequestedIntent,
+  now: Date,
+): boolean {
+  return (
+    intent.state === ReviewRequestedIntentState.Dispatching &&
+    intent.claim !== null &&
+    intent.claim.claimUntil <= now &&
+    intent.resolutionDeadlineAt !== null &&
+    intent.resolutionDeadlineAt <= now &&
+    intent.submissionStartedAt === null &&
+    intent.sourceRunId === null &&
+    intent.sourceRunAttempt === null &&
+    intent.authorizationId === null &&
+    intent.executionId === null
+  );
+}
+
+/** Called only while reclaiming an expired claim under the scope/intent lock. */
+export function expireReviewRequestedPreparation(
+  intent: ReviewRequestedIntent,
+  now: Date,
+): ReviewRequestedIntent | null {
+  assertDate(now, "preparation_expired_at");
+  if (!isReviewRequestedPreparationExpired(intent, now)) return null;
+  return terminalizeReviewRequestedIntent({
+    intent,
+    expectedVersion: intent.version,
+    terminalReason: ReviewRequestedIntentTerminalReason.DispatchFailedNoEffect,
+    now,
+  });
 }
 
 export function decideReviewRequestedDispatch(input: {
@@ -867,6 +909,41 @@ export function beginReviewRequestedSubmission(input: {
   };
 }
 
+/** Resolve one claim before any effect-bearing submission has begun. */
+export function resolveReviewRequestedPreparation(input: {
+  readonly intent: ReviewRequestedIntent;
+  readonly expectedVersion: bigint;
+  readonly claimId: string;
+  readonly ownerIdHash: string;
+  readonly fencingToken: bigint;
+  readonly now: Date;
+}): ReviewRequestedTransitionDecision {
+  assertDate(input.now, "preparation_resolved_at");
+  const intent = input.intent;
+  if (
+    intent.state !== ReviewRequestedIntentState.Dispatching ||
+    intent.version !== input.expectedVersion ||
+    intent.claim === null ||
+    !reviewRequestedClaimMatches(intent, input) ||
+    intent.claim.claimUntil <= input.now
+  ) {
+    return { status: ReviewRequestedTransitionDecisionStatus.StaleClaim };
+  }
+  if (
+    intent.submissionStartedAt !== null ||
+    intent.sourceRunId !== null ||
+    intent.sourceRunAttempt !== null ||
+    intent.authorizationId !== null ||
+    intent.executionId !== null
+  ) {
+    return { status: ReviewRequestedTransitionDecisionStatus.Conflict };
+  }
+  return {
+    status: ReviewRequestedTransitionDecisionStatus.Applied,
+    intent: supersedeReviewRequestedIntent(intent, null, input.now),
+  };
+}
+
 export function deferReviewRequestedResolution(input: {
   readonly intent: ReviewRequestedIntent;
   readonly expectedVersion: bigint;
@@ -1017,6 +1094,10 @@ function terminalizeReviewRequestedIntent(input: {
     throw new Error("review_requested_terminal_version_conflict");
   }
   const validReason =
+    (input.intent.state === ReviewRequestedIntentState.Dispatching &&
+      input.intent.submissionStartedAt === null &&
+      input.terminalReason ===
+        ReviewRequestedIntentTerminalReason.DispatchFailedNoEffect) ||
     (input.intent.state === ReviewRequestedIntentState.ReconcilingDispatch &&
       (input.terminalReason ===
         ReviewRequestedIntentTerminalReason.DispatchFailedNoEffect ||

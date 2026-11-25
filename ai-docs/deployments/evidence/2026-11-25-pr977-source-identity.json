@@ -1,0 +1,1315 @@
+{
+  "result": "COMPLETED_AND_INDEPENDENTLY_VERIFIED",
+  "originalHead": "1169070c85d0c10fe044b39433717471e61bb883",
+  "originalTree": "6fdbb27aa48531c315231c641843067d873e0821",
+  "replacementHead": "fd1089e691a01b962dd321506867bbfe10e10ffd",
+  "backupBranch": "recovery/rr977-original-1169070c-20261125",
+  "sourceCommitCount": 106,
+  "reconstructedCount": 49,
+  "unchangedCount": 57,
+  "metadataPolicy": "Integration supplies current timestamps and accepted owner alias; original metadata and automated bundle provenance retained in this mapping and backup",
+  "commits": [
+    {
+      "oldSha": "bc5926fa79acc30c851a618a0dc6666f29510a1a",
+      "tree": "f59738896523c7da089dd4c0b14247350bd2cf54",
+      "parents": ["6224308a263bd9b0fbe3c13e6ceb792352444abf"],
+      "message": "build(action): regenerate exact source-bound conflict runtime artifact\n",
+      "originalAuthor": "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com> 1795397944 +0000",
+      "originalCommitter": "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com> 1795397944 +0000",
+      "newSha": "247b4cfadb2124cdfb1a709efe5c2be17cc0febd",
+      "newParents": ["6224308a263bd9b0fbe3c13e6ceb792352444abf"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:24Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:24Z"
+      },
+      "messageExactInApi": false,
+      "messageTerminalNewlineOnly": true
+    },
+    {
+      "oldSha": "395de22901c76dece99f10ba02e026616c3d9568",
+      "tree": "1384e87367c46c37126d32ce5a151180d847a218",
+      "parents": ["bc5926fa79acc30c851a618a0dc6666f29510a1a"],
+      "message": "ci: remove completed one-time conflict artifact workflow",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795427401 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795427401 +0200",
+      "newSha": "c183d3f7a44024c5a91d1facba66dfae87bf5fb5",
+      "newParents": ["247b4cfadb2124cdfb1a709efe5c2be17cc0febd"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:25Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:25Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "51aa82ceb54b01791c83568f2a58268ec53c9a1a",
+      "tree": "9be36822d5dc4edb07a37dffd5f43e8441477192",
+      "parents": ["bc5926fa79acc30c851a618a0dc6666f29510a1a"],
+      "message": "refactor(workflow): own current setup authority reads in the feature",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795427634 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795427634 +0200",
+      "newSha": "6060630e3b8dcd77d0c4f523466c3b04d90cfa52",
+      "newParents": ["247b4cfadb2124cdfb1a709efe5c2be17cc0febd"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:27Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:27Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "0e4cda06c3ffc99f7cc3ce2982b2ed2c753abd6d",
+      "tree": "1473ec46388e1c41827a6f816a1ee8476887fcad",
+      "parents": ["51aa82ceb54b01791c83568f2a58268ec53c9a1a"],
+      "message": "fix(architecture): reject hidden contract imports and retire artifact qualifier",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795427781 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795427781 +0200",
+      "newSha": "65fef65540ba10ef1d8b8d5a195009c0f49a13cb",
+      "newParents": ["6060630e3b8dcd77d0c4f523466c3b04d90cfa52"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:28Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:28Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "7806589f20bf76d39ad0f9237e4a2accbc145325",
+      "tree": "1473ec46388e1c41827a6f816a1ee8476887fcad",
+      "parents": [
+        "395de22901c76dece99f10ba02e026616c3d9568",
+        "0e4cda06c3ffc99f7cc3ce2982b2ed2c753abd6d"
+      ],
+      "message": "merge: preserve completed artifact cleanup alongside architecture fixes",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795427829 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795427829 +0200",
+      "newSha": "9eace01d59ffc4506c745901955d727949dab941",
+      "newParents": [
+        "c183d3f7a44024c5a91d1facba66dfae87bf5fb5",
+        "65fef65540ba10ef1d8b8d5a195009c0f49a13cb"
+      ],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:29Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:29Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "8c0bcb7f28b5b1625e9561e791f48921e56c41a5",
+      "tree": "79cdb33871c01d97220c9d58759fc329477bf3a5",
+      "parents": ["7806589f20bf76d39ad0f9237e4a2accbc145325"],
+      "message": "ci: qualify bounded architecture source with isolated TypeScript 7",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795428038 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795428038 +0200",
+      "newSha": "21e6647490980a094f661a9a66d8647c76ddb921",
+      "newParents": ["9eace01d59ffc4506c745901955d727949dab941"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:30Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:30Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "14a9c7dab68905c916a46def5a2667df7a86402c",
+      "tree": "ab9fda1a0ab82553b3e6edb0eab7ba2d24f9ad74",
+      "parents": ["8c0bcb7f28b5b1625e9561e791f48921e56c41a5"],
+      "message": "fix(ci): resolve native qualifier path from the available job context",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795428120 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795428120 +0200",
+      "newSha": "ea8d125f2a37fc3dbf15fc6ff2b2c378c6910235",
+      "newParents": ["21e6647490980a094f661a9a66d8647c76ddb921"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:32Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:32Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "b25fc9dc507b1390a7d06870aa9e7140ae714c9a",
+      "tree": "a15844b82d52e09b0349bac6156d13dc808c489a",
+      "parents": ["14a9c7dab68905c916a46def5a2667df7a86402c"],
+      "message": "style: apply pinned oxfmt to phase-II source and tests\n\nReconcile exactly the seven formatting differences captured in native\nTypeScript 7 qualification run 45152372571. No policy or test assertions\nare changed. This allows the final formatter check to verify zero drift.",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795442130 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795442130 +0200",
+      "newSha": "8a7382c78b788a95d149675c8733b5c7f34af853",
+      "newParents": ["ea8d125f2a37fc3dbf15fc6ff2b2c378c6910235"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:34Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:34Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "4813fb6176c96208235d5bf4dc32807a67d0cb7f",
+      "tree": "4723d9e7fe2217c1b1afd1a41b1e58b5044dee89",
+      "parents": ["b25fc9dc507b1390a7d06870aa9e7140ae714c9a"],
+      "message": "refactor(tooling): parse module references through native Oxc AST",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795442549 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795442549 +0200",
+      "newSha": "d6820dfc6f06aa7033abddc7366b9d5e2889d1fc",
+      "newParents": ["8a7382c78b788a95d149675c8733b5c7f34af853"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:35Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:35Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "de4b128799877785f62203fb0fb70091f74f0f80",
+      "tree": "cac2e22dac801c24eef2ab2366017553881d3476",
+      "parents": ["4813fb6176c96208235d5bf4dc32807a67d0cb7f"],
+      "message": "refactor(tooling): use native AST for contract and transaction guards",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795442570 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795442570 +0200",
+      "newSha": "a4f1a569015fb473012c74f43c42aa7fd4577535",
+      "newParents": ["d6820dfc6f06aa7033abddc7366b9d5e2889d1fc"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:37Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:37Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "be10d06a6a9d41f39745ed9436b0cec17f697737",
+      "tree": "095f1e3d71ec2d5daee8ff732c43352c1571cb07",
+      "parents": ["de4b128799877785f62203fb0fb70091f74f0f80"],
+      "message": "ci: verify TS7-native syntax parser and unchanged boundary fixtures",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795442623 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795442623 +0200",
+      "newSha": "b4b463bf67067178cec6e154fbf1957790dfb017",
+      "newParents": ["a4f1a569015fb473012c74f43c42aa7fd4577535"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:38Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:38Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "6350ab59d02904bf8694858bac9a570ac874cb46",
+      "tree": "b8c5ef358fa0baf19eafc1064725680e6aa84e59",
+      "parents": ["be10d06a6a9d41f39745ed9436b0cec17f697737"],
+      "message": "fix(tooling): resolve native TS7 manifest correctly and apply scoped Oxfmt\n\nFix the isolated parser qualifier to inspect the installed TypeScript 7.0.2\npackage manifest, not require its unsupported directory entry. Apply exactly\nthe formatter delta printed by prior job 137746084776 without changing rules.\nRe-execute all negative fixtures on this new source before integration.",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795448039 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795448039 +0200",
+      "newSha": "6d6368bb05295a70ada0120489e7a55438c228be",
+      "newParents": ["b4b463bf67067178cec6e154fbf1957790dfb017"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:39Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:39Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "588e7cd3fd5627b5c514a06ab9cb0c82e2998806",
+      "tree": "cbc2cd875801d706746d2a408585271f208b94bc",
+      "parents": ["be10d06a6a9d41f39745ed9436b0cec17f697737"],
+      "message": "refactor(tooling): share native AST type guard across owners",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795443608 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795443608 +0200",
+      "newSha": "8e2b53355e3652e46eea50abb07f680af088e99e",
+      "newParents": ["b4b463bf67067178cec6e154fbf1957790dfb017"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:41Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:41Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "e29ed24d7ca86332f5d8ffaeeb6d13335e6443b5",
+      "tree": "91d1af7795b69aeab73bd81009fa28b9a458530d",
+      "parents": ["588e7cd3fd5627b5c514a06ab9cb0c82e2998806"],
+      "message": "refactor(tooling): use native AST for feature layout imports and exports",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795443641 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795443641 +0200",
+      "newSha": "dfd385c671821a4c914ec8994c35802e9131e591",
+      "newParents": ["8e2b53355e3652e46eea50abb07f680af088e99e"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:42Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:42Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "7b9b6c62dd6e5767f95dd47ecf4825910842b687",
+      "tree": "d8beb9fbd8b7cac0f597da3793dc229c092dfb47",
+      "parents": ["e29ed24d7ca86332f5d8ffaeeb6d13335e6443b5"],
+      "message": "refactor(tooling): use native AST for memory host boundary tests",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795443679 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795443679 +0200",
+      "newSha": "ddd816b4df86b29d5cc4e78cf620abefa6b40938",
+      "newParents": ["dfd385c671821a4c914ec8994c35802e9131e591"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:43Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:43Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "da8f759f55372ded9fd2b498242b888f714d2f8c",
+      "tree": "eaa4fc24357ec8a4946a963e813c6fcaf9c696d4",
+      "parents": ["7b9b6c62dd6e5767f95dd47ecf4825910842b687"],
+      "message": "fix(tooling): preserve type-only import-string detection in Oxc AST",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795443697 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795443697 +0200",
+      "newSha": "4811a4c2505205aec74d9445ac6cefb7a85d07a9",
+      "newParents": ["ddd816b4df86b29d5cc4e78cf620abefa6b40938"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:44Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:44Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "f3c8c9ffe80f4ae9322f659d783397258a1005dd",
+      "tree": "0dce601a09d1c6e842bece5702cffa7142b84d6a",
+      "parents": ["da8f759f55372ded9fd2b498242b888f714d2f8c"],
+      "message": "test(tooling): preserve feature layout and rejecting contracts under native AST",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795443790 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795443790 +0200",
+      "newSha": "dbe8980e7504bbb57b0c8a07c8001181256256e1",
+      "newParents": ["4811a4c2505205aec74d9445ac6cefb7a85d07a9"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:45Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:45Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "938df9c7944b32e0c9f4d3310d059be0a3ef681d",
+      "tree": "689bb0557957b6b44b0b10399fe0d23499a9d346",
+      "parents": ["f3c8c9ffe80f4ae9322f659d783397258a1005dd"],
+      "message": "ci: qualify native layout and memory AST owners on TypeScript 7",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795443837 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795443837 +0200",
+      "newSha": "0fb3e0408f381db882a89c22312d79e4b58fc0bf",
+      "newParents": ["dbe8980e7504bbb57b0c8a07c8001181256256e1"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:46Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:46Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "31f318fc32d119ab623bbd92dcf7d414ca1d032b",
+      "tree": "56ae70415a31d73e2912d3c25ca428d1a1d61ae1",
+      "parents": ["938df9c7944b32e0c9f4d3310d059be0a3ef681d"],
+      "message": "test(web): use native Oxc and esbuild for real hosted recovery oracle",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795444859 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795444859 +0200",
+      "newSha": "adb22ed67d2c69bcdc5a259623e3a3850b7c8e65",
+      "newParents": ["0fb3e0408f381db882a89c22312d79e4b58fc0bf"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:47Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:47Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "a7c0210936f09aaf3f75b633f99bcf961a02a2ba",
+      "tree": "171a523d87a7e286e49300b90ca12fb20756784b",
+      "parents": ["31f318fc32d119ab623bbd92dcf7d414ca1d032b"],
+      "message": "test(tooling): preserve lint/format semantic oracles with native esbuild",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795444967 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795444967 +0200",
+      "newSha": "ad93edef24b78169996bc3fa4cb143d34d86c1db",
+      "newParents": ["adb22ed67d2c69bcdc5a259623e3a3850b7c8e65"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:49Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:49Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "b0e9985359b8c0041d4f6ce95a90eeb09578378d",
+      "tree": "31b1e17dbf0f0d22501e34f1d095b0a25e7a8cb6",
+      "parents": ["a7c0210936f09aaf3f75b633f99bcf961a02a2ba"],
+      "message": "fix(test): preserve dotted source-extension matching in native semantic checks",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795445580 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795445580 +0200",
+      "newSha": "4fef9549c3f5c671c3b297ac705811655394dd85",
+      "newParents": ["ad93edef24b78169996bc3fa4cb143d34d86c1db"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:50Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:50Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "6e9bfc9aae6f395b040e36a549fab8695d451af2",
+      "tree": "7b4c4ac8af9a0ef256824785429803808a82aa3e",
+      "parents": [
+        "b25fc9dc507b1390a7d06870aa9e7140ae714c9a",
+        "8b63574eeaee32fa081cadc83d40bfc526d17ce4",
+        "4254f2c8613cbcd09b5e2595d18bc61e41c2097f",
+        "9a2bb3841ba7f88f0d906985f9ade3c5bdbf731f",
+        "50e08ca70fc1324a185b538cb031e529a4fdfc83",
+        "6350ab59d02904bf8694858bac9a570ac874cb46",
+        "b0e9985359b8c0041d4f6ce95a90eeb09578378d",
+        "f81920cea3986b6b55e4d142795cb96eb4e1adeb",
+        "15735088f3a7d5220c01dcb6f8b29d8a7911dc6a",
+        "c134358423a5e00aa15ae674f3612abed12e3c70",
+        "b4cc589be224c1cdd6ecd3769dfc9b05e4320289"
+      ],
+      "message": "build: consolidate native prerequisites for phase II qualification\n\nPreserve the existing compiler, AST, formatter, Next and PostgreSQL test owners as merge parents. Restore verified source corrections and exact dependency declarations after executor reset.\n\nThis is a retained qualification candidate; its previous committed lockfiles still need real pnpm regeneration before branch admission. No full installation, lint, product E2E or merge readiness claim.\n\nRefs #977, #967, #972, #973, #974, #975, #978, #980, #982, #983, #984, #985, #986.",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795451384 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795451384 +0200",
+      "newSha": "887032ece7bf675c4bc16db335718b90a683b595",
+      "newParents": [
+        "8a7382c78b788a95d149675c8733b5c7f34af853",
+        "8b63574eeaee32fa081cadc83d40bfc526d17ce4",
+        "4254f2c8613cbcd09b5e2595d18bc61e41c2097f",
+        "9a2bb3841ba7f88f0d906985f9ade3c5bdbf731f",
+        "50e08ca70fc1324a185b538cb031e529a4fdfc83",
+        "6d6368bb05295a70ada0120489e7a55438c228be",
+        "4fef9549c3f5c671c3b297ac705811655394dd85",
+        "f81920cea3986b6b55e4d142795cb96eb4e1adeb",
+        "15735088f3a7d5220c01dcb6f8b29d8a7911dc6a",
+        "c134358423a5e00aa15ae674f3612abed12e3c70",
+        "b4cc589be224c1cdd6ecd3769dfc9b05e4320289"
+      ],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:51Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:51Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "e3a2e9db87f052df68c21278f5dc96d7676e8aeb",
+      "tree": "e918aadac7a7bf360ee110375ee9f2596d8e28d7",
+      "parents": ["6e9bfc9aae6f395b040e36a549fab8695d451af2"],
+      "message": "build: regenerate native toolchain and modular dependency locks\n\nGenerate both lockfiles with their declared pnpm versions and retain matching recovery hashes. Integrate prior native compiler, parser, formatter, Next and PostgreSQL test work in draft #977. Full frozen installation and final E2E remain in progress.",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795451962 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795451962 +0200",
+      "newSha": "f23476859c3ccf345392ca44f7677e30a6158b6f",
+      "newParents": ["887032ece7bf675c4bc16db335718b90a683b595"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:52Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:52Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "679055b5fee7af621e640bc257132275a26cf761",
+      "tree": "f1fc2782f93dd771b214c0302398911473607e0b",
+      "parents": ["e3a2e9db87f052df68c21278f5dc96d7676e8aeb"],
+      "message": "test: consolidate native compiler qualification and PostgreSQL E2E evidence\n\nIntegrate the owner implementation from da752f9752c9764a7d34c317193e48281d86411f in existing draft #977, preserving the source provenance and original receipt. Reject signalled or missing compiler exits before negative assertions.\n\nRecord 732/732 exact-source functional tests, real Prisma migration ledger, 166 native AST/formatter/loader tests, and deterministic parity of both unchanged Action bundles. Full compiler pilot, native lint adapter, browser/offline Prisma and final-head CI remain separate acceptance gates.",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795452666 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795452666 +0200",
+      "newSha": "7da411e34a4b622549daca34df22752c354c7efd",
+      "newParents": ["f23476859c3ccf345392ca44f7677e30a6158b6f"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:53Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:53Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "3986c68e74c633c3e921d279850f9e5bbc454a32",
+      "tree": "2b3b0a392066863bf8a57bb0805900676a934111",
+      "parents": ["679055b5fee7af621e640bc257132275a26cf761"],
+      "message": "fix: preserve native tooling fixture identity and gate execution\n\nRebase workspace aliases into the full copied compiler fixture and assert complete local source closure without original-tree leaks. Keep the invalid-heading compiler rejection.\n\nUse the supported Node tsx loader for the same exact Web Host gate and retain fail-closed command wiring. Admit explicit TypeScript source imports in the existing strict no-emit modular project without changing include coverage or skipLibCheck false.",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795453982 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795453982 +0200",
+      "newSha": "3f3a193fc02b33aae850b791c91983891c025ad9",
+      "newParents": ["7da411e34a4b622549daca34df22752c354c7efd"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:54Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:54Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "34bb72c6e6e04439e29744f8f1ffd5c0e279f984",
+      "tree": "c1f001d40f13721e8daaf1ed3cfc72c7e5013456",
+      "parents": [
+        "3986c68e74c633c3e921d279850f9e5bbc454a32",
+        "014d708d27b5c8de46496c45349d59bf3d685960"
+      ],
+      "message": "test(toolchain): qualify the native production emission pipeline\n\nIntegrate current main's ordinary CI impact runner routing. Build Shared through the owned emission fixture, rewrite emitted ESM with the repository pipeline, and resolve its pinned external runtime dependency. Keep the exact public/runtime contracts, copied source inventory, rejecting fixtures, and abnormal child termination checks.\n\nBound each compiler child to 60 seconds and allow the three real complete tooling compilations their 180-second aggregate test budget. Prior failed or interrupted attempts remain failures; the complete stable-source pilot and build are still being executed.\n\nSource-Provenance: da141456e056bb5d44d954f8b075dbe908a75ad2, 82cc1bc2783d5252e7ef64c69c4d99e5f0f8d5f7\nRefs: #977, #987, #990",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795455363 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795455363 +0200",
+      "newSha": "0494f66b453055b1d4b32fb81ac88a802271a79a",
+      "newParents": [
+        "3f3a193fc02b33aae850b791c91983891c025ad9",
+        "014d708d27b5c8de46496c45349d59bf3d685960"
+      ],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:55Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:55Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "e5279c738a3a97d17d13964b6b586026c41afb88",
+      "tree": "1433662a43973bd1999fad83c7fc8097d1ae9a15",
+      "parents": ["34bb72c6e6e04439e29744f8f1ffd5c0e279f984"],
+      "message": "test(e2e): align the browser harness with qualified native tooling\n\nPin the independently locked browser harness to TypeScript7.0.2 and Next16.4.6. Regenerate its lock through pinned pnpm11.28.7 and retain the narrow lifecycle policy for the actual locked dependencies. The independent frozen installation, original strict harness project, and guarded77-test discovery pass; discovery is not browser execution.\n\nRecord the complete19/19 native compiler pilot at exact34bb72c6 with unchanged full tree, source and four locks, plus the already completed whole workspace typecheck, architecture boundaries and Action artifact checks. Preserve failed attempts and the supported-runner browser/offline-Prisma acceptance requirements.\n\nSource-Provenance: 9327936fc7daed6d25239fdf2ae6fa246d77ed8a\nRefs: #977, #987",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795456373 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795456373 +0200",
+      "newSha": "92b1159007219549873e4b24ccd79fd8bb0e5fae",
+      "newParents": ["0494f66b453055b1d4b32fb81ac88a802271a79a"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:57Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:57Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "a8925fe78beb53e13e4821ebf660980b11a715c7",
+      "tree": "9123a83b50f61e4d68845790d58387c087274489",
+      "parents": ["e5279c738a3a97d17d13964b6b586026c41afb88"],
+      "message": "test(ci): enroll complete native compiler and foundation qualification\n\nRecord exact-source modular and compiled API/worker passes with both failed Web builds retained.\n\nLocal-source-commit: 9dfb3f136bcdec319ee6220836f77cf34f3cb424\nRefs #977.",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795458463 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795458463 +0200",
+      "newSha": "71d559bab4ace94f317358e688c500b558a88c46",
+      "newParents": ["92b1159007219549873e4b24ccd79fd8bb0e5fae"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:58Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:58Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "3ba31fce3401c0799373a42f0d86d37726f1ad3b",
+      "tree": "b60a65ac05ddc40a0d76456b01c97887b97dba63",
+      "parents": ["a8925fe78beb53e13e4821ebf660980b11a715c7"],
+      "message": "fix(toolchain): restore native AST policy parity\n\nRestore transaction aliases, named method callbacks, ambient/overloaded function exports, annotated binding names and parenthesized syntax semantics with independent rejecting witnesses. Align the CI impact source contract with the already-merged dedicated runner routing.\n\nQualify the exact changed sources: 135/135 affected AST tests, 40/40 CI tests, original strict tooling/modular projects and complete architecture gate; all 4,800 tracked inputs unchanged during strict and architecture runs. Record separate completed Skills 139+5 PostgreSQL/paired-HTTP results and independent functional review.\n\nThe legacy checker/CI .mjs corrections are localized; no whole-file strict claim. Browser, published native lint adapter, production Web build, final protected CI and merge remain pending. No deployment.\n\nRefs: #977, #980, #982, #990\n",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795461029 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795461029 +0200",
+      "newSha": "132fa5b0dc0f5bebfa79f8d27b6b926100d90e6f",
+      "newParents": ["71d559bab4ace94f317358e688c500b558a88c46"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:59Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:02:59Z"
+      },
+      "messageExactInApi": false,
+      "messageTerminalNewlineOnly": true
+    },
+    {
+      "oldSha": "6013a91a39b8456c59b1a44e53fc7d495b13e0b8",
+      "tree": "4d0927bcf7977cf17eafc5c9de9b3e6a0ccf2988",
+      "parents": [
+        "3ba31fce3401c0799373a42f0d86d37726f1ad3b",
+        "e180f4a958359726c18e048c8c85e71d5b43aa69"
+      ],
+      "message": "test(e2e): enroll complete native lint and OCR acceptance\n\nPreserve current main runner routing and its CI-test fixes. Add the reviewed compiler-free ESLint adapter configuration, complete maintained lint:qualify wrapper, independent retained-rule oracle and copied-input/cleanup evidence checks. Keep qualified published Stack0.3.0 admission fail-closed while its artifact/SRI and genuine frozen lock remain pending.\n\nRequire all sixteen reviewed Unified OCR UI scenarios and all twenty-five paired lifecycle cases to execute without skips. Own the receipt checker and its negative tests in the original strict tooling project. Bind UI receipts to the exact candidate while ordinary CI preserves merge compatibility checks.\n\nOriginal strict tooling/lint-format projects, sixteen receipt-validator cases, forty CI policy cases and the full guarded formatter pass. The exact reviewed formatter/proof source passed 47/47 isolated cases. These are source and validator results, not successful full adapter/browser/production-build qualification. No deployment or automation change.\n\nRefs: #977, #992, #995, agent-teams-ai/engineering-foundation#470\n",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795462041 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795462041 +0200",
+      "newSha": "c9f7c33d552a7e11aa4e03399587dc76ea9799d2",
+      "newParents": [
+        "132fa5b0dc0f5bebfa79f8d27b6b926100d90e6f",
+        "e180f4a958359726c18e048c8c85e71d5b43aa69"
+      ],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:00Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:00Z"
+      },
+      "messageExactInApi": false,
+      "messageTerminalNewlineOnly": true
+    },
+    {
+      "oldSha": "e78c9cc406aea7902a976db56b203efe3d51135e",
+      "tree": "6bb693911939f680007fa9dd77fa8970ed350924",
+      "parents": ["6013a91a39b8456c59b1a44e53fc7d495b13e0b8"],
+      "message": "fix: complete browser cleanup and hosted E2E routing\n\nRestore only run-owned Next route/root-params declaration rewrites, retain whole-file custody, and bound production HTTP readiness on the existing loopback host.\n\nExtend the existing explicit hosted-runner label to affected queued acceptance jobs, preserve every default and fork route, and provision exact Python 3.12.16 for the hash-locked Catalog scanner. Keep privileged manual jobs and all acceptance assertions unchanged.\n\nRecord recovered source-bound evidence and successful whole build, maintained production HTTP and complete Action artifact checks. Original CI 40/40, routing/cleanup 16/16, full native tooling and whole guarded format pass on unchanged inputs. Published Stack adoption and complete browser/final-head acceptance remain separate.\n\nRelated: #977",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795475081 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795475081 +0200",
+      "newSha": "71125f9e8520c8dabd23d42fbce3f5c5382721b6",
+      "newParents": ["c9f7c33d552a7e11aa4e03399587dc76ea9799d2"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:02Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:02Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "4964066ec8e9fb45dab47ef3aa5cdb9e9207471c",
+      "tree": "de4cfc77dc8cc29f4d3df8b66e3d97f41a67f736",
+      "parents": ["e78c9cc406aea7902a976db56b203efe3d51135e"],
+      "message": "fix(e2e): wait for saved settings feedback\n\nWait for the existing success toast after a streamed Next server action, while preserving fresh-page persistence, repository selection, initial/default and final-reset assertions. The original e78 run persisted the change and displayed feedback but blocked on response.finished().\n\nKeep the production HTTP deadline unchanged through globalThis.AbortSignal, and express the routing fixture's exact indentation with equivalent regex quantifiers so the original lint rules remain enabled.\n\nVerified the ordinary nested frozen install, complete original accounts/tooling native strict projects, routing cases and production HTTP smoke. Full-source lint also passes through the independently qualified file-tarball Stack candidate; published-root and repaired hosted browser acceptance remain separate.",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795477793 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795477793 +0200",
+      "newSha": "f0a5732b005c88e0521a0689ce4042ddd312f122",
+      "newParents": ["71125f9e8520c8dabd23d42fbce3f5c5382721b6"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:03Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:03Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "54d728ae25226ef4df3e00c481198d7f48c205f6",
+      "tree": "3e2d2c0f12bff6d49442d281cff2d35d9f65ad6d",
+      "parents": [
+        "4964066ec8e9fb45dab47ef3aa5cdb9e9207471c",
+        "18c57630b69334c9bfc071dc2500a952edc66f7a"
+      ],
+      "message": "merge(main): preserve recovery fixes before priority architecture refactor\n\nIntegrate main 18c57630 without rewriting the existing PR history. Retain the exact CI-impact runner contract and reconcile deployment records.\n\nRecord the owner's priority expansion, Draft delivery and immediate publication policy. All 40 existing CI-impact cases pass on Node 24.22.3 with zero skips.",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795544964 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795544964 +0200",
+      "newSha": "c9d91f3a6168a28c56cb5cb57f0c5ed026fee57c",
+      "newParents": [
+        "f0a5732b005c88e0521a0689ce4042ddd312f122",
+        "18c57630b69334c9bfc071dc2500a952edc66f7a"
+      ],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:04Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:04Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "69be662c2278eea7f63d9800c964a944cf551994",
+      "tree": "a5e3e4d546a89484276812849c0e1b30e4d6d401",
+      "parents": ["54d728ae25226ef4df3e00c481198d7f48c205f6"],
+      "message": "refactor(executions): separate lifecycle transition responsibilities\n\nSplit preparation, lease, observation, finalization and terminal decisions into focused domain modules with shared internal invariants. Preserve all 44 public symbols and all 69 original declaration bodies without changing validation order, replay identity or fencing.\n\nValidated with the existing native TypeScript 7.0.2 strict feature project, all 134 existing tests across five suites (zero skips), native formatting and two independent source reviews.",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795545138 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795545138 +0200",
+      "newSha": "25e1254eb334dad5cd3455ba6eb77740e1a15f01",
+      "newParents": ["c9d91f3a6168a28c56cb5cb57f0c5ed026fee57c"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:05Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:05Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "52a61f5c7262fb3c5aa12ef53c2497c1ebda3aa9",
+      "tree": "43c85412f638d4b9db1e2c03ba0f74a4acff3417",
+      "parents": ["69be662c2278eea7f63d9800c964a944cf551994"],
+      "message": "refactor(api): separate context attestation host responsibilities\n\nKeep the composition entrypoint focused on assembly. Give lease admission, gateway lifecycle, replay authority/material, crypto and transport validation explicit host module owners without moving cross-feature infrastructure into pure domain/application layers.\n\nPreserve all 107 original declarations, 18 public exports, authorization/effect ordering, error mappings and signed preimages. Full API TypeScript 7.0.2 strict project, 101 existing behavior tests with no skips, native formatting and two independent source reviews pass.",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795545251 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795545251 +0200",
+      "newSha": "e29aaacae0dd9fb1a1298f287b8f3d2a8d9e9681",
+      "newParents": ["25e1254eb334dad5cd3455ba6eb77740e1a15f01"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:06Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:06Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "a5ed3e93072002efc04b1581a991d0b798065b46",
+      "tree": "345350b107abdb3c84d4aa8e199d6db82593cc32",
+      "parents": ["52a61f5c7262fb3c5aa12ef53c2497c1ebda3aa9"],
+      "message": "refactor(tooling): type architecture policies by responsibility\n\nSeparate source inventory, feature seams, published protocol checks, strict context rules and Prisma transaction alias analysis into strictly checked TypeScript modules. Preserve the established CLI path, governed roots, diagnostics, ordering and rejection behavior.\n\nOriginal 102-case regression suite passes with no skips; complete tooling TypeScript 7.0.2 project passes after the maintained Shared build. Actual source check covers 694 domain/application files and produces byte-identical output/exit status to the original implementation. Native formatting and independent review pass.",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795545326 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795545326 +0200",
+      "newSha": "13c903d5d09f25425d40843b06846aee6001f934",
+      "newParents": ["e29aaacae0dd9fb1a1298f287b8f3d2a8d9e9681"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:07Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:07Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "993e8583bed307c3be058a1c6599a21199bde0d7",
+      "tree": "8a5cac7e0462a8e480ee443dd7d6ac16e1375866",
+      "parents": ["a5ed3e93072002efc04b1581a991d0b798065b46"],
+      "message": "docs: record qualified priority refactor and delivery limits\n\nBind the three source refactors to reviewed source hashes and 450 passing existing tests, including real PostgreSQL 17.12 recovery and Fastify transport. Record full architecture qualification, native strict checks, compiled API import proof and owned database cleanup.\n\nKeep raw Git change counts separate from relocated source, guarded native emit separate from the initial Turbo build, and local evidence separate from deferred whole-PR release acceptance. PR remains Draft; no CI waiting, merge or deployment.",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795545992 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795545992 +0200",
+      "newSha": "01ee3b194297c2fb2fdba9634651e199d7f6ae5e",
+      "newParents": ["13c903d5d09f25425d40843b06846aee6001f934"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:08Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:08Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "6736209b3c3f5869134d5eac97fb58a6ac84572d",
+      "tree": "fe9e17230e14edc0d524ae31e00859766f768282",
+      "parents": ["993e8583bed307c3be058a1c6599a21199bde0d7"],
+      "message": "fix(context): preserve authenticated replay operation order [skip ci]",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795547949 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795547949 +0200",
+      "newSha": "788bde806ae79d84c4c6573048a11e3b03b37789",
+      "newParents": ["01ee3b194297c2fb2fdba9634651e199d7f6ae5e"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:09Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:09Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "f80d5ea36537aa055997f018796d43886f8aef4e",
+      "tree": "b803b7ddecd5fb3b2dbbacdc4ee1c1b7e9c26bdf",
+      "parents": ["6736209b3c3f5869134d5eac97fb58a6ac84572d"],
+      "message": "fix(executions): preserve absolute lease authority through acquisition [skip ci]",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795549266 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795549266 +0200",
+      "newSha": "de00226d324219e7aea50d40a770cc070da67d60",
+      "newParents": ["788bde806ae79d84c4c6573048a11e3b03b37789"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:10Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:10Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "0573f541e60aa0f3c4652cc4118a2fe7ed7e9c2f",
+      "tree": "564e2adf763d406f1b84fe00c02da68db603fdc9",
+      "parents": ["f80d5ea36537aa055997f018796d43886f8aef4e"],
+      "message": "fix(tooling): enforce syntax-aware architectural boundaries [skip ci]",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795549759 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795549759 +0200",
+      "newSha": "218adb348afc2072ebde7cfb3ff82370adc5b2f9",
+      "newParents": ["de00226d324219e7aea50d40a770cc070da67d60"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:12Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:12Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "7b9e7d5240a8ed62066430b4cd42efe12bfa769d",
+      "tree": "e425512df777036d6b07dfb4d80454d7a7c37e5c",
+      "parents": ["0573f541e60aa0f3c4652cc4118a2fe7ed7e9c2f"],
+      "message": "fix(e2e): launch paired Action through the existing TypeScript loader [skip ci]",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795549992 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795549992 +0200",
+      "newSha": "0496497dbbb36e490bf9ed7d1b8831dab67171dd",
+      "newParents": ["218adb348afc2072ebde7cfb3ff82370adc5b2f9"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:13Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:13Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "43a69f34726096aae0182207d0673c9405f560db",
+      "tree": "66ab6a6ce49dc93cccaebac910d3e088d2edce29",
+      "parents": ["7b9e7d5240a8ed62066430b4cd42efe12bfa769d"],
+      "message": "test(e2e): preserve guarded child runtime options [skip ci]",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795551279 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795551279 +0200",
+      "newSha": "4fa63ed5ccc88d5c3ffb75c7b2962c5e43856957",
+      "newParents": ["0496497dbbb36e490bf9ed7d1b8831dab67171dd"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:14Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:14Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "305cd9f4bc34255fac5a7ef408463c1dea41705a",
+      "tree": "b83dc0abc702fdd2c516317af127f6613764999c",
+      "parents": ["43a69f34726096aae0182207d0673c9405f560db"],
+      "message": "test(e2e): require the exact paired lifecycle acceptance roster [skip ci]",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795555882 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795555882 +0200",
+      "newSha": "cf4123f5be4a2a8d2d41f54c9352685b462611a1",
+      "newParents": ["4fa63ed5ccc88d5c3ffb75c7b2962c5e43856957"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:15Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:15Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "00160cdf434cc66ff1c686056f04dc14f8e2faa5",
+      "tree": "b2692f8cf347723b0534395c342894f5983a2371",
+      "parents": ["305cd9f4bc34255fac5a7ef408463c1dea41705a"],
+      "message": "test(e2e): release lifecycle spy state between scenarios [skip ci]",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795557335 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795557335 +0200",
+      "newSha": "084b298005abd4513b62c6188e637feea11a78d4",
+      "newParents": ["cf4123f5be4a2a8d2d41f54c9352685b462611a1"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:16Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:16Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "41ff719042420d8ff28c3e8054ddf6c8700f6936",
+      "tree": "75dcadac55f98249438d65425e1d0166016eef33",
+      "parents": ["00160cdf434cc66ff1c686056f04dc14f8e2faa5"],
+      "message": "test(e2e): share Next compiler settings across browser fixtures [skip ci]",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795562821 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795562821 +0200",
+      "newSha": "8e82f80bed2c72ebcb232e2f7649a61fc0b3b151",
+      "newParents": ["084b298005abd4513b62c6188e637feea11a78d4"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:17Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:17Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "61b098e72ba189f9c679198a8dbd02d5708b7213",
+      "tree": "8bdeac92df584828280d7e7947304cc898b37912",
+      "parents": ["41ff719042420d8ff28c3e8054ddf6c8700f6936"],
+      "message": "docs: plan final scoped review and merge qualification [skip ci]",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795564275 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795564275 +0200",
+      "newSha": "5136691d863c0c94c963663fc59892f141806997",
+      "newParents": ["8e82f80bed2c72ebcb232e2f7649a61fc0b3b151"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:18Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:18Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "c2eb500f6f3a5e84b19ba12e9f6dc34d2f9c5bca",
+      "tree": "ae7cd374d7b724418adc5e30c3b2e2a1b3f0dcc8",
+      "parents": ["61b098e72ba189f9c679198a8dbd02d5708b7213"],
+      "message": "fix(architecture): detect static computed transaction calls [skip ci]",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795564388 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795564388 +0200",
+      "newSha": "151865b6181c0149e28144f09765fb38c9ca7d76",
+      "newParents": ["5136691d863c0c94c963663fc59892f141806997"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:19Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:19Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "f7fae59bb4443e7bec2a080a71b2ee7177ceb7db",
+      "tree": "3ac3b691d0c9a97d4fe3cc612fb402133de1cdbf",
+      "parents": ["c2eb500f6f3a5e84b19ba12e9f6dc34d2f9c5bca"],
+      "message": "fix(ci): route shared browser compiler changes to owning checks [skip ci]",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795564478 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795564478 +0200",
+      "newSha": "d92367498418b88b75069711f8b693788f92f4ff",
+      "newParents": ["151865b6181c0149e28144f09765fb38c9ca7d76"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:21Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:21Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    },
+    {
+      "oldSha": "1169070c85d0c10fe044b39433717471e61bb883",
+      "tree": "6fdbb27aa48531c315231c641843067d873e0821",
+      "parents": ["f7fae59bb4443e7bec2a080a71b2ee7177ceb7db"],
+      "message": "refactor(api): separate execution and evidence host responsibilities [skip ci]",
+      "originalAuthor": "Илия <iliyazelenkog@gmail.com> 1795564573 +0200",
+      "originalCommitter": "Илия <iliyazelenkog@gmail.com> 1795564573 +0200",
+      "newSha": "fd1089e691a01b962dd321506867bbfe10e10ffd",
+      "newParents": ["d92367498418b88b75069711f8b693788f92f4ff"],
+      "newAuthor": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:22Z"
+      },
+      "newCommitter": {
+        "name": "Илия",
+        "email": "iliyazelenkog@gmail.com",
+        "date": "2026-11-25T00:03:22Z"
+      },
+      "messageExactInApi": true,
+      "messageTerminalNewlineOnly": false
+    }
+  ],
+  "refUpdatePerformedByRoot": true,
+  "refUpdateExpectedHead": "1169070c85d0c10fe044b39433717471e61bb883",
+  "sourceTreeUnchanged": true,
+  "independentRawObjectReview": {
+    "schemaVersion": 1,
+    "reviewer": "independent context_review agent",
+    "reviewedAt": "2026-11-25T00:05:08.591292+00:00",
+    "status": "PASS",
+    "base": "18c57630b69334c9bfc071dc2500a952edc66f7a",
+    "originalHead": "1169070c85d0c10fe044b39433717471e61bb883",
+    "replacementHead": "fd1089e691a01b962dd321506867bbfe10e10ffd",
+    "originalTree": "6fdbb27aa48531c315231c641843067d873e0821",
+    "replacementTree": "6fdbb27aa48531c315231c641843067d873e0821",
+    "wholeTreeByteIdentity": true,
+    "gitDiffExitCode": 0,
+    "mappingPath": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/merge977-review/identity-created-objects.json",
+    "mappingSha256": "ca8dccdc7548c9333d457a8428a302d638a480be9d336be06b7990f75e32b71a",
+    "counts": {
+      "originalSourceCommits": 106,
+      "replacementSourceCommits": 106,
+      "reconstructed": 49,
+      "unchanged": 57,
+      "mergesReconstructed": 5
+    },
+    "minimalAffectedClosureMatches": true,
+    "replacementSourceSetMatches": true,
+    "originalBotIsAncestor": false,
+    "sourceIdentityCountsAcrossAuthorAndCommitter": {
+      "iliya <iliyazelenkog@gmail.com>": 28,
+      "Илия <iliyazelenkog@gmail.com>": 184
+    },
+    "rawMessageDifferences": [],
+    "mergeParentOrderChecks": [
+      {
+        "oldSha": "7806589f20bf76d39ad0f9237e4a2accbc145325",
+        "newSha": "9eace01d59ffc4506c745901955d727949dab941",
+        "parentCount": 2,
+        "originalParents": [
+          "395de22901c76dece99f10ba02e026616c3d9568",
+          "0e4cda06c3ffc99f7cc3ce2982b2ed2c753abd6d"
+        ],
+        "replacementParents": [
+          "c183d3f7a44024c5a91d1facba66dfae87bf5fb5",
+          "65fef65540ba10ef1d8b8d5a195009c0f49a13cb"
+        ]
+      },
+      {
+        "oldSha": "6e9bfc9aae6f395b040e36a549fab8695d451af2",
+        "newSha": "887032ece7bf675c4bc16db335718b90a683b595",
+        "parentCount": 11,
+        "originalParents": [
+          "b25fc9dc507b1390a7d06870aa9e7140ae714c9a",
+          "8b63574eeaee32fa081cadc83d40bfc526d17ce4",
+          "4254f2c8613cbcd09b5e2595d18bc61e41c2097f",
+          "9a2bb3841ba7f88f0d906985f9ade3c5bdbf731f",
+          "50e08ca70fc1324a185b538cb031e529a4fdfc83",
+          "6350ab59d02904bf8694858bac9a570ac874cb46",
+          "b0e9985359b8c0041d4f6ce95a90eeb09578378d",
+          "f81920cea3986b6b55e4d142795cb96eb4e1adeb",
+          "15735088f3a7d5220c01dcb6f8b29d8a7911dc6a",
+          "c134358423a5e00aa15ae674f3612abed12e3c70",
+          "b4cc589be224c1cdd6ecd3769dfc9b05e4320289"
+        ],
+        "replacementParents": [
+          "8a7382c78b788a95d149675c8733b5c7f34af853",
+          "8b63574eeaee32fa081cadc83d40bfc526d17ce4",
+          "4254f2c8613cbcd09b5e2595d18bc61e41c2097f",
+          "9a2bb3841ba7f88f0d906985f9ade3c5bdbf731f",
+          "50e08ca70fc1324a185b538cb031e529a4fdfc83",
+          "6d6368bb05295a70ada0120489e7a55438c228be",
+          "4fef9549c3f5c671c3b297ac705811655394dd85",
+          "f81920cea3986b6b55e4d142795cb96eb4e1adeb",
+          "15735088f3a7d5220c01dcb6f8b29d8a7911dc6a",
+          "c134358423a5e00aa15ae674f3612abed12e3c70",
+          "b4cc589be224c1cdd6ecd3769dfc9b05e4320289"
+        ]
+      },
+      {
+        "oldSha": "34bb72c6e6e04439e29744f8f1ffd5c0e279f984",
+        "newSha": "0494f66b453055b1d4b32fb81ac88a802271a79a",
+        "parentCount": 2,
+        "originalParents": [
+          "3986c68e74c633c3e921d279850f9e5bbc454a32",
+          "014d708d27b5c8de46496c45349d59bf3d685960"
+        ],
+        "replacementParents": [
+          "3f3a193fc02b33aae850b791c91983891c025ad9",
+          "014d708d27b5c8de46496c45349d59bf3d685960"
+        ]
+      },
+      {
+        "oldSha": "6013a91a39b8456c59b1a44e53fc7d495b13e0b8",
+        "newSha": "c9f7c33d552a7e11aa4e03399587dc76ea9799d2",
+        "parentCount": 2,
+        "originalParents": [
+          "3ba31fce3401c0799373a42f0d86d37726f1ad3b",
+          "e180f4a958359726c18e048c8c85e71d5b43aa69"
+        ],
+        "replacementParents": [
+          "132fa5b0dc0f5bebfa79f8d27b6b926100d90e6f",
+          "e180f4a958359726c18e048c8c85e71d5b43aa69"
+        ]
+      },
+      {
+        "oldSha": "54d728ae25226ef4df3e00c481198d7f48c205f6",
+        "newSha": "c9d91f3a6168a28c56cb5cb57f0c5ed026fee57c",
+        "parentCount": 2,
+        "originalParents": [
+          "4964066ec8e9fb45dab47ef3aa5cdb9e9207471c",
+          "18c57630b69334c9bfc071dc2500a952edc66f7a"
+        ],
+        "replacementParents": [
+          "f0a5732b005c88e0521a0689ce4042ddd312f122",
+          "18c57630b69334c9bfc071dc2500a952edc66f7a"
+        ]
+      }
+    ],
+    "errors": [],
+    "backupVerification": {
+      "transport": "independent git ls-remote origin",
+      "observedAt": "2026-11-25T00:06:18.090023+00:00",
+      "refs": {
+        "refs/heads/recovery/rr977-original-1169070c-20261125": "1169070c85d0c10fe044b39433717471e61bb883",
+        "refs/heads/refactor/architecture-boundaries-phase2-20261123": "1169070c85d0c10fe044b39433717471e61bb883"
+      },
+      "backupMatchesOriginal": true,
+      "liveBranchMatchesOriginal": true
+    },
+    "limitations": [
+      "Replacement author/committer dates are current integration dates; original metadata remains in the reviewed mapping and backup.",
+      "The three recorded API message differences are response presentation only: every reconstructed raw Git message matches its original bytes, including terminal newlines.",
+      "This metadata/source review is not exact-head CI, protected merge, or resulting-main verification."
+    ],
+    "rawMetadataMatchesApiMapping": true,
+    "rawGitObjectHashesValid": true,
+    "apiPresentationOnlyMessageDifferences": [
+      {
+        "oldSha": "bc5926fa79acc30c851a618a0dc6666f29510a1a",
+        "newSha": "247b4cfadb2124cdfb1a709efe5c2be17cc0febd"
+      },
+      {
+        "oldSha": "3ba31fce3401c0799373a42f0d86d37726f1ad3b",
+        "newSha": "132fa5b0dc0f5bebfa79f8d27b6b926100d90e6f"
+      },
+      {
+        "oldSha": "6013a91a39b8456c59b1a44e53fc7d495b13e0b8",
+        "newSha": "c9f7c33d552a7e11aa4e03399587dc76ea9799d2"
+      }
+    ],
+    "recommendation": "Ready for the already authorized single expected-head ref update; then ordinary final-head qualification and protected merge. Re-read the live head immediately before update; no protection changes.",
+    "perCommitChecks": {
+      "count": 49,
+      "allTreesEqual": true,
+      "allParentOrdersPreserved": true,
+      "allRawMessagesEqual": true,
+      "detailPath": "/workspace/scratch/0f054634e853/tmp/identity-review-objects.json",
+      "detailSha256": "be4ecc68383128487a44bb7e5dfa9bf24f913600fc80a90a52bebe85ebac6e71"
+    }
+  },
+  "postUpdateVerification": {
+    "observedAt": "2026-11-25T00:12:45.003675+00:00",
+    "reviewer": "independent acceptance_review agent",
+    "command": "git ls-remote origin refs/heads/refactor/architecture-boundaries-phase2-20261123 refs/heads/recovery/rr977-original-1169070c-20261125",
+    "exitCode": 0,
+    "remoteRefs": {
+      "refs/heads/recovery/rr977-original-1169070c-20261125": "1169070c85d0c10fe044b39433717471e61bb883",
+      "refs/heads/refactor/architecture-boundaries-phase2-20261123": "fd1089e691a01b962dd321506867bbfe10e10ffd"
+    },
+    "localHead": "fd1089e691a01b962dd321506867bbfe10e10ffd",
+    "localTree": "6fdbb27aa48531c315231c641843067d873e0821",
+    "localGitStatus": "",
+    "rootReportedMutation": "One force compare-and-swap using expected original head 1169070c; owner also verified API branch ref and fresh PR metadata.",
+    "limit": "Source/ref verification only; not a CI or merge result."
+  },
+  "messageVerification": "All 49 actual raw Git messages are byte-identical. Three API responses normalize terminal newlines; the per-object API fields record presentation differences only.",
+  "automatedArtifactProvenance": "Original bc5926fa79acc30c851a618a0dc6666f29510a1a remains a github-actions[bot]-generated conflict runtime build in the retained original history. Owner metadata reconstruction does not change who generated or qualified that artifact."
+}

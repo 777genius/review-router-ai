@@ -27,6 +27,7 @@ export enum ReviewRequestedRerunEnsureStatus {
 export enum ReviewRequestedClaimStatus {
   Claimed = "claimed",
   Restored = "restored",
+  PreparationExpired = "preparation_expired",
   Busy = "busy",
   Missing = "missing",
   StaleClaim = "stale_claim",
@@ -91,6 +92,20 @@ export type BeginReviewRequestedSubmissionCommand = ReviewRequestedClaimTerm & {
   readonly nextResolutionAt: Date;
   readonly resolutionDeadlineAt: Date;
 };
+
+/** A known stale revision is different from an unavailable GitHub response. */
+export class ReviewRequestedStaleRevisionError extends Error {
+  constructor() {
+    super("review_requested_dispatch_revision_changed");
+    this.name = "ReviewRequestedStaleRevisionError";
+  }
+}
+
+export type ResolveReviewRequestedPreparationCommand =
+  ReviewRequestedClaimTerm & {
+    readonly expectedVersion: bigint;
+    readonly now: Date;
+  };
 
 export type RecordReviewRequestedDispatchCommand = ReviewRequestedClaimTerm & {
   readonly sourceRunId: string;
@@ -204,6 +219,8 @@ export interface ReviewRequestedIntentQueryPort {
   listDue(input: {
     readonly now: Date;
     readonly limit: number;
+    readonly excludeRequestIds?: readonly string[];
+    readonly excludeAlwaysRequestIds?: readonly string[];
   }): Promise<readonly ReviewRequestedIntent[]>;
   listDueForResolution(input: {
     readonly now: Date;
@@ -225,6 +242,12 @@ export interface ReviewRequestedIntentCommandPort {
     readonly intent?: ReviewRequestedIntent | undefined;
   }>;
   beginSubmission(command: BeginReviewRequestedSubmissionCommand): Promise<{
+    readonly status: ReviewRequestedTransitionStatus;
+    readonly intent?: ReviewRequestedIntent | undefined;
+  }>;
+  resolvePreparation(
+    command: ResolveReviewRequestedPreparationCommand,
+  ): Promise<{
     readonly status: ReviewRequestedTransitionStatus;
     readonly intent?: ReviewRequestedIntent | undefined;
   }>;
@@ -277,7 +300,9 @@ export type ReviewRequestedDispatchSubmissionResult =
 
 export interface ReviewRequestedPreparedDispatchPort {
   /** The only potentially effect-bearing call on a fully prepared dispatch. */
-  submit(): Promise<ReviewRequestedDispatchSubmissionResult>;
+  submit(
+    signal?: AbortSignal,
+  ): Promise<ReviewRequestedDispatchSubmissionResult>;
 }
 
 /** GitHub facts about a dispatched run that no run has authorized yet. */
@@ -294,6 +319,7 @@ export interface ReviewRequestedDispatchGatewayPort {
   /** Resolve repository, credentials, and transport before durable submission. */
   prepare(input: {
     readonly intent: ReviewRequestedIntent;
+    readonly signal?: AbortSignal;
   }): Promise<ReviewRequestedPreparedDispatchPort>;
   findByRequestIdentity(input: {
     readonly intent: ReviewRequestedIntent;

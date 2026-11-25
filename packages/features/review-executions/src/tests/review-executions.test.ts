@@ -32,6 +32,7 @@ import {
   ReviewRequestedTransitionDecisionStatus,
   ReviewRequestedTransitionStatus,
   ReviewRequestedTriggerKind,
+  reviewRequestedPreparationTimeoutMs,
   ReviewTaskKind,
   ReviewWorkSlotState,
   ReviewWorkSlotTerminalReason,
@@ -851,6 +852,148 @@ describe("review execution domain", () => {
       sourceRunAttempt: "1",
     });
   });
+
+  it.each(["resolve", "reject"] as const)(
+    "does not dispatch after a hung preparation later settles (%s)",
+    async (settles) => {
+      vi.useFakeTimers();
+      try {
+        const intents = new InMemoryReviewRequestedIntentStore();
+        await intents.registerIntent({
+          candidate: intentCandidate("request-hung", "335", scope, revision),
+        });
+        let now = baseTime;
+        let claimNumber = 0;
+        let releasePreparation: (() => void) | undefined;
+        const submit = vi.fn();
+        const dispatcher = new DispatchDueReviewRequestedIntents(
+          intents,
+          intents,
+          {
+            prepare: async () => {
+              await new Promise<void>((resolve, reject) => {
+                releasePreparation = () =>
+                  settles === "resolve"
+                    ? resolve()
+                    : reject(new Error("late_prepare_failure"));
+              });
+              return { submit };
+            },
+            async findByRequestIdentity() {
+              return {
+                status: ReviewRequestedDispatchLookupStatus.Absent as const,
+              };
+            },
+            async inspectRunnerWait() {
+              return runnerAlreadyAssigned;
+            },
+            async inspectKnownRun() {
+              return { status: ReviewRequestedDispatchRunStatus.Pending };
+            },
+            async cancelKnownRun() {},
+          },
+          { now: () => now },
+          {
+            nextClaimId: () => `claim-hung-${++claimNumber}`,
+            nextRequestId: () => "unused",
+          },
+          { digestUtf8: async () => hash("1") },
+          testDispatchPolicy(),
+        );
+        const running = dispatcher.execute({
+          ownerIdHash: hash("a"),
+          limit: 10,
+        });
+        await vi.advanceTimersByTimeAsync(24_000);
+        await expect(running).resolves.toMatchObject({
+          failed: 1,
+          dispatched: 0,
+        });
+        releasePreparation!();
+        await Promise.resolve();
+        expect(submit).not.toHaveBeenCalled();
+        now = plus(reviewRequestedPreparationTimeoutMs + 1);
+        await expect(
+          dispatcher.execute({ ownerIdHash: hash("a"), limit: 10 }),
+        ).resolves.toMatchObject({ failed: 1, dispatched: 0 });
+        expect(await intents.findByRequestId("request-hung")).toMatchObject({
+          state: ReviewRequestedIntentState.Terminal,
+          terminalReason:
+            ReviewRequestedIntentTerminalReason.DispatchFailedNoEffect,
+        });
+        expect(submit).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it.each(["resolve", "reject"] as const)(
+    "does not start preparation when a timed-out gate later settles (%s)",
+    async (settles) => {
+      vi.useFakeTimers();
+      try {
+        const intents = new InMemoryReviewRequestedIntentStore();
+        await intents.registerIntent({
+          candidate: intentCandidate(
+            "request-gate-hung",
+            "337",
+            scope,
+            revision,
+          ),
+        });
+        let settleGate: (() => void) | undefined;
+        const prepare = vi.fn();
+        const dispatcher = new DispatchDueReviewRequestedIntents(
+          intents,
+          intents,
+          {
+            prepare,
+            async findByRequestIdentity() {
+              return {
+                status: ReviewRequestedDispatchLookupStatus.Absent as const,
+              };
+            },
+            async inspectRunnerWait() {
+              return runnerAlreadyAssigned;
+            },
+            async inspectKnownRun() {
+              return { status: ReviewRequestedDispatchRunStatus.Pending };
+            },
+            async cancelKnownRun() {},
+          },
+          { now: () => baseTime },
+          {
+            nextClaimId: () => "claim-gate-hung",
+            nextRequestId: () => "unused",
+          },
+          { digestUtf8: async () => hash("1") },
+          testDispatchPolicy(),
+          () =>
+            new Promise<boolean>((resolve, reject) => {
+              settleGate = () =>
+                settles === "resolve"
+                  ? resolve(true)
+                  : reject(new Error("late_gate_failure"));
+            }),
+        );
+        const running = dispatcher.execute({
+          ownerIdHash: hash("a"),
+          limit: 10,
+        });
+        await vi.advanceTimersByTimeAsync(24_000);
+        await expect(running).resolves.toMatchObject({
+          failed: 1,
+          dispatched: 0,
+        });
+        settleGate!();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(prepare).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("retries failed transport preparation before entering unknown outcome", async () => {
     const intents = new InMemoryReviewRequestedIntentStore();
@@ -1778,6 +1921,66 @@ describe("start and admission saga", () => {
 });
 
 describe("work slots and fenced invocation leases", () => {
+  it.each(["execution", "authority"] as const)(
+    "caps lease and report windows at the absolute %s deadline",
+    async (owner) => {
+      const store = new InMemoryReviewExecutionStore();
+      const running = await prepareAndAdmit(store);
+      const notAfter = plus(10_000);
+      const input = {
+        ...leaseCommand(),
+        stream: running.stream,
+        execution: {
+          ...running.execution,
+          executionDeadlineAt:
+            owner === "execution"
+              ? notAfter
+              : running.execution.executionDeadlineAt,
+        },
+        ...(owner === "authority" ? { notAfter } : {}),
+        activeLease: null,
+        fencingToken: 1n,
+      };
+      const result = decideLeaseAcquire(input);
+      expect(result.status).toBe(LeaseAcquireDecisionStatus.Acquired);
+      if (result.status !== LeaseAcquireDecisionStatus.Acquired)
+        throw new Error("fixture_lease_not_acquired");
+      expect(result.lease.expiresAt).toEqual(notAfter);
+      expect(result.lease.resultReportUntil).toEqual(notAfter);
+      expect(result.lease.retainUntil).toEqual(input.retainUntil);
+      expect(result.execution.workSlots[0]?.nextAttemptOrdinal).toBe(2);
+    },
+  );
+
+  it.each(["execution", "authority"] as const)(
+    "does not charge a lease attempt at an expired %s deadline",
+    async (owner) => {
+      const store = new InMemoryReviewExecutionStore();
+      const running = await prepareAndAdmit(store);
+      const command = leaseCommand();
+      const input = {
+        ...command,
+        stream: running.stream,
+        execution: {
+          ...running.execution,
+          executionDeadlineAt:
+            owner === "execution"
+              ? command.now
+              : running.execution.executionDeadlineAt,
+        },
+        ...(owner === "authority" ? { notAfter: command.now } : {}),
+        activeLease: null,
+        fencingToken: 1n,
+      };
+      const before = structuredClone(input.execution);
+      expect(decideLeaseAcquire(input)).toEqual({
+        status: LeaseAcquireDecisionStatus.NotRunnable,
+      });
+      expect(input.execution).toEqual(before);
+      expect(input.execution.workSlots[0]?.nextAttemptOrdinal).toBe(1);
+    },
+  );
+
   it("reports exhausted slots after the final lease is released", () => {
     const prepared = decideExecutionPreparation({
       stream: createEmptyReviewExecutionStream(scope, baseTime),
