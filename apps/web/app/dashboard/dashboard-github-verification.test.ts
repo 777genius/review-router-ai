@@ -33,7 +33,7 @@ function apiError(status: number): Error {
 
 describe("dashboard GitHub verification", () => {
   it("checks repository secrets without unnecessary organization reads", async () => {
-    const request = vi.fn(async () => ({ data: {} }));
+    const request = vi.fn(async (_route: string) => ({ data: {} }));
     const result = await checkProviderSecretAvailability(createInput(request));
     expect(result).toEqual({ status: "available_repository" });
     expect(request).toHaveBeenCalledTimes(1);
