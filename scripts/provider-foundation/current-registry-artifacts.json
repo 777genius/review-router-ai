@@ -7,8 +7,8 @@
   "artifacts": [
     {
       "name": "@get-modular/core",
-      "version": "0.7.0",
-      "integrity": "sha512-zPUGjggUFClkqzinzKkR3UHaT6OnDNL/f4gnVaGMsvTC4ZuqDGn2kygoSu2Ktid1t9m3MY4mR+yh+icA3oW4zw==",
+      "version": "0.8.0",
+      "integrity": "sha512-c2zLxvmvSAZPtHXbURkT4LNydqVY2YGRbcoF58hc2tvNe/JzH/6cVZbpO3XEQZXJ2z4W3eBPK9vpN8U9wmXMMQ==",
       "exports": {
         ".": {
           "import": {
@@ -21,8 +21,8 @@
     },
     {
       "name": "@get-modular/assembly",
-      "version": "0.7.0",
-      "integrity": "sha512-5gnrW39E/xW8BiNSivmTmUHD5xSrF7RKBtP57wMbXwVYS/+OtVza/2zuuU71l0oqqvFBgy0LNTKg0E4pu2h6OQ==",
+      "version": "0.8.0",
+      "integrity": "sha512-UJjGxv+sXY6BzKXm+ffGAFC9gBK1CehDKQwz24LeLthUdhKT6WkZCjRPj8/Gr8XbFVx83pxdhxNtAXAdN/G5DQ==",
       "exports": {
         ".": {
           "import": {

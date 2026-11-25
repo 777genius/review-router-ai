@@ -14,6 +14,11 @@
       "production": "./dist/v2/interface/index.js",
       "default": "./src/v2/interface/index.ts"
     },
+    "./conflict-runtime-contract": {
+      "types": "./src/conflict-runtime-contract.ts",
+      "production": "./dist/conflict-runtime-contract.js",
+      "default": "./src/conflict-runtime-contract.ts"
+    },
     "./oidc": {
       "types": "./src/oidc.ts",
       "production": "./dist/oidc.js",
@@ -40,8 +45,8 @@
     "zod": "^4.4.2"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "build:contract-source": "tsc -p tsconfig.contract-source.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "build": "node ../../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.build.json",
+    "build:contract-source": "node ../../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.contract-source.json",
+    "typecheck": "node ../../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json"
   }
 }

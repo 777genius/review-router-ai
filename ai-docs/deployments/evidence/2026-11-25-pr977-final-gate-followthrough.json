@@ -1,0 +1,277 @@
+{
+  "schemaVersion": 1,
+  "kind": "pr977-native-guard-and-current-local-qualification",
+  "recordedAt": "2026-11-25T04:40:36.188380+00:00",
+  "status": "MERGE_BLOCKED_PAIRED_PRODUCER_COMPILER_AND_REMAINING_ACCEPTANCE",
+  "executedSource": {
+    "head": "980583c62c89bd389de04f09694e4a50abc9b4f0",
+    "tree": "a47721db31a64c7bcd1085abf4ba1b495167e5cb",
+    "base": "18c57630b69334c9bfc071dc2500a952edc66f7a",
+    "sourceEntries": 4869,
+    "presentFileHashes": 4863,
+    "sparseAbsences": 6,
+    "installedGraphMetadataAndLinkRecords": 4921,
+    "limits": "Graph proof covers package manifests, pnpm metadata and symlink resolutions, not every dependency payload byte. All executed receipts retain the actual 980 source; this later CI/documentation checkpoint does not relabel them."
+  },
+  "completeLocalGates": [
+    {
+      "gate": "original full pnpm architecture:check",
+      "result": "PASS",
+      "exitCode": 0,
+      "durationSeconds": 137.949,
+      "nativeTypeScriptVersions": ["7.0.2"],
+      "guardedProcessCount": 95,
+      "blockedEvents": [],
+      "sourceUnchanged": true,
+      "graphMetadataUnchanged": true,
+      "receipt": {
+        "path": "tmp/round38-native-capacity/receipt.json",
+        "sha256": "3c4c07020a560b74ea27df93fd52cb60278daff92ca28cbd293ec0e9614015e5",
+        "bytes": 7539
+      }
+    },
+    {
+      "gate": "original complete tsconfig.tooling.json strict check",
+      "result": "PASS",
+      "exitCode": 0,
+      "durationSeconds": 34.052,
+      "nativeTypeScriptVersions": ["7.0.2"],
+      "sourceUnchanged": true,
+      "graphMetadataUnchanged": true,
+      "receipt": {
+        "path": "tmp/round39-current-tooling/receipt.json",
+        "sha256": "9ee688dc04eaa49e5bca553f26b33adc94c46b63c8e1d37c476b9dfbe0c6d407",
+        "bytes": 6550
+      }
+    },
+    {
+      "gate": "changed provider visual launcher",
+      "result": "PASS",
+      "scope": "Guarded Prettier, ESLint, and complete existing two-test file; no added mirror test",
+      "receipt": {
+        "path": "tmp/round40-launcher-checks/receipt.json",
+        "sha256": "2f0e544cfeb6fac913eb74f9f0fcf9f673fb0585bab5d10978f7a159cdb13131",
+        "bytes": 1405
+      }
+    },
+    {
+      "gate": "review-action-v2 production source/Vitest E2E",
+      "result": "PASS",
+      "counts": {
+        "numFailedTests": 0,
+        "numPassedTests": 17,
+        "numPendingTests": 0,
+        "numTodoTests": 0,
+        "numTotalTests": 17
+      },
+      "exactSuiteSelection": true,
+      "exactRoster": true,
+      "retryCount": 0,
+      "migrationCount": 165,
+      "exactMigrationChecksums": true,
+      "sourceUnchanged": true,
+      "graphMetadataUnchanged": true,
+      "node": "26.11.1",
+      "postgres": "17.12",
+      "compiledArtifactQualificationClaimed": false,
+      "nativeTypeScriptModulesLoaded": [],
+      "blockedEvents": [],
+      "workerHeapBytes": 293601280,
+      "cleanup": {
+        "clusterStopped": true,
+        "connectionFileRemoved": true,
+        "errors": [],
+        "ownedDataRemoved": true,
+        "passwordRemoved": true,
+        "stopExitCode": 0,
+        "tcpPortClosed": true
+      },
+      "receipt": {
+        "path": "tmp/round42-production-980/receipt.json",
+        "sha256": "0b5a057302cbcbae6e9a3fc3a59d93ff401bb7e0a33cf20f944bfc16fa52d4eb",
+        "bytes": 16673
+      }
+    }
+  ],
+  "independentReviews": [
+    {
+      "path": "tmp/round38-39-independent-review.json",
+      "sha256": "db33db2ee6e525c272c80a52e496564519ee1603ed045697b65b4f63b8572f5e",
+      "bytes": 10238
+    },
+    {
+      "path": "tmp/round42-production-independent-review.json",
+      "sha256": "b8e9462310962fa43a44e8e752c937463ba64bce8c22355d4611d41768f33c42",
+      "bytes": 1805
+    }
+  ],
+  "nativeAccountsRegression": {
+    "failedRun": "https://github.com/777genius/review-router-ai/actions/runs/45536521841",
+    "executedHead": "123de367e9f8bbcc23278ca4d94708e3a6a7c8a5",
+    "actualSummary": {
+      "captured": 34,
+      "suspect": 0,
+      "failed": 0,
+      "skipped": 0
+    },
+    "overallResult": "FAIL",
+    "failure": "Strict blocked-network assertion saw POST https://registry.npmjs.org/-/npm/v1/security/advisories/bulk. Detailed per-shot workflow assertions follow this throw and did not execute. The request was blocked.",
+    "fixHead": "980583c62c89bd389de04f09694e4a50abc9b4f0",
+    "fix": "Explicit CI=1 for the automated Next child after sanitized environment merging; network/source/screenshot/timeout/heap/cleanup assertions unchanged.",
+    "currentRegressionRun": "https://github.com/777genius/review-router-ai/actions/runs/45541219419",
+    "postFixFullRegression": "PENDING",
+    "retainedArtifact": {
+      "id": 14987544129,
+      "zipSha256": "68af25e70b0c15751eca649fa1acff4848a9acea7ae8790d233bde747970865f",
+      "manifestSha256": "655bc53b200f14d8d87db56f921df16864212d1020b04f89c16a411d15d828c6"
+    },
+    "recoveryAudit": {
+      "path": "tmp/round37-ci-browser/native123-recovered-validation.json",
+      "sha256": "ef80f7370d26b55f9257d416826bf3322b56289920cb224b0ca28ca0e822f158",
+      "bytes": 11321
+    }
+  },
+  "pairedProducerCompiler": {
+    "schemaVersion": 1,
+    "observedAt": "2026-11-25T04:31:35.631Z",
+    "result": "CONFIRMED_PREEXISTING_CONFIGURED_LEGACY_TYPESCRIPT_LOAD_PENDING_PRODUCER_QUALIFICATION",
+    "consumer": {
+      "repository": "777genius/review-router-ai",
+      "head": "980583c62c89bd389de04f09694e4a50abc9b4f0",
+      "tree": "a47721db31a64c7bcd1085abf4ba1b495167e5cb",
+      "workflow": ".github/workflows/ci.yml",
+      "workflowSha256": "8ebe44301cd0dca3e7ccbc1e268519747e4f04f2eef545473d1dcc8b555fe7ed",
+      "job": "quality-source-certification",
+      "step": "Paired Review Action lifecycle producer and fixture tests",
+      "stepUnchangedFromBase": "18c57630b69334c9bfc071dc2500a952edc66f7a",
+      "guardConfiguredOnThisStep": false,
+      "guardConfiguredAtWorkflowOrJobLevel": false,
+      "guardPersistedViaGitHubEnv": false
+    },
+    "pinnedProducer": {
+      "repository": "777genius/review-router",
+      "head": "1112a0f1de568f9fa927316ab68cef54fbcd4653",
+      "tree": "5f851800304e7725085b40a2d0a1da5fe87c3ce6",
+      "testCommand": "jest",
+      "preset": "ts-jest",
+      "lockedJest": "29.7.0",
+      "lockedTsJest": "29.4.6",
+      "lockedTypeScript": "5.9.3",
+      "tsJestTypeScriptPeer": ">=4.3 <6",
+      "policy": "docs/review-action-v2-development.md Qualification toolchain scope explicitly retains TypeScript5.9.3 for producer Jest/ESLint while separately checking changed source withTS7.0.2; that producer policy does not override the current task's stricter no-initialized-legacy requirement."
+    },
+    "primaryLoadEvidence": [
+      {
+        "url": "https://github.com/kulshekhar/ts-jest/blob/v29.4.6/src/legacy/config/config-set.ts",
+        "gitBlob": "dd8e723e4269ed43e8dfc9a434eee4cb9fb9cd56",
+        "line": 198,
+        "behavior": "ConfigSet constructor eagerly calls importer.typescript(ImportReasons.TsJest, options.compiler ?? 'typescript')."
+      },
+      {
+        "url": "https://github.com/kulshekhar/ts-jest/blob/v29.4.6/src/utils/importer.ts",
+        "gitBlob": "11ef1c9dadd73eb9a33244d68d8871ad262855b8",
+        "behavior": "typescript delegates to _import; requireWrapper resolves and requires the selected module."
+      }
+    ],
+    "classification": {
+      "actualCurrentCiExecutionObserved": false,
+      "configuredLoadIfStepReached": "TypeScript5.9.3 through ts-jest",
+      "addingGuardOnly": "Would reject legacy TypeScript before initialization and before successful required tests.",
+      "nativeAliasSafe": false,
+      "wholeCiNativeConformanceEstablished": false
+    },
+    "successorSearch": {
+      "examinedMain": "9debb3eecdf2cd0b39d5efde1e837d36e724f319",
+      "lastPush": "2026-11-22T13:14:21Z",
+      "mainPackageBlob": "35b799045dd818a58585673bbaf52965811f5f1e",
+      "mainLockBlob": "43651b59184cbd63ee7641744362e8af4be72ef1",
+      "mainJestConfigBlob": "1b80213923639a54d910a55cccd2d15ce6437c65",
+      "mainPolicyBlob": "389d4ac487af4125b01e6485b4bb200a9226ac76",
+      "mainStillLocksLegacy": true,
+      "openTsJestSearchResults": [],
+      "openTypeScriptSearchResults": [379, 201],
+      "nativeJestTransformerCodeSearchResults": [],
+      "pr409LocalEsbuildClaim": "Reports local esbuild-Jest transformation and separate strictTS7 check; explicitly retains authoritative unchanged CI. This does not establish a maintained compiler-free producer gate.",
+      "unchangedRuntimeAdoption": false,
+      "runtimeBlobComparisons": {
+        "index": {
+          "pinned": "46ddff68ad1758104ef38412fc89511ea69ed4fe",
+          "main": "2ed08bb38bc94b0d62ed59f78c1913041b3c7ba3"
+        },
+        "contextGateway": {
+          "pinned": "e9f2a9077c1c7d6f3c8aa868e0d5e62334605c27",
+          "main": "e9f2a9077c1c7d6f3c8aa868e0d5e62334605c27"
+        },
+        "singleT0Plan": {
+          "pinned": "d81aa804eeef5597327edf8b31cc98bf42b6be9d",
+          "main": "cbde9a2f525dcc8c51a3edb230e7e761424bc9fe"
+        }
+      },
+      "qualifiedNativeSuccessorFound": false,
+      "boundedSearchOnly": true
+    },
+    "recommendation": "Keep the immutable1112 pin and all five required Jest suites/assertions intact. A producer-owned, qualified compiler-free/native test path plus strictTS7 is needed before a consumer adoption decision; do not initialize legacy Jest manually, skip suites, or claim an exemption. Guarded root Vitest paired45 is a separate safe qualification lane and does not replace the five producer gates.",
+    "mutations": "None; read-only local files and GitHub source/search, no Jest invocation or remote mutation."
+  },
+  "consumerEnforcementInThisCheckpoint": {
+    "file": ".github/workflows/ci.yml",
+    "change": "Apply the existing native load guard to the unchanged paired Action Jest command; preserve its audit after failure.",
+    "guardSha256": "83004bc5b1d7fa05472bef881cc6c8a38510ea908fa0bb81fc93a3bacd56a6ac",
+    "allFiveSuitePathsAndCommandFlagsPreserved": true,
+    "immutableActionPinPreserved": "1112a0f1de568f9fa927316ab68cef54fbcd4653",
+    "existingJobConditionsAndTimeoutsPreserved": true,
+    "noContinueOnErrorOrAssertionWeakening": true,
+    "uploaderPinReusedFromNativeAccounts": "ea165f8d65b6e75b540449e92b4886f43607fa02",
+    "independentReview": "acceptance_review independently removed the exact three environment lines and nine-line audit-upload block and reproduced the original workflow bytes. Guard bytes match prior qualification.",
+    "meaning": "Enforcement only. This guard is expected to reject the pinned TypeScript5.9.3 before initialization; required producer suites are not qualified. A producer-owned supported compiler-free/native test route plus strict TS7 and an explicit qualified consumer adoption remain necessary. No cross-repository source or pin is changed."
+  },
+  "localRecoveryLimits": {
+    "resourceChange": "Executor recovered with over9GB observed available memory; original full architecture command and original1GiB Go target passed without GOGC override. Earlier signals retain unproved causes.",
+    "browser": {
+      "result": "PREREQUISITE_FAILED_NO_BROWSER_OR_DATABASE_STARTED",
+      "cause": "Locked Playwright1.64.1 Chromium1248/156.0.8078.4 installer returned HTTP403 from cdn.playwright.dev; no alternate browser or host used.",
+      "receipt": {
+        "path": "tmp/round41-native-local/browser-install-receipt.json",
+        "sha256": "88154e1cf2d310f45e3f75284722d772f096bb5852d8ecb738629b460d1a1c5f",
+        "bytes": 650
+      }
+    },
+    "go": {
+      "result": "EXACT_GO_1_26_10_RECOVERED",
+      "receipt": {
+        "path": "tmp/round42-go-recovery/receipt.json",
+        "sha256": "50b7e170d9d1261eb9cad4c5cb24627feb82fc7a29386db14908bd4cde883a02",
+        "bytes": 928
+      }
+    },
+    "actionSource": {
+      "result": "EXACT_1112_RECOVERED",
+      "receipt": {
+        "path": "tmp/round43-action-recovery/receipt.json",
+        "sha256": "1767e4ecd3e58658addcdb2d04c8308d40a8dabebf48a8f0efff1e111f062f89",
+        "bytes": 1106
+      }
+    },
+    "actionDependencies": {
+      "result": "ORDINARY_PREREQUISITE_FAILED_NO_PAIRED45_STARTED",
+      "cause": "Maintained npm ci --ignore-scripts failed EAI_AGAIN for registry.npmjs.org; DNS remained unavailable in a later read-only lookup. No legacy compiler loaded; all915 Action source files unchanged. No complete retained npm cache found.",
+      "receipt": {
+        "path": "tmp/round43-action-recovery/npm-ci-receipt.json",
+        "sha256": "18ae025629ce3ea1027894ae95f86736dc6642e23bdfa8fc40e4131b90db0b81",
+        "bytes": 726
+      }
+    }
+  },
+  "remainingAcceptance": {
+    "wholeCurrentCI": "PENDING",
+    "pairedProducerJest": "BLOCKED_BY_UNQUALIFIED_LEGACY_COMPILER_CLOSURE",
+    "paired45Current": "NOT_STARTED_DEPENDENCY_PREREQUISITE_FAILED",
+    "unifiedOcrUi16": "PENDING",
+    "statistics18Journeys21Captures": "PENDING",
+    "nativeAccounts34StrictRegression": "PENDING",
+    "otherApplicableBrowserAndDatabaseGates": "PENDING",
+    "merge": "NOT_PERFORMED",
+    "deployment": "NOT_AUTHORIZED_OR_PERFORMED"
+  },
+  "historicalResults": "Earlier failed, skipped, interrupted and historical executions retain their source and outcome. Queue timestamps do not prove executed steps; old E2E does not qualify the current candidate."
+}

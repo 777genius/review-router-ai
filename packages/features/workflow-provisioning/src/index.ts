@@ -1,6 +1,9 @@
 export * from "./domain/workflow-template";
 export * from "./domain/workflow-provisioning";
 export * from "./domain/workflow-transport";
+export * from "./domain/managed-workflow-setup-options";
+export * from "./domain/setup-pull-request-head";
+export * from "./domain/workflow-setup-authority";
 export * from "./domain/hosted-pool-workflow-template";
 export {
   renderCodexRotatingAdvisoryWorkflow,
@@ -25,6 +28,8 @@ export {
   workflowDocumentSemanticSha256,
   type VersionedProviderSecretNamespace,
 } from "@reviewrouter/features-codex-oauth-rotating";
+export * from "./application/ports/current-workflow-setup-query-port";
+export * from "./application/use-cases/assert-current-workflow-setup";
 export * from "./application/ports/workflow-setup-gateway-port";
 export * from "./application/ports/workflow-provisioning-query-port";
 export * from "./application/ports/workflow-provisioning-repository-port";

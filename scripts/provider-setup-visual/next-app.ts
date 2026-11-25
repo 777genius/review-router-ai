@@ -49,6 +49,8 @@ export async function startNextApp(input: {
       env: {
         ...baseProcessEnvironment(),
         ...input.environment,
+        // Keep this automated child in CI mode after sanitizing its environment.
+        CI: "1",
         NODE_ENV: "development",
         NEXT_TELEMETRY_DISABLED: "1",
         // Next's fork checks NODE_OPTIONS before overriding its heap limit.

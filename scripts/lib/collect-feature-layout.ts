@@ -1,11 +1,39 @@
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, posix } from "node:path";
-import ts from "typescript";
+import {
+  isSyntaxNode,
+  parseSourceAst,
+  walkSourceAst,
+  type ParsedSource,
+  type SyntaxNode,
+} from "./module-import-specifiers.ts";
 import type {
   ModuleLayoutRecords,
   LayoutImport,
   LayoutExport,
 } from "@get-modular/conformance";
+
+function bindingName(id: SyntaxNode, parsed: ParsedSource): string | undefined {
+  if (id.type === "Identifier" && typeof id.name === "string") return id.name;
+  if (typeof id.start !== "number" || typeof id.end !== "number")
+    return undefined;
+  const annotation = id.typeAnnotation;
+  if (!isSyntaxNode(annotation) || typeof annotation.start !== "number")
+    return parsed.source.slice(id.start, id.end);
+
+  // Oxc includes a binding pattern's annotation in its span. Keep the original
+  // pattern text, including internal comments, but exclude the trailing trivia.
+  let end =
+    id.start + parsed.source.slice(id.start, annotation.start).trimEnd().length;
+  for (let index = parsed.comments.length - 1; index >= 0; index--) {
+    const comment = parsed.comments[index];
+    if (!comment || comment.end > end) continue;
+    if (comment.end !== end) break;
+    end =
+      id.start + parsed.source.slice(id.start, comment.start).trimEnd().length;
+  }
+  return parsed.source.slice(id.start, end);
+}
 
 const isTest = (path: string) =>
   /(?:^|\/)(?:tests|testing)(?:\/|$)|\.(?:test|spec)\.ts$/u.test(path);
@@ -35,7 +63,9 @@ export async function collectFeatureLayout(
   files.sort();
   for (const path of files) {
     const text = await readFile(join(root, path), "utf8");
-    const ast = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
+    const ast = parseSourceAst(path, text);
+    if (ast.errors.length > 0)
+      throw new Error(`feature_source_parse:${path}:${ast.errors.join("; ")}`);
     const exports: LayoutExport[] = [];
     const edge = (specifier: string, typeOnly: boolean) => {
       const target = specifier.startsWith(".")
@@ -49,49 +79,68 @@ export async function collectFeatureLayout(
         mode: typeOnly ? "type" : "value",
       });
     };
-    function inspect(node: ts.Node): void {
+    const useCase = path.includes("/application/use-cases/");
+    const interfacePort =
+      path.includes("/domain/") || path.includes("/application/ports/");
+
+    walkSourceAst(ast.root, (node, parent) => {
       if (
-        ts.isImportDeclaration(node) &&
-        ts.isStringLiteral(node.moduleSpecifier)
-      )
-        edge(node.moduleSpecifier.text, node.importClause?.isTypeOnly ?? false);
-      if (
-        ts.isExportDeclaration(node) &&
-        node.moduleSpecifier &&
-        ts.isStringLiteral(node.moduleSpecifier)
-      )
-        edge(node.moduleSpecifier.text, node.isTypeOnly);
-      if (
-        path.includes("/application/use-cases/") &&
-        ts.canHaveModifiers(node) &&
-        ts
-          .getModifiers(node)
-          ?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+        (node.type === "ImportDeclaration" ||
+          node.type === "ExportNamedDeclaration" ||
+          node.type === "ExportAllDeclaration") &&
+        isSyntaxNode(node.source) &&
+        typeof node.source.value === "string"
       ) {
-        if (ts.isFunctionDeclaration(node) && node.name)
-          exports.push({ name: node.name.text, kind: "function" });
-        else if (ts.isVariableStatement(node))
-          for (const declaration of node.declarationList.declarations)
+        edge(
+          node.source.value,
+          (node.type === "ImportDeclaration"
+            ? node.importKind
+            : node.exportKind) === "type",
+        );
+      }
+
+      const exported =
+        parent?.type === "ExportNamedDeclaration" ||
+        parent?.type === "ExportDefaultDeclaration";
+      if (useCase && exported) {
+        if (
+          (node.type === "FunctionDeclaration" ||
+            node.type === "TSDeclareFunction") &&
+          isSyntaxNode(node.id) &&
+          typeof node.id.name === "string"
+        ) {
+          exports.push({ name: node.id.name, kind: "function" });
+        } else if (
+          node.type === "VariableDeclaration" &&
+          Array.isArray(node.declarations)
+        ) {
+          for (const declaration of node.declarations) {
+            if (!isSyntaxNode(declaration) || !isSyntaxNode(declaration.id))
+              continue;
+            const name = bindingName(declaration.id, ast);
+            if (!name) continue;
             exports.push({
-              name: declaration.name.getText(ast),
+              name,
               kind:
-                declaration.initializer &&
-                (ts.isArrowFunction(declaration.initializer) ||
-                  ts.isFunctionExpression(declaration.initializer))
+                isSyntaxNode(declaration.init) &&
+                (declaration.init.type === "ArrowFunctionExpression" ||
+                  declaration.init.type === "FunctionExpression")
                   ? "function"
                   : "value",
             });
-        else if (ts.isClassDeclaration(node) && node.name)
-          exports.push({ name: node.name.text, kind: "value" });
+          }
+        } else if (
+          node.type === "ClassDeclaration" &&
+          isSyntaxNode(node.id) &&
+          typeof node.id.name === "string"
+        ) {
+          exports.push({ name: node.id.name, kind: "value" });
+        }
       }
-      if (
-        (path.includes("/domain/") || path.includes("/application/ports/")) &&
-        ts.isMethodSignature(node)
-      )
+
+      if (interfacePort && node.type === "TSMethodSignature")
         throw new Error(`feature_port_requires_function_property:${path}`);
-      ts.forEachChild(node, inspect);
-    }
-    inspect(ast);
+    });
     if (path.includes("/application/use-cases/"))
       useCaseExports[path] = exports;
     const lines = text.trimEnd().split("\n").length,

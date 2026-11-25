@@ -324,6 +324,69 @@ describe("ContextGatewayV4Manifest", () => {
       reason: ContextDependencyReplayDenialReason.OperationMismatch,
     });
   });
+
+  it("preserves the authenticated order of interleaved partial file reads", () => {
+    const first = successFile(1, 0, 4, false, hash("seed"));
+    const other = Object.freeze({
+      ...successFile(2, 0, 4, true, first.eventHash),
+      operationKey: hash("other-file-operation"),
+      operationReceiptId: hash("other-file-receipt"),
+      result: Object.freeze({
+        ...first.result!,
+        pathHash: hash("other-path"),
+        blobOid: "d".repeat(40),
+        eof: true,
+        complete: true,
+      }),
+    });
+    const last = successFile(3, 8, 4, true, other.eventHash);
+    const source = createContextGatewayV4Manifest(
+      candidate([first, other, last]),
+    );
+    const receiptIds = [first.operationReceiptId!, other.operationReceiptId!];
+
+    expect(
+      decideContextGatewayV4Replay(source, source, receiptIds),
+    ).toMatchObject({
+      status: ContextDependencyReplayStatus.Matched,
+    });
+    const grouped = createContextGatewayV4Manifest(
+      candidate(rechain([first, last, other], hash("seed"))),
+    );
+    expect(
+      decideContextGatewayV4Replay(source, grouped, receiptIds),
+    ).toMatchObject({
+      status: ContextDependencyReplayStatus.Denied,
+      reason: ContextDependencyReplayDenialReason.OperationMismatch,
+    });
+  });
+
+  it("requires every repeated complete query in the selected receipt group", () => {
+    const first = successPage(1, 0, true, hash("seed"));
+    const repeated = Object.freeze({
+      ...successPage(2, 0, true, first.eventHash),
+      operationKey: first.operationKey,
+      operationReceiptId: hash("repeated-query-receipt"),
+    });
+    const source = createContextGatewayV4Manifest(candidate([first, repeated]));
+    const receiptIds = [repeated.operationReceiptId!];
+
+    expect(
+      decideContextGatewayV4Replay(source, source, receiptIds),
+    ).toMatchObject({
+      status: ContextDependencyReplayStatus.Matched,
+    });
+    expect(
+      decideContextGatewayV4Replay(
+        source,
+        createContextGatewayV4Manifest(candidate([first])),
+        receiptIds,
+      ),
+    ).toMatchObject({
+      status: ContextDependencyReplayStatus.Denied,
+      reason: ContextDependencyReplayDenialReason.DependencySetMismatch,
+    });
+  });
 });
 
 function validEvents(): ContextGatewayV4Event[] {
