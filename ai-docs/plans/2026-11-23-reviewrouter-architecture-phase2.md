@@ -6,7 +6,52 @@ Working branch: refactor/architecture-boundaries-phase2-20261123
 Status: further scoped refactoring and independent review in progress; final qualification and merge authorized
 Authority: AGENTS.md, Engineering Quality Standard, Feature Module Standard adopted profiles, current security/runtime protocols.
 
-## Current E2E follow-through — 2026-11-25
+## Current final qualification and paired compiler blocker — 2026-11-25
+
+The final review/merge continuation remains authorized; PR #977 is Ready but
+merge acceptance is incomplete. Clean `980583c6` (tree `a47721db`) passes the
+original full architecture command, the complete original tooling strict
+project, and the changed Native Accounts launcher's format/lint/two existing
+tests. TypeScript compiler loads in the full static gates are exactly 7.0.2.
+Independent audits bind all 4,863 present source hashes, six recorded sparse
+absences and 4,921 installed graph metadata/link records before and after.
+This graph proof does not cover every dependency payload byte.
+
+A new full source/Vitest production E2E execution at that same head passes
+17/17 with no skipped, failed, pending, todo or retried cases, PostgreSQL 17.12
+and all 165 canonical migration checksums. The owned cluster stopped, its TCP
+port refused connections, and data/credentials were removed. This runtime lane
+loads no TypeScript compiler and is not compiled-artifact qualification.
+
+Native Accounts on prior `123de367` captured 34 images but failed the strict
+network assertion for Next's development advisory probe. `980583c6` restores
+CI mode in the sanitized automated child; the complete browser regression is
+still pending. The network blocker and every screenshot assertion are retained.
+A local replay could not start because the locked Chromium download returned
+HTTP 403. Current paired45 also did not start: exact Action/Go recovery succeeded,
+but the ordinary Action dependency installation failed registry DNS resolution.
+
+Final review found a pre-existing compiler gap in the required paired producer
+fixture step: immutable Action `1112a0f1` runs Jest/ts-jest with TypeScript 5.9.3.
+The current task permits no initialized legacy compiler. This checkpoint applies
+the existing native load guard to that exact five-file command and retains its
+audit on failure. The Action pin, commands, assertions, timeouts and all five
+suites are unchanged. This enforcement is expected to reject the unsupported
+compiler before initialization; it does not qualify those required suites.
+
+A bounded upstream review found no qualified native successor with the same
+runtime contract. The producer's documented legacy Jest exception cannot
+replace this task's stricter requirement. Its owning test-toolchain migration
+and an explicitly qualified consumer route/pin decision remain a merge blocker.
+Do not alias a different compiler into the immutable graph, skip suites, loosen
+the guard or change another repository as part of this bounded PR task.
+Remaining ordinary CI, current browser/paired/Statistics acceptance and merge
+verification remain required. No deployment is authorized or performed.
+
+See the [current source-bound gate record](../deployments/evidence/2026-11-25-pr977-final-gate-followthrough.json).
+The source-specific checkpoints below retain their original outcomes and scope.
+
+## Earlier E2E-only checkpoint on 29e8386e — 2026-11-25
 
 **Status: incomplete.** This continuation follows the repeated request to finish
 E2E, keep Draft, push coherent commits immediately with `[skip ci]`, and avoid

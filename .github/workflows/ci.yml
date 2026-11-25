@@ -1422,6 +1422,9 @@ jobs:
           diff -u tools/ocr/qualifications/unified-model-routes-v3.manifest "$RUNNER_TEMP/reviewrouter-paired-ocr/MANIFEST"
 
       - name: Paired Review Action lifecycle producer and fixture tests
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/paired-action-native-audit.jsonl
         run: |
           npm --prefix .paired/review-router-action test -- \
             --runInBand \
@@ -1431,6 +1434,15 @@ jobs:
             __tests__/unit/review-orchestration/github-review-state-adapter.test.ts \
             __tests__/unit/review-projection/build-current-review-projection.test.ts \
             __tests__/unit/review-projection/review-lifecycle-observation.test.ts
+
+      - name: Preserve paired Review Action native compiler audit
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: paired-action-native-audit-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/paired-action-native-audit.jsonl
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Paired Review Action projection parser contract
         env:

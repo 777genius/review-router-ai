@@ -4,11 +4,38 @@
 - Goal: the approved ReviewRouter version uses feature-owned workflow admission, setup authority and context-gateway configuration with a narrow conflict-runtime published contract, plus a qualified Foundation/Get Modular toolchain; existing review/setup behavior and recovery remain unchanged.
 - Affected targets: Web, API, worker, source-bound conflict-runtime bundled Action; ordinary private application image/release only after the generated Action artifact has been independently qualified.
 - Implementation: [PR #977](https://github.com/777genius/review-router-ai/pull/977); [bounded plan](../plans/2026-11-23-reviewrouter-architecture-phase2.md).
-- Implementation reference: draft source branch `refactor/architecture-boundaries-phase2-20261123`; provenance is **not** evidence of a merged commit or installed image. The final shipping SHA is unknown.
+- Implementation reference: source branch `refactor/architecture-boundaries-phase2-20261123`; provenance is **not** evidence of a merged commit or installed image. The final shipping SHA is unknown.
 - Dependencies: reconcile prior [#810](https://github.com/777genius/review-router-ai/pull/810) and [#914](https://github.com/777genius/review-router-ai/pull/914) (already merged), active Native/Gateway provider [#959](https://github.com/777genius/review-router-ai/pull/959), compiler stack #967–#975 and qualified modular consumer #976; preserve their actual owners. No unrelated upstream merge is authorized.
 - Last updated: 2026-11-25.
 
-## Current E2E follow-through — 2026-11-25
+## Current final qualification and paired compiler blocker — 2026-11-25
+
+PR #977 is Ready and unmerged. Clean `980583c6` passes the original complete
+architecture and tooling strict gates, changed-launcher format/lint/two tests,
+and one complete 17-case source/Vitest production E2E lane on PostgreSQL 17.12.
+All 165 migration checksums, unchanged source/installed graph metadata and owned
+cluster/port/data/credential cleanup are independently verified. These executions
+retain their exact source; no compiled-artifact or current browser PASS is claimed.
+
+The Native Accounts child now preserves CI mode after a genuine 34-capture run
+failed the strict network assertion. Its complete post-fix browser gate remains
+pending. Local browser preparation stopped at the locked Chromium HTTP 403;
+current paired45 stopped before workload launch at registry DNS failure.
+
+The required paired Action producer test closure still resolves TypeScript 5.9.3
+through ts-jest. This checkpoint adds the existing native guard and failure-audit
+retention to its unchanged five-file CI step. The immutable Action pin and all
+assertions stay intact. The guard prevents legacy initialization but cannot make
+this unsupported producer closure pass. A qualified producer-owned native test
+route and explicit consumer adoption are required before merge; no such successor
+was found in the bounded review, and no external repository was modified.
+
+See the [complete source-bound record](evidence/2026-11-25-pr977-final-gate-followthrough.json).
+Ordinary current CI and complete affected E2E remain pending. Staging and
+production remain pending; this checkpoint authorizes no rollout. Earlier
+checkpoints below remain historical execution evidence.
+
+## Earlier E2E-only checkpoint on 29e8386e — 2026-11-25
 
 **Incomplete; Draft retained.** Source `29e8386e` has a successful frozen install,
 9/9 Statistics preload/heap regressions, and complete lint/qualification bound
