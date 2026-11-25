@@ -48,6 +48,11 @@ import {
   seedFollowthrough,
   qualifyFollowthrough,
 } from "./followthrough-scenario.js";
+import {
+  seedReliabilityFixtures,
+  cleanupReliabilityFixtures,
+  qualifyReliabilityUi,
+} from "./reliability-scenario.js";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const scenario = process.env.STATISTICS_E2E_SCENARIO ?? "full";
@@ -236,6 +241,10 @@ if (isHistory || scenario === "followthrough")
   );
 if (scenario === "followthrough")
   sourceFiles.push(
+    "scripts/statistics-e2e/reliability-scenario.ts",
+    "apps/web/src/server/dashboard-shell-data.ts",
+    "apps/web/src/server/dashboard-workspace-summaries.ts",
+    "apps/web/app/setup/gitlab/gitlab-connect-wizard.tsx",
     "scripts/statistics-e2e/followthrough-scenario.ts",
     "apps/web/app/dashboard/provider-usage-view.tsx",
     "apps/web/app/dashboard/provider-usage-api.ts",
@@ -352,6 +361,12 @@ try {
       workspaceId: main.id,
       actorId: actor.id,
       repositories,
+    });
+  if (scenario === "followthrough")
+    await seedReliabilityFixtures(admin, {
+      prefix,
+      workspaceId: main.id,
+      actorId: actor.id,
     });
   console.log("statistics-e2e: real fixtures seeded");
   const appDatabaseUrl = await readOnlyRole();
@@ -652,6 +667,18 @@ try {
       openWorkspace,
       addMember,
     });
+    await qualifyReliabilityUi({
+      page,
+      context,
+      admin,
+      appUrl,
+      main,
+      actorId: actor.id,
+      prefix,
+      checks,
+      snapshot,
+      selectTheme,
+    });
   } else if (scenario === "authorization-recovery") {
     await openWorkspace(page, main.slug);
     await selectTheme(page, "dark");
@@ -810,6 +837,12 @@ try {
     },
     async () => {
       if (!adminConnected || !seeded) return;
+      if (scenario === "followthrough")
+        await cleanupReliabilityFixtures(admin, {
+          prefix,
+          workspaceId: main.id,
+          actorId: actor.id,
+        });
       await admin.query(
         'DELETE FROM "UsageCall" WHERE "workspaceId"=ANY($1::text[])',
         [[main.id, empty.id]],
