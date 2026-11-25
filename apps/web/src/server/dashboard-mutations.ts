@@ -4,7 +4,6 @@ import { githubAppTestTransport } from "./github-app-test-transport";
 import type { Session } from "next-auth";
 import { getServerSession } from "next-auth";
 import { cache } from "react";
-import { z } from "zod";
 import {
   assertWorkspaceAdminAllowed,
   assertWorkspaceMutationAllowed,
@@ -20,7 +19,11 @@ import {
   repositoryPermissionAllowsRepoManagement,
   type DashboardRepositoryCapability,
 } from "./dashboard-access-policy";
-import { getValidGitHubUserAccessToken } from "./github-user-authorization";
+import {
+  getValidGitHubUserAccessToken,
+  readGitHubUserAuthorizationAuthority,
+} from "./github-user-authorization";
+import { readDashboardRepositoryPermissionFacts } from "./dashboard-repository-permission-facts";
 import { updateRepositoryPermissionCacheFromLiveCheck } from "./github-user-repository-access";
 import { getPrisma } from "./prisma";
 import { DashboardMutationRefusedError } from "./dashboard-mutation-errors";
@@ -513,6 +516,13 @@ async function assertRepositoryPermissionForActor(input: {
     throw new Error("repository_mutation_forbidden");
   }
 
+  const authority =
+    input.permissionCacheMode === "read_only"
+      ? null
+      : await readGitHubUserAuthorizationAuthority({
+          prisma: getPrisma(),
+          userId: githubActor.userId,
+        });
   const octokit = await createGitHubAppInstallationOctokit(
     input.repository.installation.githubInstallationId.toString(),
   );
@@ -534,6 +544,7 @@ async function assertRepositoryPermissionForActor(input: {
         await updateRepositoryPermissionCacheFromLiveCheck({
           prisma: getPrisma(),
           actor: githubActor,
+          authority,
           repositoryId: input.repository.id,
           githubInstallationId:
             input.repository.installation.githubInstallationId,
@@ -548,36 +559,11 @@ async function assertRepositoryPermissionForActor(input: {
     throw error;
   }
 
-  // A successful HTTP response needs explicit permission AND identity facts.
-  // An absent, empty or unrecognized permission is not evidence of refusal.
-  const facts = z
-    .object({
-      permission: z.enum([
-        "admin",
-        "maintain",
-        "write",
-        "triage",
-        "read",
-        "none",
-      ]),
-      role_name: z.string().trim().min(1).optional(),
-      user: z.object({
-        id: z.union([
-          z.number().int().positive().refine(Number.isSafeInteger),
-          z.string().regex(/^[1-9][0-9]*$/),
-        ]),
-        login: z.string().trim().min(1),
-      }),
-    })
-    .safeParse(response.data);
-  if (!facts.success) throw new Error("repository_mutation_forbidden");
-  const data = facts.data;
-  // Facts for another principal do not prove this actor's permission decision.
-  if (
-    String(data.user.id) !== githubActor.githubUserId ||
-    data.user.login.toLowerCase() !== githubActor.githubLogin.toLowerCase()
-  )
-    throw new Error("repository_mutation_forbidden");
+  // HTTP success alone does not prove this principal's permission.
+  const data = readDashboardRepositoryPermissionFacts(
+    response.data,
+    githubActor,
+  );
 
   const permission = data.permission;
   const roleName = data.role_name ?? "";
@@ -603,6 +589,7 @@ async function assertRepositoryPermissionForActor(input: {
     await updateRepositoryPermissionCacheFromLiveCheck({
       prisma: getPrisma(),
       actor: githubActor,
+      authority,
       repositoryId: input.repository.id,
       githubInstallationId: input.repository.installation.githubInstallationId,
       permission,

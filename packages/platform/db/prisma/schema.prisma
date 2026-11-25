@@ -326,6 +326,8 @@ model GitHubUserAuthorization {
   userId                String
   githubUserId          BigInt
   appSlug               String
+  revision              Int       @default(0)
+  refreshAttemptId      String?
   encryptedAccessToken  String
   encryptedRefreshToken String?
   accessTokenExpiresAt  DateTime?
@@ -531,6 +533,8 @@ model RepositoryPermissionCache {
   userId               String
   repositoryId         String
   githubInstallationId BigInt
+  authorizationAppSlug String?
+  authorizationRevision Int?
   permission           String?
   roleName             String?
   canManage            Boolean

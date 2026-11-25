@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   getPrisma: vi.fn(),
   getServerSession: vi.fn(),
   getValidGitHubUserAccessToken: vi.fn(),
+  readGitHubUserAuthorizationAuthority: vi.fn(),
   appAuth: vi.fn(),
   octokitRequest: vi.fn(),
   updateRepositoryPermissionCacheFromLiveCheck: vi.fn(),
@@ -65,6 +66,8 @@ vi.mock("./github-user-repository-access", () => ({
 
 vi.mock("./github-user-authorization", () => ({
   getValidGitHubUserAccessToken: mocks.getValidGitHubUserAccessToken,
+  readGitHubUserAuthorizationAuthority:
+    mocks.readGitHubUserAuthorizationAuthority,
 }));
 
 vi.mock("./prisma", () => ({
@@ -115,6 +118,10 @@ describe("dashboard repository mutations", () => {
     mocks.updateRepositoryPermissionCacheFromLiveCheck.mockResolvedValue(
       undefined,
     );
+    mocks.readGitHubUserAuthorizationAuthority.mockResolvedValue({
+      appSlug: "reviewrouter-test",
+      revision: 0,
+    });
     mocks.getValidGitHubUserAccessToken.mockResolvedValue({
       status: "ready",
       accessToken: "ghu_user",

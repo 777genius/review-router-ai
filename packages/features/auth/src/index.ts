@@ -15,5 +15,6 @@ export * from "./infrastructure/prisma/prisma-workspace-membership-repository";
 export * from "./infrastructure/prisma/prisma-workspace-access-repository";
 export * from "./infrastructure/github/token-crypto";
 export * from "./infrastructure/github/github-user-authorization";
+export * from "./infrastructure/github/github-user-authorization-authority";
 export * from "./interface/next/github-profile";
 export * from "./interface/next/gitlab-profile";
