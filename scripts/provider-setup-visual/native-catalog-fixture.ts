@@ -33,6 +33,18 @@ export const VISUAL_NATIVE_DOCUMENT = '{"synthetic_identity":"opaque-value"}';
 export const VISUAL_NATIVE_COMPLETION =
   "opaque-native-completion-without-grammar";
 
+export const visualNativeModel = {
+  modelId: "visual-native-model",
+  reasoning: null,
+  fast: null,
+  tools: { allowed: ["function"], default: "function" },
+};
+export const visualNativeModelPolicy = {
+  sourceId: "visual-new-provider",
+  contract: "native-account-models/v2",
+  unavailableFallback: "qualified_anchor",
+};
+
 export const visualNativeMethods = [
   {
     ...methodBase,
@@ -190,19 +202,8 @@ export function nativeVisualCatalog(
               },
               region: { id: "global", label: "Global" },
               protocol: "openai-responses",
-              models: [
-                {
-                  modelId: "visual-native-model",
-                  reasoning: null,
-                  fast: null,
-                  tools: { allowed: ["function"], default: "function" },
-                },
-              ],
-              modelPolicy: {
-                sourceId: "visual-new-provider",
-                contract: "native-account-models/v2",
-                unavailableFallback: "qualified_anchor",
-              },
+              models: [visualNativeModel],
+              modelPolicy: visualNativeModelPolicy,
               methods: visualNativeMethods,
               accountInfo,
               limitsContract: "unsupported",

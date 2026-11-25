@@ -112,6 +112,8 @@ jobs:
           node scripts/local-checks/compiler-cli.ts --native --noEmit --incremental false -p apps/web/tsconfig.json
           node scripts/local-checks/compiler-cli.ts --native --noEmit --incremental false -p tsconfig.provider-setup-visual.json
           node scripts/local-checks/compiler-cli.ts --native --noEmit --incremental false -p tsconfig.provider-subscriptions-extension.json
+      - name: Qualify native fixture model and metadata authority
+        run: pnpm exec vitest run scripts/provider-setup-visual/native-operations-fixture.test.ts
       - name: Use the primary runtime for the immutable rollback reader
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:

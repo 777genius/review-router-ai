@@ -10,7 +10,10 @@
  */
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
-import { nativeVisualCatalog } from "./native-catalog-fixture.js";
+import {
+  nativeVisualCatalog,
+  VISUAL_NATIVE_PROFILE,
+} from "./native-catalog-fixture.js";
 import {
   createNativeVisibilityFixture,
   type NativeVisibilityFixture,
@@ -139,6 +142,7 @@ export async function startGatewayCatalogFixture(
         metadataRevision: 1,
         authorizationEpoch: 1,
       }));
+    const metadataRows = [...accountRows, ...nativeOperations.accounts()];
     if (
       options.accountMetadata &&
       request.method === "POST" &&
@@ -156,7 +160,7 @@ export async function startGatewayCatalogFixture(
           input.accountRefs.length > 50 ||
           input.accountRefs.some(
             (ref) =>
-              !accountRows.some(
+              !metadataRows.some(
                 (row) =>
                   row.accountRef === ref && row.ownerRef === input.ownerRef,
               ),
@@ -174,35 +178,41 @@ export async function startGatewayCatalogFixture(
           contract: path.startsWith("/v2/")
             ? "account-info/v2"
             : "account-info/v1",
-          accounts: input.accountRefs.map((accountRef) => ({
-            accountRef,
-            metadataRevision: 1,
-            authorizationEpoch: 1,
-            info:
-              accountRef === VISUAL_CONNECTIONS.lockedOrg.gatewayAccountRef
-                ? { status: "unsupported" }
-                : {
-                    status: "available",
-                    infoRevision: "visual-native-info-1",
-                    fields: {
-                      email: known(
-                        "review-team-with-a-deliberately-long-account-name@example.invalid",
-                      ),
-                      accountLabel: { status: "unknown" },
-                      subscription: known({
-                        code: "team",
-                        label:
-                          "Team annual subscription with extended native account details",
-                        scope: "organization",
-                        endsAt: { kind: "date", value: "2026-12-31" },
-                      }),
-                      credentialExpiresAt: known("2026-11-30T23:00:00Z"),
-                      ...(path.startsWith("/v2/")
-                        ? { trainingUsage: known("disabled", "stale") }
-                        : { privacyMode: { status: "unsupported" } }),
+          accounts: input.accountRefs.map((accountRef) => {
+            const account = metadataRows.find(
+              (row) => row.accountRef === accountRef,
+            )!;
+            return {
+              accountRef,
+              metadataRevision: account.metadataRevision,
+              authorizationEpoch: account.authorizationEpoch,
+              info:
+                account.profileId === VISUAL_NATIVE_PROFILE ||
+                accountRef === VISUAL_CONNECTIONS.lockedOrg.gatewayAccountRef
+                  ? { status: "unsupported" }
+                  : {
+                      status: "available",
+                      infoRevision: "visual-native-info-1",
+                      fields: {
+                        email: known(
+                          "review-team-with-a-deliberately-long-account-name@example.invalid",
+                        ),
+                        accountLabel: { status: "unknown" },
+                        subscription: known({
+                          code: "team",
+                          label:
+                            "Team annual subscription with extended native account details",
+                          scope: "organization",
+                          endsAt: { kind: "date", value: "2026-12-31" },
+                        }),
+                        credentialExpiresAt: known("2026-11-30T23:00:00Z"),
+                        ...(path.startsWith("/v2/")
+                          ? { trainingUsage: known("disabled", "stale") }
+                          : { privacyMode: { status: "unsupported" } }),
+                      },
                     },
-                  },
-          })),
+            };
+          }),
         });
       } catch {
         return send(400, { error: "invalid_metadata_request" });

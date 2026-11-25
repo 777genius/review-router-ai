@@ -1,10 +1,13 @@
 import type { IncomingMessage } from "node:http";
+import * as c from "@agent-teams/account-gateway/contracts";
 import {
   VISUAL_NATIVE_COMPLETION,
   VISUAL_NATIVE_DOCUMENT,
   VISUAL_NATIVE_PROFILE,
   VISUAL_NATIVE_SECRET,
   visualNativeMethods,
+  visualNativeModel,
+  visualNativeModelPolicy,
 } from "./native-catalog-fixture.js";
 
 type Account = {
@@ -82,6 +85,43 @@ export function createNativeOperationsFixture() {
       path: string,
       send: (status: number, body: unknown) => void,
     ): Promise<boolean> {
+      if (request.method === "POST" && path === "/v2/account-models/read") {
+        let input: c.AccountModelsRequest;
+        try {
+          let raw = "";
+          for await (const chunk of request) raw += String(chunk);
+          input = c.accountModelsRequest.parse(JSON.parse(raw));
+        } catch {
+          send(400, { error: "invalid_models_request" });
+          return true;
+        }
+        const account = accounts.get(input.accountRef);
+        if (
+          !account ||
+          account.ownerRef !== input.ownerRef ||
+          account.profileId !== input.profileId ||
+          account.authorizationEpoch !== input.expectedAuthorizationEpoch
+        ) {
+          send(403, { error: "binding_unavailable" });
+          return true;
+        }
+        const now = Date.now();
+        const identity = `${account.accountRef}-${account.authorizationEpoch}`;
+        send(200, {
+          status: "snapshot",
+          sourceId: visualNativeModelPolicy.sourceId,
+          profileId: account.profileId,
+          physicalGeneration: `visual-native-physical-${identity}`,
+          principalVersion: `visual-native-principal-${identity}`,
+          fetchedAt: new Date(now).toISOString(),
+          expiresAt: new Date(now + 300_000).toISOString(),
+          admission: {
+            unavailableFallback: visualNativeModelPolicy.unavailableFallback,
+          },
+          models: [visualNativeModel],
+        });
+        return true;
+      }
       if (request.method === "GET" && path.startsWith("/v3/operations/")) {
         const receipt = receipts.get(
           decodeURIComponent(path.slice("/v3/operations/".length)),
