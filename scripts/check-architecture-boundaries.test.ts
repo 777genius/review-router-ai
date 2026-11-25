@@ -1,9 +1,11 @@
 import { execFileSync } from "node:child_process";
 import {
+  copyFileSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,6 +19,375 @@ afterEach(() => {
   for (const root of fixtureRoots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+describe("architecture checker syntax and path regressions", () => {
+  it.each([
+    [
+      "commented static import",
+      'import/* reviewed */ { PrismaClient } from "@prisma/client";',
+    ],
+    [
+      "commented dynamic import",
+      'void import(/* reviewed */ "@prisma/client");',
+    ],
+    ["static template import", "void import(`@prisma/client`);"],
+    [
+      "escaped module string",
+      'import { PrismaClient } from "@prisma/\\u0063lient";',
+    ],
+    [
+      "commented re-export",
+      'export/* reviewed */ { PrismaClient } from "@prisma/client";',
+    ],
+    [
+      "commented import type",
+      'type Client = import(/* reviewed */ "@prisma/client").PrismaClient;',
+    ],
+  ])("rejects a forbidden target in a %s", (_name, source) => {
+    const root = createFixture(source);
+    expect(() => runChecker(root)).toThrow(
+      /Prisma is an infrastructure adapter/,
+    );
+  });
+
+  it.each([
+    '// import { PrismaClient } from "@prisma/client";\nexport type Local = string;',
+    "export const example = 'import(\"@prisma/client\")';",
+  ])("ignores import examples in comments and strings", (source) => {
+    expect(runChecker(createFixture(source))).toContain(
+      "Architecture boundary check passed",
+    );
+  });
+
+  it.each([
+    'import/* reviewed */ type { Adapter } from "../infrastructure/adapter.js";',
+    'export/* reviewed */ type { Adapter } from "../infrastructure/adapter.js";',
+  ])("rejects commented imports across a strict layer", (source) => {
+    expect(() => runChecker(createFixture(source))).toThrow(
+      /strict domain code may depend only on its own domain/,
+    );
+  });
+
+  it("rejects commented imports from another strict context", () => {
+    const root = createFixture(
+      'import/* reviewed */ type { Foreign } from "@reviewrouter/features-review-evidence";',
+    );
+    expect(() => runChecker(root)).toThrow(
+      /strict review contexts communicate through consuming ports/,
+    );
+  });
+
+  it("rejects unknown imports only where the strict allowlist requires a known dependency", () => {
+    const root = createFixture("export type Local = string;");
+    writeFile(
+      root,
+      "packages/features/legacy/src/application/loader.ts",
+      "export const load = (target: string) => import(target);",
+    );
+    expect(runChecker(root)).toContain("Architecture boundary check passed");
+    writeFile(
+      root,
+      "packages/features/review-investigations/src/domain/loader.ts",
+      "export const load = (target: string) => import(target);",
+    );
+    expect(() => runChecker(root)).toThrow(
+      /strict domain\/application code cannot import/,
+    );
+  });
+
+  it("parses TSX by its actual filename when tracing a selected public root", () => {
+    const root = compositionFixture("audit-log");
+    writeFile(
+      root,
+      "packages/features/audit-log/src/index.ts",
+      'export * from "./application/view.js";',
+    );
+    writeFile(
+      root,
+      "packages/features/audit-log/src/application/view.tsx",
+      'export const view = <span>import("@prisma/client")</span>;',
+    );
+    expect(runChecker(root)).toContain("Architecture boundary check passed");
+    writeFile(
+      root,
+      "packages/features/audit-log/src/application/view.tsx",
+      'export const view = <span />;\nexport/* reviewed */ { Adapter } from "../composition/index.js";',
+    );
+    expect(() => runChecker(root)).toThrow(
+      /application root cannot expose composition/,
+    );
+  });
+
+  it("keeps static imports, re-exports and dynamic import diagnostics in their established order", () => {
+    const root = createFixture(
+      'void import("next");\nexport { fastify } from "fastify";\nimport { PrismaClient } from "@prisma/client";',
+    );
+    expect(() => runChecker(root)).toThrow(
+      /imports @prisma\/client[\s\S]*imports fastify[\s\S]*imports next/,
+    );
+  });
+
+  it("resolves valid relative imports under an escaped checkout path", () => {
+    const root = createFixture(
+      'import type { Item } from "./item.js";\nexport type Local = Item;',
+      "reviewrouter architecture #é%-",
+    );
+    writeFile(
+      root,
+      "packages/features/review-investigations/src/domain/item.ts",
+      "export type Item = string;",
+    );
+    expect(runChecker(root)).toContain("passed for 2 domain/application files");
+  });
+
+  it("checks the real default root when the CLI path needs URL decoding", () => {
+    const root = createFixture(
+      'import { PrismaClient } from "@prisma/client";',
+      "reviewrouter architecture #é%-",
+    );
+    mkdirSync(join(root, "scripts"));
+    const localChecker = join(
+      root,
+      "scripts/check-architecture-boundaries.mjs",
+    );
+    copyFileSync(checker, localChecker);
+    symlinkSync(
+      resolve("scripts/architecture-boundaries"),
+      join(root, "scripts/architecture-boundaries"),
+      "dir",
+    );
+    const env = { ...process.env };
+    delete env.REVIEWROUTER_ARCHITECTURE_ROOT;
+    expect(() =>
+      execFileSync(process.execPath, [localChecker], {
+        cwd: root,
+        encoding: "utf8",
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+    ).toThrow(/Prisma is an infrastructure adapter/);
+  });
+});
+
+describe("transaction reference regressions", () => {
+  it.each([
+    [
+      "query variables inside an array",
+      "async function load(db: Prisma.TransactionClient) { const first = db.first(); const second = db.second(); return Promise.all([first, second]); }",
+    ],
+    [
+      "query variables inside an aliased array",
+      "async function load(db: Prisma.TransactionClient) { const first = db.first(); const second = db.second(); const queries = [first, second]; return Promise.all(queries); }",
+    ],
+    [
+      "asserted client alias",
+      "async function load(db: Prisma.TransactionClient) { const alias = db as Prisma.TransactionClient; return Promise.all([alias.first(), alias.second()]); }",
+    ],
+    [
+      "satisfies client alias",
+      "async function load(db: Prisma.TransactionClient) { const alias = (db satisfies Prisma.TransactionClient); return Promise.all([alias.first(), alias.second()]); }",
+    ],
+    [
+      "parenthesized callback",
+      "prisma.$transaction((async db => Promise.all([db.first(), db.second()])));",
+    ],
+    [
+      "renamed callback",
+      "const operation = async db => Promise.all([db.first(), db.second()]); const run = operation; prisma.$transaction(run);",
+    ],
+    [
+      "direct object method callback",
+      "const methods = { execute(db: Db) { return Promise.all([db.first(), db.second()]); } }; prisma.$transaction(methods.execute);",
+    ],
+    [
+      "direct static method callback",
+      "class Queries { static execute(db: Db) { return Promise.all([db.first(), db.second()]); } } prisma.$transaction(Queries.execute);",
+    ],
+    [
+      "outer query array with a shadowing nested binding",
+      "async function load(db: Prisma.TransactionClient) { const queries = [db.first(), db.second()]; const unrelated = () => { const queries = []; return queries; }; return Promise.all(queries); }",
+    ],
+    [
+      "outer query array with a shadowing block binding",
+      "async function load(db: Prisma.TransactionClient) { const queries = [db.first(), db.second()]; { const queries = []; consume(queries); } return Promise.all(queries); }",
+    ],
+    [
+      "captured transaction inside a nested callback",
+      "async function load(db: Prisma.TransactionClient) { return withMetrics(async () => Promise.all([db.first(), db.second()])); }",
+    ],
+    [
+      "captured query helper references",
+      "async function load(db: Prisma.TransactionClient) { const first = () => db.first(); const second = () => db.second(); return Promise.all([first(), second()]); }",
+    ],
+    [
+      "async query helper references",
+      "async function load(db: Prisma.TransactionClient) { const first = async () => await db.first(); const second = async () => await db.second(); return Promise.all([first(), second()]); }",
+    ],
+    [
+      "parameter with a no-op var redeclaration",
+      "async function load(db: Prisma.TransactionClient) { var db; return Promise.all([db.first(), db.second()]); }",
+    ],
+    [
+      "client alias with a no-op var redeclaration",
+      "async function load(db: Prisma.TransactionClient) { var alias = db; var alias; return Promise.all([alias.first(), alias.second()]); }",
+    ],
+  ])("rejects an unsafe %s", (_name, source) => {
+    const root = createFixture("export type Local = string;");
+    writeFile(root, "apps/api/src/store.ts", source);
+    expect(() => runChecker(root)).toThrow(
+      /Prisma interactive transaction clients use one database connection/,
+    );
+  });
+
+  it.each([
+    [
+      "a property key named transaction",
+      'async function load(transaction: Prisma.TransactionClient) { const results = [{ transaction: "metadata" }]; return Promise.all(results); }',
+    ],
+    [
+      "a noncomputed member name",
+      "async function load(transaction: Prisma.TransactionClient) { return Promise.all([metadata.transaction(), other.transaction()]); }",
+    ],
+    [
+      "a nested pooled-client parameter",
+      "async function load(db: Prisma.TransactionClient) { const batch = async (db: Pool) => Promise.all([db.first(), db.second()]); return batch(pool); }",
+    ],
+    [
+      "a block-local pooled-client binding",
+      "async function load(db: Prisma.TransactionClient) { { const db = pool; await Promise.all([db.first(), db.second()]); } return db.first(); }",
+    ],
+    [
+      "an unrelated callback with the same name",
+      "const execute = async (db: Pool) => Promise.all([db.first(), db.second()]); function load(prisma: Prisma) { const execute = async (db: Db) => db.first(); return prisma.$transaction(execute); }",
+    ],
+    [
+      "a different object method with the same name",
+      "const pooled = { execute: async (db: Pool) => Promise.all([db.first(), db.second()]) }; const transactional = { execute: async db => db.first() }; prisma.$transaction(transactional.execute);",
+    ],
+    [
+      "already awaited query values",
+      "async function load(db: Prisma.TransactionClient) { const first = await db.first(); const second = await db.second(); return Promise.all([first, second]); }",
+    ],
+    [
+      "sequential awaits in an array",
+      "async function load(db: Prisma.TransactionClient) { return Promise.all([await db.first(), await db.second()]); }",
+    ],
+    [
+      "uncalled query helpers stored as values",
+      "async function load(db: Prisma.TransactionClient) { const first = () => db.first(); const second = () => db.second(); return Promise.all([first, second]); }",
+    ],
+    [
+      "an unselected object query method",
+      "async function load(db: Prisma.TransactionClient) { const methods = { query: () => db.first(), ready: () => Promise.resolve(1) }; return Promise.all([methods.ready()]); }",
+    ],
+    [
+      "a captured already awaited value",
+      "async function load(db: Prisma.TransactionClient) { const first = await db.first(); const completed = () => first; return Promise.all([completed()]); }",
+    ],
+  ])(
+    "accepts %s without attributing pooled or completed work to a transaction",
+    (_name, source) => {
+      const root = createFixture("export type Local = string;");
+      writeFile(root, "apps/api/src/store.ts", source);
+      expect(runChecker(root)).toContain("Architecture boundary check passed");
+    },
+  );
+});
+
+describe("strict public export target regressions", () => {
+  it.each([
+    [
+      ".",
+      {
+        types: "./src/infrastructure/store.ts",
+        production: "./dist/infrastructure/store.js",
+        default: "./src/infrastructure/store.ts",
+      },
+    ],
+    [
+      "./composition",
+      {
+        types: "./src/composition/index.ts",
+        default: "./src/composition/index.ts",
+      },
+    ],
+    [
+      "./testing",
+      {
+        types: "./src/testing/index.ts",
+        production: "./dist/testing/index.js",
+        default: "./src/infrastructure/store.ts",
+      },
+    ],
+    [
+      "./contract-source",
+      {
+        types: "./src/contract-source/index.ts",
+        production: "./dist/contract-source/index.js",
+        default: "./src/contract-source/index.ts",
+        browser: "./src/infrastructure/store.ts",
+      },
+    ],
+    [".", null],
+    ["./composition", ["./src/composition/index.ts"]],
+    [
+      ".",
+      {
+        default: "./src/index.ts",
+        types: "./src/index.ts",
+        production: "./dist/index.js",
+      },
+    ],
+  ])(
+    "rejects redirected or malformed strict export %s",
+    (subpath, conditions) => {
+      const root = createFixture("export type Local = string;");
+      const path = "packages/features/review-investigations/package.json";
+      const manifest = JSON.parse(readFileSync(join(root, path), "utf8"));
+      manifest.exports[subpath] = conditions;
+      writeFile(root, path, JSON.stringify(manifest));
+      expect(() => runChecker(root)).toThrow(/review-investigations.*export/);
+    },
+  );
+
+  it("keeps the legacy root compatible while enforcing exact v2 facade targets", () => {
+    const root = createFixture("export type Local = string;");
+    const path = "packages/features/review-publishing/package.json";
+    const exports = {
+      ".": { default: "./legacy-entry.js" },
+      "./v2": {
+        types: "./src/v2/index.ts",
+        production: "./dist/v2/index.js",
+        default: "./src/v2/index.ts",
+      },
+      "./v2/composition": {
+        types: "./src/v2/composition/index.ts",
+        production: "./dist/v2/composition/index.js",
+        default: "./src/v2/composition/index.ts",
+      },
+      "./v2/testing": {
+        types: "./src/v2/testing/index.ts",
+        production: "./dist/v2/testing/index.js",
+        default: "./src/v2/testing/index.ts",
+      },
+      "./v2/contract-source": {
+        types: "./src/v2/contract-source/index.ts",
+        production: "./dist/v2/contract-source/index.js",
+        default: "./src/v2/contract-source/index.ts",
+      },
+    };
+    writeFile(root, path, JSON.stringify({ exports }));
+    writeFile(
+      root,
+      "packages/features/review-publishing/src/v2/index.ts",
+      "export {};",
+    );
+    expect(runChecker(root)).toContain("Architecture boundary check passed");
+    exports["./v2"].production = "./dist/infrastructure/store.js";
+    writeFile(root, path, JSON.stringify({ exports }));
+    expect(() => runChecker(root)).toThrow(/review-publishing.*export/);
+  });
 });
 
 describe("account metadata host seams", () => {
@@ -938,18 +1309,37 @@ function compositionFixture(feature: string): string {
   return root;
 }
 
-function createFixture(domainSource: string): string {
-  const root = mkdtempSync(join(tmpdir(), "reviewrouter-architecture-"));
+function createFixture(
+  domainSource: string,
+  prefix = "reviewrouter-architecture-",
+): string {
+  const root = mkdtempSync(join(tmpdir(), prefix));
   fixtureRoots.push(root);
   writeFile(
     root,
     "packages/features/review-investigations/package.json",
     JSON.stringify({
       exports: {
-        ".": {},
-        "./composition": {},
-        "./contract-source": {},
-        "./testing": {},
+        ".": {
+          types: "./src/index.ts",
+          production: "./dist/index.js",
+          default: "./src/index.ts",
+        },
+        "./composition": {
+          types: "./src/composition/index.ts",
+          production: "./dist/composition/index.js",
+          default: "./src/composition/index.ts",
+        },
+        "./contract-source": {
+          types: "./src/contract-source/index.ts",
+          production: "./dist/contract-source/index.js",
+          default: "./src/contract-source/index.ts",
+        },
+        "./testing": {
+          types: "./src/testing/index.ts",
+          production: "./dist/testing/index.js",
+          default: "./src/testing/index.ts",
+        },
       },
     }),
   );

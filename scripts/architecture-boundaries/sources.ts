@@ -1,5 +1,11 @@
 import { readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
+import {
+  collectModuleImportSpecifiers,
+  isSyntaxNode,
+  parseSourceAst,
+  walkSourceAst,
+} from "../lib/module-import-specifiers.ts";
 
 const allowedLayerSegments = new Set(["domain", "application"]);
 const architecturalLayerSegments = new Set([
@@ -65,24 +71,53 @@ function isDomainOrApplicationFile(
   return layer !== undefined && allowedLayerSegments.has(layer);
 }
 
-export function extractImportSpecifiers(source: string): ReadonlySet<string> {
-  const specifiers = new Set<string>();
-  const patterns = [
-    /\bimport\s+(?:type\s+)?(?:[^'";]+?\s+from\s+)?["']([^"']+)["']/g,
-    /\bexport\s+(?:type\s+)?[^'";]+?\s+from\s+["']([^"']+)["']/g,
-    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
-    /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g,
+export function extractImportSpecifiers(
+  source: string,
+  filename: string,
+): ReadonlySet<string> {
+  const parsed = parseSourceAst(filename, source);
+  // Retain the established diagnostic groups: imports, re-exports, dynamic
+  // imports/import types, then require. Within each group keep source order.
+  const groups = [
+    new Set<string>(),
+    new Set<string>(),
+    new Set<string>(),
+    new Set<string>(),
   ];
-
-  for (const pattern of patterns) {
-    for (const match of source.matchAll(pattern)) {
-      const value = match[1]?.trim();
-      if (value) {
-        specifiers.add(value);
-      }
+  walkSourceAst(parsed.root, (node) => {
+    let group: Set<string> | undefined;
+    if (node.type === "ImportDeclaration") group = groups[0];
+    else if (
+      (node.type === "ExportNamedDeclaration" ||
+        node.type === "ExportAllDeclaration") &&
+      node.source
+    )
+      group = groups[1];
+    else if (node.type === "ImportExpression" || node.type === "TSImportType")
+      group = groups[2];
+    else if (node.type === "TSImportEqualsDeclaration") group = groups[3];
+    else if (node.type === "CallExpression" && isSyntaxNode(node.callee)) {
+      if (node.callee.type === "Import") group = groups[2];
+      else if (
+        node.callee.type === "Identifier" &&
+        node.callee.name === "require"
+      )
+        group = groups[3];
     }
-  }
-
+    if (!group) return;
+    for (const imported of collectModuleImportSpecifiers({
+      ...parsed,
+      root: node,
+      errors: [],
+    }))
+      group.add(imported);
+  });
+  const specifiers = new Set<string>();
+  for (const group of groups)
+    for (const imported of group) specifiers.add(imported);
+  // Allowlist policies reject unknown imports; target-specific policies retain
+  // their bounded scope rather than inventing a target for a computed import.
+  if (parsed.errors.length > 0) specifiers.add("computed module import");
   return specifiers;
 }
 

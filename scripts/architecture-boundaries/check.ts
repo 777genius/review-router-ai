@@ -66,7 +66,7 @@ export async function checkArchitectureBoundaries(
 
   for (const file of files) {
     const source = readFileSync(file, "utf8");
-    for (const imported of extractImportSpecifiers(source)) {
+    for (const imported of extractImportSpecifiers(source, file)) {
       const match = forbiddenImports.find((item) =>
         item.pattern.test(imported),
       );

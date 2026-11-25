@@ -2,11 +2,12 @@
 // Preserve the established subprocess entrypoint; policy implementation is strict TypeScript.
 import { writeSync } from "node:fs";
 import { relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { checkArchitectureBoundaries } from "./architecture-boundaries/check.ts";
 
 const root = process.env.REVIEWROUTER_ARCHITECTURE_ROOT
   ? resolve(process.env.REVIEWROUTER_ARCHITECTURE_ROOT)
-  : new URL("..", import.meta.url).pathname.replace(/\/$/, "");
+  : fileURLToPath(new URL("..", import.meta.url));
 
 const { checkedFiles, violations } = await checkArchitectureBoundaries(root);
 
