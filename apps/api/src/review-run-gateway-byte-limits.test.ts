@@ -5586,3 +5586,168 @@ it("shutdown clears timers for additional allocations restored during cleanup", 
     vi.useRealTimers();
   }
 });
+
+it("bounds concurrent authorization reads at simultaneous session deadlines", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  const f = await fixture(MiB, 0, 8);
+  const original = f.queries.findReviewRunAuthorizationById;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let active = 0;
+  let peak = 0;
+  try {
+    for (let i = 0; i < 8; i++) await streamRun(f, `authorization-${i}`);
+    vi.spyOn(f.queries, "findReviewRunAuthorizationById").mockImplementation(
+      async (id) => {
+        active++;
+        peak = Math.max(peak, active);
+        try {
+          await gate;
+          return await original(id);
+        } finally {
+          active--;
+        }
+      },
+    );
+    await vi.advanceTimersByTimeAsync(120_001);
+    expect(peak).toBe(2);
+    expect(f.requestModels).toHaveLength(8);
+  } finally {
+    release();
+    vi.restoreAllMocks();
+    await f.relay.shutdown();
+    vi.useRealTimers();
+  }
+});
+
+it("shutdown waits for a close restoring its first session", async () => {
+  const f = await fixture(
+    32768,
+    0,
+    1,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    {
+      models: ["gpt-5.6-sol"],
+      independentAllocations: true,
+    },
+  );
+  const restored = f.restartRelay(1);
+  const originalRead = f.queries.findReviewRunAuthorizationById;
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  try {
+    await streamRun(f, "authorization-1", "reviewer-0");
+    f.setCloseState("unknown");
+    vi.spyOn(
+      f.queries,
+      "findReviewRunAuthorizationById",
+    ).mockImplementationOnce(async (id) => {
+      entered();
+      await held;
+      return originalRead(id);
+    });
+    const close = restored.closeRun("authorization-1", "completed");
+    await started;
+    let stopped = false;
+    const shutdown = restored.shutdown().then(() => {
+      stopped = true;
+    });
+    await setImmediate();
+    expect(stopped).toBe(false);
+    release();
+    await Promise.allSettled([close, shutdown]);
+    expect(stopped).toBe(true);
+    expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Revoked);
+    expect(f.requestModels).toHaveLength(1);
+    expect(new Set(f.nativeCloses).size).toBe(1);
+  } finally {
+    release();
+    vi.restoreAllMocks();
+    await restored.shutdown();
+    await f.relay.shutdown();
+  }
+});
+
+it("bounds simultaneous closes without retained sessions and reports unknown overflow", async () => {
+  const f = await fixture(MiB, 0, 1);
+  const restored = f.restartRelay(1, 1);
+  const originalRead = f.queries.findReviewRunAuthorizationById;
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let first: ReturnType<typeof restored.closeRun> | undefined;
+  let second: ReturnType<typeof restored.closeRun> | undefined;
+  try {
+    vi.spyOn(
+      f.queries,
+      "findReviewRunAuthorizationById",
+    ).mockImplementationOnce(async (id) => {
+      entered();
+      await held;
+      return originalRead(id);
+    });
+    first = restored.closeRun("authorization-1", "completed");
+    await started;
+    second = restored.closeRun("authorization-2", "completed");
+    const outcome = await Promise.race([second, setImmediate("queued")]);
+    expect(outcome).toEqual({ state: "unknown" });
+  } finally {
+    release();
+    await Promise.allSettled([first, second]);
+    vi.restoreAllMocks();
+    await restored.shutdown();
+    await f.relay.shutdown();
+  }
+});
+
+it("drains more retained sessions than cleanup slots during shutdown", async () => {
+  const f = await fixture(MiB, 0, 4);
+  const ids = Array.from(
+    { length: 4 },
+    (_, index) => `authorization-${index + 1}`,
+  );
+  let gate: ReturnType<typeof f.holdClose> | undefined;
+  let first: ReturnType<typeof f.relay.closeRun> | undefined;
+  let shutdown: ReturnType<typeof f.relay.shutdown> | undefined;
+  try {
+    for (const id of ids) await streamRun(f, id);
+    gate = f.holdClose();
+    first = f.relay.closeRun(ids[0]!, "cancelled");
+    void first.catch(() => {});
+    await gate.started;
+    shutdown = f.relay.shutdown();
+    await vi.waitFor(() => {
+      expect(f.nativeCloses).toHaveLength(f.relay.policy.maxInFlight);
+      for (const id of ids)
+        expect(f.authorization(id).state).toBe(
+          ReviewRunAuthorizationState.Revoked,
+        );
+    });
+    gate.release();
+    await Promise.all([first, shutdown]);
+    expect(f.nativeCloses).toHaveLength(ids.length);
+    expect(new Set(f.nativeCloses)).toEqual(new Set(f.nativeExecutions.keys()));
+    expect([...f.nativeExecutions.values()]).toEqual(ids.map(() => "closed"));
+  } finally {
+    gate?.release();
+    await Promise.allSettled([first, shutdown]);
+    await f.relay.shutdown();
+  }
+});
