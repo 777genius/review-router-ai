@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import type { DashboardWorkspace } from "./dashboard-workspace-navigation";
 import { OrgRulesetAdvancedCard } from "./dashboard-org-ruleset-card";
 
@@ -11,9 +11,6 @@ vi.mock("./dashboard-action-form", () => ({
   DashboardActionForm: ({ children }: { readonly children: ReactNode }) => (
     <form>{children}</form>
   ),
-}));
-vi.mock("../form-submit-button", () => ({
-  FormSubmitButton: () => <button type="submit">Enable ruleset</button>,
 }));
 vi.mock("../github-app-install-permission-dialog", () => ({
   GitHubAppInstallPermissionDialog: ({
@@ -30,22 +27,52 @@ const baseProps = {
   permissionUpgradeNeeded: false,
 } as const;
 
-function workspace(accountType?: "Organization" | "User", planName?: string): DashboardWorkspace {
+type CardProps = ComponentProps<typeof OrgRulesetAdvancedCard>;
+
+function workspace(
+  accountType?: "Organization" | "User",
+  planName?: string,
+  status = "active",
+): DashboardWorkspace {
   return {
     id: "workspace-1",
     name: "Example",
+    slug: "example",
+    gitLabInstallations: [],
+    auditEvents: [],
     installations: accountType
-      ? [{
-          accountType,
-          accountLogin: "example-org",
-          githubInstallationId: "123",
-          status: "active",
-          organizationSecretPolicy: planName
-            ? { planName }
-            : null,
-        }]
+      ? [
+          {
+            accountType,
+            accountLogin: "example-org",
+            githubInstallationId: "123",
+            accountAvatarUrl: null,
+            repositorySelection: "selected",
+            status,
+            organizationSecretPolicy: planName
+              ? {
+                  planName,
+                  privateRepositoriesAvailable: planName !== "free",
+                  status: "available",
+                }
+              : null,
+          },
+        ]
       : [],
-  } as unknown as DashboardWorkspace;
+  };
+}
+
+function ruleset(
+  overrides: Partial<NonNullable<CardProps["orgRuleset"]>> = {},
+): NonNullable<CardProps["orgRuleset"]> {
+  return {
+    status: "configured",
+    scope: "selected_repositories",
+    enforcement: "evaluate",
+    safeErrorCode: null,
+    rulesetUrl: null,
+    ...overrides,
+  };
 }
 
 describe("organization ruleset settings extraction", () => {
@@ -79,7 +106,26 @@ describe("organization ruleset settings extraction", () => {
     );
     expect(html).toContain("Repository scope");
     expect(html).toContain("Ruleset enforcement");
-    expect(html).toContain("Enable ruleset");
+    expect(html).toContain("Enable org-wide");
     expect(html).toContain("Use setup PR fallback");
+  });
+  it.each<Partial<CardProps>>([
+    { mutationsEnabled: false },
+    { workspace: workspace("Organization", "team", "suspended") },
+    { orgRuleset: ruleset({ status: "processing" }) },
+    { orgRuleset: ruleset({ safeErrorCode: "org_rulesets_not_supported" }) },
+  ])("preserves the submission guard for %j", (overrides) => {
+    const html = renderToStaticMarkup(
+      <OrgRulesetAdvancedCard
+        {...baseProps}
+        workspace={workspace("Organization", "team")}
+        {...overrides}
+      />,
+    );
+    expect(html).toMatch(
+      /<button(?=[^>]*type="submit")(?=[^>]*disabled="")[^>]*>/,
+    );
+    expect(html).toContain('name="workspaceId" value="workspace-1"');
+    expect(html).toContain('name="githubInstallationId" value="123"');
   });
 });

@@ -76,9 +76,7 @@ import {
   listWorkspaceOutboxFailures,
   PrismaOutboxEventRepository,
 } from "@reviewrouter/features-outbox";
-import {
-  PrismaOrgRulesetProvisioningRepository,
-} from "@reviewrouter/features-org-ruleset-provisioning";
+import { PrismaOrgRulesetProvisioningRepository } from "@reviewrouter/features-org-ruleset-provisioning";
 import {
   listRepositoryWorkflowProvisioning,
   projectRepositorySetupStatus,
@@ -172,7 +170,6 @@ import {
   type ReviewModelOption,
 } from "../../src/server/openrouter-model-catalog";
 import { FormSubmitButton } from "../form-submit-button";
-import { GitHubAppInstallPermissionDialog } from "../github-app-install-permission-dialog";
 import { GitHubAccountAvatar } from "../github-account-avatar";
 import { GitHubSignInButton } from "../github-sign-in-button";
 import { ActionToast } from "../action-toast";
@@ -2996,7 +2993,6 @@ function repositorySettingsOverrides(
   void _providers;
   return settings;
 }
-
 
 function outboxFailureHeadline(lastErrorCode: string | null): string {
   switch (lastErrorCode) {

@@ -1,7 +1,7 @@
 import { Badge, LinkButton, SelectField } from "@reviewrouter/ui";
 import {
   defaultOrgRulesetSourceRepositoryName,
-  type PrismaOrgRulesetProvisioningRepository,
+  type OrgRulesetProvisioningRecord,
 } from "@reviewrouter/features-org-ruleset-provisioning";
 import {
   dashboardWorkspaceUrlKey,
@@ -28,11 +28,10 @@ export function OrgRulesetAdvancedCard({
   permissionUpgradeNeeded,
 }: {
   readonly workspace: DashboardWorkspace;
-  readonly orgRuleset:
-    | Awaited<
-        ReturnType<PrismaOrgRulesetProvisioningRepository["findByWorkspaceId"]>
-      >
-    | null;
+  readonly orgRuleset: Pick<
+    OrgRulesetProvisioningRecord,
+    "scope" | "enforcement" | "status" | "safeErrorCode" | "rulesetUrl"
+  > | null;
   readonly mutationsEnabled: boolean;
   readonly appInstallUrl: string | null;
   readonly permissionUpgradeNeeded: boolean;

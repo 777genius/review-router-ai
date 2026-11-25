@@ -113,7 +113,6 @@ import {
   inspectCodexRotatingWorkflowNamespace,
   inspectCodexRotatingSetupReadiness,
   type CodexRotatingWorkflowNamespaceInspection,
-  type ProviderSecretScope,
 } from "@reviewrouter/features-provider-setup";
 import { PostgresLeaseLock } from "@reviewrouter/platform-locks";
 import {
@@ -178,7 +177,7 @@ import {
   assertRepositoryVisibleToGitHubApp,
   assertOrgRulesetOrganizationPlanAllowed,
   githubApiStatus,
-} from "./dashboard-github-verification";
+} from "./dashboard-github-verification.ts";
 import {
   changeHostedPoolAccountState,
   changeHostedRepositorySessionSource,
@@ -3244,7 +3243,6 @@ async function retryOutboxEventMutation(
   return params;
 }
 
-
 type GitHubBranchRequester = {
   request: (
     route: string,
@@ -3288,7 +3286,6 @@ async function dashboardBranchExists(
     throw error;
   }
 }
-
 
 async function loadResolvedReviewRuntime(input: {
   readonly prisma: PrismaClient;

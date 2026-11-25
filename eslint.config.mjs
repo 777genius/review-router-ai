@@ -9,9 +9,9 @@ const webMaxLines = 600;
 const webMaxLinesCeilings = {
   "apps/web/app/dashboard/account-gateway-account-controls.tsx": 3135,
   "apps/web/app/dashboard/account-lifecycle-controls.tsx": 812,
-  "apps/web/app/dashboard/actions.ts": 3949,
+  "apps/web/app/dashboard/actions.ts": 3640,
   "apps/web/app/dashboard/dashboard-copy.ts": 921,
-  "apps/web/app/dashboard/dashboard-workspace-page.tsx": 3509,
+  "apps/web/app/dashboard/dashboard-workspace-page.tsx": 3236,
   "apps/web/app/dashboard/personal-account-controls.tsx": 1869,
   "apps/web/app/dashboard/provider-setup-actions.ts": 1020,
   "apps/web/app/dashboard/provider-setup/gateway-reviewer-roster.tsx": 898,

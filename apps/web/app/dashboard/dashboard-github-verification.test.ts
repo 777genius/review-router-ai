@@ -86,7 +86,9 @@ describe("dashboard GitHub verification", () => {
     expect(await checkProviderSecretAvailability(createInput(denied))).toEqual({
       status: "permission_required",
     });
-    expect(await checkProviderSecretAvailability(createInput(unavailable))).toEqual({
+    expect(
+      await checkProviderSecretAvailability(createInput(unavailable)),
+    ).toEqual({
       status: "unknown",
     });
     expect(denied).toHaveBeenCalledTimes(1);
@@ -109,7 +111,9 @@ describe("dashboard GitHub verification", () => {
     });
     await expect(
       assertRepositoryVisibleToGitHubApp({
-        octokit: { request: unexpected } as unknown as SecretCheckInput["octokit"],
+        octokit: {
+          request: unexpected,
+        } as unknown as SecretCheckInput["octokit"],
         repository,
       }),
     ).rejects.toMatchObject({ status: 502 });
