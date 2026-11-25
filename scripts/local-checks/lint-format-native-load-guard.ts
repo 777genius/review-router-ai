@@ -57,6 +57,13 @@ registerHooks({
       if (/\/prettier\/plugins\/typescript\.[cm]?js$/.test(path)) {
         block(url, "Prettier bundled legacy TypeScript parser");
       }
+      if (
+        /\/node_modules\/(?:typescript-eslint|@typescript-eslint\/(?:eslint-plugin|parser|typescript-estree|utils|type-utils|project-service))\//.test(
+          path,
+        )
+      ) {
+        block(url, "Legacy typescript-eslint implementation");
+      }
       const packageRoot =
         /^(.*\/node_modules\/(?:typescript|typescript-native))\/(?:lib|bin)\//.exec(
           path,

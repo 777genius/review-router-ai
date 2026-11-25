@@ -6,13 +6,14 @@ import { Script } from "node:vm";
 import { after, test } from "node:test";
 import { ESLint } from "eslint";
 import { transformSync } from "esbuild";
+import { assertRetainedEslintConfig } from "./lint-format-eslint-oracle.ts";
 import {
   admitTools,
   assertNoSymlinks,
   createTestSubject,
   toolVersions,
   writeFixture,
-} from "./lint-format-test-support.mts";
+} from "./lint-format-test-support.ts";
 import {
   fallbackCases,
   formatCases,
@@ -79,7 +80,13 @@ function cli(
   const entry = tool === "prettier" ? "bin/prettier.cjs" : `bin/${tool}`;
   const result = spawnSync(
     process.execPath,
-    [join(root, "node_modules", tool, entry), ...args],
+    [
+      join(root, "node_modules", tool, entry),
+      ...(tool === "prettier"
+        ? ["--config", join(subject, ".prettierrc.json")]
+        : []),
+      ...args,
+    ],
     {
       cwd: subject,
       input,
@@ -92,6 +99,11 @@ function cli(
   );
   assert.ifError(result.error);
   assert.equal(result.signal, null, `${tool} terminated: ${result.signal}`);
+  assert.notEqual(
+    result.status,
+    null,
+    `${tool} completed without an exit status`,
+  );
   return {
     status: result.status,
     output: result.stdout + result.stderr,
@@ -146,6 +158,7 @@ test("effective fallback rule ledger preserves every non-migrated rule by file s
     const old = await baseline.calculateConfigForFile(path);
     const next = await fallback.calculateConfigForFile(path);
     assert.ok(old && next);
+    assertRetainedEslintConfig(old, ext);
     assert.deepEqual(next.languageOptions, old.languageOptions);
     for (const [rule, setting] of Object.entries(old.rules)) {
       assert.deepEqual(
@@ -299,6 +312,9 @@ test("Git-only ignores do not hide handwritten lint inputs", () => {
     ],
     { cwd: subject, encoding: "utf8", timeout: 30_000 },
   );
+  assert.ifError(directory.error);
+  assert.equal(directory.signal, null);
+  assert.notEqual(directory.status, null);
   assert.notEqual(directory.status, 0);
   assert.match(directory.stderr, /Supply explicit files/);
 });
