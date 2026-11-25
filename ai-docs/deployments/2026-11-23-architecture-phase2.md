@@ -75,7 +75,6 @@ See [the current evidence](evidence/2026-11-25-pr977-native-adoption.json) for
 source bindings, complete receipts, retained failures and signature-verification
 limits.
 
-
 ## Scoped review continuation — 2026-11-25
 
 The owner has authorized additional scoped refactoring, repeated correctness

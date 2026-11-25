@@ -136,14 +136,7 @@
       },
       "independentReview": null,
       "qualifiedCompleteCases": 0,
-      "expectedWholeFileCounts": [
-        7,
-        6,
-        2,
-        1,
-        25,
-        4
-      ],
+      "expectedWholeFileCounts": [7, 6, 2, 1, 25, 4],
       "correctedPairedControllerStarted": false,
       "blocker": "Corrected production prerequisite did not pass resource admission; the sequential paired controller and PG/tests were not launched. No paired test failure is claimed.",
       "prerequisiteProcessStatus": {
@@ -257,10 +250,7 @@
       "actualExecutions": [
         {
           "gate": "lint",
-          "originalCommand": [
-            "pnpm",
-            "lint"
-          ],
+          "originalCommand": ["pnpm", "lint"],
           "actualExitCode": 0,
           "receipt": {
             "path": "/workspace/scratch/0f054634e853/review-router-977-final/tmp/round32-lint/lint/receipt.json",
@@ -335,10 +325,7 @@
       "actualExecutionCheckout": "/workspace/scratch/0f054634e853/review-router-977-final",
       "actualExecutedHead": "29e8386ed8490ce9e5a1765c6262ede2a0c18a75",
       "actualExecutedTree": "b6ff9ca33b20d6c9848549319d71cf99c6aafbdb",
-      "command": [
-        "pnpm",
-        "architecture:check"
-      ],
+      "command": ["pnpm", "architecture:check"],
       "startedAt": "2026-11-25T01:56:30.904440+00:00",
       "finishedAt": "2026-11-25T01:59:25.860184+00:00",
       "reportedCommandDurationSeconds": 168.702,
@@ -361,9 +348,7 @@
       "node": "26.11.1",
       "pnpm": "11.28.7",
       "guardedProcesses": 95,
-      "nativeTypeScriptVersions": [
-        "7.0.2"
-      ],
+      "nativeTypeScriptVersions": ["7.0.2"],
       "blockedLegacyLoads": 0,
       "signalCause": "NOT_ESTABLISHED; earlier passing stages do not qualify the whole command.",
       "receipt": {
@@ -403,14 +388,7 @@
     },
     "paired45": {
       "status": "PASS_COMPOSITE_SIX_COMPLETE_FILES",
-      "wholeFileCounts": [
-        7,
-        6,
-        2,
-        1,
-        25,
-        4
-      ],
+      "wholeFileCounts": [7, 6, 2, 1, 25, 4],
       "first16ExecutedHead": "fd1089e691a01b962dd321506867bbfe10e10ffd",
       "remaining29ExecutedHead": "6b6f1d00bed23dc2dca87052783399c2d9738bbe",
       "passed": 45,
@@ -612,10 +590,7 @@
         "nativeGuardInherited": true,
         "scenarioOldSpaceMiB": 2048,
         "observedHeapLimitBytes": 2172649472,
-        "observedCompilerTargets": [
-          "server",
-          "client"
-        ]
+        "observedCompilerTargets": ["server", "client"]
       },
       "failure": {
         "message": "TypeError: fetch failed",
@@ -954,11 +929,7 @@
       "scope": "Original21 failed/interrupted paired/browser attempts; original path/hash/outcome/limitation records retained unchanged."
     },
     "statisticsPreloadFixStrictFailures": {
-      "wholeToolingAttemptsSeconds": [
-        19.97,
-        18.03,
-        46.55
-      ],
+      "wholeToolingAttemptsSeconds": [19.97, 18.03, 46.55],
       "callerInclusiveAttemptSeconds": 55.74,
       "result": "FAIL_SIGKILL",
       "proof": {
