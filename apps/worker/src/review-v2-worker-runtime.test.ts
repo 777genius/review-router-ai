@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  DispatchDueReviewRequestedIntents,
+  ReviewRequestedDispatchLookupStatus,
+  ReviewRequestedDispatchRunStatus,
+  ReviewRequestedDispatchSubmissionStatus,
+  ReviewRequestedIntentState,
+  ReviewRequestedTriggerKind,
+} from "@reviewrouter/features-review-executions";
+import { InMemoryReviewRequestedIntentStore } from "@reviewrouter/features-review-executions/testing";
+import {
   OutboxHandlerError,
   type OutboxEvent,
 } from "@reviewrouter/features-outbox";
@@ -37,6 +46,421 @@ const retainUntil = new Date("2026-08-22T12:00:00.000Z");
 const ownerIdHash = createReviewV2WorkerOwnerId("worker-test");
 
 describe("review v2 worker runtime", () => {
+  it.each(["applied", "rejected"] as const)(
+    "continues healthy dispatches and publication when begin hangs then %s",
+    async (lateOutcome) => {
+      vi.useFakeTimers();
+      try {
+        const fixture = await createFixture({ createProcess: false });
+        const store = new InMemoryReviewRequestedIntentStore();
+        const digest = (i: number) => i.toString(16).padStart(64, "0");
+        for (let i = 0; i < 3; i++) {
+          await store.registerIntent({
+            candidate: {
+              workspaceId: "workspace",
+              repositoryConnectionId: "repository",
+              scmRepositoryIdentityId: "identity",
+              pullRequestNumber: i + 1,
+              requestId: `begin-${i}`,
+              revision: {
+                baseSha: "a".repeat(40),
+                mergeBaseSha: "b".repeat(40),
+                headSha: "c".repeat(40),
+                reviewRevisionHash: digest(i + 1),
+              },
+              triggerKind: ReviewRequestedTriggerKind.PullRequestSynchronized,
+              deliveryIdentityHash: digest(i + 100),
+              canonicalRequestHash: digest(i + 200),
+              notBefore: new Date(now.getTime() + i),
+              createdAt: now,
+              retainUntil,
+            },
+          });
+        }
+        let releaseBegin!: () => void;
+        const deferredBegin = new Promise<void>((resolve) => {
+          releaseBegin = resolve;
+        });
+        const begin = store.beginSubmission.bind(store);
+        const beginSpy = vi
+          .spyOn(store, "beginSubmission")
+          .mockImplementation(async (command) => {
+            if (command.requestId === "begin-1") {
+              await deferredBegin;
+              if (lateOutcome === "rejected")
+                throw new Error("unknown_begin_result");
+            }
+            return begin(command);
+          });
+        const submit = vi.fn(async (requestId: string) => ({
+          status: ReviewRequestedDispatchSubmissionStatus.Accepted as const,
+          sourceRunId: requestId === "begin-0" ? "101" : "103",
+          sourceRunAttempt: "1",
+        }));
+        let sequence = 0;
+        let workerTime = new Date(now.getTime() + 1_000);
+        const dispatcher = new DispatchDueReviewRequestedIntents(
+          store,
+          store,
+          {
+            async prepare({ intent }) {
+              return { submit: () => submit(intent.requestId) };
+            },
+            async findByRequestIdentity() {
+              return {
+                status: ReviewRequestedDispatchLookupStatus.Absent as const,
+              };
+            },
+            async inspectKnownRun() {
+              return { status: ReviewRequestedDispatchRunStatus.Pending };
+            },
+            async inspectRunnerWait() {
+              return {
+                waitingForRunner: false,
+                neverStarted: false,
+                revisionCurrent: true,
+              };
+            },
+            async cancelKnownRun() {},
+          },
+          { now: () => workerTime },
+          {
+            nextClaimId: () => `claim-${sequence++}`,
+            nextRequestId: () => `next-${sequence++}`,
+          },
+          { digestUtf8: async () => digest(900) },
+        );
+        let publicationRan = false;
+        const pass = runReviewV2Maintenance({
+          runtime: fixture.runtime,
+          ownerIdHash,
+          dueLimit: 10,
+          intents: {
+            async runMaintenance() {
+              const result = await dispatcher.execute({
+                ownerIdHash,
+                limit: 10,
+              });
+              return { ...result, recovered: 0 };
+            },
+          },
+          publication: {
+            async runMaintenance() {
+              publicationRan = true;
+              return {
+                processed: 0,
+                manualRequired: 0,
+                terminalUnknown: 0,
+                settledExecutionIds: [],
+                progressSettlements: [],
+              };
+            },
+          },
+        });
+        await vi.advanceTimersByTimeAsync(5_000);
+        await expect(pass).resolves.toMatchObject({
+          intentsDispatched: 2,
+          intentDispatchFailures: 1,
+        });
+        expect(publicationRan).toBe(true);
+        expect(submit.mock.calls.map(([id]) => id).sort()).toEqual([
+          "begin-0",
+          "begin-2",
+        ]);
+        expect(await store.findByRequestId("begin-1")).toMatchObject({
+          state: ReviewRequestedIntentState.Dispatching,
+        });
+        workerTime = new Date(now.getTime() + 2 * 86400000);
+        await expect(
+          dispatcher.execute({ ownerIdHash, limit: 10 }),
+        ).resolves.toMatchObject({ scanned: 0, submissionsInFlight: 1 });
+        expect(
+          beginSpy.mock.calls.filter(
+            ([command]) => command.requestId === "begin-1",
+          ),
+        ).toHaveLength(1);
+        releaseBegin();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(submit.mock.calls.map(([id]) => id)).not.toContain("begin-1");
+        expect(await store.findByRequestId("begin-1")).toMatchObject({
+          state:
+            lateOutcome === "applied"
+              ? ReviewRequestedIntentState.ReconcilingDispatch
+              : ReviewRequestedIntentState.Dispatching,
+          sourceRunId: null,
+        });
+        if (lateOutcome === "applied") {
+          await expect(
+            dispatcher.execute({ ownerIdHash, limit: 10 }),
+          ).resolves.toMatchObject({ scanned: 0 });
+          expect(
+            beginSpy.mock.calls.filter(
+              ([command]) => command.requestId === "begin-1",
+            ),
+          ).toHaveLength(1);
+        }
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+  it("continues another dispatch and later phases when a POST hangs, retaining unknown outcome", async () => {
+    vi.useFakeTimers();
+    try {
+      const fixture = await createFixture({ createProcess: false });
+      const store = new InMemoryReviewRequestedIntentStore();
+      const digest = (i: number) => i.toString(16).padStart(64, "0");
+      for (let i = 0; i < 2; i++) {
+        await store.registerIntent({
+          candidate: {
+            workspaceId: "workspace",
+            repositoryConnectionId: "repository",
+            scmRepositoryIdentityId: "identity",
+            pullRequestNumber: i + 1,
+            requestId: `post-${i}`,
+            revision: {
+              baseSha: "a".repeat(40),
+              mergeBaseSha: "b".repeat(40),
+              headSha: "c".repeat(40),
+              reviewRevisionHash: digest(i + 1),
+            },
+            triggerKind: ReviewRequestedTriggerKind.PullRequestSynchronized,
+            deliveryIdentityHash: digest(i + 100),
+            canonicalRequestHash: digest(i + 200),
+            notBefore: new Date(now.getTime() + i),
+            createdAt: now,
+            retainUntil,
+          },
+        });
+      }
+      let lateResponse: (() => void) | undefined;
+      const submit = vi.fn(async (id: string) => {
+        if (id === "post-1")
+          await new Promise<void>((resolve) => {
+            lateResponse = resolve;
+          });
+        return {
+          status: ReviewRequestedDispatchSubmissionStatus.Accepted as const,
+          sourceRunId: id === "post-0" ? "123" : "124",
+          sourceRunAttempt: "1",
+        };
+      });
+      let sequence = 0;
+      let workerTime = new Date(now.getTime() + 1000);
+      const dispatcher = new DispatchDueReviewRequestedIntents(
+        store,
+        store,
+        {
+          async prepare({ intent }) {
+            return { submit: () => submit(intent.requestId) };
+          },
+          async findByRequestIdentity() {
+            return {
+              status: ReviewRequestedDispatchLookupStatus.Absent as const,
+            };
+          },
+          async inspectKnownRun() {
+            return { status: ReviewRequestedDispatchRunStatus.Pending };
+          },
+          async inspectRunnerWait() {
+            return {
+              waitingForRunner: false,
+              neverStarted: false,
+              revisionCurrent: true,
+            };
+          },
+          async cancelKnownRun() {},
+        },
+        { now: () => workerTime },
+        {
+          nextClaimId: () => `claim-post-${sequence++}`,
+          nextRequestId: () => `next-post-${sequence++}`,
+        },
+        { digestUtf8: async () => digest(900) },
+      );
+      let publicationRan = false;
+      const pass = runReviewV2Maintenance({
+        runtime: fixture.runtime,
+        ownerIdHash,
+        dueLimit: 10,
+        intents: {
+          async runMaintenance() {
+            const result = await dispatcher.execute({ ownerIdHash, limit: 10 });
+            return { ...result, recovered: 0 };
+          },
+        },
+        publication: {
+          async runMaintenance() {
+            publicationRan = true;
+            return {
+              processed: 0,
+              manualRequired: 0,
+              terminalUnknown: 0,
+              settledExecutionIds: [],
+              progressSettlements: [],
+            };
+          },
+        },
+      });
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await store.findByRequestId("post-0")).toMatchObject({
+        state: ReviewRequestedIntentState.AwaitingAuthorization,
+        sourceRunId: "123",
+      });
+      expect(publicationRan).toBe(false);
+      await vi.advanceTimersByTimeAsync(4_999);
+      await expect(pass).resolves.toMatchObject({
+        intentsDispatched: 1,
+        intentDispatchFailures: 1,
+      });
+      expect(publicationRan).toBe(true);
+      expect(await store.findByRequestId("post-1")).toMatchObject({
+        state: ReviewRequestedIntentState.ReconcilingDispatch,
+        sourceRunId: null,
+      });
+      const recovering = await store.findByRequestId("post-1");
+      workerTime = new Date(now.getTime() + 600_000);
+      await store.recordDispatch({
+        requestId: "post-1",
+        claimId: recovering!.claim!.claimId,
+        ownerIdHash: recovering!.claim!.ownerIdHash,
+        fencingToken: recovering!.claim!.fencingToken,
+        sourceRunId: "999",
+        sourceRunAttempt: "1",
+        now: workerTime,
+        nextResolutionAt: new Date(workerTime.getTime() + 1000),
+        resolutionDeadlineAt: new Date(workerTime.getTime() + 60000),
+      });
+      lateResponse!();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(await store.findByRequestId("post-1")).toMatchObject({
+        state: ReviewRequestedIntentState.AwaitingAuthorization,
+        sourceRunId: "999",
+      });
+      expect(submit).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("continues later phases and a healthy request with more than a batch of stuck preparations", async () => {
+    vi.useFakeTimers();
+    try {
+      const fixture = await createFixture({ createProcess: false });
+      const store = new InMemoryReviewRequestedIntentStore();
+      const current = new Date(now.getTime() + 1_000);
+      const digest = (i: number) => i.toString(16).padStart(64, "0");
+      for (let i = 0; i < 14; i++) {
+        await store.registerIntent({
+          candidate: {
+            workspaceId: "workspace",
+            repositoryConnectionId: "repository",
+            scmRepositoryIdentityId: "identity",
+            pullRequestNumber: i + 1,
+            requestId: `request-${i}`,
+            revision: {
+              baseSha: "a".repeat(40),
+              mergeBaseSha: "b".repeat(40),
+              headSha: "c".repeat(40),
+              reviewRevisionHash: digest(i + 1),
+            },
+            triggerKind: ReviewRequestedTriggerKind.PullRequestSynchronized,
+            deliveryIdentityHash: digest(i + 100),
+            canonicalRequestHash: digest(i + 200),
+            notBefore: new Date(now.getTime() + i),
+            createdAt: now,
+            retainUntil,
+          },
+        });
+      }
+      const prepare = vi.fn(
+        async ({ intent }: { intent: { requestId: string } }) => {
+          if (intent.requestId !== "request-13")
+            await new Promise<void>(() => {});
+          return {
+            submit: async () => ({
+              status: ReviewRequestedDispatchSubmissionStatus.Accepted as const,
+              sourceRunId: "123",
+              sourceRunAttempt: "1",
+            }),
+          };
+        },
+      );
+      let sequence = 0;
+      const dispatcher = new DispatchDueReviewRequestedIntents(
+        store,
+        store,
+        {
+          prepare,
+          async findByRequestIdentity() {
+            return {
+              status: ReviewRequestedDispatchLookupStatus.Absent as const,
+            };
+          },
+          async inspectKnownRun() {
+            return { status: ReviewRequestedDispatchRunStatus.Pending };
+          },
+          async inspectRunnerWait() {
+            return {
+              waitingForRunner: false,
+              neverStarted: false,
+              revisionCurrent: true,
+            };
+          },
+          async cancelKnownRun() {},
+        },
+        { now: () => current },
+        {
+          nextClaimId: () => `claim-${sequence++}`,
+          nextRequestId: () => `next-${sequence++}`,
+        },
+        { digestUtf8: async () => digest(900) },
+      );
+      let publicationPasses = 0;
+      const runPass = () =>
+        runReviewV2Maintenance({
+          runtime: fixture.runtime,
+          ownerIdHash,
+          dueLimit: 10,
+          intents: {
+            async runMaintenance() {
+              const result = await dispatcher.execute({
+                ownerIdHash,
+                limit: 10,
+              });
+              return { ...result, recovered: 0 };
+            },
+          },
+          publication: {
+            async runMaintenance() {
+              publicationPasses++;
+              return {
+                processed: 0,
+                manualRequired: 0,
+                terminalUnknown: 0,
+                settledExecutionIds: [],
+                progressSettlements: [],
+              };
+            },
+          },
+        });
+      const first = runPass();
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(first).resolves.toMatchObject({
+        intentDispatchFailures: 10,
+      });
+      expect(publicationPasses).toBe(1);
+      const second = runPass();
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(second).resolves.toMatchObject({
+        intentsDispatched: 1,
+        intentDispatchFailures: 3,
+      });
+      expect(publicationPasses).toBe(2);
+      expect(prepare).toHaveBeenCalledTimes(14);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("is inert by default and fails closed when enabled without composition", async () => {
     let composed = false;
     const disabled = createReviewV2WorkerFeature({

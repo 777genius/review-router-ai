@@ -306,6 +306,10 @@ export function createReviewRunGatewayRelay(input: {
       ): Promise<ReviewRunAuthorization | null>;
     }
   >();
+  const closeRetries = new Map<
+    string,
+    { attempts: number; timer?: ReturnType<typeof setTimeout> }
+  >();
   let stopping = false;
   let capacityCleanup: Promise<void> | undefined;
   let cleanupCursor = sessions.entries();
@@ -498,79 +502,174 @@ export function createReviewRunGatewayRelay(input: {
   function reclaimCapacity() {
     if (capacityCleanup) return capacityCleanup;
     capacityCleanup = (async () => {
+      // One fixed-cardinality observation per shared pressure batch. All fields
+      // describe observed branches; none establishes why retained work exists.
+      const retainedBefore = sessions.size;
+      const counts = {
+        visited: 0,
+        skippedClosing: 0,
+        skippedPreparing: 0,
+        rowMissing: 0,
+        rowMismatch: 0,
+        sourceUnavailable: 0,
+        sourceReturnedFalseUnknown: 0,
+        confirmationMissing: 0,
+        confirmationMismatch: 0,
+        deadlineReached: 0,
+        cursorEmpty: 0,
+        lookupFailed: 0,
+        sourceFailed: 0,
+        confirmationFailed: 0,
+        closeStarted: 0,
+        closeReturnedOutcomeUnknown: 0,
+        closeFailedCauseUnknown: 0,
+        batchAbortedCauseUnknown: 0,
+      };
       // Pressure only: one shared, fair batch. Do not turn a POST into a scan of
       // every retained capability or poll/replay an unresolved native operation.
-      const budget = Math.min(sessions.size, policy.maxInFlight, 16);
+      const budget = Math.min(retainedBefore, policy.maxInFlight, 16);
       const deadline = Date.now() + Math.min(policy.requestTimeoutMs, 30_000);
-      for (let i = 0; i < budget && sessions.size >= policy.maxSessions; i++) {
-        if (Date.now() >= deadline) break;
-        let next = cleanupCursor.next();
-        if (next.done) {
-          cleanupCursor = sessions.entries();
-          next = cleanupCursor.next();
-        }
-        if (next.done) break;
-        const [, session] = next.value;
-        const authorizationId = session.authorizationId;
-        if (closing.has(authorizationId) || session.preparation.isPreparing())
-          continue;
-        try {
-          const row =
-            await input.queries.findReviewRunAuthorizationById(authorizationId);
-          if (
-            !row ||
-            row.authorizationId !== authorizationId ||
-            row.runtimeSnapshotCanonicalJson !== session.canonical ||
-            canonicalJson(reviewRunGatewayOwnedIdentity(row)) !==
-              session.identity ||
-            row.maxExpiresAt.getTime() !== session.deadline
-          )
+      try {
+        for (
+          let i = 0;
+          i < budget && sessions.size >= policy.maxSessions;
+          i++
+        ) {
+          if (Date.now() >= deadline) {
+            counts.deadlineReached++;
+            break;
+          }
+          let next = cleanupCursor.next();
+          if (next.done) {
+            cleanupCursor = sessions.entries();
+            next = cleanupCursor.next();
+          }
+          if (next.done) {
+            counts.cursorEmpty++;
+            break;
+          }
+          const [, session] = next.value;
+          const authorizationId = session.authorizationId;
+          counts.visited++;
+          if (closing.has(authorizationId)) {
+            counts.skippedClosing++;
             continue;
-          if (
-            row.state === ReviewRunAuthorizationState.Active &&
-            Date.now() < session.deadline
-          ) {
-            if (!input.isSourceRunTerminal || Date.now() >= deadline) continue;
-            const terminal = await input.isSourceRunTerminal(row, {
-              signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
-            });
-            if (!terminal) continue;
-            // A failed workflow can leave paid/unknown native work behind. The
-            // existing deny-first close below must settle that exact capability;
-            // SCM completion alone must never free a slot or retry inference.
-            const current =
+          }
+          if (session.preparation.isPreparing()) {
+            counts.skippedPreparing++;
+            continue;
+          }
+          let phase: "lookup" | "source" | "confirmation" | "close" = "lookup";
+          try {
+            const row =
               await input.queries.findReviewRunAuthorizationById(
                 authorizationId,
               );
-            if (
-              !current ||
-              current.authorizationId !== authorizationId ||
-              current.runtimeSnapshotCanonicalJson !== session.canonical ||
-              canonicalJson(reviewRunGatewayOwnedIdentity(current)) !==
-                session.identity ||
-              current.maxExpiresAt.getTime() !== session.deadline
-            )
+            if (!row) {
+              counts.rowMissing++;
               continue;
-          }
-          // Keep durable deny-first and the exact retained-capability close.
-          // Unknown attempted prepares/closes never release a memory slot.
-          if (
-            Date.now() >= deadline ||
-            closing.has(authorizationId) ||
-            session.preparation.isPreparing()
-          )
-            continue;
-          await closeRun(
-            authorizationId,
-            row.state === ReviewRunAuthorizationState.Expired ||
+            }
+            if (
+              row.authorizationId !== authorizationId ||
+              row.runtimeSnapshotCanonicalJson !== session.canonical ||
+              canonicalJson(reviewRunGatewayOwnedIdentity(row)) !==
+                session.identity ||
+              row.maxExpiresAt.getTime() !== session.deadline
+            ) {
+              counts.rowMismatch++;
+              continue;
+            }
+            const retryReason = session.closed
+              ? session.closeReason
+              : undefined;
+            if (
+              retryReason === undefined &&
+              row.state === ReviewRunAuthorizationState.Active &&
+              Date.now() < session.deadline
+            ) {
+              phase = "source";
+              if (!input.isSourceRunTerminal) {
+                counts.sourceUnavailable++;
+                continue;
+              }
+              if (Date.now() >= deadline) {
+                counts.deadlineReached++;
+                continue;
+              }
+              const terminal = await input.isSourceRunTerminal(row, {
+                signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+              });
+              if (!terminal) {
+                counts.sourceReturnedFalseUnknown++;
+                continue;
+              }
+              // Source completion does not prove that native work is settled.
+              phase = "confirmation";
+              const current =
+                await input.queries.findReviewRunAuthorizationById(
+                  authorizationId,
+                );
+              if (!current) {
+                counts.confirmationMissing++;
+                continue;
+              }
+              if (
+                current.authorizationId !== authorizationId ||
+                current.runtimeSnapshotCanonicalJson !== session.canonical ||
+                canonicalJson(reviewRunGatewayOwnedIdentity(current)) !==
+                  session.identity ||
+                current.maxExpiresAt.getTime() !== session.deadline
+              ) {
+                counts.confirmationMismatch++;
+                continue;
+              }
+            }
+            // Keep the original short-circuit ordering and deny-first close.
+            if (Date.now() >= deadline) {
+              counts.deadlineReached++;
+              continue;
+            }
+            if (closing.has(authorizationId)) {
+              counts.skippedClosing++;
+              continue;
+            }
+            if (session.preparation.isPreparing()) {
+              counts.skippedPreparing++;
+              continue;
+            }
+            phase = "close";
+            const reason =
+              row.state === ReviewRunAuthorizationState.Expired ||
               (row.state === ReviewRunAuthorizationState.Active &&
                 Date.now() >= session.deadline)
-              ? "deadline"
-              : "cancelled",
-            deadline,
-          );
+                ? "deadline"
+                : (retryReason ?? "cancelled");
+            counts.closeStarted++;
+            await closeRun(authorizationId, reason, deadline);
+            // A resolved call may still return unknown and retain custody.
+            // Do not inspect its result or infer parent/native success here.
+            counts.closeReturnedOutcomeUnknown++;
+          } catch {
+            if (phase === "lookup") counts.lookupFailed++;
+            else if (phase === "source") counts.sourceFailed++;
+            else if (phase === "confirmation") counts.confirmationFailed++;
+            else counts.closeFailedCauseUnknown++;
+            // Failed reads/unknown close never justify eviction.
+          }
+        }
+      } catch (error) {
+        counts.batchAbortedCauseUnknown++;
+        throw error;
+      } finally {
+        try {
+          console.warn("review_run_gateway_relay_reclaim_batch", {
+            retainedBefore,
+            retainedAfter: sessions.size,
+            budget,
+            ...counts,
+          });
         } catch {
-          // Missing authority/failed read/unknown close cannot justify eviction.
+          // Observation cannot change admission, rejection or retained custody.
         }
       }
     })().finally(() => {
@@ -578,6 +677,7 @@ export function createReviewRunGatewayRelay(input: {
     });
     return capacityCleanup;
   }
+
   async function sessionFor(
     auth: ReviewRunAuthorization,
     reviewerId?: string,
@@ -647,12 +747,10 @@ export function createReviewRunGatewayRelay(input: {
       throw new RelayFailure("authorization_denied", 401);
     const timer = setTimeout(
       () => {
-        if (!cleanupOnly)
+        if (!stopping)
           void closeRun(auth.authorizationId, "deadline").catch(() => {});
       },
-      cleanupOnly
-        ? 2_147_483_647
-        : Math.max(1, Math.min(deadline - Date.now(), 2_147_483_647)),
+      Math.max(1, Math.min(deadline - Date.now(), 2_147_483_647)),
     );
     timer.unref();
     session = {
@@ -682,11 +780,74 @@ export function createReviewRunGatewayRelay(input: {
     sessions.set(key, session);
     return session;
   }
+  function clearCloseRetry(authorizationId: string) {
+    const retry = closeRetries.get(authorizationId);
+    if (retry?.timer) clearTimeout(retry.timer);
+    closeRetries.delete(authorizationId);
+  }
+  function scheduleCloseRetry(authorizationId: string) {
+    const retained = [...sessions.values()].filter(
+      (session) =>
+        session.authorizationId === authorizationId &&
+        session.closed &&
+        session.closeReason !== undefined,
+    );
+    if (stopping || retained.length === 0) {
+      clearCloseRetry(authorizationId);
+      return;
+    }
+    const deadline = Math.min(...retained.map((session) => session.deadline));
+    const remaining = deadline - Date.now();
+    const retry = closeRetries.get(authorizationId) ?? { attempts: 0 };
+    closeRetries.set(authorizationId, retry);
+    if (retry.timer || retry.attempts >= 8 || remaining <= 1) return;
+    // Close is idempotent under the original operation ID. Retry only bounded
+    // cleanup, before its bearer expires; never prepare or dispatch inference.
+    const delay = Math.min(
+      30_000,
+      1000 * 2 ** retry.attempts,
+      Math.max(1, Math.floor(remaining / 2)),
+    );
+    retry.timer = setTimeout(() => {
+      if (closeRetries.get(authorizationId) !== retry) return;
+      delete retry.timer;
+      if (stopping || Date.now() >= deadline) return;
+      if (
+        closing.size >= policy.maxInFlight ||
+        cleanupInFlight >= policy.maxInFlight
+      ) {
+        scheduleCloseRetry(authorizationId);
+        return;
+      }
+      const current = [...sessions.values()].find(
+        (session) =>
+          session.authorizationId === authorizationId &&
+          session.closed &&
+          session.closeReason !== undefined,
+      );
+      if (!current) {
+        clearCloseRetry(authorizationId);
+        return;
+      }
+      retry.attempts++;
+      void closeRun(
+        authorizationId,
+        current.parentTerminationReason ?? current.closeReason!,
+        Math.min(deadline, Date.now() + policy.requestTimeoutMs),
+      ).catch(() => {});
+    }, delay);
+    retry.timer.unref();
+  }
   function closeRun(
     authorizationId: string,
     reason: c.Close["reason"],
     deadline?: number,
   ): Promise<c.Operation | { state: "unknown" } | { state: "applied" }> {
+    const retry = closeRetries.get(authorizationId);
+    if (retry?.timer) {
+      clearTimeout(retry.timer);
+      delete retry.timer;
+    }
     const owned = [...sessions.values()].filter(
       (session) => session.authorizationId === authorizationId,
     );
@@ -702,7 +863,6 @@ export function createReviewRunGatewayRelay(input: {
       session.closeReason ??= reason;
       if (parentReason !== undefined)
         session.parentTerminationReason ??= parentReason;
-      clearTimeout(session.timer);
       for (const controller of session.aborts.keys()) controller.abort();
     }
     const pending = closing.get(authorizationId);
@@ -715,6 +875,14 @@ export function createReviewRunGatewayRelay(input: {
         pending.terminate(parentReason),
       ]).then(([operation]) => operation);
     }
+    let owner = owned[0];
+    const matchesOwner = (auth: ReviewRunAuthorization | null) =>
+      owner === undefined ||
+      (auth !== null &&
+        auth.authorizationId === owner.authorizationId &&
+        auth.runtimeSnapshotCanonicalJson === owner.canonical &&
+        canonicalJson(reviewRunGatewayOwnedIdentity(auth)) === owner.identity &&
+        auth.maxExpiresAt.getTime() === owner.deadline);
     let termination: Promise<ReviewRunAuthorization | null> | undefined;
     const terminate = (terminalReason: c.Close["reason"]) => {
       parentReason ??= terminalReason;
@@ -724,6 +892,13 @@ export function createReviewRunGatewayRelay(input: {
         if (session.authorizationId === authorizationId)
           session.parentTerminationReason ??= parentReason;
       termination ??= (async () => {
+        if (
+          owner &&
+          !matchesOwner(
+            await input.queries.findReviewRunAuthorizationById(authorizationId),
+          )
+        )
+          return null;
         await input.authorizations.expireOrRevokeReviewRunAuthorization({
           authorizationId,
           state:
@@ -733,6 +908,7 @@ export function createReviewRunGatewayRelay(input: {
         });
         const auth =
           await input.queries.findReviewRunAuthorizationById(authorizationId);
+        if (!matchesOwner(auth)) return null;
         if (auth?.state === "active")
           throw new RelayFailure("close_pending", 409, "effect_unknown");
         return auth;
@@ -740,12 +916,24 @@ export function createReviewRunGatewayRelay(input: {
       return termination;
     };
     const work = (async () => {
+      const observedOwner = owner
+        ? await input.queries.findReviewRunAuthorizationById(authorizationId)
+        : null;
+      if (
+        (owner && sessions.get(owner.key) !== owner) ||
+        !matchesOwner(observedOwner)
+      )
+        return { state: "unknown" as const };
       const revokeFirst =
         parentReason !== undefined ||
         owned.some((session) => session.allocationId === undefined);
       let auth = revokeFirst
         ? await terminate(parentReason ?? reason)
-        : await input.queries.findReviewRunAuthorizationById(authorizationId);
+        : (observedOwner ??
+          (await input.queries.findReviewRunAuthorizationById(
+            authorizationId,
+          )));
+      if (!matchesOwner(auth)) return { state: "unknown" as const };
       const snapshot = parseReviewRunRuntimeSnapshot(
         auth?.runtimeSnapshotCanonicalJson,
       );
@@ -774,6 +962,12 @@ export function createReviewRunGatewayRelay(input: {
             auth && snapshot?.snapshotVersion === 4
               ? await sessionFor(auth, undefined, true, allocationId)
               : owned[0]!;
+          // A deadline/cancellation can join while restored cleanup awaits I/O.
+          // Pin its original authority before exposing that asynchronous window.
+          owner ??= session;
+          // Recovery can create a closed session after the entry-owned snapshot.
+          // Retain its original intent for pressure and bounded idle retries.
+          session.closeReason ??= parentReason ?? reason;
           if (parentReason !== undefined)
             session.parentTerminationReason ??= parentReason;
           operations.push(
@@ -800,6 +994,7 @@ export function createReviewRunGatewayRelay(input: {
         if (termination) await termination;
       } finally {
         closing.delete(authorizationId);
+        scheduleCloseRetry(authorizationId);
       }
     });
     closing.set(authorizationId, { operation: work, terminate });
@@ -846,6 +1041,7 @@ export function createReviewRunGatewayRelay(input: {
         // while its joined parent write is still pending or has failed.
         const pendingTermination = parentTermination();
         if (pendingTermination) await pendingTermination;
+        clearTimeout(session.timer);
         sessions.delete(session.key);
       } else if (
         session.aborts.size === 0 &&
@@ -868,8 +1064,10 @@ export function createReviewRunGatewayRelay(input: {
           owner.maxExpiresAt.getTime() === session.deadline &&
           session.aborts.size === 0 &&
           session.preparation.canDetachUnknownWithoutCapability()
-        )
+        ) {
+          clearTimeout(session.timer);
           sessions.delete(session.key);
+        }
       }
       return operation;
     } finally {
@@ -1890,12 +2088,17 @@ export function createReviewRunGatewayRelay(input: {
     },
     shutdown: async () => {
       stopping = true;
+      for (const authorizationId of closeRetries.keys())
+        clearCloseRetry(authorizationId);
+      for (const session of sessions.values()) clearTimeout(session.timer);
       for (const id of [
         ...new Set(
           [...sessions.values()].map((session) => session.authorizationId),
         ),
       ])
         await closeRun(id, "cancelled").catch(() => {});
+      // Cleanup may restore additional allocations after the first timer sweep.
+      for (const session of sessions.values()) clearTimeout(session.timer);
     },
   });
 }

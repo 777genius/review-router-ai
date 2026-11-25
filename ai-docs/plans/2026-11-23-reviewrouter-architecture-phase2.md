@@ -6,6 +6,52 @@ Working branch: refactor/architecture-boundaries-phase2-20261123
 Status: IN PROGRESS — source-bound local E2E passed; final-head acceptance and merge pending
 Authority: AGENTS.md, Engineering Quality Standard, Feature Module Standard adopted profiles, current security/runtime protocols.
 
+## Priority expansion — 2026-11-24
+
+The owner requested at least 25,000 total changed lines in this existing PR,
+prioritized by correctness and maintainability, with parallel implementation,
+independent review and immediate publication of each locally qualified commit.
+The PR returned to Draft at the owner's request. Do not wait for CI between
+slices; deferred or skipped CI is not successful qualification. Deployment and
+merge are not part of this expansion request.
+
+Published starting point: `4964066ec8e9fb45dab47ef3aa5cdb9e9207471c`,
+12,878 additions and 1,819 deletions. Integrate actual main
+`18c57630b69334c9bfc071dc2500a952edc66f7a` without replacing source history.
+Preserve its progress-publication, dispatch preparation and Gateway recovery
+fixes. The only source merge conflict is the CI-impact fixture: retain the
+PR's exact runner expression, which is stricter than main's substring checks.
+The resulting unchanged-scope fixture passed all 40 existing cases on Node
+24.22.3, with zero failures, skips or cancellations.
+
+| Priority | Owner and change | Estimated production scope | Required invariant |
+| --- | --- | --- | --- |
+| 1 | Review execution domain: separate preparation, lease, observation, finalization and terminal transitions | About 1,900 existing lines reorganized | Exact public decisions, validation order, replay identity, lease fences and immutable updates |
+| 2 | Context attestation API host: separate lease admission, gateway lifecycle, replay authority, validation and crypto | About 3,000 existing lines reorganized | Exact signed preimages, clock reads, status/error mapping and authorization before effects |
+| 3 | Architecture checker: typed inventory and owner-specific policies behind the existing CLI | About 1,200 existing lines migrated | Same governed roots, negative fixtures, diagnostic order and rejection behavior |
+
+Keep cross-feature orchestration at the API host. Do not move concrete crypto,
+protocol or persistence dependencies into strict feature domain/application
+layers. Similar authorization helpers intentionally have different error
+contracts; do not unify them by syntax alone. No new framework, runtime,
+generic service container or provider implementation is needed.
+
+Use two review rounds: first source/body/export/dependency review, then an
+independent review against the actual integrated tree and executed regressions.
+Run the existing native TypeScript 7.0.2 strict projects, owning behavioral
+suites and affected architecture fixtures. Use real PostgreSQL checks for
+transaction/recovery coverage when available. Report exact results and remaining
+graph/browser limits without reusing historical passes as new evidence.
+
+Complexity 6/10; regression risk before qualification 5/10; achievable confidence
+after the scoped checks 8/10. These are planning judgments, not guarantees.
+Count Git additions plus deletions for the requested PR total, but also report
+relocated production lines once, new semantic changes, tests and documentation
+separately. Existing main changes and generated/lockfile churn do not count as
+new substantive refactoring work. The missing published Stack lint dependency
+remains a separately identified baseline gap until its owning release and
+ordinary dependency installation are verified.
+
 ## Paired lifecycle and browser cleanup checkpoint — 2026-11-23
 
 The complete maintained paired lifecycle ran on exact clean `6013a91a` and
