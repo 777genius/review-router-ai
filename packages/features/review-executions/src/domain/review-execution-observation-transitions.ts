@@ -27,6 +27,7 @@ export enum ObservationAttachmentDecisionStatus {
   NotRunnable = "not_runnable",
   StaleLease = "stale_lease",
   Ineligible = "ineligible",
+  ReportWindowExpired = "report_window_expired",
 }
 
 export type ObservationAttachmentDecision =
@@ -45,7 +46,8 @@ export type ObservationAttachmentDecision =
         | ObservationAttachmentDecisionStatus.Conflict
         | ObservationAttachmentDecisionStatus.NotRunnable
         | ObservationAttachmentDecisionStatus.StaleLease
-        | ObservationAttachmentDecisionStatus.Ineligible;
+        | ObservationAttachmentDecisionStatus.Ineligible
+        | ObservationAttachmentDecisionStatus.ReportWindowExpired;
     };
 
 export type ObservationFacts = {
@@ -269,7 +271,6 @@ export function decideObservationAdoption(input: {
     source === null ||
     source.leaseId !== input.sourceLeaseId ||
     source.fencingToken !== input.sourceFencingToken ||
-    source.resultReportUntil < input.facts.now ||
     scopeKey(source) !== scopeKey(input.execution) ||
     source.executionId !== input.execution.executionId ||
     source.workSlotId !== input.slot.workSlotId ||
@@ -280,6 +281,9 @@ export function decideObservationAdoption(input: {
     input.slot.acceptedObservationRefId !== null
   ) {
     return { status: ObservationAttachmentDecisionStatus.Ineligible };
+  }
+  if (source.resultReportUntil < input.facts.now) {
+    return { status: ObservationAttachmentDecisionStatus.ReportWindowExpired };
   }
   const adoptionLease: ReviewInvocationLease = {
     workspaceId: input.execution.workspaceId,

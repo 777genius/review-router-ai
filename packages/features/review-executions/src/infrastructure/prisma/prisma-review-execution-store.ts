@@ -1862,6 +1862,8 @@ async function persistObservationDecision(
       return { status: ReviewObservationAttachmentStatus.StaleLease };
     case ObservationAttachmentDecisionStatus.Ineligible:
       return { status: ReviewObservationAttachmentStatus.Ineligible };
+    case ObservationAttachmentDecisionStatus.ReportWindowExpired:
+      return { status: ReviewObservationAttachmentStatus.ReportWindowExpired };
     case ObservationAttachmentDecisionStatus.Attached:
       await transaction.reviewExecutionObservationRefV2.create({
         data: observationRefCreateData(decision.observationRef),

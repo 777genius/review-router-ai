@@ -14,12 +14,15 @@ activation-catalog Node ESM correction. The core repair checkpoint is
 This follow-up does not repeat its broad refactoring or authorize an application
 deployment.
 
-Planning envelope: about 80–130 changed runtime/checker lines, 700–1,000 regression
+Planning envelope: about 80–180 changed runtime/checker lines, 700–1,100 regression
 test lines using existing fixtures, and bounded plan/deployment evidence. These
 are estimates, not a volume target. Implementation complexity is 4/10 and
 regression risk 4/10 because the changes affect authority and idempotency.
 Confidence in the reproduced diagnoses is 9/10; readiness confidence remains
 conditional on PostgreSQL/E2E and exact-head CI, rather than a claim of no bugs.
+The later fixture-only scheduling correction adds a small test driver and its
+regressions after a concrete premature-stall diagnostic; it does not expand the
+production policy changes.
 
 ## Review findings and intended repairs
 
@@ -30,7 +33,8 @@ conditional on PostgreSQL/E2E and exact-head CI, rather than a claim of no bugs.
    decision time, using a fresh API clock after asynchronous preparation.
    Preserve the inclusive deadline and restore already committed exact requests
    even when a concurrent retry finishes preparing after that deadline. Map a
-   rejected expired new request to the existing HTTP 412 error.
+   distinct internal expired-window outcome to the existing HTTP 412 error;
+   unrelated rejection must not be reclassified using the later API clock.
 3. Recheck finalization time after asynchronous facts resolution, and preserve the
    absolute publication deadline when the PostgreSQL store acquires its locks.
    Preserve immutable artifact replay and internal reconciliation grace for
@@ -45,6 +49,11 @@ conditional on PostgreSQL/E2E and exact-head CI, rather than a claim of no bugs.
    disposable E2E database reset. A runtime reproduction showed that old orphan
    publications survive `CASCADE` and consume the worker batch before the new
    fixture can publish. Keep production selection and rate limiting unchanged.
+7. Before signing a transport publication permit, check the stored absolute
+   deadline against fresh database time as well as fresh API time. This also
+   applies when the store restores an immutable artifact. Keep transport
+   `issuedAt`/`nbf` on the local verifier's clock and leave store replay and
+   internal worker reconciliation unchanged.
 
 Findings 1–3 and the provider fixture oracle existed before #977. The transaction
 binding regression was introduced by its AST refactor. Finding 4 was reproduced
@@ -78,7 +87,7 @@ new effect through a released/expired lease. Deadline repairs must not extend an
 authorization-bound absolute deadline, including while waiting for database
 locks. Deployment remains an ordinary API rollout documented separately.
 
-## Current evidence
+## First implementation qualification
 
 Before production fixes, the complete API/domain regression run had 140 passing
 tests and four expected failures for findings 1–2. Two additional targeted API
@@ -118,8 +127,9 @@ lock cycle. The initial delay's cause is not established. A further isolated
 diagnostic process terminated with `SIGKILL` during module loading, before
 `beforeEach` or application SQL, after long event-loop pauses. It produced no
 test report. Neither a timeout increase nor a reset retry hides these attempts.
-The current local process interruption is recorded explicitly; final full
-qualification proceeds through the repository's ordinary required CI lanes.
+That local process interruption remains recorded explicitly. Later successful
+recovery qualification is recorded below; exact-head CI remains independently
+required.
 The source/Vitest E2E exercises the production routes, database and worker with a
 fake GitHub transport; it is not a live production deployment or a compiled
 release qualification. Evidence is retained under `tmp/deep-review-evidence/`.
@@ -131,3 +141,93 @@ confirmed blocking findings in the corrected diff. Exact-head required CI,
 merge readback and resulting main checks are tracked on
 [PR #1003](https://github.com/777genius/review-router-ai/pull/1003); local receipts
 do not substitute for those gates.
+
+## Recovery and current-base integration
+
+After the executor recovered, unchanged core checkpoint `3eac6374` passed the
+original complete native tooling configuration and two consecutive complete
+production-source E2E runs: 18/18 and 18/18, zero skips, on the same PostgreSQL
+17.12/165-migration database. There was no manual cleanup between runs or change
+to source, assertions, timeouts or compiler scope. These results supplement the
+earlier failures; they do not relabel them as successes or establish the cause
+of the earlier timeout.
+
+The ordinary CI formatter gate exposed eight violations inherited from main.
+Commit `70923853` corrected only their formatting; normalized Markdown/Oxc ASTs
+were equal before and after every edit. Main subsequently received the identical
+eight Git blobs in #1006. Integration commit
+`bfbece593a64232d934115755a5fc42de72ab56b` preserves both histories and keeps the
+entire reviewed tree identical to `70923853`, while updating the base to
+`95201f4e0d63d3ab7c4d585a1e55a6317e84ca6b`. Both checkpoints passed CI Static
+Checks, including all 56 workspace typecheck tasks and the original root
+configurations, plus 63/63 installer cases on each of Ubuntu and macOS.
+Those results qualify that tree, not subsequent source changes.
+
+## Additional review findings
+
+The [CodeRabbit review data](https://github.com/777genius/review-router-ai/pull/1003#issuecomment-7164210441)
+for `bfbece59` preserved four proposed inline comments and one additional minor
+comment when GitHub review publication timed out. Each was checked against the
+actual implementation; the failed publication is not counted as approval.
+
+1. An expired new adoption could receive HTTP 200 `Rejected` when API time lagged
+   the store, while an unrelated `Ineligible` result could become HTTP 412 when
+   API time advanced. Both cases were reproduced through the maintained store.
+   `ReportWindowExpired` now travels through the domain and both store adapters;
+   only this outcome maps to the existing expiry error. The original mutation
+   checks remain fail closed, and exact replay stays ahead of expiry evaluation.
+2. Exact artifact replay could sign a transport permit after its stored deadline
+   according to PostgreSQL. The original absolute token expiry was not extended;
+   no unauthorized SCM effect was demonstrated. The API now uses the existing
+   database-backed server clock immediately before issuance, rejects expired
+   deadlines with the existing HTTP 410, and fails closed with HTTP 503 if that
+   clock is unavailable or invalid. Valid clock skew preserves local token
+   timestamps and successful local verification.
+3. The changed fresh-observation test now changes only the payload hash,
+   recomputes the request hash and requires the exact authority-mismatch error,
+   rather than accepting any client error.
+4. The late concurrent-adoption test rejects its gates on an unexpected first
+   store result or either request's early failure, bounds barrier waiting and
+   joins both requests during cleanup. Existing result assertions and the
+   suite's global timeout remain unchanged.
+5. The PostgreSQL replay test is named for its actual immutable-artifact
+   contract. A primitive validator assertion with hardcoded active-authority
+   booleans was removed; it had not demonstrated production issued-permit grace.
+
+The two API adoption cases and four publication-clock cases failed against their
+previous handlers. The complete corrected API/domain suites then passed 158/158
+with zero skips. One earlier publication-clock diagnostic attempt was killed
+before producing a test report; it remains an interrupted attempt, not a pass.
+The final real-PostgreSQL, E2E, strict and CI results are recorded in the
+qualification record and PR. The source binding for this additional correction
+is separate from the preserved first-checkpoint binding.
+
+## Bounded E2E retry scheduling
+
+The complete real-PostgreSQL suite passed 56/56 again after the clock/status
+corrections. Two subsequent complete E2E attempts ended with `SIGKILL` without
+final JSON. One had already recorded `publication_claim_fenced_before_mutation`
+and a premature worker-stalled verdict: the remaining summary's stored
+`nextEligibleAt` was still 874 ms in the future. The harness ran twelve immediate
+maintenance passes even though production correctly excludes future retries.
+This is a specific fixture defect; it does not establish why the first claim
+was fenced or why the processes were killed.
+
+The harness now waits between remaining passes for the earliest applicable
+completion/publication deadline, with a total requested timer budget of 5000 ms.
+It respects retained active completion and attempt identities, leaves same-owner
+claim reuse to production, and cancels a pending timer when the fixture closes.
+Single-pass fault probes do not read deadlines or wait. Production retry policy,
+lease durations, reset behavior, result assertions and global test timeouts are
+unchanged. Seven focused regressions cover deferred/due work, the shared budget,
+single-pass behavior and cancellation. They pass with zero skips.
+
+The timer budget does not bound the duration of database or maintenance calls,
+and this change does not resolve the previously observed general async teardown
+hazard. The diagnostic E2E repeat produced only the runner-start message and no
+observed application SQL in the sampled sessions; its exact execution point and
+the SIGKILL cause remain unknown. Full API and tooling compiler attempts on the
+additional correction also ended with SIGKILL and no TypeScript diagnostics.
+These interruptions remain separate from passing suites. Full original strict
+and complete E2E qualification of the final corrected head are required from
+ordinary CI before merge.

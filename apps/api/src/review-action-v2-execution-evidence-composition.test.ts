@@ -2237,19 +2237,16 @@ describe("Review Action v2 execution/evidence composition", () => {
       ReviewActionV2OperationId.ReviewExecutionObservationAttach,
       {
         ...request,
-        ...envelope("attach-changed-body"),
-        idempotencyKey: "attach-changed-body",
         payloadHash: hash("8"),
       },
     );
 
-    const response = await handlers.attachObservation
-      .execute(changed)
-      .catch((error: unknown) => error);
-    expect(response).toHaveProperty("statusCode");
-    const { statusCode } = response as { readonly statusCode: number };
-    expect(statusCode).toBeGreaterThanOrEqual(400);
-    expect(statusCode).toBeLessThan(500);
+    await expect(
+      handlers.attachObservation.execute(changed),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      issues: ["fresh_observation_authority_mismatch"],
+    });
     expect(
       d.executions.observationAttachments.attachFresh,
     ).toHaveBeenCalledTimes(1);
@@ -2283,107 +2280,124 @@ describe("Review Action v2 execution/evidence composition", () => {
     );
   });
 
-  it("returns resource gone instead of re-signing an expired replay permit", async () => {
-    const capabilities = capabilityAdapter();
-    const issuePublicationPermit = vi.spyOn(
-      capabilities,
-      "issuePublicationPermit",
-    );
-    const projectionEnvelopeCanonicalJson = "{}";
-    const projectionHash = await digest.digestUtf8(
-      projectionEnvelopeCanonicalJson,
-    );
-    const artifactHash = hash("a");
-    const lifecycleStateHash = hash("b");
-    const expiredPublicationNotAfter = new Date(now.getTime() - 1);
-    const artifact: FinalizedReviewProjectionArtifact = {
-      artifactId: "artifact-1",
-      executionId: snapshot.execution.executionId,
-      generation: snapshot.execution.generation,
-      reviewedHeadSha: snapshot.execution.revision.headSha,
-      reviewRevisionHash: snapshot.execution.revision.reviewRevisionHash,
-      coverageState: ReviewCoverageState.Completed,
-      projectionEnvelopeVersion: 1,
-      projectionEnvelopeJson: projectionEnvelopeCanonicalJson,
-      projectionHash,
-      byteCount: 2,
-      findingCount: 0,
-      lifecycleStateHash,
-      commandLedgerWatermark: 0n,
-      projectionPolicyVersion: "projection-policy-1",
-      publicationPermit: {
-        workspaceId: authorization.workspaceId,
-        repositoryConnectionId: authorization.repositoryConnectionId,
-        scmRepositoryIdentityId: authorization.scmRepositoryIdentityId,
-        pullRequestNumber: authorization.pullRequestNumber,
-        executionId: snapshot.execution.executionId,
-        generation: snapshot.execution.generation,
-        authorizationId: authorization.authorizationId,
-        producerReleaseId: authorization.producerReleaseId,
-        reviewedHeadSha: snapshot.execution.revision.headSha,
-        reviewRevisionHash: snapshot.execution.revision.reviewRevisionHash,
-        projectionHash,
-        lifecycleStateHash,
-        commandLedgerWatermark: 0n,
-        permitEpoch: authorization.mutationEpoch,
-        publicationSafetyDecisionHash: hash("c"),
-        publicationNotAfter: expiredPublicationNotAfter,
-      },
-      createdAt: new Date(now.getTime() - 60_000),
-      retainUntil: new Date(now.getTime() + 3_600_000),
-    };
-    const finalize = vi.fn(async () => ({
-      status: ReviewExecutionFinalizeStatus.Restored,
-      artifact,
-      snapshot: { ...snapshot, artifact },
-    }));
-    const finalizationFacts = vi.fn(async () => ({
-      expectedArtifactHash: artifactHash,
-      byteCount: artifact.byteCount,
-      findingCount: artifact.findingCount,
-      projectionPolicyVersion: artifact.projectionPolicyVersion,
-      publicationSafetyDecisionHash:
-        artifact.publicationPermit.publicationSafetyDecisionHash,
-      publicationNotAfter: new Date(now.getTime() + 60_000),
-      retainUntil: artifact.retainUntil,
-    }));
-    const request = await withBodyHash(
-      ReviewActionV2OperationId.ReviewExecutionFinalize,
-      {
-        ...envelope("finalize-expired-replay"),
-        authorizationToken: "authorization-token",
-        idempotencyKey: "finalize-expired-replay",
-        requestBodyHash: hash("0"),
-        executionId: snapshot.execution.executionId,
-        expectedStreamVersion: snapshot.stream.version.toString(10),
-        expectedExecutionVersion: snapshot.execution.version.toString(10),
-        artifactId: artifact.artifactId,
-        artifactHash,
-        projectionEnvelopeVersion: artifact.projectionEnvelopeVersion,
-        projectionEnvelopeCanonicalJson,
-        projectionHash,
-        lifecycleStateHash,
-        commandLedgerWatermark: artifact.commandLedgerWatermark.toString(10),
-        allowPartial: false,
-      },
-    );
-
-    await expect(
-      createReviewActionV2ExecutionHandlers(
+  it.each([
+    {
+      label: "API deadline expired",
+      deadlineMs: -1,
+      serverTimeMs: 0,
+      statusCode: 410,
+    },
+    {
+      label: "database deadline equality",
+      deadlineMs: 60_000,
+      serverTimeMs: 60_000,
+      statusCode: 410,
+    },
+    {
+      label: "database expiry with lagging API",
+      deadlineMs: 60_000,
+      serverTimeMs: 60_001,
+      statusCode: 410,
+    },
+    {
+      label: "unavailable database clock",
+      deadlineMs: 180_000,
+      serverTimeMs: "reject",
+      statusCode: 503,
+    },
+    {
+      label: "invalid database clock",
+      deadlineMs: 180_000,
+      serverTimeMs: "invalid",
+      statusCode: 503,
+    },
+    {
+      label: "valid deadline with database ahead",
+      deadlineMs: 180_000,
+      serverTimeMs: 60_000,
+      statusCode: 200,
+    },
+  ] as const)(
+    "checks publication replay before signing: $label",
+    async ({ deadlineMs, serverTimeMs, statusCode }) => {
+      const capabilities = capabilityAdapter();
+      const issuePublicationPermit = vi.spyOn(
+        capabilities,
+        "issuePublicationPermit",
+      );
+      const fixture = await finalizationFixture(
+        new Date(now.getTime() + 180_000),
+      );
+      const artifact = {
+        ...fixture.artifact,
+        publicationPermit: {
+          ...fixture.artifact.publicationPermit,
+          publicationNotAfter: new Date(now.getTime() + deadlineMs),
+        },
+      };
+      const persisted = { ...snapshot, artifact };
+      const unchanged = structuredClone(persisted);
+      const finalize = vi.fn(async () => ({
+        status: ReviewExecutionFinalizeStatus.Restored,
+        artifact,
+        snapshot: persisted,
+      }));
+      const readServerTime = vi.fn(async () => {
+        if (serverTimeMs === "reject")
+          throw new Error("database clock unavailable");
+        return serverTimeMs === "invalid"
+          ? new Date(Number.NaN)
+          : new Date(now.getTime() + serverTimeMs);
+      });
+      const handlers = createReviewActionV2ExecutionHandlers(
         executionDependencies({
           capabilities,
           finalize,
-          finalizationFacts,
+          finalizationFacts: fixture.finalizationFacts,
+          readServerTime,
         }),
-      ).finalize.execute(request),
-    ).rejects.toMatchObject({
-      statusCode: 410,
-      errorCode: ReviewActionV2ProtocolErrorCode.ResourceGone,
-      issues: ["publication_permit_expired"],
-    });
-    expect(finalize).toHaveBeenCalledTimes(1);
-    expect(issuePublicationPermit).not.toHaveBeenCalled();
-  });
+      );
+
+      if (statusCode === 200) {
+        const response = await handlers.finalize.execute(fixture.request);
+        expect(response).toMatchObject({
+          statusCode: 200,
+          result: { status: ReviewExecutionMutationResultStatus.Restored },
+        });
+        expect(issuePublicationPermit).toHaveBeenCalledTimes(1);
+        expect(issuePublicationPermit).toHaveBeenCalledWith(
+          artifact.publicationPermit,
+          now,
+        );
+        const token = response.result.publicationPermit;
+        expect(token).toEqual(expect.any(String));
+        await expect(
+          capabilities.verifyPublicationPermit(token!, now),
+        ).resolves.toMatchObject({
+          executionId: artifact.executionId,
+        });
+      } else {
+        await expect(
+          handlers.finalize.execute(fixture.request),
+        ).rejects.toMatchObject({
+          statusCode,
+          errorCode:
+            statusCode === 410
+              ? ReviewActionV2ProtocolErrorCode.ResourceGone
+              : ReviewActionV2ProtocolErrorCode.ServiceUnavailable,
+          issues: [
+            statusCode === 410
+              ? "publication_permit_expired"
+              : "publication_time_unavailable",
+          ],
+        });
+        expect(issuePublicationPermit).not.toHaveBeenCalled();
+      }
+      expect(finalize).toHaveBeenCalledTimes(1);
+      expect(readServerTime).toHaveBeenCalledTimes(1);
+      expect(persisted).toEqual(unchanged);
+    },
+  );
 
   it.each(["authorization", "publication"] as const)(
     "does not finalize when facts resolution outlives the %s deadline",
@@ -2761,6 +2775,63 @@ describe("Review Action v2 execution/evidence composition", () => {
     expect(await store.findLease(sourceLease.leaseId)).toEqual(sourceLease);
   });
 
+  it("reports adoption expiry from the store clock when the API clock lags", async () => {
+    const { d, store, before, sourceLease, request, adoptAccepted } =
+      await persistedAdoptionFixture();
+    adoptAccepted.mockImplementation((command) =>
+      store.adoptObservation({
+        ...command,
+        now: new Date(sourceLease.resultReportUntil.getTime() + 1),
+      }),
+    );
+
+    await expect(
+      createReviewActionV2ExecutionHandlers(d).adoptObservation.execute(
+        request,
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 412,
+      issues: ["adoption_result_report_expired"],
+    });
+    expect(adoptAccepted).toHaveBeenCalledTimes(1);
+    expect(await store.findExecution(sourceLease.executionId)).toEqual(before);
+    expect(await store.findLease(sourceLease.leaseId)).toEqual(sourceLease);
+  });
+
+  it("keeps a stale adoption rejection when the API clock passes the report window", async () => {
+    const {
+      d: dependencies,
+      store,
+      before,
+      sourceLease,
+      request,
+      adoptAccepted,
+    } = await persistedAdoptionFixture();
+    let currentNow = new Date(now);
+    const d = { ...dependencies, now: () => currentNow };
+    adoptAccepted.mockImplementation(async (command) => {
+      const result = await store.adoptObservation({
+        ...command,
+        expectedExecutionVersion: command.expectedExecutionVersion + 1n,
+      });
+      expect(result.status).toBe(ReviewObservationAttachmentStatus.Ineligible);
+      currentNow = new Date(sourceLease.resultReportUntil.getTime() + 1);
+      return result;
+    });
+
+    await expect(
+      createReviewActionV2ExecutionHandlers(d).adoptObservation.execute(
+        request,
+      ),
+    ).resolves.toMatchObject({
+      statusCode: 200,
+      result: { status: ReviewExecutionMutationResultStatus.Rejected },
+    });
+    expect(adoptAccepted).toHaveBeenCalledTimes(1);
+    expect(await store.findExecution(sourceLease.executionId)).toEqual(before);
+    expect(await store.findLease(sourceLease.leaseId)).toEqual(sourceLease);
+  });
+
   it.each(["safety resolution", "capability preparation"] as const)(
     "rejects adoption when %s outlives the source result-report window",
     async (delayAt) => {
@@ -2975,13 +3046,24 @@ describe("Review Action v2 execution/evidence composition", () => {
     let currentNow = new Date(now);
     const d = { ...dependencies, now: () => currentNow };
     let releasePreparations!: () => void;
-    const preparationsReady = new Promise<void>((resolve) => {
+    let rejectPreparations!: (error: unknown) => void;
+    const preparationsReady = new Promise<void>((resolve, reject) => {
       releasePreparations = resolve;
+      rejectPreparations = reject;
     });
     let releaseFirstCommit!: () => void;
-    const firstCommitted = new Promise<void>((resolve) => {
+    let rejectFirstCommit!: (error: unknown) => void;
+    const firstCommitted = new Promise<void>((resolve, reject) => {
       releaseFirstCommit = resolve;
+      rejectFirstCommit = reject;
     });
+    // A request can fail before its peer starts waiting on either gate.
+    void preparationsReady.catch(() => {});
+    void firstCommitted.catch(() => {});
+    const rejectGates = (error: unknown) => {
+      rejectPreparations(error);
+      rejectFirstCommit(error);
+    };
     let preparationCount = 0;
     const prepareIdentity = d.capabilities.prepareIdentity.bind(d.capabilities);
     vi.spyOn(d.capabilities, "prepareIdentity").mockImplementation(async () => {
@@ -2995,20 +3077,65 @@ describe("Review Action v2 execution/evidence composition", () => {
       }
       return { ...identity, capabilityId: `late-adoption-${ordinal}` };
     });
-    adoptAccepted.mockImplementation(async (command) => {
-      const result = await store.adoptObservation(command);
-      if (result.status === ReviewObservationAttachmentStatus.Attached) {
+    adoptAccepted.mockImplementationOnce(async (command) => {
+      try {
+        const result = await store.adoptObservation(command);
+        expect(result.status).toBe(ReviewObservationAttachmentStatus.Attached);
         currentNow = new Date(sourceLease.resultReportUntil.getTime() + 1);
         releaseFirstCommit();
+        return result;
+      } catch (error) {
+        rejectFirstCommit(error);
+        throw error;
       }
-      return result;
     });
     const handlers = createReviewActionV2ExecutionHandlers(d);
 
-    const responses = await Promise.allSettled([
+    const barrierTimeout = setTimeout(() => {
+      rejectGates(
+        new Error(
+          preparationCount < 2
+            ? "late_adoption_preparation_timeout"
+            : "late_adoption_first_commit_timeout",
+        ),
+      );
+    }, 5_000);
+    const pending = [
       handlers.adoptObservation.execute(request),
       handlers.adoptObservation.execute(request),
-    ]);
+    ];
+    const requestsSettled = Promise.allSettled(pending);
+    pending.forEach((pendingRequest, index) => {
+      void pendingRequest.then(
+        () => {
+          if (preparationCount < 2) {
+            rejectGates(
+              new Error(
+                `late_adoption_request_${index + 1}_settled_before_preparation_barrier`,
+              ),
+            );
+          }
+        },
+        (error: unknown) => {
+          rejectGates(
+            new Error(`late_adoption_request_${index + 1}_failed`, {
+              cause: error,
+            }),
+          );
+        },
+      );
+    });
+    let responses: Awaited<typeof requestsSettled>;
+    try {
+      await preparationsReady;
+      await firstCommitted;
+      responses = await requestsSettled;
+    } finally {
+      clearTimeout(barrierTimeout);
+      releasePreparations();
+      releaseFirstCommit();
+      await requestsSettled;
+    }
 
     expect(currentNow.getTime()).toBeLessThan(
       authorization.expiresAt.getTime(),
@@ -3213,6 +3340,7 @@ function executionDependencies(
     currentRevision?: ReviewActionV2ExecutionHandlerDependencies["executions"]["currentRevision"]["execute"];
     contextReplay?: ReviewActionV2ExecutionHandlerDependencies["contextReplay"];
     now?: () => Date;
+    readServerTime?: () => Promise<Date>;
   } = {},
 ): ReviewActionV2ExecutionHandlerDependencies {
   const shared = common(
@@ -3222,6 +3350,7 @@ function executionDependencies(
   );
   return {
     ...shared,
+    readServerTime: overrides.readServerTime ?? (async () => now),
     authorizationQueries: {
       findReviewRunAuthorizationById: vi.fn(async () => authorization),
     },
@@ -3359,6 +3488,7 @@ function common(
     | "observations"
     | "leaseSafety"
     | "finalizationFacts"
+    | "readServerTime"
   >;
 }
 

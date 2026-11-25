@@ -20,8 +20,6 @@ import {
   type ReviewRequestedIntent,
 } from "../domain/review-requested-intent";
 import {
-  PublicationPermitValidationStatus,
-  validatePublicationPermit,
   type ReviewExecutionScope,
   type ReviewExecutionSnapshot,
 } from "../domain/review-execution";
@@ -570,7 +568,7 @@ if (databaseUrl) {
       ).toBe(outboxBefore);
     });
 
-    it("restores an already issued publication permit without broadening its internal grace after authorization expiry", async () => {
+    it("restores the immutable finalized artifact after authorization expiry", async () => {
       const harness = await createHarness();
       const running = await prepareAndAdmit(harness, "finalize-issued-grace");
       const now = await databaseClock();
@@ -600,18 +598,6 @@ if (databaseUrl) {
       expect(
         await harness.executions.findExecution(command.executionId),
       ).toEqual(persisted);
-      expect(
-        validatePublicationPermit({
-          permit: restored.artifact!.publicationPermit,
-          stream: restored.snapshot!.stream,
-          projectionHash: artifact.projectionHash,
-          lifecycleStateHash: artifact.lifecycleStateHash,
-          commandLedgerWatermark: artifact.commandLedgerWatermark,
-          authorizationActive: true,
-          producerReleaseActive: true,
-          now: retryAt,
-        }),
-      ).toBe(PublicationPermitValidationStatus.Current);
     });
 
     it("serializes concurrent requested intents into one pending successor", async () => {
@@ -2401,7 +2387,9 @@ if (databaseUrl) {
         retainUntil: source.retainUntil,
       });
 
-      expect(result.status).toBe(ReviewObservationAttachmentStatus.Ineligible);
+      expect(result.status).toBe(
+        ReviewObservationAttachmentStatus.ReportWindowExpired,
+      );
       expect(
         await harness.executions.findExecution(source.executionId),
       ).toEqual(before);

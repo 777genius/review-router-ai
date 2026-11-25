@@ -458,29 +458,43 @@ export async function finalizeExecution(
     now: finalizationNow,
     retainUntil: facts.retainUntil,
   });
+  let permit: string | null = null;
   if (result.artifact) {
     await requireCurrentExecutionRevision(
       { scope: executionScope, executionId: request.executionId },
       d,
     );
-  }
-  const publicationNow = d.now();
-  if (
-    result.artifact &&
-    result.artifact.publicationPermit.publicationNotAfter <= publicationNow
-  ) {
-    throw failure(
-      410,
-      ReviewActionV2ProtocolErrorCode.ResourceGone,
-      "publication_permit_expired",
+    // Immutable artifact replay still needs current database time for signing.
+    let serverTime: Date;
+    try {
+      serverTime = await d.readServerTime();
+      if (!Number.isFinite(serverTime.getTime())) {
+        throw new Error("publication_time_unavailable");
+      }
+    } catch {
+      throw failure(
+        503,
+        ReviewActionV2ProtocolErrorCode.ServiceUnavailable,
+        "publication_time_unavailable",
+      );
+    }
+    // Keep signed token timestamps aligned with the verifier's local clock.
+    const publicationNow = d.now();
+    if (
+      result.artifact.publicationPermit.publicationNotAfter <= serverTime ||
+      result.artifact.publicationPermit.publicationNotAfter <= publicationNow
+    ) {
+      throw failure(
+        410,
+        ReviewActionV2ProtocolErrorCode.ResourceGone,
+        "publication_permit_expired",
+      );
+    }
+    permit = await d.capabilities.issuePublicationPermit(
+      result.artifact.publicationPermit,
+      publicationNow,
     );
   }
-  const permit = result.artifact
-    ? await d.capabilities.issuePublicationPermit(
-        result.artifact.publicationPermit,
-        publicationNow,
-      )
-    : null;
   return {
     statusCode:
       result.status === ReviewExecutionFinalizeStatus.Finalized

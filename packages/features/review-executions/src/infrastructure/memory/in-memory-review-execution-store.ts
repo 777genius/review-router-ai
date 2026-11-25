@@ -1185,6 +1185,10 @@ export class InMemoryReviewExecutionStore
         return { status: ReviewObservationAttachmentStatus.StaleLease };
       case ObservationAttachmentDecisionStatus.Ineligible:
         return { status: ReviewObservationAttachmentStatus.Ineligible };
+      case ObservationAttachmentDecisionStatus.ReportWindowExpired:
+        return {
+          status: ReviewObservationAttachmentStatus.ReportWindowExpired,
+        };
       case ObservationAttachmentDecisionStatus.Attached: {
         const ref = decision.observationRef;
         if (this.observationRefs.has(ref.observationRefId)) {

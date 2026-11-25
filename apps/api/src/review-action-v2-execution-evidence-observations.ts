@@ -496,8 +496,7 @@ export async function adoptObservation(
     retainUntil: new Date(snapshot.execution.retainUntil),
   });
   if (
-    outcome.status === ReviewObservationAttachmentStatus.Ineligible &&
-    d.now() > sourceLease.resultReportUntil
+    outcome.status === ReviewObservationAttachmentStatus.ReportWindowExpired
   ) {
     throw failure(
       412,

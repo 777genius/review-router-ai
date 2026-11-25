@@ -526,5 +526,878 @@
     "Source E2E uses real PostgreSQL, production routes and workers with fake GitHub transport; it is not a live deployment or compiled-release qualification.",
     "Final required CI, merge and resulting main checks are independently read from the linked pull request and Actions runs.",
     "Application staging and production rollout remain pending; no deployment is performed or claimed."
-  ]
+  ],
+  "recordSemantics": "The original root sections preserve first-checkpoint evidence and failed attempts. Later qualification sections identify their own source checkpoints or file bindings; no historical failure is converted into a pass.",
+  "executorRecoveryQualification": {
+    "sourceCheckpoint": "3eac637488c5b06ea932d17e7409ee5740cdd8d2",
+    "toolingStrict": {
+      "exitCode": 0,
+      "log": {
+        "localPath": "tmp/deep-review-evidence/recovered-tooling-strict.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "note": "Original full tooling configuration, native TypeScript 7.0.2, unchanged scope.",
+      "resources": {
+        "summary": {
+          "head": "3eac637488c5b06ea932d17e7409ee5740cdd8d2",
+          "command": [
+            "node",
+            "scripts/local-checks/compiler-cli.ts",
+            "--native",
+            "--noEmit",
+            "-p",
+            "tsconfig.tooling.json"
+          ],
+          "exitCode": 0,
+          "durationSeconds": 24.033,
+          "resources": {
+            "userCpuSeconds": 37.838701,
+            "systemCpuSeconds": 8.414716,
+            "maxRssKiB": 1849508,
+            "majorFaults": 13,
+            "minorFaults": 653770,
+            "involuntaryContextSwitches": 889
+          },
+          "sampleCount": 24
+        },
+        "samples": [
+          {
+            "elapsedSeconds": 0.002,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node",
+                "rssKiB": 2480
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 1.003,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 156464
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 2.004,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 413676
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 3.005,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 520056
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 4.006,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 647516
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 5.007,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 726880
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 6.008,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 815500
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 7.009,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 900928
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 8.01,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 976340
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 9.011,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1040912
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 10.014,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1091576
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 11.015,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1158292
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 12.016,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1220184
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 13.017,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1290860
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 14.018,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1352496
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 15.022,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1410368
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 16.022,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1467160
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 17.023,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1515012
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 18.024,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1550748
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 19.025,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1623164
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 20.026,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1659752
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 21.027,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1729568
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 22.028,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1759096
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 23.029,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1823512
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "productionE2E": [
+      {
+        "report": {
+          "localPath": "tmp/deep-review-evidence/production-e2e-restored-1.json",
+          "sha256": "71b2489a5c09961e1871a46e2f47d85051c0df2fd51a9f60b53c4e336519dc4a"
+        },
+        "exitCode": 0,
+        "success": true,
+        "total": 18,
+        "passed": 18,
+        "failed": 0,
+        "pending": 0,
+        "todo": 0,
+        "note": "Complete maintained18-case source E2E.",
+        "suites": [
+          "scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts"
+        ],
+        "failedTests": []
+      },
+      {
+        "report": {
+          "localPath": "tmp/deep-review-evidence/production-e2e-restored-2.json",
+          "sha256": "b824441035bfe715a66cad053eab32fff54dac6a835b0d5c2669f855a6e583ae"
+        },
+        "exitCode": 0,
+        "success": true,
+        "total": 18,
+        "passed": 18,
+        "failed": 0,
+        "pending": 0,
+        "todo": 0,
+        "note": "Second consecutive complete run on the same DB, no manual cleanup or changed assertions/timeouts.",
+        "suites": [
+          "scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts"
+        ],
+        "failedTests": []
+      }
+    ],
+    "qualifiesLaterSourceChanges": false
+  },
+  "currentBaseIntegration": {
+    "base": "95201f4e0d63d3ab7c4d585a1e55a6317e84ca6b",
+    "commit": "bfbece593a64232d934115755a5fc42de72ab56b",
+    "previousHead": "70923853138997eb37cbe71de443019f3f46eb34",
+    "unchangedTree": "db90a5a785d888de8ec60afdd829b96c97a8c542",
+    "mainPullRequest": 1006,
+    "matchingFormatterBlobs": 8,
+    "precedingCI": "https://github.com/777genius/review-router-ai/actions/runs/45651139678",
+    "precedingConfirmedResults": [
+      "Static Checks: complete56 workspace typecheck tasks plus original root configurations, lint and format",
+      "Ubuntu installer63/63",
+      "macOS installer63/63"
+    ],
+    "qualifiesAdditionalCorrections": false
+  },
+  "additionalReviewQualification": {
+    "recordedAtUtc": "2026-11-25T17:26:18.552939+00:00",
+    "parentCheckpoint": "bfbece593a64232d934115755a5fc42de72ab56b",
+    "integrationBase": "95201f4e0d63d3ab7c4d585a1e55a6317e84ca6b",
+    "sourceBindings": [
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-composition.test.ts",
+        "gitBlob": "c6d18561a0f2819e79e3bbec68687fad2ee8770c",
+        "sha256": "f7a27120ab8d66cda2c9ec79c292c5f5375455484f9f5a11ad9f86ac9a4e7f36"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-dependencies.ts",
+        "gitBlob": "0f872a1e535485f67061cc1ea5ec1f73944a8b4c",
+        "sha256": "4875660d027d61b9e9621a10f4dee506be506f061ebd76e577929cb72cc9b77d"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-lifecycle.ts",
+        "gitBlob": "a677e6bb74a415436a3df8a7999772921279effe",
+        "sha256": "c21e24de72eff8521b0b9eb564b1da4bb4dc3491c4cc2f66b9518fbe2c867590"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-observations.ts",
+        "gitBlob": "6bdd124e5eea665c895625095cb7dbb7d0d56888",
+        "sha256": "a49e7260e72383da7a2f7610f9f2ce9681207dc2683b927ef13211aca6ad8cf9"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-production-composition.ts",
+        "gitBlob": "1f39bb660c098129aa2a6e79354e206bc4b1ab46",
+        "sha256": "f79659ee3510b563c718b8d9035af6c97fea72d337856d61bc34d61cb6ebcac1"
+      },
+      {
+        "path": "packages/features/review-executions/src/application/ports/review-execution-ports.ts",
+        "gitBlob": "5c6ff54de9cd4e142a37aaf994baac5816e6b9f4",
+        "sha256": "0c5c45fed16dd7e7d23f29e29449e2cfd0f463c61abd1a6d9d7829ee0f6f87a5"
+      },
+      {
+        "path": "packages/features/review-executions/src/domain/review-execution-observation-transitions.ts",
+        "gitBlob": "a05cbf9d074d1d1ff7cbcb303d4093976e775462",
+        "sha256": "681eedc54d01145eddc78077cdb47b573da2abb57cf8cd108ffcdff7197a1718"
+      },
+      {
+        "path": "packages/features/review-executions/src/infrastructure/memory/in-memory-review-execution-store.ts",
+        "gitBlob": "1697476fd73ad0bfddcf4cb91cbc1f7add3f10d0",
+        "sha256": "e18a45797010d4025ab27f10ea50ec56964b29fe7d8a42484d67aca846c9fc52"
+      },
+      {
+        "path": "packages/features/review-executions/src/infrastructure/prisma/prisma-review-execution-store.ts",
+        "gitBlob": "da5d4e894eb1b2f14117d69af76c4ae954dd34db",
+        "sha256": "a6b5244459ebe6445a6e532d12f5fc6f423c625a938ab3f979b5bbafbb884729"
+      },
+      {
+        "path": "packages/features/review-executions/src/tests/prisma-review-execution-store-real.test.ts",
+        "gitBlob": "4927486f54b0e0186d46b229222f2e92d6e766ec",
+        "sha256": "28e900e147a7a6b483ba492d312bee58342e6d4830616aaab06e46d967470591"
+      },
+      {
+        "path": "packages/features/review-executions/src/tests/review-executions.test.ts",
+        "gitBlob": "952cc6b6241c89d6cfce3b73acc83cd3b4aefd52",
+        "sha256": "40a3e18935ee0a0c5ecaaa9c9a7c01a94694977470a824449f45dc6c6aaeb8ed"
+      },
+      {
+        "path": "scripts/architecture-boundaries/transaction-serialization.ts",
+        "gitBlob": "16f26dc60a2d5adc57f427a9c274827884e65ffb",
+        "sha256": "c732f479f046f29ea8bd7874723489fb834887fb73dce748da43ea5986174290"
+      },
+      {
+        "path": "scripts/check-architecture-boundaries.test.ts",
+        "gitBlob": "66f32ca6e18ae473e6b9806501e490d077c44aeb",
+        "sha256": "3e686cd5902be7254d5b2eca4064a446db0f242fb8dfd25255d280feb4291265"
+      },
+      {
+        "path": "scripts/manage-review-provider-scope-concurrency.test.ts",
+        "gitBlob": "67b690dcfd459a7393f6f6e2b9764d6912cf5de8",
+        "sha256": "713f512e1f02154e032abe152054928ac2f47b57ac959aa2b4152de934500aa0"
+      },
+      {
+        "path": "scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts",
+        "gitBlob": "e760ee9284e86d857af5b6a89dc6d8d4b4089e2a",
+        "sha256": "8996aec7af626e195d7b4c51c96766d7d544692a8e16d14c673bfc0adc8ab853"
+      },
+      {
+        "path": "scripts/review-action-v2-production-e2e/support/review-action-v2-e2e-harness.ts",
+        "gitBlob": "a80fb9ba728fd8b70e303d366d7df4ceb282f883",
+        "sha256": "a3e93bb2893134e304bbb63cebdbf3421fe39e000eadb8f55c447b7a838956b9"
+      },
+      {
+        "path": "scripts/review-action-v2-production-e2e/support/review-action-v2-worker-drain.test.ts",
+        "gitBlob": "18dcbd2fc2a278a6f5d521d8853d745d2cb95caf",
+        "sha256": "883d03552621a12306fc7699443005c896c102ef79a141d7d46c1a226fcf1634"
+      },
+      {
+        "path": "scripts/review-action-v2-production-e2e/support/review-action-v2-worker-drain.ts",
+        "gitBlob": "473222a6892ead9634bfd1326c47dc42c51a63d7",
+        "sha256": "8c98f15fdcf1b58e075e4fb04b7a0e31f3b81fe097852ece75cef1b144c67c6a"
+      }
+    ],
+    "reviewSource": "https://github.com/777genius/review-router-ai/pull/1003#issuecomment-7164210441",
+    "reviewDispositions": [
+      "Distinct internal ReportWindowExpired outcome preserves authoritative HTTP412 classification and exact replay ordering.",
+      "Publication issuance checks fresh database and local clocks; invalid/unavailable database time fails closed, local issuedAt/nbf remain unchanged.",
+      "Fresh observation mismatch fixture changes only payload hash and asserts exact403 authority mismatch.",
+      "Late adoption concurrency gates reject unexpected/early request outcomes, have a bounded barrier wait, and join both requests on cleanup.",
+      "PostgreSQL replay fixture names only its immutable-artifact assertion; synthetic active-authority validation no longer claims production permit grace."
+    ],
+    "positiveChecks": [
+      {
+        "report": {
+          "localPath": "tmp/deep-review-evidence/review-clock-api-domain-green.json",
+          "sha256": "a0461822de6a048ccf1abc26bbe04ee7846c8cbf9c9d76378bbb50861e30330c"
+        },
+        "exitCode": 0,
+        "success": true,
+        "total": 158,
+        "passed": 158,
+        "failed": 0,
+        "pending": 0,
+        "todo": 0,
+        "note": "Complete API/domain158; followed only by a type-only Omit fixture clarification, without runtime/assertion changes.",
+        "suites": [
+          "apps/api/src/review-action-v2-execution-evidence-composition.test.ts",
+          "packages/features/review-executions/src/tests/review-executions.test.ts"
+        ],
+        "failedTests": []
+      },
+      {
+        "report": {
+          "localPath": "tmp/deep-review-evidence/review-clock-pg.json",
+          "sha256": "c691a7c44f54c30b551c451c0e3d4a1022897e46ee2dad0ce5394ba990881c12"
+        },
+        "exitCode": 0,
+        "success": true,
+        "total": 56,
+        "passed": 56,
+        "failed": 0,
+        "pending": 0,
+        "todo": 0,
+        "note": "Complete maintained real-PostgreSQL execution suite on canonical82 migrations.",
+        "suites": [
+          "packages/features/review-executions/src/tests/prisma-review-execution-store-real.test.ts"
+        ],
+        "failedTests": []
+      },
+      {
+        "report": {
+          "localPath": "tmp/deep-review-evidence/worker-drain-tests.json",
+          "sha256": "5e2362ee782f9c4b6974fdc46c28c43aace58ccd9336f9f18da8be2b9dc3cfe0"
+        },
+        "exitCode": 0,
+        "success": true,
+        "total": 7,
+        "passed": 7,
+        "failed": 0,
+        "pending": 0,
+        "todo": 0,
+        "note": "Focused helper contract: deferred/due work, single-pass, shared wait budget and cancellation; not a replacement for full E2E.",
+        "suites": [
+          "scripts/review-action-v2-production-e2e/support/review-action-v2-worker-drain.test.ts"
+        ],
+        "failedTests": []
+      }
+    ],
+    "negativeChecks": [
+      {
+        "report": {
+          "localPath": "tmp/deep-review-evidence/adoption-status-domain-red.json",
+          "sha256": "ac37f952c0aa6d492c0340e466943a6f74abe83b15deb3f81b87249670af5feb"
+        },
+        "exitCode": 1,
+        "success": false,
+        "total": 90,
+        "passed": 89,
+        "failed": 1,
+        "pending": 0,
+        "todo": 0,
+        "note": "Expected transition failure before distinct expiry outcome; unrelated domain tests passed.",
+        "suites": [
+          "packages/features/review-executions/src/tests/review-executions.test.ts"
+        ],
+        "failedTests": [
+          "observation references and finalization honors the inclusive adoption result-report deadline at offset 1 ms"
+        ]
+      },
+      {
+        "report": {
+          "localPath": "tmp/deep-review-evidence/api-clock-red.json",
+          "sha256": "2bc6f78e36b15c6392cd41acc2b41586a7e2fefa02b806fbc2df978a0f1f712a"
+        },
+        "exitCode": 1,
+        "success": false,
+        "total": 68,
+        "passed": 0,
+        "failed": 2,
+        "pending": 66,
+        "todo": 0,
+        "note": "Two expected API classification failures on the previous handler; other cases filtered.",
+        "suites": [
+          "apps/api/src/review-action-v2-execution-evidence-composition.test.ts"
+        ],
+        "failedTests": [
+          "Review Action v2 execution/evidence composition reports adoption expiry from the store clock when the API clock lags",
+          "Review Action v2 execution/evidence composition keeps a stale adoption rejection when the API clock passes the report window"
+        ]
+      },
+      {
+        "report": {
+          "localPath": "tmp/deep-review-evidence/publication-clock-red-2.json",
+          "sha256": "07c7c5463459a47cadecda8eb78af79e0455027270217e9d3ab2da1506339899"
+        },
+        "exitCode": 1,
+        "success": false,
+        "total": 68,
+        "passed": 0,
+        "failed": 4,
+        "pending": 64,
+        "todo": 0,
+        "note": "Four expected issuance failures on the previous lifecycle handler; unrelated cases filtered.",
+        "suites": [
+          "apps/api/src/review-action-v2-execution-evidence-composition.test.ts"
+        ],
+        "failedTests": [
+          "Review Action v2 execution/evidence composition checks publication replay before signing: 'database deadline equality'",
+          "Review Action v2 execution/evidence composition checks publication replay before signing: 'database expiry with lagging API'",
+          "Review Action v2 execution/evidence composition checks publication replay before signing: 'unavailable database clock'",
+          "Review Action v2 execution/evidence composition checks publication replay before signing: 'invalid database clock'"
+        ]
+      }
+    ],
+    "qualityChecks": {
+      "ownerStrict": {
+        "exitCode": 0,
+        "log": {
+          "localPath": "tmp/deep-review-evidence/adoption-status-typecheck.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "note": "Original complete review-executions TypeScript project, native7.0.2."
+      },
+      "format": {
+        "exitCode": 0,
+        "log": {
+          "localPath": "tmp/deep-review-evidence/review-clock-final-format.log",
+          "sha256": "e24424053621f1d1ea7c30573802b3393380464897c56a9113342011782bd547"
+        },
+        "note": "All17 edited source/document files before adding this JSON section; no source changes from formatting."
+      },
+      "lint": {
+        "exitCode": 0,
+        "log": {
+          "localPath": "tmp/deep-review-evidence/review-clock-final-lint.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "note": "All14 changed TypeScript files, native load guard."
+      }
+    },
+    "interruptedAttempts": {
+      "publicationRed": {
+        "exitCode": 1,
+        "log": {
+          "localPath": "tmp/deep-review-evidence/publication-clock-red.log",
+          "sha256": "feb373f921ddaafb6059d0a6dbc07cdc385c681e4066f4281d7d248b96f5ac1c"
+        },
+        "note": "SIGKILL without final JSON; not counted as a regression result. A later distinct attempt reproduced four expected failures."
+      },
+      "apiStrict": {
+        "exitCode": 1,
+        "log": {
+          "localPath": "tmp/deep-review-evidence/review-clock-api-strict.log",
+          "sha256": "a5d4e03752c3a69f45665deac0829d0b622cfae754ce7772cb27faf5f1b81ddc"
+        },
+        "note": "SIGKILL without TypeScript diagnostics; not a successful typecheck.",
+        "resources": {
+          "exitCode": 1,
+          "durationSeconds": 10.06102084200029,
+          "maxRssKiB": 441308,
+          "userCpuSeconds": 2.147099,
+          "systemCpuSeconds": 12.690536999999999
+        }
+      },
+      "toolingStrict": {
+        "exitCode": 1,
+        "log": {
+          "localPath": "tmp/deep-review-evidence/review-clock-tooling-strict.log",
+          "sha256": "a5d4e03752c3a69f45665deac0829d0b622cfae754ce7772cb27faf5f1b81ddc"
+        },
+        "note": "Original full tooling scope after the helper change; SIGKILL without TypeScript diagnostics, not a successful typecheck.",
+        "resources": {
+          "exitCode": 1,
+          "durationSeconds": 3.8085325350002677,
+          "maxRssKiB": 507804,
+          "userCpuSeconds": 2.6152480000000002,
+          "systemCpuSeconds": 4.105073
+        }
+      },
+      "dbQualificationSummary": {
+        "sourceBinding": "review-clock-db-source.json",
+        "sourceFilesChangedAfterDiagnostic": [],
+        "postgres": {
+          "exitCode": 0,
+          "passed": 56,
+          "failed": 0,
+          "skipped": 0,
+          "todo": 0,
+          "reportSha256": "c691a7c44f54c30b551c451c0e3d4a1022897e46ee2dad0ce5394ba990881c12",
+          "fixture": "review-clock-pg.fixture.json"
+        },
+        "productionE2E": {
+          "exitCode": 1,
+          "reportPresent": false,
+          "outcome": "interrupted-SIGKILL",
+          "testCounts": null,
+          "observedDiagnostic": "adoption recovery publication worker did not settle; managed_check completed, summary in_flight with publication_claim_fenced_before_mutation and nextEligibleAt still 874ms in the future",
+          "underlyingKillCause": "not established",
+          "log": "review-clock-e2e.log"
+        },
+        "diagnosticE2E": {
+          "exitCode": 1,
+          "reportPresent": false,
+          "outcome": "interrupted-SIGKILL",
+          "testCounts": null,
+          "elapsedSeconds": 4.302768024001125,
+          "maxChildRssKiB": 297852,
+          "userCpuSeconds": 1.818873,
+          "systemCpuSeconds": 3.886654,
+          "cgroupCountersAvailable": false,
+          "observedApplicationSessionRows": 0,
+          "pgObservationSamples": 11,
+          "maxPgObservationQueryDurationMs": 1292.072838,
+          "maxObservedLoopDelayMs": 1290.797055,
+          "executionPhaseLimit": "Only Vitest RUN was printed; no direct beforeEach hook was instrumented, so the exact execution point is not established.",
+          "underlyingKillCause": "not established; OOM not asserted",
+          "resources": "review-clock-e2e-diagnostic.resources.json"
+        },
+        "firstStop": {
+          "stoppedAt": "2026-11-25T16:49:19.676973+00:00",
+          "providerStopExitCode": 0,
+          "applicationStopExitCode": 0,
+          "qualificationExitCode": 1,
+          "providerPidFilePresent": false,
+          "applicationPidFilePresent": false,
+          "sensitiveEnvMode": "0o600"
+        },
+        "diagnosticStop": {
+          "stoppedAt": "2026-11-25T16:57:27.939002+00:00",
+          "applicationStopExitCode": 0,
+          "qualificationExitCode": 1,
+          "providerPidFilePresent": false,
+          "applicationPidFilePresent": false,
+          "sensitiveEnvMode": "0o600"
+        }
+      },
+      "dbSummaryReceipt": {
+        "localPath": "tmp/deep-review-evidence/review-clock-db-qualification-summary.json",
+        "sha256": "8fc5627e428b4c305a7b3d9f9f58f253d188b71739dabeeeedd897b7d517a02f"
+      }
+    },
+    "workerDrainCorrection": {
+      "reason": "The prior helper declared worker_stalled while the summary nextEligibleAt was still874ms in the future.",
+      "sourceEvidence": {
+        "localPath": "tmp/deep-review-evidence/review-clock-e2e.log",
+        "sha256": "fbe73d2459df12de20537d6fe2cf1466a87550fcbef8e1194e30fb4379245603"
+      },
+      "maximumAddedTimerDelayMs": 5000,
+      "preserved": [
+        "production retry policy",
+        "lease durations",
+        "reset and result assertions",
+        "global test timeouts",
+        "maxPasses=1 without deadline reads or waiting"
+      ],
+      "cancellation": "close aborts a pending retry timer and prevents a further maintenance pass.",
+      "limits": "The budget bounds requested timer delays, not maintenance/DB duration. General async teardown hazards and SIGKILL causes are not claimed fixed."
+    },
+    "independentSourceReview": "All five review findings validated and addressed; no remaining confirmed blocking source finding after source/evidence and helper review.",
+    "pendingQualification": [
+      "Ordinary exact-corrected-head full CI, including original native strict and complete production E2E",
+      "Protected merge and independent merge readback",
+      "Resulting main CI and automatic artifact publication verification"
+    ],
+    "applicationDeployment": "Not performed; staging and production remain pending in the registry."
+  }
 }

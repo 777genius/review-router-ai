@@ -8,13 +8,17 @@
   follow-up to [#977](https://github.com/777genius/review-router-ai/pull/977).
 - Implementation reference: core checkpoint
   `ce0d75ff32e6f7a7f28ccb7ab23d48eade791081`, based on
-  `919a5add21a40d9adee064bf23b2e4217bd7e040`; not yet a release reference.
+  `919a5add21a40d9adee064bf23b2e4217bd7e040`; current-base integration
+  `bfbece593a64232d934115755a5fc42de72ab56b` incorporates
+  `95201f4e0d63d3ab7c4d585a1e55a6317e84ca6b`. These are not release references;
+  the final correction and its source hashes are tracked by the PR/evidence.
 - Dependencies: none beyond the normal qualified application release.
 - Last updated: `2026-11-25`.
 
 This bounded follow-up to #977 repairs exact observation retry handling and
-deadline checks during adoption/finalization. The source baseline is
-`919a5add21a40d9adee064bf23b2e4217bd7e040`; see the
+deadline checks during adoption/finalization, including exact error mapping and
+database-time validation before replayed permit issuance. The integrated source
+baseline is `95201f4e0d63d3ab7c4d585a1e55a6317e84ca6b`; see the
 [review and qualification plan](../plans/2026-11-25-pr977-post-merge-correctness.md).
 
 ## Environment status
@@ -32,8 +36,8 @@ currently installed fleet. This review does not authorize an application deploy.
 Ordinary API code rollout using the normal signed release process. No schema
 migration, new flag, environment change, provider rollout, public Action source
 change or worker policy change is required. The architecture/provider-fixture
-oracle repairs and disposable E2E reset correction affect development checks
-only. Merge and automatic artifact
+oracle repairs, disposable E2E reset correction and bounded E2E retry scheduling
+affect development checks only. Merge and automatic artifact
 publication do not by themselves establish an application rollout.
 
 Before an authorized rollout, identify the exact signed release containing this
@@ -55,7 +59,11 @@ Verify that an exact fresh-result retry restores the accepted observation; a
 concurrent identical adoption returns the same accepted result without an extra
 lease/ref/effect; and changed replay intent remains rejected. Confirm that a new
 adoption/finalization cannot pass an expired deadline after external awaits or
-database lock waits. Preserve already-issued permit reconciliation behavior.
+database lock waits. Expired new adoption must receive the existing HTTP 412
+from the atomic store decision, while unrelated rejections retain their own
+meaning. Permit issuance must respect both database and API time and fail closed
+when the database clock cannot be read; valid skew must preserve local token
+verification. Preserve already-issued permit reconciliation behavior.
 
 Use the normal API health and release checks. If rollback is needed, restore the
 prior qualified application image through the standard release procedure; there
@@ -74,8 +82,13 @@ be preserved.
 
 The [local qualification record](evidence/2026-11-25-pr977-observation-recovery.json)
 binds the source files and preserves passing and failed attempts separately.
-It includes the 150-case API/domain suite, 56-case real PostgreSQL suite, full
-18-case production-source E2E pass, and the later local process interruption.
+It preserves the original 150-case API/domain and 56-case real PostgreSQL
+qualification, historical E2E/process failures, the later two consecutive
+18-case E2E passes, and a separately bound qualification of the additional
+clock/error-mapping corrections. The expanded API/domain suite passes 158/158.
+The real PostgreSQL suite passes 56/56 again, and the bounded worker-drain helper
+passes seven focused tests. Current full E2E and native compiler interruptions
+are preserved as failed attempts; their exact-head CI gates remain required.
 The exact-head required CI, merge readback and main checks are tracked on
 [PR #1003](https://github.com/777genius/review-router-ai/pull/1003). These are source
 qualification records, not staging or production deployment evidence.

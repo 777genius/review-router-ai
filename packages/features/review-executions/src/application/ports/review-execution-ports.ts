@@ -68,6 +68,7 @@ export enum ReviewObservationAttachmentStatus {
   NotRunnable = "not_runnable",
   StaleLease = "stale_lease",
   Ineligible = "ineligible",
+  ReportWindowExpired = "report_window_expired",
 }
 
 export enum ReviewExecutionFinalizeStatus {
