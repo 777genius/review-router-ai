@@ -10,7 +10,9 @@ const mocks = vi.hoisted(() => {
   >();
   return {
     construct: vi.fn<(input: { appId: string; privateKey: string }) => void>(),
-    requestApp: vi.fn<(route: string) => Promise<{ data: { slug?: string } }>>(),
+    requestApp: vi.fn<
+      (route: string) => Promise<{ data: { slug?: string } }>
+    >(),
     getInstallationOctokit: vi.fn<
       (id: number) => Promise<{ request: typeof requestInstallation }>
     >(),
