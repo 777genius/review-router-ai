@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { isDatabaseAcquisitionTimeout } from "@reviewrouter/platform-db";
 import { loadProviderUsage } from "../../../../src/server/provider-usage-report";
 import type { UsageFilters } from "../../../../src/server/provider-usage-view-model";
 export const dynamic = "force-dynamic";
@@ -21,6 +22,7 @@ export async function GET(request: NextRequest) {
     "provider",
     "model",
     "runAfter",
+    "coverageAfter",
     "after",
   ] as const) {
     const value = params.get(key);
@@ -32,8 +34,9 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     const code = error instanceof Error ? error.message : "";
-    const status =
-      code === "usage_sign_in_required"
+    const status = isDatabaseAcquisitionTimeout(error)
+      ? 503
+      : code === "usage_sign_in_required"
         ? 401
         : code === "usage_access_denied"
           ? 403
@@ -41,8 +44,14 @@ export async function GET(request: NextRequest) {
             ? 400
             : 500;
     return NextResponse.json(
-      { error: status === 500 ? "usage_report_unavailable" : code },
-      { status, headers: { "cache-control": "private, no-store" } },
+      { error: status >= 500 ? "usage_report_unavailable" : code },
+      {
+        status,
+        headers: {
+          "cache-control": "private, no-store",
+          ...(status === 503 ? { "retry-after": "1" } : {}),
+        },
+      },
     );
   }
 }

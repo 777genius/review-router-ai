@@ -19,7 +19,7 @@ const webMaxLinesCeilings = {
   "apps/web/app/dashboard/provider-setup/provider-list.tsx": 842,
   "apps/web/app/dashboard/provider-setup/provider-setup-dialog.tsx": 2586,
   "apps/web/app/dashboard/provider-usage-tables.tsx": 629,
-  "apps/web/app/dashboard/provider-usage-view.tsx": 753,
+  "apps/web/app/dashboard/provider-usage-view.tsx": 741,
   "apps/web/app/dashboard/repository-live-search.tsx": 671,
   "apps/web/app/dashboard/repository-policy-editor.tsx": 1145,
   "apps/web/app/dashboard/repository-setup-progress-panel.tsx": 944,

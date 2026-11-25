@@ -750,6 +750,89 @@ describe.skipIf(!adminUrl)("usage ledger real PostgreSQL", () => {
       }
     }
   });
+  it("bounds retention backlog and skips a concurrently renewed tombstone across cleanup replicas", async () => {
+    const source = "retention-bounded";
+    const expired = new Date("2024-01-01T00:00:00Z");
+    const renewed = new Date("2026-12-01T00:00:00Z");
+    await prisma.workspace.create({
+      data: { id: source, slug: source, name: source },
+    });
+    await prisma.$executeRaw`INSERT INTO "UsageSourceFact" ("sourceInstance","eventId",revision,hash,"callId","workspaceId",fact,"occurredAt","receivedAt")
+      SELECT ${source},n::text,1,'hash',${source}||n::text,${source},'{}'::jsonb,${expired},${expired} FROM generate_series(1,9001) n`;
+    await prisma.$executeRaw`INSERT INTO "UsageCall" ("callId","workspaceId",provider,route,purpose,"occurredAt","identityHash",projection,"updatedAt")
+      SELECT ${source}||n::text,${source},'test','gateway','review',${expired},'hash','{}'::jsonb,${now} FROM generate_series(1,9001) n`;
+    await prisma.$executeRaw`INSERT INTO "UsageUnattributedObservation" ("sourceInstance","eventId",revision,hash,payload,"workspaceId","observedAt","receivedAt",reason)
+      SELECT ${source},n::text,1,'hash','{}'::jsonb,${source},${expired},${expired},'test' FROM generate_series(1,9001) n`;
+    await prisma.$executeRaw`INSERT INTO "UsageDedupeTombstone" ("sourceInstance","eventId","callId","workspaceId","identityHash","lastRevision","lastHash","lastAcceptedAt","expiresAt")
+      SELECT ${source},n::text,${source}||n::text,${source},'hash',1,'hash',${expired},${expired} FROM generate_series(1,9002) n`;
+    const counts = () =>
+      Promise.all([
+        prisma.usageSourceFact.count({ where: { sourceInstance: source } }),
+        prisma.usageCall.count({ where: { workspaceId: source } }),
+        prisma.usageUnattributedObservation.count({
+          where: { sourceInstance: source },
+        }),
+        prisma.usageDedupeTombstone.count({
+          where: { sourceInstance: source, eventId: { not: "9002" } },
+        }),
+      ]);
+    let locked!: () => void;
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const writer = prisma.$transaction(
+      async (tx) => {
+        await tx.usageDedupeTombstone.update({
+          where: {
+            sourceInstance_eventId: { sourceInstance: source, eventId: "9002" },
+          },
+          data: { expiresAt: renewed },
+        });
+        locked();
+        await held;
+      },
+      { timeout: 15000 },
+    );
+    const cleanup = new PrismaUsageReconciliation(prisma);
+    try {
+      await ready;
+      await cleanup.prune(now);
+      const remaining = await counts();
+      for (const count of remaining) {
+        expect(count).toBeGreaterThanOrEqual(5001);
+        expect(count).toBeLessThan(9001);
+      }
+      await Promise.all([cleanup.prune(now), cleanup.prune(now)]);
+      const afterReplicas = await counts();
+      for (const [index, count] of afterReplicas.entries())
+        expect(count).toBeLessThan(remaining[index]!);
+      release();
+      await writer;
+      for (let pass = 0; pass < 9 && (await counts()).some(Boolean); pass++)
+        await cleanup.prune(now);
+      expect(await counts()).toEqual([0, 0, 0, 0]);
+      expect(
+        (
+          await prisma.usageDedupeTombstone.findUniqueOrThrow({
+            where: {
+              sourceInstance_eventId: {
+                sourceInstance: source,
+                eventId: "9002",
+              },
+            },
+          })
+        ).expiresAt,
+      ).toEqual(renewed);
+    } finally {
+      release();
+      await writer.catch(() => {});
+    }
+  }, 30000);
+
   it("uses the standard runtime grants for a nonowner API writer and deletion trigger", async () => {
     // The suite applies retained migration SQL directly; the normal authority
     // routine also protects Prisma's own ledger, which Prisma CLI creates.
@@ -1083,6 +1166,61 @@ describe.skipIf(!adminUrl)("usage ledger real PostgreSQL", () => {
       tokens: { total: 260 },
     });
     expect(report.overview.runs[0]!.totals.providerAttempts).toBe(3);
+  });
+
+  it("matches nullable parent scopes and retains children from a different invocation", async () => {
+    const scope = "sql-null-parent";
+    const rows = [
+      reportProjection(
+        scope,
+        "partial",
+        { parentScope: null },
+        { ...measured(8), completeness: "partial" },
+      ),
+      reportProjection(scope, "complete", { parentScope: null }, measured(12)),
+      reportProjection(
+        scope,
+        "summary",
+        { parentScope: null, granularity: "turn" },
+        {
+          ...measured(100),
+          childCallIds: [scope + "-partial", scope + "-complete"],
+        },
+      ),
+      reportProjection(
+        scope,
+        "foreign-invocation",
+        { parentScope: null, invocationId: "another-invocation" },
+        measured(9),
+      ),
+      reportProjection(
+        scope,
+        "foreign-parent",
+        { parentScope: "another-parent" },
+        measured(11),
+      ),
+      reportProjection(
+        scope,
+        "missing",
+        { parentScope: null, granularity: "turn" },
+        {
+          ...measured(200),
+          childCallIds: [
+            scope + "-foreign-invocation",
+            scope + "-foreign-parent",
+          ],
+        },
+      ),
+    ];
+    await seedReport(scope, rows);
+    const query = reportQuery(scope);
+    const actual = await new PrismaUsageReportReader(prisma).report(query);
+    expect(actual).toEqual({
+      ...buildUsagePeriodReport(rows, query),
+      unattributedCount: 0,
+    });
+    expect(actual.totals.tokens.total).toBe(320);
+    expect(actual.partialChildCount).toBe(2);
   });
 
   it("rejects globally overlapping missing-child manifests even when their models are filtered out", async () => {

@@ -603,7 +603,7 @@ export function UsagePageNavigation({
   onNext,
   busy = false,
 }: {
-  kind: "run" | "observation";
+  kind: "run" | "observation" | "delivery";
   onPrevious?: (() => void) | undefined;
   onNext?: (() => void) | undefined;
   busy?: boolean | undefined;
@@ -611,7 +611,7 @@ export function UsagePageNavigation({
   if (!onPrevious && !onNext) return null;
   return (
     <nav
-      aria-label={`${kind === "run" ? "Run" : "Observation"} pages`}
+      aria-label={`${kind[0]!.toUpperCase()}${kind.slice(1)} pages`}
       className="flex gap-2"
     >
       {onPrevious ? (

@@ -86,7 +86,7 @@ describe("tenant usage API and SQL scope", () => {
       CREATE TABLE "ReviewRunAuthorization" ("authorizationId" text PRIMARY KEY,"workspaceId" text,"sourceRunId" text,"sourceRunAttempt" text,"runtimeSnapshotCanonicalJson" text); CREATE TABLE "UsageCall" ("callId" text,"workspaceId" text,"actorId" text,"occurredAt" timestamptz,"provider" text,"route" text,"purpose" text,"bindingId" text,"runId" text,"projection" jsonb);
       CREATE TABLE "UsageUnattributedObservation" ("workspaceId" text,"observedAt" timestamptz,"resolvedAt" timestamptz);
       CREATE TABLE "UsageSourceCheckpoint" ("workspaceId" text,"disabledAt" timestamptz,"sourceInstance" text,"coveredFrom" timestamptz,"asOf" timestamptz,"failureCount" int,"nextAttemptAt" timestamptz,"deadLetteredAt" timestamptz,"lastErrorCode" text);
-      CREATE TABLE "ProviderUsageGrant" ("workspaceId" text,"actorId" text,"issuedAt" timestamptz,"expiresAt" timestamptz,"purpose" text,"runId" text,"bindingId" text,"invocationId" text,"producerCoverage" jsonb);
+      CREATE TABLE "ProviderUsageGrant" ("id" text PRIMARY KEY,"workspaceId" text,"actorId" text,"issuedAt" timestamptz,"expiresAt" timestamptz,"purpose" text,"runId" text,"bindingId" text,"invocationId" text,"producerCoverage" jsonb);
       INSERT INTO "Workspace" VALUES ('w','active',null),('foreign','active',null),('deleted','deleted',null),('personal','active','member');
       INSERT INTO "WorkspaceMember" VALUES ('w','member','member'),('w','other','member'),('w','admin','admin'),('deleted','member','owner');
     `);
@@ -153,6 +153,19 @@ describe("tenant usage API and SQL scope", () => {
         ],
       );
     }
+    await db.exec(`
+      INSERT INTO "ProviderUsageGrant"
+      SELECT 'coverage-' || lpad(n::text,3,'0'),
+        CASE WHEN n=105 THEN 'foreign' ELSE 'w' END,
+        CASE WHEN n=104 THEN 'other' ELSE 'member' END,
+        CASE WHEN n=108 THEN '2026-11-02' ELSE '2026-10-20' END::timestamptz,
+        CASE WHEN n=106 THEN '2026-09-30' ELSE '2026-11-03' END::timestamptz,
+        CASE WHEN n=107 THEN 'diagnostic' ELSE 'review' END,
+        'run-a','binding-a','invocation-' || n::text,
+        CASE WHEN n=102 THEN NULL WHEN n=103 THEN 'null'::jsonb ELSE
+          '{"schemaVersion":1,"revision":1,"state":"partial","reason":"spool_overflow","droppedEvents":3,"occurredAt":"2026-10-21T00:00:00Z"}'::jsonb END
+      FROM generate_series(1,108) n;
+    `);
     vi.mocked(getPrisma).mockReturnValue(prisma);
   });
   afterAll(() => db.close());
@@ -238,6 +251,53 @@ describe("tenant usage API and SQL scope", () => {
     actor(null);
     expect((await get()).status).toBe(401);
   });
+  it("pages loss details independently while retaining exact scoped coverage totals", async () => {
+    actor("member");
+    const first = await (await get()).json();
+    expect(first.report.deliveryCoverage).toHaveLength(100);
+    expect(first.report.deliveryCoverageTotals).toEqual({
+      sessions: 103,
+      lossSessions: 101,
+      droppedEvents: 303,
+    });
+    expect(first.report.nextCoverageCursor).toBe("coverage-100");
+    const second = await (
+      await get("&coverageAfter=coverage-100&after=a&runAfter=run-a")
+    ).json();
+    expect(second.report.deliveryCoverage).toHaveLength(1);
+    expect(second.report.deliveryCoverage[0].invocationId).toBe(
+      "invocation-101",
+    );
+    expect(second.report.nextCoverageCursor).toBeNull();
+    expect(second.report.deliveryCoverageTotals).toEqual(
+      first.report.deliveryCoverageTotals,
+    );
+    expect(second.report.totals).toEqual(first.report.totals);
+    expect(second.report.rows.map((row: { id: string }) => row.id)).toEqual([
+      "b",
+      "c",
+    ]);
+    expect(
+      second.report.overview.runs.map((run: { runId: string }) => run.runId),
+    ).toEqual(["run-z"]);
+    const absent = await (await get("&bindingId=other-binding")).json();
+    expect(absent.report.deliveryCoverageTotals).toEqual({
+      sessions: 0,
+      lossSessions: 0,
+      droppedEvents: 0,
+    });
+  });
+  it("returns a sanitized retryable response for actual pool error shapes", async () => {
+    vi.mocked(getDashboardSignedInActor).mockRejectedValueOnce(
+      new Error("timeout exceeded when trying to connect"),
+    );
+    const unavailable = await get();
+    expect(unavailable.status).toBe(503);
+    expect(unavailable.headers.get("retry-after")).toBe("1");
+    expect(await unavailable.json()).toEqual({
+      error: "usage_report_unavailable",
+    });
+  });
   it("accepts the 366-day boundary and rejects overlong, invalid, reversed, or unbounded exact IDs", async () => {
     actor("member");
     const request = (params: string) =>
@@ -260,6 +320,8 @@ describe("tenant usage API and SQL scope", () => {
       `model=${"x".repeat(257)}`,
       "provider=A%0AB",
       "runAfter=bad%00cursor",
+      "coverageAfter=bad%00cursor",
+      `coverageAfter=${"x".repeat(257)}`,
     ])
       expect((await request(params)).status).toBe(400);
     const { report: unknown } = await (

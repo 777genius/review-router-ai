@@ -142,6 +142,8 @@ export function buildUsagePeriodReportFromAggregates(
     latestPendingAt: input.latestPendingAt,
     unattributedCount: null,
     deliveryCoverage: [],
+    deliveryCoverageTotals: { sessions: 0, lossSessions: 0, droppedEvents: 0 },
+    nextCoverageCursor: null,
     sources: [],
     overview: {
       daily: ofKind("daily")
