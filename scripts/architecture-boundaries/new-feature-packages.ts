@@ -1,7 +1,12 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, sep } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { collectAllSourceFiles, extractImportSpecifiers } from "./sources.ts";
+import { collectAllSourceFiles } from "./sources.ts";
+import {
+  compositionEntrypoints,
+  hasAssemblyComposition,
+  hasCompositionConformanceTest,
+} from "./feature-composition-evidence.ts";
 import type { ArchitectureViolation } from "./types.ts";
 
 type LegacyFeaturePolicy = {
@@ -10,6 +15,7 @@ type LegacyFeaturePolicy = {
 };
 
 type PackageManifest = {
+  readonly name?: string;
   readonly dependencies?: Readonly<Record<string, string>>;
   readonly devDependencies?: Readonly<Record<string, string>>;
   readonly exports?: Readonly<Record<string, unknown>>;
@@ -29,9 +35,11 @@ function legacyFeatureNames(root: string): ReadonlySet<string> {
     policy.schemaVersion !== 1 ||
     !Array.isArray(policy.legacyFeaturePackages) ||
     policy.legacyFeaturePackages.some(
-      (name) => typeof name !== "string" || !/^[a-z0-9][a-z0-9-]*$/u.test(name),
+      (name) =>
+        typeof name !== "string" || !/^[a-z0-9][a-z0-9-]*$/u.test(name),
     ) ||
-    new Set(policy.legacyFeaturePackages).size !== policy.legacyFeaturePackages.length
+    new Set(policy.legacyFeaturePackages).size !==
+      policy.legacyFeaturePackages.length
   ) {
     throw new Error("invalid_legacy_feature_package_policy");
   }
@@ -54,16 +62,30 @@ export async function checkNewFeaturePackageCompositions(
   const legacy = legacyFeatureNames(root);
   const rootPackage = readJson<PackageManifest>(join(root, "package.json"));
   const foundationPolicy = parseYaml(
-    readFileSync(join(root, "architecture/foundation/provider-seams.yaml"), "utf8"),
+    readFileSync(
+      join(root, "architecture/foundation/provider-seams.yaml"),
+      "utf8",
+    ),
   ) as { readonly governedRoots?: readonly string[] };
   if (!Array.isArray(foundationPolicy?.governedRoots)) {
     throw new Error("foundation_feature_coverage_missing");
   }
   const governed = new Set(foundationPolicy.governedRoots);
-  const expectedCore = rootPackage.dependencies?.["@get-modular/core"] ?? rootPackage.devDependencies?.["@get-modular/core"];
-  const expectedAssembly = rootPackage.dependencies?.["@get-modular/assembly"] ?? rootPackage.devDependencies?.["@get-modular/assembly"];
-  const expectedConformance = rootPackage.devDependencies?.["@get-modular/conformance"];
-  if (!expectedCore || !expectedAssembly || !expectedConformance) {
+  const expectedCore =
+    rootPackage.dependencies?.["@get-modular/core"] ??
+    rootPackage.devDependencies?.["@get-modular/core"];
+  const expectedAssembly =
+    rootPackage.dependencies?.["@get-modular/assembly"] ??
+    rootPackage.devDependencies?.["@get-modular/assembly"];
+  const expectedConformance =
+    rootPackage.devDependencies?.["@get-modular/conformance"];
+  if (
+    ![expectedCore, expectedAssembly, expectedConformance].every(
+      (version) =>
+        typeof version === "string" &&
+        /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(version),
+    )
+  ) {
     throw new Error("get_modular_root_pins_missing");
   }
 
@@ -84,8 +106,10 @@ export async function checkNewFeaturePackageCompositions(
       continue;
     }
     const manifest = readJson<PackageManifest>(manifestPath);
-    if (!governed.has(`packages/features/${name}/src`)) {
-      reject("New feature packages must be covered by Engineering Foundation source dependencies");
+    if (!governed.has("packages/features/" + name + "/src")) {
+      reject(
+        "New feature packages must be covered by Engineering Foundation source dependencies",
+      );
     }
     const deps = manifest.dependencies ?? {};
     const dev = manifest.devDependencies ?? {};
@@ -93,54 +117,67 @@ export async function checkNewFeaturePackageCompositions(
       deps["@get-modular/core"] !== expectedCore ||
       deps["@get-modular/assembly"] !== expectedAssembly
     ) {
-      reject("New feature packages must declare the root-pinned Get Modular Core and Assembly");
+      reject(
+        "New feature packages must declare the root-pinned Get Modular Core and Assembly",
+      );
     }
     if (dev["@get-modular/conformance"] !== expectedConformance) {
-      reject("New feature packages must qualify their composition with root-pinned Get Modular Conformance");
+      reject(
+        "New feature packages must qualify their composition with root-pinned Get Modular Conformance",
+      );
     }
-    if (!manifest.exports || !Object.hasOwn(manifest.exports, "./composition")) {
-      reject("New feature packages must expose a distinct ./composition entrypoint");
-    }
-
     const src = join(pkgRoot, "src");
     if (!existsSync(src)) {
-      reject("New feature packages require src/ with a Get Modular composition");
+      reject(
+        "New feature packages require src/ with a Get Modular composition",
+      );
       continue;
     }
     const files = await collectAllSourceFiles(pkgRoot);
     const compositionPrefix = join(src, "composition") + sep;
-    const compositionFiles = files.filter(
-      (path) =>
-        path.startsWith(compositionPrefix) &&
-        !/\.(?:test|spec)\.[cm]?tsx?$/u.test(path),
+    const compositionFiles = new Set(
+      files.filter(
+        (path) =>
+          path.startsWith(compositionPrefix) &&
+          !/\.(?:test|spec)\.[cm]?tsx?$/u.test(path) &&
+          !/\.d\.[cm]?ts$/u.test(path),
+      ),
     );
-    if (compositionFiles.length === 0) {
-      reject("New feature packages require production source under src/composition/");
+    const entrypoints = compositionEntrypoints(
+      pkgRoot,
+      manifest.exports?.["./composition"],
+      compositionFiles,
+    );
+    if (entrypoints.length === 0) {
+      reject(
+        "New feature packages must expose a distinct ./composition entrypoint backed by production composition source",
+      );
+    }
+    if (compositionFiles.size === 0) {
+      reject(
+        "New feature packages require production source under src/composition/",
+      );
       continue;
     }
-    let hasAssembly = false;
-    let hasDeclaration = false;
-    for (const file of compositionFiles) {
-      const source = readFileSync(file, "utf8");
-      const imports = extractImportSpecifiers(source, file);
-      if (imports.includes("@get-modular/assembly")) {
-        hasAssembly = true;
-      }
-      if (/\b(?:declareModule|defineContract|assemblyFor|implement)\s*(?:<[^()\n]*>)?\s*\(/u.test(source)) {
-        hasDeclaration = true;
-      }
-    }
-    if (!hasAssembly || !hasDeclaration) {
-      reject("New feature packages must compose through the Get Modular Assembly descriptors");
+    if (!hasAssemblyComposition(entrypoints, compositionFiles)) {
+      reject(
+        "New feature packages must compose through the Get Modular Assembly descriptors",
+      );
     }
     const hasCompositionTest = files.some(
       (file) =>
-        /\.(?:test|spec)\.[cm]?tsx?$/u.test(file) &&
         (file.startsWith(compositionPrefix) ||
-          file.includes(`${sep}tests${sep}`)),
+          file.includes(sep + "tests" + sep)) &&
+        hasCompositionConformanceTest(
+          file,
+          compositionFiles,
+          manifest.name,
+        ),
     );
     if (!hasCompositionTest) {
-      reject("New feature packages require a composition test executed by Vitest");
+      reject(
+        "New feature packages require an active Vitest composition test using Get Modular Conformance",
+      );
     }
   }
 }

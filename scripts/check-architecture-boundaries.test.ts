@@ -1335,6 +1335,38 @@ function createFixture(
 ): string {
   const root = mkdtempSync(join(tmpdir(), prefix));
   fixtureRoots.push(root);
+  // Legacy-boundary fixtures still run every admission policy. Only their
+  // historical package names are exempt from new-package migration.
+  const baseline = JSON.parse(
+    readFileSync(
+      resolve(
+        "architecture/consumer-module-standard/legacy-feature-packages.json",
+      ),
+      "utf8",
+    ),
+  ) as { schemaVersion: number; legacyFeaturePackages: string[] };
+  writeFile(
+    root,
+    "architecture/consumer-module-standard/legacy-feature-packages.json",
+    JSON.stringify({
+      ...baseline,
+      legacyFeaturePackages: [
+        ...baseline.legacyFeaturePackages,
+        "consumer",
+        "legacy",
+      ],
+    }),
+  );
+  writeFile(
+    root,
+    "package.json",
+    readFileSync(resolve("package.json"), "utf8"),
+  );
+  writeFile(
+    root,
+    "architecture/foundation/provider-seams.yaml",
+    "schemaVersion: 1\ngovernedRoots: []\n",
+  );
   writeFile(
     root,
     "packages/features/review-investigations/package.json",

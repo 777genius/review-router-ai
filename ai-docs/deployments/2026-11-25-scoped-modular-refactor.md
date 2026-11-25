@@ -10,10 +10,10 @@
 
 ## Environment status
 
-| Environment / target | Status | Actual deployed version / image | Last verified (UTC) | Evidence / next step |
-| --- | --- | --- | --- | --- |
-| staging | `pending` | Not verified | Not verified | Qualify the exact merged source, then select it in an authorized ordinary rollout. |
-| production | `pending` | Not verified | Not verified | Reconcile the installed version and applicable release tasks before an authorized rollout. |
+| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                                                       |
+| -------------------- | --------- | ------------------------------- | ------------------- | ------------------------------------------------------------------------------------------ |
+| staging              | `pending` | Not verified                    | Not verified        | Qualify the exact merged source, then select it in an authorized ordinary rollout.         |
+| production           | `pending` | Not verified                    | Not verified        | Reconcile the installed version and applicable release tasks before an authorized rollout. |
 
 This record does not authorize deployment. A pending status records an absence
 of verified completion, not an observation that the code is absent.
@@ -92,6 +92,6 @@ do not replay external onboarding effects merely to obtain evidence.
 
 ## Execution log
 
-| Time (UTC) | Environment | Operator | Actual version / image | Step and observed result | Evidence | Next action |
-| --- | --- | --- | --- | --- | --- | --- |
-| Not executed | staging / production | Unassigned | Not verified | No deployment requested or performed. | PR #998 | Complete implementation qualification, then join an authorized rollout. |
+| Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result              | Evidence | Next action                                                             |
+| ------------ | -------------------- | ---------- | ---------------------- | ------------------------------------- | -------- | ----------------------------------------------------------------------- |
+| Not executed | staging / production | Unassigned | Not verified           | No deployment requested or performed. | PR #998  | Complete implementation qualification, then join an authorized rollout. |

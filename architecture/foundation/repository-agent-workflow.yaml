@@ -19,12 +19,13 @@ changedChecks:
     passPaths: false
   - id: architecture
     script: architecture:check
-    extensions: [.ts, .tsx, .mts, .cts, .yaml, .json]
+    extensions: [.ts, .tsx, .mts, .cts, .yaml, .yml, .json, .md]
     passPaths: false
 fullScanPaths:
   - .github/workflows
   - architecture
   - foundation.config.yaml
+  - package.json
   - eslint.config.mjs
   - pnpm-lock.yaml
   - pnpm-workspace.yaml
