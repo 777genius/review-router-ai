@@ -1,6 +1,11 @@
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, extname, join, posix, relative } from "node:path";
-import ts from "typescript";
+import {
+  isSyntaxNode,
+  parseSourceAst,
+  walkSourceAst,
+  type SyntaxNode,
+} from "../lib/module-import-specifiers.ts";
 
 export interface MemoryHostBoundaryDiagnostic {
   readonly ruleId:
@@ -55,22 +60,35 @@ async function discover(directory: string): Promise<string[]> {
 }
 
 function staticText(
-  node: ts.Node | undefined,
+  node: unknown,
   constants: ReadonlyMap<string, string>,
 ): string | undefined {
-  if (!node) return undefined;
-  if (ts.isStringLiteralLike(node)) return node.text;
-  if (ts.isIdentifier(node)) return constants.get(node.text);
+  if (!isSyntaxNode(node)) return undefined;
   if (
-    ts.isParenthesizedExpression(node) ||
-    ts.isAsExpression(node) ||
-    ts.isSatisfiesExpression(node)
-  )
-    return staticText(node.expression, constants);
+    (node.type === "Literal" || node.type === "StringLiteral") &&
+    typeof node.value === "string"
+  ) return node.value;
   if (
-    ts.isBinaryExpression(node) &&
-    node.operatorToken.kind === ts.SyntaxKind.PlusToken
+    node.type === "TemplateLiteral" &&
+    Array.isArray(node.expressions) &&
+    node.expressions.length === 0 &&
+    Array.isArray(node.quasis)
   ) {
+    const first: unknown = node.quasis[0];
+    if (isSyntaxNode(first) && first.value && typeof first.value === "object") {
+      const cooked = (first.value as { cooked?: unknown }).cooked;
+      if (typeof cooked === "string") return cooked;
+    }
+  }
+  if (node.type === "Identifier" && typeof node.name === "string")
+    return constants.get(node.name);
+  if (
+    node.type === "TSAsExpression" ||
+    node.type === "TSSatisfiesExpression" ||
+    node.type === "TSNonNullExpression" ||
+    node.type === "ParenthesizedExpression"
+  ) return staticText(node.expression, constants);
+  if (node.type === "BinaryExpression" && node.operator === "+") {
     const left = staticText(node.left, constants);
     const right = staticText(node.right, constants);
     return left === undefined || right === undefined ? undefined : left + right;
@@ -86,33 +104,31 @@ export async function checkMemoryHostBoundaries(
   for (const host of ["apps/api/src", "apps/worker/src"])
     for (const file of await discover(join(root, host))) {
       const path = relative(root, file).split("\\").join("/");
-      const source = ts.createSourceFile(
-        path,
-        await readFile(file, "utf8"),
-        ts.ScriptTarget.Latest,
-        false,
-        path.endsWith(".tsx") || path.endsWith(".jsx")
-          ? ts.ScriptKind.TSX
-          : ts.ScriptKind.TS,
-      );
+      const source = parseSourceAst(path, await readFile(file, "utf8"));
+      if (source.errors.length > 0)
+        throw new Error(`memory_host_parse:${path}:${source.errors.join("; ")}`);
       const constants = new Map<string, string>();
-      const declarations: ts.VariableDeclaration[] = [];
-      const collect = (node: ts.Node) => {
-        if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name))
-          declarations.push(node);
-        ts.forEachChild(node, collect);
-      };
-      collect(source);
+      const declarations: SyntaxNode[] = [];
+      walkSourceAst(source.root, (node) => {
+        if (
+          node.type === "VariableDeclarator" &&
+          isSyntaxNode(node.id) &&
+          node.id.type === "Identifier"
+        ) declarations.push(node);
+      });
       for (let pass = 0; pass < 8; pass++) {
         let changed = false;
         for (const declaration of declarations) {
-          const value = staticText(declaration.initializer, constants);
+          const value = staticText(declaration.init, constants);
+          const name = isSyntaxNode(declaration.id)
+            ? declaration.id.name
+            : undefined;
           if (
             value !== undefined &&
-            ts.isIdentifier(declaration.name) &&
-            constants.get(declaration.name.text) !== value
+            typeof name === "string" &&
+            constants.get(name) !== value
           ) {
-            constants.set(declaration.name.text, value);
+            constants.set(name, value);
             changed = true;
           }
         }
@@ -143,30 +159,42 @@ export async function checkMemoryHostBoundaries(
         )
           rules.add("memory-host.concrete-provider-import");
       };
-      const visit = (node: ts.Node) => {
-        if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
-          inspect(staticText(node.moduleSpecifier, constants));
+      walkSourceAst(source.root, (node) => {
         if (
-          ts.isImportEqualsDeclaration(node) &&
-          ts.isExternalModuleReference(node.moduleReference)
-        )
-          inspect(staticText(node.moduleReference.expression, constants));
-        if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument))
-          inspect(staticText(node.argument.literal, constants));
+          node.type === "ImportDeclaration" ||
+          node.type === "ExportNamedDeclaration" ||
+          node.type === "ExportAllDeclaration"
+        ) inspect(staticText(node.source, constants));
         if (
-          ts.isCallExpression(node) &&
-          (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
-            (ts.isIdentifier(node.expression) &&
-              node.expression.text === "require") ||
-            (ts.isPropertyAccessExpression(node.expression) &&
-              ts.isIdentifier(node.expression.expression) &&
-              node.expression.expression.text === "require" &&
-              node.expression.name.text === "resolve"))
-        )
-          inspect(staticText(node.arguments[0], constants));
-        ts.forEachChild(node, visit);
-      };
-      visit(source);
+          node.type === "TSImportEqualsDeclaration" &&
+          isSyntaxNode(node.moduleReference) &&
+          node.moduleReference.type === "TSExternalModuleReference"
+        ) inspect(staticText(node.moduleReference.expression, constants));
+        if (node.type === "TSImportType")
+          inspect(staticText(node.argument, constants));
+        if (node.type === "ImportExpression")
+          inspect(staticText(node.source, constants));
+        if (node.type === "CallExpression" && isSyntaxNode(node.callee)) {
+          const callee = node.callee;
+          const direct =
+            callee.type === "Import" ||
+            (callee.type === "Identifier" && callee.name === "require");
+          const member =
+            callee.type === "MemberExpression" &&
+            !callee.computed &&
+            isSyntaxNode(callee.object) &&
+            callee.object.type === "Identifier" &&
+            callee.object.name === "require" &&
+            isSyntaxNode(callee.property) &&
+            callee.property.type === "Identifier" &&
+            callee.property.name === "resolve";
+          if (direct || member)
+            inspect(staticText(
+              Array.isArray(node.arguments) ? node.arguments[0] : undefined,
+              constants,
+            ));
+        }
+      });
       for (const ruleId of [...rules].sort())
         diagnostics.push({ ruleId, location: { path } });
     }
