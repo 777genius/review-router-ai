@@ -77,11 +77,7 @@
       "originalTooling": {
         "result": "FAIL",
         "project": "tsconfig.tooling.json",
-        "attemptDurationsSeconds": [
-          19.97,
-          18.03,
-          46.55
-        ],
+        "attemptDurationsSeconds": [19.97, 18.03, 46.55],
         "signal": "SIGKILL",
         "typeDiagnosticsObserved": false
       },
@@ -208,10 +204,7 @@
         "sha256": "65f709e2233347130c118e598f3099e0bbbc187f2e0e1798fa300fd6ae7efc51"
       },
       "continuation": {
-        "fullFiles": [
-          25,
-          4
-        ],
+        "fullFiles": [25, 4],
         "assertionsAndTimeoutsUnchanged": true,
         "nodeOldSpaceMiB": 1024,
         "nodeSemiSpaceMiB": 8,

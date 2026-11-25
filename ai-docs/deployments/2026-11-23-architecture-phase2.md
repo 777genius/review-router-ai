@@ -8,6 +8,50 @@
 - Dependencies: reconcile prior [#810](https://github.com/777genius/review-router-ai/pull/810) and [#914](https://github.com/777genius/review-router-ai/pull/914) (already merged), active Native/Gateway provider [#959](https://github.com/777genius/review-router-ai/pull/959), compiler stack #967–#975 and qualified modular consumer #976; preserve their actual owners. No unrelated upstream merge is authorized.
 - Last updated: 2026-11-25.
 
+## Published native lint dependency — 2026-11-25
+
+Foundation's protected release published `stack-toolchain@0.3.1` and
+`@agent-teams/feature-module-standard@0.4.1` from
+`fac03920e50ebde038ae415edeb7aa9e3d610ada`. Both pre-merge CI and post-merge main
+CI passed 35/35 jobs. The normal publisher verified npm
+signatures, archive integrity and source-bound SLSA provenance. A separate
+registry read and downloaded Stack archive matched that published evidence.
+
+The consumer keeps Foundation 3.1.0, FMS 0.3.2 and its accepted Get Modular pins.
+Ordinary pnpm 11.28.7 resolution retained all 57 workspace importers and changed
+only the intended root dependency/peer edges. A normal frozen installation
+completed subscription-runtime verification, Prisma generation and native compiler
+preparation; its lockfile hash did not change. Physical admission confirms
+Stack 0.3.1, parser 0.1.1, TypeScript 7.0.2 and the shared scope/types/visitor-key
+8.73.0 cohort. No manual lock edges or new overrides were used.
+
+Owner commits `6378ee3f` and `29e8386e` are preserved. Statistics uses Next's
+existing option tokenizer and rejects percentage heap budgets while preserving
+accepted preload text; all nine owner regressions passed, including both real
+child processes. The continuation aligns the private installer with the exact
+Stack release-age exception and the explicit Bun 1.4.3 build denial, and sets
+`CI=1` only in the noninteractive provider-setup Next fixture. Installer tests
+passed 31/31 and Next fixture tests 2/2 on these unchanged source bytes. The
+installer's localized policy correction remains in its existing legacy MJS
+boundary; it is runtime-tested, not described as a newly strictly typed module.
+
+The unchanged native lint/format qualifier passed its original strict project,
+47 formatter cases and all 90 safety/qualification cases, with input preservation
+and owned cleanup verified. The complete repository lint and format checks also passed under the native
+load guard. One maintained internal JSON checkpoint needed whitespace formatting;
+all parsed values, raw hashes and source bindings stayed equal, and its original
+bytes remain in the owner commit. This closes the previously unavailable Stack
+dependency. The original full tooling strict project was attempted twice after
+normal shared-build and Next type-generation prerequisites; both compiler runs
+received SIGKILL without a TypeScript diagnostic, including the bounded-memory
+recovery. These are failed checks with an unestablished cause. The unchanged full
+tooling/application gates and final integrated browser/E2E/CI acceptance remain
+mandatory; the local partial successes do not replace them.
+
+See the [consumer evidence](evidence/2026-11-25-stack031-consumer.json).
+The earlier source-bound E2E records below remain historical. No application
+deployment, public Action promotion or paid-provider acceptance is claimed.
+
 ## E2E follow-through checkpoint — 2026-11-25
 
 The source fix `5dee232a` preserves inherited Statistics qualification preloads
