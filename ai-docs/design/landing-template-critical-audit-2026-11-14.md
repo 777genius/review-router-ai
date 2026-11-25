@@ -45,7 +45,7 @@ Existing ReviewRouter `docs/capabilities.md` supports provider selection, review
 
 - Free-to-start is under `/fair-use` quotas; AI/CI charges are external.
 - Default self-managed CI executes the review, but selected model provider receives review context; avoid "code never leaves the network".
-- Alibaba upstream benchmark reports roughly 9× fewer tokens than Claude Code in test conditions, faster average time and *lower recall*; not ReviewRouter's own 9× wall-clock or cost measurement.
+- Alibaba upstream benchmark reports roughly 9× fewer tokens than Claude Code in test conditions, faster average time and _lower recall_; not ReviewRouter's own 9× wall-clock or cost measurement.
 
 ## Revised decision matrix
 
@@ -89,17 +89,15 @@ Use **exactly the same** copy, screenshots, sections and palette in all 3. Only 
 - Check external asset licenses per image/video/font; pin source commit and preserve MIT copyright notice. A repository MIT license does not automatically license arbitrary imported third-party artwork.
 - After page selection: run `impeccable audit` and `detect` with target and 390 mobile viewport as a **supporting QA tool**, never treat its score as evidence of conversion or user comprehension.
 
-
 ### Weighted-score sanity check (important correction)
 
 Using the declared 30/25/20/15/10 weights above and the subjective 1–10 category scores, the **computed** full-shell scores are: **Launch UI 7.75; Dusk 7 shell 7.55; Dusk 2 shell 7.40; Tailark Dusk 7 complete site 6.38; Velora whole site 6.45; Page UI whole site 5.65**. Velora selected screenshot/motion blocks score 7.53, but this is a **component-donor** evaluation rather than a complete page candidate; likewise the Page UI product-tour interaction is not comparable with a full layout. These ratings have no controlled user-study or browser-performance evidence.
 
-This reverses the earlier unconditional “Dusk wins” narrative: **if integration risk and clarity carry the declared weights, Launch UI narrowly leads**. Tailark may still win a *visual-authenticity* evaluation after real side-by-side prototypes, but it is not proven from the source alone. Our recommended next decision is therefore **compare Launch UI vs Tailark Dusk 7 visually with the same real product assets and content**; keep Velora as the animation-only fallback rather than assuming a full-site transplant is better.
+This reverses the earlier unconditional “Dusk wins” narrative: **if integration risk and clarity carry the declared weights, Launch UI narrowly leads**. Tailark may still win a _visual-authenticity_ evaluation after real side-by-side prototypes, but it is not proven from the source alone. Our recommended next decision is therefore **compare Launch UI vs Tailark Dusk 7 visually with the same real product assets and content**; keep Velora as the animation-only fallback rather than assuming a full-site transplant is better.
 
 ## Updated recommendation
 
 **Do not clone one full marketing site into ReviewRouter.** Compare **Launch UI and Tailark Dusk 7 as alternative layout donors**, implement one bounded 4-state findings demo using existing React/Radix UI, show one real analytics dashboard preview, and use custom CSS or a single MIT Motion primitive for animation. This best balances visual originality, shipping safety, accessibility, and reusability. The current Draft PR is research-only; no candidate has an E2E-qualified implementation and none should be merged as a landing change.
-
 
 ## November 14 follow-up: two previously missed complete-site sources
 
@@ -122,7 +120,6 @@ This reverses the earlier unconditional “Dusk wins” narrative: **if integrat
 ### Revised short experiment
 
 Build three **same-brand/same-content** isolated preview routes using the true ReviewRouter product, not template marketing examples: **A) Launch UI shell**, **B) Tailark Dusk 7 shell**, **C) freedesignmd Forge's review/CI interaction architecture with code/diff/terminal removed**. Add a fourth baseline only if the native existing page refactor remains plausible. Run the same a11y/performance and real CTA tests, then select; don't infer a winner from popularity or source scores. Velora remains optional motion donor. All must keep the actual logo, ReviewRouter typography and palette, real user install/auth flow, and accurate upstream benchmark and usage limitations.
-
 
 ## Second independent audit — 2026-11-14, latest main and public homepage
 
@@ -147,7 +144,7 @@ The root App Router page `apps/web/app/page.tsx` renders `HomeHero`, `HomeFeatur
 - Existing dashboard usage code explicitly has `unknown` and `partial` coverage and shows known/estimated costs, not always dollar-accurate bills. "Full spend control" is not the same as an enforceable budget or provider-native quota guarantee. Avoid a fake "set $10 monthly limit" interface if there is no qualified command implementing it.
 - The default GitHub code checkout/review runs in customer-authorized CI; the **chosen AI provider** still receives the supplied review context. The optional encrypted hosted-account pool differs in credential/data boundaries. Do not use "100% never leaves your network" language or assume every provider mode is available for everyone.
 - Current hosted UI is free-to-start subject to fair-use quotas, while third-party AI subscription/API use and CI may incur charges.
-- OpenCodeReview's published benchmark is *upstream*, ~one-ninth the tokens under compared conditions versus Claude Code and faster average time, but has **lower recall**; it does not certify 9× wall-clock speed or guaranteed ReviewRouter billing reduction.
+- OpenCodeReview's published benchmark is _upstream_, ~one-ninth the tokens under compared conditions versus Claude Code and faster average time, but has **lower recall**; it does not certify 9× wall-clock speed or guaranteed ReviewRouter billing reduction.
 
 ### C. Newly discovered competitor pitfalls
 
@@ -164,7 +161,7 @@ The root App Router page `apps/web/app/page.tsx` renders `HomeHero`, `HomeFeatur
 - [NN/G information scent](https://www.nngroup.com/articles/information-scent/): too little introductory context behind generic imagery makes users leave before scrolling. **Applying here:** one H1 with category/value + one short sentence + recognizable PR/finding UI and labeled action. "Free" needs scope: free platform, not necessarily free inference.
 - [NN/G motion](https://www.nngroup.com/articles/animation-purpose-ux/) and [scroll animation study](https://www.nngroup.com/articles/scroll-animations/): motion is attention-grabbing; animate meaningful state changes only, never require visitors to wait for each paragraph to appear. Effects triggered by scroll should appear once on supplemental graphics, not primary H1/copy.
 - [W3C WCAG 2.2 animation from interactions](https://www.w3.org/WAI/WCAG22/Understanding/animation-from-interactions) (AAA) advocates disabling non-essential motion, e.g. `prefers-reduced-motion`; [web.dev](https://web.dev/articles/css-web-vitals) discourages layout-affecting animation. User can understand static/frozen page equally well.
-- [Chrome UX Report thresholds](https://developer.chrome.com/docs/crux/guides/pagespeed-insights): evaluate LCP <=2.5 seconds, INP <=200 ms, CLS <=0.1 at 75th-percentile *field data*. Lighthouse lab measurements are diagnostic and CANNOT prove field p75.
+- [Chrome UX Report thresholds](https://developer.chrome.com/docs/crux/guides/pagespeed-insights): evaluate LCP <=2.5 seconds, INP <=200 ms, CLS <=0.1 at 75th-percentile _field data_. Lighthouse lab measurements are diagnostic and CANNOT prove field p75.
 
 ### E. Do not overpay for proving a template
 
@@ -176,13 +173,13 @@ Previous plans suggested three **complete** template prototypes; that would be i
 4. Lock a single layout, implement all 5 major sections in a single route with existing Server Components. Add one isolated Client Component for selectable severity findings (button with `aria-pressed`, keyboard focus) and possibly simple CSS graph animation.
 5. End-to-end test signed-out, auth-connected, install-url unavailable, reduced motion, both themes, navigation `/compare`, GitLab disabled, self-host links and source license links; run actual browser screenshot comparison and focused typecheck/lint. No queued or skipped CI counts as success.
 
-**Selection principle:** choose smallest change that demonstrably improves first-viewport comprehension, real product visibility and responsive design. There is *no verified winner* from source stars/subjective 7.75 scores. Native re-layout is a real candidate; if layout-donor source does not prove better, don't copy it.
+**Selection principle:** choose smallest change that demonstrably improves first-viewport comprehension, real product visibility and responsive design. There is _no verified winner_ from source stars/subjective 7.75 scores. Native re-layout is a real candidate; if layout-donor source does not prove better, don't copy it.
 
 ### F. Suggested architecture sketch (no code committed)
 
 - `page.tsx`: retain async server auth/installation computations, JSON-LD and metadata.
 - `home-hero.tsx`: small Server Component with headline, primary CTA and sample visual.
-- `home-review-demo.tsx`: single tiny client island with four short severity titles, no code diff/comment paragraphs, no auth API and no private workspace queries; label it *illustrative*.
+- `home-review-demo.tsx`: single tiny client island with four short severity titles, no code diff/comment paragraphs, no auth API and no private workspace queries; label it _illustrative_.
 - `home-efficiency.tsx`: static, sourced ~9× tokens chart and caveat. Use SVG/CSS, not a new charts dependency for two bars.
 - `home-product-proof.tsx`: approved, sanitized actual dashboard image(s), one changeable tab only if useful; private authenticated dashboard React Query components are NOT marketing primitives and must not be imported wholesale.
 - `home-how-it-works.tsx`: three-step review pipeline, source boundary labels and CI/provider split.
@@ -190,4 +187,4 @@ Previous plans suggested three **complete** template prototypes; that would be i
 - `/compare`: retain full existing comparison content, independently accessible; adjust nav and footer links.
 - Shared UI and CSS only; preserve `next/font/local`, existing global header/footer and all other private feature routes.
 
-**Estimate before actual implementation:** native refactor 400–900 lines of meaningful UI/CSS change (including careful cleanup of old `setup-blueprint` CSS), selected Launch UI shell 500–1,000, Dusk shell 650–1,200, Forge copy-and-refactor 800–1,600; these are **planning ranges, not measured diffs**. Complexity native 4/10, Launch 5/10, Dusk 6/10, Forge 7/10. Confidence in *ranking* medium until actual browser render. No production deployment authorized by research task.
+**Estimate before actual implementation:** native refactor 400–900 lines of meaningful UI/CSS change (including careful cleanup of old `setup-blueprint` CSS), selected Launch UI shell 500–1,000, Dusk shell 650–1,200, Forge copy-and-refactor 800–1,600; these are **planning ranges, not measured diffs**. Complexity native 4/10, Launch 5/10, Dusk 6/10, Forge 7/10. Confidence in _ranking_ medium until actual browser render. No production deployment authorized by research task.

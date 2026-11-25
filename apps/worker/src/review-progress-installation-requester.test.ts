@@ -4,18 +4,18 @@ import { createProgressInstallationRequester } from "./review-progress-installat
 type AppIdentityResponse = { data: { slug?: string } };
 
 const mocks = vi.hoisted(() => {
-  const requestInstallation = vi.fn<
-    (
-      route: string,
-      parameters?: Readonly<Record<string, unknown>>,
-    ) => Promise<{ data: unknown; headers: Record<string, string> }>
-  >();
+  const requestInstallation =
+    vi.fn<
+      (
+        route: string,
+        parameters?: Readonly<Record<string, unknown>>,
+      ) => Promise<{ data: unknown; headers: Record<string, string> }>
+    >();
   return {
     construct: vi.fn<(input: { appId: string; privateKey: string }) => void>(),
     requestApp: vi.fn<(route: string) => Promise<AppIdentityResponse>>(),
-    getInstallationOctokit: vi.fn<
-      (id: number) => Promise<{ request: typeof requestInstallation }>
-    >(),
+    getInstallationOctokit:
+      vi.fn<(id: number) => Promise<{ request: typeof requestInstallation }>>(),
     requestInstallation,
   };
 });

@@ -18,7 +18,7 @@ These are non-negotiable positions:
 
 ## Performance claim policy
 
-**Do not claim "9× faster" as an independently proven number.** Upstream Alibaba's [OpenCodeReview benchmark](https://github.com/alibaba/open-code-review#benchmark) says reviews consume **~1/9 of tokens vs Claude Code** under its tested configuration, and are *faster* (not specifically 9× faster). It notes **lower recall** than the general-purpose agent. ReviewRouter [README](../../README.md#review-engine) expressly labels the measurements *upstream, not ReviewRouter benchmarks*. A publishable visual:
+**Do not claim "9× faster" as an independently proven number.** Upstream Alibaba's [OpenCodeReview benchmark](https://github.com/alibaba/open-code-review#benchmark) says reviews consume **~1/9 of tokens vs Claude Code** under its tested configuration, and are _faster_ (not specifically 9× faster). It notes **lower recall** than the general-purpose agent. ReviewRouter [README](../../README.md#review-engine) expressly labels the measurements _upstream, not ReviewRouter benchmarks_. A publishable visual:
 
 - large **~9× fewer tokens** (small label: **upstream benchmark, same model vs Claude Code**);
 - separate **Faster, focused reviews** statement; no numeric speed ratio;
