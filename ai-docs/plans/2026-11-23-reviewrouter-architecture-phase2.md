@@ -15,14 +15,14 @@ waiting for or manually dispatching CI/CD. Execution and preparation use
 the recorded E2E source inputs. Preserve the native-adoption and prior merge
 authorization history below; neither establishes current E2E acceptance.
 
-| Qualification | Observed result |
-| --- | --- |
-| Current frozen install and Statistics preload/heap regressions | PASS; 9/9 regressions, including two real Node children |
-| Complete lint and lint qualification | PASS within the independently matched source/installed-graph scope |
-| Main current full tooling and parallel full architecture | FAIL with SIGKILL; initiating causes unproved |
-| Current production17 and paired45 | No new qualified cases. Corrected production workload blocked by available memory; paired not launched |
-| Current asset-complete UI16 | Latest actual attempt on `6b6f1d0`: 12 passed / 4 failed; current v2 not launched |
-| Statistics followthrough | Latest actual attempt on `6b6f1d0`: failed before browser, 0/18 journeys and 0/21 captures; current v2 not launched |
+| Qualification                                                  | Observed result                                                                                                     |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Current frozen install and Statistics preload/heap regressions | PASS; 9/9 regressions, including two real Node children                                                             |
+| Complete lint and lint qualification                           | PASS within the independently matched source/installed-graph scope                                                  |
+| Main current full tooling and parallel full architecture       | FAIL with SIGKILL; initiating causes unproved                                                                       |
+| Current production17 and paired45                              | No new qualified cases. Corrected production workload blocked by available memory; paired not launched              |
+| Current asset-complete UI16                                    | Latest actual attempt on `6b6f1d0`: 12 passed / 4 failed; current v2 not launched                                   |
+| Statistics followthrough                                       | Latest actual attempt on `6b6f1d0`: failed before browser, 0/18 journeys and 0/21 captures; current v2 not launched |
 
 Historical `6b6f1d0` qualification covers production17 and paired45 across six
 complete files, plus the full original tooling and architecture commands. The
@@ -111,7 +111,6 @@ failed reports keep their original revisions and limits.
 
 See the [native adoption checkpoint](../deployments/evidence/2026-11-25-pr977-native-adoption.json)
 for exact commits, hashes, retained failures and remaining acceptance.
-
 
 ## Final review and delivery — 2026-11-25
 
