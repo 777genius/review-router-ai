@@ -31,6 +31,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+Production relay build attempt 2026-11-25: image built but removed after disk headroom fell to 380 MB; no backup or fleet swap. Production remains pending; see [attempt](2026-11-22-relay-completed-close-recovery.md#production-build-attempt-2026-11-25).
+
 Scoped dashboard/worker modular refactor: [combined delivery and qualification](2026-11-25-scoped-modular-refactor.md), [PR #998](https://github.com/777genius/review-router-ai/pull/998) — combines #999, #1000, #1001, #1004 and the agent-workflow/suppression portion of #1002; the global Markdown candidate remains in Draft #1002. Implementation checkpoint `ff30c381` passed production PostgreSQL E2E 17/17 and targeted native/static checks; full browser and CI qualification remain pending. Ordinary Web/worker rollout only, no migration or activation change; staging/production `pending`, no deployment authorized.
 
 Review dispatch past busy pull requests: [filter already occupied scopes before limiting due work](2026-11-23-review-requested-busy-scopes.md), [PR #994](https://github.com/777genius/review-router-ai/pull/994) - API/worker ordinary rollout; staging and production `pending`. No migration; transactional claim and fencing remain authoritative.
