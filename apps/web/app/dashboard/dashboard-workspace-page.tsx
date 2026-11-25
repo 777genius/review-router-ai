@@ -85,7 +85,7 @@ import {
   projectRepositorySetupStatus,
 } from "@reviewrouter/features-workflow-provisioning";
 import { PrismaWorkflowProvisioningQuery } from "@reviewrouter/features-workflow-provisioning/composition";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import {
   defaultWorkspaceReviewPolicy,
   effectiveReviewSettings,
@@ -111,19 +111,15 @@ import {
 } from "@reviewrouter/features-support-diagnostics";
 import {
   canDashboardActorAdminWorkspace,
-  getDashboardMutationStatus,
   getDashboardSignedInActor,
-  getDashboardWorkspaceScope,
   type DashboardMutationActor,
 } from "../../src/server/dashboard-mutations";
 import { getPrisma } from "../../src/server/prisma";
-import { loadDashboardWorkspaceSummaries } from "../../src/server/dashboard-workspace-summaries";
 import {
-  listDashboardRepositoryAccess,
-  dashboardRepositoryVisibilityChanged,
-  normalizeRequestedRepositoryFullName,
-  type DashboardRepositoryAccessScope,
-} from "../../src/server/dashboard-repository-access";
+  loadDashboardBaseShellData,
+  loadDashboardShellData,
+} from "../../src/server/dashboard-shell-data";
+import { type DashboardRepositoryAccessScope } from "../../src/server/dashboard-repository-access";
 export { listDashboardRepositoryAccess } from "../../src/server/dashboard-repository-access";
 import { loadOrganizationSecretPolicy } from "../../src/server/dashboard-organization-secret-policy-github";
 import { loadProviderListView } from "../../src/server/provider-list-view";
@@ -261,7 +257,7 @@ import {
   SourceProviderLogo,
 } from "../source-provider-logo";
 
-import { cache, Suspense, type ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 import { DashboardShell, DashboardShellSnapshot } from "./dashboard-shell";
 import { NavigationContentReady } from "../navigation-feedback";
 import { DashboardSectionLoading } from "./dashboard-section-loading";
@@ -717,55 +713,6 @@ export type DashboardWorkspacePageProps = {
   readonly forcedSection?: DashboardSection | undefined;
 };
 
-const loadDashboardIdentity = cache(async () => {
-  const [mutationStatus, workspaceScope, signedInActor] = await Promise.all([
-    getDashboardMutationStatus(),
-    getDashboardWorkspaceScope(),
-    getDashboardSignedInActor(),
-  ]);
-  return { mutationStatus, workspaceScope, signedInActor };
-});
-
-const loadDashboardBaseShellData = cache(async () => {
-  const identity = await loadDashboardIdentity();
-  const repositoryAccess = await listDashboardRepositoryAccess({
-    actor: identity.signedInActor,
-    workspaceScope: identity.workspaceScope,
-    requestedRepositoryFullName: "",
-  });
-  const workspaces = await loadDashboardWorkspaceSummaries(
-    identity.workspaceScope,
-    repositoryAccess,
-  );
-  return { ...identity, repositoryAccess, workspaces };
-});
-
-const loadDashboardShellData = cache(
-  async (requestedRepositoryFullName: string) => {
-    const base = await loadDashboardBaseShellData();
-    if (!normalizeRequestedRepositoryFullName(requestedRepositoryFullName)) {
-      return base;
-    }
-
-    const repositoryAccess = await listDashboardRepositoryAccess({
-      actor: base.signedInActor,
-      workspaceScope: base.workspaceScope,
-      requestedRepositoryFullName,
-      baseAccess: base.repositoryAccess,
-    });
-    const workspaces = dashboardRepositoryVisibilityChanged(
-      base.repositoryAccess,
-      repositoryAccess,
-    )
-      ? await loadDashboardWorkspaceSummaries(
-          base.workspaceScope,
-          repositoryAccess,
-        )
-      : base.workspaces;
-    return { ...base, repositoryAccess, workspaces };
-  },
-);
-
 export async function DashboardWorkspaceLayout({
   children,
 }: {
@@ -798,12 +745,18 @@ export async function DashboardWorkspacePage({
   if (!forcedSection && selectedSection === "setup")
     redirect(dashboardPathFromSearchParams(params, "setup"));
 
-  const context = await loadDashboardShellData(readParam(params.repository));
+  const context = await loadDashboardShellData(
+    readParam(params.repository),
+    readParam(params.workspace),
+    readParam(params.installation_id),
+  );
   const { workspaces, mutationStatus, repositoryAccess } = context;
   const appInstallUrl = getGitHubAppInstallUrl();
   const pendingOrganizationInstallRequest =
     buildPendingOrganizationInstallRequest(params);
   if (workspaces.length === 0) {
+    if (readParam(params.workspace) || readParam(params.installation_id))
+      notFound();
     if (!mutationStatus.signedIn) redirect("/");
     return (
       <>
@@ -832,6 +785,7 @@ export async function DashboardWorkspacePage({
     readParam(params.workspace),
     readParam(params.installation_id),
   );
+  if (!selectedWorkspace) notFound();
   const workspaceKey = dashboardWorkspaceUrlKey(
     selectedWorkspace.workspace,
     workspaces,
