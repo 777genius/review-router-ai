@@ -1,0 +1,50 @@
+name: One-shot formatter qualification 20261125
+on:
+  push:
+    branches:
+      - work/formatter-exact-20261125
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    name: Format exact owned files without publishing
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout scoped candidate
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Setup Node 26
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.11.1
+      - name: Install pinned pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - name: Install pinned dependencies
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+      - name: Capture official Prettier output for six public files
+        shell: bash
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+        run: |
+          set -euo pipefail
+          files=(
+            ai-docs/design/landing-redesign.md
+            ai-docs/design/landing-template-critical-audit-2026-11-14.md
+            ai-docs/design/landing-template-deep-research-2026-11-13.md
+            ai-docs/design/landing-template-research.md
+            ai-docs/plans/2026-11-10-nvidia-build-gateway-proposal.md
+            apps/worker/src/review-progress-installation-requester.test.ts
+          )
+          test "$(pnpm exec prettier --version)" = "3.8.3"
+          pnpm exec prettier --write "${files[@]}"
+          pnpm exec prettier --check "${files[@]}"
+          git diff --check
+          for file in "${files[@]}"; do
+            printf 'FORMATTED_START:%s\n' "$file"
+            base64 -w0 "$file"
+            printf '\nFORMATTED_END:%s\n' "$file"
+          done
