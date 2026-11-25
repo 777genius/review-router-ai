@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { usageObservationV2 } from "@agent-teams/account-gateway/contracts";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import {
   canonicalJson,
@@ -22,7 +21,7 @@ const token = z
   .nonnegative()
   .max(Number.MAX_SAFE_INTEGER)
   .nullable();
-const legacyObservation = z
+const observation = z
   .object({
     schemaVersion: z.literal(1),
     eventId: z.string().max(256),
@@ -51,26 +50,6 @@ const legacyObservation = z
     cost: z.null(),
   })
   .strict();
-// SDK schemas own their validator version. Cross the package boundary through
-// its public parser rather than composing Zod's versioned internal schema ABI.
-const nativeObservation = z.unknown().transform((value, context) => {
-  const parsed = usageObservationV2.safeParse(value);
-  if (!parsed.success) {
-    context.addIssue({
-      code: "custom",
-      message: "Invalid native usage observation",
-    });
-    return z.NEVER;
-  }
-  return parsed.data;
-});
-const observation = z.union([legacyObservation, nativeObservation]);
-function legacyObservationProjection(value: z.infer<typeof observation>) {
-  if (value.schemaVersion === 1) return value;
-  const { nativeContext: _context, ...common } = value;
-  void _context;
-  return { ...common, schemaVersion: 1 as const, cost: null };
-}
 /** Only the allowlisted safe observation is retained; payload hashes are immutable. */
 export async function quarantineGatewayObservation(
   prisma: PrismaClient,
@@ -78,13 +57,7 @@ export async function quarantineGatewayObservation(
   input: GatewayUsageObservation,
   reason = "usage_unattributed",
 ) {
-  const parsed = observation.parse(input);
-  const safe =
-    parsed.schemaVersion === 2 &&
-    parsed.nativeContext === null &&
-    parsed.cost === null
-      ? legacyObservationProjection(parsed)
-      : parsed;
+  const safe = observation.parse(input);
   const bytes = canonicalJson(safe);
   const hash = createHash("sha256").update(bytes).digest("hex");
   const selector = {
@@ -108,17 +81,7 @@ export async function quarantineGatewayObservation(
     },
     update: {},
   });
-  if (saved.hash !== hash) {
-    const prior = observation.safeParse(saved.payload);
-    if (
-      !prior.success ||
-      prior.data.schemaVersion === safe.schemaVersion ||
-      canonicalJson(legacyObservationProjection(prior.data)) !==
-        canonicalJson(legacyObservationProjection(safe))
-    )
-      throw new UsageError("usage_hash_conflict");
-    // Keep the original payload/hash: the same revision cannot gain new facts.
-  }
+  if (saved.hash !== hash) throw new UsageError("usage_hash_conflict");
 }
 export async function selectGatewayQuarantineBatch(
   prisma: PrismaClient,

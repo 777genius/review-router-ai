@@ -20,13 +20,6 @@ import {
   SandboxQualificationError,
   type SandboxQualification,
 } from "./provider-subscriptions-sandbox";
-import {
-  createJoinedReviewProof,
-  inspectJoinedToolOutput,
-  requireJoinedToolCompletion,
-  type JoinedReasoningReviewProof,
-} from "./provider-subscriptions-review-proof";
-import type { JoinedDispatchTrace } from "./provider-subscriptions-dispatch-trace";
 
 type JoinedInput = Readonly<{
   origin: string;
@@ -34,8 +27,6 @@ type JoinedInput = Readonly<{
   accountRef: string;
   profileId: string;
   model: string;
-  reviewProof?: JoinedReasoningReviewProof;
-  beforeDispatch?: (trace: JoinedDispatchTrace) => Promise<void>;
   limits: Readonly<{
     requests: number;
     concurrency: number;
@@ -141,9 +132,6 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
   let returnedFunctionTools = 0;
   let structuredOutputRequests = 0;
   let sandboxQualification: SandboxQualification | undefined;
-  let reasoningProof:
-    | ReturnType<ReturnType<typeof createJoinedReviewProof>["receipt"]>
-    | undefined;
   const active = new Set<() => Promise<void>>();
   const inFlight = new Set<Promise<void>>();
   const savedEnv = { ...process.env };
@@ -152,10 +140,6 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
   try {
     loopback(input.origin);
     assert.ok(input.model && input.profileId && input.accountRef);
-    const reviewProof = createJoinedReviewProof(
-      input.reviewProof,
-      input.limits.tokens,
-    );
     const archive = requiredPath("RR_PROVIDER_JOINED_ACTION_ARCHIVE");
     const binary = requiredPath("RR_PROVIDER_JOINED_CODEX_BINARY");
     const sdkPath = requiredPath("RR_PROVIDER_JOINED_SDK_HTTP");
@@ -236,16 +220,12 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
       token: input.token,
       timeoutMs: 5000,
     });
-    const runOperationId = randomUUID();
-    const invocationRef = randomUUID();
-    const attemptRef = randomUUID();
-    const policySubjectRef = "joined-provider-policy";
     const access = await consumer.runAccess({
-      operationId: runOperationId,
-      invocationRef,
-      attemptRef,
+      operationId: randomUUID(),
+      invocationRef: randomUUID(),
+      attemptRef: randomUUID(),
       accountRefs: [input.accountRef],
-      subjectRef: policySubjectRef,
+      subjectRef: "joined-provider-policy",
       policyRevision: 1,
       bindingRevision: 1,
       profileId: input.profileId,
@@ -287,15 +267,11 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
       };
       response.once("close", disconnected);
       try {
-        relayPhase = "ingress-method";
+        relayPhase = "ingress";
         assert.equal(request.method, "POST");
-        relayPhase = "ingress-path";
         assert.equal(request.url, "/v1/responses");
-        relayPhase = "ingress-authority";
         assert.equal(request.headers.authorization, "Bearer " + relayKey);
-        relayPhase = "ingress-request-bound";
         assert.ok(++entries <= 2, "joined maximum two provider entries");
-        relayPhase = "ingress-body";
         const bytes = await bodyBytes(request, input.limits.requestBytes);
         const raw = JSON.parse(bytes.toString("utf8")) as Record<
           string,
@@ -337,7 +313,10 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
         );
         structuredOutputRequests++;
         relayPhase = "cli-reasoning";
-        reviewProof.assertRequest(raw, entries);
+        assert.ok(
+          raw.reasoning === undefined || raw.reasoning === null,
+          "unsupported reasoning must not inherit ambient xhigh",
+        );
         relayPhase = "cli-fast";
         assert.ok(
           !("service_tier" in raw),
@@ -383,22 +362,6 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
               item.output.length > 0,
           ).length;
           assert.ok(returnedFunctionTools > 0, "real function output required");
-          // Observe only fixed predicates of the controlled `pwd` reply. The
-          // raw tool output may contain paths or other private process data.
-          const outputs = (raw.input as Record<string, unknown>[])
-            .filter((item) => item.type === "function_call_output")
-            .flatMap((item) =>
-              typeof item.output === "string" ? [item.output] : [],
-            );
-          const outputShape = inspectJoinedToolOutput(outputs, checkout);
-          process.stdout.write(
-            JSON.stringify({
-              phase: "actual-cli-tool-output-shape",
-              profileId: input.profileId,
-              ...outputShape,
-            }) + "\n",
-          );
-          requireJoinedToolCompletion(outputShape);
           if (declaredCustomTools > 0)
             assert.ok(
               returnedCustomTools > 0,
@@ -410,14 +373,14 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
         const preparedBody = relayAdapter.prepareReviewRunGatewayResponses(
           bytes,
           input.model,
-          reviewProof.maxOutputTokens,
+          100,
           input.limits.requestBytes,
           input.limits.tokens,
         );
         const forwarded = JSON.parse(
           new TextDecoder().decode(preparedBody),
         ) as Record<string, unknown>;
-        reviewProof.assertForwarded(raw, forwarded);
+        assert.ok(!("reasoning" in forwarded));
         assert.equal(forwarded.service_tier, "default");
         assert.deepEqual(
           forwarded.text,
@@ -425,21 +388,6 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
           "production relay must preserve the review schema",
         );
         relayPhase = "sdk-execution-request";
-        await input.beforeDispatch?.(
-          Object.freeze({
-            runOperationId,
-            policySubjectRef,
-            invocationRef,
-            attemptRef,
-            executionRef: selectedRef,
-            requestRef: requestId,
-            accountRef: input.accountRef,
-            profileId: input.profileId,
-            modelId: input.model,
-            occurredAt: new Date().toISOString(),
-            serviceTier: "default",
-          }),
-        );
         const upstream = await selectedExecution.request(
           selectedRef,
           {
@@ -490,7 +438,6 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
         }
         wire += decoder.decode();
         assert.match(wire, /response\.completed/u);
-        reviewProof.observeResponse(wire, entries);
         completions++;
         complete = true;
         // The same production gate releases the unchanged terminal only after
@@ -498,16 +445,6 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
         for (const bytes of terminalGate.finish()) await write(bytes);
         response.end();
       } catch (error) {
-        process.stdout.write(
-          JSON.stringify({
-            phase: "actual-cli-relay-error",
-            profileId: input.profileId,
-            at: relayPhase,
-            providerEntries: entries,
-            streamCompletions: completions,
-            toolOutputObserved: toolOutput,
-          }) + "\n",
-        );
         if (error instanceof sdk.GatewayError)
           process.stdout.write(
             JSON.stringify({
@@ -547,7 +484,6 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
       path.join(codexHome, "config.toml"),
       [
         ...protectedResponsesToolPolicyConfigLines(),
-        ...reviewProof.modelConfigLines,
         "features.use_legacy_landlock = false",
         'model_provider = "reviewrouter_joined"',
         "[model_providers.reviewrouter_joined]",
@@ -570,11 +506,7 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
     process.env.REVIEWROUTER_CODEX_BINARY = binary;
     process.env.REVIEWROUTER_FORK_AGENTIC_SANDBOX = "true";
     process.env.CODEX_AGENTIC_AUDIT = "strict";
-    if (reviewProof.reasoningEffort) {
-      process.env.CODEX_REASONING_EFFORT = reviewProof.reasoningEffort;
-    } else {
-      delete process.env.CODEX_REASONING_EFFORT;
-    }
+    delete process.env.CODEX_REASONING_EFFORT;
     process.chdir(checkout);
     phase = "cli-sandbox-preflight";
     sandboxQualification = await qualifyReadonlySandbox({
@@ -605,7 +537,6 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
     assert.deepEqual(JSON.parse(result.content), finalReview);
     assert.deepEqual(result.findings, []);
     assert.deepEqual(result.revalidations, []);
-    reasoningProof = reviewProof.receipt();
     closeReason = "completed";
   } catch (error) {
     // Neither raw CLI/provider errors nor SDK diagnostics (which may carry
@@ -645,8 +576,7 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
           "applied",
           "joined execution closure ACK required",
         );
-        if (closeReason === "completed") {
-          assert.ok(reasoningProof);
+        if (closeReason === "completed")
           joinedProviderReceipts.push(
             Object.freeze({
               profileId: input.profileId,
@@ -663,12 +593,11 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
               returnedCustomTools,
               structuredOutputRequests,
               sandboxQualification,
-              ...reasoningProof,
+              reasoningOmitted: true,
               fastOmitted: true,
               executionClosureAcknowledged: true,
             }),
           );
-        }
       }
     } catch {
       failure ??= Object.assign(

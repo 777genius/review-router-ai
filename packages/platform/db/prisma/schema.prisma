@@ -232,7 +232,6 @@ model PersonalAccountOperation {
   ingress String?
   oauthMethod String? // Only device_code; null preserves legacy browser identity.
   credentialImportMethod String? // Safe selected method, never imported bytes or fingerprints.
-  nativeConnection Json? // Versioned native method selection; no inputs or challenge values.
   normalizedIntentHash String
   expectedSourceMetadataRevision Int?
   expectedGatewayRevision BigInt?

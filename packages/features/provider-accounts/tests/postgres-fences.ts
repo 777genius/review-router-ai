@@ -583,68 +583,6 @@ export async function runBindingFencePostgresTests(
       },
     );
 
-    await t.test(
-      "native connection selection survives a fresh reader and cannot be retargeted",
-      async () => {
-        const suffix = randomUUID();
-        const userId = `native-owner-${suffix}`;
-        await db.user.create({ data: { id: userId } });
-        const store = new PrismaPersonalAccountOperations(db);
-        const personalWorkspaceId =
-          await store.resolvePersonalWorkspace(userId);
-        const nativeConnection = {
-          schemaVersion: 1 as const,
-          profileId: "future-native-provider",
-          methodId: "cloud-identity",
-          methodRevision: 2,
-          configurationGeneration: "generation-7",
-        };
-        const intent: PersonalAccountIntent & { action: "connect" } = {
-          action: "connect",
-          actorUserId: userId,
-          clientOperationId: randomUUID(),
-          personalWorkspaceId,
-          proposedSourceId: `native-source-${suffix}`,
-          profileId: nativeConnection.profileId,
-          displayName: "Native account",
-          ingress: "native-begin",
-          nativeConnection,
-        };
-        const reserved = await store.reserveConnect(intent);
-        const recovered = await new PrismaPersonalAccountOperations(
-          secondDb,
-        ).readOperation(userId, intent.clientOperationId);
-        assert.deepEqual(recovered.intent, intent);
-        assert.equal((await store.reserveConnect(intent)).id, reserved.id);
-        for (const change of [
-          { methodId: "browser" },
-          { methodRevision: 3 },
-          { configurationGeneration: "generation-8" },
-        ]) {
-          await assert.rejects(
-            store.reserveConnect({
-              ...intent,
-              nativeConnection: { ...nativeConnection, ...change },
-            }),
-            denied("operation_conflict"),
-          );
-          await assert.rejects(
-            sql.query(
-              `UPDATE "PersonalAccountOperation" SET "nativeConnection"=$1::jsonb WHERE "id"=$2`,
-              [JSON.stringify({ ...nativeConnection, ...change }), reserved.id],
-            ),
-            sqlCode("23514"),
-          );
-        }
-        const row = await db.personalAccountOperation.findUniqueOrThrow({
-          where: { id: reserved.id },
-        });
-        assert.deepEqual(row.nativeConnection, nativeConnection);
-        assert.equal(row.oauthMethod, null);
-        assert.equal(row.credentialImportMethod, null);
-      },
-    );
-
     // RED: pair/history races, terminal resurrection, old FK adoption, stale
     // lineage reuse or role loss leaves personal authority alive in this real DB.
     await t.test(

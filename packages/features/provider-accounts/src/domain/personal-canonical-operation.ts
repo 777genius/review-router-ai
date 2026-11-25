@@ -1,9 +1,5 @@
 import { createHash } from "node:crypto";
 import {
-  snapshotNativeConnectionIntent,
-  type NativeConnectionIntent,
-} from "./native-connection";
-import {
   ProviderAccountError,
   assertExpectedRevision,
   assertMetadata,
@@ -32,7 +28,6 @@ export type PersonalCanonicalIntent = {
   | {
       readonly action: "reconnect";
       readonly credentialImportMethod?: CredentialImportMethod;
-      readonly nativeConnection?: NativeConnectionIntent;
     }
   | { readonly action: "retire" }
 );
@@ -77,15 +72,6 @@ export function snapshotCanonicalIntent(
   }
   if (input.action !== "reconnect" && input.action !== "retire")
     throw new ProviderAccountError("invalid_input");
-  if (input.action === "reconnect" && input.nativeConnection !== undefined) {
-    if (input.credentialImportMethod !== undefined)
-      throw new ProviderAccountError("invalid_input");
-    return Object.freeze({
-      ...value,
-      action: input.action,
-      nativeConnection: snapshotNativeConnectionIntent(input.nativeConnection),
-    });
-  }
   if (
     input.action === "reconnect" &&
     input.credentialImportMethod !== undefined

@@ -50,7 +50,6 @@ const providerQuotaMigrationName =
 const reviewerPlanV2MigrationName = "000159_producer_reviewer_plan_v2";
 const credentialImportMigrationName =
   "000160_personal_credential_import_method";
-const nativeConnectionMigrationName = "000161_native_connection_intent";
 const readPreIndexCheckoutInventory = () =>
   readRenderManagedCheckoutInventory().filter(
     (row) =>
@@ -59,7 +58,6 @@ const readPreIndexCheckoutInventory = () =>
       row.migrationName !== providerQuotaMigrationName &&
       row.migrationName !== reviewerPlanV2MigrationName &&
       row.migrationName !== credentialImportMigrationName &&
-      row.migrationName !== nativeConnectionMigrationName &&
       row.migrationName !== verifiedReplyMigrationName,
   );
 const withoutUnifiedDispatch = <T extends { migrationName: string }>(
@@ -606,29 +604,7 @@ const canonicalPrefix = (count: number) =>
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
   it("admits only the exact concurrent-index checkout160 outside managed92 and historical96", () => {
-    const withNativeConnections = readRenderManagedCheckoutInventory();
-    expect(withNativeConnections).toHaveLength(166);
-    expect(withNativeConnections.at(-1)).toEqual({
-      migrationName: nativeConnectionMigrationName,
-      checksum:
-        "bade571a5cbde14407ff5dc76cdc33c67f7d1224afa9839dfd822f347165b90d",
-    });
-    expect(partitionRenderSchemaHandoffCheckout(withNativeConnections)).toEqual(
-      catalog,
-    );
-    expect(() =>
-      partitionRenderSchemaHandoffCheckout([
-        ...withNativeConnections.slice(0, -1),
-        { ...withNativeConnections.at(-1)!, checksum: "0".repeat(64) },
-      ]),
-    ).toThrow("checkout_extension");
-    expect(() =>
-      partitionRenderSchemaHandoffCheckout([
-        ...withNativeConnections.slice(0, -2),
-        withNativeConnections.at(-1)!,
-      ]),
-    ).toThrow("checkout_extension");
-    const withCredentialImports = withNativeConnections.slice(0, -1);
+    const withCredentialImports = readRenderManagedCheckoutInventory();
     expect(withCredentialImports).toHaveLength(165);
     expect(withCredentialImports.at(-1)).toEqual({
       migrationName: credentialImportMigrationName,
@@ -3075,12 +3051,7 @@ describe("complete filesystem checkout inventory", () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(166);
-    expect(fixture.read()).toEqual(catalog);
-    rmSync(join(fixture.migrations, nativeConnectionMigrationName), {
-      recursive: true,
-    });
-    expect(readdirSync(fixture.migrations)).toHaveLength(165);
+    expect(inventory).toHaveLength(165);
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, credentialImportMigrationName), {
       recursive: true,
@@ -3550,7 +3521,6 @@ describe("complete filesystem checkout inventory", () => {
       if (name === usageMemberReportIndexName) {
         expect(() => fixture.read()).toThrow("checkout_extension");
         const extensions = [
-          nativeConnectionMigrationName,
           credentialImportMigrationName,
           reviewerPlanV2MigrationName,
           providerQuotaMigrationName,
@@ -3573,9 +3543,9 @@ describe("complete filesystem checkout inventory", () => {
             extensionBytes,
           );
         }
-      } else if (name === nativeConnectionMigrationName) {
-        // Removing only the newest native tail restores the unchanged
-        // checksum-pinned credential-import checkout165.
+      } else if (name === credentialImportMigrationName) {
+        // Removing only the newest import tail restores the unchanged
+        // checksum-pinned reviewer-plan checkout164.
         expect(fixture.read()).toEqual(catalog);
       } else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);

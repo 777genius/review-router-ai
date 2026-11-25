@@ -11,8 +11,6 @@ import { AccountGatewayControls } from "./account-gateway-account-controls";
 import { WorkspacePersonalAccounts } from "./workspace-personal-accounts";
 
 vi.mock("./account-gateway-account-actions", () => ({
-  beginGatewayNativeConnection: vi.fn(),
-  continueGatewayNativeConnection: vi.fn(),
   listGatewayAccounts: vi.fn(),
   mutateGatewayAccount: vi.fn(),
   submitGatewayApiKey: vi.fn(),

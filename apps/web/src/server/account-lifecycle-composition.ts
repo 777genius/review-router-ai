@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import * as c from "@agent-teams/account-gateway/contracts";
 import {
-  createLifecycleV3Client,
+  createLifecycleClient,
   createManagementClient,
   createConsumerControlClient,
 } from "@agent-teams/account-gateway/http";
@@ -83,13 +83,12 @@ export async function productionAccountLifecycle(workspaceId: string) {
             ...selected,
             role: "consumer-control",
           });
-    const lifecycle = createLifecycleV3Client({
+    const lifecycle = createLifecycleClient({
       ...selected,
-      capability: c.LIFECYCLE_V3_CAPABILITY_CONTRACT,
-      clientContract: c.LIFECYCLE_V3_CLIENT_CONTRACT,
+      capability: c.LIFECYCLE_CAPABILITY_CONTRACT,
+      clientContract: c.LIFECYCLE_CLIENT_CONTRACT,
     });
     return createAccountLifecycleGateway({
-      contract: "account-lifecycle/v3",
       lifecycle,
       legacy,
       authorize: async () => {
@@ -165,10 +164,10 @@ export async function productionAccountLifecycle(workspaceId: string) {
       const receipt = await store.read(userId, command.operationId);
       const selected = settingsFor(receipt.intent.personalWorkspaceId !== null);
       const capability = await checked(() =>
-        createLifecycleV3Client({
+        createLifecycleClient({
           ...selected,
-          capability: c.LIFECYCLE_V3_CAPABILITY_CONTRACT,
-          clientContract: c.LIFECYCLE_V3_CLIENT_CONTRACT,
+          capability: c.LIFECYCLE_CAPABILITY_CONTRACT,
+          clientContract: c.LIFECYCLE_CLIENT_CONTRACT,
         }).capability(),
       );
       if (capability.writeGate !== "enabled")
@@ -235,10 +234,10 @@ export async function productionAccountLifecycle(workspaceId: string) {
     compatible: async (_workspaceId, scope) => {
       const selected = settingsFor(scope.personalWorkspaceId !== null);
       const capability = await checked(() =>
-        createLifecycleV3Client({
+        createLifecycleClient({
           ...selected,
-          capability: c.LIFECYCLE_V3_CAPABILITY_CONTRACT,
-          clientContract: c.LIFECYCLE_V3_CLIENT_CONTRACT,
+          capability: c.LIFECYCLE_CAPABILITY_CONTRACT,
+          clientContract: c.LIFECYCLE_CLIENT_CONTRACT,
         }).capability(),
       );
       return capability.writeGate === "enabled";

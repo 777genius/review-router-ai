@@ -1,39 +1,48 @@
-/**
- * Exact historical v1 aliases, frozen at Gateway 44bf7ae0c842. They decode old
- * immutable authorizations only; new profiles carry native context with the run.
- * Updating the live SDK/catalog must never relabel old usage or its pricing.
- */
-const legacyProfiles = [
-  ["openai-responses-apikey-v1", "mimo", false],
-  ["openrouter-openai-responses-apikey-v1", "openrouter", false],
-  ["nvidia-build-chat-apikey-v1", "nvidia", false],
-  ["openai-codex-oauth-responses-v1", "codex", true],
-  ["anthropic-claude-oauth-messages-v1", "claude", true],
-  ["kimi-code-global-responses-apikey-v1", "kimi", true],
-  ["glm-coding-global-responses-apikey-v1", "glm", true],
-  ["minimax-mplan-global-responses-apikey-v1", "minimax", true],
-  ["grok-subscription-responses-oauth-v1", "grok", true],
-] as const;
+import {
+  providerConnectionIdentities,
+  providerConnectionIdentity,
+  type ProviderIdentity,
+} from "@agent-teams/account-gateway/contracts";
 
-export const gatewayProfileUsageProviders = legacyProfiles.map(
-  ([profileRef, provider, subscription]) => ({
-    profileRef,
-    provider,
-    subscription,
-  }),
-);
+// Usage names a provider by its runtime kind, as direct-route rows always did;
+// the Gateway SDK names the same vendors openai and anthropic.
+const usageNames: Partial<Record<ProviderIdentity, string>> = {
+  openai: "codex",
+  anthropic: "claude",
+};
+const usageName = (vendor: ProviderIdentity) => usageNames[vendor] ?? vendor;
 
-/** Compatibility only. Unknown profiles must use their frozen native context. */
+/** Usage provider of a qualified Gateway profile; the SDK owns its vendor. */
 export function gatewayProfileUsageProvider(
   profileRef: string,
 ): string | undefined {
-  return gatewayProfileUsageProviders.find(
-    (profile) => profile.profileRef === profileRef,
-  )?.provider;
+  const vendor = providerConnectionIdentity(profileRef)?.provider.identity;
+  return vendor && usageName(vendor);
 }
 
-/** Legacy report compatibility; v3 request pricing uses per-execution evidence. */
-export const gatewaySubscriptionUsageProviders = legacyProfiles
-  .filter(([, , subscription]) => subscription)
-  .map(([, provider]) => provider)
+/** Every qualified profile with its usage provider, for read-time attribution. */
+export const gatewayProfileUsageProviders = providerConnectionIdentities.map(
+  (identity) => ({
+    profileRef: identity.profileId,
+    provider: usageName(identity.provider.identity),
+  }),
+);
+
+const flatPlans: readonly string[] = ["subscription", "coding_plan", "m_plan"];
+/**
+ * Gateway usage providers whose every qualified profile is a flat subscription
+ * or coding plan; one pay-as-you-go profile of a vendor removes it.
+ */
+export const gatewaySubscriptionUsageProviders = [
+  ...new Set(
+    providerConnectionIdentities.map(({ provider }) =>
+      usageName(provider.identity),
+    ),
+  ),
+]
+  .filter((name) =>
+    providerConnectionIdentities
+      .filter(({ provider }) => usageName(provider.identity) === name)
+      .every(({ plan }) => flatPlans.includes(plan.identity)),
+  )
   .sort();

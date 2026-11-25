@@ -243,19 +243,13 @@ export function createSubscriptionFixture(
       if (method === "GET" && path === "/v1/profiles") return null;
       // The account's own model list, which a new connection is chosen from.
       // Only the discovery sources this fixture enrolls; others stay unsupported.
-      if (
-        method === "POST" &&
-        ["/v1/account-models/read", "/v2/account-models/read"].includes(path)
-      ) {
+      if (method === "POST" && path === "/v1/account-models/read") {
         const input = await read();
         const account = accounts.find(
           (row) =>
             row.accountRef === input.accountRef &&
-            row.ownerRef === input.ownerRef &&
-            row.profileId === input.profileId &&
-            row.authorizationEpoch === input.expectedAuthorizationEpoch,
+            row.ownerRef === input.ownerRef,
         );
-        if (!account) return denied();
         const profile = profiles.find(
           (row) => row.profileId === account?.profileId,
         );
@@ -275,13 +269,7 @@ export function createSubscriptionFixture(
               status: "snapshot",
               physicalGeneration: "fixture-subscription-generation",
               principalVersion: "fixture-subscription-principal",
-              ...(path.startsWith("/v2/")
-                ? {
-                    sourceId: profile.profileId,
-                    profileId: profile.profileId,
-                    admission: { unavailableFallback: "deny" },
-                  }
-                : { source: "nvidia" }),
+              source: "nvidia",
               fetchedAt: new Date(now).toISOString(),
               expiresAt: new Date(now + nvidiaModels.ttlMs).toISOString(),
               models: [
@@ -295,12 +283,7 @@ export function createSubscriptionFixture(
             },
           };
         }
-        // Native v2 names each enrolled profile as its model source. The old
-        // v1 contract keeps its closed source vocabulary.
-        if (
-          !profile ||
-          (!path.startsWith("/v2/") && profile.provider !== "openrouter")
-        )
+        if (!account || profile?.provider !== "openrouter")
           return { status: 200, body: { status: "unsupported" } };
         const now = Date.now();
         return {
@@ -309,13 +292,7 @@ export function createSubscriptionFixture(
             status: "snapshot",
             physicalGeneration: "fixture-subscription-generation",
             principalVersion: "fixture-subscription-principal",
-            ...(path.startsWith("/v2/")
-              ? {
-                  sourceId: profile.profileId,
-                  profileId: profile.profileId,
-                  admission: { unavailableFallback: "qualified_anchor" },
-                }
-              : { source: "openrouter" }),
+            source: "openrouter",
             fetchedAt: new Date(now).toISOString(),
             expiresAt: new Date(now + 300_000).toISOString(),
             models: [

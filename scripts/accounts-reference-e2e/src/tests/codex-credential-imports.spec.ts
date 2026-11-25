@@ -106,13 +106,19 @@ for (const method of ["refresh_token", "oauth_auth_json"] as const) {
           .click();
         const dialog = page.getByRole("dialog", { name: "Connect a provider" });
         await choose(page, "Provider", "Codex");
-        await choose(page, "Connection method", `Import ${fieldLabel}`);
+        await choose(page, "Sign-in method", `Import ${fieldLabel}`);
         await dialog.getByLabel("Connection name", { exact: true }).fill(label);
         const field = dialog.getByLabel(fieldLabel, { exact: true });
-        await field.fill(credential);
+        if (method === "oauth_auth_json") {
+          await dialog.getByLabel("Or choose an auth.json file").setInputFiles({
+            name: "auth.json",
+            mimeType: "application/json",
+            buffer: Buffer.from(credential),
+          });
+        } else await field.fill(credential);
         await expect(field).toHaveValue(credential);
         await dialog
-          .getByRole("button", { name: "Connect Codex", exact: true })
+          .getByRole("button", { name: `Import ${fieldLabel}` })
           .click();
 
         const row = sourceRow(page, label);
@@ -159,19 +165,17 @@ for (const method of ["refresh_token", "oauth_auth_json"] as const) {
             .getByRole("button", { name: `Actions for ${label}` })
             .click();
           await page
-            .getByRole("menuitem", { name: "Reconnect", exact: true })
+            .getByRole("menuitem", { name: "Refresh Codex sign-in" })
             .click();
           const reconnect = page.getByRole("dialog", {
-            name: "Reconnect Codex",
-            exact: true,
+            name: `Refresh Codex sign-in · ${label}`,
           });
-          await expect(reconnect).toContainText(label);
-          await choose(page, "Connection method", "Import Refresh token");
+          await choose(page, "Sign-in method", "Import Refresh token");
           await reconnect
             .getByLabel("Refresh token", { exact: true })
             .fill(reconnectCredential);
           await reconnect
-            .getByRole("button", { name: "Reconnect Codex", exact: true })
+            .getByRole("button", { name: "Import Refresh token" })
             .click();
           await expect(reconnect).toHaveCount(0);
           await expect(sourceRow(page, label)).toContainText("Ready");
@@ -222,15 +226,8 @@ for (const method of ["refresh_token", "oauth_auth_json"] as const) {
                 action: string;
                 phase: string;
                 credentialImportMethod: string | null;
-                nativeConnection: {
-                  schemaVersion: number;
-                  profileId: string;
-                  methodId: string;
-                  methodRevision: number;
-                  configurationGeneration: string;
-                } | null;
               }>(
-                `SELECT action,phase,"credentialImportMethod","nativeConnection" FROM "PersonalAccountOperation"
+                `SELECT action,phase,"credentialImportMethod" FROM "PersonalAccountOperation"
                WHERE "actorUserId"=$1 AND ("sourceId"=$2 OR "resultSourceId"=$2)
                ORDER BY "createdAt",id`,
                 [FIXTURES.users.viewer, created.id],
@@ -244,14 +241,7 @@ for (const method of ["refresh_token", "oauth_auth_json"] as const) {
           ).map((action) => ({
             action,
             phase: "applied",
-            credentialImportMethod: null,
-            nativeConnection: {
-              schemaVersion: 1,
-              profileId: "openai-codex-oauth-responses-v1",
-              methodId: method,
-              methodRevision: 1,
-              configurationGeneration: "visual-native-generation-1",
-            },
+            credentialImportMethod: method,
           })),
         );
         await noSecrets(page, secrets);

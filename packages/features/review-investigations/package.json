@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@prisma/client": "7.9.0",
+    "@prisma/client": "7.8.0",
     "@reviewrouter/platform-db": "workspace:*"
   },
   "exports": {
@@ -30,9 +30,9 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "build:contract-source": "tsc -p tsconfig.contract-source.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "node ../../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.build.json",
+    "build:contract-source": "node ../../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.contract-source.json",
+    "typecheck": "node ../../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json",
     "test": "vitest run --root ../../.. packages/features/review-investigations/src/tests"
   }
 }

@@ -99,14 +99,13 @@ describe("canonical release migration transition", () => {
   it("keeps checkout160, merged checkout159 and published checkout158/157/156/155 admission separate from historical96 and managed92", () => {
     type Row = { migrationName: string; checksum: string };
     // Historical signed checkout160 remains unchanged by additive app-only
-    // Claude credentials, personal imports and native connection intents.
+    // Claude credential migration161 and the later personal import journal.
     const names: readonly string[] = canonicalPrismaMigrationNames.filter(
       (name) =>
         name !== "000157_claude_code_api_key_secret" &&
         name !== "000158_review_run_allocation_provider_quota" &&
         name !== "000159_producer_reviewer_plan_v2" &&
-        name !== "000160_personal_credential_import_method" &&
-        name !== "000161_native_connection_intent",
+        name !== "000160_personal_credential_import_method",
     );
     const checkout161 = names.map((migrationName) => ({
       migrationName,
@@ -449,7 +448,6 @@ describe("canonical release migration transition", () => {
           row.migrationName !== "000158_review_run_allocation_provider_quota" &&
           row.migrationName !== "000159_producer_reviewer_plan_v2" &&
           row.migrationName !== "000160_personal_credential_import_method" &&
-          row.migrationName !== "000161_native_connection_intent" &&
           row.migrationName !== "000156_verified_thread_reply",
       ),
     );

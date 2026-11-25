@@ -3,6 +3,7 @@ import { access, mkdir, open } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { pathToFileURL } from "node:url";
 import { applicationEnvironment } from "./database.ts";
 import type { FixtureSecrets } from "./contracts.ts";
 import { skillsReadinessFixtureEnv } from "./skills-readiness-fixture.ts";
@@ -20,6 +21,7 @@ export async function startNextApp(input: {
   readonly gatewayUrl: string;
   readonly secrets: FixtureSecrets;
   readonly browserExecutable: string | null;
+  readonly lowMemoryWebpack?: boolean;
   readonly skillCatalog?: {
     readonly environment: Readonly<Record<string, string>>;
   };
@@ -55,6 +57,19 @@ export async function startNextApp(input: {
     secrets: input.secrets,
     tmpDir: join(input.workDir, "app-tmp"),
   });
+  if (input.lowMemoryWebpack) {
+    const preload = pathToFileURL(
+      join(
+        input.repoRoot,
+        "scripts/accounts-reference-e2e/src/low-memory-webpack.ts",
+      ),
+    ).href;
+    // Next reconstructs NODE_OPTIONS for its fork; retain every inherited guard
+    // and resource option while adding only this explicit compiler profile.
+    environment.NODE_OPTIONS = [environment.NODE_OPTIONS, `--import=${preload}`]
+      .filter(Boolean)
+      .join(" ");
+  }
   if (input.skillCatalog)
     Object.assign(environment, input.skillCatalog.environment);
   if (input.skillsGitHub)
@@ -101,6 +116,7 @@ export async function startNextApp(input: {
       nextBin,
       "dev",
       "--webpack",
+      ...(input.lowMemoryWebpack ? ["--disable-source-maps"] : []),
       "-H",
       "127.0.0.1",
       "-p",

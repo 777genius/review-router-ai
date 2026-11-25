@@ -18,7 +18,6 @@ import {
   PrismaReviewConfigurationTransactionRepository,
 } from "../infrastructure/prisma/prisma-review-configuration-repository";
 import { PrismaReviewPolicyHeadReader } from "../infrastructure/prisma/prisma-review-policy-head-reader";
-import { runReviewConfigurationTransaction } from "../infrastructure/prisma/prisma-transaction-retry";
 import { PrismaWorkspaceMemorySettings } from "../infrastructure/prisma/prisma-workspace-memory-settings";
 
 const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
@@ -263,10 +262,7 @@ const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
             throw new Error("settings_reader_closed_before_barrier");
           }),
         ]);
-        // This harness owns the transaction, so it uses the same whole-transaction
-        // retry boundary as real callers of the transaction-bound repository.
-        write = runReviewConfigurationTransaction(
-          writerClient,
+        write = writerClient.$transaction(
           async (transaction) => {
             const [backend] = await transaction.$queryRaw<
               readonly { pid: number }[]
@@ -327,14 +323,6 @@ const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
           requireConfirmation: true,
           version: 1,
         });
-        expect(
-          await prisma.auditEvent.count({
-            where: {
-              workspaceId: otherWorkspaceId,
-              action: "workspace.memory_settings_saved",
-            },
-          }),
-        ).toBe(1);
       } finally {
         release();
         await Promise.allSettled([admission, ...(write ? [write] : [])]);

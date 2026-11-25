@@ -1,5 +1,4 @@
 import { estimateUsageCost } from "../domain/estimate-usage-cost";
-import { matchesNativeUsageProjectionReplay } from "../domain/native-usage-replay";
 import { validateUsagePriceSnapshot } from "../domain/usage-price";
 import { createHash, randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
@@ -133,12 +132,11 @@ export class PrismaUsageStore implements UsageStore {
       )
         return conflict("usage_identity_conflict");
       const duplicate = await tx.$queryRaw<
-        { hash: string; fact: UsageFact }[]
-      >`SELECT "hash","fact" FROM "UsageSourceFact" WHERE "sourceInstance"=${f.sourceInstance} AND "eventId"=${f.eventId} AND "revision"=${f.revision}`;
+        { hash: string }[]
+      >`SELECT "hash" FROM "UsageSourceFact" WHERE "sourceInstance"=${f.sourceInstance} AND "eventId"=${f.eventId} AND "revision"=${f.revision}`;
       if (duplicate[0])
-        return duplicate[0].hash === hash ||
-          matchesNativeUsageProjectionReplay(duplicate[0].fact, f)
-          ? { status: "duplicate" as const, hash: duplicate[0].hash }
+        return duplicate[0].hash === hash
+          ? { status: "duplicate" as const, hash }
           : conflict("usage_hash_conflict");
       if (tombstone && tombstone.lastRevision === f.revision)
         return tombstone.lastHash === hash

@@ -6,8 +6,6 @@ import {
 import type {
   AccountInfoFields,
   AccountInfo,
-  AccountInfoFieldsV2,
-  AccountInfoV2,
 } from "@agent-teams/account-gateway/contracts";
 import type {
   AccountMetadataFact,
@@ -30,9 +28,7 @@ function fact<T, U>(
     : { status: value.status };
 }
 /** Positive field projection: a type narrowing alone would retain extra data. */
-function fields(
-  value: AccountInfoFields | AccountInfoFieldsV2,
-): AccountMetadataFields {
+function fields(value: AccountInfoFields): AccountMetadataFields {
   return {
     email: fact(value.email, (text) => text),
     accountLabel: fact(value.accountLabel, (text) => text),
@@ -45,13 +41,10 @@ function fields(
         : null,
     })),
     credentialExpiresAt: fact(value.credentialExpiresAt, (text) => text),
-    trainingUsage:
-      "trainingUsage" in value
-        ? fact(value.trainingUsage, (value) => value)
-        : { status: "unsupported" },
+    privacyMode: fact(value.privacyMode, (value) => value),
   };
 }
-const project = (value: AccountInfo | AccountInfoV2) =>
+const project = (value: AccountInfo) =>
   value.status === "available"
     ? { status: "available" as const, fields: fields(value.fields) }
     : { status: value.status };
@@ -61,7 +54,6 @@ export function accountMetadataReader(
   settings:
     | ConsumerControlConfig
     | { role: "management"; origin: string; token: string },
-  contract: "account-info/v1" | "account-info/v2" = "account-info/v2",
 ): AccountMetadataReader {
   let client:
     | ReturnType<typeof createManagementClient>
@@ -73,12 +65,10 @@ export function accountMetadataReader(
         settings.role === "management"
           ? createManagementClient({ ...settings, timeoutMs: 2500 })
           : createConsumerControlClient({ ...settings, timeoutMs: 2500 });
-      // Compatibility is selected at composition, never inferred from a failure.
-      const request = { ownerRef, accountRefs: [...accountRefs] };
-      const response =
-        contract === "account-info/v2"
-          ? await client.readAccountInfoV2(request, { signal })
-          : await client.readAccountInfo(request, { signal });
+      const response = await client.readAccountInfo(
+        { ownerRef, accountRefs: [...accountRefs] },
+        { signal },
+      );
       return response.accounts.map((account) => ({
         accountRef: account.accountRef,
         authorizationEpoch: account.authorizationEpoch,

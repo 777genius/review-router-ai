@@ -27,7 +27,6 @@ const previousFull = currentFull.filter(
     row.migrationName !== "000158_review_run_allocation_provider_quota" &&
     row.migrationName !== "000159_producer_reviewer_plan_v2" &&
     row.migrationName !== "000160_personal_credential_import_method" &&
-    row.migrationName !== "000161_native_connection_intent" &&
     row.migrationName !== "000156_verified_thread_reply",
 );
 const full = previousFull
@@ -195,7 +194,7 @@ describe("trusted historical96 checkout reader", () => {
     expect(reader).toHaveBeenCalledWith();
     reader.mockReturnValue([
       ...currentFull,
-      { migrationName: "000162_unknown", checksum: "0".repeat(64) },
+      { migrationName: "000160_unknown", checksum: "0".repeat(64) },
     ]);
     expect(() => readRenderHistorical96CheckoutInventory()).toThrow(
       "render_historical96_checkout_rejected:count",

@@ -29,7 +29,7 @@ export type AccountMetadataFields = {
   readonly accountLabel: AccountMetadataFact<string>;
   readonly subscription: AccountMetadataFact<AccountMetadataSubscription>;
   readonly credentialExpiresAt: AccountMetadataFact<string>;
-  readonly trainingUsage: AccountMetadataFact<"enabled" | "disabled">;
+  readonly privacyMode: AccountMetadataFact<"private" | "public">;
 };
 
 export type AccountMetadataObservation = {

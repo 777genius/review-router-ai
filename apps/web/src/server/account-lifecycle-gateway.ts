@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import * as c from "@agent-teams/account-gateway/contracts";
 import type {
   LifecycleClient,
-  LifecycleV3Client,
   ManagementClient,
 } from "@agent-teams/account-gateway/http";
 import { ProviderAccountError } from "@reviewrouter/features-provider-accounts";
@@ -17,8 +16,7 @@ const digest = (kind: string, facts: unknown) =>
     .update(JSON.stringify(["rr-account-delete-proof-v1", kind, facts]))
     .digest("hex")}`;
 export function createAccountLifecycleGateway(input: {
-  contract?: "account-lifecycle/v2" | "account-lifecycle/v3";
-  lifecycle: LifecycleClient | LifecycleV3Client;
+  lifecycle: LifecycleClient;
   legacy: Pick<ManagementClient, "disable" | "operation" | "retirement">;
   authorize(): Promise<void>;
   ownerRef: string;
@@ -115,14 +113,8 @@ export function createAccountLifecycleGateway(input: {
           noEffectProofRef: null,
         };
       }
-      const operation = (
-        input.contract === "account-lifecycle/v3"
-          ? c.lifecycleOperationV3
-          : c.lifecycleOperation
-      ).parse(
-        await checked<unknown>(() =>
-          input.lifecycle.operation(command.operationId),
-        ),
+      const operation = c.lifecycleOperation.parse(
+        await checked(() => input.lifecycle.operation(command.operationId)),
       );
       const intent = operation.intent;
       if (

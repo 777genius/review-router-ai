@@ -25,8 +25,6 @@ import { WorkspaceAccountsPanel } from "./workspace-accounts-panel";
 // the engine and the overview rows are the real components.
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("./account-gateway-account-actions", () => ({
-  beginGatewayNativeConnection: vi.fn(),
-  continueGatewayNativeConnection: vi.fn(),
   beginGatewayOAuth: vi.fn(),
   completeGatewayOAuth: vi.fn(),
   pollGatewayOAuth: vi.fn(),

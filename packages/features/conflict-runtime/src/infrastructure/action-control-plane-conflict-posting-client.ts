@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ActionConflictReviewRuntimeConfig } from "@reviewrouter/features-action-control-plane";
+import type { ActionConflictReviewRuntimeConfig } from "@reviewrouter/features-action-control-plane/conflict-runtime-contract";
 import type { ConflictRuntimePostingClientPort } from "../application/conflict-runtime-runner.js";
 
 type FetchLike = (

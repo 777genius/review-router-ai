@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-11-23",
+  "scope": "Historical complete paired lifecycle on the recorded source, not final-head browser or full build qualification",
+  "source": {
+    "repository": "777genius/review-router-ai",
+    "commit": "6013a91a39b8456c59b1a44e53fc7d495b13e0b8",
+    "tree": "4d0927bcf7977cf17eafc5c9de9b3e6a0ccf2988"
+  },
+  "action": {
+    "commit": "1112a0f1de568f9fa927316ab68cef54fbcd4653",
+    "tree": "5f851800304e7725085b40a2d0a1da5fe87c3ce6"
+  },
+  "observedResult": {
+    "status": "passed",
+    "total": 25,
+    "passed": 25,
+    "failed": 0,
+    "skipped": 0,
+    "todo": 0,
+    "exitCode": 0,
+    "elapsedSeconds": 294.25,
+    "maintainedReceiptCheckerExitCode": 0
+  },
+  "runtime": {
+    "node": "26.11.1",
+    "pnpm": "11.28.7",
+    "postgresql": "17.12",
+    "prismaMigrationLedgerEntries": 165,
+    "guardedNodeProcesses": 8,
+    "legacyLoads": 0,
+    "compilerInvoked": false
+  },
+  "ocr": {
+    "release": "ocr-v1.13.1-rr.6",
+    "sourceCommit": "49afbae9debba7e30251637c4621d164595dc2c5",
+    "binarySha256": "9dd5f115747d24100f0767133a3288d268f3bc399675f5b826e7a867d101ee5c",
+    "manifestSha256": "f32798a4f52a2edb36702571ad27330080e1ed4ba646d0973892cc8cc5921da7",
+    "routes": [
+      "account-gateway",
+      "openrouter-api",
+      "mimo-token-plan-api",
+      "kimi-code-api",
+      "codex-subscription",
+      "hosted-pool",
+      "claude-subscription"
+    ],
+    "sourceRebuildQualified": false
+  },
+  "custody": {
+    "sourceAndFourLocksUnchanged": true,
+    "actionInstallationEntriesUnchanged": 23961,
+    "ownedPostgresRemoved": true,
+    "ownedChildrenStopped": true
+  },
+  "historicalEvidence": {
+    "summarySha256": "715f0129b6cc72ffe7943771818b6b100fa402a183ad02191bdb197a07eba8d3",
+    "receiptSha256": "9f932280c1082b924303f705975855668d641dc872a422c477fc0490286e07ad",
+    "terminalResultsSha256": "8dfbed7216627ad8f774eb2fdecfe1702291a638d9cdadf6ee517047233e2f78",
+    "rawArchiveSha256": "bae474d8908da536173eceb549a5bf98a738cf808c8cfdbdb2cbfff17afa7bd3",
+    "durableRecordedSummary": "https://github.com/777genius/review-router-ai/pull/977",
+    "availability": "The original local raw packet and completed compact receipt were lost in the executor reset. These are retained historical execution results and recorded digests, not a new execution or newly verified local archive."
+  },
+  "limitations": [
+    "Controlled providers and synthetic GitHub transport; no live external publication proof.",
+    "Does not qualify the separate source OCR rebuild, production Web build or browser lanes.",
+    "Final source and ordinary exact-head acceptance remain required."
+  ]
+}

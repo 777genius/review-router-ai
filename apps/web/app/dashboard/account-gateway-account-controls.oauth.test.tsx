@@ -53,8 +53,6 @@ vi.mock("next/navigation", () => ({ useRouter: () => navigation }));
 // Mock only the server boundary. React Query, its caches, and shared dialog/select
 // primitives are real; this suite starts no service and sends no OAuth request.
 vi.mock("./account-gateway-account-actions", () => ({
-  beginGatewayNativeConnection: vi.fn(),
-  continueGatewayNativeConnection: vi.fn(),
   beginGatewayOAuth: vi.fn(),
   completeGatewayOAuth: vi.fn(),
   pollGatewayOAuth: vi.fn(),

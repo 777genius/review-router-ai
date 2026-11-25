@@ -6,7 +6,7 @@
   "dependencies": {
     "@octokit/app": "^16.1.2",
     "@octokit/request": "^10.0.9",
-    "@prisma/client": "7.9.0",
+    "@prisma/client": "^7.8.0",
     "@reviewrouter/features-action-control-plane": "workspace:*",
     "@reviewrouter/features-api-demo": "workspace:*",
     "@reviewrouter/features-auth": "workspace:*",
@@ -49,7 +49,7 @@
     "@reviewrouter/platform-locks": "workspace:*",
     "@reviewrouter/features-sdk-growth-authority": "workspace:*",
     "@reviewrouter/features-provider-accounts": "workspace:*",
-    "@agent-teams/account-gateway": "file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-parity-83c18fd090e7.tgz",
+    "@agent-teams/account-gateway": "file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-imports-f2690a3c9cfd.tgz",
     "@reviewrouter/features-review-context-tools": "workspace:*",
     "@reviewrouter/features-provider-usage": "workspace:*",
     "@reviewrouter/features-review-providers": "workspace:*",

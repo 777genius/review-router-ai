@@ -1,5 +1,4 @@
 import { createReviewHistoryFeature } from "@reviewrouter/features-review-history/composition";
-import { loadNativeGatewayCatalog } from "./native-gateway-relay-policy";
 import { createMemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
 import { PrismaWorkspaceMemorySettings } from "@reviewrouter/features-review-config/composition";
 import {
@@ -990,8 +989,6 @@ export async function createApiApp(
     disabledReviewActionV2RuntimeDependencies
       ? composeReviewActionV2ProductionRoutes({
           enabled: true,
-          nativeGatewayCatalog:
-            await loadNativeGatewayCatalog(reviewActionV2Env),
           ...(historyFeature ? { historyWriter: historyFeature.writer } : {}),
           ...(memoryRuntime
             ? {

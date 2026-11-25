@@ -31,13 +31,13 @@
     }
   },
   "dependencies": {
-    "@prisma/client": "7.9.0",
+    "@prisma/client": "7.8.0",
     "@reviewrouter/platform-db": "workspace:*"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "build:contract-source": "tsc -p tsconfig.contract-source.json",
+    "build": "node ../../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.build.json",
+    "build:contract-source": "node ../../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.contract-source.json",
     "test": "vitest run --root ../../.. packages/features/review-snapshots/src/v2/tests",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "node ../../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json"
   }
 }

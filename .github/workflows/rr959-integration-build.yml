@@ -1,0 +1,199 @@
+name: RR959 integration recovery build
+
+on:
+  push:
+    branches: [work/rr959-integration-build-20261125]
+
+# The final step may create immutable Git blobs/tree only. It never commits or
+# updates refs/PRs; the owner reviews the returned tree before canonical publish.
+permissions:
+  contents: write
+
+concurrency:
+  group: rr959-integration-build-20261125
+  cancel-in-progress: false
+
+env:
+  CI: "true"
+  NODE_VERSION: "26.11.1"
+  PNPM_MAX_WORKERS: "1"
+  DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/review_router_ci?schema=public
+  PRODUCT: ${{ github.workspace }}/product
+  HELPER_CHECKOUT: ${{ github.workspace }}/helper
+  HELPERS: ${{ github.workspace }}/helper/.github/rr959-recovery-20261125
+  # Do not inject a product preload into checkout/setup-node Actions themselves.
+  RR959_NODE_OPTIONS: --import=${{ github.workspace }}/product/scripts/local-checks/lint-format-native-load-guard.ts --max-old-space-size=3072
+
+jobs:
+  recover-and-qualify:
+    if: ${{ github.repository == '777genius/review-router-ai' && github.ref == 'refs/heads/work/rr959-integration-build-20261125' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Initialize runner paths
+        run: |
+          set -euo pipefail
+          printf 'EVIDENCE=%s/rr959-recovery-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'OUTPUT=%s/rr959-recovery-artifact\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'REVIEWROUTER_NATIVE_FORMAT_AUDIT=%s/rr959-native-load-audit.jsonl\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+
+      - name: Checkout reviewed recovery helpers separately
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          path: helper
+          persist-credentials: false
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            .github/rr959-recovery-20261125
+            .github/workflows
+
+      - name: Checkout exact product base and ancestry for ordinary merge
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: 919a5add21a40d9adee064bf23b2e4217bd7e040
+          path: product
+          persist-credentials: false
+          # The ordinary merge needs ancestry; blob filtering avoids downloading
+          # historical binary archives. Helpers never enter this checkout.
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Setup exact Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Verify checked-out inputs and install exact pnpm
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_REPOSITORY" = 777genius/review-router-ai
+          test "$GITHUB_REF" = refs/heads/work/rr959-integration-build-20261125
+          test "$(git -C "$HELPER_CHECKOUT" rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C "$PRODUCT" rev-parse HEAD)" = 919a5add21a40d9adee064bf23b2e4217bd7e040
+          git -C "$PRODUCT" cat-file -e 0fd865b6dd132aaae6004e74ddf09b60bb64eb17^{commit}
+          git -C "$PRODUCT" cat-file -e 98228d9f58c476b6faba34324af9841e28e3f530^{commit}
+          test "$(node --version)" = v26.11.1
+          export NODE_OPTIONS="$RR959_NODE_OPTIONS"
+          npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+          test "$(pnpm --version)" = 11.28.7
+          mkdir -p "$EVIDENCE" "$OUTPUT"
+          : > "$EVIDENCE/checks.tsv"
+
+      - name: Restore reviewed source and normally regenerate the exact merged lock
+        run: |
+          set -euo pipefail
+          export NODE_OPTIONS="$RR959_NODE_OPTIONS"
+          node "$HELPERS/reconstruct-provider-source.ts" prepare "$PRODUCT" \
+            "$HELPERS/source-files.json" "$EVIDENCE/reconstruction-prepare.json"
+          cd "$PRODUCT"
+          node scripts/install-private-dependencies.mjs \
+            --merge-git-branch-lockfiles --lockfile-only \
+            --store-dir "$RUNNER_TEMP/rr959-pnpm-store" \
+            --network-concurrency=1 --child-concurrency=1
+          node "$HELPERS/reconstruct-provider-source.ts" seal "$PRODUCT" \
+            "$HELPERS/source-files.json" "$EVIDENCE/source-reconstruction.json"
+          # This also rejects helper files or any other unexpected product content.
+          test "$(git write-tree)" = 8744ecf9b32dc137fb6908179e8b387930ccfa94
+          printf 'parent-lock-merge\t0\n' >> "$EVIDENCE/checks.tsv"
+          node "$HELPERS/recovery-output.ts" snapshot "$PRODUCT" "$EVIDENCE"
+
+      - name: Install frozen dependencies with ordinary lifecycle
+        working-directory: product
+        run: |
+          set -euo pipefail
+          export NODE_OPTIONS="$RR959_NODE_OPTIONS"
+          node scripts/install-private-dependencies.mjs --frozen-lockfile \
+            --store-dir "$RUNNER_TEMP/rr959-pnpm-store" \
+            --network-concurrency=1 --child-concurrency=1
+          printf 'frozen-install\t0\n' >> "$EVIDENCE/checks.tsv"
+
+      - name: Verify actual Prisma schema client and exact installed toolchain
+        working-directory: product
+        run: |
+          set -euo pipefail
+          export NODE_OPTIONS="$RR959_NODE_OPTIONS"
+          node "$HELPERS/recovery-output.ts" versions "$PRODUCT"
+          # Normal postinstall already owns db:generate. Retry only this existing
+          # generator if a successful frozen install left the default stub.
+          if ! pnpm --filter @reviewrouter/platform-db exec \
+            node "$HELPERS/recovery-output.ts" client .; then
+            pnpm db:generate
+          fi
+          pnpm --filter @reviewrouter/platform-db exec \
+            node "$HELPERS/recovery-output.ts" client .
+          printf 'generated-client\t0\n' >> "$EVIDENCE/checks.tsv"
+
+      - name: Strictly typecheck the recovery helpers with the existing native compiler
+        working-directory: product
+        run: |
+          set -euo pipefail
+          export NODE_OPTIONS="$RR959_NODE_OPTIONS"
+          node scripts/local-checks/compiler-cli.ts --native --noEmit \
+            -p "$HELPERS/tsconfig.json"
+          printf 'helper-typecheck\t0\n' >> "$EVIDENCE/checks.tsv"
+
+      - name: Build both bundles and run existing parity, coherence, and focused checks
+        working-directory: product
+        run: |
+          set -euo pipefail
+          export NODE_OPTIONS="$RR959_NODE_OPTIONS"
+          run_check() {
+            local name="$1"
+            shift
+            "$@"
+            printf '%s\t0\n' "$name" >> "$EVIDENCE/checks.tsv"
+          }
+          run_check conversation-source node scripts/check-conversation-source-stamp.ts --check
+          run_check conversation-release node scripts/check-conversation-release-verifier.ts --check
+          run_check action-typecheck pnpm action:build:typecheck
+          run_check action-build pnpm action:build
+          run_check index-parity node scripts/check-codex-rotating-action-artifact.mjs
+          run_check conflict-parity node scripts/build-conflict-runtime.ts --check
+          run_check focused-tests pnpm exec vitest run \
+            scripts/install-private-dependencies.test.ts \
+            scripts/provider-setup-visual/next-app.test.ts \
+            apps/web/src/server/native-visual-fixture.test.ts \
+            packages/features/release-rollout/src/domain/activation-catalog-policy-raw-promotion-trust-root.test.ts
+
+      - name: Seal unchanged source and the two allowed generated bundles
+        run: |
+          set -euo pipefail
+          export NODE_OPTIONS="$RR959_NODE_OPTIONS"
+          git -C "$HELPER_CHECKOUT" diff --quiet HEAD -- \
+            .github/rr959-recovery-20261125 .github/workflows
+          node "$HELPERS/recovery-output.ts" seal "$PRODUCT" "$EVIDENCE" "$OUTPUT"
+
+      - name: Create immutable Git blobs and tree only
+        env:
+          # No token is exposed to install, lifecycle, build, or tests.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          export NODE_OPTIONS="$RR959_NODE_OPTIONS"
+          git -C "$HELPER_CHECKOUT" diff --quiet HEAD -- \
+            .github/rr959-recovery-20261125 .github/workflows
+          node "$HELPERS/recovery-output.ts" publish "$PRODUCT" "$EVIDENCE"
+
+      - name: Upload only generated outputs and bounded evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rr959-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.OUTPUT }}/pnpm-lock.yaml
+            ${{ env.OUTPUT }}/action-dist/*.cjs
+            ${{ env.EVIDENCE }}/reconstruction-prepare.json
+            ${{ env.EVIDENCE }}/source-reconstruction.json
+            ${{ env.EVIDENCE }}/source-before.json
+            ${{ env.EVIDENCE }}/source-after.json
+            ${{ env.EVIDENCE }}/checks.tsv
+            ${{ env.EVIDENCE }}/qualification.json
+            ${{ env.EVIDENCE }}/git-objects.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6

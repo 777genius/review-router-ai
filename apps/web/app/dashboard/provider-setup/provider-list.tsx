@@ -36,7 +36,7 @@ import {
   apiKeyStorageLabel,
 } from "../../../src/features/provider-setup/api-key-storage";
 import {
-  setupProviders,
+  getSetupProvider,
   setupProviderForDirectAuthMode,
   setupProviderForGatewayProfile,
 } from "../../../src/features/provider-setup/setup-provider";
@@ -521,11 +521,11 @@ function ProviderProfileEditForm({
   const replacementProvider = gateway
     ? setupProviderForGatewayProfile(gatewayProfile)
     : setupProviderForDirectAuthMode(row.authMode);
-  const directProvider = setupProviders.find(
-    (provider) => provider.id === replacementProvider,
-  );
+  const storageLabel = replacementProvider
+    ? apiKeyStorageLabel(row.credentialKind)
+    : null;
   const catalogProvider = replacementProvider
-    ? directProvider?.publicCatalogProvider
+    ? getSetupProvider(replacementProvider).publicCatalogProvider
     : providerKindForAuthMode(row.authMode);
   const listStatus = catalogProvider ? catalogs.status(catalogProvider) : null;
   const publicModelOptions = catalogProvider
@@ -641,20 +641,21 @@ function ProviderProfileEditForm({
           Credential
         </span>
         <span className="text-sm text-cyan-50">{providerSourceText(row)}</span>
-        {replacementProvider ? (
+        {storageLabel ? (
           <span className="text-sm text-slate-300">
-            {gatewayProfile?.connection?.nativeMethods ||
-            directProvider?.credentialKind === "subscription"
+            {replacementProvider &&
+            getSetupProvider(replacementProvider).credentialKind ===
+              "subscription"
               ? "Credential storage"
               : "Key storage"}
-            : {apiKeyStorageLabel(row.credentialKind)}
+            : {storageLabel}
           </span>
         ) : null}
         <span className="text-xs leading-5 text-slate-400">
           The credential cannot change. To use a different one, add a new
           provider.
         </span>
-        {replacementProvider && directProvider?.githubSource ? (
+        {replacementProvider ? (
           <a
             className="mt-1 w-fit text-sm text-cyan-200 underline"
             href={apiKeySetupHref("providers", {

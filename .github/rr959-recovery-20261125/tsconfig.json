@@ -1,0 +1,14 @@
+{
+  "extends": "../../../product/tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "typeRoots": [
+      "../../../product/node_modules/@types"
+    ]
+  },
+  "include": [
+    "./*.ts"
+  ],
+  "exclude": []
+}

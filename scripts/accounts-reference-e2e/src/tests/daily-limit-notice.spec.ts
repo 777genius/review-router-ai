@@ -45,15 +45,13 @@ test("Daily limit notice advises a second reviewer for a sole free OpenRouter mo
   await expect(form.or(newConnection)).toBeVisible();
   if (await newConnection.isVisible()) await newConnection.click();
   await form
-    .getByLabel("Connection name", { exact: true })
+    .getByLabel("Connection name (optional)")
     .fill(`Free model ${Date.now()}`);
   // The only key the controlled Gateway enrolls for this provider.
   await form
     .locator('input[name="credential"]')
     .fill(`synthetic-${openRouter.provider}-subscription-key`);
-  await form
-    .getByRole("button", { name: "Connect OpenRouter", exact: true })
-    .click();
+  await form.getByRole("button", { name: "Connect account" }).click();
   await expect(
     dialog.getByRole("combobox", { name: "Model", exact: true }),
   ).toHaveValue(openRouter.model);

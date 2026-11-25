@@ -48,7 +48,7 @@ export function AccountMetadataLine({
     accountLabel,
     subscription,
     credentialExpiresAt,
-    trainingUsage,
+    privacyMode,
   } = metadata.fields;
   const identity =
     email.status === "known"
@@ -60,12 +60,12 @@ export function AccountMetadataLine({
     identity ||
     subscription.status === "known" ||
     credentialExpiresAt.status === "known" ||
-    trainingUsage.status === "known";
+    privacyMode.status === "known";
   const hasStaleFacts = [
     identity,
     subscription,
     credentialExpiresAt,
-    trainingUsage,
+    privacyMode,
   ].some((fact) => fact?.status === "known" && fact.freshness === "stale");
   if (!hasFacts)
     return (
@@ -83,8 +83,7 @@ export function AccountMetadataLine({
           {identity.value}
         </p>
       )}
-      {(subscription.status === "known" ||
-        trainingUsage.status === "known") && (
+      {(subscription.status === "known" || privacyMode.status === "known") && (
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
           {subscription.status === "known" && (
             <span
@@ -94,11 +93,9 @@ export function AccountMetadataLine({
               {subscription.value.label}
             </span>
           )}
-          {trainingUsage.status === "known" && (
-            <span title={observed(trainingUsage)}>
-              {trainingUsage.value === "enabled"
-                ? "Training usage enabled"
-                : "Training usage disabled"}
+          {privacyMode.status === "known" && (
+            <span title={observed(privacyMode)}>
+              {privacyMode.value === "private" ? "Private" : "Public"}
             </span>
           )}
         </p>

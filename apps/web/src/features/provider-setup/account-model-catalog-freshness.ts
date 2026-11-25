@@ -16,9 +16,7 @@ type CatalogProfile = Pick<AccountProfileView, "id" | "protocol"> &
 export function accountModelCatalogRequired(
   profile: Partial<Pick<AccountProfileView, "connection">> | undefined,
 ): boolean {
-  return profile?.connection?.modelPolicy
-    ? profile.connection.modelPolicy.unavailableFallback === "deny"
-    : profile?.connection?.provider === "nvidia";
+  return profile?.connection?.provider === "nvidia";
 }
 
 /**
@@ -45,14 +43,13 @@ export function accountModelCatalogFresh(
   expiresAt: string;
 } {
   const source =
-    profile?.connection?.modelPolicy?.sourceId ??
-    (profile?.id && profile.protocol && profile.authKind
+    profile?.id && profile.protocol && profile.authKind
       ? accountModelDiscoverySource({
           profileId: profile.id,
           protocol: profile.protocol,
           authKind: profile.authKind,
         })
-      : undefined);
+      : undefined;
   return (
     catalog?.status === "snapshot" &&
     source !== undefined &&

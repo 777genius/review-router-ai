@@ -204,7 +204,7 @@ Bundled dependency identity:
    See the License for the specific language governing permissions and
    limitations under the License.
 
-zod 4.6.7
+zod 4.4.2
 MIT License
 
 Copyright (c) 2025 Colin McDonnell

@@ -51,10 +51,6 @@ import {
 } from "./gateway-catalog-fixture.js";
 import { startNextApp, type NextApp } from "./next-app.js";
 import {
-  NATIVE_VISIBILITY_FLOW,
-  runIsolatedNativeVisibility,
-} from "./native-visibility-isolation.js";
-import {
   ONBOARDING_REQUIRED_SHOTS,
   onboardingQualificationProblems,
   type VisualSourceProvenance,
@@ -100,16 +96,6 @@ async function main(): Promise<void> {
   )
     throw new Error("provider_visual_no_scenario_matches");
 
-  const visibilitySelected =
-    options.flags.personalSharing &&
-    options.flows &&
-    (!options.only || options.only.test(NATIVE_VISIBILITY_FLOW));
-  const deferredVisibility =
-    visibilitySelected &&
-    (scenarios.length > 0 ||
-      visualFlowSelected(options.only, NATIVE_VISIBILITY_FLOW));
-  const nativeVisibility = visibilitySelected && !deferredVisibility;
-
   await migrate(options.databaseUrl, join(options.outDir, "migrate.log"));
   const prisma = createPrismaClient({
     databaseUrl: options.databaseUrl,
@@ -152,16 +138,12 @@ async function main(): Promise<void> {
   };
   try {
     await writeJson(join(options.outDir, "seed.json"), await reseed());
-    if (!options.flags.personalSharing || nativeVisibility)
+    if (!options.flags.personalSharing)
       gateway = await startGatewayCatalogFixture({
-        nativeVisibility,
         nvidiaEvaluation: options.flags.nvidiaEvaluation === true,
-        credentialImports:
-          scenarios.some((scenario) =>
-            scenario.id.startsWith("native-import"),
-          ) ||
-          (options.flows &&
-            (!options.only || options.only.test("flow-native-connections"))),
+        credentialImports: scenarios.some((scenario) =>
+          scenario.id.startsWith("native-import"),
+        ),
         accountMetadata: scenarios.some((scenario) =>
           scenario.id.startsWith("native-account-info"),
         ),
@@ -227,13 +209,8 @@ async function main(): Promise<void> {
             outDir: options.outDir,
             reset: reseed,
             writeGitHubState,
-            ...(gateway ? { nativeOperations: gateway.nativeOperations } : {}),
-            ...(gateway?.nativeVisibility
-              ? { nativeVisibility: gateway.nativeVisibility }
-              : {}),
           },
           options.only,
-          deferredVisibility ? NATIVE_VISIBILITY_FLOW : undefined,
         );
       } finally {
         await browser.close();
@@ -243,21 +220,6 @@ async function main(): Promise<void> {
     await app?.stop();
     await gateway?.stop();
     await prisma.$disconnect();
-  }
-
-  if (deferredVisibility) {
-    flows = [
-      ...flows,
-      await runIsolatedNativeVisibility({
-        repoRoot,
-        outDir: options.outDir,
-        databaseUrl: options.databaseUrl,
-        flags: options.flags,
-        nextHeapMb: options.nextHeapMb,
-        browserExecutable: options.browserExecutable,
-        source: sourceBefore,
-      }),
-    ];
   }
 
   const summary = countBy(shots.map((shot) => shot.status));

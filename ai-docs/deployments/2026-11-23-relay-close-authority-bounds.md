@@ -1,0 +1,35 @@
+# Bound relay close-authority work
+
+- Task ID: `2026-11-23-relay-close-authority-bounds`.
+- Goal: avoid a burst of simultaneous deadline closes issuing unbounded close-authority database work; drain accepted close work during shutdown.
+- Affected target: API relay process.
+- Dependencies: completed-close recovery and restored-session follow-up [#970](https://github.com/777genius/review-router-ai/pull/970) and [#988](https://github.com/777genius/review-router-ai/pull/988).
+- Last updated: `2026-11-23`.
+
+## Environment status
+
+| Environment | Status    | Actual version / image | Last verified (UTC) | Evidence / next step                                                                                |
+| ----------- | --------- | ---------------------- | ------------------- | --------------------------------------------------------------------------------------------------- |
+| staging     | `pending` | Not verified           | Not verified        | Ship a qualified release including both dependencies; perform disposable verification.              |
+| production  | `pending` | Not verified           | Not verified        | Reconcile target state and pending release tasks; no production traffic was used for qualification. |
+
+## Applicability and prerequisites
+
+Ordinary API rollout; no configuration, migration, Gateway, native or public Action changes. Close-authority database phases share a per-process gate sized by the existing `maxInFlight` policy. Cancellation keeps local denial immediate and receives bounded priority; accepted cleanup is drained on shutdown. New no-session closes over the separate limit return unknown without modifying custody. This limits these close phases, not all database traffic. It does not establish tenant fairness, bounded completion during stuck database I/O, recovery after bearer expiry, or the historic incident's root cause.
+
+## Ordered rollout and verification
+
+1. Qualify the exact release head and reconcile all applicable target-environment deployment records in the release runbook.
+2. Roll out the API with the two prerequisite fixes; record actual source, image and time.
+3. On an isolated disposable fixture, hold authorization reads while deadlines coincide; verify the close-authority limit and that accepted work drains after reads settle. Verify unknown close followed by shutdown/restart preserves ownership, original operation identity and cancellation. Do not replay inference or evict real customer sessions.
+4. Inspect production admission and cleanup metrics without deliberately saturating or restarting customer workloads.
+
+## Retry, partial completion, and rollback
+
+Reconcile the installed source/image and durable state before a retry. Roll back the API image by the release runbook; preserve authorizations, bindings and uncertain cleanup custody. A rollback or process restart does not prove Gateway cleanup.
+
+## Execution log
+
+| Time (UTC)   | Environment          | Operator   | Actual version / image | Result                                                   | Next action                                    |
+| ------------ | -------------------- | ---------- | ---------------------- | -------------------------------------------------------- | ---------------------------------------------- |
+| Not executed | staging / production | Unassigned | Not verified           | Local synthetic regressions and independent review only. | Complete exact-head CI and authorized rollout. |

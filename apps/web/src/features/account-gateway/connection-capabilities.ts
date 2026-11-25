@@ -1,11 +1,17 @@
-import {
-  nativeConnectionMethodAllowed,
-  type NativeConnectionMethod,
-  type NativeModelPolicy,
-} from "./domain/native-connection";
+import type { AccountModelSource } from "@agent-teams/account-gateway/contracts";
 
 /** Safe connection metadata. Upstream identity is independent of the review engine. */
-export type AccountUpstreamProvider = string;
+export type AccountUpstreamProvider =
+  | "mimo"
+  | "openrouter"
+  | "nvidia"
+  | "openai"
+  | "anthropic"
+  | "gemini"
+  | "kimi"
+  | "glm"
+  | "minimax"
+  | "grok";
 
 export type AccountModelSettings = {
   modelId: string;
@@ -19,20 +25,11 @@ export type AccountModelSettings = {
 
 export type AccountConnectionView = {
   provider: AccountUpstreamProvider;
-  providerLabel?: string;
-  productId?: string;
   planLabel: string;
   regionLabel: string;
   completionInputKind: "none" | "callback_url" | "authorization_code";
-  limitsContract:
-    | "account-limits/v1"
-    | "account-limits/v2"
-    | "account-limits/v3"
-    | "none";
+  limitsContract: "account-limits/v1" | "account-limits/v2" | "none";
   modelSettings: readonly AccountModelSettings[];
-  modelPolicy?: NativeModelPolicy;
-  /** V3 uses native method identity; legacy methods are compatibility only. */
-  nativeMethods?: readonly NativeConnectionMethod[];
   /** Qualified native methods. Missing only for compatible v1 catalogs. */
   methods?: readonly AccountConnectionMethod[];
 };
@@ -40,7 +37,7 @@ export type AccountConnectionView = {
 /** Account-scoped discovery metadata; never contains Gateway identity/fences. */
 export type AccountModelCatalogView = {
   status: "snapshot" | "unsupported" | "unavailable" | "unknown";
-  source: string;
+  source: AccountModelSource | "legacy_profile";
   fetchedAt?: string;
   expiresAt?: string;
   models: readonly string[];
@@ -116,13 +113,6 @@ export function credentialImportMethods(
 
 /** Enrollment does not remove existing accounts when every create method is disabled. */
 export function canCreateConnection(profile: MethodProfile): boolean {
-  if (profile.connection?.nativeMethods)
-    return (
-      profile.availability !== "deployment_configuration_required" &&
-      profile.connection.nativeMethods.some((method) =>
-        nativeConnectionMethodAllowed(method, "create"),
-      )
-    );
   if (profile.connection?.methods)
     return profile.connection.methods.some((method) =>
       connectionMethodAllowed(

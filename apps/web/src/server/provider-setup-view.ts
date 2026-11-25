@@ -33,10 +33,7 @@ import {
 } from "./dashboard-provider-selections";
 import { productionPersonalAccounts } from "./personal-account-composition";
 import { loadAccountsBootstrap } from "./account-gateway-accounts";
-import {
-  gatewaySetupProvidersForProfiles,
-  nativeSetupProvidersForProfiles,
-} from "../features/provider-setup/setup-provider";
+import { gatewaySetupProvidersForProfiles } from "../features/provider-setup/setup-provider";
 
 /** GitHub permission checks one dialog view runs at once. */
 const GITHUB_PERMISSION_CHECK_CONCURRENCY = 5;
@@ -182,10 +179,6 @@ export async function loadProviderSetupView(input: {
   return buildProviderSetupView({
     workspaceId,
     gatewaySetupProviders,
-    gatewayProviderChoices:
-      enrollment?.status === "ok"
-        ? nativeSetupProvidersForProfiles(enrollment.value.profiles)
-        : [],
     target: target.kind,
     actor: facts.actor,
     workspace: facts.workspace,

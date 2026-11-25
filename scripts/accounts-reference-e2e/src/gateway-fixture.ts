@@ -14,10 +14,6 @@ import {
 } from "./account-models-fixture.js";
 import { createLimitsFixture } from "./limits-fixture.js";
 import {
-  createNativeConnectionFixture,
-  nativeFixtureCatalog,
-} from "./native-connection-fixture.js";
-import {
   createSubscriptionFixture,
   subscriptionProfiles,
   apiKeyStorageProfiles,
@@ -221,39 +217,6 @@ export async function startGatewayFixture(input: {
         ]
       : []),
   ];
-  const capabilities = () =>
-    catalog.map((profile) => ({
-      profileId: profile.profileId,
-      provider: { id: profile.provider, label: profile.label },
-      product: { id: profile.planId, label: profile.plan },
-      region: { id: "global", label: "Global" },
-      protocol: "openai-responses",
-      models: [
-        {
-          modelId: profile.model,
-          reasoning: null,
-          fast: null,
-          tools: { allowed: ["function"], default: "function" },
-        },
-      ],
-      methods:
-        profile.profileId === CODEX_MODEL_PROFILE && accountModels
-          ? accountModels.methods()
-          : profile.methods,
-      accountInfo: profile.profileId === CODEX_MODEL_PROFILE,
-      limitsContract: profile.limitsContract,
-      availability: "enabled",
-    }));
-  const nativeConnections = createNativeConnectionFixture({
-    catalog: () => nativeFixtureCatalog(capabilities()),
-    account: (accountRef) =>
-      accounts.find((account) => account.accountRef === accountRef),
-    async legacy(method, path, body) {
-      const imported = accountModels?.import(path, body);
-      if (imported) return imported;
-      return subscriptions?.handle(method, path, async () => body) ?? null;
-    },
-  });
   const probes = new Map<
     string,
     { admission: Record<string, unknown>; bearer: string }
@@ -510,43 +473,43 @@ export async function startGatewayFixture(input: {
       send(response, 401, safeError("unauthenticated", "rr-e2e-gateway-auth"));
       return;
     }
-    const nativeConnection = await nativeConnections.handle(
-      request.method ?? "GET",
-      requestUrl.pathname,
-      read,
-    );
-    if (nativeConnection) {
-      send(response, nativeConnection.status, nativeConnection.body);
-      return;
-    }
-    if (
-      requestUrl.pathname === "/v3/provider-connection-capabilities" &&
-      request.method === "GET"
-    ) {
-      send(response, 200, nativeFixtureCatalog(capabilities()));
-      return;
-    }
     if (
       requestUrl.pathname === "/v2/provider-connection-capabilities" &&
       request.method === "GET"
     ) {
       send(response, 200, {
         contract: "provider-connections/v2",
-        capabilities: capabilities(),
+        capabilities: catalog.map((profile) => ({
+          profileId: profile.profileId,
+          provider: { id: profile.provider, label: profile.label },
+          product: { id: profile.planId, label: profile.plan },
+          region: { id: "global", label: "Global" },
+          protocol: "openai-responses",
+          models: [
+            {
+              modelId: profile.model,
+              reasoning: null,
+              fast: null,
+              tools: { allowed: ["function"], default: "function" },
+            },
+          ],
+          methods:
+            profile.profileId === CODEX_MODEL_PROFILE && accountModels
+              ? accountModels.methods()
+              : profile.methods,
+          accountInfo: profile.profileId === CODEX_MODEL_PROFILE,
+          limitsContract: profile.limitsContract,
+          availability: "enabled",
+        })),
       });
       return;
     }
     if (
       accountModels &&
-      ["/v1/account-info/read", "/v2/account-info/read"].includes(
-        requestUrl.pathname,
-      ) &&
+      requestUrl.pathname === "/v1/account-info/read" &&
       request.method === "POST"
     ) {
-      const result = accountModels.info(
-        await read(),
-        requestUrl.pathname.startsWith("/v2/"),
-      );
+      const result = accountModels.info(await read());
       send(response, result.status, result.body);
       return;
     }
@@ -564,9 +527,7 @@ export async function startGatewayFixture(input: {
     }
     if (
       accountModels &&
-      ["/v1/account-models/read", "/v2/account-models/read"].includes(
-        requestUrl.pathname,
-      ) &&
+      requestUrl.pathname === "/v1/account-models/read" &&
       request.method === "POST"
     ) {
       const body = await read();
@@ -591,10 +552,7 @@ export async function startGatewayFixture(input: {
         send(response, result.status, result.body);
         return;
       }
-      const result = accountModels.read(
-        body,
-        requestUrl.pathname.startsWith("/v2/"),
-      );
+      const result = accountModels.read(body);
       send(response, result.status, result.body);
       return;
     }
@@ -621,37 +579,25 @@ export async function startGatewayFixture(input: {
       }
     }
     if (
-      (process.argv.includes("--lifecycle-fixture") ||
-        subscriptions ||
-        requestUrl.pathname.startsWith("/v3/")) &&
+      (process.argv.includes("--lifecycle-fixture") || subscriptions) &&
       request.method === "GET"
     ) {
-      const native = requestUrl.pathname.startsWith("/v3/");
-      if (
-        [
-          "/v2/capabilities/account-lifecycle",
-          "/v3/capabilities/account-lifecycle",
-        ].includes(requestUrl.pathname)
-      ) {
+      if (requestUrl.pathname === "/v2/capabilities/account-lifecycle") {
         send(response, 200, {
-          contract: `account-gateway/account-lifecycle/v${native ? 3 : 2}`,
-          clientContract: `account-gateway-client/account-lifecycle/v${native ? 3 : 2}`,
-          writeGate:
-            process.argv.includes("--lifecycle-fixture") || subscriptions
-              ? "enabled"
-              : "disabled",
+          contract: "account-gateway/account-lifecycle/v2",
+          clientContract: "account-gateway-client/account-lifecycle/v2",
+          writeGate: "enabled",
           operations: ["suspend", "resume"],
           custody: {
-            contract: `native-retained-custody/v${native ? 2 : 1}`,
+            contract: "native-retained-custody/v1",
             api_key: "native-attestation-required",
             oauth: "native-attestation-required",
-            ...(native ? { native: "native-attestation-required" } : {}),
           },
         });
         return;
       }
       const match = requestUrl.pathname.match(
-        /^\/v[23]\/accounts\/([A-Za-z0-9_-]+)$/,
+        /^\/v2\/accounts\/([A-Za-z0-9_-]+)$/,
       );
       if (match) {
         const account = accounts.find((item) => item.accountRef === match[1]);
@@ -661,17 +607,11 @@ export async function startGatewayFixture(input: {
         }
         send(response, 200, {
           ...account,
-          ...(native && nativeConnections.credential(account.accountRef)
-            ? { credential: nativeConnections.credential(account.accountRef) }
-            : {}),
           authKind:
-            native && nativeConnections.credential(account.accountRef)
-              ? nativeConnections.credential(account.accountRef)!.credentialKind
-              : account.profileId === "grok-subscription-responses-oauth-v1" ||
-                  account.profileId === CODEX_MODEL_PROFILE ||
-                  account.profileId === FIXTURES.gateway.claudeProfileId
-                ? "oauth"
-                : "api_key",
+            account.profileId === "grok-subscription-responses-oauth-v1" ||
+            account.profileId === CODEX_MODEL_PROFILE
+              ? "oauth"
+              : "api_key",
           resumeCustody:
             account.state === "suspended" ? "verified" : "not_applicable",
         });

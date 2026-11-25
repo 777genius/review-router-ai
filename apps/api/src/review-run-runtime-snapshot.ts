@@ -557,10 +557,6 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       // same actionable configuration error, not a changed admission fact.
       if (binding.profileRef !== selected.provider.gatewayProfileRef)
         return { captureDenied: "gateway_profile_unapproved" };
-      const nativeContext = this.qualifiedRelayPolicy?.profiles.find(
-        (entry) =>
-          entry.profile.profileId === selected.provider.gatewayProfileRef,
-      )?.profile.nativeContext;
       gateway = {
         providerIndex: selected.providerIndex,
         bindingId: binding.bindingId,
@@ -570,7 +566,6 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         policyRevision: binding.policyRevision,
         permittedAccountRef: binding.gatewayAccountRef,
         profileRef: selected.provider.gatewayProfileRef,
-        ...(nativeContext ? { nativeContext: { ...nativeContext } } : {}),
         ...(binding.expectedAuthorizationEpoch !== undefined
           ? { expectedAuthorizationEpoch: binding.expectedAuthorizationEpoch }
           : {}),

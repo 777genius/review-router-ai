@@ -3,8 +3,6 @@
 import { productionPersonalAccounts } from "../../src/server/personal-account-composition";
 import { ProviderAccountError } from "@reviewrouter/features-provider-accounts";
 import { ZodError } from "zod";
-import type { AccountNativeConnectionIntent } from "../../src/server/native-connection-adapter";
-import { snapshotNativeConnectionInputs } from "../../src/features/account-gateway/domain/native-connection";
 import type {
   AccountIntent,
   AccountOAuthIntent,
@@ -148,27 +146,6 @@ export async function beginPersonalGatewayOAuth(
 ) {
   return invoke(context, ({ canonical }) =>
     canonical.beginGatewayOAuth(context, request),
-  );
-}
-export async function beginPersonalGatewayNativeConnection(
-  context: string,
-  request: AccountNativeConnectionIntent,
-  values: Record<string, string>,
-) {
-  const inputFields = snapshotNativeConnectionInputs(values);
-  return invoke(context, ({ canonical }) =>
-    canonical.beginGatewayNativeConnection(context, request, inputFields),
-  );
-}
-export async function continuePersonalGatewayNativeConnection(
-  context: string,
-  nonce: string,
-  values?: Record<string, string>,
-) {
-  const inputFields =
-    values === undefined ? undefined : snapshotNativeConnectionInputs(values);
-  return invoke(context, ({ canonical }) =>
-    canonical.continueGatewayNativeConnection(context, nonce, inputFields),
   );
 }
 export async function pollPersonalGatewayOAuth(context: string, nonce: string) {

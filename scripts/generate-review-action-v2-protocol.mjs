@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { format } from "prettier";
+import { format } from "./local-checks/lint-format-native.ts";
 import { reviewActionCompanionContractsSource } from "./lib/review-action-companion-contracts.mjs";
 import {
   assembleReviewActionV2Contract,
@@ -171,22 +171,7 @@ export async function generateReviewActionV2Protocol(input = {}) {
         "// Generated from provider-usage/domain/usage.ts. Do not edit.\n" +
           usageSource
             .slice(0, wireBoundary)
-            .replace('"./usage-price"', '"./usage-price-v1.js"')
-            .replace('"./native-usage-context"', '"./native-usage-context.js"'),
-        { parser: "typescript" },
-      ),
-    ],
-    [
-      "generated/native-usage-context.ts",
-      await format(
-        "// Generated from provider-usage/domain/native-usage-context.ts. Do not edit.\n" +
-          (await readFile(
-            join(
-              repositoryRoot,
-              "packages/features/provider-usage/src/domain/native-usage-context.ts",
-            ),
-            "utf8",
-          )),
+            .replace('"./usage-price"', '"./usage-price-v1.js"'),
         { parser: "typescript" },
       ),
     ],

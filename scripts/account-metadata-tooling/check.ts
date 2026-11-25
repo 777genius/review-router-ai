@@ -37,9 +37,9 @@ assert.equal(
 );
 const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
 for (const [name, version] of Object.entries({
-  "@get-modular/core": "0.7.0",
-  "@get-modular/assembly": "0.7.0",
-  "@get-modular/conformance": "0.5.0",
+  "@get-modular/core": "0.8.0",
+  "@get-modular/assembly": "0.8.0",
+  "@get-modular/conformance": "0.5.2",
 })) {
   assert.equal(profile.packages[name], version);
   assert.equal(

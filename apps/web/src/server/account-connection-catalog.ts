@@ -5,7 +5,6 @@ import {
   type AccountUpstreamProvider,
 } from "../features/account-gateway/connection-capabilities";
 import { accountProviderIdentity } from "../features/provider-setup/provider-identity";
-import { nativeConnectionProfileView } from "./native-connection-view";
 import * as c from "@agent-teams/account-gateway/contracts";
 import { GatewayError } from "@agent-teams/account-gateway/http";
 import type { AccountProfileView } from "./account-gateway-accounts";
@@ -146,27 +145,7 @@ export async function connectionProfiles(input: {
   subscriptionProfileIds?: readonly string[];
   capabilities?: () => Promise<c.ProviderConnectionCapabilities>;
   capabilitiesV2?: () => Promise<c.ProviderConnectionCapabilitiesV2>;
-  capabilitiesV3?: () => Promise<c.ProviderConnectionCapabilitiesV3>;
 }): Promise<AccountProfileView[]> {
-  if (input.capabilitiesV3) {
-    // An explicitly selected contract never probes older handlers on failure.
-    const catalog = c.providerConnectionCapabilitiesV3.parse(
-      await input.capabilitiesV3(),
-    );
-    const projected = catalog.capabilities.map(nativeConnectionProfileView);
-    const nativeIds = new Set(projected.map((profile) => profile.id));
-    // Historical inventory remains visible even after a mount is removed.
-    return [
-      ...projected,
-      ...input.legacy
-        .filter((profile) => !nativeIds.has(profile.id))
-        .map((profile) => ({
-          ...profile,
-          availability: "deployment_configuration_required" as const,
-          canReconnect: false,
-        })),
-    ];
-  }
   let capabilities: Capability[];
   if (input.capabilitiesV2) {
     capabilities = c.providerConnectionCapabilitiesV2

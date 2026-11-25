@@ -38,7 +38,7 @@ const fields: AccountMetadataFields = {
   accountLabel: { status: "unknown" },
   subscription: { status: "unknown" },
   credentialExpiresAt: { status: "unknown" },
-  trainingUsage: { status: "unknown" },
+  privacyMode: { status: "unknown" },
 };
 const observations = (refs: readonly string[]): AccountMetadataObservation[] =>
   refs.map((accountRef) => ({

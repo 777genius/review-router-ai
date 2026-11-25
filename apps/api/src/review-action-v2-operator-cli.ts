@@ -67,7 +67,6 @@ import {
   type RollbackProducerAttestationRecord,
 } from "./review-action-v2-rollback-protocol-preflight.js";
 import { composeReviewActionV2ProductionRunControl } from "./review-action-v2-production-composition.js";
-import { loadNativeGatewayCatalog } from "./native-gateway-relay-policy.js";
 import { composeReviewActionV2ReleaseRegistry } from "./review-action-v2-release-registry-composition.js";
 import { composeReviewActionV2SafetyControlRuntime } from "./review-action-v2-safety-control-composition.js";
 
@@ -436,7 +435,6 @@ async function main() {
     const runtime = composeReviewActionV2ProductionRunControl({
       env: process.env,
       prisma,
-      nativeGatewayCatalog: await loadNativeGatewayCatalog(process.env),
     });
 
     const repository = requireOption(parsed, "repo");

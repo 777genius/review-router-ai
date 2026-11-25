@@ -23,7 +23,6 @@ export function ApiKeyStorageChoice({
   readonly githubSupported?: boolean;
   readonly credentialKind?:
     | "api_key"
-    | "native"
     | "codex_session"
     | "claude_subscription"
     | "claude_api_key"
@@ -58,25 +57,23 @@ export function ApiKeyStorageChoice({
               value={option.value}
               title={option.label}
               description={
-                credentialKind === "native"
-                  ? "Connect this provider once and reuse the connection across repositories."
-                  : credentialKind === "codex_session"
+                credentialKind === "codex_session"
+                  ? option.value === "reviewrouter"
+                    ? "Sign in to Codex once and reuse the connection across repositories."
+                    : "Keep this repository's Codex session (auth.json) in GitHub Secrets with automatic refresh."
+                  : credentialKind === "claude_api_key"
                     ? option.value === "reviewrouter"
-                      ? "Sign in to Codex once and reuse the connection across repositories."
-                      : "Keep this repository's Codex session (auth.json) in GitHub Secrets with automatic refresh."
-                    : credentialKind === "claude_api_key"
+                      ? "ReviewRouter encrypts your API key and installs it into selected repositories' GitHub Secrets."
+                      : "Manage your Anthropic API key yourself in each repository's GitHub Secrets."
+                    : credentialKind === "claude_subscription"
                       ? option.value === "reviewrouter"
-                        ? "ReviewRouter encrypts your API key and installs it into selected repositories' GitHub Secrets."
-                        : "Manage your Anthropic API key yourself in each repository's GitHub Secrets."
-                      : credentialKind === "claude_subscription"
+                        ? "Connect your Claude Code subscription once and reuse it across repositories."
+                        : "Add your Claude Code subscription token to each repository on GitHub."
+                      : credentialKind === "subscription"
                         ? option.value === "reviewrouter"
-                          ? "Connect your Claude Code subscription once and reuse it across repositories."
-                          : "Add your Claude Code subscription token to each repository on GitHub."
-                        : credentialKind === "subscription"
-                          ? option.value === "reviewrouter"
-                            ? "Connect this subscription once and reuse it across repositories."
-                            : "GitHub Secrets storage is not available for this subscription."
-                          : option.description
+                          ? "Connect this subscription once and reuse it across repositories."
+                          : "GitHub Secrets storage is not available for this subscription."
+                        : option.description
               }
               disabled={Boolean(reason)}
               disabledReason={reason}

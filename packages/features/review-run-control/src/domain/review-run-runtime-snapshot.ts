@@ -27,10 +27,6 @@ import {
   parseProducerPrDescriptionProfile,
   type ProducerPrDescriptionProfile,
 } from "./producer-release";
-import {
-  parseReviewRunNativeProviderContext,
-  type ReviewRunNativeProviderContext,
-} from "./native-provider-context";
 
 /** Private admission data. Never included in public authorization claims/facts. */
 export type ReviewRunRuntimeSnapshotV3 = {
@@ -204,8 +200,6 @@ export type ReviewRunGatewaySelection = {
   readonly operationId: string;
   readonly limits: ReviewRunGatewayLimits;
   readonly expectedAuthorizationEpoch?: number;
-  /** Immutable requested identity; actual billing belongs to native evidence. */
-  readonly nativeContext?: ReviewRunNativeProviderContext;
 };
 
 export type ReviewRunGatewayAllocation = Omit<
@@ -635,7 +629,6 @@ function parseReviewRunRuntimeSnapshotV3(
         ...("expectedAuthorizationEpoch" in row
           ? ["expectedAuthorizationEpoch"]
           : []),
-        ...("nativeContext" in row ? ["nativeContext"] : []),
       ])
     )
       fail();
@@ -672,14 +665,6 @@ function parseReviewRunRuntimeSnapshotV3(
     gateway = {
       ...("expectedAuthorizationEpoch" in row
         ? { expectedAuthorizationEpoch: Number(row.expectedAuthorizationEpoch) }
-        : {}),
-      ...("nativeContext" in row
-        ? {
-            nativeContext: parseReviewRunNativeProviderContext(
-              row.nativeContext,
-              String(row.profileRef),
-            ),
-          }
         : {}),
       providerIndex: row.providerIndex,
       bindingId: String(row.bindingId),

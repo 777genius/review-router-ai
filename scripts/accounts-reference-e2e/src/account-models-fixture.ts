@@ -111,7 +111,7 @@ export function createAccountModelsFixture(accounts: WireAccount[]) {
           : []),
       ];
     },
-    info(input: Record<string, unknown>, native = false) {
+    info(input: Record<string, unknown>) {
       const refs = input.accountRefs;
       if (
         typeof input.ownerRef !== "string" ||
@@ -138,7 +138,7 @@ export function createAccountModelsFixture(accounts: WireAccount[]) {
       return {
         status: 200,
         body: {
-          contract: native ? "account-info/v2" : "account-info/v1",
+          contract: "account-info/v1",
           accounts: refs.map((accountRef) => {
             const account = accounts.find(
               (row) => row.accountRef === accountRef,
@@ -174,11 +174,7 @@ export function createAccountModelsFixture(accounts: WireAccount[]) {
                           },
                         }),
                         credentialExpiresAt: known("2026-12-15T13:00:00Z"),
-                        // Independent synthetic consent fact; not a conversion
-                        // from the legacy fixture's separate privacy field.
-                        ...(native
-                          ? { trainingUsage: known("disabled") }
-                          : { privacyMode: known("private") }),
+                        privacyMode: known("private"),
                       },
                     },
             };
@@ -282,14 +278,13 @@ export function createAccountModelsFixture(accounts: WireAccount[]) {
       });
       return { status: 200, body: operation };
     },
-    read(input: Record<string, unknown>, native = false) {
+    read(input: Record<string, unknown>) {
       const account = accounts.find(
         (row) => row.accountRef === input.accountRef,
       );
       if (
         !account ||
         account.profileId !== CODEX_MODEL_PROFILE ||
-        account.profileId !== input.profileId ||
         account.ownerRef !== input.ownerRef ||
         account.authorizationEpoch !== input.expectedAuthorizationEpoch
       )
@@ -327,13 +322,7 @@ export function createAccountModelsFixture(accounts: WireAccount[]) {
           status: "snapshot",
           physicalGeneration: "fixture-private-generation",
           principalVersion: "fixture-private-principal",
-          ...(native
-            ? {
-                sourceId: account.profileId,
-                profileId: account.profileId,
-                admission: { unavailableFallback: "qualified_anchor" },
-              }
-            : { source: "codex" }),
+          source: "codex",
           fetchedAt: new Date(now).toISOString(),
           expiresAt: new Date(now + 300000).toISOString(),
           models: models.map((modelId) => ({

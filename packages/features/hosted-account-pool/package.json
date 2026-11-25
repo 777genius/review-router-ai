@@ -16,12 +16,12 @@
     "@smithy/node-http-handler": "4.11.3",
     "@777genius/subscription-runtime": "git+https://github.com/777genius/ar.git#c7543bc716411a5f899a790a735d09ed2530f779",
     "@openai/codex": "0.147.0",
-    "@prisma/client": "7.9.0",
+    "@prisma/client": "^7.8.0",
     "fastify": "^5.10.0",
     "zod": "^4.4.2"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "build": "node ../../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.build.json",
+    "typecheck": "node ../../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json"
   }
 }

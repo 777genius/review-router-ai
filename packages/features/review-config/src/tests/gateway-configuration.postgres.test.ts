@@ -106,8 +106,8 @@ describe.skipIf(!enabled)(
           .sort();
         // Replay all current migrations, including the additive Claude API-key
         // profile, provider-quota allocation and immutable credential-import method.
-        expect(names).toHaveLength(166);
-        expect(names.slice(-27)).toEqual([
+        expect(names).toHaveLength(165);
+        expect(names.slice(-26)).toEqual([
           "000138_pr_description",
           "000139_review_context_tools",
           "000140_personal_oauth_method",
@@ -134,7 +134,6 @@ describe.skipIf(!enabled)(
           "000158_review_run_allocation_provider_quota",
           "000159_producer_reviewer_plan_v2",
           "000160_personal_credential_import_method",
-          "000161_native_connection_intent",
         ]);
         let legacyBefore: unknown;
         let legacyBefore146: unknown;

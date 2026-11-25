@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 1,
+  "scope": "Restored native AST policy parity and original strict/architecture gates; no browser, production Web build or final CI claim.",
+  "source": {
+    "baseHead": "a8925fe78beb53e13e4821ebf660980b11a715c7",
+    "baseTree": "9123a83b50f61e4d68845790d58387c087274489",
+    "qualificationInput": "Reviewed uncommitted delta on baseHead; exact seven-file SHA-256 map below. No source edits during recorded gates.",
+    "changedInputSha256": {
+      "scripts/check-architecture-boundaries.mjs": "3ebd26d733284ffa55e57a84bfcac08e43c166ebfde3dd5b0f09cfdad3f9e148",
+      "scripts/check-architecture-boundaries.test.ts": "a4104be31f9da956eb3a214c822f5d097a733c2da54799176a26cf6c42409676",
+      "scripts/ci-impact.test.mjs": "039b5adc36637885ae00095a4e091b472788009f6819110f221c74995fa363c1",
+      "scripts/lib/collect-feature-layout.test.ts": "a68947bdc47f898cd20415e3024f87327df1661c2d37520663dfdf0937d82b0d",
+      "scripts/lib/collect-feature-layout.ts": "6faa2d4bfb9b702443a38e820b174ba198515341d3878e407306b8d14df3d6ae",
+      "scripts/lib/module-import-specifiers.test.ts": "dc8738dbbaa3d4412de1717760c2cb2e2c9439e0e5da7e68cfe80dd492ba2738",
+      "scripts/lib/module-import-specifiers.ts": "eb36475c342a344bb62572e64903f9855907c8b64f3caaec53b4a77076c83fe9"
+    },
+    "trackedFiles": 4800,
+    "allTrackedSha256": "2cb4c5aa90f1a17d098df568c2ef06a4a9a182b352ed619d49cf918e2d1f44a4",
+    "aggregateEncoding": "Sorted UTF-8 path + NUL + content SHA-256 + LF",
+    "unchangedDuringStrictAndArchitecture": true
+  },
+  "toolchain": {
+    "node": "26.11.1",
+    "typescript": "7.0.2",
+    "oxcParser": "0.159.0",
+    "pnpm": "11.28.7"
+  },
+  "regressions": {
+    "transactionParameters": "Qualified, unqualified, optional, default, rest and constructor parameter aliases; retain ordinary-client and suffix counterexamples.",
+    "namedMethods": "Identifier methods/getters/setters preserve original binding coverage; constructors, quoted/computed/private names and anonymous property values remain excluded.",
+    "layout": "Ambient functions, every overload, exact annotated binding pattern text and syntax-specific parenthesized initializer kind.",
+    "imports": "Parenthesized import/require targets retain original computed-target denial.",
+    "ciImpact": "Correct exact routing contract to main #990 dedicated CI_IMPACT_RUNNER plus explicit-hosted/fork/default fallbacks; preserve trusted-base classifier and quality aggregator."
+  },
+  "redEvidence": {
+    "transactionAliases": {
+      "passed": 91,
+      "failed": 9,
+      "total": 100
+    },
+    "namedMethods": {
+      "selected": 2,
+      "failed": 2,
+      "otherTestsFiltered": 100
+    },
+    "layoutAndImports": {
+      "passed": 23,
+      "failed": 10,
+      "total": 33
+    },
+    "ciRouting": {
+      "passed": 39,
+      "failed": 1,
+      "total": 40
+    }
+  },
+  "integratedAstTests": {
+    "files": 4,
+    "passed": 135,
+    "failed": 0,
+    "skipped": 0,
+    "todo": 0,
+    "reportSha256": "a69af10af236b647655f663950c34bf8f1d922718438f607a8ecf0aae1642d73"
+  },
+  "ciImpactTests": {
+    "command": "node --test scripts/ci-impact.test.mjs",
+    "passed": 40,
+    "failed": 0,
+    "skipped": 0,
+    "todo": 0,
+    "logSha256": "5b3ab5435c69dfb8c5adec1b6681b85202b81418ded547efbef09522369d4f46"
+  },
+  "originalStrictProjects": [
+    {
+      "name": "tooling",
+      "command": [
+        "node",
+        "scripts/local-checks/compiler-cli.ts",
+        "--native",
+        "--noEmit",
+        "-p",
+        "tsconfig.tooling.json"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 51.22877401900769,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "modular",
+      "command": [
+        "node",
+        "scripts/local-checks/compiler-cli.ts",
+        "--native",
+        "--noEmit",
+        "-p",
+        "tsconfig.modular.json"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 101.15081293700496,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "completeArchitectureGate": {
+    "head": "a8925fe78beb53e13e4821ebf660980b11a715c7",
+    "command": ["pnpm", "architecture:check"],
+    "exitCode": 0,
+    "elapsedSeconds": 251.95982727399678,
+    "trackedFileCount": 4800,
+    "sourceUnchanged": true,
+    "changedFiles": [],
+    "logSha256": "3d99957399f5b4eea34ce825be8e8c2ed641125f82c9ab5d9f1af51228bc27df",
+    "strictProofSha256": "1ddcaa406ebf7c98c937438323d8fc2c5e4f382a316219756c4b4db35c35c89e"
+  },
+  "format": {
+    "command": "prettier --check on all seven changed source/test files",
+    "exitCode": 0,
+    "logSha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20"
+  },
+  "audits": {
+    "ast-integrated-audit.jsonl": {
+      "sha256": "61bd10debdf7f8a29a56a66ba8972c42ba4a8d0262de890227294fcb1fb2786c",
+      "guardedProcesses": 107,
+      "nodeVersions": ["v26.11.1"],
+      "nativeVersions": [],
+      "blockedLoads": 0
+    },
+    "ci-impact-final-audit.jsonl": {
+      "sha256": "86af6826978fbaf4f539e6869c7a144deac3ff36a638bf67d393efa81919e37d",
+      "guardedProcesses": 1,
+      "nodeVersions": ["v26.11.1"],
+      "nativeVersions": [],
+      "blockedLoads": 0
+    },
+    "ast-format-audit.jsonl": {
+      "sha256": "d37d1c736cb86e8c4ec11d3b96cd483237fe72522ff62440c0a391a2f4da73ac",
+      "guardedProcesses": 1,
+      "nodeVersions": ["v26.11.1"],
+      "nativeVersions": [],
+      "blockedLoads": 0
+    },
+    "native-audit.jsonl": {
+      "sha256": "a840724502355c221ee1ce80acdb97c1158e1e25e4c159cac7fe95146b71faaa",
+      "guardedProcesses": 4,
+      "nodeVersions": ["v26.11.1"],
+      "nativeVersions": ["7.0.2"],
+      "blockedLoads": 0
+    },
+    "architecture-native-audit.jsonl": {
+      "sha256": "cb13b56defc377dc1a08e4a59143e4bd2a564c8d09a46c7bb966fbc08d6e7f86",
+      "guardedProcesses": 94,
+      "nodeVersions": ["v26.11.1"],
+      "nativeVersions": ["7.0.2"],
+      "blockedLoads": 0
+    }
+  },
+  "independentReviews": {
+    "namedMethodsSha256": "28fe9c0b68fc976c19310f4d430fe0931f5d137f4ed06280efe6b06c65ad591b",
+    "layoutGreenReceiptSha256": "c53c13dd6433d1a949269b235fb442a67aca7bd4ef36822f859637f761a66805"
+  },
+  "legacyScope": "Localized corrections retain scripts/check-architecture-boundaries.mjs and scripts/ci-impact.test.mjs because migrating their full legacy bodies would materially expand this parity fix. New fixture tests and collectors are TypeScript under their original strict projects. No whole-file strict claim for the legacy checker or CI test.",
+  "browserQualified": false,
+  "wholeProductionWebBuildQualified": false,
+  "finalHeadCiQualified": false
+}

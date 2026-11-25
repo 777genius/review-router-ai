@@ -217,7 +217,7 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
   {
     id: "native-account-info-owner",
     title:
-      "Native details in the real accounts list: long identity, calendar date and stale training preference",
+      "Native details in the real accounts list: long identity, calendar date and stale privacy",
     users: ["owner"],
     route: workspaceRoute("main", "setup"),
     widths: [390, 900, 1440],
@@ -286,12 +286,12 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
           .click();
         await page
           .getByRole("option", {
-            name: label.endsWith("API") ? label.replace(/ API$/, "") : /Codex/,
+            name: label.endsWith("API") ? label : /Codex/,
           })
           .click();
         if (!label.endsWith("API")) {
           await dialog
-            .getByRole("combobox", { name: "Connection method" })
+            .getByRole("combobox", { name: "Sign-in method" })
             .click();
           await page
             .getByRole("option", { name: `Import ${label}`, exact: true })

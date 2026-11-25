@@ -267,10 +267,9 @@ async function seedProviderRegistry(
   return profileIds;
 }
 
-/** Resets unjournaled fixture data in foreign-key order; unrelated owners stay. */
+/** Removes every fixture row in foreign-key order; unknown rows stay. */
 export async function resetFixtureRows(prisma: PrismaClient): Promise<void> {
   const workspaceIds = entriesOf(VISUAL_WORKSPACES).map(([, ws]) => ws.id);
-  const userIds = entriesOf(VISUAL_USERS).map(([, user]) => user.id);
   const where = { workspaceId: { in: workspaceIds } };
   // Profiles and versions reference bindings, bindings restrict accounts and
   // workspaces, accounts restrict their owners.
@@ -279,19 +278,13 @@ export async function resetFixtureRows(prisma: PrismaClient): Promise<void> {
   await prisma.workspaceAccountBinding.deleteMany({ where });
   await prisma.providerAccountConnection.deleteMany({
     where: {
-      // Browser flows also create generated IDs under these exact owners.
-      // Retained operation journals continue to enforce their foreign keys.
-      OR: [
-        {
-          id: { in: entriesOf(VISUAL_CONNECTIONS).map(([, item]) => item.id) },
-        },
-        { ownerWorkspaceId: { in: workspaceIds } },
-        { ownerUserId: { in: userIds } },
-      ],
+      id: { in: entriesOf(VISUAL_CONNECTIONS).map(([, item]) => item.id) },
     },
   });
   await prisma.workspace.deleteMany({ where: { id: { in: workspaceIds } } });
-  await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+  await prisma.user.deleteMany({
+    where: { id: { in: entriesOf(VISUAL_USERS).map(([, user]) => user.id) } },
+  });
 }
 
 async function seedIdentities(

@@ -519,7 +519,9 @@ const profileId = "openrouter-openai-responses-apikey-v1";
           env: {
             PATH: `${bin}:/usr/bin:/bin`,
             HOME: home,
-            NODE_OPTIONS: `--require=${preload}`,
+            NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${preload}`]
+              .filter(Boolean)
+              .join(" "),
             ...(mixed ? { REVIEWROUTER_OCR_BINARY: ocr } : {}),
             CI: "true",
             GITHUB_ACTIONS: "true",

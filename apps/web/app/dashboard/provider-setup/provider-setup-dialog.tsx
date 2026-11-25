@@ -48,8 +48,8 @@ import {
 import { GatewayReviewerRoster } from "./gateway-reviewer-roster";
 import { ApiKeyStorageChoice } from "./api-key-storage-choice";
 import {
-  setupProviderChoices,
-  getSetupProvider as setupProviderDefinition,
+  setupProviders,
+  getSetupProvider,
   setupProviderForSource,
   setupProviderForGatewayProfile,
   connectsInProviderDialog,
@@ -881,13 +881,6 @@ function ProviderChoiceStep({
     };
   };
   const [choice, setChoice] = useState<Choice | null>(initialChoice);
-  const providerChoices = setupProviderChoices(view.gatewayProviderChoices);
-  function getSetupProvider(id: SetupProviderId) {
-    return setupProviderDefinition(id, view.gatewayProviderChoices);
-  }
-  const nativeProvider = (id: SetupProviderId) =>
-    view.gatewayProviderChoices?.some((provider) => provider.id === id) ===
-    true;
   const [setupProvider, setSetupProvider] = useState<SetupProviderId | null>(
     initialIntent?.provider ??
       (initialChoice?.kind === "new" && initialChoice.source
@@ -1148,23 +1141,17 @@ function ProviderChoiceStep({
     // A Claude subscription remains in the user's CI; an Anthropic API key
     // can reuse our existing encrypted workspace-key/Secrets delivery.
     const resolvedStorage =
-      provider === "claude-code" &&
-      !nativeProvider(provider) &&
-      method === "subscription"
+      provider === "claude-code" && method === "subscription"
         ? "github_secrets"
         : storage;
     choose(
       {
         kind: "new",
         source:
-          provider === "claude-code" &&
-          !nativeProvider(provider) &&
-          method === "subscription"
+          provider === "claude-code" && method === "subscription"
             ? githubSourceFor(provider, method)
             : resolvedStorage === "reviewrouter"
-              ? provider === "claude-code" &&
-                !nativeProvider(provider) &&
-                method === "api_key"
+              ? provider === "claude-code" && method === "api_key"
                 ? (managedSourceFor(provider)?.key ?? null)
                 : "gateway_binding"
               : delivery === "manual"
@@ -1213,7 +1200,7 @@ function ProviderChoiceStep({
               ? "Codex in GitHub Secrets is available only for a repository with automatic session refresh enabled."
               : "GitHub Secrets is not available for this provider here.",
       reviewRouterUnavailable:
-        provider === "claude-code" && !nativeProvider(provider)
+        provider === "claude-code"
           ? claudeMethod === "subscription"
             ? "Claude subscription tokens must stay in GitHub Secrets."
             : automaticDeliveryAvailable(managedSourceFor(provider))
@@ -1283,11 +1270,7 @@ function ProviderChoiceStep({
     gatewayAccount &&
     !draft.model &&
     !modelTouched
-      ? suggestedModel(
-          sourceModelOptions,
-          setupProvider,
-          view.gatewayProviderChoices,
-        )
+      ? suggestedModel(sourceModelOptions, setupProvider)
       : "";
   useEffect(() => {
     if (!modelSuggestion) return;
@@ -1726,7 +1709,7 @@ function ProviderChoiceStep({
             label="Provider"
             value={setupProvider ?? ""}
             placeholder="Choose a provider"
-            options={providerChoices.map((provider) => {
+            options={setupProviders.map((provider) => {
               const availability = storageAvailabilityFor(provider.id);
               const unavailable = Boolean(
                 availability.githubUnavailable &&
@@ -1749,9 +1732,7 @@ function ProviderChoiceStep({
               chooseSetupProvider(value as SetupProviderId, "reviewrouter")
             }
           />
-          {setupProvider === "claude-code" &&
-          (!nativeProvider(setupProvider) ||
-            keyStorage === "github_secrets") ? (
+          {setupProvider === "claude-code" ? (
             <RadioCardGroup
               label="Claude authentication"
               value={claudeMethod}
@@ -1786,18 +1767,16 @@ function ProviderChoiceStep({
               }
               disabled={pending || connectLocked}
               credentialKind={
-                keyStorage === "reviewrouter" && nativeProvider(setupProvider)
-                  ? "native"
-                  : setupProvider === "codex"
-                    ? "codex_session"
-                    : setupProvider === "claude-code"
-                      ? claudeMethod === "subscription"
-                        ? "claude_subscription"
-                        : "claude_api_key"
-                      : getSetupProvider(setupProvider).credentialKind ===
-                          "subscription"
-                        ? "subscription"
-                        : "api_key"
+                setupProvider === "codex"
+                  ? "codex_session"
+                  : setupProvider === "claude-code"
+                    ? claudeMethod === "subscription"
+                      ? "claude_subscription"
+                      : "claude_api_key"
+                    : getSetupProvider(setupProvider).credentialKind ===
+                        "subscription"
+                      ? "subscription"
+                      : "api_key"
               }
               {...storageAvailability}
               githubSupported={
@@ -2002,7 +1981,6 @@ function ProviderChoiceStep({
             <InlineGatewayConnect
               inline={inline}
               provider={setupProvider}
-              providerLabel={getSetupProvider(setupProvider).label}
               empty={gatewayInventoryEmpty}
               hasAccounts={
                 gatewayAccountList.length > 0 || gatewayInventoryIncomplete

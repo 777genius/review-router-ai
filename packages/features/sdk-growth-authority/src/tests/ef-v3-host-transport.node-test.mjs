@@ -31,7 +31,7 @@ const installedManifest = JSON.parse(
   await readFile(join(packageRoot, "package.json"), "utf8"),
 );
 assert.equal(installedManifest.name, "@agent-teams/engineering-foundation");
-assert.equal(installedManifest.version, "2.1.0");
+assert.equal(installedManifest.version, "1.6.0");
 // Use cached publication bytes when present. pnpm installs do not populate
 // npm's cache, so a cache miss retrieves the exact published archive.
 async function pinnedEfArchive() {
@@ -40,7 +40,7 @@ async function pinnedEfArchive() {
     "utf8",
   );
   const integrity = lock.match(
-    /'@agent-teams\/engineering-foundation@2\.1\.0':\s*\n\s*resolution: \{integrity: (sha512-[A-Za-z0-9+/=]+)\}/u,
+    /'@agent-teams\/engineering-foundation@1\.6\.0':\s*\n\s*resolution: \{integrity: (sha512-[A-Za-z0-9+/=]+)\}/u,
   )?.[1];
   assert.ok(integrity, "pinned EF lockfile integrity missing");
   const hex = Buffer.from(integrity.slice(7), "base64").toString("hex");
@@ -69,12 +69,12 @@ async function pinnedEfArchive() {
       if (error?.code !== "ENOENT") throw error;
     }
   }
-  const directory = await mkdtemp(join(tmpdir(), "rr-ef-2.1.0-"));
+  const directory = await mkdtemp(join(tmpdir(), "rr-ef-1.6.0-"));
   let archiveDigest;
   try {
     if (!archivePath) {
       const url =
-        "https://registry.npmjs.org/@agent-teams/engineering-foundation/-/engineering-foundation-2.1.0.tgz";
+        "https://registry.npmjs.org/@agent-teams/engineering-foundation/-/engineering-foundation-1.6.0.tgz";
       let response;
       try {
         response = await globalThis.fetch(url, {
@@ -82,16 +82,16 @@ async function pinnedEfArchive() {
         });
       } catch (error) {
         throw new Error(
-          `Pinned EF 2.1.0 fetch failed: ${error?.name ?? "network-error"}`,
+          `Pinned EF 1.6.0 fetch failed: ${error?.name ?? "network-error"}`,
           { cause: error },
         );
       }
       if (!response.ok)
         throw new Error(
-          `Pinned EF 2.1.0 fetch returned HTTP ${response.status}`,
+          `Pinned EF 1.6.0 fetch returned HTTP ${response.status}`,
         );
       const reader = response.body?.getReader();
-      if (!reader) throw new Error("Pinned EF 2.1.0 fetch returned no body");
+      if (!reader) throw new Error("Pinned EF 1.6.0 fetch returned no body");
       const chunks = [];
       let length = 0;
       try {
@@ -100,15 +100,15 @@ async function pinnedEfArchive() {
           if (done) break;
           length += value.byteLength;
           if (length > 10 * 1024 * 1024)
-            throw new Error("Pinned EF 2.1.0 archive exceeds 10 MiB");
+            throw new Error("Pinned EF 1.6.0 archive exceeds 10 MiB");
           chunks.push(value);
         }
       } catch (error) {
         await reader.cancel().catch(() => {});
-        if (error?.message === "Pinned EF 2.1.0 archive exceeds 10 MiB")
+        if (error?.message === "Pinned EF 1.6.0 archive exceeds 10 MiB")
           throw error;
         throw new Error(
-          `Pinned EF 2.1.0 download failed: ${error?.name ?? "network-error"}`,
+          `Pinned EF 1.6.0 download failed: ${error?.name ?? "network-error"}`,
           { cause: error },
         );
       }
@@ -118,7 +118,7 @@ async function pinnedEfArchive() {
     archiveDigest = wireDigest(bytes);
     assert.equal(
       archiveDigest,
-      "sha256:709a780feeb06af7a0a8587d49a5f39ac0388bdd99d3f5c3d6b5db8bfb5f8ade",
+      "sha256:842f81ca68e9c3207a0da967eb599229d4d30ea32cd69a9a1686f2eb240f54eb",
     );
     if (!archivePath) {
       archivePath = join(directory, "published.tgz");
@@ -145,7 +145,7 @@ async function pinnedEfArchive() {
     }
     const archived = join(directory, "package");
     const names = await fileRows(archived);
-    assert.equal(names.length, 2781);
+    assert.equal(names.length, 2559);
     assert.deepEqual(await fileRows(packageRoot, true), names);
     for (const name of names)
       assert.deepEqual(
@@ -300,7 +300,7 @@ const invocation = {
   toolchainDigest: d("3"),
   artifactDigests: [d("4")],
   tool: {
-    version: "2.1.0",
+    version: "1.6.0",
     artifactDigest: d("5"),
     extractorVersion: "7.58.12",
   },
@@ -421,7 +421,7 @@ function fixture() {
     },
     tool: {
       packageName: "@agent-teams/engineering-foundation",
-      version: "2.1.0",
+      version: "1.6.0",
       archiveDigest: d("7"),
       archiveIntegrity: `sha512-${"A".repeat(86)}==`,
       distributionDigest: d("5"),
@@ -757,7 +757,7 @@ function incompleteCompletion(accepted) {
 
 // Breakage caught: a v3 grant could be narrowed to one archive, invent a release
 // archive for the initial package, or drop the root while still yielding a receipt.
-test("installed EF 2.1.0 resolves and completes the multi-package v3 contract", async () => {
+test("installed EF 1.6.0 resolves and completes the multi-package v3 contract", async () => {
   const value = fixture();
   const { acl, calls } = harness(value);
   const accepted = await acl.resolve(value.request, cancellation);

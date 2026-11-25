@@ -361,7 +361,7 @@ export function managedPg17Fixture() {
     checked(["exec", name, "chmod", "0755", "/tmp/rr-managed-schema-engine"]);
     if (
       checked(["exec", name, "/tmp/rr-managed-schema-engine", "--version"]) !==
-      "schema-engine-cli e922089b7d7502aff4249d5da3420f6fa55fc6ad"
+      "schema-engine-cli 3c6e192761c0362d496ed980de936e2f3cebcd3a"
     )
       throw new Error("managed_pg17_prisma_engine_version");
     checked(

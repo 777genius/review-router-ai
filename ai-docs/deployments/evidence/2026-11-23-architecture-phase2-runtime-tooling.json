@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "scope": "Local modular composition, packed Foundation consumer, real workspace boundaries and compiled API/worker runtime; failed full builds remain failed.",
+  "source": {
+    "head": "e5279c738a3a97d17d13964b6b586026c41afb88",
+    "tree": "1433662a43973bd1999fad83c7fc8097d1ae9a15"
+  },
+  "toolchain": {
+    "node": "26.11.1",
+    "pnpm": "11.28.7",
+    "typescript": "7.0.2",
+    "postgres": "17.12"
+  },
+  "modular": {
+    "command": "pnpm modular:qualify --maxWorkers=1 --no-file-parallelism",
+    "status": "passed",
+    "strictOriginalProject": true,
+    "skipLibCheck": false,
+    "files": 7,
+    "tests": 25,
+    "failed": 0,
+    "skipped": 0,
+    "sourceUnchanged": true,
+    "receiptSha256": "8f610ebd4bc3000132fa68938999d3319d8583f3073f385d0f0f7540bae6eac2"
+  },
+  "foundation": {
+    "command": "pnpm foundation:qualify",
+    "status": "passed",
+    "durationSeconds": 53.741,
+    "exactRegistryArchiveIntegrity": true,
+    "packedConsumerStrictTypecheck": true,
+    "skipLibCheck": false,
+    "packedRuntimeAndRejectingWiring": true,
+    "realWorkspaceBoundaryCases": 7,
+    "allTrackedFileCount": 4799,
+    "allTrackedFileAggregateSha256": "c3234ae5bcb87087bc6e5466ba89608d252d084cd319aab954c9977ba3400019",
+    "sourceUnchanged": true,
+    "guardedNodeProcesses": 26,
+    "nativeVersions": ["7.0.2"],
+    "blockedLegacyLoads": 0,
+    "receiptSha256": "c4ac26bd9b78d1bb320ee8892fa24f48488b8b7f38056c48254323a4cf5cc02e",
+    "logSha256": "e389920ea9a31334378f86d8264a4beed465c9b04feeee817dc863bf8287118f",
+    "auditSha256": "569a53b2e438ed9fdbf24148882b8b5bc732ed96d401a0481afe6b8788e276f2"
+  },
+  "compiledRuntime": {
+    "command": "pnpm runtime:smoke",
+    "status": "passed",
+    "maintainedEsmRewrite": true,
+    "freshPostgresCluster": true,
+    "successfulMigrationLedgerEntries": 165,
+    "compiledApiHealth": true,
+    "compiledWorkerCycle": true,
+    "guardedNodeProcesses": 12,
+    "sourceUnchanged": true,
+    "sourceAggregateSha256": "a5e2e2530e9cae25e1aead309b4f446ff2465aa81367fe4c4ad0f45943f9bf84",
+    "runtimeEntrySha256": {
+      "apps/api/dist/server.js": "93483cf4236d1704b298cbbd187b684e7c077bcf2f53add9bc93851157e3475a",
+      "apps/worker/dist/worker.js": "666fcb32e1a0051d8df1b9dd2880df16c2d7fe3c38bb48afcd5f0edad13d3c18"
+    },
+    "ownedClusterRemoved": true,
+    "receiptSha256": "68dc0eb7d0c7b02cbdc07cbee76ebce7f4f2c38c2a0ecee2610959065309550b",
+    "logSha256": "9dcae1417fb12b0ff2e42825bcbc415b5c321e175fad5395e006b610294e709d"
+  },
+  "wholeBuildAttempts": [
+    {
+      "status": "failed",
+      "qualified": false,
+      "receiptSha256": "98d2352d35f22802f1c90e71816e36809878de232d9875741722b6c158c85877",
+      "reason": "Web native noEmit preflight received SIGKILL before Next started.",
+      "successfulPackageTasks": 53,
+      "totalPackageTasks": 56,
+      "cachedTasks": 0,
+      "nativeVersions": ["7.0.2"],
+      "sourceUnchanged": true
+    },
+    {
+      "status": "failed",
+      "qualified": false,
+      "receiptSha256": "e41ccb74aa5fee2a9131bca504ad497431c2dbfa98527af98315741c46314147",
+      "reason": "Web native noEmit preflight received SIGKILL before Next started.",
+      "successfulPackageTasks": 55,
+      "totalPackageTasks": 56,
+      "cachedTasks": 53,
+      "nativeVersions": ["7.0.2"],
+      "sourceUnchanged": true
+    }
+  ],
+  "wholeWorkspaceBuildQualified": false,
+  "productionWebQualified": false,
+  "browserInteractionQualified": false,
+  "offlinePrismaIsolationQualified": false,
+  "ciEnrollment": "The existing Source and Certification Checks job now explicitly runs the complete compiler pilot and packed Foundation/real workspace qualification. Future exact-head CI remains required."
+}

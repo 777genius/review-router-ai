@@ -2,11 +2,7 @@ import {
   getProviderCatalogEntry,
   type ReviewModelOption,
 } from "@reviewrouter/features-review-providers";
-import {
-  getSetupProvider,
-  type SetupProviderId,
-  type SetupProvider,
-} from "./setup-provider";
+import { getSetupProvider, type SetupProviderId } from "./setup-provider";
 import type { AccountProfileView } from "../../server/account-gateway-accounts";
 import type { AccountModelCatalogView } from "../account-gateway/connection-capabilities";
 import {
@@ -132,11 +128,10 @@ export function gatewayProviderModelOptions(
 export function suggestedModel(
   options: readonly ReviewModelOption[],
   provider: SetupProviderId | null,
-  native: readonly SetupProvider[] = [],
 ): string {
   const usable = options.filter((option) => !option.disabled);
   const catalog = provider
-    ? getSetupProvider(provider, native).publicCatalogProvider
+    ? getSetupProvider(provider).publicCatalogProvider
     : null;
   const preferred = catalog
     ? getProviderCatalogEntry(catalog).defaultModel

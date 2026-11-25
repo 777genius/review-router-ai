@@ -115,7 +115,7 @@ jobs:
     name: Dedicated Release Authority PG17 contract
     needs: impact
     if: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false) || (github.event_name == 'workflow_dispatch' && inputs.release_authority_pg17_contract)) && (github.event_name != 'pull_request' || needs.impact.outputs.tier == 'full') }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:github-hosted') && 'ubuntu-latest' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:
       REVIEW_ROUTER_PG17_ADVERSARIAL_IMAGE: postgres:17.5-bookworm@sha256:fbcea1bd13b6a882cd6caa6b58db3ae5c102efe50ec625b3e2a5cbc50db5bfe4
@@ -367,7 +367,7 @@ jobs:
     name: Hosted runtime OCI build
     needs: impact
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (github.event_name != 'pull_request' || needs.impact.outputs.tier == 'full') }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_BUILD_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:github-hosted') && 'ubuntu-latest' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_BUILD_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 25
 
     steps:
@@ -392,7 +392,7 @@ jobs:
     name: Managed migration PG17 (${{ matrix.lane }})
     needs: impact
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (github.event_name != 'pull_request' || needs.impact.outputs.tier == 'full') }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:github-hosted') && 'ubuntu-latest' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     strategy:
       fail-fast: false
@@ -543,6 +543,9 @@ jobs:
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
 
+      - name: Install locked Accounts harness dependencies
+        run: pnpm --dir scripts/accounts-reference-e2e install --frozen-lockfile
+
       - name: Generate Prisma client
         env:
           REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
@@ -553,12 +556,20 @@ jobs:
         run: pnpm exec next typegen
 
       - name: Test fail-closed CI impact policy
-        run: node --test scripts/ci-impact.test.mjs
+        run: |
+          node --test scripts/ci-impact.test.mjs
+          pnpm exec vitest run --configLoader native scripts/ci-browser-routing.test.ts --maxWorkers=1 --no-file-parallelism
 
       - name: Lint
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/native-lint-audit.jsonl
         run: pnpm lint
 
       - name: Format check
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/native-format-audit.jsonl
         run: pnpm format:check
 
       - name: Hetzner release verification contract
@@ -566,6 +577,9 @@ jobs:
 
       - name: Typecheck
         env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/native-typecheck-audit.jsonl
+          TURBO_ENV_MODE: loose
           TURBO_CONCURRENCY: "1"
         run: pnpm typecheck
 
@@ -585,7 +599,7 @@ jobs:
     name: Quality Checks
     needs: impact
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.impact.outputs.tier != 'docs' }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_BUILD_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:github-hosted') && 'ubuntu-latest' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_BUILD_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public
@@ -655,6 +669,9 @@ jobs:
 
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+
+      - name: Install locked Accounts harness dependencies
+        run: pnpm --dir scripts/accounts-reference-e2e install --frozen-lockfile
 
       - name: Generate Prisma client
         env:
@@ -764,6 +781,9 @@ jobs:
 
       - name: Build
         env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/native-build-audit.jsonl
+          TURBO_ENV_MODE: loose
           TURBO_CONCURRENCY: "2"
         run: pnpm build
 
@@ -819,7 +839,7 @@ jobs:
     name: DB Contract and Migration Checks
     needs: impact
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (github.event_name != 'pull_request' || needs.impact.outputs.tier == 'full') }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:github-hosted') && 'ubuntu-latest' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public
@@ -1148,7 +1168,7 @@ jobs:
     name: Source and Certification Checks
     needs: impact
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (github.event_name != 'pull_request' || needs.impact.outputs.tier == 'full') }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:github-hosted') && 'ubuntu-latest' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public
@@ -1200,6 +1220,9 @@ jobs:
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
 
+      - name: Install locked Accounts harness dependencies
+        run: pnpm --dir scripts/accounts-reference-e2e install --frozen-lockfile
+
       # Source/bundle parity needs installed dependencies, not app builds or databases.
       - name: Codex rotating action artifact smoke
         run: pnpm action:artifact:check:smoke
@@ -1213,6 +1236,30 @@ jobs:
         run: |
           pnpm --filter @reviewrouter/shared build
           node scripts/rewrite-dist-esm-imports.mjs
+
+      - name: Complete native compiler qualification
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/native-compiler-audit.jsonl
+          GOMAXPROCS: "2"
+          GOMEMLIMIT: "2048MiB"
+        run: |
+          pnpm --dir apps/web exec next typegen
+          pnpm compiler:pilot --maxWorkers=1
+
+      - name: Native lint and formatter qualification
+        env:
+          GOMAXPROCS: "2"
+          GOMEMLIMIT: "2048MiB"
+        run: pnpm lint:qualify --output "$RUNNER_TEMP/native-lint-qualification"
+
+      - name: Packed Foundation consumer and real workspace boundaries
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/foundation-consumer-audit.jsonl
+          GOMAXPROCS: "2"
+          GOMEMLIMIT: "2048MiB"
+        run: pnpm foundation:qualify
 
       - name: Review Action v2 protocol drift check
         run: pnpm protocol:check
@@ -1375,15 +1422,30 @@ jobs:
           diff -u tools/ocr/qualifications/unified-model-routes-v3.manifest "$RUNNER_TEMP/reviewrouter-paired-ocr/MANIFEST"
 
       - name: Paired Review Action lifecycle producer and fixture tests
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/paired-action-native-audit.jsonl
         run: |
-          npm --prefix .paired/review-router-action test -- \
+          node scripts/paired-action-qualification/run.ts .paired/review-router-action \
             --runInBand \
             --runTestsByPath \
             __tests__/unit/github/comment-fingerprint-golden.test.ts \
             __tests__/e2e/production-entrypoint-artifact.e2e.test.ts \
             __tests__/unit/review-orchestration/github-review-state-adapter.test.ts \
             __tests__/unit/review-projection/build-current-review-projection.test.ts \
-            __tests__/unit/review-projection/review-lifecycle-observation.test.ts
+            __tests__/unit/review-projection/review-lifecycle-observation.test.ts \
+            --json --outputFile "$RUNNER_TEMP/paired-action-native-results.json"
+
+      - name: Preserve paired Review Action native compiler audit
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: paired-action-native-audit-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/paired-action-native-audit.jsonl
+            ${{ runner.temp }}/paired-action-native-results.json
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Paired Review Action projection parser contract
         env:
@@ -1485,7 +1547,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: agent-teams-ai/engineering-foundation
-          ref: 145a3fb20392239fe4979c9e4f06684d6af08848
+          ref: 243b99abbd89216fca55a1ffe4a1b83a1b7efc2e
           path: .candidate/engineering-foundation
           persist-credentials: false
           fetch-depth: 1
@@ -1494,27 +1556,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          candidate="$GITHUB_WORKSPACE/.candidate/engineering-foundation"
-          test "$(git -C "$candidate" rev-parse HEAD)" = 145a3fb20392239fe4979c9e4f06684d6af08848
+          candidate=.candidate/engineering-foundation
+          test "$(git -C "$candidate" rev-parse HEAD)" = 243b99abbd89216fca55a1ffe4a1b83a1b7efc2e
           source_tree="$(git -C "$candidate" rev-parse 'HEAD^{tree}')"
-          test "$source_tree" = 9537a6b3f9ba554fa65a716767d39ea98ba080ea
-          git -C "$candidate" diff --exit-code HEAD --
-          npm install --prefix "$RUNNER_TEMP/ef-candidate-pnpm" --engine-strict --ignore-scripts --no-audit --no-fund pnpm@11.20.0
-          export AGENT_TEAMS_FOUNDATION_PNPM_ENTRYPOINT="$RUNNER_TEMP/ef-candidate-pnpm/node_modules/pnpm/bin/pnpm.cjs"
-          (cd "$candidate" && node tools/dev.mts --profile node install)
-          (cd "$candidate" && node tools/dev.mts --profile node build)
-          profile="$candidate/.worker-tmp/profiles/node-145a3fb20392239fe4979c9e4f06684d6af08848"
-          (cd "$profile" && node scripts/prepare-package.mjs)
-          archive="$RUNNER_TEMP/agent-teams-engineering-foundation-2.1.0.tgz"
-          (cd "$profile/packages/engineering-foundation" && node "$candidate/tools/pnpm-command.mts" pack --out "$archive") >"$RUNNER_TEMP/ef-candidate-pack.log"
+          printf '%s' "$source_tree" | grep -Eq '^[a-f0-9]{40}$'
+          (cd "$candidate" && pnpm install --frozen-lockfile)
+          (cd "$candidate" && pnpm --filter @agent-teams/engineering-foundation build)
+          archive="$RUNNER_TEMP/agent-teams-engineering-foundation-1.6.1.tgz"
+          (cd "$candidate/packages/engineering-foundation" && pnpm pack --pack-destination "$RUNNER_TEMP") >"$RUNNER_TEMP/ef-candidate-pack.log"
           test -s "$archive"
-          test "$(git -C "$candidate" rev-parse HEAD)" = 145a3fb20392239fe4979c9e4f06684d6af08848
-          git -C "$candidate" diff --exit-code HEAD --
-          cat "$profile/.agent-teams-runtime-profile.json"
-          npm install --prefix "$RUNNER_TEMP/ef-candidate-installed" --engine-strict --ignore-scripts --no-audit --no-fund "$archive"
+          npm install --prefix "$RUNNER_TEMP/ef-candidate-installed" --ignore-scripts --no-audit --no-fund "$archive"
           EF_V3_CANDIDATE_PACKAGE_ROOT="$RUNNER_TEMP/ef-candidate-installed/node_modules/@agent-teams/engineering-foundation" \
           EF_V3_CANDIDATE_ARCHIVE="$archive" \
-          EF_V3_CANDIDATE_SOURCE_COMMIT=145a3fb20392239fe4979c9e4f06684d6af08848 \
+          EF_V3_CANDIDATE_SOURCE_COMMIT=243b99abbd89216fca55a1ffe4a1b83a1b7efc2e \
           EF_V3_CANDIDATE_SOURCE_TREE="$source_tree" \
           SDK_GROWTH_TEST_DATABASE_URL="$REVIEW_ROUTER_TEST_DATABASE_URL" \
             node --import tsx --test packages/features/sdk-growth-authority/src/tests/v3-approved-manifest.ef-candidate.node-test.mjs

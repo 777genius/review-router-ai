@@ -2,10 +2,7 @@ import {
   accountProviderIdentity,
   type ProviderIdentity,
 } from "../../src/features/provider-setup/provider-identity";
-import type {
-  AccountOperationView,
-  AccountProfileView,
-} from "../../src/server/account-gateway-accounts";
+import type { AccountProfileView } from "../../src/server/account-gateway-accounts";
 
 export type OAuthCompletionPresentation = {
   label: string;
@@ -31,34 +28,4 @@ export function oauthCompletionPresentation(
     providerId: accountProviderIdentity(profile),
     inputKind,
   };
-}
-
-export function operationStateText(
-  state: AccountOperationView["state"] | "unresolved",
-) {
-  return state === "pending"
-    ? "Waiting for completion"
-    : state === "applied"
-      ? "Completed"
-      : state === "rejected"
-        ? "Declined"
-        : state === "unresolved"
-          ? "Checking status"
-          : "Status unavailable";
-}
-export function validAuthorizationURL(
-  value: string | undefined,
-): value is string {
-  if (!value) return false;
-  try {
-    const url = new URL(value);
-    return (
-      url.protocol === "https:" &&
-      Boolean(url.host) &&
-      url.username === "" &&
-      url.password === ""
-    );
-  } catch {
-    return false;
-  }
 }

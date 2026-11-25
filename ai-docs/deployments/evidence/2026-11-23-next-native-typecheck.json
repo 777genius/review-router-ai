@@ -1,0 +1,441 @@
+{
+  "schemaVersion": 1,
+  "taskId": "2026-11-23-next-native-typecheck",
+  "recordedUtc": "2026-11-23T15:28:51.864050+00:00",
+  "repository": "https://github.com/777genius/review-router-ai",
+  "pullRequest": "https://github.com/777genius/review-router-ai/pull/983",
+  "scopeStatus": "Local native Web build and compiled HTTP boundaries qualified; compatible final-source CI and browser interactions pending.",
+  "deploymentPerformed": false,
+  "sourceBinding": {
+    "baseMain": "27c353d2425abf56db66e902caaba86f756dee8d",
+    "actualBuildStartLocalDependencyCommit": "a3b8de5037e9c582a2c5766f1eb2956e746bad2e",
+    "publishedDependencyCommit": "95c53b357aadcc1dd66e6ea8d4772815bb4c9856",
+    "identicalDependencyTree": "144f6ef5125a2a30b3bf12945e9a02a176a2a3de",
+    "publishedLoaderCommit": "cc455f2cf7fd4812eb3a901edc1a82d2e943e9cf",
+    "publishedLoaderTree": "231cb5508b4aa466338bccbb4adc7d3ca76d435d",
+    "buildUsedThenUncommittedLoaderFiles": {
+      "apps/web/app/dashboard/actions-hosted-workflow-recovery.test-support.test.ts": "2044150b68637ce0bbe31a9b4aaef4c260cac2564f4d16e7f33027d049297dd1",
+      "apps/web/app/dashboard/actions-hosted-workflow-recovery.test.ts": "be402f459a352faebcd8b708e7ac070d845aaea4a4f8604876e017cb1dcb888f",
+      "apps/web/app/dashboard/actions-hosted-workflow-recovery.test-support.ts": "2bbe4c9eb844246207db476e9a694fd1d8c19f01ad8eddc0a645fcfa55b2e8a1"
+    },
+    "inputFileCount": 4747,
+    "fullInputManifestSha256": "20b03ae0c1971600664ab8ca35c2a424d18b7df89e778ab0e9c6b515626cd20e",
+    "fullInputManifestAfterSha256": "20b03ae0c1971600664ab8ca35c2a424d18b7df89e778ab0e9c6b515626cd20e",
+    "changedInputsDuringBuild": [],
+    "allApplicationInputsMatchPublishedLoaderCommit": true,
+    "qualificationDidNotStartOnLaterPublicationSha": true,
+    "nextConfigAndStrictTsconfigsUnchanged": true,
+    "generatedNextEnvChange": "Next normal setup added the .next/types/root-params.d.ts import.",
+    "rootLockSha256": "9f6536118944d759b43ad56adb3668f01072fbffbcb51079a2ad2d3e31c0e9a0",
+    "bindingReceiptSha256": "e1db0e5e70a8736eb298796abede9ac1980cba41a827ccfee568392a5b49fcfd",
+    "candidateInputSha256": {
+      "package.json": "b235890e3ccb9f7146b86c206ac42b95413d1e87d6a70d54233c8c4b5d61cd87",
+      "apps/web/package.json": "3708dcc7a84f96869f492068edd5146e2efb2512b0719f33bb337cfe738e8b82",
+      "pnpm-lock.yaml": "9f6536118944d759b43ad56adb3668f01072fbffbcb51079a2ad2d3e31c0e9a0",
+      "apps/web/next-env.d.ts": "1862ac4bbbc5192d4bf562161df66ea547ed3e67173100656ab606ae9797db2b",
+      "apps/web/app/dashboard/actions-hosted-workflow-recovery.test.ts": "be402f459a352faebcd8b708e7ac070d845aaea4a4f8604876e017cb1dcb888f",
+      "apps/web/app/dashboard/actions-hosted-workflow-recovery.test-support.ts": "2bbe4c9eb844246207db476e9a694fd1d8c19f01ad8eddc0a645fcfa55b2e8a1",
+      "apps/web/app/dashboard/actions-hosted-workflow-recovery.test-support.test.ts": "2044150b68637ce0bbe31a9b4aaef4c260cac2564f4d16e7f33027d049297dd1"
+    },
+    "earlierSetupReceiptHeadCaveat": "Setup and contract-test receipts can record the earlier HEAD while the dependency and loader candidate files were pending publication. The candidate input hashes above identify the actual installed and tested bytes; later publication does not retroactively change the recorded start SHA."
+  },
+  "toolchain": {
+    "node": {
+      "version": "26.11.1",
+      "officialArchive": "https://nodejs.org/dist/v26.11.1/node-v26.11.1-linux-x64.tar.xz",
+      "publishedChecksumIndex": "https://nodejs.org/dist/v26.11.1/SHASUMS256.txt",
+      "archiveSha256": "3883bfc73f9a680ca4eab04b196068aaaab1373ffa77d8fc1a4408222495b651",
+      "binarySha256": "5a7b8a3cf5ccb57d297519754fd73238f64cf560afd0ef19a2f9bf7384cbb657"
+    },
+    "pnpm": "11.28.7",
+    "next": {
+      "version": "16.4.6",
+      "packageIntegrity": "sha512-QZJiYhaZLJMo2KpkQGQIwvmd79WVsAWeYIU554a8d7zArS3si/IRy3lBNV/rtYhE70oLwdLYhPAXLPx8HwcwtA==",
+      "useTypeScriptCliDefault": true,
+      "ignoreBuildErrorsDefault": false,
+      "onePhysicalOwnerForRootWebAndAppNextAuth": true
+    },
+    "typescript": {
+      "rootVersion": "7.0.2",
+      "appVersion": "7.0.2",
+      "guardedNativeIslandVersion": "7.0.2",
+      "packageIntegrity": "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==",
+      "nextSelectedCompilerApiPath": null,
+      "observedNextNativeExecutableSha256": "4f2de678286401759b3fb4475bafe35b8f32b4b3a07d92642bbf37eadc9b34a4"
+    },
+    "prisma": {
+      "version": "7.8.0",
+      "engineCommit": "3c6e192761c0362d496ed980de936e2f3cebcd3a",
+      "engineSha256": "94eeddaaa41a25561feeefa56c054c95bc59cf0b219a86189afccf400adf8a8e",
+      "oneGeneratedClientOwnerForRootDbAndWeb": true,
+      "sameRuntimeExports": true,
+      "generatedSchemaSha256": "d5f160ef11826d34c6c785e31c2b84be71f6c819d500190b9f5e8c648ef5d356",
+      "generatedTypeSha256": {
+        "client.d.ts": "d5eb5865d4cbaa9985cc3cfb920b230cdcf3363f1e70903a08dc4baab80b0ce1",
+        "default.d.ts": "d5eb5865d4cbaa9985cc3cfb920b230cdcf3363f1e70903a08dc4baab80b0ce1",
+        "edge.d.ts": "7378dd41401ba1acff435b9c317a5b919a3d38479ed3dbd4a25c8b4fd623a224",
+        "index.d.ts": "993902df8b3a6b6d320970fc9503ef2fb6954834c9a979092700916873032461"
+      },
+      "generatedClientsCopiedBetweenPeerContexts": false
+    },
+    "oxcParser": {
+      "version": "0.159.0",
+      "packageIntegrity": "sha512-Z1OaHU1EeTtobDHlYOAijfCTZr13PpWs/ZvwbJHaz5zOHfV6fLSmYZwB6klE8cggz51syi8HmLikHju0orJr4g==",
+      "nativeBindingSha256": "ec6c2d66d3c11d2583c025eec068c26690d1487a56b78a5717f5bd63b6e8aaaf"
+    },
+    "esbuild": "0.28.1",
+    "vitest": "4.1.10",
+    "playwrightCore": "1.64.1"
+  },
+  "checks": {
+    "frozenInstall": {
+      "command": "corepack pnpm install --frozen-lockfile --ignore-scripts --store-dir /workspace/.pnpm-store",
+      "status": "PASS",
+      "receipt": {
+        "rawReceipt": "tmp/next-native-qualification/return-disk-frozen-install.json",
+        "rawReceiptSha256": "f3ccff32a88f53bcdccc1c027f151657a1447499f2cab47b00f41b25f7016bbd",
+        "sourceAtStart": "1a7e52381e1c0958aab65074ca66634a2a0e33d5",
+        "sourceAtEnd": "1a7e52381e1c0958aab65074ca66634a2a0e33d5",
+        "startedUtc": "2026-11-23T15:07:46.766913+00:00",
+        "finishedUtc": "2026-11-23T15:07:55.668679+00:00",
+        "exitCode": 0,
+        "logSha256": "1c1697a17b1c9dd58c9e9b5d1686b274d818fed9035eabf6ebaf105232331122"
+      }
+    },
+    "canonicalPostinstall": {
+      "command": "corepack pnpm run postinstall",
+      "expandedScript": "node scripts/prepare-pinned-subscription-runtime.ts && pnpm db:generate && pnpm compiler:prepare",
+      "status": "PASS",
+      "receipt": {
+        "rawReceipt": "tmp/next-native-qualification/restored-root-postinstall-canonical-pinned-pnpm.json",
+        "rawReceiptSha256": "d62a7f5cde20220648124e2cc9261b84d361e85c76ea4a77072d96c5b5aef004",
+        "sourceAtStart": "1a7e52381e1c0958aab65074ca66634a2a0e33d5",
+        "sourceAtEnd": "1a7e52381e1c0958aab65074ca66634a2a0e33d5",
+        "startedUtc": "2026-11-23T15:09:27.074290+00:00",
+        "finishedUtc": "2026-11-23T15:09:39.771117+00:00",
+        "exitCode": 0,
+        "logSha256": "a3dec04a92b9c93f117e4d6f82f78341896d1a78cf8d1771dcdbef0c77604629"
+      }
+    },
+    "unchangedWorkspaceDependencies": {
+      "status": "PASS",
+      "packages": 37,
+      "commandPerPackage": "node <repository>/scripts/local-checks/compiler-cli.ts --native -p tsconfig.build.json",
+      "existingConfigSourceAndReleaseGuardsRetained": true,
+      "originalSource": "e38d5602a45b210faf493df8e05110e3e42e8400",
+      "summarySha256": "222633c0991c8225d82df4ed5d648c0e1e87b12477ce0ed0de7f0d1fd8ea4db8",
+      "limitation": "Existing build flags and unchanged source were qualified through the guarded native route; the separate root-script migration is not certified by this preparation."
+    },
+    "contractTests": {
+      "status": "PASS",
+      "command": "node node_modules/vitest/vitest.mjs run apps/web/app/dashboard/actions-hosted-workflow-recovery.test-support.test.ts apps/web/app/dashboard/actions-hosted-workflow-recovery.test.ts --reporter=verbose",
+      "files": 2,
+      "passed": 180,
+      "failed": 0,
+      "skipped": 0,
+      "helperCases": 14,
+      "existingRecoveryScenarios": 166,
+      "existingProductionSourceAndAssertionsUnchanged": true,
+      "sourceSha256": {
+        "apps/web/app/dashboard/actions-hosted-workflow-recovery.test-support.test.ts": "2044150b68637ce0bbe31a9b4aaef4c260cac2564f4d16e7f33027d049297dd1",
+        "apps/web/app/dashboard/actions-hosted-workflow-recovery.test.ts": "be402f459a352faebcd8b708e7ac070d845aaea4a4f8604876e017cb1dcb888f",
+        "apps/web/app/dashboard/actions-hosted-workflow-recovery.test-support.ts": "2bbe4c9eb844246207db476e9a694fd1d8c19f01ad8eddc0a645fcfa55b2e8a1"
+      },
+      "receipt": {
+        "rawReceipt": "tmp/next-native-qualification/web-test-loader-and-recovery.json",
+        "rawReceiptSha256": "284e6f9e94b21901e95360e21292f1c04bbd878d8fddd9faa039a061c7ea99fe",
+        "sourceAtStart": "1a7e52381e1c0958aab65074ca66634a2a0e33d5",
+        "sourceAtEnd": "a3b8de5037e9c582a2c5766f1eb2956e746bad2e",
+        "startedUtc": "2026-11-23T15:10:45.494628+00:00",
+        "finishedUtc": "2026-11-23T15:10:59.480346+00:00",
+        "exitCode": 0,
+        "logSha256": "4619a2b748d1310548c858a61999408ca11956b92ce6280710638d39031a37ba"
+      }
+    },
+    "fullWebNativePreflight": {
+      "status": "PASS",
+      "cwd": "apps/web",
+      "command": "node ../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json",
+      "receipt": {
+        "rawReceipt": "tmp/next-native-qualification/web-native-preflight-with-loader-fix.json",
+        "rawReceiptSha256": "c7b986ec5b41caf083a9685a6579224202e79e70a7baaf3bd30536367433c915",
+        "sourceAtStart": "1a7e52381e1c0958aab65074ca66634a2a0e33d5",
+        "sourceAtEnd": "a3b8de5037e9c582a2c5766f1eb2956e746bad2e",
+        "startedUtc": "2026-11-23T15:10:45.477215+00:00",
+        "finishedUtc": "2026-11-23T15:11:07.133178+00:00",
+        "exitCode": 0,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "nextOwnNegativeCheck": {
+      "status": "PASS",
+      "cwd": "apps/web",
+      "command": "node ../../node_modules/next/dist/bin/next build",
+      "preflightInvoked": false,
+      "input": "export const nextNativeTypeCheckSentinel: number = \"must be rejected by Next\";\n",
+      "inputSha256": "5e5ba80366507f9cf54d8cc1f1eba817017aa308fa0d02d5b086da5e1a56a5e4",
+      "inputImportedByApplication": false,
+      "expectedAndActualExitCode": 1,
+      "diagnostic": "next-native-negative-qualification.ts(1,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+      "diagnosticCount": 1,
+      "temporaryInputRemoved": true,
+      "nativeExecutablePackage": "@typescript/typescript-linux-x64",
+      "nativeExecutableVersion": "Version 7.0.2",
+      "nativeExecutableSha256": "4f2de678286401759b3fb4475bafe35b8f32b4b3a07d92642bbf37eadc9b34a4",
+      "receipt": {
+        "rawReceipt": "tmp/next-native-qualification/next-direct-negative-restored-disk.json",
+        "rawReceiptSha256": "f06961bf6ec8aa8e9940edce5187a17b1c5aee92c2ccfd2c5fd9021ba8de6526",
+        "sourceAtStart": "a3b8de5037e9c582a2c5766f1eb2956e746bad2e",
+        "sourceAtEnd": "a3b8de5037e9c582a2c5766f1eb2956e746bad2e",
+        "startedUtc": "2026-11-23T15:16:17.898429+00:00",
+        "finishedUtc": "2026-11-23T15:17:04.758101+00:00",
+        "exitCode": 1,
+        "logSha256": "e9f79ec92b0ca3fcd92cc79f612b2314679b563d326e1cc58935a1167556a234"
+      }
+    },
+    "fullProductionWebBuild": {
+      "status": "PASS",
+      "command": "corepack pnpm --filter @reviewrouter/web build",
+      "expandedScript": "node ../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json && next build",
+      "nextOwnFullTypeCheckSeconds": 18.6,
+      "staticPagesGenerated": 43,
+      "staticPagesTotal": 43,
+      "buildId": "8FhNSHYseGNNf3RO_Q5aT",
+      "receipt": {
+        "rawReceipt": "tmp/next-native-qualification/web-maintained-production-build.json",
+        "rawReceiptSha256": "b7ee58645305d8e3c918012024a34f180e3e9a64e36fd5e20389b1f1ee065b0f",
+        "sourceAtStart": "a3b8de5037e9c582a2c5766f1eb2956e746bad2e",
+        "sourceAtEnd": "a3b8de5037e9c582a2c5766f1eb2956e746bad2e",
+        "startedUtc": "2026-11-23T15:17:38.073504+00:00",
+        "finishedUtc": "2026-11-23T15:18:23.777058+00:00",
+        "exitCode": 0,
+        "logSha256": "68926a7aa416cb53a34cdd4c379e7eb72ddf07403c1972e2bedc46473c0836b6"
+      }
+    },
+    "canonicalDistEsmRewrite": {
+      "status": "PASS",
+      "command": "node scripts/rewrite-dist-esm-imports.mjs",
+      "rewrittenDistFiles": 311,
+      "receipt": {
+        "rawReceipt": "tmp/next-native-qualification/canonical-dist-esm-rewrite.json",
+        "rawReceiptSha256": "9f013c3d287e3d1090c8096a3f8e8d234909f98fbfa791724f19d65a155e74a2",
+        "sourceAtStart": "a3b8de5037e9c582a2c5766f1eb2956e746bad2e",
+        "sourceAtEnd": "a3b8de5037e9c582a2c5766f1eb2956e746bad2e",
+        "startedUtc": "2026-11-23T15:19:17.313213+00:00",
+        "finishedUtc": "2026-11-23T15:19:17.632080+00:00",
+        "exitCode": 0,
+        "logSha256": "df715103d7c9b9397cf1c07f4e4b089d16943298644ccfb94870a147617bbdd2"
+      }
+    },
+    "compiledHttpBoundaries": {
+      "status": "PASS",
+      "checks": 8,
+      "buildId": "8FhNSHYseGNNf3RO_Q5aT",
+      "executedOn": "cc455f2cf7fd4812eb3a901edc1a82d2e943e9cf",
+      "command": "node tmp/next-native-qualification/compiled-http-boundaries.mjs",
+      "cases": [
+        {
+          "route": "/api/health",
+          "status": 200
+        },
+        {
+          "route": "/",
+          "status": 200
+        },
+        {
+          "route": "/api/auth/session",
+          "status": 200
+        },
+        {
+          "route": "/api/auth/providers",
+          "status": 200
+        },
+        {
+          "route": "/dashboard",
+          "status": 200,
+          "redirectTransport": "Next documented streaming metadata to / (307 semantic status)",
+          "redirectTag": "<meta id=\"__next-page-redirect\" http-equiv=\"refresh\" content=\"1;url=/\"/>"
+        },
+        {
+          "route": "/auth/signin",
+          "status": 200
+        },
+        {
+          "route": "/_next/static/chunks/0e5jz-h5mc4u7.css",
+          "status": 200
+        },
+        {
+          "route": "/_next/static/chunks/0gcir-ckhm9_5.js",
+          "status": 200
+        }
+      ],
+      "nextAuthSessionAndProviderHandlersActuallyExecuted": true,
+      "browserInteractions": false,
+      "authenticatedDatabaseOrProviderFlow": false,
+      "streamingRedirectContract": "https://nextjs.org/docs/app/api-reference/functions/redirect",
+      "receipt": {
+        "rawReceipt": "tmp/next-native-qualification/compiled-http-boundary-streaming-run.json",
+        "rawReceiptSha256": "7eb198a0e068fa43bff2d1f232186f38fcf23c84b88566c907f5b9bc15e8cb55",
+        "sourceAtStart": "cc455f2cf7fd4812eb3a901edc1a82d2e943e9cf",
+        "sourceAtEnd": "cc455f2cf7fd4812eb3a901edc1a82d2e943e9cf",
+        "startedUtc": "2026-11-23T15:23:37.998055+00:00",
+        "finishedUtc": "2026-11-23T15:23:47.193124+00:00",
+        "exitCode": 0,
+        "logSha256": "27ae59d3a5993e1c2d33f7d3306618797933218a83f8315ca9f9b204765e50fa"
+      }
+    }
+  },
+  "compiledBuildArtifactSha256": {
+    "BUILD_ID": "8eefeee83ce61e1b2b909c8722c580a7048374e741b9d049bc73ea7f3d37fdc4",
+    "build-manifest.json": "ad0f28653463633c243672684ace1cb61c7130d21074bcea27144faba76c6d49",
+    "routes-manifest.json": "a1cac86d1ab454a6ec409d3dbfd4b78597a8540d92729da75ffba1777698677b",
+    "prerender-manifest.json": "5bb2ed2a797de0850b2425be42ed12f2c965f99cfbd4dd6d4432af774c125e0f",
+    "server/app-paths-manifest.json": "da1cf14e6655e46bdd243bc73d81dd940f6aa699c4cdacdb32c18fd9d9505ee3",
+    "types/routes.d.ts": "937e39a69e9b9bf843b36cdf48bc89f083912cc2a9783fd652d2ca7f86c7922d",
+    "types/root-params.d.ts": "f3387dd7800eec3c34273f7a8efad13e864598c7e8f788d321e407390989bb59",
+    "types/validator.ts": "d1695a241232a710c21e9986bb8cf7f5a6af7c4d09ae74f7b279c6d32738b6cc"
+  },
+  "browserQualification": {
+    "status": "PENDING_CI",
+    "maintainedEntrypoint": "node scripts/landing-browser-e2e.mjs",
+    "systemBrowser": "Chromium 156.0.8078.79 built on Debian GNU/Linux 13 (trixie)",
+    "systemBrowserScenariosExecuted": 0,
+    "systemBrowserFailure": "ProcessSingleton socket() returned EPERM, browser SIGABRT before scenarios. Next production server readiness passed.",
+    "officialAlternative": "Playwright chromium-headless-shell revision 1248, version 156.0.8078.4",
+    "officialAlternativeOutcome": "Single standard installer invocation exhausted its normal attempts with HTTP 403 from cdn.playwright.dev.",
+    "browserSecurityOrNetworkBypassUsed": false,
+    "requiredContinuation": "Existing final-source CI Chromium lane: 6 theme/viewport cases and animated benchmark/carousel case; applicable product E2E after integration."
+  },
+  "firstFailuresRetained": [
+    {
+      "classification": "Dependency unpack failed with ENOSPC",
+      "continuationOrResolution": "Owned reproducible dependency cleanup and normal frozen install succeeded.",
+      "receipt": {
+        "rawReceipt": "tmp/next-native-qualification/install-frozen-first.json",
+        "rawReceiptSha256": "215b52c1b461ee49744df79f0e96e601f43f02a7f70b8c4e85f9f50b66a321db",
+        "sourceAtStart": "e38d5602a45b210faf493df8e05110e3e42e8400",
+        "sourceAtEnd": "e38d5602a45b210faf493df8e05110e3e42e8400",
+        "startedUtc": "2026-11-23T14:28:26.052643+00:00",
+        "finishedUtc": "2026-11-23T14:28:39.387921+00:00",
+        "exitCode": 1,
+        "logSha256": "8bb9c6423042f074d7808ddb55badc57a18829e52ceddfd14b218fa7fedcb29f"
+      }
+    },
+    {
+      "classification": "Nine missing classic TypeScript API diagnostics in the existing hosted recovery test",
+      "continuationOrResolution": "Reviewed public Oxc plus existing esbuild loader preserves production source and assertions; 180 tests and full preflight pass.",
+      "receipt": {
+        "rawReceipt": "tmp/next-native-qualification/web-native-preflight.json",
+        "rawReceiptSha256": "df8cea2009780be4515bb7c21190b2aeeeab24fc5cd6a33db225b51091caf893",
+        "sourceAtStart": "1a7e52381e1c0958aab65074ca66634a2a0e33d5",
+        "sourceAtEnd": "1a7e52381e1c0958aab65074ca66634a2a0e33d5",
+        "startedUtc": "2026-11-23T14:58:18.841667+00:00",
+        "finishedUtc": "2026-11-23T14:58:40.197975+00:00",
+        "exitCode": 1,
+        "logSha256": "bc06c3dc82165ca1ed8f2cbe1b3fa4eac551b79fbb159d7e24856ecca6d14603"
+      }
+    },
+    {
+      "classification": "SIGKILL after successful production compilation, before type-check diagnostic",
+      "continuationOrResolution": "Kernel OOM cause is unproven; first output preserved. Coherent worktree resource recovery enabled the unchanged complete checks.",
+      "receipt": {
+        "rawReceipt": "tmp/next-native-qualification/next-direct-negative-first.json",
+        "rawReceiptSha256": "ab62b3675715d9f3972ffa92b4ec509c6406605974c84e6561fe7b1b3651d36c",
+        "sourceAtStart": "1a7e52381e1c0958aab65074ca66634a2a0e33d5",
+        "sourceAtEnd": "1a7e52381e1c0958aab65074ca66634a2a0e33d5",
+        "startedUtc": "2026-11-23T14:59:41.866374+00:00",
+        "finishedUtc": "2026-11-23T15:00:22.688347+00:00",
+        "exitCode": -9,
+        "logSha256": "80473c651a04dbfe56c809fd374ae0cdef2e20dc25d15c2df8b725b459989b0c"
+      }
+    },
+    {
+      "classification": "SIGKILL with native compiler RSS about 3.1 GiB under diagnostic resource caps",
+      "continuationOrResolution": "No qualifying result claimed. Final negative and positive builds use ordinary runtime settings and no caps.",
+      "receipt": {
+        "rawReceipt": "tmp/next-native-qualification/next-direct-negative-resource-bound.json",
+        "rawReceiptSha256": "68df961fafae50781bb727745f41a42f0c73f2dfa6da52ba22b898cc6ad85f27",
+        "sourceAtStart": "1a7e52381e1c0958aab65074ca66634a2a0e33d5",
+        "sourceAtEnd": "1a7e52381e1c0958aab65074ca66634a2a0e33d5",
+        "startedUtc": "2026-11-23T15:01:34.815182+00:00",
+        "finishedUtc": "2026-11-23T15:02:52.082778+00:00",
+        "exitCode": -9,
+        "logSha256": "ff74cb3543665fa2ade379e575ef6cfa4e24606a22b79186383400366ef64900"
+      }
+    },
+    {
+      "classification": "Relocated relative Corepack shims made a nested invocation use pnpm 11.25.0",
+      "continuationOrResolution": "Official corepack enable regenerated shims, then canonical setup passed throughout on 11.28.7.",
+      "receipt": {
+        "rawReceipt": "tmp/next-native-qualification/restored-root-postinstall-canonical.json",
+        "rawReceiptSha256": "9bf05b1a538bed1018e2b5450d04776cb6d7d6ae0a249b022beebd4ca0b3a30e",
+        "sourceAtStart": "1a7e52381e1c0958aab65074ca66634a2a0e33d5",
+        "sourceAtEnd": "1a7e52381e1c0958aab65074ca66634a2a0e33d5",
+        "startedUtc": "2026-11-23T15:08:27.631433+00:00",
+        "finishedUtc": "2026-11-23T15:08:47.866194+00:00",
+        "exitCode": 0,
+        "logSha256": "7fbed65675ea875e774344d0fd33e7f6daf24dd22061bb32730ea150e96a976f"
+      }
+    },
+    {
+      "classification": "Disposable HTTP probe incorrectly assumed only a 307 status",
+      "continuationOrResolution": "Next streaming metadata and 307 redirect digest were verified against the documented contract; application code unchanged.",
+      "receipt": {
+        "rawReceipt": "tmp/next-native-qualification/compiled-http-boundary-run.json",
+        "rawReceiptSha256": "a41835b277b6c293360edffb03698844e1931d6bfcd2bf9e48ea3c86f527426c",
+        "sourceAtStart": "fed3219fbe343c29ed8b6c675fc994ccd3012754",
+        "sourceAtEnd": "fed3219fbe343c29ed8b6c675fc994ccd3012754",
+        "startedUtc": "2026-11-23T15:22:14.279160+00:00",
+        "finishedUtc": "2026-11-23T15:22:19.009893+00:00",
+        "exitCode": 1,
+        "logSha256": "cb2c893f43f3a35e271441c8936ece55ce3dfecda2509e9713ae16ea014b4e34"
+      }
+    },
+    {
+      "classification": "System Chromium singleton socket denied with EPERM before scenarios",
+      "continuationOrResolution": "Actual browser scenarios remain pending on the ordinary final-source CI runner.",
+      "receipt": {
+        "rawReceipt": "tmp/next-native-qualification/compiled-landing-browser-e2e.json",
+        "rawReceiptSha256": "646fb17d0e446f38494d3a53aa9d95f934d6e9aedf5fcabf9d35ed232d128df0",
+        "sourceAtStart": "a3b8de5037e9c582a2c5766f1eb2956e746bad2e",
+        "sourceAtEnd": "a3b8de5037e9c582a2c5766f1eb2956e746bad2e",
+        "startedUtc": "2026-11-23T15:19:18.589185+00:00",
+        "finishedUtc": "2026-11-23T15:19:22.740440+00:00",
+        "exitCode": 1,
+        "logSha256": "95c9da5ba0bc74b7c4cf1f1373f78787e32d38bfdac5e8b46d8a7ddc40b8959d"
+      }
+    },
+    {
+      "classification": "Official browser download returned HTTP 403 Site Unavailable",
+      "continuationOrResolution": "No mirror/network/security bypass attempted; ordinary CI browser lane remains pending.",
+      "receipt": {
+        "rawReceipt": "tmp/next-native-qualification/official-playwright-headless-shell-install.json",
+        "rawReceiptSha256": "efc92ee4fbc25ca51bf69e591a04a90c9009c2c7ad89a108db05d5f0d9fa0985",
+        "sourceAtStart": "95c53b357aadcc1dd66e6ea8d4772815bb4c9856",
+        "sourceAtEnd": "fed3219fbe343c29ed8b6c675fc994ccd3012754",
+        "startedUtc": "2026-11-23T15:21:07.461431+00:00",
+        "finishedUtc": "2026-11-23T15:21:38.559521+00:00",
+        "exitCode": 1,
+        "logSha256": "45cd4a91d19309a5d75050ed24546217436ae8ee948b623a56987e87abaaceae"
+      }
+    }
+  ],
+  "remainingLimits": [
+    "Full repository native-toolchain integration is owned by its existing PRs and is not implied by root TypeScript 7 installation.",
+    "Installed typescript-eslint 8.59.1 peer range >=4.8.4 <6.1.0 does not support root TypeScript 7; its old parser was not executed by this qualification.",
+    "Compiled HTTP checks do not prove interactive browser scenarios, authenticated database flows or live provider behavior.",
+    "No staging/production deployment, migration, new credentials or feature activation was performed."
+  ],
+  "rawEvidencePreservation": {
+    "directory": "tmp/next-native-qualification/",
+    "fullLogsAndInputManifestsRetained": true,
+    "compiledServerStaticTypesAndBuildIdRetained": true,
+    "onlyReproducibleNextIncrementalCacheRetiredAfterQualification": true
+  },
+  "primarySources": [
+    "https://github.com/vercel/next.js/blob/v16.4.6/packages/next/src/lib/verify-typescript-setup.ts",
+    "https://github.com/vercel/next.js/blob/v16.4.6/packages/next/src/lib/typescript/runTypeScriptCli.ts",
+    "https://nextjs.org/docs/app/api-reference/functions/redirect",
+    "https://playwright.dev/docs/browsers#chromium-headless-shell"
+  ]
+}

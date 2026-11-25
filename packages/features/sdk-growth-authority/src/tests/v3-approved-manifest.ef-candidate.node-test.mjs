@@ -35,7 +35,7 @@ const packageJson = JSON.parse(
   readFileSync(join(packageRoot, "package.json"), "utf8"),
 );
 assert.equal(packageJson.name, "@agent-teams/engineering-foundation");
-assert.equal(packageJson.version, "2.1.0");
+assert.equal(packageJson.version, "1.6.1");
 const archive = readFileSync(archivePath);
 const sha256 = (value) =>
   `sha256:${createHash("sha256").update(value).digest("hex")}`;
@@ -48,8 +48,6 @@ const PgClient = createRequire(import.meta.url)("pg").Client;
 
 test("packed EF decoder validates exact bytes before protected v3 approval commit", async () => {
   const fixture = proposal();
-  fixture.request.binding.invocation.tool.version = packageJson.version;
-  fixture.request.binding.tool.version = packageJson.version;
   fixture.request.binding.tool.archiveDigest = sha256(archive);
   fixture.request.binding.tool.archiveIntegrity = sri;
   const initial = decodeRequest(wire(fixture.request));
@@ -123,7 +121,7 @@ test("packed EF decoder validates exact bytes before protected v3 approval commi
         "installedDistributionDigest", "provenanceKind", "archive", "archiveByteLength",
         "archiveSha256", "archiveSha512Sri"
       ) VALUES (
-        ${toolId}, '@agent-teams/engineering-foundation', '2.1.0',
+        ${toolId}, '@agent-teams/engineering-foundation', '1.6.1',
         ${sourceCommit}, ${sourceTree}, ${fixture.manifest.tool.installedDistributionDigest},
         'source-built-fixture', ${archive}, ${archive.byteLength}, ${sha256(archive)}, ${sri}
       )`;

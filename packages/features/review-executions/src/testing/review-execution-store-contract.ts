@@ -810,6 +810,187 @@ export function runReviewExecutionStoreContract(
       ).resolves.toMatchObject({ requestId: successor.requestId });
     });
 
+    it("does not let busy scopes hide later due work", async () => {
+      const store = harness.requestedIntents;
+      const now = new Date();
+      const busyIds: string[] = [];
+      for (let index = 0; index < 10; index++) {
+        const scope = { ...harness.scope, pullRequestNumber: 100 + index };
+        const candidate = (
+          name: string,
+          hashIndex: number,
+          offset: number,
+        ) => ({
+          ...intentCandidate(harness, name),
+          ...scope,
+          deliveryIdentityHash: hashIndex.toString(16).padStart(64, "0"),
+          canonicalRequestHash: (hashIndex + 100)
+            .toString(16)
+            .padStart(64, "0"),
+          notBefore: new Date(now.getTime() + offset),
+          createdAt: new Date(now.getTime() + offset),
+        });
+        const running = candidate(`running-${index}`, index * 2 + 1, -2000);
+        await store.registerIntent({ candidate: running });
+        const claimed = await store.claimIntent({
+          requestId: running.requestId,
+          claimId: `claim-${index}`,
+          ownerIdHash: `owner-${index}`,
+          now,
+          claimUntil: new Date(now.getTime() + 60_000),
+        });
+        expect(claimed.status).toBe(ReviewRequestedClaimStatus.Claimed);
+        if (index % 3 !== 0) {
+          const claim = claimed.intent!.claim!;
+          const submission = {
+            requestId: running.requestId,
+            claimId: claim.claimId,
+            ownerIdHash: claim.ownerIdHash,
+            fencingToken: claim.fencingToken,
+            now,
+            nextResolutionAt: new Date(now.getTime() + 1000),
+            resolutionDeadlineAt: new Date(now.getTime() + 60_000),
+          };
+          expect((await store.beginSubmission(submission)).status).toBe(
+            ReviewRequestedTransitionStatus.Applied,
+          );
+          if (index % 3 === 2) {
+            expect(
+              (
+                await store.recordDispatch({
+                  ...submission,
+                  sourceRunId: `run-${index}`,
+                  sourceRunAttempt: "1",
+                })
+              ).status,
+            ).toBe(ReviewRequestedTransitionStatus.Applied);
+          }
+        }
+        const pending = {
+          ...candidate(`pending-${index}`, index * 2 + 2, -1000),
+          triggerKind: ReviewRequestedTriggerKind.ManualCommand,
+        };
+        expect(
+          (await store.registerIntent({ candidate: pending })).status,
+        ).toBe(ReviewRequestedRegisterStatus.Registered);
+        busyIds.push(pending.requestId);
+      }
+      const available = {
+        ...intentCandidate(harness, "available"),
+        pullRequestNumber: 999,
+        deliveryIdentityHash: "e".repeat(64),
+        canonicalRequestHash: "f".repeat(64),
+        notBefore: new Date(now.getTime() - 100),
+        createdAt: new Date(now.getTime() - 100),
+      };
+      await store.registerIntent({ candidate: available });
+      const due = await store.listDue({ now, limit: 10 });
+      expect(due.map((intent) => intent.requestId)).toEqual([
+        available.requestId,
+      ]);
+      for (const id of busyIds) {
+        expect((await store.findByRequestId(id))?.state).toBe(
+          ReviewRequestedIntentState.PendingDispatch,
+        );
+      }
+      // A stale listing may race another replica. The authoritative claim and
+      // fencing still allow at most one owner of the same intent.
+      const claims = await Promise.all(
+        ["a", "b"].map((worker) =>
+          store.claimIntent({
+            requestId: available.requestId,
+            claimId: `claim-available-${worker}`,
+            ownerIdHash: `owner-available-${worker}`,
+            now: new Date(),
+            claimUntil: new Date(Date.now() + 60_000),
+          }),
+        ),
+      );
+      expect(
+        claims.filter(
+          (claim) => claim.status === ReviewRequestedClaimStatus.Claimed,
+        ),
+      ).toHaveLength(1);
+      expect(
+        claims.filter(
+          (claim) =>
+            claim.status === ReviewRequestedClaimStatus.Busy ||
+            claim.status === ReviewRequestedClaimStatus.StaleClaim,
+        ),
+      ).toHaveLength(1);
+    });
+
+    it("makes a waiting successor due when its scope is terminalized", async () => {
+      const store = harness.requestedIntents;
+      const now = new Date();
+      const first = intentCandidate(harness, "terminal-lane-first");
+      await store.registerIntent({ candidate: first });
+      const firstClaim = await store.claimIntent({
+        requestId: first.requestId,
+        claimId: "terminal-lane-claim",
+        ownerIdHash: "terminal-lane-owner",
+        now,
+        claimUntil: new Date(now.getTime() + 60_000),
+      });
+      expect(firstClaim.status).toBe(ReviewRequestedClaimStatus.Claimed);
+      const claim = firstClaim.intent!.claim!;
+      const submission = await store.beginSubmission({
+        requestId: first.requestId,
+        claimId: claim.claimId,
+        ownerIdHash: claim.ownerIdHash,
+        fencingToken: claim.fencingToken,
+        now,
+        nextResolutionAt: new Date(now.getTime() + 1000),
+        resolutionDeadlineAt: new Date(now.getTime() + 60_000),
+      });
+      expect(submission.status).toBe(ReviewRequestedTransitionStatus.Applied);
+      const next = {
+        ...intentCandidate(harness, "terminal-lane-next"),
+        triggerKind: ReviewRequestedTriggerKind.ManualCommand,
+        deliveryIdentityHash: "0".repeat(63) + "1",
+        canonicalRequestHash: "0".repeat(63) + "2",
+      };
+      expect((await store.registerIntent({ candidate: next })).status).toBe(
+        ReviewRequestedRegisterStatus.Registered,
+      );
+      expect(
+        (await store.listDue({ now: new Date(), limit: 10 })).map(
+          (intent) => intent.requestId,
+        ),
+      ).not.toContain(next.requestId);
+      const claimNext = () =>
+        store.claimIntent({
+          requestId: next.requestId,
+          claimId: "terminal-lane-next-claim",
+          ownerIdHash: "terminal-lane-next-owner",
+          now: new Date(),
+          claimUntil: new Date(Date.now() + 60_000),
+        });
+      expect((await claimNext()).status).toBe(ReviewRequestedClaimStatus.Busy);
+      expect(
+        (
+          await store.recoverDispatch({
+            requestId: first.requestId,
+            expectedVersion: submission.intent!.version,
+            sourceRunId: null,
+            sourceRunAttempt: null,
+            now: new Date(),
+            terminalReason:
+              ReviewRequestedIntentTerminalReason.DispatchFailedNoEffect,
+            successorCandidate: null,
+          })
+        ).status,
+      ).toBe(ReviewRequestedTransitionStatus.Applied);
+      expect(
+        (await store.listDue({ now: new Date(), limit: 10 })).map(
+          (intent) => intent.requestId,
+        ),
+      ).toContain(next.requestId);
+      expect((await claimNext()).status).toBe(
+        ReviewRequestedClaimStatus.Claimed,
+      );
+    });
+
     it("serializes pending-intent supersession per PR scope", async () => {
       const first = intentCandidate(harness, "intent-first");
       const second = intentCandidate(harness, "intent-second");

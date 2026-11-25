@@ -52,7 +52,6 @@ function toIntent(row: OperationRow): PersonalAccountIntent {
   return snapshotPersonalIntent({
     ...row,
     credentialImportMethod: row.credentialImportMethod ?? undefined,
-    nativeConnection: row.nativeConnection ?? undefined,
     ...(row.oauthMethod !== null ? { method: row.oauthMethod } : {}),
     expectedGatewayRevision: Number(row.expectedGatewayRevision),
     expectedAuthorizationEpoch: Number(row.expectedAuthorizationEpoch),

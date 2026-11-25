@@ -1,10 +1,6 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import * as c from "@agent-teams/account-gateway/contracts";
 import type { ManagementClient } from "@agent-teams/account-gateway/http";
-import {
-  readScopedAccountModels,
-  type ScopedAccountModels,
-} from "./native-account-models";
 import type { AccountMetadataService } from "./account-metadata-service";
 import {
   assertOpaqueReference,
@@ -45,9 +41,7 @@ export function createGatewayModelAccountOptions(input: {
   readonly operatorWorkspaceId?: string;
   readonly profiles: readonly AccountProfileView[];
   readonly gateway: Pick<ManagementClient, "get"> &
-    Partial<
-      Pick<ManagementClient, "readAccountModels" | "readAccountModelsV2">
-    >;
+    Partial<Pick<ManagementClient, "readAccountModels">>;
   readonly ownerRef: (owner: ConnectionOwner) => string;
   readonly authorizeWorkspace: () => Promise<Principal>;
 }) {
@@ -204,31 +198,29 @@ export function createGatewayModelAccountOptions(input: {
       throw new RowDenied();
     let scopedProfile: AccountProfileView = profile;
     let modelCatalog: ModelAccount["modelCatalog"];
-    const discoverySource =
-      profile.connection?.modelPolicy?.sourceId ??
-      (profile.authKind
-        ? c.accountModelDiscoverySource({
-            profileId: profile.id,
-            protocol: profile.protocol,
-            authKind: profile.authKind,
-          })
-        : undefined);
+    const discoverySource = profile.authKind
+      ? c.accountModelDiscoverySource({
+          profileId: profile.id,
+          protocol: profile.protocol,
+          authKind: profile.authKind,
+        })
+      : undefined;
     if (readModels && discoverySource) {
-      let models: ScopedAccountModels;
+      let models: c.AccountModels;
       try {
-        models = await checked(authority, () =>
-          readScopedAccountModels(
-            profile,
-            {
-              ownerRef: ownerRef(row.connection.owner),
-              accountRef: live.gatewayAccountRef,
-              profileId: profile.id,
-              expectedAuthorizationEpoch: remote.authorizationEpoch,
-              ...(forceRefresh ? { forceRefresh: true } : {}),
-            },
-            gateway,
-          ),
-        );
+        models = gateway.readAccountModels
+          ? c.accountModels.parse(
+              await checked(authority, () =>
+                gateway.readAccountModels!({
+                  ownerRef: ownerRef(row.connection.owner),
+                  accountRef: live.gatewayAccountRef,
+                  profileId: profile.id,
+                  expectedAuthorizationEpoch: remote.authorizationEpoch,
+                  ...(forceRefresh ? { forceRefresh: true } : {}),
+                }),
+              ),
+            )
+          : { status: "unsupported" };
       } catch (error) {
         if (error instanceof Denied || error instanceof RowDenied) throw error;
         // A malformed/failed response is not an explicit authorized fallback.
@@ -293,11 +285,7 @@ export function createGatewayModelAccountOptions(input: {
         // Only the Gateway's unavailable fallback admits the configured anchor.
         // Unsupported/unknown discovery cannot authorize profile seed models.
         const legacyModels =
-          models.status === "unavailable" &&
-          (profile.connection?.modelPolicy
-            ? profile.connection.modelPolicy.unavailableFallback ===
-              "qualified_anchor"
-            : discoverySource !== "nvidia")
+          models.status === "unavailable" && discoverySource !== "nvidia"
             ? [...profile.models]
             : [];
         scopedProfile = {

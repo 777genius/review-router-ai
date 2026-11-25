@@ -209,6 +209,8 @@ export class PrismaReviewRequestedIntentStore
   }): Promise<readonly ReviewRequestedIntent[]> {
     assertLimit(input.limit);
     void input.now;
+    // Mirror claimIntent's scope blocker before LIMIT, except expired no-effect
+    // preparations which claimIntent terminalizes first. Listing is advisory.
     const records = await this.prisma.$queryRaw<
       Awaited<ReturnType<PrismaClient["reviewRequestedIntent"]["findMany"]>>
     >(Prisma.sql`
@@ -221,6 +223,36 @@ export class PrismaReviewRequestedIntentStore
         intent."state" = 'dispatching'::"ReviewRequestedIntentStateV2"
         AND intent."claimUntil" <= (statement_timestamp() AT TIME ZONE 'UTC')
       ))
+      AND NOT EXISTS (
+        SELECT 1 FROM "ReviewRequestedIntent" AS blocker
+        WHERE blocker."workspaceId" = intent."workspaceId"
+          AND blocker."repositoryConnectionId" = intent."repositoryConnectionId"
+          AND blocker."scmRepositoryIdentityId" = intent."scmRepositoryIdentityId"
+          AND blocker."pullRequestNumber" = intent."pullRequestNumber"
+          AND blocker."requestId" <> intent."requestId"
+          AND NOT ((
+            intent."state" = 'dispatching'::"ReviewRequestedIntentStateV2"
+            AND intent."claimUntil" <= (statement_timestamp() AT TIME ZONE 'UTC')
+            AND intent."resolutionDeadlineAt" <= (statement_timestamp() AT TIME ZONE 'UTC')
+            AND intent."submissionStartedAt" IS NULL
+            AND intent."sourceRunId" IS NULL
+            AND intent."sourceRunAttempt" IS NULL
+            AND intent."authorizationId" IS NULL
+            AND intent."executionId" IS NULL
+          ) IS TRUE)
+          AND (
+            (
+              blocker."state" IN (
+                'reconciling_dispatch'::"ReviewRequestedIntentStateV2",
+                'awaiting_authorization'::"ReviewRequestedIntentStateV2"
+              )
+              AND blocker."resolutionDeadlineAt" > (statement_timestamp() AT TIME ZONE 'UTC')
+            ) OR (
+              blocker."state" = 'dispatching'::"ReviewRequestedIntentStateV2"
+              AND blocker."claimUntil" > (statement_timestamp() AT TIME ZONE 'UTC')
+            )
+          )
+      )
       ${input.excludeAlwaysRequestIds?.length ? Prisma.sql`AND intent."requestId" NOT IN (${Prisma.join(input.excludeAlwaysRequestIds)})` : Prisma.empty}
       ${input.excludeRequestIds?.length ? Prisma.sql`AND (intent."requestId" NOT IN (${Prisma.join(input.excludeRequestIds)}) OR (intent."state" = 'dispatching'::"ReviewRequestedIntentStateV2" AND intent."resolutionDeadlineAt" <= (statement_timestamp() AT TIME ZONE 'UTC')))` : Prisma.empty}
       ORDER BY ${input.excludeRequestIds?.length ? Prisma.sql`CASE WHEN intent."requestId" IN (${Prisma.join(input.excludeRequestIds)}) AND intent."state" = 'dispatching'::"ReviewRequestedIntentStateV2" AND intent."resolutionDeadlineAt" <= (statement_timestamp() AT TIME ZONE 'UTC') THEN 0 ELSE 1 END,` : Prisma.empty}

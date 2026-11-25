@@ -24,7 +24,7 @@ const fields = (): AccountMetadataFields => ({
     endsAt: { kind: "date", value: "2026-11-23" },
   }),
   credentialExpiresAt: known("2026-11-20T13:00:00Z"),
-  trainingUsage: known("disabled"),
+  privacyMode: known("private"),
 });
 const render = (metadata: AccountMetadataView) =>
   renderToStaticMarkup(<AccountMetadataLine metadata={metadata} />);
@@ -44,7 +44,7 @@ describe("native account details presentation", () => {
   });
 
   it.each([
-    "trainingUsage",
+    "privacyMode",
     "credentialExpiresAt",
     "email",
     "subscription",

@@ -1,11 +1,8 @@
 "use server";
 
-import { snapshotOAuthCompletion } from "../../src/server/legacy-oauth-credentials";
-import type { AccountNativeConnectionIntent } from "../../src/server/native-connection-adapter";
-import { snapshotNativeConnectionInputs } from "../../src/features/account-gateway/domain/native-connection";
-
 import {
   accountsServerAdapter,
+  snapshotOAuthCompletion,
   type AccountIntent,
   type AccountOAuthIntent,
   type AccountOAuthReconnectIntent,
@@ -74,35 +71,6 @@ export async function beginGatewayOAuth(
 ): Promise<AccountsResult<AccountOAuthBeginView>> {
   try {
     return await (await accountsServerAdapter()).beginOAuth(context, intent);
-  } catch {
-    return { status: "unavailable" };
-  }
-}
-export async function beginGatewayNativeConnection(
-  context: string,
-  intent: AccountNativeConnectionIntent,
-  values: Record<string, string>,
-): Promise<AccountsResult<AccountOAuthBeginView>> {
-  try {
-    const inputFields = snapshotNativeConnectionInputs(values);
-    return await (
-      await accountsServerAdapter()
-    ).beginNative(context, intent, inputFields);
-  } catch {
-    return { status: "unavailable" };
-  }
-}
-export async function continueGatewayNativeConnection(
-  context: string,
-  nonce: string,
-  values?: Record<string, string>,
-): Promise<AccountsResult<AccountOperationView>> {
-  try {
-    const inputFields =
-      values === undefined ? undefined : snapshotNativeConnectionInputs(values);
-    return await (
-      await accountsServerAdapter()
-    ).continueNative(context, nonce, inputFields);
   } catch {
     return { status: "unavailable" };
   }

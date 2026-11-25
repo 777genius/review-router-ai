@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   snapshotOAuthCompletion,
   oauthCompletionMatchesProfile,
-} from "./legacy-oauth-credentials";
+} from "./account-gateway-accounts";
 
 const nonce = "9874b2bc-e987-4456-9212-7f94f58932da";
 const state = "b".repeat(64);

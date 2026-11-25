@@ -1921,6 +1921,66 @@ describe("start and admission saga", () => {
 });
 
 describe("work slots and fenced invocation leases", () => {
+  it.each(["execution", "authority"] as const)(
+    "caps lease and report windows at the absolute %s deadline",
+    async (owner) => {
+      const store = new InMemoryReviewExecutionStore();
+      const running = await prepareAndAdmit(store);
+      const notAfter = plus(10_000);
+      const input = {
+        ...leaseCommand(),
+        stream: running.stream,
+        execution: {
+          ...running.execution,
+          executionDeadlineAt:
+            owner === "execution"
+              ? notAfter
+              : running.execution.executionDeadlineAt,
+        },
+        ...(owner === "authority" ? { notAfter } : {}),
+        activeLease: null,
+        fencingToken: 1n,
+      };
+      const result = decideLeaseAcquire(input);
+      expect(result.status).toBe(LeaseAcquireDecisionStatus.Acquired);
+      if (result.status !== LeaseAcquireDecisionStatus.Acquired)
+        throw new Error("fixture_lease_not_acquired");
+      expect(result.lease.expiresAt).toEqual(notAfter);
+      expect(result.lease.resultReportUntil).toEqual(notAfter);
+      expect(result.lease.retainUntil).toEqual(input.retainUntil);
+      expect(result.execution.workSlots[0]?.nextAttemptOrdinal).toBe(2);
+    },
+  );
+
+  it.each(["execution", "authority"] as const)(
+    "does not charge a lease attempt at an expired %s deadline",
+    async (owner) => {
+      const store = new InMemoryReviewExecutionStore();
+      const running = await prepareAndAdmit(store);
+      const command = leaseCommand();
+      const input = {
+        ...command,
+        stream: running.stream,
+        execution: {
+          ...running.execution,
+          executionDeadlineAt:
+            owner === "execution"
+              ? command.now
+              : running.execution.executionDeadlineAt,
+        },
+        ...(owner === "authority" ? { notAfter: command.now } : {}),
+        activeLease: null,
+        fencingToken: 1n,
+      };
+      const before = structuredClone(input.execution);
+      expect(decideLeaseAcquire(input)).toEqual({
+        status: LeaseAcquireDecisionStatus.NotRunnable,
+      });
+      expect(input.execution).toEqual(before);
+      expect(input.execution.workSlots[0]?.nextAttemptOrdinal).toBe(1);
+    },
+  );
+
   it("reports exhausted slots after the final lease is released", () => {
     const prepared = decideExecutionPreparation({
       stream: createEmptyReviewExecutionStream(scope, baseTime),
@@ -3126,6 +3186,91 @@ describe("durable ReviewRequested ingress", () => {
       dispatchAttempt: 3,
       notBefore: plus(30_000 + 4_000),
     });
+  });
+
+  it("isolates due blockers by every field of the PR scope", async () => {
+    const store = new InMemoryReviewRequestedIntentStore();
+    const first = intentCandidate("scope-owner", "0", scope, revision);
+    await store.registerIntent({ candidate: first });
+    expect(
+      (
+        await store.claimIntent(
+          claimIntent(first.requestId, "scope-claim", "scope-owner"),
+        )
+      ).status,
+    ).toBe(ReviewRequestedClaimStatus.Claimed);
+    const variants = [
+      { ...scope, workspaceId: `${scope.workspaceId}-other` },
+      {
+        ...scope,
+        repositoryConnectionId: `${scope.repositoryConnectionId}-other`,
+      },
+      {
+        ...scope,
+        scmRepositoryIdentityId: `${scope.scmRepositoryIdentityId}-other`,
+      },
+      { ...scope, pullRequestNumber: scope.pullRequestNumber + 1 },
+    ];
+    for (const [index, variant] of variants.entries()) {
+      await store.registerIntent({
+        candidate: intentCandidate(
+          `different-scope-${index}`,
+          String(index + 1),
+          variant,
+          revision,
+        ),
+      });
+    }
+    expect(
+      new Set(
+        (await store.listDue({ now: baseTime, limit: 10 })).map(
+          (intent) => intent.requestId,
+        ),
+      ),
+    ).toEqual(new Set(variants.map((_, index) => `different-scope-${index}`)));
+  });
+
+  it("unblocks a same-scope due intent exactly when the claim expires", async () => {
+    const store = new InMemoryReviewRequestedIntentStore();
+    const first = intentCandidate("boundary-first", "1", scope, revision);
+    await store.registerIntent({ candidate: first });
+    expect(
+      (
+        await store.claimIntent({
+          ...claimIntent(first.requestId, "boundary-owner", "boundary-hash"),
+          claimUntil: plus(1000),
+        })
+      ).status,
+    ).toBe(ReviewRequestedClaimStatus.Claimed);
+    const next = {
+      ...intentCandidate("boundary-next", "2", scope, revision),
+      triggerKind: ReviewRequestedTriggerKind.ManualCommand,
+    };
+    await store.registerIntent({ candidate: next });
+    expect(await store.listDue({ now: plus(999), limit: 10 })).toEqual([]);
+    expect(
+      (await store.listDue({ now: plus(1000), limit: 10 })).map(
+        (intent) => intent.requestId,
+      ),
+    ).toEqual(expect.arrayContaining([first.requestId, next.requestId]));
+    expect(
+      (
+        await store.claimIntent({
+          ...claimIntent(
+            next.requestId,
+            "boundary-next-claim",
+            "boundary-next-owner",
+          ),
+          now: plus(1000),
+          claimUntil: plus(2000),
+        })
+      ).status,
+    ).toBe(ReviewRequestedClaimStatus.Claimed);
+    expect(
+      (await store.listDue({ now: plus(1000), limit: 10 })).map(
+        (intent) => intent.requestId,
+      ),
+    ).not.toContain(first.requestId);
   });
 
   it("orders and bounds due intents", async () => {

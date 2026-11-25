@@ -135,7 +135,6 @@ test("Accounts connect binds dedicated URL to the configured profile and freezes
   );
   type Input = Parameters<typeof createAccountsAdapter>[0];
   const adapter = createAccountsAdapter({
-    connectionContract: "provider-connections/v2",
     gateway,
     authorize: async () => ({
       workspaceId: "fixture-workspace",
@@ -686,7 +685,6 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
     const dependencies = { accounts, workspaceAccess: access };
     const compose = (oauthEnabled = false) =>
       createAccountsAdapter({
-        connectionContract: "provider-connections/v2",
         gateway,
         accounts,
         synchronization,

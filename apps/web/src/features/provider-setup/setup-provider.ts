@@ -15,14 +15,23 @@ import type { ProviderIdentity } from "./provider-identity";
 import { subscriptionProfileDefinition } from "../account-gateway/subscription-profiles";
 
 /** Provider identity and credential custody are separate choices in setup. */
-export type SetupProviderId = string;
+export type SetupProviderId =
+  | ApiKeyProviderId
+  | "codex"
+  | "claude-code"
+  | "glm"
+  | "nvidia"
+  | "minimax"
+  | "grok"
+  | "anthropic"
+  | "gemini";
 
 export type SetupProvider = Readonly<{
   id: SetupProviderId;
   label: string;
   identity: ProviderIdentity;
   credentialLabel: string;
-  credentialKind: "api_key" | "subscription" | "native";
+  credentialKind: "api_key" | "subscription";
   githubSource: ProviderSourceKey | null;
   publicCatalogProvider: ProviderKind | null;
 }>;
@@ -107,13 +116,8 @@ export const setupProviders: readonly SetupProvider[] = Object.freeze([
   },
 ]);
 
-export function getSetupProvider(
-  id: SetupProviderId,
-  native: readonly SetupProvider[] = [],
-): SetupProvider {
-  const provider =
-    native.find((row) => row.id === id) ??
-    setupProviders.find((row) => row.id === id);
+export function getSetupProvider(id: SetupProviderId): SetupProvider {
+  const provider = setupProviders.find((row) => row.id === id);
   if (!provider) throw new Error("unknown_setup_provider");
   return provider;
 }
@@ -149,12 +153,7 @@ export function apiKeyProviderForGatewayProfile(
     | Pick<AccountProfileView, "connection" | "provider" | "authKind">
     | undefined,
 ): ApiKeyProviderId | undefined {
-  if (
-    !profile ||
-    profile.authKind === "oauth" ||
-    profile.connection?.nativeMethods
-  )
-    return undefined;
+  if (!profile || profile.authKind === "oauth") return undefined;
   return apiKeyProviders.find((provider) =>
     profile.connection
       ? profile.connection.provider === provider.gatewayUpstreamProvider
@@ -170,8 +169,6 @@ export function setupProviderForGatewayProfile(
   profile: GatewayProfileIdentity | undefined,
 ): SetupProviderId | undefined {
   if (!profile || profile.protocol !== "openai-responses") return undefined;
-  if (profile.connection?.nativeMethods)
-    return nativeSetupId(profile.connection.provider);
   const nativeProvider = nativeAPIProvider(profile.id);
   if (nativeProvider)
     return profile.authKind === "api_key" &&
@@ -238,51 +235,6 @@ export function gatewaySetupProvidersForProfiles(
         return provider ? [provider] : [];
       }),
     ),
-  ];
-}
-
-// Stable display grouping may keep an existing direct source beside native custody.
-// It does not grant any native auth method, model, billing mode, or direct execution.
-function nativeSetupId(providerId: string): string {
-  return (
-    setupProviders.find(
-      (row) => row.identity === providerId && row.githubSource !== null,
-    )?.id ??
-    setupProviders.find((row) => row.identity === providerId)?.id ??
-    `native:${providerId}`
-  );
-}
-
-export function nativeSetupProvidersForProfiles(
-  profiles: readonly EnrollableProfile[],
-): SetupProvider[] {
-  const providers = new Map<string, SetupProvider>();
-  for (const profile of profiles) {
-    if (!profile.connection?.nativeMethods || !canCreateConnection(profile))
-      continue;
-    const id = nativeSetupId(profile.connection.provider);
-    const direct = setupProviders.find((row) => row.id === id);
-    providers.set(id, {
-      id,
-      label: profile.connection.providerLabel ?? profile.connection.provider,
-      identity: profile.connection.provider,
-      credentialLabel: "Provider credentials",
-      credentialKind: direct?.credentialKind ?? "native",
-      githubSource: direct?.githubSource ?? null,
-      publicCatalogProvider: direct?.publicCatalogProvider ?? null,
-    });
-  }
-  return [...providers.values()];
-}
-
-export function setupProviderChoices(
-  native: readonly SetupProvider[] = [],
-): readonly SetupProvider[] {
-  return [
-    ...setupProviders.filter(
-      (row) => !native.some((item) => item.identity === row.identity),
-    ),
-    ...native,
   ];
 }
 

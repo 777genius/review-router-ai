@@ -9,34 +9,34 @@ importers:
   .:
     devDependencies:
       '@agent-teams/engineering-foundation':
-        specifier: 2.1.0
-        version: 2.1.0
+        specifier: 3.1.0
+        version: 3.1.0
       '@agent-teams/feature-module-standard':
-        specifier: 0.2.2
-        version: 0.2.2(@agent-teams/engineering-foundation@2.1.0)
+        specifier: 0.3.2
+        version: 0.3.2(@agent-teams/engineering-foundation@3.1.0)
 
 packages:
 
-  '@agent-teams/document-authoring@0.3.4':
-    resolution: {integrity: sha512-aKfZTjMM2GteYLZ9Jt8XLOgVgffx84XtgyjCoiJ+8Tn/V+mXICE3VGby6jgwrpCtDNU/td6qt5Ytlax4JLZ/KA==}
+  '@agent-teams/document-authoring@0.3.6':
+    resolution: {integrity: sha512-9oy6ojzGSq2KWcot3QBBkNItzXQ3S8kZjcCTZ163dtJ966vGWKRbfpSuwTasnXz/3jpQjbStILMhorvaLX4xsA==}
     engines: {node: ^24.18.0 || ^26.0.0, pnpm: '>=11.17.0 <12'}
 
-  '@agent-teams/engineering-foundation@2.1.0':
-    resolution: {integrity: sha512-cDj7ExxSm9hcQ1Wlvt4YOgcjNdzqFy0TePCMEmRokLQucQ/s6f8BUl5BGrDlGXtFTGnIy8nMl22nrI2JZNG6VA==}
+  '@agent-teams/engineering-foundation@3.1.0':
+    resolution: {integrity: sha512-JNBE4o+8KS8KPx9fuUdYzFUJj4t6Io58qnDFbhBV+mEhlDk/H6wTGN0/DIItf/oPvXFmKCh0W5vIVKitpoKmeg==}
     engines: {node: ^24.18.0 || ^26.0.0, pnpm: '>=11.17.0 <12'}
     hasBin: true
 
-  '@agent-teams/feature-module-standard@0.2.2':
-    resolution: {integrity: sha512-lC0DCCidbGassI+YQ1LaVlrSGmDkp68ewRragUHKdNGL3GYJk6ZWdCIm0tr/G+rp2Bg3smsSIcSYeFQxdbg0Tw==}
+  '@agent-teams/feature-module-standard@0.3.2':
+    resolution: {integrity: sha512-BqaGOj5JEnaDREjmhCxA47wXLr9mGRSWtp6hQjSWx9a+BJdvwihiaZuutCGDjPLfLKwvZzaegGvCjabI/8OTpw==}
     engines: {node: ^24.18.0 || ^26.0.0, pnpm: '>=11.17.0 <12'}
     peerDependencies:
-      '@agent-teams/engineering-foundation': ^1.8.0 || ^2.0.0
+      '@agent-teams/engineering-foundation': ^1.8.0 || ^2.0.0 || ^3.0.0
     peerDependenciesMeta:
       '@agent-teams/engineering-foundation':
         optional: true
 
-  '@agent-teams/repository-mutation@0.4.0':
-    resolution: {integrity: sha512-vXWWH6HyiqULXm4pAydEB985sxiRVkWp8wA69OpPHbhCWp8Ldhm/Hy2nWgpRt03jp8w11gUyk21SmgvC2K9PqA==}
+  '@agent-teams/repository-mutation@0.4.2':
+    resolution: {integrity: sha512-gPjDKKIJU+7eNyPFRsnVpRJqQyhjg2F0XTsiGKSGYDI6w/oRfbdvRs2l7EBHFo3AGRWDk+dQVTGJ6gDr6a/BkQ==}
     engines: {node: ^24.18.0 || ^26.0.0, pnpm: '>=11.17.0 <12'}
 
   '@emnapi/core@1.11.2':
@@ -394,8 +394,8 @@ packages:
   jsonfile@6.2.1:
     resolution: {integrity: sha512-zwOTdL3rFQ/lRdBnntKVOX6k5cKJwEc1HdilT71BWEu7J41gXIB2MRp+vxduPSwZJPWBxEzv4yH1wYLJGUHX4Q==}
 
-  node-or-bun@0.2.1:
-    resolution: {integrity: sha512-wPvDjVN7lMP929tOAQCxT/mF3G5/J+FCJw1pCh3uLN7qRTt1QWEqiZnoM2f2l3VKUdlo73fwwttZhpPor40W4w==}
+  node-or-bun@0.2.5:
+    resolution: {integrity: sha512-oPk7oyOqj+5TUPVsmq9cpCBNobD/DEFiKHdhXyt9n0Ncr0cFcrQEO56dro8yK+DREog7mk4FULojIi8joTWp7w==}
     engines: {bun: '>=1.4.3', node: ^24.18.0 || ^26.0.0}
 
   oxc-parser@0.142.0:
@@ -452,22 +452,22 @@ packages:
 
 snapshots:
 
-  '@agent-teams/document-authoring@0.3.4':
+  '@agent-teams/document-authoring@0.3.6':
     dependencies:
-      '@agent-teams/repository-mutation': 0.4.0
+      '@agent-teams/repository-mutation': 0.4.2
       ajv: 8.20.0
       yaml: 2.9.0
 
-  '@agent-teams/engineering-foundation@2.1.0':
+  '@agent-teams/engineering-foundation@3.1.0':
     dependencies:
-      '@agent-teams/document-authoring': 0.3.4
-      '@agent-teams/repository-mutation': 0.4.0
+      '@agent-teams/document-authoring': 0.3.6
+      '@agent-teams/repository-mutation': 0.4.2
       '@microsoft/api-extractor-model': 7.33.10
       '@microsoft/tsdoc': 0.16.0
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       jsonc-parser: 3.3.1
-      node-or-bun: 0.2.1
+      node-or-bun: 0.2.5
       oxc-parser: 0.142.0
       proper-lockfile: 4.1.2
       typescript: 7.0.2
@@ -475,11 +475,11 @@ snapshots:
     transitivePeerDependencies:
       - '@types/node'
 
-  '@agent-teams/feature-module-standard@0.2.2(@agent-teams/engineering-foundation@2.1.0)':
+  '@agent-teams/feature-module-standard@0.3.2(@agent-teams/engineering-foundation@3.1.0)':
     optionalDependencies:
-      '@agent-teams/engineering-foundation': 2.1.0
+      '@agent-teams/engineering-foundation': 3.1.0
 
-  '@agent-teams/repository-mutation@0.4.0': {}
+  '@agent-teams/repository-mutation@0.4.2': {}
 
   '@emnapi/core@1.11.2':
     dependencies:
@@ -725,7 +725,7 @@ snapshots:
     optionalDependencies:
       graceful-fs: 4.2.11
 
-  node-or-bun@0.2.1: {}
+  node-or-bun@0.2.5: {}
 
   oxc-parser@0.142.0:
     dependencies:
