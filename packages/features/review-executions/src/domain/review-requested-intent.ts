@@ -588,25 +588,32 @@ export function claimReviewRequestedIntent(input: {
   };
 }
 
+/** Pure eligibility check shared by due selection and locked expiration. */
+export function isReviewRequestedPreparationExpired(
+  intent: ReviewRequestedIntent,
+  now: Date,
+): boolean {
+  return (
+    intent.state === ReviewRequestedIntentState.Dispatching &&
+    intent.claim !== null &&
+    intent.claim.claimUntil <= now &&
+    intent.resolutionDeadlineAt !== null &&
+    intent.resolutionDeadlineAt <= now &&
+    intent.submissionStartedAt === null &&
+    intent.sourceRunId === null &&
+    intent.sourceRunAttempt === null &&
+    intent.authorizationId === null &&
+    intent.executionId === null
+  );
+}
+
 /** Called only while reclaiming an expired claim under the scope/intent lock. */
 export function expireReviewRequestedPreparation(
   intent: ReviewRequestedIntent,
   now: Date,
 ): ReviewRequestedIntent | null {
   assertDate(now, "preparation_expired_at");
-  if (
-    intent.state !== ReviewRequestedIntentState.Dispatching ||
-    intent.claim === null ||
-    intent.claim.claimUntil > now ||
-    intent.resolutionDeadlineAt === null ||
-    intent.resolutionDeadlineAt > now ||
-    intent.submissionStartedAt !== null ||
-    intent.sourceRunId !== null ||
-    intent.sourceRunAttempt !== null ||
-    intent.authorizationId !== null ||
-    intent.executionId !== null
-  )
-    return null;
+  if (!isReviewRequestedPreparationExpired(intent, now)) return null;
   return terminalizeReviewRequestedIntent({
     intent,
     expectedVersion: intent.version,
