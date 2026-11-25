@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createPrismaClient } from "@reviewrouter/platform-db";
+import { createPrismaClient } from "../packages/platform/db/dist/index.js";
 import { verifyRuntimeGenerationWitness } from "./verify-runtime-generation-witness.mjs";
 
 const required = (env, name) => {

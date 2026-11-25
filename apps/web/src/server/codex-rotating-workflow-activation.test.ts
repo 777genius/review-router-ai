@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   readMetadata: vi.fn(),
   replaceActiveWorkflowSource: vi.fn(),
   semanticSha: vi.fn(),
+  completeMigration: vi.fn(),
 }));
 
 vi.mock("@reviewrouter/features-provider-setup", () => ({
@@ -52,8 +53,11 @@ vi.mock("./codex-rotating-setup-ledger", () => ({
     replaceActiveWorkflowSource: mocks.replaceActiveWorkflowSource,
   },
 }));
-vi.mock("./prisma-codex-rotating-workflow-namespace", () => ({
+vi.mock("@reviewrouter/features-provider-setup/composition", () => ({
   PrismaCodexRotatingWorkflowNamespace: class {},
+}));
+vi.mock("./codex-runtime-migration-activation", () => ({
+  completeCodexRuntimeMigrationActivation: mocks.completeMigration,
 }));
 
 import { activateConfirmedCodexNamespaceAfterWorkflowMerge } from "./codex-rotating-workflow-activation";

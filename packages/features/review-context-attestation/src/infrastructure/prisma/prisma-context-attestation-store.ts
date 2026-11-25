@@ -10,6 +10,7 @@ import {
   ContextAttestationPersistenceStatus,
   type ContextAttestationPersistenceResult,
   type ContextAttestationStorePort,
+  type GatewaySessionOpeningLimits,
 } from "../../application/ports/context-attestation-ports";
 import {
   createAcceptedDependencyAttestation,
@@ -58,11 +59,13 @@ export class PrismaContextAttestationStore implements ContextAttestationStorePor
 
   async openSession(
     session: GatewaySession,
+    openingLimits?: GatewaySessionOpeningLimits,
   ): Promise<ContextAttestationPersistenceResult<GatewaySession>> {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         return await this.prisma.$transaction(
-          (transaction) => persistGatewaySessionOpening(transaction, session),
+          (transaction) =>
+            persistGatewaySessionOpening(transaction, session, openingLimits),
           { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
         );
       } catch (error) {
@@ -361,6 +364,7 @@ export class PrismaContextAttestationStore implements ContextAttestationStorePor
 async function persistGatewaySessionOpening(
   transaction: Prisma.TransactionClient,
   session: GatewaySession,
+  openingLimits?: GatewaySessionOpeningLimits,
 ): Promise<ContextAttestationPersistenceResult<GatewaySession>> {
   await lockContextGatewayOpening(transaction, session.attemptId);
   const existing = await transaction.reviewContextGatewaySession.findMany({
@@ -384,7 +388,12 @@ async function persistGatewaySessionOpening(
     (record) => record.sessionId === session.sessionId,
   );
   if (sessionIdMatch) {
-    return reconcileGatewaySessionOpening(transaction, sessionIdMatch, session);
+    return reconcileGatewaySessionOpening(
+      transaction,
+      sessionIdMatch,
+      session,
+      openingLimits,
+    );
   }
   const naturalIdentityMatch = existing.find(
     (record) =>
@@ -393,7 +402,7 @@ async function persistGatewaySessionOpening(
   );
   if (naturalIdentityMatch) {
     const domain = toGatewaySession(naturalIdentityMatch);
-    return sameOpening(domain, session)
+    return sameOpening(domain, session, openingLimits)
       ? persisted(ContextAttestationPersistenceStatus.Idempotent, domain)
       : conflict();
   }
@@ -404,7 +413,7 @@ async function persistGatewaySessionOpening(
   );
   if (legacyMatch) {
     const domain = toGatewaySession(legacyMatch);
-    if (sameLegacyOpening(domain, session)) {
+    if (sameLegacyOpening(domain, session, openingLimits)) {
       return adoptLegacyGatewaySessionOpening(
         transaction,
         legacyMatch.sessionId,
@@ -425,11 +434,12 @@ async function reconcileGatewaySessionOpening(
   transaction: Prisma.TransactionClient,
   record: Prisma.ReviewContextGatewaySessionGetPayload<object>,
   session: GatewaySession,
+  openingLimits?: GatewaySessionOpeningLimits,
 ): Promise<ContextAttestationPersistenceResult<GatewaySession>> {
   const domain = toGatewaySession(record);
   if (
     record.openingIntentHash === legacyContextGatewayOpeningIntentHash &&
-    sameLegacyOpening(domain, session)
+    sameLegacyOpening(domain, session, openingLimits)
   ) {
     return adoptLegacyGatewaySessionOpening(
       transaction,
@@ -437,7 +447,7 @@ async function reconcileGatewaySessionOpening(
       session.openingIntentHash,
     );
   }
-  return sameOpening(domain, session)
+  return sameOpening(domain, session, openingLimits)
     ? persisted(ContextAttestationPersistenceStatus.Idempotent, domain)
     : conflict();
 }
@@ -777,6 +787,10 @@ function fromPrismaProviderKind(
       return ContextProviderKind.ClaudeCode;
     case PrismaProviderKind.openrouter:
       return ContextProviderKind.OpenRouter;
+    // OCR runs without the Context Gateway and never writes attestations; a
+    // persisted OCR row here would be corrupt.
+    case PrismaProviderKind.ocr:
+      throw new Error("context_attestation_provider_kind_unsupported");
   }
 }
 
@@ -844,7 +858,11 @@ function fromPrismaSessionState(
   }
 }
 
-function sameOpening(left: GatewaySession, right: GatewaySession): boolean {
+function sameOpening(
+  left: GatewaySession,
+  right: GatewaySession,
+  openingLimits?: GatewaySessionOpeningLimits,
+): boolean {
   return (
     JSON.stringify({
       ...left,
@@ -862,7 +880,12 @@ function sameOpening(left: GatewaySession, right: GatewaySession): boolean {
       state: null,
       eventCount: null,
       openedAtMs: null,
-      expiresAtMs: right.expiresAtMs - right.openedAtMs,
+      expiresAtMs: openingLimits
+        ? Math.min(
+            openingLimits.sessionLifetimeMs,
+            openingLimits.expiresAtLimitMs - left.openedAtMs,
+          )
+        : right.expiresAtMs - right.openedAtMs,
       sealedAtMs: null,
       revokedAtMs: null,
     })
@@ -872,10 +895,12 @@ function sameOpening(left: GatewaySession, right: GatewaySession): boolean {
 function sameLegacyOpening(
   left: GatewaySession,
   right: GatewaySession,
+  openingLimits?: GatewaySessionOpeningLimits,
 ): boolean {
   return sameOpening(
     { ...left, openingIntentHash: right.openingIntentHash },
     right,
+    openingLimits,
   );
 }
 

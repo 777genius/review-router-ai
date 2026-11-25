@@ -16,9 +16,9 @@ The current direction is to evolve ReviewRouter into a more focused, production-
 - deduplication and revalidation to avoid duplicate comments
 - strong installer and workflow provisioning
 
-## SaaS Direction
+## Control Plane Direction
 
-The SaaS should not run review workloads by default. The product is a control plane:
+The control plane should not run review workloads by default. The product is a control plane:
 
 - install one shared GitHub App
 - manage workspaces, repositories, policies, and config
@@ -37,13 +37,13 @@ This addresses two main concerns:
 Codex OAuth subscription:
 
 - stored only in customer GitHub repo/org secrets or self-hosted runner `CODEX_HOME`
-- never sent to ReviewRouter SaaS in v1
+- never sent to ReviewRouter in v1
 - used by ReviewRouter Action inside customer's GitHub Actions
 
 OpenAI/OpenRouter API key:
 
-- v1 default: store in GitHub secrets, not SaaS
-- future: optional encrypted BYOK in SaaS for cloud execution or secret orchestration
+- v1 default: store in GitHub secrets, not control plane
+- future: optional encrypted BYOK in control plane for cloud execution or secret orchestration
 
 ReviewRouter cloud managed execution:
 
@@ -51,7 +51,7 @@ ReviewRouter cloud managed execution:
 - optional future product tier
 - should use API billing/managed credits, not customer ChatGPT OAuth custody
 
-## Why This Can Be a SaaS
+## Control Plane Responsibilities
 
 The paid value is not raw compute. The paid value is operational control:
 

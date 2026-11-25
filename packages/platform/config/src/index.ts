@@ -36,6 +36,10 @@ export const runtimeEnvSchema = z.object({
   GITHUB_APP_PRIVATE_KEY_FILE: z.string().optional(),
   GITHUB_WEBHOOK_SECRET: z.string().optional(),
   REVIEW_ROUTER_ACTION_REF: z.string().optional(),
+  REVIEW_ROUTER_AGENT_PROFILE: z
+    .string()
+    .regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/)
+    .default("codex-default"),
   REVIEW_ROUTER_ALLOWED_ACTION_REFS: z.string().default(""),
   REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: z.string().optional(),
   REVIEW_ROUTER_CODEX_ROTATING_ALLOWED_ACTION_REFS: z.string().default(""),
@@ -262,9 +266,11 @@ export function assertHostedCodexProductionReadiness(
       throw new Error("hosted_codex_aws_kms_region_mismatch");
     }
   }
+  const databaseResourceIdentity =
+    input.REVIEW_ROUTER_HOSTED_CODEX_DATABASE_RESOURCE_IDENTITY?.trim() ?? "";
   if (
-    !/^render:postgres:dpg-[a-z0-9-]{8,}$/u.test(
-      input.REVIEW_ROUTER_HOSTED_CODEX_DATABASE_RESOURCE_IDENTITY?.trim() ?? "",
+    !/^(?:render:postgres:dpg-[a-z0-9-]{8,}|hetzner:postgres:[a-f0-9]{32}:[1-9][0-9]{17,19})$/u.test(
+      databaseResourceIdentity,
     )
   ) {
     throw new Error("hosted_codex_database_resource_identity_invalid");
@@ -584,19 +590,6 @@ export function isCodexRotatingOAuthAllowedForRepository(
   return allowlist.includes(normalizedRepository);
 }
 
-export function isCodexRotatingOAuthAllowedForWorkspaceDefault(
-  input: NodeJS.ProcessEnv = process.env,
-): boolean {
-  if (!isCodexRotatingOAuthEnabled(input)) {
-    return false;
-  }
-  return (
-    parseCodexRotatingOAuthRepositoryAllowlist(
-      input.REVIEW_ROUTER_CODEX_ROTATING_OAUTH_REPOSITORIES,
-    ).length === 0
-  );
-}
-
 export function parseCodexRotatingOAuthRepositoryAllowlist(
   value: string | undefined,
 ): readonly string[] {
@@ -686,3 +679,5 @@ function actionRefRepository(actionRef: string): string {
 export function isFullShaActionRef(actionRef: string): boolean {
   return /^[a-z0-9_.-]+\/[a-z0-9_.-]+@[a-f0-9]{40}$/i.test(actionRef.trim());
 }
+
+export * from "./conversation-qualification";

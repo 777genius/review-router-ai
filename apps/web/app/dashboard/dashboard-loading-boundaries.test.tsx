@@ -1,11 +1,65 @@
+import { renderToStaticMarkup } from "react-dom/server";
+import { redirect } from "next/navigation";
 import { existsSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DashboardWorkspaceLayout,
+  DashboardWorkspacePage,
+  DashboardSectionContent,
   listDashboardRepositoryAccess,
   loadDashboardSectionData,
+  WorkspaceCard,
 } from "./dashboard-workspace-page";
 import type { DashboardWorkspaceSummary } from "./dashboard-workspace-navigation";
+import type { EffectiveReviewConfiguration } from "@reviewrouter/features-review-config";
+import type {
+  AccountsPage,
+  AccountsResult,
+} from "../../src/server/account-gateway-accounts";
+
+vi.mock("next/navigation", async (importOriginal) => {
+  const original = await importOriginal<typeof import("next/navigation")>();
+  return {
+    ...original,
+    redirect: vi.fn(original.redirect),
+    useRouter: () => ({ refresh: vi.fn() }),
+  };
+});
+
+const memoryKnowledge = vi.hoisted(() => ({
+  load: vi.fn(async () => ({ workspaceId: "workspace-a", repositoryId: null })),
+  settings: vi.fn(async () => ({
+    requireConfirmation: false,
+    version: null,
+    canEdit: false,
+    mutationsEnabled: false,
+  })),
+}));
+const identity = vi.hoisted(() => ({
+  scope: vi.fn(
+    async (): Promise<unknown> => ({
+      kind: "all",
+      reason: "local_admin_override",
+    }),
+  ),
+  actor: vi.fn(async (): Promise<unknown> => null),
+}));
+vi.mock("../../src/server/dashboard-memory-knowledge", () => ({
+  loadDashboardMemoryKnowledge: memoryKnowledge.load,
+}));
+vi.mock("../../src/server/dashboard-memory-settings", () => ({
+  loadDashboardMemorySettings: memoryKnowledge.settings,
+}));
+vi.mock(
+  "../../src/features/memory/interface/components/memory-knowledge-workspace",
+  () => ({
+    MemoryKnowledgeWorkspace: () => (
+      <section>
+        <h1>Approved memory</h1>
+      </section>
+    ),
+  }),
+);
 
 const fixtures = vi.hoisted(() => {
   const repository = {
@@ -22,15 +76,39 @@ const fixtures = vi.hoisted(() => {
       repository,
       { ...repository, id: "repo-hidden" },
     ]),
+    repositoryScan: vi.fn(async () => ({
+      installations: [],
+      repositoryCount: 2,
+      checkedAt: "2026-09-01T00:00:00.000Z",
+    })),
     entitlement: vi.fn(async () => ({ flags: { hosted_codex_pool: true } })),
     health: vi.fn(async () => []),
-    config: vi.fn(async () => null),
-    batchConfig: vi.fn(
-      async (input: { readonly repositoryIds: readonly string[] }) =>
-        input.repositoryIds.map((repositoryId) => ({
-          repositoryId,
-          config: null,
-        })),
+    policies: vi.fn(
+      async (input: {
+        readonly repositoryIds: readonly string[];
+      }): Promise<{
+        readonly workspace: EffectiveReviewConfiguration;
+        readonly repositories: ReadonlyMap<
+          string,
+          EffectiveReviewConfiguration
+        >;
+        readonly workspacePolicy: null;
+        readonly repositoryPolicies: ReadonlyMap<string, null>;
+      }> => {
+        const missing = {
+          status: "provider_selection_required",
+          workspaceVersion: null,
+          repositoryVersion: null,
+        } as const;
+        return {
+          workspace: missing,
+          repositories: new Map(
+            input.repositoryIds.map((repositoryId) => [repositoryId, missing]),
+          ),
+          workspacePolicy: null,
+          repositoryPolicies: new Map(),
+        };
+      },
     ),
     outbox: vi.fn(async () => []),
     provisioning: vi.fn(async () => []),
@@ -39,13 +117,17 @@ const fixtures = vi.hoisted(() => {
     organizationRequest: vi.fn(async () => ({
       data: { plan: { name: "team" } },
     })),
-    discovery: vi.fn(async () => ({
-      status: "ready" as const,
-      workspaceIds: ["workspace-a"],
-      repositoryIds: new Set(["repo-a"]),
-      directConfigRepositoryIds: new Set<string>(),
-      checkedAt: new Date("2026-09-01"),
-    })),
+    discovery: vi.fn(
+      async (): Promise<
+        Awaited<ReturnType<typeof listDashboardRepositoryAccess>>
+      > => ({
+        status: "ready" as const,
+        workspaceIds: ["workspace-a"],
+        repositoryIds: new Set(["repo-a"]),
+        directConfigRepositoryIds: new Set<string>(),
+        checkedAt: new Date("2026-09-01"),
+      }),
+    ),
     requestedCandidates: vi.fn(async () => []),
     diagnostics: vi.fn(async () => null),
     ruleset: vi.fn(async () => null),
@@ -80,12 +162,69 @@ const fixtures = vi.hoisted(() => {
       accounts: [],
       repositories: [],
     })),
+    workspaceAdmin: vi.fn(async () => false),
+    skillsDashboard: vi.fn(async () => ({ status: "signed_out" as const })),
+    providerList: vi.fn(async () => ({ rows: [] }) as never),
+    gatewayAccounts: vi.fn(async () => ({ status: "unavailable" as const })),
+    gatewayHydration: vi.fn(
+      async (
+        ...args: [
+          string,
+          unknown,
+          AccountsResult<AccountsPage> | undefined,
+          readonly string[],
+        ]
+      ) => args[2],
+    ),
   };
   return { spies, EmptyStore: class {} };
 });
 const { spies } = fixtures;
 
-vi.mock("./actions", () => ({}));
+vi.mock("../../src/server/dashboard-gateway-accounts", () => ({
+  loadDashboardPersonalAccounts: async () => null,
+  loadDashboardGatewayAccounts: fixtures.spies.gatewayAccounts,
+  hydrateDashboardGatewayAccounts: fixtures.spies.gatewayHydration,
+}));
+vi.mock(
+  "../../src/server/prisma-gateway-review-v2-provisioning",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../../src/server/prisma-gateway-review-v2-provisioning")
+    >()),
+    readGatewayReviewV2RepositoryReadiness: async () => new Map(),
+  }),
+);
+
+vi.mock("../../src/server/review-skills-dashboard", () => ({
+  loadReviewSkillsDashboard: fixtures.spies.skillsDashboard,
+}));
+vi.mock("./dashboard-action-form", () => ({
+  DashboardActionForm: ({
+    children,
+  }: {
+    readonly children: React.ReactNode;
+  }) => <form>{children}</form>,
+}));
+vi.mock("./account-gateway-accounts-section", () => ({
+  AccountGatewayAccountsSection: ({
+    workspaceName,
+  }: {
+    workspaceName?: string;
+  }) => <section>Your accounts; Accounts in {workspaceName}</section>,
+}));
+vi.mock("./hosted-pool-settings", () => ({
+  HostedPoolSettingsPanel: () => <section>Hosted pool accounts</section>,
+  RepositorySessionSourceSelector: () => null,
+}));
+vi.mock("./actions", () => ({
+  importHostedPoolAccountClientAction: vi.fn(),
+  startHostedPoolDeviceLoginClientAction: vi.fn(),
+  pollHostedPoolDeviceLoginClientAction: vi.fn(),
+  setHostedPoolAccountStateClientAction: vi.fn(),
+  removeHostedPoolAccountClientAction: vi.fn(),
+  setHostedRepositorySessionSourceClientAction: vi.fn(),
+}));
 vi.mock("../../src/server/prisma", () => ({
   getPrisma: () => ({
     providerSetupState: { findMany: fixtures.spies.providerSetup },
@@ -98,6 +237,16 @@ vi.mock("../../src/server/prisma", () => ({
     },
   }),
 }));
+vi.mock("./provider-setup-actions", () => ({
+  inheritWorkspaceDefaultProviderAction: vi.fn(),
+  saveProviderSetupAction: vi.fn(),
+}));
+vi.mock("../../src/server/dashboard-provider-selections", () => ({
+  dashboardProviderProfiles: () => ({ list: async () => [] }),
+}));
+vi.mock("../../src/server/provider-list-view", () => ({
+  loadProviderListView: fixtures.spies.providerList,
+}));
 vi.mock("../../src/server/dashboard-mutations", () => ({
   createGitHubAppInstallationOctokit: async () => ({
     request: fixtures.spies.organizationRequest,
@@ -108,12 +257,12 @@ vi.mock("../../src/server/dashboard-mutations", () => ({
     sourceLogin: "owner",
     sourceAvatarUrl: null,
   }),
-  getDashboardWorkspaceScope: async () => ({
-    kind: "all",
-    reason: "local_admin_override",
-  }),
-  getDashboardSignedInActor: async () => null,
+  getDashboardWorkspaceScope: identity.scope,
+  getDashboardSignedInActor: identity.actor,
   asDashboardGitHubActor: (actor: unknown) => actor,
+  canDashboardActorMutateRepository: vi.fn(async () => false),
+  canDashboardActorConfigureRepository: vi.fn(async () => false),
+  canDashboardActorAdminWorkspace: fixtures.spies.workspaceAdmin,
 }));
 vi.mock("../../src/server/github-app-install-url", () => ({
   getGitHubAppInstallUrl: () => null,
@@ -121,7 +270,7 @@ vi.mock("../../src/server/github-app-install-url", () => ({
 vi.mock("../../src/server/github-user-repository-access", () => ({
   listGitHubUserRepositoryAccess: fixtures.spies.discovery,
 }));
-vi.mock("../../src/server/prisma-codex-rotating-setup-readiness", () => ({
+vi.mock("@reviewrouter/features-provider-setup/composition", () => ({
   PrismaCodexRotatingSetupReadiness: fixtures.EmptyStore,
 }));
 vi.mock("../../src/server/dashboard-codex-rotating-setup-readiness", () => ({
@@ -129,6 +278,7 @@ vi.mock("../../src/server/dashboard-codex-rotating-setup-readiness", () => ({
 }));
 vi.mock("../../src/server/openrouter-model-catalog", () => ({
   getReviewModelOptions: vi.fn(async () => []),
+  getProviderModelCatalogs: vi.fn(async () => []),
 }));
 vi.mock("../../src/server/hosted-pool-dashboard", () => ({
   loadHostedPoolDashboardView: fixtures.spies.hostedPool,
@@ -143,6 +293,9 @@ vi.mock("@reviewrouter/features-repositories", () => ({
     listWorkspaceRepositories = fixtures.spies.repositories;
   },
 }));
+vi.mock("../../src/server/repository-scan", () => ({
+  loadRepositoryScanSnapshot: fixtures.spies.repositoryScan,
+}));
 vi.mock("@reviewrouter/features-repo-health", () => ({
   PrismaRepositoryHealthRepository: fixtures.EmptyStore,
   listWorkspaceRepositoryHealth: fixtures.spies.health,
@@ -151,13 +304,24 @@ vi.mock("@reviewrouter/features-entitlements", () => ({
   PrismaEntitlementRepository: class {
     findWorkspaceEntitlement = fixtures.spies.entitlement;
   },
-  freeBetaEntitlement: () => ({ flags: { hosted_codex_pool: false } }),
+  freeBetaEntitlement: () => ({ flags: { hosted_codex_pool: true } }),
+  evaluateFeatureEntitlement: () => ({ allowed: true }),
 }));
-vi.mock("@reviewrouter/features-review-config", () => ({
-  PrismaReviewConfigurationRepository: fixtures.EmptyStore,
-  findReviewConfiguration: fixtures.spies.config,
-  findRepositoryReviewConfigurations: fixtures.spies.batchConfig,
+vi.mock("@reviewrouter/features-review-config", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@reviewrouter/features-review-config")
+  >()),
+  resolveEffectiveReviewConfigurations: fixtures.spies.policies,
 }));
+vi.mock(
+  "@reviewrouter/features-review-config/composition",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@reviewrouter/features-review-config/composition")
+    >()),
+    PrismaReviewPolicyHeadReader: fixtures.EmptyStore,
+  }),
+);
 vi.mock("@reviewrouter/features-outbox", () => ({
   PrismaOutboxEventRepository: fixtures.EmptyStore,
   listWorkspaceOutboxFailures: fixtures.spies.outbox,
@@ -171,18 +335,28 @@ vi.mock("@reviewrouter/features-org-ruleset-provisioning", () => ({
     findByWorkspaceId = fixtures.spies.ruleset;
   },
 }));
-vi.mock("@reviewrouter/features-workflow-provisioning", () => ({
+vi.mock("@reviewrouter/features-workflow-provisioning/composition", () => ({
   PrismaWorkflowProvisioningQuery: fixtures.EmptyStore,
+}));
+vi.mock("@reviewrouter/features-workflow-provisioning", () => ({
   listRepositoryWorkflowProvisioning: fixtures.spies.provisioning,
 }));
-vi.mock("@reviewrouter/features-audit-log", () => ({
+vi.mock("@reviewrouter/features-audit-log/composition", () => ({
   PrismaAuditLogRepository: fixtures.EmptyStore,
 }));
 vi.mock("@reviewrouter/features-hosted-account-pool", () => ({
   PrismaHostedPoolQuery: fixtures.EmptyStore,
 }));
 vi.mock("@reviewrouter/features-provider-setup", () => ({}));
-vi.mock("@reviewrouter/features-memory", () => ({
+vi.mock("@reviewrouter/features-memory", async (importOriginal) => ({
+  MemoryKnowledgeError: (
+    await importOriginal<typeof import("@reviewrouter/features-memory")>()
+  ).MemoryKnowledgeError,
+  simulateMemoryPolicyDecision: fixtures.spies.memorySimulation,
+  listMemoryItemsForDashboard: fixtures.spies.memoryItems,
+  listMemorySuggestionsForDashboard: fixtures.spies.memorySuggestions,
+}));
+vi.mock("@reviewrouter/features-memory/infrastructure", () => ({
   PrismaMemoryPermission: fixtures.EmptyStore,
   PrismaMemoryItemRepository: fixtures.EmptyStore,
   PrismaMemorySuggestionRepository: fixtures.EmptyStore,
@@ -191,9 +365,6 @@ vi.mock("@reviewrouter/features-memory", () => ({
     getPolicy = fixtures.spies.memoryPolicy;
   },
   readMemoryServiceEnabled: () => true,
-  simulateMemoryPolicyDecision: fixtures.spies.memorySimulation,
-  listMemoryItemsForDashboard: fixtures.spies.memoryItems,
-  listMemorySuggestionsForDashboard: fixtures.spies.memorySuggestions,
 }));
 
 const workspace: DashboardWorkspaceSummary = {
@@ -220,7 +391,179 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(() => vi.restoreAllMocks());
 
 describe("dashboard server loading boundaries", () => {
-  it("starts workspace-only reads while the repository list is pending", async () => {
+  it.each([
+    ["token_encryption_misconfigured", "token_encryption_key_missing"],
+    ["token_refresh_failed", "github_oauth_client_misconfigured"],
+  ] as const)(
+    "keeps available workspace content and offers support for %s",
+    async (status, errorCode) => {
+      spies.repositories.mockResolvedValueOnce([]);
+      const data = await loadDashboardSectionData(workspace, "policy", access);
+      const html = renderToStaticMarkup(
+        <WorkspaceCard
+          data={data}
+          mutationsEnabled
+          selectedSection="policy"
+          params={{}}
+          repositoryAccess={{ ...access, status, errorCode }}
+          workspaceKey="acme"
+          appInstallUrl={null}
+          modelOptions={[]}
+        />,
+      );
+      expect(html).toContain("Save workspace settings");
+      expect(html).toContain('aria-label="GitHub repository access"');
+      expect(html).toContain('href="/support"');
+      expect(html).toContain("Contact support");
+      expect(html).not.toMatch(
+        /Refresh (?:GitHub )?access|Reconnect GitHub|REVIEW_ROUTER_TOKEN|encryption|github_oauth_client_misconfigured/,
+      );
+    },
+  );
+
+  it("gives the same support action in the empty dashboard without exposing the internal cause", async () => {
+    identity.scope.mockResolvedValueOnce({
+      kind: "workspace_ids",
+      workspaceIds: [],
+    });
+    identity.actor.mockResolvedValueOnce({
+      sourceProvider: "github",
+      userId: "user_1",
+      githubLogin: "owner",
+    });
+    spies.discovery.mockResolvedValueOnce({
+      ...access,
+      status: "token_encryption_misconfigured",
+      workspaceIds: [],
+      repositoryIds: new Set(),
+      errorCode: "token_encryption_key_missing",
+    });
+    const html = renderToStaticMarkup(await DashboardWorkspacePage({}));
+    expect(html).toContain('href="/support"');
+    expect(html).toContain("Contact support");
+    expect(html).toContain("Connect source");
+    expect(html).not.toMatch(
+      /Refresh GitHub access|Reconnect GitHub|Status:|token_encryption|REVIEW_ROUTER_TOKEN/,
+    );
+    expect(spies.discovery).toHaveBeenCalledOnce();
+  });
+
+  it("hydrates the complete saved workspace and repository reviewer roster once after loading account metadata", async () => {
+    const provider = (gatewayBindingId: string) => ({
+      kind: "codex",
+      authMode: "codex_account_gateway",
+      gatewayBindingId,
+      gatewayProfileRef: "openrouter-openai-responses-apikey-v1",
+      model: "openai/gpt-4.1",
+    });
+    const config = {
+      providers: [provider("binding_1"), provider("binding_2")],
+    };
+    const workspaceConfig = {
+      providers: [provider("binding_workspace")],
+    };
+    const ready = {
+      status: "ready",
+      config,
+      policy: { schemaVersion: 4 },
+      effectivePolicyDigest: "sha256:test",
+      revisionToken: "policy:test",
+      source: "repository",
+      workspaceVersion: 1,
+      repositoryVersion: 1,
+    } as unknown as Extract<EffectiveReviewConfiguration, { status: "ready" }>;
+    spies.policies.mockResolvedValueOnce({
+      workspace: {
+        ...ready,
+        config: workspaceConfig,
+        source: "workspace",
+        repositoryVersion: null,
+      } as unknown as Extract<
+        EffectiveReviewConfiguration,
+        { status: "ready" }
+      >,
+      repositories: new Map([["repo-a", ready]]),
+      workspacePolicy: null,
+      repositoryPolicies: new Map(),
+    });
+    await DashboardSectionContent({
+      context: {
+        mutationStatus: {
+          enabled: true,
+          signedIn: true,
+          sourceProvider: "github",
+          externalUserId: "github-user-a",
+          sourceLogin: "owner",
+          sourceAvatarUrl: null,
+          githubUserId: "github-user-a",
+          githubLogin: "owner",
+          githubAvatarUrl: null,
+          reason: "ready",
+        },
+        workspaceScope: { kind: "all", reason: "local_admin_override" },
+        signedInActor: null,
+        repositoryAccess: access,
+        workspaces: [workspace],
+      },
+      selectedWorkspace: workspace,
+      selectedSection: "repositories",
+      params: {},
+      workspaceKey: "acme",
+    });
+    expect(spies.gatewayAccounts).toHaveBeenCalledExactlyOnceWith(
+      "workspace-a",
+      null,
+    );
+    expect(spies.gatewayHydration).toHaveBeenCalledExactlyOnceWith(
+      "workspace-a",
+      null,
+      { status: "unavailable" },
+      ["binding_workspace", "binding_1", "binding_2"],
+    );
+  });
+  it.each([
+    ["acme", "workspace-a", "acme"],
+    ["second", "workspace-b", "second"],
+    ["unknown", "workspace-a", "acme"],
+  ])(
+    "redirects the Context tools section to the authorized workspace selected by %s",
+    async (requested, id, key) => {
+      spies.summaries.mockResolvedValueOnce([
+        {
+          id: "workspace-a",
+          name: "acme",
+          slug: "acme",
+          installations: [],
+          gitLabInstallations: [],
+          repositories: [{ owner: "acme" }],
+          _count: { repositories: 2 },
+        },
+        {
+          id: "workspace-b",
+          name: "second",
+          slug: "second",
+          installations: [],
+          gitLabInstallations: [],
+          repositories: [{ owner: "second" }],
+          _count: { repositories: 2 },
+        },
+      ]);
+      await expect(
+        DashboardWorkspacePage({
+          searchParams: Promise.resolve({
+            section: "context-tools",
+            workspace: requested,
+            workspaceId: "unauthorized-workspace",
+          }),
+        }),
+      ).rejects.toThrow("NEXT_REDIRECT");
+      expect(redirect).toHaveBeenCalledWith(
+        `/dashboard/context-tools?workspaceId=${id}&workspace=${key}`,
+      );
+    },
+  );
+
+  it("starts unrelated workspace reads while policy reads wait for scoped metadata", async () => {
     let resolveRepositories!: (
       value: Awaited<ReturnType<typeof spies.repositories>>,
     ) => void;
@@ -254,14 +597,18 @@ describe("dashboard server loading boundaries", () => {
       access,
     );
     try {
-      expect(spies.repositories).toHaveBeenCalledOnce();
       expect(spies.health).toHaveBeenCalledOnce();
-      expect(spies.config).toHaveBeenCalledOnce();
       expect(spies.ruleset).toHaveBeenCalledOnce();
+      // Scan progress is read before the list, so a finished scan is in it.
+      expect(spies.repositoryScan).toHaveBeenCalledOnce();
+      await vi.waitFor(() => expect(spies.repositories).toHaveBeenCalledOnce());
+      expect(spies.repositoryScan.mock.invocationCallOrder[0]).toBeLessThan(
+        spies.repositories.mock.invocationCallOrder[0]!,
+      );
+      expect(spies.policies).not.toHaveBeenCalled();
       await vi.waitFor(() =>
         expect(spies.organizationRequest).toHaveBeenCalledOnce(),
       );
-      expect(spies.batchConfig).not.toHaveBeenCalled();
       expect(spies.provisioning).not.toHaveBeenCalled();
       expect(spies.hostedPool).not.toHaveBeenCalled();
     } finally {
@@ -280,6 +627,102 @@ describe("dashboard server loading boundaries", () => {
     }
   });
 
+  it("keeps opaque head revisions of only the visible targets for CAS", async () => {
+    spies.policies.mockResolvedValueOnce({
+      workspace: {
+        status: "resave_required",
+        workspaceVersion: 3,
+        repositoryVersion: null,
+      },
+      repositories: new Map([
+        [
+          "repo-a",
+          {
+            status: "resave_required",
+            workspaceVersion: 3,
+            repositoryVersion: 11,
+          },
+        ],
+      ]),
+      workspacePolicy: null,
+      repositoryPolicies: new Map([["repo-a", null]]),
+    });
+    const data = await loadDashboardSectionData(
+      { ...workspace, hasWorkspaceWideAccess: false },
+      "policy",
+      access,
+    );
+    expect(spies.policies).toHaveBeenCalledExactlyOnceWith(
+      { workspaceId: "workspace-a", repositoryIds: ["repo-a"] },
+      expect.anything(),
+    );
+    expect(data.reviewConfig).toBeNull();
+    expect(data.reviewConfigExpectedVersion).toBe(3);
+    expect(data.repositoryConfigs).toEqual([
+      {
+        repositoryId: "repo-a",
+        config: null,
+        effective: null,
+        status: "resave_required",
+        expectedVersion: 11,
+        policy: null,
+      },
+    ]);
+  });
+
+  it("uses the revisions of the parsed policies for CAS", async () => {
+    const ready = {
+      status: "ready",
+      config: {},
+      policy: { schemaVersion: 4 },
+      effectivePolicyDigest: "sha256:test",
+      revisionToken: "policy:test",
+    } as unknown as Extract<EffectiveReviewConfiguration, { status: "ready" }>;
+    spies.policies.mockResolvedValueOnce({
+      workspace: {
+        ...ready,
+        version: 4,
+        source: "workspace",
+        workspaceVersion: 4,
+        repositoryVersion: null,
+      },
+      repositories: new Map([
+        [
+          "repo-a",
+          {
+            ...ready,
+            version: 12,
+            source: "repository",
+            workspaceVersion: 4,
+            repositoryVersion: 12,
+          },
+        ],
+      ]),
+      workspacePolicy: null,
+      repositoryPolicies: new Map([["repo-a", null]]),
+    });
+    const data = await loadDashboardSectionData(
+      { ...workspace, hasWorkspaceWideAccess: false },
+      "policy",
+      access,
+    );
+    expect(data.reviewConfigExpectedVersion).toBe(4);
+    expect(data.repositoryConfigs[0]).toMatchObject({
+      config: { version: 12, source: "repository" },
+      expectedVersion: 12,
+    });
+    expect(data.repositoryConfigs[0]?.config).not.toHaveProperty("status");
+  });
+
+  it("sends null CAS for inactive or new targets without borrowing the workspace revision", async () => {
+    // The head reader excludes inactive configurations, even with retained versions.
+    const data = await loadDashboardSectionData(workspace, "policy", access);
+    expect(data.reviewConfigExpectedVersion).toBeNull();
+    expect(
+      data.repositoryConfigs.every((item) => item.expectedVersion === null),
+    ).toBe(true);
+  });
+
   it("observes early read failures while repositories are pending", async () => {
     let resolveRepositories!: (
       value: Awaited<ReturnType<typeof spies.repositories>>,
@@ -293,7 +736,7 @@ describe("dashboard server loading boundaries", () => {
     spies.health.mockRejectedValueOnce(new Error("health unavailable"));
 
     const loading = loadDashboardSectionData(workspace, "repositories", access);
-    await Promise.resolve();
+    await vi.waitFor(() => expect(spies.repositories).toHaveBeenCalled());
     resolveRepositories([]);
     await expect(loading).rejects.toThrow("health unavailable");
   });
@@ -593,6 +1036,170 @@ describe("dashboard server loading boundaries", () => {
     },
   );
 
+  it.each([true, false])(
+    "renders Connections within Providers without requesting policy (admin %s)",
+    async (hasWorkspaceWideAccess) => {
+      const data = await loadDashboardSectionData(
+        { ...workspace, hasWorkspaceWideAccess },
+        "setup",
+        access,
+      );
+      expect(data.reviewConfig).toBeNull();
+      const html = renderToStaticMarkup(
+        <WorkspaceCard
+          data={data}
+          mutationsEnabled
+          selectedSection="setup"
+          params={{}}
+          repositoryAccess={access}
+          workspaceKey="acme"
+          appInstallUrl={null}
+          modelOptions={[]}
+        />,
+      );
+      expect(html).toContain("Accounts in acme");
+      expect(html).toContain("Your accounts");
+      expect(html).not.toContain(">Accounts</h2>");
+      expect(html).toContain(">Providers</h2>");
+      expect(html).toContain('aria-label="Providers"');
+      expect(html).toContain(">Connections</a>");
+      expect(html).toContain(">Review providers</a>");
+      expect(html).toContain("/dashboard/setup?workspace=acme");
+      expect(html).toContain("Choose providers and models for reviews");
+      expect(html).not.toContain("Save workspace review settings");
+      expect(html).not.toContain("retired format");
+      expect(html.includes("Hosted pool accounts")).toBe(
+        hasWorkspaceWideAccess,
+      );
+      expect(spies.policies).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["provider_selection_required", "resave_required"] as const)(
+    "keeps Review settings focused on behavior and points to Providers (%s)",
+    async (reviewConfigStatus) => {
+      spies.repositories.mockResolvedValueOnce([]);
+      const data = await loadDashboardSectionData(workspace, "policy", access);
+      const html = renderToStaticMarkup(
+        <WorkspaceCard
+          data={{ ...data, reviewConfigStatus }}
+          mutationsEnabled
+          selectedSection="policy"
+          params={{}}
+          repositoryAccess={access}
+          workspaceKey="acme"
+          appInstallUrl={null}
+          modelOptions={[]}
+        />,
+      );
+      expect(html).toContain(">Review settings</h2>");
+      expect(html).toContain('aria-label="Default review provider"');
+      expect(html).toContain(
+        reviewConfigStatus === "resave_required"
+          ? "Default provider unavailable: saved settings use a retired format."
+          : "No default provider selected.",
+      );
+      expect(html).toContain("Manage providers and workspace default");
+      expect(html).toContain("/dashboard?section=providers&amp;workspace=acme");
+      expect(html).not.toContain("Choose a provider");
+    },
+  );
+
+  it("renders Other without model configuration or repository health", async () => {
+    const data = await loadDashboardSectionData(workspace, "setup", access);
+    const html = renderToStaticMarkup(
+      <WorkspaceCard
+        data={{
+          ...data,
+          reviewDraftPullRequests: true,
+          canEditOtherSettings: true,
+        }}
+        mutationsEnabled
+        selectedSection="other"
+        params={{}}
+        repositoryAccess={access}
+        workspaceKey="acme"
+        appInstallUrl={null}
+        modelOptions={[]}
+      />,
+    );
+    expect(html).toContain(">Other</h2>");
+    expect(html).toContain("Review draft pull requests");
+    expect(html).toContain('name="reviewDraftPullRequests"');
+    expect(html).toContain('checked=""');
+    expect(html).not.toContain("Metadata only");
+    expect(html).not.toContain("Save workspace review settings");
+    expect(spies.policies).not.toHaveBeenCalled();
+    expect(spies.health).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])(
+    "loads Other from the workspace and the admin mutation gate (admin=%s)",
+    async (admin) => {
+      const actor = {
+        userId: "user-a",
+        sourceProvider: "github" as const,
+        externalUserId: "1",
+        sourceLogin: "member",
+        githubUserId: "1",
+        githubLogin: "member",
+        actor: "user:github:member",
+      };
+      spies.audit.mockResolvedValueOnce({
+        reviewDraftPullRequests: true,
+      } as never);
+      spies.workspaceAdmin.mockResolvedValueOnce(admin);
+      const data = await loadDashboardSectionData(
+        workspace,
+        "other",
+        access,
+        undefined,
+        actor,
+      );
+      expect(data.reviewDraftPullRequests).toBe(true);
+      expect(data.canEditOtherSettings).toBe(admin);
+      expect(spies.workspaceAdmin).toHaveBeenCalledWith({
+        actor,
+        workspaceId: "workspace-a",
+      });
+      expect(spies.policies).not.toHaveBeenCalled();
+      expect(spies.health).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([true, false])(
+    "reads the Providers list only for workspace members (member=%s)",
+    async (hasWorkspaceWideAccess) => {
+      const actor = {
+        userId: "user-a",
+        sourceProvider: "github" as const,
+        externalUserId: "1",
+        sourceLogin: "member",
+        githubUserId: "1",
+        githubLogin: "member",
+        actor: "user:github:member",
+      };
+      const data = await loadDashboardSectionData(
+        { ...workspace, hasWorkspaceWideAccess },
+        "providers",
+        access,
+        undefined,
+        actor,
+      );
+      if (hasWorkspaceWideAccess) {
+        expect(spies.providerList).toHaveBeenCalledWith(
+          expect.objectContaining({ workspaceId: "workspace-a", actor }),
+        );
+        expect(data.providerList).toEqual({ rows: [] });
+      } else {
+        expect(spies.providerList).not.toHaveBeenCalled();
+        expect(data.providerList).toBeNull();
+      }
+      expect(spies.policies).not.toHaveBeenCalled();
+      expect(spies.health).not.toHaveBeenCalled();
+    },
+  );
+
   it("loads account summaries without reading per-repository hosted bindings", async () => {
     const data = await loadDashboardSectionData(workspace, "setup", access);
     expect(data.repositoryCount).toBe(2);
@@ -610,8 +1217,7 @@ describe("dashboard server loading boundaries", () => {
     async (section) => {
       await loadDashboardSectionData(workspace, section, access);
       for (const spy of [
-        spies.config,
-        spies.batchConfig,
+        spies.policies,
         spies.health,
         spies.provisioning,
         spies.providerSetup,
@@ -625,44 +1231,98 @@ describe("dashboard server loading boundaries", () => {
     },
   );
 
-  it("loads Memory only for the selected workspace", async () => {
-    await loadDashboardSectionData(workspace, "memory", access);
-    expect(spies.memoryItems).toHaveBeenCalledWith(
-      { workspaceId: "workspace-a", limit: 25 },
-      expect.anything(),
-    );
-    expect(spies.memorySuggestions).toHaveBeenCalledOnce();
-    expect(spies.memoryPolicy).toHaveBeenCalledExactlyOnceWith({
-      workspaceId: "workspace-a",
-    });
-    expect(spies.hostedPool).toHaveBeenCalledWith(
-      expect.objectContaining({ featureEnabled: false }),
-    );
-  });
+  it.each([true, false])(
+    "cannot load memory through the retired section loader (workspace admin %s)",
+    async (hasWorkspaceWideAccess) => {
+      await loadDashboardSectionData(
+        { ...workspace, hasWorkspaceWideAccess },
+        "memory",
+        access,
+      );
+      expect(spies.memoryItems).not.toHaveBeenCalled();
+      expect(spies.memorySuggestions).not.toHaveBeenCalled();
+      expect(spies.memoryPolicy).not.toHaveBeenCalled();
+      expect(spies.memorySimulation).not.toHaveBeenCalled();
+    },
+  );
 
-  it("restricts Memory reads to repositories visible to a scoped actor", async () => {
-    await loadDashboardSectionData(
-      { ...workspace, hasWorkspaceWideAccess: false },
-      "memory",
-      access,
-    );
-    expect(spies.memoryItems).toHaveBeenCalledWith(
-      {
+  it.each([
+    "knowledge",
+    "suggestions",
+    "table",
+    "unavailable-settings",
+    "unavailable-knowledge",
+  ])(
+    "loads authorized memory through its new facade without reactivating legacy mode %s",
+    async (memoryMode) => {
+      if (memoryMode === "unavailable-settings")
+        memoryKnowledge.settings.mockRejectedValueOnce(
+          new Error("review_policy_resave_required"),
+        );
+      if (memoryMode === "unavailable-knowledge") {
+        memoryKnowledge.load.mockRejectedValueOnce(
+          new Error("native_provider_unavailable_private_detail"),
+        );
+        memoryKnowledge.settings.mockResolvedValueOnce({
+          requireConfirmation: false,
+          version: null,
+          canEdit: true,
+          mutationsEnabled: true,
+        });
+      }
+      const content = await DashboardSectionContent({
+        context: {
+          mutationStatus: {
+            enabled: true,
+            signedIn: true,
+            sourceProvider: "github",
+            externalUserId: "github-user-a",
+            sourceLogin: "owner",
+            sourceAvatarUrl: null,
+            githubUserId: "github-user-a",
+            githubLogin: "owner",
+            githubAvatarUrl: null,
+            reason: "ready",
+          },
+          workspaceScope: { kind: "all", reason: "local_admin_override" },
+          signedInActor: null,
+          repositoryAccess: access,
+          workspaces: [workspace],
+        },
+        selectedWorkspace: workspace,
+        selectedSection: "memory",
+        params: {
+          memory_mode: memoryMode,
+          status: "pending",
+          notice: "memory_saved",
+          memory: "previous-item",
+        },
+        workspaceKey: "acme",
+      });
+      const html = renderToStaticMarkup(content);
+      if (memoryMode === "unavailable-knowledge") {
+        expect(html).toContain("Memory is temporarily unavailable.");
+        expect(html).toContain("Require confirmation for memory changes");
+        expect(html).toContain("Save memory settings");
+        expect(html).toContain('name="workspaceId" value="workspace-a"');
+        expect(html).not.toContain(
+          "native_provider_unavailable_private_detail",
+        );
+      } else expect(html).toContain("Approved memory");
+      expect(html).not.toContain("previous-item");
+      if (memoryMode === "unavailable-settings")
+        expect(html).toContain("Memory settings are temporarily unavailable.");
+      expect(memoryKnowledge.load).toHaveBeenCalledExactlyOnceWith({
         workspaceId: "workspace-a",
-        repositoryIds: ["repo-a"],
-        limit: 25,
-      },
-      expect.anything(),
-    );
-    expect(spies.memorySuggestions).toHaveBeenCalledWith(
-      {
-        workspaceId: "workspace-a",
-        repositoryIds: ["repo-a"],
-        limit: 25,
-      },
-      expect.anything(),
-    );
-  });
+        repositoryId: null,
+        cursor: null,
+        topicId: null,
+      });
+      for (const spy of Object.values(spies)) {
+        expect(spy).not.toHaveBeenCalled();
+      }
+    },
+  );
 
   it("keeps selected-workspace audit and support diagnostics in Diagnostics", async () => {
     const data = await loadDashboardSectionData(
@@ -693,7 +1353,7 @@ describe("dashboard server loading boundaries", () => {
     expect(data.repositoryConfigs.map((config) => config.repositoryId)).toEqual(
       ["repo-a"],
     );
-    expect(spies.batchConfig).toHaveBeenCalledExactlyOnceWith(
+    expect(spies.policies).toHaveBeenCalledExactlyOnceWith(
       {
         workspaceId: "workspace-a",
         repositoryIds: ["repo-a"],
@@ -703,5 +1363,39 @@ describe("dashboard server loading boundaries", () => {
     expect(spies.diagnostics).not.toHaveBeenCalled();
     expect(spies.outbox).not.toHaveBeenCalled();
     expect(spies.audit).not.toHaveBeenCalled();
+  });
+  it("returns the isolated Statistics section before unrelated section IO", async () => {
+    const content = await DashboardSectionContent({
+      context: {
+        mutationStatus: {
+          enabled: true,
+          signedIn: true,
+          sourceProvider: "github",
+          externalUserId: "github-user-a",
+          sourceLogin: "owner",
+          sourceAvatarUrl: null,
+          githubUserId: "github-user-a",
+          githubLogin: "owner",
+          githubAvatarUrl: null,
+          reason: "ready",
+        },
+        workspaceScope: {
+          kind: "workspace_ids",
+          workspaceIds: ["workspace-a"],
+        },
+        signedInActor: null,
+        repositoryAccess: access,
+        workspaces: [workspace],
+      },
+      selectedWorkspace: workspace,
+      selectedSection: "statistics",
+      params: { statisticsDays: ["7", "30"], statisticsSeverity: "major" },
+      workspaceKey: "acme",
+    });
+    expect(content.props).toEqual({
+      workspaceId: "workspace-a",
+      params: { statisticsDays: ["7", "30"], statisticsSeverity: "major" },
+    });
+    for (const spy of Object.values(spies)) expect(spy).not.toHaveBeenCalled();
   });
 });

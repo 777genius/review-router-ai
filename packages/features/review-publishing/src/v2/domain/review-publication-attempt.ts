@@ -59,12 +59,14 @@ export enum ReviewPublicationOperationRole {
 }
 
 export enum ReviewPublicationKind {
+  PrDescription = "pr_description",
   Summary = "summary",
   ManagedCheck = "managed_check",
   PendingReviewCreate = "pending_review_create",
   PendingReviewSubmit = "pending_review_submit",
   SubmittedReview = "submitted_review",
   ThreadLifecycle = "thread_lifecycle",
+  ThreadReply = "thread_reply",
 }
 
 export enum ReviewPublicationExternalEffectKind {
@@ -373,6 +375,7 @@ export function planPublicationSiblingTerminalizations(input: {
     | ReviewPublicationTerminalOutcome.FailedNoEffect
     | ReviewPublicationTerminalOutcome.TerminalUnknown;
 }[] {
+  if (isOptionalPrDescriptionContinuation(input)) return [];
   const riskOperationIds = new Set(
     publicationOperationsWithExternalEffectRisk(input).map(
       (operation) => operation.publicationOperationId,
@@ -452,7 +455,14 @@ export function isExactPublicationSiblingTerminalizationPlan(input: {
       | ReviewPublicationTerminalOutcome.TerminalUnknown;
   }[];
 }): boolean {
-  const riskOperations = publicationOperationsWithExternalEffectRisk(input);
+  const optionalDescription = isOptionalPrDescriptionContinuation(input);
+  const riskOperations = publicationOperationsWithExternalEffectRisk(
+    input,
+  ).filter(
+    (operation) =>
+      !optionalDescription ||
+      operation.publicationOperationId === input.publicationOperationId,
+  );
   if (
     (input.attemptOutcome ===
       ReviewPublicationTerminalOutcome.StaleCompensated ||
@@ -590,8 +600,11 @@ export function operationCapabilityFacts(input: {
 }
 
 export function effectiveReviewPublicationOutcome(input: {
-  readonly attempt: ReviewPublicationAttempt;
-  readonly corrections: readonly ReviewPublicationOutcomeCorrection[];
+  readonly attempt: Pick<ReviewPublicationAttempt, "terminalOutcome">;
+  readonly corrections: readonly Pick<
+    ReviewPublicationOutcomeCorrection,
+    "correctionOrdinal" | "correctedOutcome"
+  >[];
 }): ReviewPublicationTerminalOutcome | null {
   if (
     input.attempt.terminalOutcome !==
@@ -620,6 +633,56 @@ export function hasEveryRequiredCanonicalReceipt(input: {
   return input.operations
     .filter((operation) => operation.required)
     .every((operation) => successfulIds.has(operation.publicationOperationId));
+}
+
+/** One finite best-effort continuation, after required review publication. */
+export function isOptionalPrDescriptionOperation(
+  operation: ReviewPublicationOperationPlan,
+): boolean {
+  return (
+    operation.publicationKind === ReviewPublicationKind.PrDescription &&
+    !operation.required
+  );
+}
+
+export function hasPendingPrDescriptionContinuation(
+  operations: readonly ReviewPublicationOperation[],
+): boolean {
+  return operations.some(
+    (operation) =>
+      isOptionalPrDescriptionOperation(operation) &&
+      isActiveReviewPublicationOperation(operation),
+  );
+}
+
+export function isOptionalPrDescriptionContinuation(input: {
+  readonly publicationOperationId: string;
+  readonly operations: readonly ReviewPublicationOperation[];
+  readonly receipts: readonly ReviewPublicationReceipt[];
+}): boolean {
+  const operation = input.operations.find(
+    (row) => row.publicationOperationId === input.publicationOperationId,
+  );
+  return (
+    operation !== undefined &&
+    isOptionalPrDescriptionOperation(operation) &&
+    input.operations.some((row) => row.required) &&
+    hasEveryRequiredCanonicalReceipt(input)
+  );
+}
+
+/** The required review is proven; an ambiguous optional body remains unknown,
+ * and its tombstone prevents another write without delaying review settlement. */
+export function mayCloseAmbiguousOptionalDescription(input: {
+  readonly publicationOperationId: string;
+  readonly operations: readonly ReviewPublicationOperation[];
+  readonly receipts: readonly ReviewPublicationReceipt[];
+  readonly lastErrorCode: string;
+}): boolean {
+  return (
+    input.lastErrorCode === "pr_description_write_outcome_unknown" &&
+    isOptionalPrDescriptionContinuation(input)
+  );
 }
 
 export function selectCanonicalExternalEffect(
@@ -817,6 +880,7 @@ function assertOperationPolicy(
   operation: ReviewPublicationOperationPlan,
 ): void {
   switch (operation.publicationKind) {
+    case ReviewPublicationKind.PrDescription:
     case ReviewPublicationKind.Summary:
     case ReviewPublicationKind.ManagedCheck:
       if (
@@ -846,6 +910,15 @@ function assertOperationPolicy(
       }
       return;
     case ReviewPublicationKind.SubmittedReview:
+      if (
+        operation.effectStrategy !==
+          ReviewPublicationEffectStrategy.AppendOnlyCanonicalReceipt ||
+        operation.role !== ReviewPublicationOperationRole.Standalone
+      ) {
+        throw new Error("publication_operation_policy_invalid");
+      }
+      return;
+    case ReviewPublicationKind.ThreadReply:
       if (
         operation.effectStrategy !==
           ReviewPublicationEffectStrategy.AppendOnlyCanonicalReceipt ||

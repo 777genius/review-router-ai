@@ -1,3 +1,4 @@
+import { reviewRouterApiUrlsMatch } from "@reviewrouter/shared";
 import {
   canonicalHostedPoolProviderInstanceId,
   defaultCodexRotatingWorkflowPath,
@@ -63,7 +64,7 @@ export async function hasMatchingHostedPoolWorkflow(input: {
   return (
     metadata.bindingId === input.binding.bindingId &&
     metadata.bindingRevision === input.binding.revision &&
-    metadata.apiUrl === input.apiUrl &&
+    reviewRouterApiUrlsMatch(metadata.apiUrl, input.apiUrl) &&
     metadata.actionRef === input.actionRef &&
     metadata.providerInstanceId ===
       canonicalHostedPoolProviderInstanceId(input.repository.githubRepositoryId)

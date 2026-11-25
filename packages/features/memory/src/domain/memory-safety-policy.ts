@@ -2,11 +2,7 @@ import {
   looksLikeCodeOrDiff,
   looksLikeSecretValue,
 } from "@reviewrouter/shared";
-import {
-  memoryBodyMaxCharacters,
-  normalizeMemoryBody,
-  truncateRedactedExcerpt,
-} from "./memory-body";
+import { memoryBodyMaxCharacters, normalizeMemoryBody } from "./memory-body";
 import type { MemoryScope } from "./memory-scope-policy";
 import { isSafeUserPreferenceBody } from "./memory-scope-policy";
 
@@ -34,7 +30,6 @@ export type MemorySafetyReport = {
   readonly flags: readonly MemorySafetyFlag[];
   readonly blockedReason: string | null;
   readonly redactedBody: string;
-  readonly redactedSourceExcerpt: string | null;
   readonly mayEmbed: boolean;
   readonly mayUseInRuntimeBundle: boolean;
 };
@@ -42,7 +37,6 @@ export type MemorySafetyReport = {
 export type MemorySafetyInput = {
   readonly body: string;
   readonly scope: MemoryScope;
-  readonly redactedSourceExcerpt?: string | null;
 };
 
 const promptInjectionPattern =
@@ -100,9 +94,6 @@ export function evaluateMemorySafety(
     flags: [...flags].sort(),
     blockedReason,
     redactedBody: blockedReason ? "" : body,
-    redactedSourceExcerpt: truncateRedactedExcerpt(
-      input.redactedSourceExcerpt ?? null,
-    ),
     mayEmbed: severity === "safe",
     mayUseInRuntimeBundle: severity === "safe",
   };

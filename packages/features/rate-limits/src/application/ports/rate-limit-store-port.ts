@@ -6,6 +6,7 @@ export type ConsumeFixedWindowRateLimitInput = {
   readonly windowStart: Date;
   readonly windowEndsAt: Date;
   readonly now: Date;
+  readonly amount?: number;
 };
 
 export type DeleteExpiredRateLimitBucketsInput = {

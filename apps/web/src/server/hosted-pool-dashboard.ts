@@ -7,6 +7,7 @@ import {
   type HostedAccountSafeSummary,
   type HostedCodexDeviceAuthGateway,
   type HostedCodexDeviceLoginStore,
+  type HostedCodexDeviceReconnectTarget,
   type HostedPoolQueryPort,
   type HostedPoolSafeSummary,
   type HostedRepositoryBindingSafeSummary,
@@ -51,6 +52,18 @@ export type HostedPoolDashboardRepository = Readonly<{
 }>;
 
 export interface HostedPoolDashboardMutationPort {
+  assertReconnectTarget(
+    input: HostedCodexDeviceReconnectTarget & {
+      readonly workspaceId: string;
+    },
+  ): Promise<void>;
+  reconnectAccount(
+    input: HostedCodexDeviceReconnectTarget & {
+      readonly workspaceId: string;
+      readonly authJson: Uint8Array;
+      readonly requestedAt: Date;
+    },
+  ): Promise<HostedAccountSafeSummary>;
   importAccount(input: {
     readonly workspaceId: string;
     readonly label: string;
@@ -185,6 +198,7 @@ export async function startHostedPoolDeviceLogin(
     readonly workspaceId: string;
     readonly label: string;
     readonly priority: number;
+    readonly reconnectTarget?: HostedCodexDeviceReconnectTarget;
   },
   dependencies: HostedPoolDeviceLoginDependencies,
 ): Promise<{
@@ -194,18 +208,40 @@ export async function startHostedPoolDeviceLogin(
   readonly expiresAt: string;
   readonly intervalSeconds: number;
 }> {
-  const actor = await authorizeAndEntitle(input.workspaceId, dependencies);
-  if (!input.label.trim() || input.label.trim().length > 80)
+  const commandWorkspaceId = input.workspaceId;
+  const label = input.label.trim();
+  const priority = input.priority;
+  const reconnectTarget = input.reconnectTarget
+    ? { ...input.reconnectTarget }
+    : null;
+  const actor = await authorizeAndEntitle(commandWorkspaceId, dependencies);
+  if (!label || label.length > 80)
     throw new Error("hosted_account_label_invalid");
-  if (!Number.isSafeInteger(input.priority) || input.priority < 0)
+  if (!Number.isSafeInteger(priority) || priority < 0)
     throw new Error("hosted_account_priority_invalid");
+  if (reconnectTarget) {
+    if (
+      !reconnectTarget.accountId ||
+      !Number.isSafeInteger(reconnectTarget.expectedGeneration) ||
+      reconnectTarget.expectedGeneration < 1 ||
+      !Number.isSafeInteger(reconnectTarget.expectedHealthVersion) ||
+      reconnectTarget.expectedHealthVersion < 1
+    ) {
+      throw new Error("hosted_codex_reconnect_conflict");
+    }
+    await dependencies.mutations.assertReconnectTarget({
+      workspaceId: commandWorkspaceId,
+      ...reconnectTarget,
+    });
+  }
   const started = await startHostedCodexDeviceLogin(
     {
       id: hostedDeviceLoginId(dependencies.createLoginId()),
-      workspaceId: workspaceId(input.workspaceId),
+      workspaceId: workspaceId(commandWorkspaceId),
       actor: actor.actor,
-      label: input.label.trim(),
-      priority: input.priority,
+      label,
+      priority,
+      reconnectTarget,
       now: dependencies.now(),
     },
     {
@@ -256,6 +292,25 @@ export async function pollHostedPoolDeviceLogin(
       deviceAuth: dependencies.deviceAuth,
       enroll: {
         enrollAuthJson: async (command) => {
+          if (command.reconnectTarget) {
+            try {
+              const currentActor = await authorizeAndEntitle(
+                command.workspaceId,
+                dependencies,
+              );
+              if (currentActor.actor !== actor.actor)
+                throw new Error("hosted_pool_device_login_forbidden");
+              importedAccount = await dependencies.mutations.reconnectAccount({
+                workspaceId: command.workspaceId,
+                ...command.reconnectTarget,
+                authJson: command.authJson,
+                requestedAt: dependencies.now(),
+              });
+            } finally {
+              command.authJson.fill(0);
+            }
+            return;
+          }
           importedAccount = await importHostedPoolAccount(
             {
               workspaceId: command.workspaceId,

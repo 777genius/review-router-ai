@@ -9,6 +9,7 @@ import {
   type ReviewAssignmentManifest as ProgressAssignmentManifest,
   type ReviewSlotProgressInput,
 } from "../../domain/review-progress";
+import { progressCommentPublishAt } from "../../domain/progress-comment-cadence";
 import {
   canonicalObjectJson,
   validateReviewAssignmentManifest,
@@ -60,6 +61,7 @@ export async function captureReviewProgress(
       : {}),
     phase,
     terminal: terminalOutcome ?? "none",
+    startedAt: execution.createdAt,
     updatedAt: now,
     ...(execution.state === "partial" ? { allowPartial: true } : {}),
   });
@@ -67,9 +69,11 @@ export async function captureReviewProgress(
   const existing = await transaction.reviewExecutionProgressV1.findUnique({
     where: { executionId: execution.executionId },
   });
+  let previousPhase: ProgressPhase | null = null;
   if (existing) {
     const previous = parseProgressSnapshot(existing.snapshotJson);
     assertProgressTransition(previous, computed);
+    previousPhase = previous.phase;
     if (
       existing.sourceExecutionVersion === execution.version &&
       existing.snapshotHash === snapshotHash
@@ -119,11 +123,17 @@ export async function captureReviewProgress(
   });
   if (!activatesScope) return;
 
-  const isTerminal = terminalOutcome !== null;
-  const throttledAt = publication?.lastPublishedAt
-    ? new Date(publication.lastPublishedAt.getTime() + 60_000)
-    : new Date(now.getTime() + 1_000);
-  const nextPublishAt = isTerminal || throttledAt < now ? now : throttledAt;
+  const nextPublishAt = progressCommentPublishAt({
+    now,
+    lastPublishedAt: publication?.lastPublishedAt ?? null,
+    terminal: terminalOutcome !== null,
+    // A first snapshot of this execution means a new review took over the PR.
+    phaseChanged: previousPhase !== phase,
+    pendingPublishAt:
+      publication && publication.desiredVersion > publication.publishedVersion
+        ? publication.nextPublishAt
+        : null,
+  });
   if (!publication) {
     await transaction.reviewProgressPublicationV1.create({
       data: {
@@ -208,15 +218,20 @@ async function readAssignmentManifest(
     return null;
   }
   if (
-    row.assignmentManifestVersion !== 1 ||
+    (row.assignmentManifestVersion !== 1 &&
+      row.assignmentManifestVersion !== 2) ||
     row.assignmentManifestJson === null
   ) {
     throw new Error("review_assignment_manifest_persisted_invalid");
   }
-  return validateReviewAssignmentManifest(
+  const manifest = validateReviewAssignmentManifest(
     row.assignmentManifestJson,
     execution.workSlots.map((slot) => slot.workSlotId),
   );
+  if (manifest.manifestVersion !== row.assignmentManifestVersion) {
+    throw new Error("review_assignment_manifest_persisted_invalid");
+  }
+  return manifest;
 }
 
 function progressManifest(
@@ -297,6 +312,9 @@ function parseProgressSnapshot(value: Prisma.JsonValue): ProgressSnapshot {
     !isProgressTerminal(value.terminal) ||
     typeof value.updatedAt !== "string" ||
     !Number.isFinite(Date.parse(value.updatedAt)) ||
+    (value.startedAt !== undefined &&
+      (typeof value.startedAt !== "string" ||
+        !Number.isFinite(Date.parse(value.startedAt)))) ||
     !isProgressCounts(value.counts) ||
     !isFileCoverage(value.fileCoverage) ||
     !isOptionalSourceIdentity(value.sourceIdentity) ||

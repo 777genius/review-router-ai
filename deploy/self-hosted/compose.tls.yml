@@ -1,0 +1,24 @@
+services:
+  caddy:
+    image: caddy:2.11.9-alpine
+    restart: unless-stopped
+    environment:
+      REVIEW_ROUTER_TLS_WEB_HOST: ${REVIEW_ROUTER_TLS_WEB_HOST:?Public web domain is required}
+      REVIEW_ROUTER_TLS_API_HOST: ${REVIEW_ROUTER_TLS_API_HOST:?Public API domain is required}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - reviewrouter-caddy-data:/data
+      - reviewrouter-caddy-config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+volumes:
+  reviewrouter-caddy-data:
+  reviewrouter-caddy-config:

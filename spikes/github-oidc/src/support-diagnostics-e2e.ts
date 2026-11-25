@@ -4,7 +4,7 @@ import {
   PrismaSupportDiagnosticsRepository,
 } from "../../../packages/features/support-diagnostics/src/index.ts";
 import { createMemoryBodyHash } from "../../../packages/features/memory/src/index.ts";
-import { PrismaAuditLogRepository } from "../../../packages/features/audit-log/src/index.ts";
+import { PrismaAuditLogRepository } from "../../../packages/features/audit-log/src/composition/index.ts";
 import { createPrismaClient } from "../../../packages/platform/db/src/index.ts";
 import { loadEnvFiles } from "./config.js";
 

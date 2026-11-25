@@ -1,6 +1,14 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
+  defaultWorkspaceReviewPolicy,
+  STORED_REVIEW_POLICY_SCHEMA_VERSION,
+  type ReviewPolicyHead,
+  type ReviewPolicyHeadReaderPort,
+  type WorkspaceProviderProfile,
+} from "../packages/features/review-config/src/index.js";
+import {
+  assertHostedPoolCanaryReviewDependency,
   assertClassifiedOutcome,
   assertExactPullRequestHead,
   assertExactReleasePullRequestRevision,
@@ -20,7 +28,6 @@ import { canaryPhaseFixture } from "./hosted-pool-canary-phase-recovery.fixture"
 
 const publicationDb = vi.hoisted(() => ({
   hostedCodexRepositoryBinding: { findMany: vi.fn() },
-  reviewConfiguration: { findMany: vi.fn() },
 }));
 
 vi.mock("../packages/platform/db/src/index.js", () => ({
@@ -943,6 +950,138 @@ describe("hosted pool one-shot production canary", () => {
   });
 });
 
+const canaryProfiles: ReadonlyMap<string, WorkspaceProviderProfile> = new Map(
+  (
+    [
+      {
+        id: "profile-hosted",
+        credential: {
+          kind: "hosted_pool",
+          authMode: "codex_subscription_oauth_hosted_pool",
+        },
+        model: "gpt-5.5",
+      },
+      {
+        id: "profile-claude",
+        credential: { kind: "user_ci_secret", authMode: "claude_code_oauth" },
+        model: "sonnet",
+      },
+    ] as const
+  ).map((profile) => [
+    profile.id,
+    {
+      ...profile,
+      workspaceId: "workspace-canary",
+      createdByUserId: null,
+      label: profile.id,
+      archivedAt: null,
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+    },
+  ]),
+);
+
+function hostedPoolSelection(
+  overrides: Readonly<{ profileId?: string; fastMode?: boolean }> = {},
+) {
+  return {
+    profileId: "profile-hosted",
+    reasoningEffort: "high" as const,
+    agenticContext: true,
+    fastMode: false,
+    requiredHealthy: true,
+    ...overrides,
+  };
+}
+
+/** Schema 4 policy heads: the projection columns of these versions are NULL. */
+function canaryPolicyHeads(input: {
+  readonly own: ReturnType<typeof hostedPoolSelection> | null;
+  readonly workspaceDefault?: ReturnType<typeof hostedPoolSelection>;
+  readonly ownSchemaVersion?: number;
+}): ReviewPolicyHeadReaderPort {
+  const head = (
+    version: number,
+    document: unknown,
+    schemaVersion = STORED_REVIEW_POLICY_SCHEMA_VERSION,
+  ): ReviewPolicyHead => ({
+    version,
+    schemaVersion,
+    policyJson: JSON.stringify(document),
+  });
+  const heads = {
+    workspace: head(1, {
+      ...defaultWorkspaceReviewPolicy(),
+      ...(input.workspaceDefault
+        ? { providers: [input.workspaceDefault] }
+        : {}),
+    }),
+    repository: input.own
+      ? head(
+          2,
+          {
+            schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
+            providers: [input.own],
+          },
+          input.ownSchemaVersion,
+        )
+      : null,
+    profiles: canaryProfiles,
+  };
+  const unused = async (): Promise<never> => {
+    throw new Error("unused");
+  };
+  return {
+    readPolicyHeads: async () => heads,
+    readRepositoryPolicyHeads: unused,
+    readWorkspacePolicyHeads: unused,
+    readProviderProfiles: async () => canaryProfiles,
+  };
+}
+
+describe("hosted pool canary review dependency", () => {
+  const target = {
+    workspaceId: "workspace-canary",
+    repositoryId: "connection-canary",
+  };
+  const check = (policyHeads: ReviewPolicyHeadReaderPort) =>
+    assertHostedPoolCanaryReviewDependency(target, { policyHeads });
+
+  it("accepts the repository's own hosted pool selection stored in schema 4", async () => {
+    await expect(
+      check(canaryPolicyHeads({ own: hostedPoolSelection() })),
+    ).resolves.toBeUndefined();
+  });
+
+  it.each([
+    [
+      "fast mode",
+      canaryPolicyHeads({ own: hostedPoolSelection({ fastMode: true }) }),
+    ],
+    [
+      "another provider",
+      canaryPolicyHeads({
+        own: hostedPoolSelection({ profileId: "profile-claude" }),
+      }),
+    ],
+    [
+      "no selection of its own",
+      canaryPolicyHeads({
+        own: null,
+        workspaceDefault: hostedPoolSelection({ profileId: "profile-claude" }),
+      }),
+    ],
+    [
+      "a retired document",
+      canaryPolicyHeads({ own: hostedPoolSelection(), ownSchemaVersion: 3 }),
+    ],
+  ])("refuses %s", async (_case, policyHeads) => {
+    await expect(check(policyHeads)).rejects.toThrow(
+      "hosted_pool_canary_hosted_dependency_contract_invalid",
+    );
+  });
+});
+
 describe("single-repository publication baseline integration", () => {
   function publicationKit() {
     const config = parseHostedPoolCanaryConfig(env);
@@ -959,6 +1098,7 @@ describe("single-repository publication baseline integration", () => {
     publicationDb.hostedCodexRepositoryBinding.findMany.mockResolvedValue([
       {
         id: "binding-canary",
+        workspaceId: "workspace-canary",
         poolId: config.poolId,
         revision: 1n,
         workflowActionRef: `777genius/review-router@${sha}`,
@@ -982,22 +1122,6 @@ describe("single-repository publication baseline integration", () => {
           status: "active",
           accounts: config.accountIds.map((id) => ({ id, state: "healthy" })),
         },
-      },
-    ]);
-    publicationDb.reviewConfiguration.findMany.mockResolvedValue([
-      {
-        versions: [
-          {
-            fastMode: false,
-            providerAuthMode: "codex_subscription_oauth_hosted_pool",
-            providers: [
-              {
-                fastMode: false,
-                providerAuthMode: "codex_subscription_oauth_hosted_pool",
-              },
-            ],
-          },
-        ],
       },
     ]);
     let clock = new Date("2026-09-06T00:00:00.000Z");
@@ -1083,6 +1207,7 @@ describe("single-repository publication baseline integration", () => {
       repositoryToken: "fixture",
       databaseUrl: "postgresql://fixture.invalid/reviewrouter",
       now: () => clock,
+      policyHeads: canaryPolicyHeads({ own: hostedPoolSelection() }),
     });
     return {
       config,

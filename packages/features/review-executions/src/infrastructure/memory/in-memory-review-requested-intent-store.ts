@@ -8,14 +8,17 @@ import {
   type CancelReviewRequestedPreAdmissionCommand,
   type DeferReviewRequestedResolutionCommand,
   type EnsureReviewRequestedRerunIntentCommand,
+  type ExtendReviewRequestedQueuedRunWaitCommand,
   type LinkReviewRequestedAdmissionCommand,
   type RecordReviewRequestedAdmissionDecisionCommand,
+  type ResolveReviewRequestedPreparationCommand,
   type RecordReviewRequestedDispatchCommand,
   type RecoverReviewRequestedDispatchCommand,
   type RegisterReviewRequestedIntentCommand,
   type ReviewRequestedIntentCommandPort,
   type ReviewRequestedIntentPrunerPort,
   type ReviewRequestedIntentQueryPort,
+  type ReviewRequestedNewerRequestQueryPort,
 } from "../../application/ports/review-requested-intent-ports";
 import type { ReviewExecutionFencingTokenSourcePort } from "../../application/ports/review-execution-ports";
 import {
@@ -40,6 +43,10 @@ import {
   decideReviewRequestedDispatchRecovery,
   decideReviewRequestedRegistration,
   deferReviewRequestedResolution,
+  extendReviewRequestedQueuedRunWait,
+  expireReviewRequestedPreparation,
+  isReviewRequestedPreparationExpired,
+  resolveReviewRequestedPreparation,
   type ReviewRequestedIntent,
 } from "../../domain/review-requested-intent";
 import {
@@ -52,7 +59,8 @@ export class InMemoryReviewRequestedIntentStore
   implements
     ReviewRequestedIntentQueryPort,
     ReviewRequestedIntentCommandPort,
-    ReviewRequestedIntentPrunerPort
+    ReviewRequestedIntentPrunerPort,
+    ReviewRequestedNewerRequestQueryPort
 {
   private readonly intents = new Map<string, ReviewRequestedIntent>();
   private readonly deliveryIndex = new Map<string, string>();
@@ -87,6 +95,19 @@ export class InMemoryReviewRequestedIntentStore
     const requestId = this.pendingByScope.get(scopeKey(scope));
     const intent = requestId ? this.intents.get(requestId) : undefined;
     return intent ? cloneIntent(intent) : null;
+  }
+
+  async hasNewerRequestInScope(
+    intent: ReviewRequestedIntent,
+  ): Promise<boolean> {
+    await this.transactionTail;
+    return [...this.intents.values()].some(
+      (other) =>
+        other.requestId !== intent.requestId &&
+        scopeKey(other) === scopeKey(intent) &&
+        other.createdAt >= intent.createdAt &&
+        other.supersededByRequestId !== intent.requestId,
+    );
   }
 
   async findBySourceRunIdentity(input: {
@@ -150,6 +171,8 @@ export class InMemoryReviewRequestedIntentStore
   async listDue(input: {
     readonly now: Date;
     readonly limit: number;
+    readonly excludeRequestIds?: readonly string[];
+    readonly excludeAlwaysRequestIds?: readonly string[];
   }): Promise<readonly ReviewRequestedIntent[]> {
     await this.transactionTail;
     assertDate(input.now, "review_requested_due_now");
@@ -160,18 +183,54 @@ export class InMemoryReviewRequestedIntentStore
     ) {
       throw new Error("review_requested_invalid_due_limit");
     }
-    return [...this.intents.values()]
+    const intents = [...this.intents.values()];
+    const busyScopes = new Set(
+      intents.filter((intent) => blocksScope(intent, input.now)).map(scopeKey),
+    );
+    return intents
       .filter(
         (intent) =>
-          (intent.state === ReviewRequestedIntentState.PendingDispatch &&
+          // Expired no-effect preparations are terminalized before the claim's
+          // busy-scope check; they must remain visible even in an occupied lane.
+          (!busyScopes.has(scopeKey(intent)) ||
+            isReviewRequestedPreparationExpired(intent, input.now)) &&
+          !input.excludeAlwaysRequestIds?.includes(intent.requestId) &&
+          (!input.excludeRequestIds?.includes(intent.requestId) ||
+            (intent.state === ReviewRequestedIntentState.Dispatching &&
+              intent.resolutionDeadlineAt !== null &&
+              intent.resolutionDeadlineAt <= input.now)) &&
+          ((intent.state === ReviewRequestedIntentState.PendingDispatch &&
             intent.notBefore <= input.now) ||
-          (intent.state === ReviewRequestedIntentState.Dispatching &&
-            intent.claim !== null &&
-            intent.claim.claimUntil <= input.now),
+            (intent.state === ReviewRequestedIntentState.Dispatching &&
+              intent.claim !== null &&
+              intent.claim.claimUntil <= input.now)),
       )
       .sort(
         (left, right) =>
-          left.notBefore.getTime() - right.notBefore.getTime() ||
+          Number(
+            !(
+              input.excludeRequestIds?.includes(left.requestId) &&
+              left.state === ReviewRequestedIntentState.Dispatching &&
+              left.resolutionDeadlineAt !== null &&
+              left.resolutionDeadlineAt <= input.now
+            ),
+          ) -
+            Number(
+              !(
+                input.excludeRequestIds?.includes(right.requestId) &&
+                right.state === ReviewRequestedIntentState.Dispatching &&
+                right.resolutionDeadlineAt !== null &&
+                right.resolutionDeadlineAt <= input.now
+              ),
+            ) ||
+          (left.state === ReviewRequestedIntentState.Dispatching
+            ? left.claim!.claimUntil
+            : left.notBefore
+          ).getTime() -
+            (right.state === ReviewRequestedIntentState.Dispatching
+              ? right.claim!.claimUntil
+              : right.notBefore
+            ).getTime() ||
           left.createdAt.getTime() - right.createdAt.getTime() ||
           left.requestId.localeCompare(right.requestId),
       )
@@ -324,24 +383,27 @@ export class InMemoryReviewRequestedIntentStore
       if (!intent) {
         return { status: ReviewRequestedClaimStatus.Missing };
       }
+      const decision = assessReviewRequestedClaim({ intent, ...command });
+      const expired =
+        decision === ReviewRequestedClaimDecisionStatus.Takeover
+          ? expireReviewRequestedPreparation(intent, command.now)
+          : null;
+      if (expired !== null) {
+        this.intents.set(intent.requestId, expired);
+        return {
+          status: ReviewRequestedClaimStatus.PreparationExpired,
+          intent: cloneIntent(expired),
+        };
+      }
       const laneBusy = [...this.intents.values()].some(
         (candidate) =>
           candidate.requestId !== intent.requestId &&
           scopeKey(candidate) === scopeKey(intent) &&
-          ((candidate.state === ReviewRequestedIntentState.Dispatching &&
-            candidate.claim !== null &&
-            candidate.claim.claimUntil > command.now) ||
-            ((candidate.state ===
-              ReviewRequestedIntentState.ReconcilingDispatch ||
-              candidate.state ===
-                ReviewRequestedIntentState.AwaitingAuthorization) &&
-              candidate.resolutionDeadlineAt !== null &&
-              candidate.resolutionDeadlineAt > command.now)),
+          blocksScope(candidate, command.now),
       );
       if (laneBusy) {
         return { status: ReviewRequestedClaimStatus.Busy };
       }
-      const decision = assessReviewRequestedClaim({ intent, ...command });
       if (decision === ReviewRequestedClaimDecisionStatus.Restored) {
         return {
           status: ReviewRequestedClaimStatus.Restored,
@@ -357,7 +419,10 @@ export class InMemoryReviewRequestedIntentStore
         fencingToken: this.fencingTokens.next(),
       });
       this.intents.set(intent.requestId, claimed);
-      this.pendingByScope.delete(scopeKey(intent));
+      const scope = scopeKey(intent);
+      if (this.pendingByScope.get(scope) === intent.requestId) {
+        this.pendingByScope.delete(scope);
+      }
       return {
         status: ReviewRequestedClaimStatus.Claimed,
         intent: cloneIntent(claimed),
@@ -417,20 +482,9 @@ export class InMemoryReviewRequestedIntentStore
       if (sourceRunIdentityOwned) {
         return { status: ReviewRequestedTransitionStatus.StaleClaim };
       }
-      const competingPreAdmission = [...this.intents.values()].some(
-        (candidate) =>
-          candidate.requestId !== intent.requestId &&
-          scopeKey(candidate) === scopeKey(intent) &&
-          (candidate.state === ReviewRequestedIntentState.PendingDispatch ||
-            candidate.state === ReviewRequestedIntentState.Dispatching ||
-            candidate.state ===
-              ReviewRequestedIntentState.ReconcilingDispatch ||
-            candidate.state ===
-              ReviewRequestedIntentState.AwaitingAuthorization),
-      );
       const decision = decideReviewRequestedDispatch({
         intent,
-        competingPreAdmission,
+        competingPreAdmission: this.hasCompetingPreAdmission(intent),
         ...command,
       });
       if (
@@ -513,6 +567,33 @@ export class InMemoryReviewRequestedIntentStore
       if (decision.status !== ReviewRequestedTransitionDecisionStatus.Applied) {
         return { status: ReviewRequestedTransitionStatus.Conflict };
       }
+      this.intents.set(intent.requestId, decision.intent);
+      return {
+        status: ReviewRequestedTransitionStatus.Applied,
+        intent: cloneIntent(decision.intent),
+      };
+    });
+  }
+
+  async resolvePreparation(command: ResolveReviewRequestedPreparationCommand) {
+    return this.atomic(() => {
+      const intent = this.intents.get(command.requestId);
+      if (!intent) return { status: ReviewRequestedTransitionStatus.Missing };
+      const decision = resolveReviewRequestedPreparation({
+        ...command,
+        intent,
+      });
+      if (
+        decision.status === ReviewRequestedTransitionDecisionStatus.StaleClaim
+      )
+        return { status: ReviewRequestedTransitionStatus.StaleClaim };
+      if (decision.status === ReviewRequestedTransitionDecisionStatus.Conflict)
+        return { status: ReviewRequestedTransitionStatus.Conflict };
+      if (decision.status === ReviewRequestedTransitionDecisionStatus.Restored)
+        return {
+          status: ReviewRequestedTransitionStatus.Restored,
+          intent: cloneIntent(decision.intent),
+        };
       this.intents.set(intent.requestId, decision.intent);
       return {
         status: ReviewRequestedTransitionStatus.Applied,
@@ -627,6 +708,43 @@ export class InMemoryReviewRequestedIntentStore
         intent: cloneIntent(decision.intent),
       };
     });
+  }
+
+  async extendQueuedRunWait(
+    command: ExtendReviewRequestedQueuedRunWaitCommand,
+  ) {
+    return this.atomic(() => {
+      const intent = this.intents.get(command.requestId);
+      if (!intent) {
+        return { status: ReviewRequestedTransitionStatus.Missing };
+      }
+      const decision = extendReviewRequestedQueuedRunWait({
+        intent,
+        ...command,
+        competingPreAdmission: this.hasCompetingPreAdmission(intent),
+      });
+      if (decision.status !== ReviewRequestedTransitionDecisionStatus.Applied) {
+        return { status: ReviewRequestedTransitionStatus.Conflict };
+      }
+      this.intents.set(intent.requestId, decision.intent);
+      return {
+        status: ReviewRequestedTransitionStatus.Applied,
+        intent: cloneIntent(decision.intent),
+      };
+    });
+  }
+
+  /** Another request of the pull request that has not reached its own run yet. */
+  private hasCompetingPreAdmission(intent: ReviewRequestedIntent): boolean {
+    return [...this.intents.values()].some(
+      (candidate) =>
+        candidate.requestId !== intent.requestId &&
+        scopeKey(candidate) === scopeKey(intent) &&
+        (candidate.state === ReviewRequestedIntentState.PendingDispatch ||
+          candidate.state === ReviewRequestedIntentState.Dispatching ||
+          candidate.state === ReviewRequestedIntentState.ReconcilingDispatch ||
+          candidate.state === ReviewRequestedIntentState.AwaitingAuthorization),
+    );
   }
 
   async pruneRetainedIntents(input: {
@@ -749,4 +867,18 @@ function requiredResolutionDate(intent: ReviewRequestedIntent): Date {
     throw new Error("review_requested_resolution_date_missing");
   }
   return intent.nextResolutionAt;
+}
+
+// Mirrors Prisma claimIntent's scope blocker predicate. A due candidate is
+// never itself an active blocker: dispatching claims must have expired.
+function blocksScope(intent: ReviewRequestedIntent, now: Date): boolean {
+  return (
+    (intent.state === ReviewRequestedIntentState.Dispatching &&
+      intent.claim !== null &&
+      intent.claim.claimUntil > now) ||
+    ((intent.state === ReviewRequestedIntentState.ReconcilingDispatch ||
+      intent.state === ReviewRequestedIntentState.AwaitingAuthorization) &&
+      intent.resolutionDeadlineAt !== null &&
+      intent.resolutionDeadlineAt > now)
+  );
 }

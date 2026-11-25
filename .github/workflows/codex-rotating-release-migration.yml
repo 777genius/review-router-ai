@@ -159,6 +159,11 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.trust-bootstrap.outputs.trusted_main_sha }}
 
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.11.1
+
       - name: Install and validate recovery tooling
         shell: bash
         run: |
@@ -182,9 +187,9 @@ jobs:
           [[ "$API_SERVICE_ID" != "$WORKER_SERVICE_ID" ]]
           [[ "$API_SERVICE_ID" != "$WEB_SERVICE_ID" ]]
           [[ "$WORKER_SERVICE_ID" != "$WEB_SERVICE_ID" ]]
-          corepack enable
+          npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
           node scripts/install-private-dependencies.mjs --frozen-lockfile
-          pnpm db:generate
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA=1 node scripts/generate-prisma-offline.mjs
           docker pull postgres:17-alpine >/dev/null
 
       - name: Provision roles, migrate, switch services, and resume
@@ -652,6 +657,11 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.trust-bootstrap.outputs.trusted_main_sha }}
 
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.11.1
+
       - name: Install registration tooling
         shell: bash
         run: |
@@ -697,9 +707,9 @@ jobs:
               ;;
             *) exit 2 ;;
           esac
-          corepack enable
+          npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
           node scripts/install-private-dependencies.mjs --frozen-lockfile
-          pnpm db:generate
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA=1 node scripts/generate-prisma-offline.mjs
           pnpm --filter @reviewrouter/api... build
           node scripts/rewrite-dist-esm-imports.mjs
           docker pull postgres:17-alpine >/dev/null

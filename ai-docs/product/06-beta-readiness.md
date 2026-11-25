@@ -3,7 +3,7 @@
 ## Current Private MVP Status
 
 Status: private/local beta is functionally validated for the intended v1 model:
-SaaS control plane plus review execution inside customer GitHub Actions.
+control plane plus review execution inside customer GitHub Actions.
 
 For the consolidated definition of done, first tester demo checklist, validation
 commands, and launch blockers, use [Beta Runbook](../BETA_RUNBOOK.md).
@@ -45,7 +45,7 @@ Latest hosted GitHub App credential smoke:
 ```text
 Date: 2026-05-04 21:59 EEST
 Command: REVIEW_ROUTER_GITHUB_APP_ENV_FILE=.env.production pnpm github-app:check
-Result: credentials passed, required permissions present, webhook config matched `https://api.reviewrouter.site/webhooks/github`, and the App is installed on the `777genius` account.
+Result: credentials passed, required permissions present, webhook config matched `https://api.reviewrouter.org/webhooks/github`, and the App is installed on the `777genius` account.
 App: id 3599233 / slug review-router-ai / owner 777genius.
 Install URL: https://github.com/apps/review-router-ai/installations/new
 ```
@@ -203,7 +203,7 @@ Latest hosted readiness gate smoke:
 Date: 2026-05-04
 Command: pnpm hosted:check:smoke
 Result: passed.
-Coverage: valid hosted env passes; SaaS env containing provider API key fails; localhost public API URL fails.
+Coverage: valid hosted env passes; control plane env containing provider API key fails; localhost public API URL fails.
 ```
 
 Latest local + DB beta gate:
@@ -242,7 +242,7 @@ Result: setup PR created and merged; workflow health changed from missing to pre
 
 ## Public Beta Must Have
 
-- clear privacy statement: ReviewRouter SaaS does not store code, diffs, or Codex OAuth in v1
+- clear privacy statement: ReviewRouter does not store code, diffs, or Codex OAuth in v1
 - GitHub App permissions explanation
 - safe generated workflow defaults
 - install flow tested on fresh org/repo
@@ -279,7 +279,7 @@ Result: setup PR created and merged; workflow health changed from missing to pre
 - workflow provisioning idempotency and conflict handling
 - OIDC action session exchange and replay guard tests
 - action health metadata reporting
-- provider setup guidance without SaaS secret custody
+- provider setup guidance without control plane secret custody
 - local backup/restore smoke for metadata database
 - repeatable fresh repository E2E script
 - repeatable full review E2E script with Codex OAuth
@@ -313,8 +313,8 @@ Result: setup PR created and merged; workflow health changed from missing to pre
 ## Launch Blockers
 
 - any default workflow using `pull_request_target` for untrusted code review
-- storing Codex OAuth in SaaS
-- storing repo code/diff in SaaS
+- storing Codex OAuth in control plane
+- storing repo code/diff in control plane
 - unscoped repository access bug
 - setup PR can be duplicated by repeated clicks or GitHub API races
 - invalid webhook signature accepted

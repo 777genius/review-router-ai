@@ -43,6 +43,9 @@ export enum ReviewRequestAdmissionState {
 
 export const reviewRequestedAdmissionHandoffMinimumMs = 30_000;
 
+/** Measured from the first pre-submission claim, not from registration. */
+export const reviewRequestedPreparationTimeoutMs = 24 * 60 * 60 * 1_000;
+
 export type ReviewRequestAdmission =
   | {
       readonly state: ReviewRequestAdmissionState.NotEvaluated;
@@ -73,6 +76,7 @@ export type ReviewRequestedClaim = {
 
 export type ReviewRequestedIntent = ReviewExecutionScope & {
   readonly requestId: string;
+  readonly historyRootRequestId?: string | null;
   readonly dispatchAttempt: number;
   readonly version: bigint;
   readonly revision: ReviewRevision;
@@ -99,6 +103,10 @@ export type ReviewRequestedIntent = ReviewExecutionScope & {
 };
 
 export type ReviewRequestedIntentCandidate = ReviewExecutionScope & {
+  readonly historyMetadata?: Readonly<{
+    repositoryFullName?: string | null;
+    pullRequestTitle?: string | null;
+  }>;
   readonly requestId: string;
   readonly dispatchAttempt?: number;
   readonly revision: ReviewRevision;
@@ -202,6 +210,7 @@ export function createReviewRequestedIntent(
   assertReviewRequestedIntentCandidate(candidate);
   return {
     ...candidate,
+    historyRootRequestId: candidate.requestId,
     dispatchAttempt: candidate.dispatchAttempt ?? 1,
     revision: { ...candidate.revision },
     version: 1n,
@@ -428,8 +437,10 @@ export function decideReviewRequestedRegistration(input: {
   const intent = createReviewRequestedIntent(input.candidate);
   const preAdmission = input.preAdmissionInScope;
   if (
-    preAdmission?.state === ReviewRequestedIntentState.PendingDispatch &&
-    compareIngressOrder(input.candidate, preAdmission) < 0
+    preAdmission !== null &&
+    ((preAdmission.state === ReviewRequestedIntentState.PendingDispatch &&
+      compareIngressOrder(input.candidate, preAdmission) < 0) ||
+      joinsDispatchedRun(input.candidate, preAdmission))
   ) {
     return {
       status: ReviewRequestedRegistrationDecisionStatus.RegisterSuperseded,
@@ -469,6 +480,26 @@ export function decideReviewRequestedRegistration(input: {
     intent,
     supersededIntent: null,
   };
+}
+
+/**
+ * A pull request event for the revision whose workflow run is already
+ * dispatched and still within its authorization window adds nothing: a second
+ * run would take the first run's execution over and discard its reviewer work.
+ * A manual command stays an explicit rerun, and a dispatch whose run is not
+ * confirmed or whose window has passed does not absorb the new request.
+ */
+function joinsDispatchedRun(
+  candidate: ReviewRequestedIntentCandidate,
+  dispatched: ReviewRequestedIntent,
+): boolean {
+  return (
+    candidate.triggerKind !== ReviewRequestedTriggerKind.ManualCommand &&
+    dispatched.state === ReviewRequestedIntentState.AwaitingAuthorization &&
+    dispatched.resolutionDeadlineAt !== null &&
+    dispatched.resolutionDeadlineAt > candidate.createdAt &&
+    reviewRevisionsEqual(dispatched.revision, candidate.revision)
+  );
 }
 
 function compareIngressOrder(
@@ -541,6 +572,11 @@ export function claimReviewRequestedIntent(input: {
     ...input.intent,
     version: input.intent.version + 1n,
     state: ReviewRequestedIntentState.Dispatching,
+    // In dispatching this is the preparation deadline. Once submission
+    // begins, the existing submission deadline replaces it atomically.
+    resolutionDeadlineAt:
+      input.intent.resolutionDeadlineAt ??
+      new Date(input.now.getTime() + reviewRequestedPreparationTimeoutMs),
     claim: {
       claimId: input.claimId,
       ownerIdHash: input.ownerIdHash,
@@ -550,6 +586,40 @@ export function claimReviewRequestedIntent(input: {
     },
     updatedAt: new Date(input.now),
   };
+}
+
+/** Pure eligibility check shared by due selection and locked expiration. */
+export function isReviewRequestedPreparationExpired(
+  intent: ReviewRequestedIntent,
+  now: Date,
+): boolean {
+  return (
+    intent.state === ReviewRequestedIntentState.Dispatching &&
+    intent.claim !== null &&
+    intent.claim.claimUntil <= now &&
+    intent.resolutionDeadlineAt !== null &&
+    intent.resolutionDeadlineAt <= now &&
+    intent.submissionStartedAt === null &&
+    intent.sourceRunId === null &&
+    intent.sourceRunAttempt === null &&
+    intent.authorizationId === null &&
+    intent.executionId === null
+  );
+}
+
+/** Called only while reclaiming an expired claim under the scope/intent lock. */
+export function expireReviewRequestedPreparation(
+  intent: ReviewRequestedIntent,
+  now: Date,
+): ReviewRequestedIntent | null {
+  assertDate(now, "preparation_expired_at");
+  if (!isReviewRequestedPreparationExpired(intent, now)) return null;
+  return terminalizeReviewRequestedIntent({
+    intent,
+    expectedVersion: intent.version,
+    terminalReason: ReviewRequestedIntentTerminalReason.DispatchFailedNoEffect,
+    now,
+  });
 }
 
 export function decideReviewRequestedDispatch(input: {
@@ -767,7 +837,10 @@ export function decideReviewRequestedDispatchRecovery(input: {
       createSuccessor: false,
     };
   }
-  const successor = createReviewRequestedIntent(input.successorCandidate);
+  const successor = {
+    ...createReviewRequestedIntent(input.successorCandidate),
+    historyRootRequestId: input.intent.historyRootRequestId ?? null,
+  };
   if (
     successor.requestId === input.intent.requestId ||
     scopeKey(successor) !== scopeKey(input.intent) ||
@@ -836,6 +909,41 @@ export function beginReviewRequestedSubmission(input: {
   };
 }
 
+/** Resolve one claim before any effect-bearing submission has begun. */
+export function resolveReviewRequestedPreparation(input: {
+  readonly intent: ReviewRequestedIntent;
+  readonly expectedVersion: bigint;
+  readonly claimId: string;
+  readonly ownerIdHash: string;
+  readonly fencingToken: bigint;
+  readonly now: Date;
+}): ReviewRequestedTransitionDecision {
+  assertDate(input.now, "preparation_resolved_at");
+  const intent = input.intent;
+  if (
+    intent.state !== ReviewRequestedIntentState.Dispatching ||
+    intent.version !== input.expectedVersion ||
+    intent.claim === null ||
+    !reviewRequestedClaimMatches(intent, input) ||
+    intent.claim.claimUntil <= input.now
+  ) {
+    return { status: ReviewRequestedTransitionDecisionStatus.StaleClaim };
+  }
+  if (
+    intent.submissionStartedAt !== null ||
+    intent.sourceRunId !== null ||
+    intent.sourceRunAttempt !== null ||
+    intent.authorizationId !== null ||
+    intent.executionId !== null
+  ) {
+    return { status: ReviewRequestedTransitionDecisionStatus.Conflict };
+  }
+  return {
+    status: ReviewRequestedTransitionDecisionStatus.Applied,
+    intent: supersedeReviewRequestedIntent(intent, null, input.now),
+  };
+}
+
 export function deferReviewRequestedResolution(input: {
   readonly intent: ReviewRequestedIntent;
   readonly expectedVersion: bigint;
@@ -872,6 +980,109 @@ export function deferReviewRequestedResolution(input: {
   };
 }
 
+/**
+ * How long after dispatch a run that GitHub has not given a runner may keep
+ * its place in the GitHub queue (plan 88): the first window and at most two
+ * more of the 30 minute default.
+ */
+export const reviewRequestedMaxQueuedRunWaitMs = 5_400_000;
+
+/** The latest authorization deadline of a run that is still waiting for a runner. */
+export function reviewRequestedQueuedRunWaitLimit(
+  intent: Pick<ReviewRequestedIntent, "submissionStartedAt">,
+): Date | null {
+  return intent.submissionStartedAt === null
+    ? null
+    : new Date(
+        intent.submissionStartedAt.getTime() +
+          reviewRequestedMaxQueuedRunWaitMs,
+      );
+}
+
+/**
+ * The next deadline a run still waiting for a runner may get: one more window
+ * on top of the current deadline, capped by the queued-wait limit. `null`
+ * when the limit leaves less than half a window, because a runner arriving in
+ * such a stub would be too late for admission anyway.
+ */
+export function reviewRequestedQueuedRunWaitExtension(
+  intent: Pick<
+    ReviewRequestedIntent,
+    "submissionStartedAt" | "resolutionDeadlineAt"
+  >,
+  windowMs: number,
+): Date | null {
+  const deadline = intent.resolutionDeadlineAt;
+  const limit = reviewRequestedQueuedRunWaitLimit(intent);
+  if (deadline === null || limit === null) return null;
+  const extended = Math.min(deadline.getTime() + windowMs, limit.getTime());
+  return extended - deadline.getTime() < windowMs / 2
+    ? null
+    : new Date(extended);
+}
+
+/**
+ * Gives a dispatched run that is still waiting for a GitHub runner one more
+ * authorization window instead of stopping the request, so the run keeps its
+ * place in the GitHub queue (plan 88). Only an open window is extended: once
+ * the deadline passed, a newer request for the same revision may already run.
+ * Another request of the pull request waiting for its own run (a manual
+ * review command) blocks the extension too, so the pull request never gets
+ * two runs. Only a request that no run has reached (admission not evaluated,
+ * no authorization or execution) is extended, within
+ * `reviewRequestedQueuedRunWaitExtension`. The caller must have proven from
+ * GitHub that no job got a runner.
+ */
+export function extendReviewRequestedQueuedRunWait(input: {
+  readonly intent: ReviewRequestedIntent;
+  readonly expectedVersion: bigint;
+  readonly competingPreAdmission: boolean;
+  readonly now: Date;
+  readonly windowMs: number;
+  readonly nextResolutionAt: Date;
+}): ReviewRequestedTransitionDecision {
+  assertDate(input.now, "queued_wait_extended_at");
+  assertDate(input.nextResolutionAt, "next_resolution_at");
+  assertPositiveSafeInteger(input.windowMs, "queued_wait_window_ms");
+  const intent = input.intent;
+  const resolutionDeadlineAt = reviewRequestedQueuedRunWaitExtension(
+    intent,
+    input.windowMs,
+  );
+  if (
+    intent.version !== input.expectedVersion ||
+    input.competingPreAdmission ||
+    intent.state !== ReviewRequestedIntentState.AwaitingAuthorization ||
+    intent.admission.state !== ReviewRequestAdmissionState.NotEvaluated ||
+    intent.authorizationId !== null ||
+    intent.executionId !== null ||
+    intent.sourceRunId === null ||
+    intent.resolutionDeadlineAt === null ||
+    input.now >= intent.resolutionDeadlineAt ||
+    resolutionDeadlineAt === null ||
+    input.nextResolutionAt <= input.now ||
+    input.nextResolutionAt > resolutionDeadlineAt
+  ) {
+    return { status: ReviewRequestedTransitionDecisionStatus.Conflict };
+  }
+  return {
+    status: ReviewRequestedTransitionDecisionStatus.Applied,
+    intent: {
+      ...intent,
+      version: intent.version + 1n,
+      nextResolutionAt: new Date(input.nextResolutionAt),
+      resolutionDeadlineAt,
+      updatedAt: new Date(input.now),
+    },
+  };
+}
+
+function assertPositiveSafeInteger(value: number, field: string): void {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${field}_invalid`);
+  }
+}
+
 function terminalizeReviewRequestedIntent(input: {
   readonly intent: ReviewRequestedIntent;
   readonly expectedVersion: bigint;
@@ -883,6 +1094,10 @@ function terminalizeReviewRequestedIntent(input: {
     throw new Error("review_requested_terminal_version_conflict");
   }
   const validReason =
+    (input.intent.state === ReviewRequestedIntentState.Dispatching &&
+      input.intent.submissionStartedAt === null &&
+      input.terminalReason ===
+        ReviewRequestedIntentTerminalReason.DispatchFailedNoEffect) ||
     (input.intent.state === ReviewRequestedIntentState.ReconcilingDispatch &&
       (input.terminalReason ===
         ReviewRequestedIntentTerminalReason.DispatchFailedNoEffect ||

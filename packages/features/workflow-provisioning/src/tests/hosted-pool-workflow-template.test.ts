@@ -42,7 +42,7 @@ describe("hosted pool workflow schema v2", () => {
     const workflow = renderCanonicalHostedPoolWorkflowV2(options);
 
     expect(workflow).toBe(hostedPoolWorkflowV2Golden);
-    expect(Buffer.byteLength(workflow, "utf8")).toBe(1486);
+    expect(Buffer.byteLength(workflow, "utf8")).toBe(1485);
     expect(createHash("sha256").update(workflow).digest("hex")).toBe(
       hostedPoolWorkflowV2GoldenSha256,
     );
@@ -105,7 +105,7 @@ describe("hosted pool workflow schema v2", () => {
     const workflow = renderCanonicalHostedPoolWorkflowV2(options);
     const attestation = createHostedPoolWorkflowSourceAttestation({
       repositoryId: "123456",
-      workflowPath: ".github/workflows/reviewrouter-codex.yml",
+      workflowPath: ".github/workflows/reviewrouter-review.yml",
       workflowSourceCommitSha: "a".repeat(40),
       workflowSourceBlobSha: "b".repeat(40),
       workflowSourceSha256: createHash("sha256").update(workflow).digest("hex"),
@@ -119,7 +119,7 @@ describe("hosted pool workflow schema v2", () => {
       assertActiveHostedPoolWorkflowAttestation({
         attestation,
         repositoryId: "123456",
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         workflowSourceCommitSha: "a".repeat(40),
         expectedBindingId: options.bindingId,
         expectedBindingRevision: options.bindingRevision + 1,
@@ -133,7 +133,7 @@ describe("hosted pool workflow schema v2", () => {
     const workflow = renderCanonicalHostedPoolWorkflowV2(options);
     const attestation = createHostedPoolWorkflowSourceAttestation({
       repositoryId: "123456",
-      workflowPath: ".github/workflows/reviewrouter-codex.yml",
+      workflowPath: ".github/workflows/reviewrouter-review.yml",
       workflowSourceCommitSha: "a".repeat(40),
       workflowSourceBlobSha: "b".repeat(40),
       workflowSourceSha256: createHash("sha256").update(workflow).digest("hex"),
@@ -147,7 +147,7 @@ describe("hosted pool workflow schema v2", () => {
       assertActiveHostedPoolWorkflowAttestation({
         attestation,
         repositoryId: "123456",
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         workflowSourceCommitSha: "a".repeat(40),
         expectedBindingId: options.bindingId,
         expectedBindingRevision: options.bindingRevision,

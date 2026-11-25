@@ -2,14 +2,14 @@
 
 ## Product Goal
 
-Build ReviewRouter as a SaaS control plane for AI pull request review where the expensive and sensitive review execution runs inside the customer's CI/CD by default.
+Build ReviewRouter as a control plane for AI pull request review where the expensive and sensitive review execution runs inside the customer's CI/CD by default.
 
-The SaaS should make setup, configuration, policy management, audit, and updates easy without taking custody of repository code or Codex OAuth credentials in v1.
+The control plane should make setup, configuration, policy management, audit, and updates easy without taking custody of repository code or Codex OAuth credentials in v1.
 
 ## Core Direction
 
 ```text
-ReviewRouter SaaS = control plane
+ReviewRouter = control plane
 Customer CI/CD = execution plane
 GitHub App = shared identity and installation surface
 ReviewRouter Action = review runtime executed in customer repo
@@ -18,8 +18,8 @@ ReviewRouter Action = review runtime executed in customer repo
 ## Non-Negotiable v1 Principles
 
 1. Do not run code review in ReviewRouter cloud by default.
-2. Do not store Codex ChatGPT OAuth `auth.json` in ReviewRouter SaaS.
-3. Do not store repository code or pull request diffs in SaaS v1.
+2. Do not store Codex ChatGPT OAuth `auth.json` in ReviewRouter.
+3. Do not store repository code or pull request diffs in control plane v1.
 4. Treat GitHub installations, repositories, configs, and users as multi-tenant from day one.
 5. Every webhook and background job must be idempotent.
 6. API instances must be stateless and horizontally scalable.
@@ -27,8 +27,8 @@ ReviewRouter Action = review runtime executed in customer repo
 8. Distributed locks must use Postgres/queue-level mechanisms, not in-memory mutexes.
 9. Config changes must be versioned and auditable.
 10. Frameworks must stay outside domain/application layers.
-11. Runtime config fetch must use GitHub Actions OIDC, not long-lived SaaS tokens in repos.
-12. Action-to-SaaS reporting must be metadata-only.
+11. Runtime config fetch must use GitHub Actions OIDC, not long-lived control plane tokens in repos.
+12. Action-to-control plane reporting must be metadata-only.
 13. Generated workflows must not use `pull_request_target` for default review execution.
 14. Runtime config must be versioned and backwards compatible with installed action versions.
 15. Dashboard auth must use OAuth state, secure sessions, CSRF protection, and application authorization policies.
@@ -36,13 +36,13 @@ ReviewRouter Action = review runtime executed in customer repo
 17. Same-repository PRs are not automatically safe; docs and generated workflows must reflect the trust boundary.
 18. Action release/update compatibility must be explicit and reversible.
 19. Support/admin access must be audited and metadata-only.
-20. Every new SaaS payload field must be data-classified before implementation.
+20. Every new control plane payload field must be data-classified before implementation.
 21. Action health reports must enforce strict schema, size limits, and server-side secret/code rejection.
 22. Critical invariants must be backed by database constraints, not only application checks.
 23. Free beta still needs quotas and abuse controls.
 24. Webhooks must be normalized into safe internal events; raw GitHub payloads are not stored by default.
 25. OIDC validation must handle JWKS caching, clock skew, replay resistance, and action-session scoping.
-26. Customer CI must degrade gracefully when SaaS control plane is unavailable.
+26. Customer CI must degrade gracefully when control plane is unavailable.
 27. Internal events/jobs must be versioned and poison jobs must dead-letter safely.
 28. Telemetry/tracing must not capture request bodies, code, diffs, prompts, secrets, or raw webhook payloads.
 29. Workspace membership, invites, and ownership transfer must preserve at least one owner and audit every role change.
@@ -56,7 +56,7 @@ Key outcome:
 ```text
 ReviewRouter will use `workflows: write` for one-click workflow setup/update PRs.
 GitHub Actions OIDC is sufficient for short-lived action sessions and metadata-only config exchange.
-Provider credentials still stay in customer GitHub Secrets or trusted runners, not in SaaS.
+Provider credentials still stay in customer GitHub Secrets or trusted runners, not in control plane.
 ```
 
 ## Recommended Stack
@@ -86,13 +86,13 @@ Auth: GitHub OAuth, implemented behind auth ports
 
 ## Hybrid Config Direction
 
-Generated workflows include a static config snapshot and OIDC dynamic config support from the start. Dashboard changes to provider/model/effort are served through OIDC config fetch, while static workflow env remains a fallback if SaaS is unavailable. See [`architecture/32-provider-config-control-plane.md`](./architecture/32-provider-config-control-plane.md).
+Generated workflows include a static config snapshot and OIDC dynamic config support from the start. Dashboard changes to provider/model/effort are served through OIDC config fetch, while static workflow env remains a fallback if control plane is unavailable. See [`architecture/32-provider-config-control-plane.md`](./architecture/32-provider-config-control-plane.md).
 
-Codex OAuth is seeded with a separate local script that writes directly to GitHub Actions secrets. SaaS never receives `auth.json`. See [`architecture/33-codex-secret-seeding.md`](./architecture/33-codex-secret-seeding.md).
+Codex OAuth is seeded with a separate local script that writes directly to GitHub Actions secrets. control plane never receives `auth.json`. See [`architecture/33-codex-secret-seeding.md`](./architecture/33-codex-secret-seeding.md).
 
 ## Review Runtime
 
-The existing `777genius/review-router` Action/Codex runtime is the baseline for agent execution. SaaS should configure and provision it, not move review execution into cloud by default. See [`architecture/31-review-agent-runtime-architecture.md`](./architecture/31-review-agent-runtime-architecture.md).
+The existing `777genius/review-router` Action/Codex runtime is the baseline for agent execution. control plane should configure and provision it, not move review execution into cloud by default. See [`architecture/31-review-agent-runtime-architecture.md`](./architecture/31-review-agent-runtime-architecture.md).
 
 ## Architecture Style
 

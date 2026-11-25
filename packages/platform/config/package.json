@@ -15,7 +15,7 @@
     "zod": "^4.4.2"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node ../../../scripts/check-conversation-source-stamp.ts --check && node ../../../scripts/check-conversation-release-verifier.ts --check && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   }
 }

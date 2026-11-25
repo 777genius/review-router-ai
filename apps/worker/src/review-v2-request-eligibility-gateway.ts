@@ -20,12 +20,14 @@ export class GitHubReviewRequestEligibilityGateway implements ReviewRequestEligi
       const octokit = await this.app.getInstallationOctokit(
         Number(input.githubInstallationId),
       );
+      input.signal?.throwIfAborted();
       const response = await octokit.request(
         "GET /repos/{owner}/{repo}/pulls/{pull_number}",
         {
           owner,
           repo,
           pull_number: input.pullRequestNumber,
+          ...(input.signal ? { request: { signal: input.signal } } : {}),
         },
       );
       const data = response.data as unknown;
@@ -58,6 +60,16 @@ export class GitHubReviewRequestEligibilityGateway implements ReviewRequestEligi
         headSha: headSha.toLowerCase(),
         headRepositoryFullName,
         authorType,
+        pullRequestTitle:
+          typeof data.title === "string"
+            ? Array.from(data.title)
+                .map((character) =>
+                  character.charCodeAt(0) < 32 ? " " : character,
+                )
+                .join("")
+                .trim()
+                .slice(0, 500)
+            : null,
       } as const;
     } catch (error) {
       return providerStatus(error) === 404

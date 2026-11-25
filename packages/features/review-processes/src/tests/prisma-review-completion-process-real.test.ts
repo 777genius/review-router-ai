@@ -1,13 +1,21 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   createPrismaClient,
   type PrismaClient,
 } from "@reviewrouter/platform-db";
 import { RecoverMissingReviewCompletionProcesses } from "../application/use-cases/recover-missing-review-completion-processes";
 import type { CreateReviewCompletionProcessInput } from "../domain/review-completion-process";
-import { ReviewCompletionWakeupKind } from "../domain/review-completion-process";
-import { PrismaReviewCompletionProcessRepository } from "../infrastructure/prisma/prisma-review-completion-process-repository";
+import {
+  ReviewCompletionWakeupKind,
+  ReviewCompletionProcessState,
+  ReviewCompletionSafeReason,
+} from "../domain/review-completion-process";
+import { ReviewCompletionProcessTransitionStatus } from "../application/ports/review-completion-process-ports";
+import {
+  PrismaReviewCompletionProcessRepository,
+  type ReviewCompletionSettlementHook,
+} from "../infrastructure/prisma/prisma-review-completion-process-repository";
 import { PrismaReviewCompletionRecoveryFeed } from "../infrastructure/prisma/prisma-review-completion-recovery-feed";
 import { reviewCompletionProcessRepositoryContract } from "./support/review-completion-process-repository-contract";
 
@@ -32,7 +40,10 @@ describeWithDatabase("review completion process Prisma adapters", () => {
   beforeAll(async () => {
     assertDisposableDatabaseUrl(databaseUrl!);
     prisma = createPrismaClient({ databaseUrl: databaseUrl!, poolMax: 10 });
-    processes = new PrismaReviewCompletionProcessRepository(prisma);
+    processes = new PrismaReviewCompletionProcessRepository(
+      prisma,
+      async () => {},
+    );
     await seedScope();
   });
 
@@ -116,6 +127,192 @@ describeWithDatabase("review completion process Prisma adapters", () => {
       lastWakeupKind: ReviewCompletionWakeupKind.RecoveryScan,
     });
   });
+
+  it("atomically rolls back settlement and capture, then retries the same claim", async () => {
+    await resetSeededExecutions();
+    const input = recoveryInput(
+      `${prefix}-capture-rollback`,
+      new Date("2026-07-22T12:00:00.000Z"),
+    );
+    await seedFinalizedExecution(input);
+    await seedSettlementEvidence(input);
+    await processes.createOrWake(input);
+    const claim = await processes.claimByExecutionId({
+      executionId: input.executionId,
+      claimId: `${input.executionId}-claim`,
+      ownerIdHash: "capture-owner",
+      now: input.wakeupAt,
+      claimUntil: new Date(input.wakeupAt.getTime() + 60_000),
+    });
+    const transition = {
+      state: ReviewCompletionProcessState.Completed,
+      publicationAttemptId: `${input.executionId}-publication`,
+      snapshotCommitReceiptId: `${input.executionId}-receipt`,
+      nextActionAt: null,
+      lastSafeReason: ReviewCompletionSafeReason.SnapshotCommitted,
+      now: new Date(input.wakeupAt.getTime() + 1),
+    };
+    const failing = new PrismaReviewCompletionProcessRepository(
+      prisma,
+      async (tx, settlement) => {
+        await tx.outboxEvent.create({
+          data: {
+            type: "statistics.test.capture",
+            version: 1,
+            idempotencyKey: `${prefix}-capture-rollback`,
+            aggregateId: settlement.executionId,
+            payload: { executionId: settlement.executionId },
+            occurredAt: settlement.settledAt,
+          },
+        });
+        throw new Error("capture unavailable");
+      },
+    );
+    await expect(failing.applyTransition(claim!, transition)).rejects.toThrow(
+      "capture unavailable",
+    );
+    expect(
+      await prisma.outboxEvent.count({
+        where: { aggregateId: input.executionId },
+      }),
+    ).toBe(0);
+    expect(await processes.findByExecutionId(input.executionId)).toMatchObject({
+      state: ReviewCompletionProcessState.AwaitingPublication,
+      activeClaimId: claim!.claimId,
+    });
+    const capture = vi.fn<ReviewCompletionSettlementHook>(
+      async (tx, settlement) => {
+        expect(tx).not.toBe(prisma);
+        expect(
+          await tx.reviewCompletionProcess.findUnique({
+            where: { executionId: settlement.executionId },
+          }),
+        ).toMatchObject({ state: "completed" });
+        await tx.outboxEvent.create({
+          data: {
+            type: "statistics.test.capture",
+            version: 1,
+            idempotencyKey: `${prefix}-capture-rollback`,
+            aggregateId: settlement.executionId,
+            payload: { executionId: settlement.executionId },
+            occurredAt: settlement.settledAt,
+          },
+        });
+      },
+    );
+    const retry = new PrismaReviewCompletionProcessRepository(prisma, capture);
+    await expect(
+      retry.applyTransition(claim!, transition),
+    ).resolves.toMatchObject({
+      status: ReviewCompletionProcessTransitionStatus.Applied,
+    });
+    expect(capture).toHaveBeenCalledOnce();
+    expect(
+      await prisma.outboxEvent.count({
+        where: { aggregateId: input.executionId },
+      }),
+    ).toBe(1);
+  });
+
+  it("captures only one winning successful CAS under concurrent settlement", async () => {
+    await resetSeededExecutions();
+    const input = recoveryInput(
+      `${prefix}-capture-race`,
+      new Date("2026-07-22T12:00:00.000Z"),
+    );
+    await seedFinalizedExecution(input);
+    await seedSettlementEvidence(input);
+    await processes.createOrWake(input);
+    const claim = await processes.claimByExecutionId({
+      executionId: input.executionId,
+      claimId: `${input.executionId}-claim`,
+      ownerIdHash: "capture-owner",
+      now: input.wakeupAt,
+      claimUntil: new Date(input.wakeupAt.getTime() + 60_000),
+    });
+    const capture = vi.fn(async () => {});
+    const repository = new PrismaReviewCompletionProcessRepository(
+      prisma,
+      capture,
+    );
+    const transition = {
+      state: ReviewCompletionProcessState.CompletedSuperseded,
+      publicationAttemptId: `${input.executionId}-publication`,
+      snapshotCommitReceiptId: `${input.executionId}-receipt`,
+      nextActionAt: null,
+      lastSafeReason: ReviewCompletionSafeReason.SnapshotSuperseded,
+      now: new Date(input.wakeupAt.getTime() + 1),
+    };
+    const results = await Promise.all([
+      repository.applyTransition(claim!, transition),
+      repository.applyTransition(claim!, transition),
+    ]);
+    expect(results.map((result) => result.status).sort()).toEqual(
+      [
+        ReviewCompletionProcessTransitionStatus.Applied,
+        ReviewCompletionProcessTransitionStatus.StaleClaim,
+      ].sort(),
+    );
+    expect(capture).toHaveBeenCalledOnce();
+    await repository.applyTransition(claim!, transition);
+    expect(capture).toHaveBeenCalledOnce();
+  });
+
+  it("never calls successful-settlement capture for a partial review", async () => {
+    await resetSeededExecutions();
+    const input = recoveryInput(
+      `${prefix}-capture-partial`,
+      new Date("2026-07-22T12:00:00.000Z"),
+    );
+    await seedFinalizedExecution(input);
+    await seedSettlementEvidence(input);
+    await processes.createOrWake(input);
+    const claim = await processes.claimByExecutionId({
+      executionId: input.executionId,
+      claimId: `${input.executionId}-claim`,
+      ownerIdHash: "capture-owner",
+      now: input.wakeupAt,
+      claimUntil: new Date(input.wakeupAt.getTime() + 60_000),
+    });
+    const capture = vi.fn(async () => {});
+    const repository = new PrismaReviewCompletionProcessRepository(
+      prisma,
+      capture,
+    );
+    await repository.applyTransition(claim!, {
+      state: ReviewCompletionProcessState.PartialCompleted,
+      publicationAttemptId: `${input.executionId}-publication`,
+      nextActionAt: null,
+      lastSafeReason: ReviewCompletionSafeReason.PartialCoveragePublished,
+      now: new Date(input.wakeupAt.getTime() + 1),
+    });
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  async function seedSettlementEvidence(
+    input: CreateReviewCompletionProcessInput,
+  ): Promise<void> {
+    await seedPublicationAttempt(input, `${input.executionId}-publication`);
+    const artifact =
+      await prisma.finalizedReviewProjectionArtifactV2.findUniqueOrThrow({
+        where: { executionId: input.executionId },
+      });
+    await prisma.reviewSnapshotCommitReceiptV2.create({
+      data: {
+        receiptId: `${input.executionId}-receipt`,
+        requestHash: `${input.executionId}-receipt-request`,
+        sourceExecutionId: input.executionId,
+        sourceExecutionGeneration: artifact.generation,
+        sourceArtifactHash: artifact.artifactHash,
+        sourceReviewRevisionHash: artifact.reviewRevisionHash,
+        outcome: "committed",
+        resultingSnapshotVersion: 1,
+        resultingSnapshotGeneration: artifact.generation,
+        createdAt: input.wakeupAt,
+        retainUntil: input.retainUntil,
+      },
+    });
+  }
 
   async function seedScope(): Promise<void> {
     const now = new Date("2026-07-22T10:00:00.000Z");
@@ -349,8 +546,14 @@ describeWithDatabase("review completion process Prisma adapters", () => {
   async function resetSeededExecutions(): Promise<void> {
     const executionIds = [...seededExecutionIds];
     if (executionIds.length === 0) return;
+    await prisma.outboxEvent.deleteMany({
+      where: { aggregateId: { in: executionIds } },
+    });
     await prisma.reviewCompletionProcess.deleteMany({
       where: { executionId: { in: executionIds } },
+    });
+    await prisma.reviewSnapshotCommitReceiptV2.deleteMany({
+      where: { sourceExecutionId: { in: executionIds } },
     });
     await prisma.reviewPublicationAttemptV2.deleteMany({
       where: {

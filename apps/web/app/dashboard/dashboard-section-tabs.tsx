@@ -6,8 +6,12 @@ import { Tabs } from "@base-ui/react/tabs";
 import {
   Activity,
   Brain,
+  BookOpen,
   Cpu,
   GitPullRequest,
+  History,
+  Layers,
+  Plug,
   Settings2,
   type LucideIcon,
 } from "lucide-react";
@@ -16,8 +20,12 @@ import { dashboardClientNavigationHref } from "./dashboard-section";
 
 const dashboardSectionIcons: Record<string, LucideIcon> = {
   repositories: GitPullRequest,
+  reviews: History,
+  skills: BookOpen,
+  "context-tools": Plug,
   memory: Brain,
   setup: Settings2,
+  providers: Layers,
   policy: Cpu,
   diagnostics: Activity,
 };
@@ -28,6 +36,54 @@ export type DashboardSectionTabItem = {
   readonly description: string;
   readonly href: string;
 };
+
+export function ProvidersHubNav({
+  selectedSection,
+  providersHref,
+  connectionsHref,
+}: {
+  readonly selectedSection: "providers" | "setup";
+  readonly providersHref: string;
+  readonly connectionsHref: string;
+}): React.ReactElement {
+  const { startNavigation } = useNavigationFeedback();
+  return (
+    <nav
+      aria-label="Providers"
+      className="flex gap-1 border-b border-cyan-200/15"
+    >
+      {[
+        {
+          section: "providers",
+          label: "Review providers",
+          href: providersHref,
+        },
+        { section: "setup", label: "Connections", href: connectionsHref },
+      ].map((item) => {
+        const href = dashboardClientNavigationHref(item.href);
+        const active = selectedSection === item.section;
+        return (
+          <Link
+            key={item.section}
+            href={href}
+            scroll={false}
+            data-navigation-feedback="ignore"
+            onNavigate={() => startNavigation(href)}
+            aria-current={active ? "page" : undefined}
+            className={[
+              "-mb-px min-h-11 border-b-2 px-3 py-2 text-sm font-semibold transition-colors",
+              active
+                ? "border-cyan-300 text-cyan-50"
+                : "border-transparent text-slate-400 hover:border-cyan-200/30 hover:text-cyan-100",
+            ].join(" ")}
+          >
+            {item.label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
 
 export function DashboardSectionIcon({
   section,
@@ -56,8 +112,9 @@ export function DashboardSectionCompactNav({
   const { startNavigation } = useNavigationFeedback();
   return (
     <nav
+      id="dashboard-compact-nav"
       aria-label="Dashboard sections"
-      className="flex gap-1 overflow-x-auto lg:hidden"
+      className="z-20 flex gap-1 overflow-x-auto overflow-y-hidden bg-[var(--rr-header-bg)] py-1 backdrop-blur-xl lg:hidden"
     >
       {items.map((item) => {
         const active = selectedSection === item.section;
@@ -83,11 +140,6 @@ export function DashboardSectionCompactNav({
               className="h-3.5 w-3.5 shrink-0 text-current opacity-80"
             />
             {item.label}
-            {item.section === "memory" ? (
-              <span className="rounded-full border border-amber-300/30 px-1.5 py-0.5 text-[0.55rem] tracking-[0.08em] text-amber-200">
-                In development
-              </span>
-            ) : null}
           </Link>
         );
       })}
@@ -147,16 +199,11 @@ export function DashboardSectionTabs({
                   <span className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.16em]">
                     {item.label}
                   </span>
-                  {item.section === "memory" ? (
-                    <span className="mt-1 w-fit rounded-full border border-amber-300/30 px-1.5 py-0.5 font-mono text-[0.58rem] font-semibold uppercase tracking-[0.08em] text-amber-200">
-                      In development
-                    </span>
-                  ) : null}
-                  {item.section === "memory" ? null : (
+                  {
                     <span className="mt-1 overflow-hidden text-xs leading-4 text-slate-500 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] group-hover:text-slate-300 group-data-[active]:text-cyan-100/80">
                       {item.description}
                     </span>
-                  )}
+                  }
                 </span>
               </span>
             </Tabs.Tab>

@@ -1,0 +1,6 @@
+schemaVersion: 1
+project:
+  id: reviewrouter-provider-seams
+capabilities:
+  architecture.source-dependencies:
+    configPath: architecture/foundation/provider-seams.yaml

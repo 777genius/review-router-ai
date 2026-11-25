@@ -29,7 +29,7 @@ Goal:
   into a fresh temp workspace with no persisted credentials
 - ReviewRouter proxy runs the actual PR review without giving the review Codex
   runtime the raw `auth.json`
-- ReviewRouter SaaS writes that encrypted value back to the repository secret
+- ReviewRouter writes that encrypted value back to the repository secret
   through the ReviewRouter GitHub App before review continues
 - first private beta is advisory-only; hardened beta can add a stable no-secret
   `reviewrouter-codex-policy` job for customers who want branch protection
@@ -59,7 +59,7 @@ path, but they are not the first cut.
 This is not the 45k-100k enterprise plan. Even hardened beta intentionally skips
 procfs compatibility matrices, reusable workflow support, full token issuer
 ledger, cache-poisoning harness, support-console workflows, and incident drills.
-The irreducible complexity comes from the zero-plaintext-SaaS boundary, OIDC
+The irreducible complexity comes from the zero-plaintext-control plane boundary, OIDC
 lease enforcement, and durable writeback ordering. Without those, this would be
 a 4000-9000 LOC feature but with materially worse security.
 
@@ -202,7 +202,7 @@ Facts used by this beta plan:
   `repository_owner_id`, `repository_visibility`, `actor`, `actor_id`, `ref`,
   `ref_type`, `run_id`, `run_attempt`, `event_name`, `workflow_ref`,
   `workflow_sha`, `jti`, `exp`, `nbf`, `iat`, `runner_environment`, and
-  reusable-workflow claims. The SaaS lease endpoint must verify these claims,
+  reusable-workflow claims. The control plane lease endpoint must verify these claims,
   not trust workflow-provided JSON fields.
 - GitHub OIDC JWTs can be requested by custom actions through `getIDToken()` or
   runner env variables `ACTIONS_ID_TOKEN_REQUEST_URL` and
@@ -294,7 +294,7 @@ Facts used by this beta plan:
   the `merge_group` event; otherwise the required status check may not be
   reported for queued merge groups.
 - GitHub Pull Request REST endpoints expose the PR head/base metadata needed to
-  resolve the exact review commit. Beta must let SaaS resolve and authorize the
+  resolve the exact review commit. Beta must let control plane resolve and authorize the
   review target from GitHub, not trust an action-provided ref.
 - GitHub App installation tokens can be narrowed with explicit
   `repository_ids` and explicit `permissions`; beta treats omitted permissions
@@ -362,7 +362,7 @@ Implementation boundaries:
   failure classification behind testable boundaries before wiring child
   processes.
 - Keep installer metadata calls separate from secret writes. The installer
-  writes secret to GitHub directly with `gh`; SaaS receives only safe metadata.
+  writes secret to GitHub directly with `gh`; control plane receives only safe metadata.
 
 ## Scope
 
@@ -395,7 +395,7 @@ Must ship:
 8. Official Codex refresh bootstrap from temp `HOME`/`CODEX_HOME` and empty cwd;
    no direct refresh API.
 9. Runner-side GitHub public-key fetch with `Secrets: read`, encrypted
-   writeback through SaaS/GitHub App `Secrets: write`, durable pending intent
+   writeback through control plane/GitHub App `Secrets: write`, durable pending intent
    before GitHub `PUT`, and generation confirmation before PR review.
 10. Current review uses the post-bootstrap compact auth snapshot, not a re-read
     of the GitHub secret in the same run.
@@ -434,7 +434,7 @@ Explicitly not in first private beta:
 
 If first private beta exceeds about `18000 LOC`, cut required-check scaffolding,
 merge-queue scaffolding, dashboard polish, account fingerprint warning, and
-workflow auto-repair before weakening zero-plaintext-SaaS, OIDC prelease,
+workflow auto-repair before weakening zero-plaintext-control plane, OIDC prelease,
 official refresh bootstrap, encrypted writeback, or exact-byte generation hash.
 
 ### Hardened Beta Reference Must Have
@@ -456,7 +456,7 @@ official refresh bootstrap, encrypted writeback, or exact-byte generation hash.
      the auth secret before the action receives it
 5. OIDC-bound prelease before action code reads the auth input, then finalized
    lease before auth bytes are parsed by the proxy.
-6. SaaS workflow source check at OIDC `workflow_sha` before prelease succeeds.
+6. control plane workflow source check at OIDC `workflow_sha` before prelease succeeds.
 7. Single-writer lease per provider instance.
 8. Official refresh bootstrap:
    - after OIDC prelease, action reads the secret input
@@ -488,7 +488,7 @@ official refresh bootstrap, encrypted writeback, or exact-byte generation hash.
      `INPUT_AUTH_JSON`, or broad `process.env`
    - no logging, notice, warning, debug dump, or exception wrapping between
      `core.getInput("auth-json")` and mask registration
-   - no full `github.context` or raw event payload sent to SaaS or logs
+   - no full `github.context` or raw event payload sent to control plane or logs
    - no untrusted child process uses inherited stdout/stderr; output is
      bounded, captured, redacted, and printed only through the safe log emitter
    - no untrusted child process receives `GITHUB_ENV`, `GITHUB_OUTPUT`,
@@ -503,16 +503,16 @@ official refresh bootstrap, encrypted writeback, or exact-byte generation hash.
    - bundled action source reviewed and pinned by full SHA
 10. Safe checkout boundary:
     - no `actions/checkout` step before secret handling
-    - ReviewRouter SaaS resolves the exact review target and commit from GitHub
+    - ReviewRouter resolves the exact review target and commit from GitHub
       API
     - ReviewRouter action checks out code only after writeback confirmation
-    - checkout uses a short-lived `contents: read` token minted by SaaS
+    - checkout uses a short-lived `contents: read` token minted by control plane
     - workflow `GITHUB_TOKEN` does not need `contents` or `pull-requests`
       permissions for beta
     - no submodules, no LFS smudge, no hooks, no persisted credentials
 11. Review result posting boundary:
     - action posts directly to GitHub using a short-lived comment token
-    - SaaS does not need PR diff, prompt text, or model output for posting
+    - control plane does not need PR diff, prompt text, or model output for posting
     - comment token is issued only after auth memory is cleared and proxy is
       closed
 12. Minimal proxy that:
@@ -540,7 +540,7 @@ official refresh bootstrap, encrypted writeback, or exact-byte generation hash.
 14. Runner-side encryption using GitHub repository public key.
 15. Short-lived runner helper token with `Secrets: read` only, used only to
     fetch the GitHub repository public key directly from GitHub.
-16. SaaS writeback endpoint that accepts only encrypted GitHub secret payload.
+16. control plane writeback endpoint that accepts only encrypted GitHub secret payload.
 17. Durable writeback intent created before GitHub `PUT`, then confirmed after
     GitHub succeeds.
 18. GitHub App `Secrets: write` permission for writeback.
@@ -611,14 +611,14 @@ flowchart TD
   U["User local machine"] --> I["ReviewRouter rotating installer"]
   I --> C["Dedicated CODEX_HOME auth.json"]
   I --> GHS["GitHub repo secret REVIEWROUTER_CODEX_AUTH_JSON"]
-  I --> RR["ReviewRouter SaaS setup metadata"]
+  I --> RR["ReviewRouter setup metadata"]
   GH["GitHub Actions workflow"] --> B["Bootstrap step restores secret"]
   B --> L["OIDC prelease"]
   L --> F["Finalize lease with generation hash"]
   F --> K["Fetch GitHub public key"]
   K --> R["Official Codex refresh bootstrap"]
   R --> ENC["Encrypt post-bootstrap auth"]
-  ENC --> WB["SaaS writeback endpoint"]
+  ENC --> WB["control plane writeback endpoint"]
   WB --> APP["ReviewRouter GitHub App token Secrets: write"]
   APP --> GHS
   WB --> RT["Resolve review target"]
@@ -632,7 +632,7 @@ flowchart TD
 ```
 
 The runner sees plaintext `auth.json` only in the trusted bootstrap/proxy path.
-ReviewRouter SaaS never receives plaintext auth. Codex child process should not
+ReviewRouter never receives plaintext auth. Codex child process should not
 receive `auth.json`, refresh token, helper token, writeback token, or raw
 GitHub secret material.
 
@@ -645,8 +645,8 @@ Precise beta boundary:
 - no repository content is used as input to the refresh bootstrap
 - repository checkout happens only after post-bootstrap writeback is confirmed
 - actual PR review runs from a temp workspace separate from bootstrap temp dirs
-- ReviewRouter SaaS authorizes the exact review target before checkout
-- PR comments are posted by the runner with a scoped comment token; SaaS does
+- ReviewRouter authorizes the exact review target before checkout
+- PR comments are posted by the runner with a scoped comment token; control plane does
   not need model output
 
 Trusted computing base for beta:
@@ -654,7 +654,7 @@ Trusted computing base for beta:
 - GitHub runner secret injection is trusted
 - the pinned ReviewRouter action bundle is trusted
 - official Codex CLI is trusted for the refresh bootstrap
-- ReviewRouter SaaS lease/writeback code is trusted
+- ReviewRouter lease/writeback code is trusted
 - customer repository code, PR metadata, workflow edits, and generated review
   prompts are untrusted
 
@@ -695,7 +695,7 @@ module executes, the action bundle must have an explicit module-load contract:
 These are the non-negotiable contracts. If any of them becomes hard to enforce,
 cut scope instead of weakening them.
 
-1. SaaS never receives plaintext `auth.json`, `access_token`, `refresh_token`,
+1. control plane never receives plaintext `auth.json`, `access_token`, `refresh_token`,
    or `id_token`.
 2. The workflow never receives a GitHub token with `Secrets: write`.
 3. The runner may receive a short-lived `Secrets: read` helper token only after
@@ -708,17 +708,17 @@ cut scope instead of weakening them.
    and auth material is cleared, only for posting the sanitized review result.
    5a. Every helper token issuance must re-read current GitHub App installation,
    repository selection, repository id, and permission capability state from
-   SaaS storage/GitHub using immutable ids. If the installation was removed,
+   control plane storage/GitHub using immutable ids. If the installation was removed,
    the repository was unselected, or a required permission was downgraded after
    prelease, do not issue a new token.
 6. Runner encryption must use the public key fetched directly from GitHub.
-   SaaS-provided public key material alone is not trusted for encryption.
+   control plane-provided public key material alone is not trusted for encryption.
 7. Checkout and comment tokens must not be persisted to `.git/config`, workflow
    outputs, logs, job summaries, artifacts, or process arguments produced by our
    own runner wrapper.
 8. The action must treat `github.context`, `GITHUB_EVENT_PATH`, PR title/body,
    branch names, labels, workflow inputs, and action inputs as untrusted. Only a
-   typed allowlist of scalar run metadata may be sent to SaaS as client hints.
+   typed allowlist of scalar run metadata may be sent to control plane as client hints.
 9. Generated workflows must not cancel a secret-backed job after it starts.
    Mid-run cancellation is handled as an unsafe state because Codex may already
    have rotated tokens.
@@ -1155,14 +1155,14 @@ Acceptance:
 - initial setup writes `REVIEWROUTER_CODEX_AUTH_JSON`
 - workflow restores secret, completes bootstrap/writeback, then starts proxy
 - action obtains OIDC token with `id-token: write`
-- SaaS verifies OIDC claims before proxy parses auth
-- SaaS issues only `Secrets: read` helper token to runner
+- control plane verifies OIDC claims before proxy parses auth
+- control plane issues only `Secrets: read` helper token to runner
 - action runs official Codex refresh bootstrap in an empty temp cwd
 - runner fetches GitHub public key directly from GitHub
 - proxy runs review with the post-bootstrap auth snapshot
 - runner encrypts updated auth with GitHub public key
-- SaaS creates pending writeback intent before GitHub secret write
-- SaaS writes encrypted value through GitHub App `Secrets: write`
+- control plane creates pending writeback intent before GitHub secret write
+- control plane writes encrypted value through GitHub App `Secrets: write`
 - next run succeeds from refreshed secret
 - no plaintext auth appears in workflow logs
 
@@ -1181,7 +1181,7 @@ Spike kill criteria:
   raw ChatGPT auth, stop and fall back to static mode or self-hosted runner
 - if the action cannot obtain OIDC before reading/parsing auth input in a
   controlled way, stop and redesign bootstrap
-- if SaaS cannot fetch and verify workflow source at `workflow_sha`, do not
+- if control plane cannot fetch and verify workflow source at `workflow_sha`, do not
   accept mutable tags or self-reported action metadata
 - if E2E log/artifact scan finds any token field, stop and fix redaction before
   expanding beta
@@ -1219,7 +1219,7 @@ Installer behavior:
 set -euo pipefail
 
 installer="$(mktemp)"
-installer_url="https://reviewrouter.site/install/codex-rotating/v0.1.0/reviewrouter-codex-installer.sh"
+installer_url="https://reviewrouter.org/install/codex-rotating/v0.1.0/reviewrouter-codex-installer.sh"
 installer_version="v0.1.0"
 installer_sha256="<installer-sha256>"
 trap 'rm -f "$installer"' EXIT
@@ -1312,7 +1312,7 @@ Installer rules:
 - create dedicated `CODEX_HOME`, for example
   `~/.reviewrouter/codex/<github-repository-id>`
 - create per-provider random `generationHashSalt` and
-  `accountFingerprintSalt` in SaaS before the first local setup command is shown
+  `accountFingerprintSalt` in control plane before the first local setup command is shown
 - verify installer version and SHA256 match the manifest before auth discovery
 - set `cli_auth_credentials_store = "file"`
 - run `codex login --device-auth` when possible, fallback to browser login
@@ -1329,7 +1329,7 @@ Installer rules:
 - verify the `gh` account can read repository metadata and appears to have
   collaborator-level access before asking the user to complete Codex login; the
   final permission check is still the `gh secret set` result
-- verify the GitHub repo id matches the SaaS provider instance metadata
+- verify the GitHub repo id matches the control plane provider instance metadata
 - verify the setup command is fresh, repo-bound, provider-bound, and not reused
   after setup has already completed for another repository id
 - parse setup manifests with an explicit dependency contract: prefer `node`
@@ -1337,7 +1337,7 @@ Installer rules:
   JSON parser exists
 - run a smoke `codex exec`
 - write repo secret with `gh secret set REVIEWROUTER_CODEX_AUTH_JSON`
-- send only safe setup metadata to SaaS
+- send only safe setup metadata to control plane
 - delete the downloaded installer temp file on exit; keep no copy beside the
   dedicated `CODEX_HOME`
 - support SHA256 verification on macOS and Linux by accepting either `shasum`
@@ -1521,7 +1521,7 @@ export function accountFingerprintHash(input: {
 ```
 
 Do not use bare `sha256(auth.json)` as the generation hash in production. Use a
-per-provider random salt supplied by SaaS during prelease, so SaaS cannot
+per-provider random salt supplied by control plane during prelease, so control plane cannot
 accidentally correlate the same Codex auth installed across multiple
 repositories by comparing hashes.
 
@@ -1598,18 +1598,18 @@ Manifest rules:
   be correlated by accident.
 - salt ids are included so setup confirmation can prove which salt version was
   used without echoing raw salts back in confirmation payloads
-- installer checks GitHub App installation/permission state through SaaS before
+- installer checks GitHub App installation/permission state through control plane before
   `gh secret set`, so users do not finish setup for a repo that review jobs
   cannot later write back
 - setup nonce is single-use after successful setup confirmation, but rerunnable
   before any secret write succeeds
 - expired or provider-mismatched setup manifests fail before Codex auth file
   discovery
-- setup confirmation sent to SaaS contains only provider id, repository id,
+- setup confirmation sent to control plane contains only provider id, repository id,
   secret name, generation hash HMAC, account fingerprint HMAC, auth byte-size
   bucket, and installer version
 - setup confirmation must include the salt ids or salt versions used for both
-  HMACs; SaaS rejects confirmation if the manifest salts do not match the
+  HMACs; control plane rejects confirmation if the manifest salts do not match the
   provider's current salts
 
 Illustrative installer preflight:
@@ -1790,7 +1790,7 @@ Installer must never:
 
 - print the auth file path together with token excerpts
 - echo raw JSON for debugging
-- send auth JSON to SaaS
+- send auth JSON to control plane
 - offer org-level rotating auth in beta
 - overwrite legacy `CODEX_AUTH_JSON` unless user explicitly chooses static mode
 
@@ -1805,8 +1805,8 @@ Beta setup warnings:
 
 Generated workflow should have one secret-backed review job. For beta, PR
 comments stay in that pinned action process: after proxy shutdown and auth
-cleanup, the action asks SaaS for a short-lived comment token and posts the
-sanitized result directly to GitHub. Do not route review output through SaaS.
+cleanup, the action asks control plane for a short-lived comment token and posts the
+sanitized result directly to GitHub. Do not route review output through control plane.
 
 Recommended hardened workflow shape:
 
@@ -1921,7 +1921,7 @@ Why a dedicated action:
   intentionally skipped before auth parse for unsupported events. The stable
   branch-protection contract is `reviewrouter-codex-policy`.
 - `workflow_dispatch` is allowed only without inputs in beta. Manual review
-  targets are resolved from GitHub workflow-run metadata by SaaS, not from
+  targets are resolved from GitHub workflow-run metadata by control plane, not from
   `inputs`, `github.event.inputs`, or action-provided refs.
 - Keep the secret-backed job graph deterministic: no `needs`, no matrix, no
   job container, no services, no reusable `jobs.<job_id>.uses`, and no
@@ -2184,7 +2184,7 @@ Action bundle rules:
 - the action entrypoint must call an internal `resolveCodexBinary()` that
   returns only the bundled/pinned binary path; falling back to `PATH=codex`,
   `npx codex`, or a globally installed CLI is release-blocking
-- action/proxy identity values reported to SaaS must come from release-time
+- action/proxy identity values reported to control plane must come from release-time
   constants embedded in the generated bundle, not `process.env`. Runner env is
   an input surface, even when the generated workflow tries to keep it empty.
 - no top-level module code may read `process.env.INPUT_AUTH_JSON`,
@@ -2223,7 +2223,7 @@ Codex CLI source options:
    Good for normal API-key workflows, but not for this rotating OAuth boundary:
    the stock action expects ordinary checkout/prompt flow and does not own our
    prelease, encrypted writeback, no-checkout-before-auth, or zero-plaintext
-   SaaS contracts.
+   control plane contracts.
 
 Illustrative binary resolver:
 
@@ -2480,7 +2480,7 @@ export function extractSafeGitHubRunContext(
 ```
 
 `actionSha`, `proxyVersion`, and `workflowSchemaVersion` are still client hints.
-SaaS must verify the authoritative values by reading workflow source at OIDC
+control plane must verify the authoritative values by reading workflow source at OIDC
 `workflow_sha`. Do not trust an action-provided value to prove which action
 reference, provider id, policy action, or schema version the workflow used.
 
@@ -2501,7 +2501,7 @@ Known masking risk:
 - action must call `core.setSecret` for the full compact JSON and each token
   field before any command can print
 - before masks are registered, action logs are restricted to fixed strings plus
-  schema-validated enum reasons from SaaS; raw `Error`, `cause`, stack, env, or
+  schema-validated enum reasons from control plane; raw `Error`, `cause`, stack, env, or
   request/response objects are never passed to `core.*` logging functions
 - `readAndMaskAuthInput` is the only allowed auth input reader; lint/tests must
   reject direct `core.getInput("auth-json")` outside that helper
@@ -2770,7 +2770,7 @@ Bootstrap rules:
   to `skipped_retryable`
 - if bootstrap may have refreshed but temp auth cannot be read or encrypted,
   map to `unknown_auth_state`
-- never run bootstrap until public-key fetch and SaaS writeback preflight have
+- never run bootstrap until public-key fetch and control plane writeback preflight have
   both succeeded
 - after bootstrap returns an auth snapshot, encrypt and write it back before
   actual PR review starts
@@ -3099,11 +3099,11 @@ Supply-chain release rule:
 
 - dashboard may display `v0.1.0`, but generated workflow pins the full commit
   SHA and leaves the tag only in a comment
-- SaaS lease validates the reported action commit SHA against an allowlist
+- control plane lease validates the reported action commit SHA against an allowlist
 - if the action SHA is blocked after release, lease returns
   `workflow_schema_mismatch`
 - release notes must include the action SHA, proxy package version, and minimum
-  SaaS API version
+  control plane API version
 - no third-party action in the secret-backed job for beta
 - ReviewRouter action metadata must not define a `post` or `post-if` entrypoint
 - no artifact upload, dependency cache save, or raw job summary write from the
@@ -3111,7 +3111,7 @@ Supply-chain release rule:
 
 ## Phase 3 - OIDC Lease
 
-Before action code reads the auth input, it asks SaaS for an OIDC prelease.
+Before action code reads the auth input, it asks control plane for an OIDC prelease.
 After prelease succeeds, it reads the auth input, computes a compact generation
 hash, and finalizes the lease. The proxy only receives auth after finalized
 lease.
@@ -3426,19 +3426,19 @@ Lease endpoint ordering:
 14. Finalize lease: issue a repository-scoped `Secrets: read` helper token.
 15. Return lease id, helper token, and canonical repo owner/name to the action.
 16. Action fetches GitHub repository public key directly.
-17. Action calls SaaS writeback preflight with `leaseId` and `githubKeyId`.
+17. Action calls control plane writeback preflight with `leaseId` and `githubKeyId`.
 18. Writeback preflight re-checks installation, repository selection, and
     required permission epochs before allowing refresh.
 19. Only after writeback preflight passes, action runs official Codex refresh
     bootstrap.
 
-Do not parse auth JSON in SaaS. The only auth-derived value SaaS sees is the
+Do not parse auth JSON in control plane. The only auth-derived value control plane sees is the
 per-provider-salted `restoredGenerationHash`; bare hashes of auth JSON are not
 accepted.
 
 Ordering rule:
 
-Fetch the GitHub public key and run SaaS writeback preflight before official
+Fetch the GitHub public key and run control plane writeback preflight before official
 Codex refresh bootstrap. If the system cannot encrypt or write back, skip before
 Codex has a chance to rotate the session.
 
@@ -3481,7 +3481,7 @@ Post-bootstrap writeback rule:
 The writeback in beta is not delayed until after PR review. The official
 bootstrap is the only step allowed to mutate Codex auth, so the refreshed
 snapshot must be encrypted and persisted immediately after bootstrap. Actual PR
-review starts only after SaaS confirms GitHub secret writeback and generation
+review starts only after control plane confirms GitHub secret writeback and generation
 confirmation.
 
 Post-bootstrap writeback response:
@@ -3523,7 +3523,7 @@ confirmation and review session creation.
 
 Review target resolution:
 
-- for `pull_request`, SaaS loads PR metadata from GitHub using the App token and
+- for `pull_request`, control plane loads PR metadata from GitHub using the App token and
   verifies:
   - head repository id equals provider repository id for beta
   - workflow-run metadata event is `pull_request`
@@ -3531,9 +3531,9 @@ Review target resolution:
   - current PR head SHA still equals the workflow-run head SHA
   - PR is open or synchronize/reopened event is still relevant
   - repository visibility remains private
-- for `workflow_dispatch`, SaaS verifies the requested SHA belongs to the
+- for `workflow_dispatch`, control plane verifies the requested SHA belongs to the
   provider repository and is reachable from the allowed branch/ref policy
-- for `workflow_dispatch`, SaaS must load the workflow run by OIDC `run_id`
+- for `workflow_dispatch`, control plane must load the workflow run by OIDC `run_id`
   through GitHub Actions REST using an App token with `Actions: read`. Do not
   trust workflow inputs, `github.event.inputs`, or action-provided refs for the
   checkout target.
@@ -3544,7 +3544,7 @@ Review target resolution:
   - head branch is default branch or an explicit server-side allowed branch
   - workflow run head SHA is a full commit SHA and belongs to the provider repo
 - action-provided safe context fields are hints only; checkout uses the
-  `ReviewTarget` returned by SaaS, never a raw ref from `github.context`
+  `ReviewTarget` returned by control plane, never a raw ref from `github.context`
 - if the PR head moved after workflow start, map to `stale_queued_secret` or
   `skipped_retryable` and ask for rerun
 
@@ -3718,24 +3718,24 @@ Workflow source loader rules:
 Review comment posting boundary:
 
 The action should post review output directly to GitHub after the proxy is
-closed and auth material is cleared. SaaS should issue a short-lived comment
+closed and auth material is cleared. control plane should issue a short-lived comment
 token using the existing explicit `repository_ids` + explicit `permissions`
 pattern.
 
 Comment posting rules:
 
 - do not use workflow `GITHUB_TOKEN`
-- do not send raw PR diff, prompt text, model output, or review body to SaaS
+- do not send raw PR diff, prompt text, model output, or review body to control plane
   for posting
 - action requests comment token with `reviewSessionId` after proxy closes
-- SaaS verifies the review session belongs to the same run, the writer lease is
+- control plane verifies the review session belongs to the same run, the writer lease is
   closed, and the pinned action has advanced the session to
   `auth_material_cleared`
-- SaaS re-reads current provider, installation, repository selection, PR target,
+- control plane re-reads current provider, installation, repository selection, PR target,
   and comment-permission state before minting the comment token; a session that
   was valid at review start must not post after repository unselection or
   permission downgrade
-- SaaS cannot inspect runner memory; memory cleanup is enforced by action
+- control plane cannot inspect runner memory; memory cleanup is enforced by action
   ordering tests and by only issuing the comment token after the lifecycle
   transition
 - issued token has only the existing comment permissions needed for posting
@@ -4157,7 +4157,7 @@ Never log:
 ## Phase 5 - Public Key And Encryption
 
 Runner/proxy should fetch GitHub repository public key and encrypt locally.
-SaaS must not provide arbitrary public key material as the only source of
+control plane must not provide arbitrary public key material as the only source of
 truth.
 
 REST API versioning:
@@ -4179,12 +4179,12 @@ token is issued after OIDC lease validation, scoped to one repository id, used
 only by the pinned action to fetch GitHub's public key, and removed before Codex
 starts.
 
-Do not issue `Secrets: write` to the runner. Only SaaS can mint and use the
-write token, and SaaS only receives encrypted payloads.
+Do not issue `Secrets: write` to the runner. Only control plane can mint and use the
+write token, and control plane only receives encrypted payloads.
 
 Checkout token:
 
-After post-bootstrap writeback is confirmed, SaaS may issue a separate
+After post-bootstrap writeback is confirmed, control plane may issue a separate
 repository-scoped installation token with `contents: read` only. That token is
 used for safe checkout and must not be available during refresh bootstrap.
 
@@ -4194,7 +4194,7 @@ Token expiry rules:
 - action must check token expiry immediately before public-key fetch, checkout,
   and comment posting
 - if a token has less than 2 minutes of remaining lifetime before use, request a
-  fresh token from SaaS instead of trying the operation
+  fresh token from control plane instead of trying the operation
 - do not mint checkout or comment tokens until immediately before use
 - do not keep any GitHub App token alive across official refresh bootstrap or
   across the actual Codex review window
@@ -4407,7 +4407,7 @@ Writeback envelope contract:
 - the runner sends encrypted payload plus binding metadata only:
   `leaseId`, `providerInstanceId`, `repositoryId`, `secretName`, `keyId`,
   `previousGeneration`, `authGenerationHash`, and `idempotencyKey`
-- the runner does not send a ciphertext hash; SaaS computes its own internal
+- the runner does not send a ciphertext hash; control plane computes its own internal
   HMAC digest of `encryptedValue` for idempotency after schema validation
 - the internal encrypted-payload digest is stored only in the writeback intent
   row and is never emitted in telemetry, logs, PR comments, dashboard copy, or
@@ -4433,7 +4433,7 @@ Dependency note:
 
 ## Phase 6 - GitHub App Writeback
 
-ReviewRouter SaaS writes only encrypted values to GitHub.
+ReviewRouter writes only encrypted values to GitHub.
 
 Token issue must be explicit, similar to the existing comment-token issuer
 pattern, but with `secrets: write` and one repository id.
@@ -4443,9 +4443,9 @@ Permission preflight:
 - GitHub App manifest must include repository `Secrets: write` before a provider
   can enter rotating beta
 - dashboard should detect missing permission and show `permission_required`
-- installer should check SaaS provider state before writing initial secret, so
+- installer should check control plane provider state before writing initial secret, so
   users do not complete setup for a workflow that cannot write back
-- SaaS must never fall back to a broad generic installation token helper for
+- control plane must never fall back to a broad generic installation token helper for
   `Secrets: write`
 - GitHub App installation webhook handlers must bump `installationPermissionEpoch`
   when repository permissions change and `repositorySelectionEpoch` when the
@@ -4525,7 +4525,7 @@ export async function putRepositorySecret(input: {
 
 Beta writeback rules:
 
-- never accept plaintext auth on SaaS writeback endpoint
+- never accept plaintext auth on control plane writeback endpoint
 - never attempt to read plaintext or encrypted secret value back from GitHub
   after `PUT`; GitHub exposes metadata only
 - reject if `encryptedValue` is missing
@@ -4919,7 +4919,7 @@ State mapping:
 
 | Failure                                                             | State                        | Recovery                    |
 | ------------------------------------------------------------------- | ---------------------------- | --------------------------- |
-| SaaS unavailable before refresh                                     | `skipped_retryable`          | retry later                 |
+| control plane unavailable before refresh                            | `skipped_retryable`          | retry later                 |
 | lease conflict                                                      | `skipped_retryable`          | retry or wait               |
 | restored old generation                                             | `stale_queued_secret`        | rerun workflow              |
 | GitHub App lacks required repo permission                           | `permission_required`        | approve permission          |
@@ -4951,7 +4951,7 @@ State mapping:
 | Local machine lacks both `shasum` and `sha256sum`                                                                           | shell preflight                               | fail before installer executes                                                                           |
 | Local machine lacks both `node` and `jq`                                                                                    | installer dependency preflight                | fail before manifest parse, auth discovery, or `gh secret set`                                           |
 | Setup manifest field is missing, empty, or non-string                                                                       | installer JSON parser                         | fail before auth discovery and before `gh secret set`                                                    |
-| Codex auth JSON cannot be compacted by the available parser                                                                 | installer JSON parser                         | fail before `gh secret set`; do not send plaintext to SaaS                                               |
+| Codex auth JSON cannot be compacted by the available parser                                                                 | installer JSON parser                         | fail before `gh secret set`; do not send plaintext to control plane                                      |
 | Installer attempts `brew`, `apt`, `npm`, `pnpm`, or `curl` dependency install                                               | static installer test                         | fail test, block release                                                                                 |
 | Installer download URL in manifest differs from copied command                                                              | installer manifest check                      | fail before auth discovery                                                                               |
 | Installer version/hash mismatches setup manifest                                                                            | installer manifest check                      | fail before auth discovery and before `gh secret set`                                                    |
@@ -4992,7 +4992,7 @@ State mapping:
 | Auth secret expression is transformed with `format`, concat, default, conditional, equality check, or `toJSON(secrets)`     | parsed workflow expression scanner            | `workflow_schema_mismatch`; action must receive exact secret bytes                                       |
 | Missing repository secret evaluates to empty action input                                                                   | action auth reader                            | `needs_reconnect`, no proxy start, no writeback                                                          |
 | Workflow mirrors auth secret into job/step `env` for `if:` checks                                                           | workflow scanner                              | `workflow_schema_mismatch`; do not use secret-derived env gates                                          |
-| Raw `github.context` or event payload logged/sent to SaaS                                                                   | action API contract test                      | fail test, block release                                                                                 |
+| Raw `github.context` or event payload logged/sent to control plane                                                          | action API contract test                      | fail test, block release                                                                                 |
 | Untrusted PR title/body/ref used in shell                                                                                   | workflow scanner                              | `workflow_schema_mismatch`                                                                               |
 | `workflow_dispatch` defines inputs                                                                                          | workflow scanner                              | `workflow_schema_mismatch`                                                                               |
 | `workflow_dispatch` OIDC ref outside branch allowlist                                                                       | OIDC policy                                   | `policy_blocked` before auth parse                                                                       |
@@ -5063,7 +5063,7 @@ State mapping:
 | Generated workflow grants `GITHUB_TOKEN` `contents` or `pull-requests`                                                      | workflow scanner                              | `workflow_schema_mismatch`                                                                               |
 | PR code tries to run local actions/scripts before writeback                                                                 | workflow/action scanner                       | block release                                                                                            |
 | PR head SHA changed after workflow start                                                                                    | review target resolver                        | `stale_queued_secret`, rerun                                                                             |
-| SaaS cannot resolve review target                                                                                           | review target resolver                        | `skipped_retryable` or `policy_blocked`                                                                  |
+| control plane cannot resolve review target                                                                                  | review target resolver                        | `skipped_retryable` or `policy_blocked`                                                                  |
 | Comment output contains token-like text                                                                                     | post scanner                                  | do not post, fail review safely                                                                          |
 | Comment output contains ReviewRouter hidden marker text                                                                     | sanitizer                                     | strip marker-like HTML comments before wrapping final comment                                            |
 | Rerun on same PR head                                                                                                       | comment idempotency                           | update existing marker comment, do not create duplicate                                                  |
@@ -5072,7 +5072,7 @@ State mapping:
 | Comment token requested while auth material still live                                                                      | action invariant                              | fail action, block release                                                                               |
 | Comment token issuance succeeds but GitHub comment post fails                                                               | comment post gateway                          | retry once if transient, then safe review failure                                                        |
 | Sanitized review output is too large for GitHub comment                                                                     | post scanner                                  | truncate with explicit marker or fail safely                                                             |
-| Action attempts to send raw diff/prompt/model output/review body to SaaS                                                    | action API contract test                      | fail test, block release                                                                                 |
+| Action attempts to send raw diff/prompt/model output/review body to control plane                                           | action API contract test                      | fail test, block release                                                                                 |
 | Proxy attempts direct refresh API                                                                                           | tests/code review                             | block release                                                                                            |
 | Child stdout/stderr emits `::add-mask::`, `::set-output`, `::error`, `::warning`, `::group::`, or `::stop-commands::`       | process runner sanitizer                      | command is replaced or printed only while GitHub commands are stopped; fail test if runner interprets it |
 | Child env contains `GITHUB_ENV`, `GITHUB_OUTPUT`, `GITHUB_PATH`, `GITHUB_STEP_SUMMARY`, or `GITHUB_STATE`                   | env assertion                                 | fail before subprocess starts                                                                            |
@@ -5085,28 +5085,28 @@ State mapping:
 | Review session expires during long review                                                                                   | proxy heartbeat                               | stop review, no writeback attempt                                                                        |
 | Runner cancelled before refresh                                                                                             | no writeback                                  | lease expires, next run can acquire                                                                      |
 | Runner cancelled after refresh before writeback                                                                             | missing confirmation                          | `unknown_auth_state` after lease timeout                                                                 |
-| SaaS unavailable before refresh                                                                                             | lease or preflight failure                    | `skipped_retryable`                                                                                      |
-| SaaS unavailable after refresh                                                                                              | writeback failure                             | `unknown_auth_state`                                                                                     |
+| control plane unavailable before refresh                                                                                    | lease or preflight failure                    | `skipped_retryable`                                                                                      |
+| control plane unavailable after refresh                                                                                     | writeback failure                             | `unknown_auth_state`                                                                                     |
 | GitHub public key fetch 403                                                                                                 | proxy                                         | `permission_required`                                                                                    |
 | GitHub public key key_id rotates                                                                                            | GitHub PUT 422                                | refetch key and retry once                                                                               |
 | Runner sends client-supplied ciphertext hash                                                                                | writeback schema                              | reject request; server computes encrypted-payload HMAC digest                                            |
 | Runner reuses idempotency key with different encrypted payload                                                              | writeback idempotency                         | `writeback_idempotency_conflict`, no GitHub `PUT`                                                        |
 | Runner sends malformed/non-base64 encrypted payload                                                                         | writeback schema                              | reject before pending intent, no GitHub `PUT`                                                            |
-| Runner sends owner/repo in writeback request                                                                                | writeback schema/API contract                 | reject; SaaS resolves owner/repo from provider repository id                                             |
+| Runner sends owner/repo in writeback request                                                                                | writeback schema/API contract                 | reject; control plane resolves owner/repo from provider repository id                                    |
 | Encrypted payload digest appears in logs/metrics/dashboard                                                                  | observability scanner                         | fail test, block release                                                                                 |
-| GitHub secret PUT 403                                                                                                       | SaaS writeback                                | `permission_required`                                                                                    |
-| GitHub secret PUT 404                                                                                                       | SaaS writeback                                | `policy_blocked` or `suspended` after repo check                                                         |
-| GitHub secret PUT returns `201`                                                                                             | SaaS writeback                                | created secret accepted, then DB generation confirm                                                      |
-| GitHub secret PUT returns `204`                                                                                             | SaaS writeback                                | updated secret accepted, then DB generation confirm                                                      |
-| GitHub secret PUT adapter returns unexpected 2xx status                                                                     | SaaS writeback                                | fail release test; do not infer success silently                                                         |
-| GitHub secret PUT rate limited                                                                                              | SaaS writeback                                | retry if before refresh, `unknown_auth_state` if after refresh                                           |
+| GitHub secret PUT 403                                                                                                       | control plane writeback                       | `permission_required`                                                                                    |
+| GitHub secret PUT 404                                                                                                       | control plane writeback                       | `policy_blocked` or `suspended` after repo check                                                         |
+| GitHub secret PUT returns `201`                                                                                             | control plane writeback                       | created secret accepted, then DB generation confirm                                                      |
+| GitHub secret PUT returns `204`                                                                                             | control plane writeback                       | updated secret accepted, then DB generation confirm                                                      |
+| GitHub secret PUT adapter returns unexpected 2xx status                                                                     | control plane writeback                       | fail release test; do not infer success silently                                                         |
+| GitHub secret PUT rate limited                                                                                              | control plane writeback                       | retry if before refresh, `unknown_auth_state` if after refresh                                           |
 | GitHub App installation removed                                                                                             | permission preflight/writeback                | `suspended`                                                                                              |
 | DB confirm fails after GitHub PUT                                                                                           | writeback confirm                             | `unknown_auth_state`                                                                                     |
 | Duplicate writeback HTTP retry                                                                                              | idempotency key                               | return existing terminal result                                                                          |
 | Proxy logs contain token-like text                                                                                          | log redactor test                             | fail test, block release                                                                                 |
 | Artifact/cache/summary attempts in secret-backed job                                                                        | workflow scanner                              | `workflow_schema_mismatch`                                                                               |
 | Codex child env contains secret name                                                                                        | env assertion                                 | fail run before Codex starts                                                                             |
-| Action/proxy version blocked                                                                                                | SaaS lease                                    | `workflow_schema_mismatch` or `policy_blocked`                                                           |
+| Action/proxy version blocked                                                                                                | control plane lease                           | `workflow_schema_mismatch` or `policy_blocked`                                                           |
 | User switches back to static mode                                                                                           | dashboard/provider config                     | do not delete rotating secret automatically                                                              |
 
 ## Test Plan
@@ -5320,7 +5320,7 @@ Unit tests:
 - comment post gateway fails safely instead of creating a duplicate when marker
   search/update cannot be completed
 - comment posting contract rejects sending raw diff, prompt text, model output,
-  or review body to SaaS
+  or review body to control plane
 - comment posting maps transient GitHub failures separately from auth failures
 - proxy router rejects nonce-less paths
 - proxy router rejects `/health`, `/admin`, `/models`, `/files`
@@ -5397,7 +5397,7 @@ Unit tests:
   `readAndMaskAuthInput`
 - action contract test proves `readAndMaskAuthInput` uses
   `trimWhitespace: false` and removes both possible action input env names
-- action contract test proves only safe scalar client hints are sent to SaaS,
+- action contract test proves only safe scalar client hints are sent to control plane,
   not `github.context` or raw event payload
 - action output writer accepts only `finalPolicyStateSchema` and
   `finalPolicySkippedReasonSchema`; it rejects arbitrary child output, model
@@ -5626,9 +5626,9 @@ E2E tests:
   command files, bootstrap auth temp directories, or action helper-token state
 - safe checkout logs and thrown errors do not contain the checkout token or
   `http.extraheader`
-- SaaS resolves exact PR head SHA from GitHub and rejects a moved head before
+- control plane resolves exact PR head SHA from GitHub and rejects a moved head before
   checkout starts
-- SaaS resolves `workflow_dispatch` target from workflow-run metadata, not from
+- control plane resolves `workflow_dispatch` target from workflow-run metadata, not from
   runner inputs
 - concurrent two-run lease conflict
 - stale queued secret skip
@@ -5649,7 +5649,7 @@ E2E tests:
   traces do not contain encrypted payload body, encrypted-payload HMAC digest,
   auth-generation hash, or auth/account fingerprints
 - artifacts and summaries do not contain token-like fields
-- runner posts PR comment directly with short-lived comment token and SaaS does
+- runner posts PR comment directly with short-lived comment token and control plane does
   not receive raw review body
 - required-check disposable repo proves branch protection requires only
   `reviewrouter-codex-policy`, not `codex-review`
@@ -5666,7 +5666,7 @@ E2E tests:
 - rerun after successful writeback uses a different generation hash
 - local static `CODEX_AUTH_JSON` provider still runs unchanged in a control repo
 - canary confirms each kill switch stops at the documented phase without
-  plaintext auth reaching SaaS
+  plaintext auth reaching control plane
 
 Suggested fake adapters:
 
@@ -5749,10 +5749,10 @@ Deployment order:
 
 1. Ship database migration with all new tables/columns nullable or unused by
    default.
-2. Deploy SaaS code with rotating setup and review flags off.
+2. Deploy control plane code with rotating setup and review flags off.
 3. Update GitHub App manifest and complete permission upgrade UX.
 4. Publish bundled action and proxy package, record exact full SHA/version in
-   SaaS allowlist, but keep provider creation disabled.
+   control plane allowlist, but keep provider creation disabled.
 5. Run disposable private-repo smoke with feature flag scoped to an internal
    workspace.
 6. Enable rotating setup for selected beta workspaces.
@@ -5767,7 +5767,7 @@ First private beta release health gates:
 - GitHub App manifest check confirms `Secrets: read`, `Secrets: write`,
   `Contents: read`, `Pull requests: read`, `Pull requests: write`, and
   `Issues: write`
-- action bundle SHA is pinned in generated workflow and allowed by SaaS
+- action bundle SHA is pinned in generated workflow and allowed by control plane
 - parsed workflow expression scanner proves the rotating secret appears exactly
   once and only as the literal `auth-json` input of the pinned rotating action
 - generated workflow is advisory-only and does not include required-check setup,
@@ -5831,7 +5831,7 @@ Rollback:
 - stop restoring the rotating secret
 - keep legacy `CODEX_AUTH_JSON` static mode unchanged
 - if `unknown_auth_state`, ask user to rerun local setup
-- removing a bad action SHA from the SaaS allowlist must block future runs
+- removing a bad action SHA from the control plane allowlist must block future runs
   before auth input is read
 
 ## Work Breakdown
@@ -5952,7 +5952,7 @@ Hardened beta reference cut order if it exceeds 32800 LOC:
 
 Do not cut:
 
-- zero-plaintext-SaaS boundary
+- zero-plaintext-control plane boundary
 - no runner `Secrets: write`
 - durable pending intent before GitHub `PUT`
 - one active writer per provider
@@ -6015,8 +6015,8 @@ First private beta can ship only when:
   commands before auth discovery
 - setup, restore, and writeback compute generation HMACs over the exact auth
   bytes written to or read from GitHub secrets
-- SaaS never receives plaintext auth, raw review body, raw diff, prompt text,
-  or model output. SaaS may receive the encrypted GitHub-secret payload needed
+- control plane never receives plaintext auth, raw review body, raw diff, prompt text,
+  or model output. control plane may receive the encrypted GitHub-secret payload needed
   for writeback, but tests prove ciphertext bodies, auth hashes, account
   fingerprints, and encrypted-payload HMAC digests are never logged, exported,
   persisted outside the writeback intent, or shown in artifacts.
@@ -6106,10 +6106,10 @@ Hardened beta reference can ship only when:
   mutate the user's normal Codex login cache or OS credential store
 - import setup requires an explicit auth file path or interactive sanitized
   choice when multiple valid Codex auth files exist
-- SaaS never receives plaintext auth in tests
-- SaaS writeback receives only encrypted payload plus binding metadata and
+- control plane never receives plaintext auth in tests
+- control plane writeback receives only encrypted payload plus binding metadata and
   computes any retry digest server-side as an internal HMAC
-- SaaS writeback never accepts owner/repo, plaintext auth fields, or
+- control plane writeback never accepts owner/repo, plaintext auth fields, or
   client-supplied ciphertext hashes from the runner
 - secret-backed workflow has `permissions: {}` at workflow level, grants only
   `id-token: write` in the review job, pins ReviewRouter action to full commit
@@ -6172,14 +6172,14 @@ Hardened beta reference can ship only when:
 - action auth input is read only through the audited helper using
   `trimWhitespace: false`, masks are registered before logging, and action
   input env vars are deleted before child processes
-- SaaS verifies workflow source at OIDC `workflow_sha` before auth input read
-- SaaS helper token issuers re-check installation, repository selection,
+- control plane verifies workflow source at OIDC `workflow_sha` before auth input read
+- control plane helper token issuers re-check installation, repository selection,
   permission epochs, repository id mapping, and provider state before every
   `Secrets: read`, `Secrets: write`, `Contents: read`, and comment token
   issuance
-- SaaS resolves the exact GitHub review target and rejects a moved PR head SHA
+- control plane resolves the exact GitHub review target and rejects a moved PR head SHA
   before checkout starts
-- SaaS resolves `workflow_dispatch` targets only from GitHub workflow-run
+- control plane resolves `workflow_dispatch` targets only from GitHub workflow-run
   metadata and server-side branch policy
 - official Codex refresh bootstrap succeeds from temp `CODEX_HOME` and empty cwd
 - official Codex refresh bootstrap uses the pinned action-bundled Codex CLI
@@ -6221,7 +6221,7 @@ Hardened beta reference can ship only when:
   closed
 - comment token issuance re-checks repository selection, PR target validity,
   installation state, and comment permissions immediately before minting
-- runner posts sanitized PR comment directly; SaaS does not receive raw diff,
+- runner posts sanitized PR comment directly; control plane does not receive raw diff,
   prompt text, model output, or review body
 - runner comment posting is idempotent for reruns on the same PR head and model
   output cannot spoof the hidden ReviewRouter marker
@@ -6260,7 +6260,7 @@ policy.
 Do not ship an enabled scope if:
 
 - workflow receives a token that can write GitHub secrets
-- ReviewRouter SaaS receives plaintext `auth.json`
+- ReviewRouter receives plaintext `auth.json`
 - actual PR review Codex process receives `auth.json` in env or file
 - setup command can be copied to another repository or reused after expiry to
   write `REVIEWROUTER_CODEX_AUTH_JSON`
@@ -6288,7 +6288,7 @@ Do not ship an enabled scope if:
   the nonce local proxy
 - beta proxy calls a direct OpenAI refresh endpoint
 - Codex child process receives GitHub `Secrets: read` helper token
-- runner encryption can use a public key supplied only by SaaS
+- runner encryption can use a public key supplied only by control plane
 - writeback can run without a pending DB intent
 - writeback trusts owner/repo, ciphertext hash, or plaintext-like fields
   supplied by the runner
@@ -6352,8 +6352,8 @@ Do not ship an enabled scope if:
   non-commit `workflow_sha` can pass prelease
 - `ACTIONS_ID_TOKEN_REQUEST_URL` or `ACTIONS_ID_TOKEN_REQUEST_TOKEN` reaches any
   refresh, checkout, proxy, or Codex subprocess
-- SaaS continues when workflow source cannot be verified at OIDC `workflow_sha`
-- SaaS resolves `workflow_dispatch` checkout target from action input,
+- control plane continues when workflow source cannot be verified at OIDC `workflow_sha`
+- control plane resolves `workflow_dispatch` checkout target from action input,
   `github.event.inputs`, or any runner-provided ref
 - action sends or logs full `github.context`, raw event payloads, PR title/body,
   branch names, workflow inputs, or `github.token`
@@ -6362,9 +6362,9 @@ Do not ship an enabled scope if:
 - action reads auth through default `core.getInput` trimming, reads auth more
   than once, or leaves `INPUT_AUTH-JSON`/`INPUT_AUTH_JSON` available to child
   processes
-- action trusts an action-provided ref/SHA instead of the SaaS-resolved GitHub
+- action trusts an action-provided ref/SHA instead of the control plane-resolved GitHub
   review target
-- SaaS mints helper tokens after GitHub App installation removal, repository
+- control plane mints helper tokens after GitHub App installation removal, repository
   unselection, permission downgrade, or repository id mapping drift without
   re-checking capability epochs
 - checkout token is persisted to `.git/config`, printed in logs, included in
@@ -6383,7 +6383,7 @@ Do not ship an enabled scope if:
 - untrusted subprocess receives `GITHUB_ENV`, `GITHUB_OUTPUT`, `GITHUB_PATH`,
   `GITHUB_STEP_SUMMARY`, or `GITHUB_STATE`
 - comment token can be issued before proxy closes and auth material is cleared
-- raw diff, prompt text, model output, or review body is sent to SaaS for
+- raw diff, prompt text, model output, or review body is sent to control plane for
   posting
 - repeated runs on the same PR head create duplicate ReviewRouter comments
 - model output can forge or preserve the hidden ReviewRouter idempotency marker

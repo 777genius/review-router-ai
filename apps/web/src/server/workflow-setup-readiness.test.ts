@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { qualifiedGatewayInteractionRuntimeSha } from "@reviewrouter/platform-config";
+import { conversationCapabilityFixture } from "../../../../packages/platform/config/src/tests/conversation-qualification-fixture.js";
 import {
   OctokitRepositoryWorkflowProbe,
   type RepositoryWorkflowCheck,
@@ -15,8 +17,13 @@ import {
   isolatedQualityWorkflowPath,
   renderCanonicalIsolatedQualityWorkflow,
   renderCanonicalCodexRotatingInteractionWorkflowV2,
+  renderCanonicalCodexRotatingInteractionWorkflowV3,
   renderCodexRotatingInteractionWorkflow,
   renderCodexRotatingAdvisoryWorkflow,
+  renderAccountGatewayWorkflow,
+  renderAccountGatewayInteractionWorkflow,
+  renderProviderApiWorkflow,
+  renderClaudeSubscriptionWorkflow,
 } from "@reviewrouter/features-workflow-provisioning";
 import { isWorkflowSetupAlreadyCurrent } from "./workflow-setup-readiness";
 
@@ -48,6 +55,248 @@ const readinessInput = {
 const versionedActionRef =
   "777genius/review-router@0123456789abcdef0123456789abcdef01234567";
 const versionedProviderInstanceId = "codex-rotating:123456";
+
+it.each(["current", "missing", "renamed", "extra"])(
+  "checks the exact expected MCP secret mapping for Gateway readiness: %s",
+  async (scenario) => {
+    const expected = { DOCS_KEY: "ORG_DOCS_TOKEN" };
+    let actual: Record<string, string> | undefined = expected;
+    if (scenario === "missing") actual = undefined;
+    if (scenario === "renamed") actual = { DOCS_KEY: "OTHER_DOCS_TOKEN" };
+    if (scenario === "extra") actual = { ...expected, EXTRA: "OTHER_TOKEN" };
+    const source = renderAccountGatewayWorkflow({
+      actionRef: versionedActionRef,
+      apiUrl: "https://app.reviewrouter.dev",
+      githubRepositoryId: readinessInput.githubRepositoryId,
+      ...(actual ? { mcpSecrets: actual } : {}),
+    }).content;
+    const current = await isWorkflowSetupAlreadyCurrent(
+      {
+        ...readinessInput,
+        actionRef: versionedActionRef,
+        codexSessionMode: "account-gateway",
+        mcpSecrets: expected,
+      },
+      {
+        resolvePublicApiUrl: () => "https://app.reviewrouter.dev",
+        workflowProbe: new OctokitRepositoryWorkflowProbe({
+          createRequester: async () => ({
+            request: async (_route, parameters) => {
+              if (
+                parameters?.path !== ".github/workflows/reviewrouter-review.yml"
+              )
+                throw Object.assign(new Error("missing"), { status: 404 });
+              return {
+                data: {
+                  type: "file",
+                  encoding: "base64",
+                  content: Buffer.from(source).toString("base64"),
+                },
+              };
+            },
+          }),
+        }),
+      },
+    );
+    expect(current).toBe(scenario === "current");
+  },
+);
+
+it.each([
+  "current",
+  "wrong-mode",
+  "missing-mode",
+  "static",
+  "extra-secret",
+  "wrong-schema",
+  "wrong-identity",
+  "old-ref",
+  "namespace",
+])("checks actual gateway caller bytes for %s readiness", async (scenario) => {
+  let workflow = renderAccountGatewayWorkflow({
+    actionRef: versionedActionRef,
+    apiUrl: "https://app.reviewrouter.dev",
+    githubRepositoryId: readinessInput.githubRepositoryId,
+  }).content;
+  if (scenario === "wrong-mode")
+    workflow = workflow.replace(
+      "reviewrouter-runtime.yml",
+      "other-runtime.yml",
+    );
+  if (scenario === "missing-mode")
+    workflow = workflow.replace(/^.*review_request_id:.*\n/m, "");
+  if (scenario === "static")
+    workflow = workflow.replace(
+      "    with:",
+      "    env: { STATIC: '1' }\n    with:",
+    );
+  if (scenario === "extra-secret") workflow += "    secrets: inherit\n";
+  if (scenario === "wrong-schema")
+    workflow = workflow.replace("@workflow-v1", "@workflow-v2");
+  if (scenario === "wrong-identity")
+    workflow += "      repository_id: 999999\n";
+  if (scenario === "old-ref")
+    workflow = workflow.replace("@workflow-v1", "@v1");
+  if (scenario === "namespace")
+    workflow = workflow.replace(
+      "name: ReviewRouter",
+      "name: ReviewRouter [namespace-v4]",
+    );
+  const paths: string[] = [];
+  const current = await isWorkflowSetupAlreadyCurrent(
+    {
+      ...readinessInput,
+      actionRef: versionedActionRef,
+      codexSessionMode: "account-gateway",
+    },
+    {
+      resolvePublicApiUrl: () => "https://app.reviewrouter.dev",
+      workflowProbe: new OctokitRepositoryWorkflowProbe({
+        createRequester: async () => ({
+          request: async (_route, parameters) => {
+            paths.push(String(parameters?.path));
+            if (
+              parameters?.path !== ".github/workflows/reviewrouter-review.yml"
+            ) {
+              throw Object.assign(new Error("not found"), { status: 404 });
+            }
+            return {
+              data: {
+                type: "file",
+                encoding: "base64",
+                content: Buffer.from(workflow).toString("base64"),
+              },
+            };
+          },
+        }),
+      }),
+    },
+  );
+  expect(current).toBe(scenario === "current");
+  expect(paths).toEqual(
+    scenario === "current"
+      ? [
+          ".github/workflows/reviewrouter-review.yml",
+          defaultWorkflowPath,
+          defaultCodexRotatingWorkflowPath,
+          defaultInteractionWorkflowPath,
+        ]
+      : [".github/workflows/reviewrouter-review.yml"],
+  );
+});
+it.each([
+  defaultWorkflowPath,
+  defaultCodexRotatingWorkflowPath,
+  defaultInteractionWorkflowPath,
+])(
+  "requires the obsolete %s caller to be absent on the default branch",
+  async (competingPath) => {
+    const current = await isWorkflowSetupAlreadyCurrent(
+      {
+        ...readinessInput,
+        actionRef: versionedActionRef,
+        codexSessionMode: "account-gateway",
+      },
+      {
+        resolvePublicApiUrl: () => "https://app.reviewrouter.dev",
+        workflowProbe: {
+          probeWorkflow: async (input) => ({
+            status:
+              input.workflowPath === competingPath ||
+              input.workflowPath === ".github/workflows/reviewrouter-review.yml"
+                ? "present"
+                : "missing",
+            expectedActionRefFound: true,
+            expectedContentMarkersFound: true,
+          }),
+        },
+      },
+    );
+    expect(current).toBe(false);
+  },
+);
+it("keeps 1000 installed callers current across compatible producer and profile updates", async () => {
+  vi.stubEnv("REVIEW_ROUTER_AGENT_PROFILE", "qualified-before");
+  try {
+    const installations = Array.from({ length: 1000 }, (_, index) => ({
+      ...readinessInput,
+      githubRepositoryId: String(100000 + index),
+      repositoryFullName: `acme/project-${index}`,
+      owner: "acme",
+      name: `project-${index}`,
+      actionRef: versionedActionRef,
+      codexSessionMode: "account-gateway" as const,
+    }));
+    const installedSources = new Map(
+      installations.map((installation) => [
+        installation.repositoryFullName,
+        renderAccountGatewayWorkflow({
+          actionRef: installation.actionRef,
+          apiUrl: "https://app.reviewrouter.dev",
+          githubRepositoryId: installation.githubRepositoryId,
+        }).content,
+      ]),
+    );
+    vi.stubEnv("REVIEW_ROUTER_AGENT_PROFILE", "qualified-after");
+    const nextProducer = `777genius/review-router@${"b".repeat(40)}`;
+    let reads = 0;
+    let writes = 0;
+    const workflowProbe = new OctokitRepositoryWorkflowProbe({
+      createRequester: async () => ({
+        request: async (route, parameters) => {
+          if (route !== "GET /repos/{owner}/{repo}/contents/{path}") {
+            writes++;
+            throw new Error("unexpected_workflow_mutation");
+          }
+          reads++;
+          expect([
+            ".github/workflows/reviewrouter-review.yml",
+            defaultWorkflowPath,
+            defaultCodexRotatingWorkflowPath,
+            defaultInteractionWorkflowPath,
+          ]).toContain(parameters?.path);
+          expect(parameters?.ref).toBe("main");
+          if (
+            parameters?.path !== ".github/workflows/reviewrouter-review.yml"
+          ) {
+            throw Object.assign(new Error("not found"), { status: 404 });
+          }
+          const source = installedSources.get(
+            `${parameters?.owner}/${parameters?.repo}`,
+          );
+          if (!source) throw new Error("unknown_installation");
+          return {
+            data: {
+              type: "file",
+              encoding: "base64",
+              content: Buffer.from(source).toString("base64"),
+            },
+          };
+        },
+      }),
+    });
+    for (const installation of installations) {
+      expect(
+        await isWorkflowSetupAlreadyCurrent(
+          {
+            ...installation,
+            actionRef: nextProducer,
+          },
+          {
+            workflowProbe,
+            resolvePublicApiUrl: () => "https://app.reviewrouter.dev",
+          },
+        ),
+      ).toBe(true);
+    }
+    expect(reads).toBe(4000);
+    expect(writes).toBe(0);
+    expect(installedSources.size).toBe(1000);
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
 const v4SecretNamespace = createVersionedProviderSecretNamespace({
   scope: {
     repositoryId: "123456",
@@ -72,7 +321,7 @@ function canonicalV4Workflow(
 ): string {
   return renderCodexRotatingAdvisoryWorkflow({
     actionRef: versionedActionRef,
-    apiUrl: "https://api.reviewrouter.site",
+    apiUrl: "https://api.reviewrouter.org",
     providerInstanceId: versionedProviderInstanceId,
     reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
     workflowSchemaVersion:
@@ -84,7 +333,7 @@ function canonicalV4Workflow(
 function canonicalV3InteractionWorkflow(): string {
   return renderCodexRotatingInteractionWorkflow({
     actionRef: versionedActionRef,
-    apiUrl: "https://api.reviewrouter.site",
+    apiUrl: "https://api.reviewrouter.org",
     runtimeConfigMode: "oidc",
   });
 }
@@ -92,7 +341,7 @@ function canonicalV3InteractionWorkflow(): string {
 function canonicalV5Workflow(): string {
   return renderCodexRotatingAdvisoryWorkflow({
     actionRef: versionedActionRef,
-    apiUrl: "https://api.reviewrouter.site",
+    apiUrl: "https://api.reviewrouter.org",
     providerInstanceId: versionedProviderInstanceId,
     reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
     workflowSchemaVersion:
@@ -138,7 +387,7 @@ function checkVersionedWorkflowReadiness(
     },
     {
       workflowProbe: probe,
-      resolvePublicApiUrl: () => "https://api.reviewrouter.site",
+      resolvePublicApiUrl: () => "https://api.reviewrouter.org",
     },
   );
 }
@@ -242,6 +491,36 @@ describe("workflow setup readiness", () => {
       [
         "Install Claude Code CLI",
         "CLAUDE_CODE_OAUTH_TOKEN",
+        "Skip fork pull requests",
+      ],
+    ]);
+  });
+
+  it("requires MiMo secret and public engine markers before skipping setup", async () => {
+    const probe = new CapturingWorkflowProbe({
+      status: "present",
+      expectedActionRefFound: true,
+      expectedContentMarkersFound: true,
+    });
+
+    await expect(
+      isWorkflowSetupAlreadyCurrent(
+        { ...readinessInput, providerKind: "codex-mimo" },
+        { workflowProbe: probe },
+      ),
+    ).resolves.toBe(true);
+
+    expect(probe.input?.expectedContentMarkerGroups).toEqual([
+      [
+        ".github/workflows/reviewrouter-reusable.yml",
+        "MIMO_TOKEN_PLAN_API_KEY",
+        "codex-mimo/",
+      ],
+      [
+        "Install Codex CLI",
+        "MIMO_TOKEN_PLAN_API_KEY",
+        "codex-mimo/",
+        "Require MiMo Token Plan API key",
         "Skip fork pull requests",
       ],
     ]);
@@ -381,6 +660,44 @@ describe("workflow setup readiness", () => {
     });
   });
 
+  it("recognizes the approved author-gated v4 rotating discussion workflow as current", async () => {
+    const probe = new CapturingWorkflowProbe({
+      status: "present",
+      expectedActionRefFound: true,
+      expectedContentMarkersFound: true,
+    });
+    const apiUrl = "https://app.reviewrouter.dev";
+    const input = {
+      ...readinessInput,
+      actionRef: versionedActionRef,
+      codexRotatingProviderInstanceId: versionedProviderInstanceId,
+      discussionMode: "suggest" as const,
+    };
+    await expect(
+      isWorkflowSetupAlreadyCurrent(input, {
+        workflowProbe: probe,
+        resolvePublicApiUrl: () => apiUrl,
+      }),
+    ).resolves.toBe(true);
+
+    const interactionProbe = probe.inputs.find(
+      (candidate) => candidate.workflowPath === defaultInteractionWorkflowPath,
+    );
+    const validator = interactionProbe?.expectedContentValidator;
+    expect(validator).toBeTypeOf("function");
+    const options = {
+      actionRef: versionedActionRef,
+      apiUrl,
+      runtimeConfigMode: "oidc" as const,
+      discussionMode: "suggest" as const,
+    };
+    const currentSource = renderCodexRotatingInteractionWorkflow(options);
+    const legacySource =
+      renderCanonicalCodexRotatingInteractionWorkflowV3(options);
+    expect(validator?.(currentSource)).toBe(true);
+    expect(validator?.(legacySource)).toBe(false);
+  });
+
   it("never probes the standard Codex workflow for the isolated repository", async () => {
     const probe = new CapturingWorkflowProbe({
       status: "missing",
@@ -443,7 +760,7 @@ describe("workflow setup readiness", () => {
       "public API URL changed",
       (workflow: string) =>
         workflow.replace(
-          "https://api.reviewrouter.site",
+          "https://api.reviewrouter.org",
           "https://attacker.example",
         ),
       false,
@@ -463,7 +780,7 @@ describe("workflow setup readiness", () => {
       const workflow = mutate(
         renderCanonicalIsolatedQualityWorkflow({
           actionRef: versionedActionRef,
-          apiUrl: "https://api.reviewrouter.site",
+          apiUrl: "https://api.reviewrouter.org",
           providerInstanceId: "codex-rotating:1228051727",
           activeSecretNamespace: namespace,
         }),
@@ -504,7 +821,7 @@ describe("workflow setup readiness", () => {
           },
           {
             workflowProbe,
-            resolvePublicApiUrl: () => "https://api.reviewrouter.site",
+            resolvePublicApiUrl: () => "https://api.reviewrouter.org",
           },
         ),
       ).resolves.toBe(expected);
@@ -528,7 +845,7 @@ describe("workflow setup readiness", () => {
       });
       const qualityWorkflow = renderCanonicalIsolatedQualityWorkflow({
         actionRef: versionedActionRef,
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl: "https://api.reviewrouter.org",
         providerInstanceId: "codex-rotating:1228051727",
         activeSecretNamespace: namespace,
       });
@@ -686,7 +1003,7 @@ describe("workflow setup readiness", () => {
         canonicalV4Workflow(),
         renderCanonicalCodexRotatingInteractionWorkflowV2({
           actionRef: versionedActionRef,
-          apiUrl: "https://api.reviewrouter.site",
+          apiUrl: "https://api.reviewrouter.org",
           runtimeConfigMode: "oidc",
         }),
       ),
@@ -703,7 +1020,7 @@ describe("workflow setup readiness", () => {
     await expect(
       checkV5WorkflowReadiness(
         canonicalV5Workflow().replace(
-          "https://api.reviewrouter.site",
+          "https://api.reviewrouter.org",
           "https://attacker.example",
         ),
       ),
@@ -790,4 +1107,328 @@ describe("workflow setup readiness", () => {
       checkV4WorkflowReadiness(mutateWorkflow(canonicalV4Workflow())),
     ).resolves.toBe(false);
   });
+});
+
+it.each(["current", "other-secret", "other-runtime", "old-wrapper"])(
+  "attests the direct OpenRouter caller: %s",
+  async (scenario) => {
+    let source = renderProviderApiWorkflow({
+      actionRef: versionedActionRef,
+      apiUrl: "https://app.reviewrouter.dev",
+    }).content;
+    if (scenario === "old-wrapper")
+      source = source.replace(
+        ".github/workflows/reviewrouter-execution-reusable.yml@",
+        ".github/workflows/reviewrouter-reusable.yml@",
+      );
+    if (scenario === "other-secret")
+      source = source.replace(
+        "secrets.OPENROUTER_API_KEY",
+        "secrets.OTHER_KEY",
+      );
+    if (scenario === "other-runtime")
+      source = source.replace(
+        "runtime_ref: 0123456789abcdef0123456789abcdef01234567",
+        `runtime_ref: ${"b".repeat(40)}`,
+      );
+    const current = await isWorkflowSetupAlreadyCurrent(
+      {
+        ...readinessInput,
+        actionRef: versionedActionRef,
+        providerApiAuthMode: "openrouter-api",
+      },
+      {
+        resolvePublicApiUrl: () => "https://app.reviewrouter.dev",
+        workflowProbe: new OctokitRepositoryWorkflowProbe({
+          createRequester: async () => ({
+            request: async (_route, parameters) => {
+              if (
+                parameters?.path !== ".github/workflows/reviewrouter-review.yml"
+              )
+                throw Object.assign(new Error("missing"), { status: 404 });
+              return {
+                data: {
+                  type: "file",
+                  encoding: "base64",
+                  content: Buffer.from(source).toString("base64"),
+                },
+              };
+            },
+          }),
+        }),
+      },
+    );
+    expect(current).toBe(scenario === "current");
+  },
+);
+
+it.each([
+  "current",
+  "other-secret",
+  "mixed-auth",
+  "other-pin",
+  "competing-caller",
+])(
+  "attests native Claude source and refuses competing credentials or callers: %s",
+  async (scenario) => {
+    let source = renderClaudeSubscriptionWorkflow({
+      actionRef: versionedActionRef,
+      apiUrl: "https://app.reviewrouter.dev",
+    }).content;
+    if (scenario === "other-secret")
+      source = source.replace(
+        "secrets.CLAUDE_CODE_OAUTH_TOKEN",
+        "secrets.OTHER_TOKEN",
+      );
+    if (scenario === "mixed-auth")
+      source = source.replace(
+        "subscription_auth_mode: claude-oauth",
+        "subscription_auth_mode: claude-oauth\n      provider_api_auth_mode: openrouter-api",
+      );
+    if (scenario === "other-pin")
+      source = source.replace(
+        "runtime_ref: 0123456789abcdef0123456789abcdef01234567",
+        `runtime_ref: ${"b".repeat(40)}`,
+      );
+    const current = await isWorkflowSetupAlreadyCurrent(
+      {
+        ...readinessInput,
+        actionRef: versionedActionRef,
+        subscriptionAuthMode: "claude-oauth",
+      },
+      {
+        resolvePublicApiUrl: () => "https://app.reviewrouter.dev",
+        workflowProbe: new OctokitRepositoryWorkflowProbe({
+          createRequester: async () => ({
+            request: async (_route, parameters) => {
+              if (
+                parameters?.path !==
+                  ".github/workflows/reviewrouter-review.yml" &&
+                !(
+                  scenario === "competing-caller" &&
+                  parameters?.path === defaultWorkflowPath
+                )
+              )
+                throw Object.assign(new Error("missing"), { status: 404 });
+              return {
+                data: {
+                  type: "file",
+                  encoding: "base64",
+                  content: Buffer.from(source).toString("base64"),
+                },
+              };
+            },
+          }),
+        }),
+      },
+    );
+    expect(current).toBe(scenario === "current");
+  },
+);
+
+it.each(["current", "missing", "stale"])(
+  "Gateway readiness requires its qualified interaction caller: %s",
+  async (scenario) => {
+    const apiUrl = "https://app.reviewrouter.dev";
+    const runtimeSha = "a".repeat(40);
+    const review = renderAccountGatewayWorkflow({
+      actionRef: versionedActionRef,
+      apiUrl,
+      githubRepositoryId: readinessInput.githubRepositoryId,
+    });
+    const interaction = renderAccountGatewayInteractionWorkflow({
+      runtimeSha: scenario === "stale" ? "b".repeat(40) : runtimeSha,
+      apiUrl,
+    });
+    const files = new Map<string, string>([[review.path, review.content]]);
+    if (scenario !== "missing")
+      files.set(interaction.path, interaction.content);
+    const probe = new OctokitRepositoryWorkflowProbe({
+      createRequester: async () => ({
+        request: async (_route, parameters) => {
+          const source = files.get(String(parameters?.path));
+          if (!source)
+            throw Object.assign(new Error("missing"), { status: 404 });
+          return {
+            data: {
+              type: "file",
+              encoding: "base64",
+              content: Buffer.from(source).toString("base64"),
+            },
+          };
+        },
+      }),
+    });
+    expect(
+      await isWorkflowSetupAlreadyCurrent(
+        {
+          ...readinessInput,
+          actionRef: versionedActionRef,
+          codexSessionMode: "account-gateway",
+          gatewayInteractionRuntimeSha: runtimeSha,
+          discussionMode: "suggest",
+        },
+        { workflowProbe: probe, resolvePublicApiUrl: () => apiUrl },
+      ),
+    ).toBe(scenario === "current");
+  },
+);
+it("Gateway suggest readiness stays closed without qualified interaction runtime", async () => {
+  const probe = new CapturingWorkflowProbe({ status: "missing" });
+  expect(
+    await isWorkflowSetupAlreadyCurrent(
+      {
+        ...readinessInput,
+        codexSessionMode: "account-gateway",
+        discussionMode: "suggest",
+      },
+      { workflowProbe: probe },
+    ),
+  ).toBe(false);
+  expect(probe.inputs).toHaveLength(0);
+});
+
+it.each(["current", "missing", "stale", "source-stamp"] as const)(
+  "v2 mechanism coverage still requires the normal exact interaction caller: %s",
+  async (scenario) => {
+    const apiUrl = "https://app.reviewrouter.dev";
+    const capability = conversationCapabilityFixture();
+    if (scenario === "source-stamp")
+      capability.sourceProfile.accountPolicySourceDigest = "0".repeat(64);
+    const runtimeSha = qualifiedGatewayInteractionRuntimeSha(
+      {
+        REVIEW_ROUTER_CONVERSATION_QUALIFICATION: JSON.stringify(capability),
+        REVIEW_ROUTER_GATEWAY_INTERACTION_RUNTIME_SHA: capability.runtimeSha,
+      },
+      { workspaceId: "new-workspace", repositoryId: "new-repository" },
+    );
+    if (scenario === "source-stamp") {
+      expect(runtimeSha).toBeUndefined();
+      const probe = new CapturingWorkflowProbe({ status: "missing" });
+      expect(
+        await isWorkflowSetupAlreadyCurrent(
+          {
+            ...readinessInput,
+            actionRef: versionedActionRef,
+            codexSessionMode: "account-gateway",
+            discussionMode: "suggest",
+          },
+          { workflowProbe: probe },
+        ),
+      ).toBe(false);
+      expect(probe.inputs).toHaveLength(0);
+      return;
+    }
+    expect(runtimeSha).toBe(capability.runtimeSha);
+    if (!runtimeSha) throw new Error("synthetic_capability_did_not_apply");
+    const review = renderAccountGatewayWorkflow({
+      actionRef: versionedActionRef,
+      apiUrl,
+      githubRepositoryId: readinessInput.githubRepositoryId,
+    });
+    const interaction = renderAccountGatewayInteractionWorkflow({
+      runtimeSha: scenario === "stale" ? "b".repeat(40) : runtimeSha,
+      apiUrl,
+    });
+    const probe = new OctokitRepositoryWorkflowProbe({
+      createRequester: async () => ({
+        request: async (_route, parameters) => {
+          const source =
+            parameters?.path === review.path
+              ? review.content
+              : parameters?.path === interaction.path && scenario !== "missing"
+                ? interaction.content
+                : null;
+          if (!source)
+            throw Object.assign(new Error("missing"), { status: 404 });
+          return {
+            data: {
+              type: "file",
+              encoding: "base64",
+              content: Buffer.from(source).toString("base64"),
+            },
+          };
+        },
+      }),
+    });
+    expect(
+      await isWorkflowSetupAlreadyCurrent(
+        {
+          ...readinessInput,
+          actionRef: versionedActionRef,
+          codexSessionMode: "account-gateway",
+          gatewayInteractionRuntimeSha: runtimeSha,
+          discussionMode: "suggest",
+        },
+        { workflowProbe: probe, resolvePublicApiUrl: () => apiUrl },
+      ),
+    ).toBe(scenario === "current");
+  },
+);
+
+it.each([
+  { name: "legacy", extra: {}, resolutionCalls: 0, result: true },
+  {
+    name: "invalid MCP selection",
+    extra: { mcpSecrets: { KEY: "SECRET" } },
+    resolutionCalls: 0,
+    result: false,
+  },
+  {
+    name: "invalid discussion selection",
+    extra: { discussionMode: "suggest" as const },
+    resolutionCalls: 0,
+    result: false,
+  },
+  {
+    name: "managed",
+    extra: { codexSessionMode: "account-gateway" as const },
+    resolutionCalls: 1,
+    result: false,
+  },
+  {
+    name: "rotating",
+    extra: { codexRotatingProviderInstanceId: "codex-rotating:123456" },
+    resolutionCalls: 1,
+    result: false,
+  },
+])(
+  "preserves unavailable API URL admission for $name",
+  async ({ extra, resolutionCalls, result }) => {
+    const resolvePublicApiUrl = vi.fn(() => {
+      throw new Error("missing_env:REVIEW_ROUTER_PUBLIC_API_URL");
+    });
+    const workflowProbe = new CapturingWorkflowProbe({
+      status: "present",
+      expectedActionRefFound: true,
+    });
+    await expect(
+      isWorkflowSetupAlreadyCurrent(
+        { ...readinessInput, ...extra },
+        { workflowProbe, resolvePublicApiUrl },
+      ),
+    ).resolves.toBe(result);
+    expect(resolvePublicApiUrl).toHaveBeenCalledTimes(resolutionCalls);
+    expect(workflowProbe.inputs.length).toBe(result ? 1 : 0);
+  },
+);
+
+it("preserves a secrets caller's explicit API URL configuration failure", async () => {
+  const failure = new Error("missing_env:REVIEW_ROUTER_PUBLIC_API_URL");
+  const workflowProbe = new CapturingWorkflowProbe({
+    status: "present",
+    expectedActionRefFound: true,
+  });
+  await expect(
+    isWorkflowSetupAlreadyCurrent(
+      { ...readinessInput, secretsRuntimeActionRef: versionedActionRef },
+      {
+        workflowProbe,
+        resolvePublicApiUrl: () => {
+          throw failure;
+        },
+      },
+    ),
+  ).rejects.toBe(failure);
+  expect(workflowProbe.inputs).toEqual([]);
 });

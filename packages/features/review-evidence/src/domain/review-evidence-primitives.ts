@@ -10,12 +10,14 @@ export enum ReviewProviderKind {
   Codex = "codex",
   ClaudeCode = "claude_code",
   OpenRouter = "openrouter",
+  Ocr = "ocr",
   Unknown = "unknown",
 }
 
 export enum ReviewTaskKind {
   FindingDiscovery = "finding_discovery",
   LifecycleRevalidation = "lifecycle_revalidation",
+  PrDescription = "pr_description",
   Unknown = "unknown",
 }
 
@@ -43,9 +45,11 @@ export enum ReviewObservationQualityFlag {
   LowConfidence = "low_confidence",
   ProviderWarning = "provider_warning",
   ContextInspectionIncomplete = "context_inspection_incomplete",
+  UnverifiedNativeSpan = "unverified_native_span",
   ContextAttestationUnavailable = "context_attestation_unavailable",
   CrossRevisionReuseDisabled = "cross_revision_reuse_disabled",
   InvestigationFindings = "investigation_findings",
+  InvestigationVerifiedClean = "investigation_verified_clean",
   InvestigationInconclusive = "investigation_inconclusive",
   Unknown = "unknown",
 }

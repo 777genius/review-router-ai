@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   ReviewCoverageState,
   ReviewExecutionState,
+  projectionClaimsCompleteCoverage,
   type FinalizedReviewProjectionArtifact,
   type ReviewExecutionQueryPort,
   type ReviewExecutionSnapshot,
@@ -9,6 +10,7 @@ import {
 import {
   RequestReviewPublicationStatus,
   ReviewPublicationAttemptState,
+  ReviewPublicationKind,
   ReviewPublicationProjectionCoverage,
   ReviewPublicationTerminalOutcome,
   effectiveReviewPublicationOutcome,
@@ -75,7 +77,7 @@ export class ReviewCompletionExecutionContextAdapter
     return {
       executionId: snapshot.execution.executionId,
       finalizedArtifactId: snapshot.artifact.artifactId,
-      coverage: mapCoverage(snapshot.artifact.coverageState),
+      coverage: mapCoverage(reviewSnapshotSourceCoverage(snapshot.artifact)),
     };
   }
 
@@ -103,6 +105,7 @@ export type ReviewCompletionSnapshotProjection = {
 export interface ReviewCompletionProjectionMapperPort {
   publicationEnvelope(
     artifact: FinalizedReviewProjectionArtifact,
+    options?: Readonly<{ includeVerifiedFixReplies?: boolean }>,
   ): Promise<PublishedReviewProjectionPublicationEnvelope | null>;
   snapshotProjection(
     artifact: FinalizedReviewProjectionArtifact,
@@ -129,9 +132,6 @@ export class DeterministicReviewPublicationRequestFactory {
     snapshot: ReviewExecutionSnapshot,
   ): Promise<RequestReviewPublicationCommand | null> {
     const artifact = requireFinalizedArtifact(snapshot);
-    const envelope = await this.projections.publicationEnvelope(artifact);
-    if (!envelope) return null;
-    assertPublicationEnvelopeMatchesArtifact(envelope, artifact);
     const publicationAttemptId = reviewPublicationAttemptId({
       executionId: artifact.executionId,
       artifactId: artifact.artifactId,
@@ -139,43 +139,63 @@ export class DeterministicReviewPublicationRequestFactory {
       digestUtf8: sha256,
     });
     const existing = await this.attempts.findById(publicationAttemptId);
-    const operations = await this.operationPlanner.plan({
-      identity: resolveCurrentReviewPublicationOperationIdentity({
-        publicationAttemptId,
-        projectionHash: artifact.projectionHash,
-        existingOperationIds:
-          existing?.attempt.operations.map(
-            (operation) => operation.publicationOperationId,
-          ) ?? null,
-      }),
-      envelope,
+    const identity = resolveCurrentReviewPublicationOperationIdentity({
+      publicationAttemptId,
+      projectionHash: artifact.projectionHash,
+      existingOperationIds:
+        existing?.attempt.operations.map(
+          (operation) => operation.publicationOperationId,
+        ) ?? null,
     });
-    if (operations.length === 0) {
-      throw new Error("review_completion_publication_operations_empty");
-    }
-
     const requestIdHash = sha256(
       `rr.publication-request.v2\0${publicationAttemptId}`,
     );
-    const requestHash = sha256(
-      canonicalJson({
+    // Existing requests may have omitted every optional reply. Their
+    // lifecycle indexes still include the rendered reply positions.
+    // Match the persisted request rather than guessing from its operation kinds.
+    const includesStoredReply =
+      existing?.attempt.operations.some(
+        (operation) =>
+          operation.publicationKind === ReviewPublicationKind.ThreadReply,
+      ) ?? false;
+    const renderOptions = existing
+      ? [includesStoredReply, !includesStoredReply]
+      : [true];
+    for (const includeVerifiedFixReplies of renderOptions) {
+      const envelope = await this.projections.publicationEnvelope(artifact, {
+        includeVerifiedFixReplies,
+      });
+      if (!envelope) return null;
+      assertPublicationEnvelopeMatchesArtifact(envelope, artifact);
+      const operations = await this.operationPlanner.plan({
+        identity,
+        envelope,
+      });
+      if (operations.length === 0) {
+        throw new Error("review_completion_publication_operations_empty");
+      }
+      const requestHash = sha256(
+        canonicalJson({
+          publicationAttemptId,
+          requestIdHash,
+          permit: artifact.publicationPermit,
+          operations,
+          createdAt: artifact.createdAt,
+          retainUntil: artifact.retainUntil,
+        }),
+      );
+      if (existing && requestHash !== existing.attempt.requestHash) continue;
+      return {
         publicationAttemptId,
         requestIdHash,
+        requestHash,
         permit: artifact.publicationPermit,
         operations,
-        createdAt: artifact.createdAt,
-        retainUntil: artifact.retainUntil,
-      }),
-    );
-    return {
-      publicationAttemptId,
-      requestIdHash,
-      requestHash,
-      permit: artifact.publicationPermit,
-      operations,
-      createdAt: new Date(artifact.createdAt),
-      retainUntil: new Date(artifact.retainUntil),
-    };
+        createdAt: new Date(artifact.createdAt),
+        retainUntil: new Date(artifact.retainUntil),
+      };
+    }
+    throw new Error("review_completion_publication_existing_plan_mismatch");
   }
 }
 
@@ -578,6 +598,27 @@ function requireFinalizedArtifact(
   return snapshot.artifact;
 }
 
+/** Work-slot completion alone does not prove lifecycle projection coverage. */
+export function reviewSnapshotSourceCoverage(
+  artifact: FinalizedReviewProjectionArtifact,
+): ReviewCoverageState {
+  if (
+    artifact.coverageState !== ReviewCoverageState.Completed ||
+    (artifact.projectionPolicyVersion !== "review-projection-policy.v5-t0" &&
+      artifact.projectionPolicyVersion !==
+        "review-projection-policy.v6-comparison" &&
+      artifact.projectionPolicyVersion !==
+        "review-projection-policy.v7-lifecycle-verification")
+  ) {
+    return artifact.coverageState;
+  }
+  const projection = parseCanonicalObject(artifact.projectionEnvelopeJson);
+  return projection.envelopeVersion === "review_projection.v1" &&
+    projectionClaimsCompleteCoverage(projection)
+    ? ReviewCoverageState.Completed
+    : ReviewCoverageState.Partial;
+}
+
 function assertSnapshotEligibleArtifact(
   snapshot: ReviewExecutionSnapshot & {
     readonly artifact: FinalizedReviewProjectionArtifact;
@@ -585,7 +626,8 @@ function assertSnapshotEligibleArtifact(
 ): void {
   if (
     snapshot.execution.state === ReviewExecutionState.Partial ||
-    snapshot.artifact.coverageState === ReviewCoverageState.Partial
+    reviewSnapshotSourceCoverage(snapshot.artifact) ===
+      ReviewCoverageState.Partial
   ) {
     throw new Error("review_completion_snapshot_partial_forbidden");
   }

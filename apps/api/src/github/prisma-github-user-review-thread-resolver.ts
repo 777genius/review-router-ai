@@ -1,3 +1,9 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import {
+  PrismaReviewThreadResolutionHistory,
+  type LegacyResolutionEntry,
+} from "@reviewrouter/features-review-publishing/v2/composition";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import {
   getValidGitHubUserAccessToken,
@@ -35,6 +41,12 @@ type GraphQLThread = {
   readonly id?: string | null;
   readonly isResolved?: boolean | null;
   readonly viewerCanResolve?: boolean | null;
+  readonly pullRequest?: {
+    readonly number?: number | null;
+    readonly repository?: {
+      readonly fullDatabaseId?: string | number | null;
+    } | null;
+  } | null;
   readonly comments?: {
     readonly pageInfo?: GraphQLPageInfo | null;
     readonly nodes?: readonly GraphQLComment[] | null;
@@ -61,6 +73,10 @@ query ReviewRouterUserResolveThreadGuard($threadId: ID!) {
       id
       isResolved
       viewerCanResolve
+      pullRequest {
+        number
+        repository { fullDatabaseId }
+      }
       comments(first: 100) {
         pageInfo { hasNextPage endCursor }
         nodes {
@@ -85,17 +101,100 @@ mutation ReviewRouterUserResolveReviewThread($threadId: ID!) {
   }
 }`;
 
+/** A qualification receipt identifies actual installed module bytes, including membership guards. */
+export const legacyResolutionWriterSourceVersion =
+  "rr_legacy_resolution_writer.v2_repository_pr_membership" as const;
+export function legacyResolutionWriterSourceIdentity() {
+  const sourceSha256 = createHash("sha256")
+    .update(readFileSync(new URL(import.meta.url)))
+    .digest("hex");
+  const writerDigest = createHash("sha256")
+    .update(
+      `rr.lifecycle_resolution_writer.source.v1\0${legacyResolutionWriterSourceVersion}\0${sourceSha256}`,
+    )
+    .digest("hex");
+  return {
+    sourceVersion: legacyResolutionWriterSourceVersion,
+    sourceSha256,
+    writerDigest,
+  };
+}
+
 export class PrismaGitHubUserReviewThreadResolver implements GitHubReviewThreadLifecycleResolverPort {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly options: {
       readonly env?: ResolverEnvironment;
       readonly fetch?: FetchLike;
+      readonly resolutionHistory?: Pick<
+        PrismaReviewThreadResolutionHistory,
+        "enterLegacy" | "settleLegacy"
+      >;
     } = {},
   ) {}
 
   async resolveReviewThreadLifecycle(
     input: ResolveGitHubReviewThreadLifecycleInput,
+  ): Promise<ActionReviewThreadLifecycleResolveResponse> {
+    const history =
+      this.options.resolutionHistory ??
+      new PrismaReviewThreadResolutionHistory(this.prisma);
+    let entry: LegacyResolutionEntry;
+    try {
+      // Enter durably before the first token, head, or thread read can yield.
+      entry = await history.enterLegacy({
+        workspaceId: input.repository.workspaceId,
+        repositoryConnectionId: input.repository.repositoryId,
+        pullRequestNumber: input.request.pullRequestNumber,
+        threadId: input.request.target.threadId,
+        reviewedHeadSha: input.request.reviewedHeadSha,
+        bodyHash: createHash("sha256")
+          .update(
+            JSON.stringify({
+              resolve: true,
+              threadId: input.request.target.threadId,
+            }),
+          )
+          .digest("hex"),
+        now: input.now,
+      });
+    } catch (error) {
+      return response("skipped", ["mutation_failed"], safeErrorCode(error));
+    }
+    const progress = { mayHaveStarted: false };
+    try {
+      const result = await this.resolveEntered(
+        input,
+        async () => {
+          await history.settleLegacy(entry, "may_have_started", new Date());
+          progress.mayHaveStarted = true;
+        },
+        progress,
+      );
+      await history.settleLegacy(
+        entry,
+        result.status === "resolved"
+          ? "confirmed"
+          : progress.mayHaveStarted
+            ? "effect_unknown"
+            : "no_effect",
+        new Date(),
+      );
+      return result;
+    } catch (error) {
+      await history.settleLegacy(
+        entry,
+        progress.mayHaveStarted ? "effect_unknown" : "no_effect",
+        new Date(),
+      );
+      throw error;
+    }
+  }
+
+  private async resolveEntered(
+    input: ResolveGitHubReviewThreadLifecycleInput,
+    beforeMutation: () => Promise<void>,
+    progress: { mayHaveStarted: boolean },
   ): Promise<ActionReviewThreadLifecycleResolveResponse> {
     const candidates = await this.findCandidateUserIds(input);
     if (candidates.length === 0) {
@@ -124,6 +223,7 @@ export class PrismaGitHubUserReviewThreadResolver implements GitHubReviewThreadL
         const result = await this.resolveWithUserToken({
           input,
           accessToken: token.accessToken,
+          beforeMutation,
         });
         if (result.status === "missing_resolver_permission") {
           sawResolverPermissionDenied = true;
@@ -131,6 +231,13 @@ export class PrismaGitHubUserReviewThreadResolver implements GitHubReviewThreadL
         }
         return result;
       } catch (error) {
+        // After dispatch, use the same durable entry for reconciliation; never try another identity.
+        if (progress.mayHaveStarted)
+          return response(
+            "failed",
+            ["mutation_failed"],
+            "resolution_effect_unknown",
+          );
         if (isPermissionDenied(error)) {
           sawResolverPermissionDenied = true;
           continue;
@@ -205,6 +312,7 @@ export class PrismaGitHubUserReviewThreadResolver implements GitHubReviewThreadL
   private async resolveWithUserToken(input: {
     readonly input: ResolveGitHubReviewThreadLifecycleInput;
     readonly accessToken: string;
+    readonly beforeMutation: () => Promise<void>;
   }): Promise<ActionReviewThreadLifecycleResolveResponse> {
     const repositoryParts = input.input.repository.fullName.split("/");
     const owner = repositoryParts[0];
@@ -245,11 +353,28 @@ export class PrismaGitHubUserReviewThreadResolver implements GitHubReviewThreadL
         },
       },
     );
+    // A node lookup is global: bind it back to the authenticated connection before any lifecycle outcome.
+    if (
+      thread.node &&
+      (thread.node.id !== input.input.request.target.threadId ||
+        thread.node.pullRequest?.number !==
+          input.input.request.pullRequestNumber ||
+        nativeRepositoryId(
+          thread.node.pullRequest?.repository?.fullDatabaseId,
+        ) !== input.input.repository.githubRepositoryId)
+    ) {
+      return response(
+        "skipped",
+        ["thread_changed_before_mutation"],
+        "thread_scope_mismatch",
+      );
+    }
     const guard = this.guardThread(input.input.request.target, thread.node);
     if (guard.status !== "ready") {
       return guard;
     }
 
+    await input.beforeMutation();
     const resolved = await this.graphql<{
       readonly resolveReviewThread?: {
         readonly thread?: { readonly isResolved?: boolean | null } | null;
@@ -507,4 +632,14 @@ function splitCommaSeparated(value: string | undefined): string[] {
 
 function uniqueStrings(values: readonly string[]): string[] {
   return [...new Set(values)];
+}
+
+function nativeRepositoryId(
+  value: string | number | null | undefined,
+): string | null {
+  if (typeof value === "number")
+    return Number.isSafeInteger(value) && value > 0 ? String(value) : null;
+  return typeof value === "string" && /^[1-9][0-9]*$/.test(value)
+    ? value
+    : null;
 }

@@ -1,0 +1,8 @@
+*
+!Dockerfile
+!server.py
+!job.py
+!child.py
+!egress.py
+!requirements.lock
+!build-requirements.lock

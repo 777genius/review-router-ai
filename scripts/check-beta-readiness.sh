@@ -58,17 +58,18 @@ case "${REVIEW_ROUTER_BETA_CHECK_REAL_GITHUB:-none}" in
   none | 0 | false)
     ;;
   setup | review)
-    printf 'REVIEW_ROUTER_BETA_CHECK_REAL_GITHUB=%s is a legacy direct-workflow gate and cannot prove SaaS App identity. Use app-first.\n' "${REVIEW_ROUTER_BETA_CHECK_REAL_GITHUB}" >&2
+    printf 'REVIEW_ROUTER_BETA_CHECK_REAL_GITHUB=%s is a legacy direct-workflow gate and cannot prove control plane App identity. Use app-first.\n' "${REVIEW_ROUTER_BETA_CHECK_REAL_GITHUB}" >&2
     exit 2
     ;;
   app-first | codex-rotating)
     run_step "App-first Codex rotating GitHub live E2E" env REVIEW_ROUTER_RUN_SUBSCRIPTION_RUNTIME_LIVE_E2E=1 node scripts/run-with-env.mjs pnpm subscription-runtime:live-e2e
     ;;
   memory)
-    run_step "disposable repository GitHub memory E2E" env REVIEW_ROUTER_GITHUB_MEMORY_E2E=1 node scripts/run-with-env.mjs pnpm spike:github-memory:e2e
+    printf 'The legacy memory GitHub smoke is retired by ADR-031. Use the current memory proof map in ai-docs/operations/02-runbooks.md; deterministic checks do not replace the live activation gate.\n' >&2
+    exit 2
     ;;
   *)
-    printf 'REVIEW_ROUTER_BETA_CHECK_REAL_GITHUB must be none, app-first, codex-rotating, or memory\n' >&2
+    printf 'REVIEW_ROUTER_BETA_CHECK_REAL_GITHUB must be none, app-first, or codex-rotating\n' >&2
     exit 2
     ;;
 esac

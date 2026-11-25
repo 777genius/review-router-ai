@@ -94,6 +94,7 @@ describe("context reuse publication policy", () => {
   it.each([
     {
       name: "unknown provider",
+      policyVectorProviderKind: ReviewProviderKind.Codex,
       transform: (binding: ContextReusePublicationBinding) => ({
         ...binding,
         observation: {
@@ -103,7 +104,24 @@ describe("context reuse publication policy", () => {
       }),
     },
     {
+      // OCR is an explicit fail-closed non-participant in context-reuse
+      // publication safety: it must never be coerced onto a safety lane and
+      // must never reach publication. The policy-vector hash below is
+      // self-consistent for the OCR provider kind, so only a code path that
+      // coerces OCR onto a safety lane could answer Current here.
+      name: "ocr provider",
+      policyVectorProviderKind: ReviewProviderKind.Ocr,
+      transform: (binding: ContextReusePublicationBinding) => ({
+        ...binding,
+        observation: {
+          ...binding.observation,
+          providerKind: ReviewProviderKind.Ocr,
+        },
+      }),
+    },
+    {
       name: "unknown task",
+      policyVectorProviderKind: ReviewProviderKind.Codex,
       transform: (binding: ContextReusePublicationBinding) => ({
         ...binding,
         observation: {
@@ -114,10 +132,12 @@ describe("context reuse publication policy", () => {
     },
   ])(
     "classifies a deterministic $name binding as stale",
-    async ({ transform }) => {
+    async ({ transform, policyVectorProviderKind }) => {
       const safety = allowingSafety();
       const binding = transform(
-        createBinding(reusePolicyVectorHash(safety.hashes)),
+        createBinding(
+          reusePolicyVectorHash(safety.hashes, policyVectorProviderKind),
+        ),
       );
 
       await expect(
@@ -274,6 +294,7 @@ function allowingSafety(): {
 
 function reusePolicyVectorHash(
   hashes: Readonly<Record<ReviewSafetyDecisionKind, string>>,
+  providerKind: ReviewProviderKind = ReviewProviderKind.Codex,
 ): string {
   return sha256(
     canonicalizeReviewContextReusePolicyVector({
@@ -304,7 +325,7 @@ function reusePolicyVectorHash(
       gatewayBinaryHash,
       trustedCapabilityProfile: release.capabilityProfile,
       producerReleaseId: release.producerReleaseId,
-      providerKind: ReviewProviderKind.Codex,
+      providerKind,
       requestedModel: "gpt-5.6",
       actualModel: "gpt-5.6",
     }),

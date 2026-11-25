@@ -1,0 +1,507 @@
+{
+  "schema_version": 1,
+  "task": "2026-11-23-provider-fixture-native-ast",
+  "observed_utc": "2026-11-23T15:29:32.409113+00:00",
+  "plan_commit": "1eec9552a4beb01bc4ba64abd7d33087aebc42eb",
+  "pull_request": "https://github.com/777genius/review-router-ai/pull/986",
+  "source_binding": {
+    "base": "8b63574eeaee32fa081cadc83d40bfc526d17ce4",
+    "existing_test_sections_byte_identical_except_AST_helpers_and_import": true,
+    "new_cases": 2,
+    "files": {
+      "scripts/manage-review-provider-scope-concurrency.test.ts": {
+        "sha256": "0feaf6c9e9112aa6144ec0271f3e8000bf38de03a0fa92c49ff1dddb0c26df37",
+        "lines": 798
+      },
+      "scripts/manage-review-provider-scope-concurrency.d.mts": {
+        "sha256": "6c8c0b28f002f54a0256077b692075f1bee8200794e19715a9b2cc9201e49590",
+        "lines": 21
+      },
+      "scripts/self-hosted-e2e/disposable-release-role-fixture.d.mts": {
+        "sha256": "d915028cc5c15a7720cf3b794a897f7980c0855173b76f4f4df6902bcace9277",
+        "lines": 27
+      },
+      "tsconfig.tooling.json": {
+        "sha256": "589da011f3ab387bfae59b169c0b51a3364efa0a86d1f799f4caec3de87a77ee",
+        "lines": 34
+      },
+      "scripts/manage-review-provider-scope-concurrency.mjs": {
+        "sha256": "48de42db184a6916887f16d180bb67ca1bdfadb1cc0b805e99dfebc891d52747",
+        "unchanged_from_base": true
+      },
+      "scripts/self-hosted-e2e/disposable-release-role-fixture.mjs": {
+        "sha256": "352026771aa64f32d4c14b2c80a5e0d0ec1793a07a4091610c93f3fbf4694365",
+        "unchanged_from_base": true
+      },
+      "packages/features/review-executions/src/tests/prisma-review-execution-store-real.test.ts": {
+        "sha256": "01f1709347e46b6fc1a704873dd917e8884677a148db5eb37fefccd9cef61145",
+        "unchanged_from_base": true
+      },
+      ".github/workflows/ci.yml": {
+        "sha256": "0972f81b0895c83e7df7441cd880bd8476257fbf7ccf217a962bdc1ce4d4f8b0",
+        "unchanged_from_base": true
+      }
+    }
+  },
+  "scope": "Bounded local qualification of the complete provider fixture test and its typed ESM boundaries. This is not a clean install, whole tooling typecheck, PostgreSQL gate, browser E2E, main CI or application deployment result.",
+  "dependency_reuse": {
+    "worktree": "/workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123",
+    "node_modules_link": "/workspace/scratch/b7799b790d14/review-router-ai-provider-native-20261123/node_modules",
+    "installs_performed": false,
+    "manifest_or_lockfile_changes": false,
+    "integration_prerequisite": "PR983 declares exact root oxc-parser0.159.0 and its generated frozen lockfile; it must be integrated before clean workspace CI."
+  },
+  "packages": {
+    "oxc-parser": {
+      "name": "oxc-parser",
+      "version": "0.159.0",
+      "manifest_realpath": "/workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/.pnpm/oxc-parser@0.159.0/node_modules/oxc-parser/package.json",
+      "manifest_sha256": "ab443bca97b1430c7444289a70319d13f68e1a36cec1ce46d19a28c6ea64b000"
+    },
+    "typescript-native": {
+      "name": "typescript",
+      "version": "7.0.2",
+      "manifest_realpath": "/workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/scripts/local-checks/native/node_modules/.pnpm/typescript@7.0.2/node_modules/typescript/package.json",
+      "manifest_sha256": "3722b30210616a13a3213ded11575ba6b2dbab10c32a5ef67afca8513e27017e"
+    },
+    "vitest": {
+      "name": "vitest",
+      "version": "4.1.10",
+      "manifest_realpath": "/workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/.pnpm/vitest@4.1.10_@types+node@22.19.17_jsdom@29.1.1_vite@8.1.5_@types+node@22.19.17_esbuild_3bdd1d42b04b35cc8ea1f89c453d3a16/node_modules/vitest/package.json",
+      "manifest_sha256": "caa41f04799bd42f3cfd100c4282e630d77ffc7deb1e7e4927794fcb7f137f34"
+    }
+  },
+  "guard": {
+    "path": "/workspace/scratch/b7799b790d14/review-router-ai-native-format-20261123/scripts/local-checks/lint-format-native-load-guard.ts",
+    "sha256": "8c9f9a699eb7ca107fd1bc8f7d66329d4f185729b06cc8f7997dab45074a0c2a",
+    "qualification_owner": "PR984",
+    "execution": "NODE_OPTIONS --import before compiler and test module loading; inherited by child processes",
+    "audit_event_note": "The reused guard names Oxc parser/binding records formatter-module even in the provider test; their exact runtime URLs show version0.159.0."
+  },
+  "checks": {
+    "format": {
+      "command": [
+        "/tmp/review-router-ai-node26-runtime-20261123/node-v26.11.1-linux-x64/bin/node",
+        "/workspace/scratch/b7799b790d14/review-router-ai-native-format-20261123/node_modules/prettier/bin/prettier.cjs",
+        "--config",
+        "/workspace/scratch/b7799b790d14/review-router-ai-native-format-20261123/.prettierrc.json",
+        "--write",
+        "scripts/manage-review-provider-scope-concurrency.test.ts",
+        "scripts/manage-review-provider-scope-concurrency.d.mts",
+        "scripts/self-hosted-e2e/disposable-release-role-fixture.d.mts",
+        "tsconfig.tooling.json"
+      ],
+      "exit_code": 0,
+      "cwd": "/workspace/scratch/b7799b790d14/review-router-ai-provider-native-20261123",
+      "dependency_graph": "/workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules",
+      "log_sha256": "6f6c87ee92bfd52dbf040a07c26f6464bf787f16b52bdc1e63dda89aa09a6cd5",
+      "log": "scripts/manage-review-provider-scope-concurrency.test.ts 147ms\nscripts/manage-review-provider-scope-concurrency.d.mts 4ms (unchanged)\nscripts/self-hosted-e2e/disposable-release-role-fixture.d.mts 5ms (unchanged)\ntsconfig.tooling.json 20ms (unchanged)\n",
+      "audit_sha256": "3f87a454ac9a0f93eaa0b41aaced8aa864ce15654e1d92290a109e5ee0f9fbe3",
+      "audit_event_counts": {
+        "guard-installed": 1,
+        "formatter-module": 10
+      },
+      "audit": [
+        {
+          "event": "guard-installed",
+          "pid": 8,
+          "nodeVersion": "v26.11.1"
+        },
+        {
+          "event": "formatter-module",
+          "pid": 8,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-native-format-20261123/node_modules/.pnpm/@prettier+plugin-oxc@0.2.4/node_modules/@prettier/plugin-oxc/index.mjs"
+        },
+        {
+          "event": "formatter-module",
+          "pid": 8,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-native-format-20261123/node_modules/.pnpm/oxc-parser@0.158.0/node_modules/oxc-parser/src-js/index.js"
+        },
+        {
+          "event": "formatter-module",
+          "pid": 8,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-native-format-20261123/node_modules/.pnpm/oxc-parser@0.158.0/node_modules/oxc-parser/src-js/bindings.js"
+        },
+        {
+          "event": "formatter-module",
+          "pid": 8,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-native-format-20261123/node_modules/.pnpm/oxc-parser@0.158.0/node_modules/oxc-parser/src-js/wrap.js"
+        },
+        {
+          "event": "formatter-module",
+          "pid": 8,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-native-format-20261123/node_modules/.pnpm/oxc-parser@0.158.0/node_modules/oxc-parser/src-js/generated/visit/keys.js"
+        },
+        {
+          "event": "formatter-module",
+          "pid": 8,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-native-format-20261123/node_modules/.pnpm/oxc-parser@0.158.0/node_modules/oxc-parser/src-js/visit/index.js"
+        },
+        {
+          "event": "formatter-module",
+          "pid": 8,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-native-format-20261123/node_modules/.pnpm/oxc-parser@0.158.0/node_modules/oxc-parser/src-js/raw-transfer/supported.js"
+        },
+        {
+          "event": "formatter-module",
+          "pid": 8,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-native-format-20261123/node_modules/.pnpm/prettier@3.8.3/node_modules/prettier/plugins/estree.mjs"
+        },
+        {
+          "event": "formatter-module",
+          "pid": 8,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-native-format-20261123/node_modules/.pnpm/@oxc-parser+binding-linux-x64-gnu@0.158.0/node_modules/@oxc-parser/binding-linux-x64-gnu/package.json"
+        },
+        {
+          "event": "formatter-module",
+          "pid": 8,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-native-format-20261123/node_modules/.pnpm/prettier@3.8.3/node_modules/prettier/plugins/babel.mjs"
+        }
+      ]
+    },
+    "typecheck": {
+      "command": [
+        "/tmp/review-router-ai-node26-runtime-20261123/node-v26.11.1-linux-x64/bin/node",
+        "/workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/scripts/local-checks/compiler-cli.ts",
+        "--native",
+        "--noEmit",
+        "--incremental",
+        "false",
+        "-p",
+        "/workspace/scratch/b7799b790d14/review-router-ai-provider-native-20261123/tmp/provider-native-qualification/tsconfig.provider-native.json"
+      ],
+      "exit_code": 0,
+      "cwd": "/workspace/scratch/b7799b790d14/review-router-ai-provider-native-20261123",
+      "dependency_graph": "/workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "log": "",
+      "audit_sha256": "e8df07b26f6907d6b9c6abb09a67547bc380188c65b12212eea25dbb9aee8bac",
+      "audit_event_counts": {
+        "guard-installed": 2,
+        "native-typescript-module": 3
+      },
+      "audit": [
+        {
+          "event": "guard-installed",
+          "pid": 20,
+          "nodeVersion": "v26.11.1"
+        },
+        {
+          "event": "guard-installed",
+          "pid": 28,
+          "nodeVersion": "v26.11.1"
+        },
+        {
+          "event": "native-typescript-module",
+          "pid": 28,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/scripts/local-checks/native/node_modules/.pnpm/typescript@7.0.2/node_modules/typescript/bin/tsc",
+          "version": "7.0.2"
+        },
+        {
+          "event": "native-typescript-module",
+          "pid": 28,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/scripts/local-checks/native/node_modules/.pnpm/typescript@7.0.2/node_modules/typescript/lib/tsc.js",
+          "version": "7.0.2"
+        },
+        {
+          "event": "native-typescript-module",
+          "pid": 28,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/scripts/local-checks/native/node_modules/.pnpm/typescript@7.0.2/node_modules/typescript/lib/getExePath.js",
+          "version": "7.0.2"
+        }
+      ]
+    },
+    "provider-tests": {
+      "command": [
+        "/tmp/review-router-ai-node26-runtime-20261123/node-v26.11.1-linux-x64/bin/node",
+        "/workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/vitest/vitest.mjs",
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "scripts/manage-review-provider-scope-concurrency.test.ts"
+      ],
+      "exit_code": 0,
+      "cwd": "/workspace/scratch/b7799b790d14/review-router-ai-provider-native-20261123",
+      "dependency_graph": "/workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules",
+      "log_sha256": "39af1a951dc491abec0932e949c879656f4e3f9bd05ceff0c5f777aafdde522f",
+      "log": "\n RUN  v4.1.10 /workspace/scratch/b7799b790d14/review-router-ai-provider-native-20261123\n\n\n Test Files  1 passed (1)\n      Tests  38 passed (38)\n   Start at  17:27:06\n   Duration  2.82s (transform 616ms, setup 0ms, import 950ms, tests 1.07s, environment 10ms)\n\n",
+      "audit_sha256": "4c150ea8bb4d517ae5a53677456905684fbeb6cb4600ac2572356bb706b8553b",
+      "audit_event_counts": {
+        "guard-installed": 2,
+        "formatter-module": 10
+      },
+      "audit": [
+        {
+          "event": "guard-installed",
+          "pid": 51,
+          "nodeVersion": "v26.11.1"
+        },
+        {
+          "event": "guard-installed",
+          "pid": 86,
+          "nodeVersion": "v26.11.1"
+        },
+        {
+          "event": "formatter-module",
+          "pid": 86,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/.pnpm/oxc-parser@0.159.0/node_modules/oxc-parser/src-js/index.js"
+        },
+        {
+          "event": "formatter-module",
+          "pid": 86,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/.pnpm/oxc-parser@0.159.0/node_modules/oxc-parser/src-js/bindings.js"
+        },
+        {
+          "event": "formatter-module",
+          "pid": 86,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/.pnpm/oxc-parser@0.159.0/node_modules/oxc-parser/src-js/wrap.js"
+        },
+        {
+          "event": "formatter-module",
+          "pid": 86,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/.pnpm/oxc-parser@0.159.0/node_modules/oxc-parser/src-js/generated/visit/keys.js"
+        },
+        {
+          "event": "formatter-module",
+          "pid": 86,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/.pnpm/oxc-parser@0.159.0/node_modules/oxc-parser/src-js/visit/index.js"
+        },
+        {
+          "event": "formatter-module",
+          "pid": 86,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/.pnpm/oxc-parser@0.159.0/node_modules/oxc-parser/src-js/raw-transfer/supported.js"
+        },
+        {
+          "event": "formatter-module",
+          "pid": 86,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/.pnpm/@oxc-parser+binding-linux-x64-gnu@0.159.0/node_modules/@oxc-parser/binding-linux-x64-gnu/package.json"
+        },
+        {
+          "event": "formatter-module",
+          "pid": 86,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/.pnpm/oxc-parser@0.159.0/node_modules/oxc-parser/src-js/generated/visit/walk.js"
+        },
+        {
+          "event": "formatter-module",
+          "pid": 86,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/.pnpm/oxc-parser@0.159.0/node_modules/oxc-parser/src-js/visit/visitor.js"
+        },
+        {
+          "event": "formatter-module",
+          "pid": 86,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/node_modules/.pnpm/oxc-parser@0.159.0/node_modules/oxc-parser/src-js/generated/visit/type_ids.js"
+        }
+      ]
+    },
+    "rejected-call-boundaries": {
+      "command": [
+        "/tmp/review-router-ai-node26-runtime-20261123/node-v26.11.1-linux-x64/bin/node",
+        "/workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/scripts/local-checks/compiler-cli.ts",
+        "--native",
+        "--noEmit",
+        "--incremental",
+        "false",
+        "-p",
+        "/workspace/scratch/b7799b790d14/review-router-ai-provider-native-20261123/tmp/provider-native-qualification/tsconfig.rejected-call-boundaries.json"
+      ],
+      "exit_code": 1,
+      "expected_failure": true,
+      "diagnostic_codes": ["TS2322", "TS2345", "TS2322", "TS2322"],
+      "expected_diagnostic_codes": ["TS2322", "TS2345", "TS2322", "TS2322"],
+      "cases": [
+        "unknown operation",
+        "unknown migration phase",
+        "malformed injected query response",
+        "unvalidated status is unknown"
+      ],
+      "log_sha256": "783e191d59f1d87050480570747c1a8ff620b0d700eb552bff4b2d191459c07e",
+      "log": "tmp/provider-native-qualification/rejected-call-boundaries.ts(5,3): error TS2322: Type '\"arbitrary-routine\"' is not assignable to type 'ProviderScopeOperation'.\ntmp/provider-native-qualification/rejected-call-boundaries.ts(8,33): error TS2345: Argument of type '\"full\"' is not assignable to parameter of type '\"before87\" | \"pre79\" | \"through79\"'.\ntmp/provider-native-qualification/rejected-call-boundaries.ts(12,3): error TS2322: Type '() => { connect: () => Promise<undefined>; end: () => Promise<undefined>; query: () => Promise<{ differentRows: never[]; }>; }' is not assignable to type '() => ProviderScopeClient'.\n  Type '{ connect: () => Promise<undefined>; end: () => Promise<undefined>; query: () => Promise<{ differentRows: never[]; }>; }' is not assignable to type 'ProviderScopeClient'.\n    The types returned by 'query(...)' are incompatible between these types.\n      Type 'Promise<{ differentRows: never[]; }>' is not assignable to type 'Promise<{ rows: readonly { status: unknown; }[]; }>'.\n        Property 'rows' is missing in type '{ differentRows: never[]; }' but required in type '{ rows: readonly { status: unknown; }[]; }'.\ntmp/provider-native-qualification/rejected-call-boundaries.ts(23,9): error TS2322: Type 'unknown' is not assignable to type 'string'.\n",
+      "audit_sha256": "e128952c3101977ad9bf6dc2ceaeadd3d3478c9af8991a2833521e9a8f4593f7",
+      "audit_event_counts": {
+        "guard-installed": 2,
+        "native-typescript-module": 3
+      },
+      "audit": [
+        {
+          "event": "guard-installed",
+          "pid": 6,
+          "nodeVersion": "v26.11.1"
+        },
+        {
+          "event": "guard-installed",
+          "pid": 14,
+          "nodeVersion": "v26.11.1"
+        },
+        {
+          "event": "native-typescript-module",
+          "pid": 14,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/scripts/local-checks/native/node_modules/.pnpm/typescript@7.0.2/node_modules/typescript/bin/tsc",
+          "version": "7.0.2"
+        },
+        {
+          "event": "native-typescript-module",
+          "pid": 14,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/scripts/local-checks/native/node_modules/.pnpm/typescript@7.0.2/node_modules/typescript/lib/tsc.js",
+          "version": "7.0.2"
+        },
+        {
+          "event": "native-typescript-module",
+          "pid": 14,
+          "url": "file:///workspace/scratch/b7799b790d14/review-router-ai-next-native-20261123/scripts/local-checks/native/node_modules/.pnpm/typescript@7.0.2/node_modules/typescript/lib/getExePath.js",
+          "version": "7.0.2"
+        }
+      ]
+    }
+  },
+  "strict_scope": {
+    "config": {
+      "extends": "../../tsconfig.tooling.json",
+      "include": [
+        "../../scripts/manage-review-provider-scope-concurrency.test.ts",
+        "../../scripts/manage-review-provider-scope-concurrency.d.mts",
+        "../../scripts/self-hosted-e2e/disposable-release-role-fixture.d.mts"
+      ]
+    },
+    "inherits_repository_strict_options": true,
+    "whole_tooling_typecheck_executed": false,
+    "unchanged_legacy_js_implementations_typechecked": false
+  },
+  "required_project_enrollment": {
+    "source_count": 55,
+    "native_show_config": {
+      "compilerOptions": {
+        "allowImportingTsExtensions": true,
+        "exactOptionalPropertyTypes": true,
+        "forceConsistentCasingInFileNames": true,
+        "isolatedModules": true,
+        "jsx": "react-jsx",
+        "lib": ["es2022", "dom", "dom.iterable"],
+        "module": "esnext",
+        "moduleResolution": "bundler",
+        "noEmit": true,
+        "noUncheckedIndexedAccess": true,
+        "resolveJsonModule": true,
+        "skipLibCheck": true,
+        "strict": true,
+        "target": "es2022",
+        "types": ["node"],
+        "allowSyntheticDefaultImports": true,
+        "esModuleInterop": true,
+        "preserveConstEnums": true
+      },
+      "files": [
+        "./scripts/manage-review-provider-scope-concurrency.test.ts",
+        "./scripts/check-provider-setup-postgres-results.ts",
+        "./scripts/check-provider-setup-postgres-results.test.ts",
+        "./scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts",
+        "./scripts/review-action-v2-production-e2e/support/fake-github.ts",
+        "./scripts/review-action-v2-production-e2e/support/review-action-v2-e2e-harness.test.ts",
+        "./scripts/review-action-v2-production-e2e/support/review-action-v2-e2e-harness.ts",
+        "./scripts/review-history-tooling/check.ts",
+        "./scripts/review-history-tooling/collect-layout.ts",
+        "./scripts/activate-review-history.ts",
+        "./scripts/context-tools-e2e/browser-acceptance.test.ts",
+        "./scripts/context-tools-e2e/browser-acceptance.ts",
+        "./scripts/update-mcp-catalog.ts",
+        "./scripts/lib/server-rendered-heading.ts",
+        "./scripts/lib/server-rendered-heading.test.ts",
+        "./scripts/lib/review-model-dispatch-release-profile.ts",
+        "./scripts/lib/review-model-dispatch-release-profile.test.ts",
+        "./scripts/local-checks/compiler-cli.pilot.ts",
+        "./scripts/local-checks/compiler-cli.ts",
+        "./scripts/local-checks/compiler-vitest.config.ts",
+        "./scripts/local-checks/lint-format-fixtures.ts",
+        "./scripts/local-checks/lint-format-lint.mts",
+        "./scripts/local-checks/lint-format-qualification.mts",
+        "./scripts/local-checks/lint-format-safety.test.mts",
+        "./scripts/local-checks/lint-format-test-support.mts",
+        "./scripts/memory-foundation/host-boundaries.test.ts",
+        "./scripts/memory-foundation/host-boundaries.ts",
+        "./scripts/memory-foundation/qualify-boundaries.ts",
+        "./scripts/memory-ui-e2e/browser-qualify.ts",
+        "./scripts/memory-e2e/paired-action-memory.pg.test.ts",
+        "./scripts/memory-e2e/support/approved-memory-fixture.ts",
+        "./scripts/statistics-foundation/qualify-boundaries.ts",
+        "./scripts/statistics-e2e/browser-qualify.ts",
+        "./scripts/statistics-e2e/dev-server.ts",
+        "./scripts/statistics-e2e/followthrough-scenario.ts",
+        "./scripts/statistics-e2e/history-scenario.ts",
+        "./scripts/statistics-e2e/history-source.ts",
+        "./scripts/migrate-provider-profiles.ts",
+        "./scripts/provider-setup-visual/capture.ts",
+        "./scripts/provider-setup-visual/fixture-contract.ts",
+        "./scripts/provider-setup-visual/flows.ts",
+        "./scripts/provider-setup-visual/gateway-catalog-fixture.ts",
+        "./scripts/provider-setup-visual/github-fixture.test.ts",
+        "./scripts/provider-setup-visual/github-fixture.ts",
+        "./scripts/provider-setup-visual/next-app.test.ts",
+        "./scripts/provider-setup-visual/next-app.ts",
+        "./scripts/provider-setup-visual/onboarding-qualification.test.ts",
+        "./scripts/provider-setup-visual/onboarding-qualification.ts",
+        "./scripts/provider-setup-visual/preload.ts",
+        "./scripts/provider-setup-visual/run.ts",
+        "./scripts/provider-setup-visual/scenarios.ts",
+        "./scripts/provider-setup-visual/seed.postgres.test.ts",
+        "./scripts/provider-setup-visual/seed.ts",
+        "./scripts/provider-setup-visual/ui.ts",
+        "./scripts/migrate-provider-profiles.postgres.test.ts"
+      ],
+      "include": [
+        "scripts/manage-review-provider-scope-concurrency.test.ts",
+        "scripts/check-provider-setup-postgres-results.ts",
+        "scripts/check-provider-setup-postgres-results.test.ts",
+        "scripts/review-action-v2-production-e2e/**/*.ts",
+        "scripts/review-history-tooling/**/*.ts",
+        "scripts/activate-review-history.ts",
+        "scripts/context-tools-e2e/**/*.ts",
+        "scripts/update-mcp-catalog.ts",
+        "scripts/lib/server-rendered-heading.ts",
+        "scripts/lib/server-rendered-heading.test.ts",
+        "scripts/lib/review-model-dispatch-release-profile.ts",
+        "scripts/lib/review-model-dispatch-release-profile.test.ts",
+        "scripts/local-checks/compiler-*.ts",
+        "scripts/local-checks/compiler-*.mts",
+        "scripts/local-checks/lint-format-*.ts",
+        "scripts/local-checks/lint-format-*.mts",
+        "scripts/memory-foundation/**/*.ts",
+        "scripts/memory-ui-e2e/**/*.ts",
+        "scripts/memory-e2e/**/*.ts",
+        "scripts/statistics-foundation/**/*.ts",
+        "scripts/statistics-e2e/**/*.ts",
+        "scripts/migrate-provider-profiles.ts",
+        "scripts/provider-setup-visual/**/*.ts",
+        "scripts/migrate-provider-profiles.postgres.test.ts"
+      ],
+      "exclude": ["node_modules", "dist", ".next"]
+    },
+    "raw_sha256": "e55897b8c2e4c07feb7be051c5ef7f6e1c05776d058541a90ed8bfbbf8e752e0",
+    "existing_include_entries_preserved_in_order": true,
+    "compiler_options_unchanged": true,
+    "root_required_typecheck_command": "pnpm --filter @reviewrouter/shared build && turbo run typecheck && node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.spikes.json && node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.one-shot-test-handoff.json && node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.tooling.json"
+  },
+  "test_summary": {
+    "files_passed": 1,
+    "tests_passed": 38,
+    "existing_cases_preserved": 36,
+    "new_cases": [
+      "quoted duplicate databaseUrl override must produce the dedicated-binding error",
+      "malformed production TypeScript must fail parsing before binding acceptance"
+    ],
+    "skipped": 0
+  },
+  "rejected_type_fixture": {
+    "source": "import { runProviderScopeConcurrencyOperation } from \"../../scripts/manage-review-provider-scope-concurrency.mjs\";\nimport { writeDisposableMigrationCatalog } from \"../../scripts/self-hosted-e2e/disposable-release-role-fixture.mjs\";\n\nvoid runProviderScopeConcurrencyOperation({\n  operation: \"arbitrary-routine\",\n  databaseUrl: \"postgresql://invalid.example/test\",\n});\nwriteDisposableMigrationCatalog(\"full\");\nvoid runProviderScopeConcurrencyOperation({\n  operation: \"status\",\n  databaseUrl: \"postgresql://invalid.example/test\",\n  createClient: () => ({\n    connect: async () => undefined,\n    end: async () => undefined,\n    query: async () => ({ differentRows: [] }),\n  }),\n});\nasync function unvalidatedStatus(): Promise<string> {\n  const result = await runProviderScopeConcurrencyOperation({\n    operation: \"status\",\n    databaseUrl: \"postgresql://invalid.example/test\",\n  });\n  const status: string = result.status;\n  return status;\n}\nvoid unvalidatedStatus;\n",
+    "source_sha256": "d503fecaabf523be8b925d5f67d7ca5d21603f6ee1df1947c51a8cab5c9bbe00",
+    "config": {
+      "extends": "./tsconfig.provider-native.json",
+      "include": ["./rejected-call-boundaries.ts"]
+    },
+    "executed_as_javascript": false
+  },
+  "intermediate_observation": "An earlier37-pass run preceded the malformed-syntax case. Its local initial-* receipts are preserved and are not credited to this final source snapshot.",
+  "remaining": [
+    "Integrate the declared exact dependency and generated lockfile prerequisite through its owning PR.",
+    "Run the complete effective required typecheck and applicable final-head CI.",
+    "Review, protected merge, and verify the resulting exact main commit."
+  ]
+}

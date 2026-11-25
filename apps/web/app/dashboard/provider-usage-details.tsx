@@ -1,0 +1,149 @@
+import { dashboardSectionHref } from "./dashboard-section";
+import type { ReactNode } from "react";
+import type { ProviderUsageReport } from "./provider-usage-model";
+import { DailyUsageTable } from "./provider-usage-charts";
+import { ObservationTable } from "./provider-usage-tables";
+import {
+  count,
+  humanUtc,
+  PARTIAL_DAY_NOTE,
+  TOKEN_LOWER_BOUND_NOTE,
+  tokenCoverage,
+} from "./provider-usage-format";
+import type { CostBucket } from "./provider-usage-format";
+
+export function UsageDetails({
+  workspaceId,
+  report,
+  controls,
+  onNext,
+  onPrevious,
+  busy,
+  selectedCurrency,
+  bucket,
+}: {
+  workspaceId: string;
+  report: ProviderUsageReport;
+  controls: ReactNode;
+  onNext: () => void;
+  onPrevious?: (() => void) | undefined;
+  busy?: boolean | undefined;
+  selectedCurrency?: string | undefined;
+  bucket?: CostBucket | undefined;
+}) {
+  const oldestSourceUpdate = report.sources.reduce<string | null>(
+    (oldest, source) =>
+      source.asOf && (!oldest || source.asOf < oldest) ? source.asOf : oldest,
+    null,
+  );
+  const coverage = tokenCoverage(report.totals);
+  // A producer reports only delivery loss, so no report is not an unknown state.
+  const deliveryLosses = report.deliveryCoverage.flatMap(
+    ({ invocationId, coverage: loss }) =>
+      loss ? [{ invocationId, loss }] : [],
+  );
+  const sessionsWithoutLoss =
+    report.deliveryCoverage.length - deliveryLosses.length;
+  return (
+    <div className="space-y-5 border-t border-slate-700/50 pt-5 text-xs text-slate-400">
+      <p className="break-words">
+        UTC interval [{report.from}, {report.to}), inclusive start and exclusive
+        end.
+      </p>
+      <p>
+        Source windows below are source-wide checkpoints; they do not prove
+        completeness for a selected model, route or UTC day. Known usage is not
+        a provider billing statement.{" "}
+        <a
+          className="text-cyan-200 underline"
+          href={dashboardSectionHref("setup", workspaceId)}
+        >
+          Account limits are shown in Connections
+        </a>
+      </p>
+      <p>
+        {coverage.detail ?? coverage.label} · {report.unboundedSummaries}{" "}
+        separate reported summaries · Unattributed observations:{" "}
+        {report.unattributed ?? "shown to workspace admins"} · Observations
+        without run ID: {report.overview.observationsWithoutRunId}
+      </p>
+      <p>
+        Latest update is the most recent source report; completeness can differ
+        between sources, models and days.
+        {oldestSourceUpdate ? (
+          <> Some sources last reported {humanUtc(oldestSourceUpdate)}.</>
+        ) : null}
+      </p>
+      <p>
+        {PARTIAL_DAY_NOTE}. At least N: {TOKEN_LOWER_BOUND_NOTE}. Not reported
+        means the source does not send that value: Gateway calls do not report
+        the upstream model, latency or cost.
+      </p>
+      <p>
+        {report.sources.length
+          ? `Source lag: ${report.sourceLag} · All reported source windows from ${report.coveredFrom}`
+          : "No native source checkpoint for this workspace."}
+      </p>
+      <ul aria-label="Producer delivery coverage" className="space-y-1">
+        {deliveryLosses.map(({ invocationId, loss }, index) => (
+          <li key={`${invocationId}/${index}`}>
+            Runtime delivery: partial ({loss.reason}, {loss.droppedEvents}{" "}
+            dropped events)
+          </li>
+        ))}
+        {sessionsWithoutLoss ? (
+          <li>
+            No delivery loss reported by {count(sessionsWithoutLoss)} runtime{" "}
+            {sessionsWithoutLoss === 1 ? "session" : "sessions"}
+          </li>
+        ) : null}
+      </ul>
+      <ul aria-label="Usage source coverage" className="space-y-1">
+        {report.sources.map((source) => (
+          <li key={source.sourceInstance}>
+            Native source coverage from {humanUtc(source.coveredFrom)}; as of{" "}
+            {source.asOf ? humanUtc(source.asOf) : "unavailable"}; lag{" "}
+            {source.lagMs === null ? "unknown" : `${source.lagMs}ms`} ·{" "}
+            {source.deadLetteredAt
+              ? `dead letter since ${humanUtc(source.deadLetteredAt)}`
+              : source.nextAttemptAt
+                ? `retry at ${humanUtc(source.nextAttemptAt)}`
+                : "reconciled"}
+            {source.lastErrorCode
+              ? ` · last source error: ${source.lastErrorCode}`
+              : ""}
+          </li>
+        ))}
+        <li>
+          Direct runtime source coverage:{" "}
+          {report.overview.hasDirectObservations
+            ? "reported observations only; transport completeness varies"
+            : "no direct observations in this period"}
+        </li>
+      </ul>
+      {controls}
+      <div>
+        <h3 className="mb-2 text-sm font-medium text-slate-200">
+          Daily values
+        </h3>
+        <DailyUsageTable
+          report={report}
+          selectedCurrency={selectedCurrency}
+          bucket={bucket}
+        />
+      </div>
+      <div>
+        <h3 className="mb-2 text-sm font-medium text-slate-200">
+          Raw observations
+        </h3>
+        <ObservationTable
+          report={report}
+          onNext={onNext}
+          onPrevious={onPrevious}
+          busy={busy}
+          selectedCurrency={selectedCurrency}
+        />
+      </div>
+    </div>
+  );
+}

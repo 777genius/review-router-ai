@@ -1,0 +1,31 @@
+{
+  "kind": "real_grok_code_only_reconnect",
+  "gatewaySource": "c45fe305128d10358747b5829a1b0e28a2acad3b",
+  "nativeSource": "ebeb45ff113b223f3c20ba60ab198667af0fb54d",
+  "sdkSHA256": "130ca3f00dcc66eafcc23fecec9ddc9a9c351341f0cd2273d9e87e02fc05e446",
+  "operationState": "applied",
+  "accountState": "active",
+  "sameAccount": true,
+  "revisionAdvanced": true,
+  "authorizationEpochAdvanced": true,
+  "birth": {
+    "generation_changed": true,
+    "account_preserved": true,
+    "owner_preserved": true,
+    "profile_preserved": true,
+    "reconnect_journal": true
+  },
+  "custody": {
+    "principal_claims": 1,
+    "completed_principals": 1,
+    "verified_completed_intents": 1,
+    "erased_empty_intents": 2,
+    "plaintext_token_accounts": 0,
+    "sealed_bundle_accounts": 1
+  },
+  "originalPrincipalPreserved": true,
+  "plainAuthorizationCode": true,
+  "callbackURLReconstructed": false,
+  "providerInferenceRequested": false,
+  "productionEffects": false
+}

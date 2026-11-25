@@ -1,3 +1,4 @@
+import { InvestigationLeaseAcquireStatus } from "../application/ports/investigation-lease-store-port";
 import { createHash, randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { createPrismaClient } from "@reviewrouter/platform-db";
@@ -144,6 +145,79 @@ async function createLeaseHarness(): Promise<InvestigationLeaseStoreContractHarn
 }
 
 describeDatabase("PrismaInvestigationStore PostgreSQL invariants", () => {
+  it("checks memory in the actual new-lease transaction and restores an already issued lease after revocation", async () => {
+    const suffix = `memory-grant-${randomUUID()}`;
+    const candidate = {
+      ...createInvestigationLeaseStoreContractCandidate(suffix),
+      investigationManifestCanonicalJson: JSON.stringify({
+        manifestVersion: 1,
+        memoryBundleHash: "f".repeat(64),
+      }),
+    };
+    const { base, planned } = createInvestigationLeaseBindingSeed(candidate);
+    const harness = await createHarness(base);
+    let eligible = false,
+      checks = 0,
+      locks = 0;
+    const store = new PrismaInvestigationStore(harness.prisma, {
+      operationalRetentionMs: 86400000,
+      inputAdmission: {
+        async lock(transaction) {
+          locks += 1;
+          await transaction.$queryRaw(Prisma.sql`SELECT txid_current()`);
+        },
+        async admit(transaction, bound) {
+          checks += 1;
+          expect(bound.investigationManifestCanonicalJson).toBe(
+            candidate.investigationManifestCanonicalJson,
+          );
+          expect(
+            await transaction.reviewInvestigationLease.count({
+              where: { investigationId: candidate.investigationId },
+            }),
+          ).toBe(0);
+          return eligible;
+        },
+      },
+    });
+    try {
+      await open(store, base, `memory-open-${suffix}`);
+      await plan(store, planned, `memory-plan-${suffix}`);
+      expect(await store.acquireLease(candidate)).toEqual({
+        status: InvestigationLeaseAcquireStatus.BindingStale,
+        lease: null,
+      });
+      expect(
+        await harness.prisma.reviewInvestigationLease.count({
+          where: { investigationId: candidate.investigationId },
+        }),
+      ).toBe(0);
+      eligible = true;
+      const granted = await store.acquireLease(candidate);
+      expect(granted.status).toBe(InvestigationLeaseAcquireStatus.Acquired);
+      expect(checks).toBe(2);
+      eligible = false;
+      const restored = await store.acquireLease({
+        ...candidate,
+        leaseId: `${candidate.leaseId}-lost-ack-retry`,
+        attemptId: `${candidate.attemptId}-retry`,
+        leaseCapabilityId: `${candidate.leaseCapabilityId}-retry`,
+      });
+      expect(restored.status).toBe(InvestigationLeaseAcquireStatus.Restored);
+      expect(restored.lease?.leaseId).toBe(granted.lease?.leaseId);
+      expect(restored.lease?.fencingToken).toBe(granted.lease?.fencingToken);
+      expect(checks).toBe(2);
+      expect(locks).toBe(3);
+      expect(
+        await harness.prisma.reviewInvestigationLease.count({
+          where: { investigationId: candidate.investigationId },
+        }),
+      ).toBe(1);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
   it("persists exactly one adoption receipt and rejects transactionally superseded execution", async () => {
     const seed = createInvestigationStoreContractSeed(
       `adopt-db-${randomUUID()}`,
@@ -270,7 +344,7 @@ describeDatabase("PrismaInvestigationStore PostgreSQL invariants", () => {
           expiresAtOrBefore: workerClock.now().toISOString(),
           limit: 10,
         }),
-      ).resolves.toBe(0);
+      ).resolves.toMatchObject({ reconciledCount: 0, failedCount: 0 });
       await expect(
         store.reconcileExpiredPrivateMaterial({
           expiresAtOrBefore: workerClock.now().toISOString(),
@@ -1287,6 +1361,111 @@ describeDatabase("PrismaInvestigationStore PostgreSQL invariants", () => {
     }
   });
 
+  it("prunes the rest of the batch past an aggregate whose dossier cannot be verified", async () => {
+    const poisonSeed = await withValidTestDossierDigest(
+      createInvestigationStoreContractSeed(`digest-material-${randomUUID()}`),
+    );
+    const healthySeed = await withValidTestDossierDigest(
+      createInvestigationStoreContractSeed(`digest-healthy-${randomUUID()}`),
+    );
+    const poisonHarness = await createHarness(poisonSeed);
+    const healthyHarness = await createHarness(healthySeed);
+    const poisonStore = poisonHarness.store as PrismaInvestigationStore;
+    const healthyStore = healthyHarness.store as PrismaInvestigationStore;
+    const cipher = new AesGcmInvestigationPrivateMaterialCipher(
+      "digest-prune-key",
+      new Map([["digest-prune-key", Buffer.alloc(32, 23)]]),
+    );
+    const materialFor = (
+      seed: typeof poisonSeed,
+      createdAt: string,
+      expiresAt: string,
+    ) =>
+      cipher.encrypt({
+        privateMaterialId: `private-${seed.investigationId}`,
+        investigationId: seed.investigationId,
+        obligationId: seed.obligations[0]!.obligationId,
+        plaintextCanonicalJson: '{"query":"expired material"}',
+        associatedDataCanonicalJson: `{"investigationId":"${seed.investigationId}"}`,
+        createdAt,
+        expiresAt,
+      });
+    // The unverifiable aggregate expires first, so its group is handled first.
+    const poisonMaterial = await materialFor(
+      poisonSeed,
+      "2026-08-02T10:00:00.000Z",
+      "2026-08-02T10:01:00.000Z",
+    );
+    const healthyMaterial = await materialFor(
+      healthySeed,
+      "2026-08-02T10:00:30.000Z",
+      "2026-08-02T10:01:30.000Z",
+    );
+    try {
+      await open(
+        poisonStore,
+        poisonSeed,
+        `digest-open-${poisonSeed.investigationId}`,
+      );
+      await open(
+        healthyStore,
+        healthySeed,
+        `digest-open-${healthySeed.investigationId}`,
+      );
+      await expect(
+        poisonStore.savePrivateMaterial(poisonMaterial),
+      ).resolves.toBe(InvestigationPrivateMaterialPersistenceStatus.Created);
+      await expect(
+        healthyStore.savePrivateMaterial(healthyMaterial),
+      ).resolves.toBe(InvestigationPrivateMaterialPersistenceStatus.Created);
+      const poisoned = await poisonHarness.prisma.reviewInvestigation.update({
+        where: { investigationId: poisonSeed.investigationId },
+        data: { dossierDigest: "0".repeat(64) },
+        select: { version: true, state: true },
+      });
+      await poisonHarness.prisma.$executeRaw(Prisma.sql`
+        INSERT INTO "ReviewInvestigationMaintenanceCheckpoint" (
+          "checkpointKey", "cursorExpiresAt", "cursorPrivateMaterialId", "updatedAt"
+        ) VALUES ('private_material_prune.v1', NULL, NULL, clock_timestamp())
+        ON CONFLICT ("checkpointKey") DO UPDATE
+        SET "cursorExpiresAt" = NULL,
+            "cursorPrivateMaterialId" = NULL,
+            "updatedAt" = clock_timestamp()
+      `);
+
+      await expect(
+        poisonStore.reconcileExpiredPrivateMaterial({
+          expiresAtOrBefore: healthyMaterial.expiresAt,
+          limit: 2,
+        }),
+      ).rejects.toMatchObject({
+        removedCount: 1,
+        failedInvestigationCount: 1,
+        causeCode:
+          InvestigationPrivateMaterialPruneFailureCause.DossierDigestInvalid,
+      } satisfies Partial<InvestigationPrivateMaterialPruneBatchError>);
+      await expect(
+        poisonHarness.prisma.reviewInvestigationPrivateMaterial.count({
+          where: { investigationId: poisonSeed.investigationId },
+        }),
+      ).resolves.toBe(1);
+      await expect(
+        poisonHarness.prisma.reviewInvestigation.findUniqueOrThrow({
+          where: { investigationId: poisonSeed.investigationId },
+          select: { version: true, state: true },
+        }),
+      ).resolves.toEqual(poisoned);
+      await expect(
+        healthyHarness.prisma.reviewInvestigationPrivateMaterial.count({
+          where: { investigationId: healthySeed.investigationId },
+        }),
+      ).resolves.toBe(0);
+    } finally {
+      await poisonHarness.dispose();
+      await healthyHarness.dispose();
+    }
+  });
+
   it("keeps expired material until active-turn recovery owns the transition", async () => {
     const suffix = randomUUID();
     const seed = await withValidTestDossierDigest(
@@ -1346,6 +1525,19 @@ describeDatabase("PrismaInvestigationStore PostgreSQL invariants", () => {
           limit: 10,
         }),
       ).resolves.toBe(0);
+      const expiredTurnQuery = {
+        expiresAtOrBefore: leased.activeTurn!.expiresAt,
+        limit: 1_000,
+      };
+      await expect(
+        store.findExpiredActiveTurnIds(expiredTurnQuery),
+      ).resolves.toContain(seed.investigationId);
+      await expect(
+        store.findExpiredActiveTurnIds({
+          ...expiredTurnQuery,
+          excludeInvestigationIds: [seed.investigationId],
+        }),
+      ).resolves.not.toContain(seed.investigationId);
       // Recovery's Unauthorized verdict must match the persisted authority.
       const authorizationId = `authorization-${seed.investigationId}`;
       await harness.prisma.reviewRunAuthorization.update({

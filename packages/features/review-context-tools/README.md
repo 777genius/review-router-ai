@@ -1,0 +1,11 @@
+# Review context tools
+
+This package owns versioned workspace HTTPS connection metadata, encrypted Dashboard credentials, explicit GitHub-secret references, and captured OCR tool plans. Default selection is absent. Selected tools are required, and only an approved producer with the exact `contextToolsContract` descriptor may capture a plan.
+
+The customer configuration guide belongs to the public Action repository at `docs/https-mcp-context.md`. It documents Dashboard setup, the fixed `.reviewrouter.json` default-branch import, both header-template spellings, and the explicitly named `mcp_secrets_json` caller binding. The import returns a preview; the existing policy Save/CAS remains the write authority.
+
+Dashboard secret delivery requires the normal live admitted-run bearer and current workspace connection revisions. GitHub secrets remain on the runner. The parent broker holds HTTPS credentials and passes only a loopback capability to the native OCR child; remote tool output remains untrusted. No native binary change or default tool activation is part of this package.
+
+Dashboard connection tests authorize a durable workspace owner/admin and accept an unsaved definition with an empty `tools` selection. `prepareContextConnectionProbe` validates the same connection/header-template contract as Save and resolves only Dashboard credentials. Reusing stored values requires the expected revision and unchanged URL, headers and credential bindings; changing that destination requires explicit replacement values for both testing and saving. GitHub-secret values cannot be read by the Dashboard: use Dashboard credentials to test there, or verify GitHub credentials in the repository workflow.
+
+`POST /api/dashboard/context-tools/test` performs HTTPS MCP initialization, the initialized notification and bounded `tools/list` discovery without saving or invoking tools/models. It pins public DNS answers and TLS peers, refuses redirects, bounds time/bytes, supports JSON and SSE replies, and terminates negotiated sessions. Tool metadata is untrusted; errors are fixed codes and reflected credentials are removed before returning metadata. Discovery currently requires one page of at most 100 tools, matching the Action runtime; paginated results or unsupported required-task tools return an explicit discovery-limit error instead of a partial success.

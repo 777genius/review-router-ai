@@ -16,15 +16,19 @@ type HostedAccountCardModel = HostedPoolDashboardView["accounts"][number];
 export function HostedPoolAccountCards({
   workspaceId,
   accounts,
+  poolRepositories,
   setAccountState,
   removeAccount,
   mutationsEnabled,
+  onReconnect,
 }: {
   readonly workspaceId: string;
   readonly accounts: HostedPoolDashboardView["accounts"];
+  readonly poolRepositories: readonly { fullName: string }[];
   readonly setAccountState: DashboardActionFormAction;
   readonly removeAccount: DashboardActionFormAction;
   readonly mutationsEnabled: boolean;
+  readonly onReconnect?: (account: HostedAccountCardModel) => void;
 }): React.ReactElement {
   const lineup = lineupRanks(accounts);
   return (
@@ -35,9 +39,11 @@ export function HostedPoolAccountCards({
             workspaceId={workspaceId}
             account={account}
             lineupRank={lineup.get(String(account.id)) ?? null}
+            poolRepositories={poolRepositories}
             setAccountState={setAccountState}
             removeAccount={removeAccount}
             mutationsEnabled={mutationsEnabled}
+            {...(onReconnect ? { onReconnect } : {})}
           />
         </li>
       ))}
@@ -49,16 +55,20 @@ function HostedPoolAccountCard({
   workspaceId,
   account,
   lineupRank,
+  poolRepositories,
   setAccountState,
   removeAccount,
   mutationsEnabled,
+  onReconnect,
 }: {
   readonly workspaceId: string;
   readonly account: HostedAccountCardModel;
   readonly lineupRank: number | null;
+  readonly poolRepositories: readonly { fullName: string }[];
   readonly setAccountState: DashboardActionFormAction;
   readonly removeAccount: DashboardActionFormAction;
   readonly mutationsEnabled: boolean;
+  readonly onReconnect?: (account: HostedAccountCardModel) => void;
 }): React.ReactElement {
   const state = account.availability.status;
   const paused = state === "paused";
@@ -157,6 +167,17 @@ function HostedPoolAccountCard({
       </dl>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
+        {paused && !removing && onReconnect ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!mutationsEnabled}
+            onClick={() => onReconnect(account)}
+          >
+            Reconnect ChatGPT
+          </Button>
+        ) : null}
         {canTogglePause && !removing ? (
           <DashboardActionForm
             action={setAccountState}
@@ -193,6 +214,19 @@ function HostedPoolAccountCard({
               Remove {account.label}? Reviews will skip it. You cannot add this
               same ChatGPT later.
             </p>
+            {poolRepositories.length ? (
+              <p className="mt-2 text-sm leading-5 text-amber-100">
+                Reviews through the pool go to:{" "}
+                {poolRepositories
+                  .slice(0, 3)
+                  .map((repository) => repository.fullName)
+                  .join(", ")}
+                {poolRepositories.length > 3
+                  ? ` +${poolRepositories.length - 3}`
+                  : ""}
+                . If no ready accounts remain in the pool, reviews will stop.
+              </p>
+            ) : null}
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <DashboardActionForm
                 action={removeAccount}

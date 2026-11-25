@@ -1,5 +1,5 @@
 import type { ScmProvider } from "@reviewrouter/shared";
-import type { ReviewConfiguration } from "../../domain/review-configuration";
+import type { RepositoryReviewPolicy } from "../../domain/review-policy-document";
 import type { ReviewConfigurationTarget } from "../../domain/review-configuration-target";
 import type { PersistedReviewConfiguration } from "./review-configuration-repository-port";
 
@@ -7,6 +7,7 @@ export enum ReviewConfigurationOperatorOperation {
   Read = "read_review_configuration",
   SetReasoningEffort = "set_review_reasoning_effort",
   SetInvestigationRollout = "set_review_investigation_rollout",
+  ConfirmInstalledGatewayWorkflow = "confirm_installed_gateway_workflow",
 }
 
 export type ReviewConfigurationOperatorPrincipal = Readonly<{
@@ -48,7 +49,7 @@ export interface ReviewConfigurationOperatorMutationPort {
       { readonly scope: "repository" }
     >;
     readonly expectedRevisionToken: string;
-    readonly config: ReviewConfiguration;
+    readonly policy: RepositoryReviewPolicy;
     readonly auditEvent: ReviewConfigurationOperatorAuditEvent;
   }): Promise<PersistedReviewConfiguration>;
 }

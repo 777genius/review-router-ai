@@ -3,13 +3,17 @@ import { defaultCodexModel, type ProviderKind } from "./provider-catalog";
 export type ReviewModelOption = {
   readonly value: string;
   readonly label: string;
-  readonly provider: ProviderKind;
+  /** UI source identity; NVIDIA still executes through the existing Codex Gateway runtime. */
+  readonly provider: ProviderKind | "nvidia";
   readonly description?: string;
+  /** Catalog facts only, without transport/capability refusal text. */
+  readonly metadataDescription?: string;
   readonly badge?: "FREE RECOMMENDED" | "FREE" | "PAID" | "Unsupported";
   readonly disabled?: boolean;
 };
 
 export type CodexReasoningEffort =
+  | "minimal"
   | "low"
   | "medium"
   | "high"
@@ -17,13 +21,24 @@ export type CodexReasoningEffort =
   | "max"
   | "ultra";
 
+/** The legacy selection stays stored; only this Gateway profile uses wire Max. */
+export function effectiveGatewayReasoningEffort(
+  profileRef: string | undefined,
+  effort: string | undefined,
+): string | undefined {
+  return profileRef === "openai-codex-oauth-responses-v1" && effort === "ultra"
+    ? "max"
+    : effort;
+}
+
 export function codexModelSupportsReasoningEffort(
   model: string,
   effort: CodexReasoningEffort,
 ): boolean {
   return (
-    (effort !== "max" && effort !== "ultra") ||
-    model.trim() === defaultCodexModel
+    effort !== "minimal" &&
+    ((effort !== "max" && effort !== "ultra") ||
+      model.trim() === defaultCodexModel)
   );
 }
 
@@ -72,6 +87,11 @@ export const codexModelOptions: readonly ReviewModelOption[] = [
   },
 ];
 
+/** Retain the existing reviewed model policy; public metadata cannot enable fast mode. */
+export function codexModelSupportsFastMode(model: string): boolean {
+  return codexModelOptions.some((option) => option.value === model.trim());
+}
+
 export const claudeModelOptions: readonly ReviewModelOption[] = [
   {
     value: "sonnet",
@@ -93,6 +113,29 @@ export const claudeModelOptions: readonly ReviewModelOption[] = [
   },
 ];
 
+export const mimoModelOptions: readonly ReviewModelOption[] = [
+  {
+    value: "mimo-v2.6-pro",
+    label: "mimo-v2.6-pro",
+    provider: "codex-mimo",
+    description: "MiMo Token Plan public engine model.",
+  },
+];
+
+export const kimiModelOptions: readonly ReviewModelOption[] = [
+  {
+    value: "k3-256k",
+    label: "k3-256k",
+    provider: "kimi",
+    description: "Kimi Code model.",
+  },
+];
+
 export function listStaticReviewModelOptions(): readonly ReviewModelOption[] {
-  return [...codexModelOptions, ...claudeModelOptions];
+  return [
+    ...codexModelOptions,
+    ...mimoModelOptions,
+    ...kimiModelOptions,
+    ...claudeModelOptions,
+  ];
 }

@@ -1,3 +1,4 @@
+import { WorkflowProvisioningOutcomeError } from "@reviewrouter/features-workflow-provisioning";
 import Fastify from "fastify";
 import { describe, expect, it, vi } from "vitest";
 import { registerHostedPoolOperatorRoutes } from "./hosted-pool-operator-routes";
@@ -142,4 +143,129 @@ describe("hosted pool HTTP boundary", () => {
       await f.app.close();
     }
   });
+});
+
+it.each([
+  "superseded",
+  "persistence_uncertain",
+  "audit_unavailable",
+  "external_uncertain",
+] as const)(
+  "projects %s workflow outcomes without leaking internal evidence",
+  async (outcome) => {
+    const f = await fixture();
+    const committed = outcome === "audit_unavailable";
+    f.execute.mockRejectedValue(
+      new WorkflowProvisioningOutcomeError(
+        `workflow_provisioning_${outcome}`,
+        {
+          attempt: {
+            workspaceId: "workspace",
+            repositoryId: "internal-repo",
+            installationId: "internal-installation",
+            attemptId: "internal-attempt",
+            revision: 1,
+            branch: "internal-branch",
+          },
+          stage: committed
+            ? "success_audit"
+            : outcome === "external_uncertain"
+              ? "failure"
+              : "completion",
+          mayHaveExternalEffects: true,
+          observedPullRequest: {
+            url: "https://github.com/acme/repo/pull/7",
+            number: 7,
+            headSha: "a".repeat(40),
+            branch: "internal-branch",
+          },
+        },
+        { cause: new Error("private-upstream-detail") },
+      ),
+    );
+    try {
+      const response = await f.app.inject({
+        method: "POST",
+        url: "/api/operator/v1/hosted-pool/connect",
+        headers: { authorization: `Bearer ${credential}` },
+        payload: {
+          workspace: "workspace",
+          repository: "acme/repo",
+          expectedRevision: null,
+        },
+      });
+      expect(response.statusCode).toBe(outcome === "superseded" ? 409 : 503);
+      expect(response.json()).toEqual({
+        error: {
+          code:
+            outcome === "superseded"
+              ? "hosted_pool_conflict"
+              : `workflow_provisioning_${outcome}`,
+        },
+        ...(committed
+          ? {
+              result: {
+                status: "setup_pr_recorded",
+                pullRequestUrl: "https://github.com/acme/repo/pull/7",
+                pullRequestNumber: 7,
+              },
+            }
+          : {}),
+      });
+      expect(response.body).not.toMatch(
+        /private-upstream-detail|internal-|headSha|cause|observedPullRequest/,
+      );
+    } finally {
+      await f.app.close();
+    }
+  },
+);
+
+it("retains approved permission guidance with an uncertain external setup", async () => {
+  const f = await fixture();
+  f.execute.mockRejectedValue(
+    new WorkflowProvisioningOutcomeError(
+      "workflow_provisioning_external_uncertain",
+      {
+        attempt: {
+          workspaceId: "workspace",
+          repositoryId: "internal-repo",
+          installationId: "internal-installation",
+          attemptId: "attempt",
+          revision: 0,
+          branch: "branch",
+        },
+        stage: "failure",
+        mayHaveExternalEffects: true,
+        failureSummary: "workflow_provisioning_failed",
+      },
+      {
+        cause: Object.assign(new Error("private permission detail"), {
+          status: 403,
+        }),
+      },
+    ),
+  );
+  try {
+    const response = await f.app.inject({
+      method: "POST",
+      url: "/api/operator/v1/hosted-pool/connect",
+      headers: { authorization: `Bearer ${credential}` },
+      payload: {
+        workspace: "workspace",
+        repository: "acme/repo",
+        expectedRevision: null,
+      },
+    });
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({
+      error: {
+        code: "workflow_provisioning_external_uncertain",
+        recoveryCode: "hosted_pool_github_app_permissions_required",
+      },
+    });
+    expect(response.body).not.toContain("private permission detail");
+  } finally {
+    await f.app.close();
+  }
 });

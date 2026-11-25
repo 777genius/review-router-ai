@@ -1,7 +1,19 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render as renderView, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceSourceConnectionPanel } from "./workspace-source-connection";
+
+// The refresh form invalidates the scan query, as under the root layout.
+const render = (ui: ReactElement) =>
+  renderView(ui, {
+    wrapper: ({ children }: { readonly children: ReactNode }) => (
+      <QueryClientProvider client={new QueryClient()}>
+        {children}
+      </QueryClientProvider>
+    ),
+  });
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),

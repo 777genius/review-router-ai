@@ -10,6 +10,7 @@ export const entitlementFeatureSchema = z.enum([
   "cloud_review_execution",
   "hosted_codex_pool",
   "compliance_exports",
+  "provider_key_management",
 ]);
 
 export type EntitlementFeature = z.infer<typeof entitlementFeatureSchema>;
@@ -63,8 +64,9 @@ export const freeBetaEntitlement = (
     audit_log: true,
     advanced_org_policies: false,
     cloud_review_execution: false,
-    hosted_codex_pool: false,
+    hosted_codex_pool: true,
     compliance_exports: false,
+    provider_key_management: true,
   },
 });
 
@@ -86,6 +88,15 @@ export function evaluateFeatureEntitlement(input: {
   | { readonly allowed: false; readonly reason: string } {
   if (input.entitlement.status !== "active") {
     return { allowed: false, reason: "workspace_entitlement_not_active" };
+  }
+  // Existing workspace records may retain old false bits. Customer-owned
+  // provider-key management is available to active workspaces for both MiMo
+  // and OpenRouter, subject to workspace admin authorization.
+  if (
+    input.feature === "hosted_codex_pool" ||
+    input.feature === "provider_key_management"
+  ) {
+    return { allowed: true };
   }
   if (input.entitlement.flags[input.feature] !== true) {
     return { allowed: false, reason: "feature_not_enabled_for_plan" };

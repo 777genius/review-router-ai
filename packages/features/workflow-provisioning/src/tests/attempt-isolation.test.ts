@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { provisionReviewRouterWorkflow } from "../application/use-cases/provision-reviewrouter-workflow";
+import { WorkflowProvisioningOutcomeError } from "../application/workflow-provisioning-outcome";
 import { PrismaWorkflowProvisioningRepository } from "../infrastructure/prisma/prisma-workflow-provisioning-repository";
 import { PrismaWorkflowProvisioningStatusAuthority } from "../infrastructure/prisma/prisma-workflow-provisioning-status-authority";
 import { OctokitWorkflowSetupGateway } from "../infrastructure/github/octokit-workflow-setup-gateway";
@@ -75,7 +76,8 @@ describe("workflow attempt artifacts", () => {
           setupGateway: new OctokitWorkflowSetupGateway(remote),
         },
       );
-    const older = provision("a".repeat(40));
+    // Observe A's rejection immediately, including if a later assertion fails.
+    const older = provision("a".repeat(40)).catch((error: unknown) => error);
     try {
       await Promise.race([
         entered.promise,
@@ -86,7 +88,17 @@ describe("workflow attempt artifacts", () => {
       const newer = await provision("b".repeat(40));
       const before = { ...state.current()! };
       resume.resolve();
-      const stale = await older;
+      const staleOutcome = await older;
+      expect(staleOutcome).toBeInstanceOf(WorkflowProvisioningOutcomeError);
+      expect(staleOutcome).toMatchObject({
+        code: "workflow_provisioning_superseded",
+        stage: "completion",
+        mayHaveExternalEffects: true,
+        committedPullRequest: null,
+        observedPullRequest: { headSha: expect.any(String) },
+      });
+      const stale = (staleOutcome as WorkflowProvisioningOutcomeError)
+        .observedPullRequest!;
       expect(stale.branch).not.toBe(newer.branch);
       expect(remote.branches.get(newer.branch)).toBe(newer.headSha);
       expect(

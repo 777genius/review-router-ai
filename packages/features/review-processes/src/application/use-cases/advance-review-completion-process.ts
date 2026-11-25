@@ -133,6 +133,11 @@ export class AdvanceReviewCompletionProcess {
       throw new Error("review_completion_execution_facts_identity_conflict");
     }
     if (process.state === ReviewCompletionProcessState.AwaitingSnapshot) {
+      if (execution.coverage === ReviewExecutionCompletionCoverage.Partial) {
+        // Reconcile processes created before canonical partial coverage was
+        // recognized. Publication still has to prove its terminal outcome.
+        return this.advancePublication(process, claim, now, execution.coverage);
+      }
       if (execution.coverage !== ReviewExecutionCompletionCoverage.Completed) {
         return this.retry(
           process,
@@ -171,6 +176,14 @@ export class AdvanceReviewCompletionProcess {
         publicationAttemptId: process.publicationAttemptId,
       });
       if (!publication) {
+        if (process.state === ReviewCompletionProcessState.AwaitingSnapshot) {
+          return this.retry(
+            process,
+            claim,
+            now,
+            ReviewCompletionSafeReason.PublicationOutcomeUnavailable,
+          );
+        }
         publication = await this.publications.request({
           executionId: process.executionId,
           finalizedArtifactId: process.finalizedArtifactId,

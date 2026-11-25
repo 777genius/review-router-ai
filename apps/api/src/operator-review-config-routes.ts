@@ -170,6 +170,7 @@ function handleOperatorError(error: unknown, reply: FastifyReply) {
       return sendOperatorError(reply, 429, error.code);
     case ReviewConfigurationOperatorErrorCode.ReviewProviderNotFound:
       return sendOperatorError(reply, 409, error.code);
+    case ReviewConfigurationOperatorErrorCode.ConfigurationMissing:
     case ReviewConfigurationOperatorErrorCode.ConfigurationChanged:
       return sendOperatorError(reply, 409, error.code);
     default: {

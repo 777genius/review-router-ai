@@ -2,18 +2,39 @@ import { isMemoryError } from "./dashboard-copy";
 
 export type DashboardSection =
   | "repositories"
+  | "context-tools"
+  | "skills"
   | "memory"
   | "setup"
+  | "providers"
   | "policy"
-  | "diagnostics";
+  | "diagnostics"
+  | "usage"
+  | "statistics"
+  | "reviews"
+  | "other";
 
 export const DASHBOARD_SECTIONS = [
   "repositories",
+  "reviews",
+  "statistics",
+  "usage",
   "setup",
+  "providers",
   "policy",
   "diagnostics",
+  "other",
+  "context-tools",
+  "skills",
   "memory",
 ] as const satisfies readonly DashboardSection[];
+
+// Connections retains its setup route as a view within the Providers area.
+// Diagnostics is a technical operations view, so it is temporarily hidden from
+// the menu. Its route stays reachable (direct links, outbox retry notices).
+export const DASHBOARD_NAV_SECTIONS = DASHBOARD_SECTIONS.filter(
+  (section) => section !== "setup" && section !== "diagnostics",
+);
 
 export const dashboardSectionMeta: Record<
   DashboardSection,
@@ -28,34 +49,82 @@ export const dashboardSectionMeta: Record<
     eyebrow: "Repository setup",
     title: "Repositories",
     description:
-      "This page lists repositories from the GitHub App or GitLab group or project attached to this workspace. Create setup PRs and confirm runtime health here. ChatGPT logins for reviews are on Accounts.",
+      "Choose a provider and follow each repository's setup steps. Finish its connection and workflow setup here.",
     navDescription: "Setup PRs and health",
   },
+  "context-tools": {
+    eyebrow: "Review context",
+    title: "Context tools",
+    description: "Manage approved MCP connections for review context.",
+    navDescription: "MCP connections for reviews",
+  },
+  skills: {
+    eyebrow: "Review instructions",
+    title: "Skills",
+    description:
+      "Create and share review instructions, then choose the repositories that use them.",
+    navDescription: "Reusable review instructions",
+  },
   memory: {
-    eyebrow: "In development",
+    eyebrow: "Shared review knowledge",
     title: "Memory",
-    description: "Memory management is in development and not available yet.",
-    navDescription: "In development",
+    description:
+      "Manage approved rules and historical knowledge for future reviews.",
+    navDescription: "Approved review knowledge",
   },
   setup: {
-    eyebrow: "ChatGPT",
-    title: "Accounts",
+    eyebrow: "Provider connections",
+    title: "Providers",
     description:
-      "We encrypt every ChatGPT session before it is stored. Sessions never go to the browser, and we decrypt only to run a review.",
-    navDescription: "Encrypted subscription accounts",
+      "Connect accounts to ReviewRouter and choose which workspaces can use them. Select them for reviews in Providers.",
+    navDescription: "Workspace provider accounts",
+  },
+  providers: {
+    eyebrow: "Workspace providers",
+    title: "Providers",
+    description:
+      "Choose providers and models for reviews, and manage the connections they use.",
+    navDescription: "Connections and models",
   },
   policy: {
     eyebrow: "Review behavior",
-    title: "Model",
+    title: "Review settings",
     description:
-      "Choose provider auth, model, reasoning effort, context mode, and blocking severity.",
-    navDescription: "Provider, model, gates",
+      "Set review behavior and quality gates for repositories in this workspace.",
+    navDescription: "Review behavior and gates",
+  },
+  reviews: {
+    eyebrow: "Review activity",
+    title: "Reviews",
+    description: "Review history for your workspace's pull requests.",
+    navDescription: "Pull requests and review history",
+  },
+  statistics: {
+    eyebrow: "Review activity",
+    title: "Statistics",
+    description:
+      "Published reviews, pull requests and issues caught in your workspace.",
+    navDescription: "Reviews and issues caught",
+  },
+  usage: {
+    eyebrow: "Measured consumption",
+    title: "Usage",
+    description:
+      "Provider attempts, known tokens and cost, with source coverage.",
+    navDescription: "Provider usage and coverage",
+  },
+  other: {
+    eyebrow: "Workspace settings",
+    title: "Other",
+    description:
+      "Additional review settings for every repository in this workspace.",
+    navDescription: "Workspace review settings",
   },
   diagnostics: {
     eyebrow: "Operations",
     title: "Diagnostics",
     description:
-      "Inspect metadata-only health, queue failures, audit events, and support diagnostics.",
+      "Metadata-only health, queue failures, audit events, and support diagnostics.",
     navDescription: "Queue, audit, support",
   },
 };
@@ -106,7 +175,14 @@ export function dashboardPathFromSearchParams(
 export function dashboardSectionHref(
   section: DashboardSection,
   workspaceKey?: string,
+  workspaceId?: string,
 ): string {
+  if (section === "context-tools") {
+    const query = new URLSearchParams();
+    if (workspaceId) query.set("workspaceId", workspaceId);
+    if (workspaceKey) query.set("workspace", workspaceKey);
+    return `/dashboard/context-tools${query.size ? `?${query}` : ""}#dashboard-section-content`;
+  }
   return `${dashboardPath({
     section,
     ...(workspaceKey ? { workspace: workspaceKey } : {}),
@@ -137,6 +213,10 @@ export function resolveDashboardSection(
       "setup_pr_merged",
       "provider_setup_confirmed",
       "workflow_already_current",
+      "runtime_migration_bootstrap_pr_ready",
+      "runtime_migration_draining",
+      "runtime_migration_running",
+      "runtime_migration_recovery_required",
       "sync_requested",
       "sync_already_requested",
       "repository_access_refreshed",

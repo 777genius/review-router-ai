@@ -62,7 +62,7 @@ export function DashboardShell({
     workspaces.length > 0
       ? selectDashboardWorkspace(
           workspaces,
-          params.workspace ?? "",
+          dashboardWorkspaceParam(pathname, params),
           params.installation_id ?? "",
         )
       : null;
@@ -77,7 +77,7 @@ export function DashboardShell({
     pendingParams && workspaces.length > 0
       ? selectDashboardWorkspace(
           workspaces,
-          pendingParams.workspace ?? "",
+          dashboardWorkspaceParam(target?.pathname ?? pathname, pendingParams),
           pendingParams.installation_id ?? "",
         )
       : null;
@@ -101,7 +101,9 @@ export function DashboardShell({
     <DashboardShellContext.Provider value={setWorkspaces}>
       {selectedWorkspace ? (
         <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-5 px-4 py-6 sm:px-6 md:py-10">
+          <DashboardLayoutMetrics workspaceCount={workspaces.length} />
           <WorkspaceSwitcher
+            part="intro"
             workspaces={workspaces}
             selectedWorkspaceId={selectedWorkspace.workspace.id}
             selectedSection={selectedSection}
@@ -111,18 +113,27 @@ export function DashboardShell({
             )}
             fallbackUser={fallbackUser}
           />
-          <section id="dashboard-workspace" className="grid gap-5 scroll-mt-28">
+          <section id="dashboard-workspace" className="min-w-0">
+            <WorkspaceSwitcher
+              part="tabs"
+              workspaces={workspaces}
+              selectedWorkspaceId={selectedWorkspace.workspace.id}
+              selectedSection={selectedSection}
+              appInstallUrl={appInstallUrl}
+              pendingOrganizationInstallRequest={buildPendingOrganizationInstallRequest(
+                displayedParams,
+              )}
+              fallbackUser={fallbackUser}
+            />
             <DashboardCollapsibleShell
               nav={
                 <DashboardSectionNav
-                  workspace={selectedWorkspace.workspace}
-                  repositoryCount={selectedWorkspace.repositoryCount}
                   selectedSection={selectedSection}
+                  workspaceId={selectedWorkspace.workspace.id}
                   workspaceKey={dashboardWorkspaceUrlKey(
                     selectedWorkspace.workspace,
                     workspaces,
                   )}
-                  fallbackUser={fallbackUser}
                 />
               }
             >
@@ -141,6 +152,65 @@ export function DashboardShell({
   );
 }
 
+function DashboardLayoutMetrics({
+  workspaceCount,
+}: {
+  workspaceCount: number;
+}): null {
+  useEffect(() => {
+    const root = document.documentElement;
+    const header = document.querySelector<HTMLElement>("[data-global-header]");
+    const workspaceBar = document.getElementById("dashboard-workspace-bar");
+    const compactNav = document.getElementById("dashboard-compact-nav");
+    const read = (element: HTMLElement | null) => {
+      if (!element) return 0;
+      // Sticky offsets are CSS layout pixels. Viewport rects include CSS zoom,
+      // which would apply the scale twice when published back into CSS.
+      // offsetHeight rounds to a whole pixel, which leaves a hairline gap
+      // between the stuck header and the bar below it; the computed height
+      // keeps the fractional part.
+      const exact = Number.parseFloat(getComputedStyle(element).height);
+      return Number.isFinite(exact) && exact > 0 ? exact : element.offsetHeight;
+    };
+    const previousPadding = root.style.scrollPaddingTop;
+    const publish = () => {
+      root.style.setProperty("--rr-header-height", `${read(header)}px`);
+      root.style.setProperty(
+        "--rr-workspace-bar-height",
+        `${read(workspaceBar)}px`,
+      );
+      root.style.setProperty(
+        "--rr-compact-nav-height",
+        `${read(compactNav)}px`,
+      );
+      root.style.scrollPaddingTop = `${read(header)}px`;
+      if (header && read(header) > 0)
+        root.dataset.dashboardLayoutReady = "true";
+    };
+    publish();
+    if (typeof ResizeObserver === "undefined")
+      return () => {
+        delete root.dataset.dashboardLayoutReady;
+        root.style.removeProperty("--rr-header-height");
+        root.style.removeProperty("--rr-workspace-bar-height");
+        root.style.removeProperty("--rr-compact-nav-height");
+        root.style.scrollPaddingTop = previousPadding;
+      };
+    const observer = new ResizeObserver(publish);
+    for (const element of [header, workspaceBar, compactNav])
+      if (element) observer.observe(element);
+    return () => {
+      observer.disconnect();
+      root.style.scrollPaddingTop = previousPadding;
+      delete root.dataset.dashboardLayoutReady;
+      root.style.removeProperty("--rr-header-height");
+      root.style.removeProperty("--rr-workspace-bar-height");
+      root.style.removeProperty("--rr-compact-nav-height");
+    };
+  }, [workspaceCount]);
+  return null;
+}
+
 function firstValueParams(
   searchParams: URLSearchParams | Readonly<URLSearchParams>,
 ): Record<string, string> {
@@ -152,12 +222,26 @@ function firstValueParams(
   return params;
 }
 
+function dashboardWorkspaceParam(
+  pathname: string,
+  params: Record<string, string>,
+): string {
+  return pathname === "/dashboard/context-tools"
+    ? (params.workspaceId ?? params.workspace ?? "")
+    : (params.workspace ?? "");
+}
+
 function dashboardSection(pathname: string, params: Record<string, string>) {
+  if (pathname === "/dashboard/context-tools") return "context-tools" as const;
   return pathname === "/dashboard/setup"
     ? ("setup" as const)
     : resolveDashboardSection(params);
 }
 
 function isDashboardPath(pathname: string): boolean {
-  return pathname === "/dashboard" || pathname === "/dashboard/setup";
+  return [
+    "/dashboard",
+    "/dashboard/setup",
+    "/dashboard/context-tools",
+  ].includes(pathname);
 }

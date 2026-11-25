@@ -1,10 +1,24 @@
 import {
+  parseProducerPrDescriptionProfile,
+  parseProducerLifecycleVerificationProfile,
+  parseProducerContextToolsProfile,
+  parseReviewAgentProfiles,
+  parseProducerReviewerPlanProfile,
+} from "@reviewrouter/features-review-run-control";
+import { parseReviewModelDispatchProfile } from "@reviewrouter/shared";
+import { assertReviewModelDispatchDefaultAgents } from "@reviewrouter/shared/review-model-dispatch-default-agents";
+import {
   createRepositoryReleaseSelector,
   parseRepositoryReleaseBindings,
   repositoryReleaseBindingsEnv,
   type RepositoryReleaseQueries,
 } from "./review-action-v2-repository-release-selection.js";
-import { PrismaProducerReleaseRepository } from "@reviewrouter/features-review-run-control/composition";
+import {
+  PrismaProducerReleaseRepository,
+  readConfiguredProducerReleaseAttestations,
+  reviewRunProducerReleaseAttestationsEnv,
+  reviewRunProducerReleaseAttestationsFileEnv,
+} from "@reviewrouter/features-review-run-control/composition";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
@@ -25,6 +39,7 @@ import {
   ProducerReleaseState,
   ReviewCapabilityProfile,
   ReviewSafetyCapability,
+  ReviewSafetyControlWriteStatus,
   ReviewSafetyPolicyScope,
   ReviewSafetyRolloutMode,
   ReviewTrustDomain,
@@ -36,6 +51,8 @@ import {
   type ProducerReleaseCandidate,
   type ReviewOperationalSloThresholds,
   type ReviewProtocolLimits,
+  type ReviewSafetyControlInspectionPort,
+  type ManageReviewSafetyControls,
   type Sha256DigestPort,
 } from "@reviewrouter/features-review-run-control";
 import {
@@ -44,6 +61,11 @@ import {
   ReviewMutationOperatorPermission,
 } from "@reviewrouter/features-review-run-control/composition";
 import { createPrismaClient } from "@reviewrouter/platform-db";
+import { reviewActionV2SupportedContracts } from "@reviewrouter/protocol-review-action-v2";
+import {
+  assessRollbackProtocolCompatibility,
+  type RollbackProducerAttestationRecord,
+} from "./review-action-v2-rollback-protocol-preflight.js";
 import { composeReviewActionV2ProductionRunControl } from "./review-action-v2-production-composition.js";
 import { composeReviewActionV2ReleaseRegistry } from "./review-action-v2-release-registry-composition.js";
 import { composeReviewActionV2SafetyControlRuntime } from "./review-action-v2-safety-control-composition.js";
@@ -56,7 +78,6 @@ const requiredRuntimeEnv = Object.freeze([
   "REVIEW_ROUTER_REVIEW_RUN_AUTHORIZATION_KEYS_JSON",
   "REVIEW_ROUTER_REVIEW_V2_CAPABILITY_ACTIVE_KEY_ID",
   "REVIEW_ROUTER_REVIEW_V2_CAPABILITY_KEYS_JSON",
-  "REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON",
   "REVIEW_ROUTER_REVIEW_V2_PROVIDER_VOTE_LANES_JSON",
   "REVIEW_ROUTER_REVIEW_V2_PROJECTION_POLICY_VERSION",
   "REVIEW_ROUTER_REVIEW_V2_OPERATOR_CREDENTIAL_SHA256",
@@ -260,11 +281,72 @@ async function main() {
       );
       return;
     }
+    if (command === "rollback protocol-preflight") {
+      const runtime = composeReviewActionV2ReleaseRegistry(prisma);
+      await authenticateOperator(runtime.digest, process.env);
+      const channelManifestPath = requireOption(parsed, "channel-manifest");
+      let channelManifestSource: string | null = null;
+      try {
+        channelManifestSource = await readFile(channelManifestPath, "utf8");
+      } catch {
+        channelManifestSource = null;
+      }
+      let attestations: readonly RollbackProducerAttestationRecord[] | null =
+        null;
+      try {
+        attestations = readConfiguredProducerReleaseAttestations(process.env);
+      } catch {
+        attestations = null;
+      }
+      const activeAuthorizations = await prisma.reviewRunAuthorization.findMany(
+        {
+          where: { state: "active", expiresAt: { gt: new Date() } },
+          select: {
+            authorizationId: true,
+            producerReleaseId: true,
+            selectedProtocolVersion: true,
+            schemaDigest: true,
+          },
+        },
+      );
+      const retainedProducerReleases = await prisma.producerRelease.findMany({
+        where: { state: "registered" },
+        select: { producerReleaseId: true, schemaDigest: true },
+      });
+      const result = assessRollbackProtocolCompatibility({
+        targetContracts: reviewActionV2SupportedContracts(),
+        channelManifestSource,
+        attestations,
+        activeAuthorizations,
+        retainedProducerReleases,
+      });
+      printJson(result);
+      if (result.status !== "compatible") process.exitCode = 1;
+      return;
+    }
     if (command === "release register") {
       const runtime = composeReviewActionV2ReleaseRegistry(prisma);
       await authenticateOperator(runtime.digest, process.env);
       requireConfirmation(parsed, "release");
       printJson(await registerRelease(parsed, runtime));
+      return;
+    }
+    if (command === "release inspect") {
+      const runtime = composeReviewActionV2ReleaseRegistry(prisma);
+      await authenticateOperator(runtime.digest, process.env);
+      const release = await prisma.producerRelease.findUnique({
+        where: { producerReleaseId: requireOption(parsed, "release") },
+        select: {
+          producerReleaseId: true,
+          actionCommitSha: true,
+          protocolLimitsProfileId: true,
+          operationalSloProfileId: true,
+          state: true,
+          revokedAt: true,
+        },
+      });
+      if (!release) throw new Error("review_v2_release_not_found");
+      printJson(release);
       return;
     }
     if (command === "release revoke") {
@@ -286,7 +368,11 @@ async function main() {
       await authenticateOperator(runtime.digest, process.env);
       requireConfirmation(parsed, "global");
       printJson(
-        await updateGlobalEmergencyControl(runtime, globalEmergencyTransition),
+        await updateGlobalEmergencyControl(
+          runtime,
+          globalEmergencyTransition,
+          parseReviewV2ExpectedEmergencyVersion(parsed),
+        ),
       );
       return;
     }
@@ -593,12 +679,28 @@ async function updateRepositoryCohortPolicies(
   return { repository: target.repository.fullName, operation, results };
 }
 
-async function updateGlobalEmergencyControl(
-  runtime: ReturnType<typeof composeReviewActionV2SafetyControlRuntime>,
+type GlobalEmergencyControlRuntime = {
+  readonly repositories: {
+    readonly safetyControls: Pick<
+      ReviewSafetyControlInspectionPort,
+      "findReviewSafetyEmergencyControl"
+    >;
+  };
+  readonly runControl: {
+    readonly safetyControls: Pick<
+      ManageReviewSafetyControls,
+      "setReviewSafetyEmergencyStop"
+    >;
+  };
+};
+
+export async function updateGlobalEmergencyControl(
+  runtime: GlobalEmergencyControlRuntime,
   transition: {
     readonly stopped: boolean;
     readonly reason: string;
   },
+  expectedVersion?: number,
 ) {
   const scope = { scope: ReviewSafetyPolicyScope.Global } as const;
   const existing =
@@ -608,12 +710,23 @@ async function updateGlobalEmergencyControl(
   if (!existing) {
     throw new Error("review_v2_global_emergency_control_missing");
   }
-  return runtime.runControl.safetyControls.setReviewSafetyEmergencyStop({
-    expectedVersion: existing.version,
-    scope,
-    ...transition,
-    updatedBy: "review-v2-operator",
-  });
+  if (expectedVersion !== undefined && existing.version !== expectedVersion) {
+    throw new Error("review_v2_global_emergency_control_version_conflict");
+  }
+  const result =
+    await runtime.runControl.safetyControls.setReviewSafetyEmergencyStop({
+      expectedVersion: expectedVersion ?? existing.version,
+      scope,
+      ...transition,
+      updatedBy: "review-v2-operator",
+    });
+  if (
+    expectedVersion !== undefined &&
+    result.status === ReviewSafetyControlWriteStatus.Conflict
+  ) {
+    throw new Error("review_v2_global_emergency_control_version_conflict");
+  }
+  return result;
 }
 
 async function updateRepositoryEmergencyControl(
@@ -1060,7 +1173,8 @@ async function requireInstalledRelease(
     });
   if (
     !inventory.compatible ||
-    inventory.actionCommitSha !== release.actionCommitSha
+    (inventory.runtimeRef !== reviewRouterWorkflowContract.channel &&
+      inventory.runtimeRef !== release.actionCommitSha)
   ) {
     throw new Error("review_v2_release_workflow_mismatch");
   }
@@ -1102,10 +1216,24 @@ export function inspectEnvironment(
   const missing = requiredRuntimeEnv.filter((name) => !env[name]?.trim());
   if (!readPrivateKey(env)) missing.push("GITHUB_APP_PRIVATE_KEY");
   const invalid: string[] = [];
+  const registry = env[reviewRunProducerReleaseAttestationsEnv];
+  const registryFile = env[reviewRunProducerReleaseAttestationsFileEnv];
+  if (!registry?.trim() && !registryFile?.trim()) {
+    missing.push(reviewRunProducerReleaseAttestationsEnv);
+  } else {
+    try {
+      readConfiguredProducerReleaseAttestations(env);
+    } catch {
+      invalid.push(
+        registryFile === undefined
+          ? reviewRunProducerReleaseAttestationsEnv
+          : reviewRunProducerReleaseAttestationsFileEnv,
+      );
+    }
+  }
   for (const name of [
     "REVIEW_ROUTER_REVIEW_RUN_AUTHORIZATION_KEYS_JSON",
     "REVIEW_ROUTER_REVIEW_V2_CAPABILITY_KEYS_JSON",
-    "REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON",
     "REVIEW_ROUTER_REVIEW_V2_PROVIDER_VOTE_LANES_JSON",
   ]) {
     const value = env[name];
@@ -1185,6 +1313,28 @@ export function requireConfirmation(parsed: ParsedArguments, expected: string) {
   }
 }
 
+export function parseReviewV2ExpectedEmergencyVersion(
+  parsed: ParsedArguments,
+): number | undefined {
+  if (
+    Object.keys(parsed.options).some((key) =>
+      key.startsWith("expected-version="),
+    )
+  ) {
+    throw new Error("review_v2_option_invalid:expected-version");
+  }
+  const value = parsed.options["expected-version"];
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !/^[1-9][0-9]*$/u.test(value)) {
+    throw new Error("review_v2_option_invalid:expected-version");
+  }
+  const version = Number(value);
+  if (!Number.isSafeInteger(version)) {
+    throw new Error("review_v2_option_invalid:expected-version");
+  }
+  return version;
+}
+
 function requireOption(parsed: ParsedArguments, name: string): string {
   const value = parsed.options[name];
   if (typeof value !== "string" || value.length === 0) {
@@ -1244,6 +1394,7 @@ type ReviewV2ReleaseBundleCandidate = Omit<
 >;
 
 const releaseBundleCandidateKeys = Object.freeze([
+  "agentProfiles",
   "producerReleaseId",
   "distributionKind",
   "actionCommitSha",
@@ -1260,7 +1411,28 @@ const releaseBundleCandidateKeys = Object.freeze([
 export function parseReviewV2ReleaseBundleCandidate(
   input: Record<string, unknown>,
 ): ReviewV2ReleaseBundleCandidate {
-  requireExactKeys(input, releaseBundleCandidateKeys, "candidate");
+  const hasModelDispatchProfile = Object.hasOwn(input, "modelDispatchProfile");
+  const hasReviewerPlanProfile = Object.hasOwn(input, "reviewerPlanProfile");
+  const hasContextToolsProfile = Object.hasOwn(input, "contextToolsProfile");
+  const hasPrDescriptionProfile = Object.hasOwn(input, "prDescriptionProfile");
+  const hasLifecycleVerificationProfile = Object.hasOwn(
+    input,
+    "lifecycleVerificationProfile",
+  );
+  requireExactKeys(
+    input,
+    [
+      ...releaseBundleCandidateKeys,
+      ...(hasModelDispatchProfile ? ["modelDispatchProfile"] : []),
+      ...(hasReviewerPlanProfile ? ["reviewerPlanProfile"] : []),
+      ...(hasContextToolsProfile ? ["contextToolsProfile"] : []),
+      ...(hasPrDescriptionProfile ? ["prDescriptionProfile"] : []),
+      ...(hasLifecycleVerificationProfile
+        ? ["lifecycleVerificationProfile"]
+        : []),
+    ],
+    "candidate",
+  );
   const distributionKind = requireEnum(
     input,
     "distributionKind",
@@ -1309,8 +1481,49 @@ export function parseReviewV2ReleaseBundleCandidate(
           ),
         };
 
+  const agentProfiles = parseReviewAgentProfiles(input.agentProfiles);
+  const modelDispatchProfile = hasModelDispatchProfile
+    ? parseReviewModelDispatchProfile(input.modelDispatchProfile)
+    : null;
+  if (modelDispatchProfile)
+    assertReviewModelDispatchDefaultAgents(modelDispatchProfile, agentProfiles);
+
   return {
+    ...(modelDispatchProfile ? { modelDispatchProfile } : {}),
+    ...(hasReviewerPlanProfile
+      ? {
+          reviewerPlanProfile: parseProducerReviewerPlanProfile(
+            input.reviewerPlanProfile,
+          ),
+        }
+      : {}),
+    ...(hasContextToolsProfile
+      ? {
+          contextToolsProfile: parseProducerContextToolsProfile(
+            input.contextToolsProfile,
+          ),
+        }
+      : {}),
+    ...(hasLifecycleVerificationProfile
+      ? {
+          lifecycleVerificationProfile:
+            input.lifecycleVerificationProfile === null
+              ? null
+              : parseProducerLifecycleVerificationProfile(
+                  input.lifecycleVerificationProfile,
+                ),
+        }
+      : {}),
+    ...(hasPrDescriptionProfile
+      ? {
+          prDescriptionProfile:
+            input.prDescriptionProfile === null
+              ? null
+              : parseProducerPrDescriptionProfile(input.prDescriptionProfile),
+        }
+      : {}),
     producerReleaseId: requireString(input, "producerReleaseId"),
+    agentProfiles,
     distributionKind,
     actionCommitSha: requireString(input, "actionCommitSha"),
     runtimeCommitSha: requireString(input, "runtimeCommitSha"),
@@ -1417,10 +1630,16 @@ function printUsage() {
     `  release selection-preflight --repository OWNER/REPO --action-sha SHA\n`,
   );
   process.stdout.write(`  release register --bundle FILE --confirm release\n`);
+  process.stdout.write(`  release inspect --release RELEASE_ID\n`);
   process.stdout.write(
     `  release revoke --release RELEASE_ID --confirm RELEASE_ID\n`,
   );
-  process.stdout.write(`  emergency global open|stop --confirm global\n`);
+  process.stdout.write(
+    `  rollback protocol-preflight --channel-manifest FILE\n`,
+  );
+  process.stdout.write(
+    `  emergency global open|stop --confirm global [--expected-version N]\n`,
+  );
   process.stdout.write(
     `  emergency workspace open|stop --workspace WORKSPACE_ID --confirm WORKSPACE_ID\n`,
   );
@@ -1458,3 +1677,4 @@ if (entrypoint && import.meta.url === pathToFileURL(entrypoint).href) {
     process.exitCode = 1;
   });
 }
+import { reviewRouterWorkflowContract } from "@reviewrouter/protocol-review-workflow";

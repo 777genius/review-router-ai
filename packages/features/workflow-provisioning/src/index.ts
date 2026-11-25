@@ -1,5 +1,9 @@
 export * from "./domain/workflow-template";
 export * from "./domain/workflow-provisioning";
+export * from "./domain/workflow-transport";
+export * from "./domain/managed-workflow-setup-options";
+export * from "./domain/setup-pull-request-head";
+export * from "./domain/workflow-setup-authority";
 export * from "./domain/hosted-pool-workflow-template";
 export {
   renderCodexRotatingAdvisoryWorkflow,
@@ -24,6 +28,8 @@ export {
   workflowDocumentSemanticSha256,
   type VersionedProviderSecretNamespace,
 } from "@reviewrouter/features-codex-oauth-rotating";
+export * from "./application/ports/current-workflow-setup-query-port";
+export * from "./application/use-cases/assert-current-workflow-setup";
 export * from "./application/ports/workflow-setup-gateway-port";
 export * from "./application/ports/workflow-provisioning-query-port";
 export * from "./application/ports/workflow-provisioning-repository-port";
@@ -32,11 +38,9 @@ export * from "./application/use-cases/list-repository-workflow-provisioning";
 export * from "./application/use-cases/provision-reviewrouter-workflow";
 export * from "./application/use-cases/provision-repository-reviewrouter-workflow";
 export * from "./application/use-cases/provision-hosted-pool-workflow";
-export * from "./infrastructure/github/octokit-workflow-setup-gateway";
-export * from "./infrastructure/prisma/prisma-workflow-provisioning-query";
-export * from "./infrastructure/prisma/prisma-workflow-provisioning-repository";
-export * from "./infrastructure/prisma/prisma-workflow-provisioning-status-authority";
-export * from "./infrastructure/prisma/prisma-workflow-provisioning-target";
-export * from "./infrastructure/prisma/workflow-provisioning-transaction";
-export * from "./infrastructure/prisma/prisma-hosted-pool-workflow-activation";
-export * from "./infrastructure/prisma/prisma-hosted-pool-configuration";
+export * from "./application/provision-gateway-review-v2-repository";
+export * from "./application/confirm-installed-gateway-review-repository";
+export * from "./application/workflow-provisioning-outcome";
+
+export * from "./application/ports/repository-workflow-probe-port";
+export * from "./application/use-cases/inspect-workflow-setup-readiness";

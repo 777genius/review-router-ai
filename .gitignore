@@ -3,6 +3,7 @@ dist/
 build/
 .next/
 .turbo/
+.render-tooling/
 .env
 .env.*
 !.env.example
@@ -16,3 +17,12 @@ deploy/self-hosted/secrets/
 hosted-pool-screenshots/
 apps/web/public/hosted-pool-screenshots/
 packages/features/hosted-account-pool/src/**/*.js
+
+# Local agent scratch, worktrees, and package cache
+/.codex-tmp/
+/.worktrees/
+/.pnpm-store/
+/.tmp-*
+/goal-*.js
+/playwright-report/
+/test-results/

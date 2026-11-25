@@ -41,8 +41,10 @@ authority must be revalidated and fenced at publication time. An intent/receipt 
 pause hook (every replacement advances the epoch), plus a serializable, rollback-capable in-memory conformance adapter.
 Production storage must implement the documented transaction contract with durable
 fences/tombstones and cross-process serialization, using existing infrastructure.
-No Prisma migration is needed for this unactivated core; durable adapter integration,
-GitHub checks and runner composition are separate work. No source/diff is retained.
+The pure core requires no Prisma migration. Separate dormant custody migrations
+now retain G1 approval facts and TEST-only EF v3 tool/manifest bytes; see
+`src/infrastructure/prisma/current-authority.md`. Durable production adapter
+integration, GitHub checks and runner composition remain separate work.
 
 Validation from the repository root:
 

@@ -5,6 +5,7 @@ export * from "./domain/codex-rotating-setup-payload-claim";
 export * from "./domain/codex-rotating-setup-readiness";
 export * from "./domain/codex-rotating-workflow-namespace";
 export * from "./domain/codex-rotating-workflow-reattestation";
+export * from "./domain/effective-provider-readiness";
 export * from "./application/ports/codex-rotating-setup-recovery-port";
 export * from "./application/ports/codex-rotating-setup-payload-claim-port";
 export * from "./application/ports/codex-rotating-setup-readiness-port";
@@ -27,7 +28,9 @@ export {
   parseVersionedProviderSecretName,
   versionedProviderSecretNamePattern,
 } from "@reviewrouter/features-codex-oauth-rotating";
-export * from "./infrastructure/memory/in-memory-codex-rotating-setup-payload-claim";
+export * from "./provider-api-key-management/provider-api-key";
+export * from "./provider-api-key-management/provider-api-key-ports";
+export * from "./provider-api-key-management/apply-provider-api-key";
 export {
   buildCodexRotatingSetupManifest,
   assertCanonicalCodexRotatingProviderId,
@@ -43,3 +46,25 @@ export {
   renderCodexRotatingInstallerCommand,
   type CodexRotatingInstallerArgument,
 } from "@reviewrouter/features-codex-oauth-rotating";
+export {
+  assertCodexRuntimeMigrationSourceProof,
+  codexRuntimeMigrationAudience,
+  codexRuntimeMigrationBindingSchema,
+  codexRuntimeMigrationIdSchema,
+  codexRuntimeMigrationReusableWorkflowPath,
+  codexRuntimeMigrationRunName,
+  codexRuntimeMigrationDispatchKey,
+  codexRuntimeMigrationSourceProofSchema,
+  codexRuntimeMigrationWorkflowPath,
+  type CodexRuntimeMigrationBinding,
+  type CodexRuntimeMigrationSourceProof,
+  type CodexRuntimeMigrationExchange,
+} from "@reviewrouter/features-codex-oauth-rotating";
+export {
+  codexRuntimeMigrationCleanup,
+  renderCodexRuntimeMigrationWorkflow,
+  type CodexRuntimeMigrationWorkflowInput,
+} from "@reviewrouter/features-codex-oauth-rotating";
+export * from "./domain/codex-rotating-installer";
+export * from "./domain/codex-rotating-setup-manifest-policy";
+export * from "./domain/codex-rotating-setup-lifecycle";

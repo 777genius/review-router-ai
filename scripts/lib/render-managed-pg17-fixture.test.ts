@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { spawnSync } from "node:child_process";
-import { managedPg17Fixture } from "./render-managed-pg17-fixture";
+import {
+  assertFixtureNodeRuns,
+  ensurePg17FixtureImage,
+  managedPg17Fixture,
+  pg17BaseImage,
+  pg17FixtureImage,
+} from "./render-managed-pg17-fixture";
 import { assertSafeProcessBoundary } from "../../packages/features/release-rollout/src/adapters/process-command";
 import {
   decomposePostgresConnection,
@@ -266,6 +272,229 @@ describe("recovery fixture bounded diagnostics", () => {
       .filter((call) => call[1]?.[2] === "inspect")
       .map((call) => call[1]!.at(-1));
     expect(new Set(names).size).toBe(7);
+  });
+
+  it("qualifies a libatomic1 fixture image on the pinned base before any offline container", () => {
+    const calls: string[][] = [];
+    let built = false;
+    let buildInput = "";
+    const run = (args: string[], input?: string | Buffer) => {
+      calls.push(args);
+      if (args[0] === "build") {
+        built = true;
+        buildInput = String(input);
+        return { status: 0, stdout: "", stderr: "" };
+      }
+      if (args[0] === "image" && args[2] === pg17FixtureImage && !built)
+        return { status: 1, stdout: "", stderr: "" };
+      if (args[0] === "image" && args[2] === "--format")
+        return {
+          status: 0,
+          stdout: `${/FROM (\S+)/.exec(buildInput)![1]}\n`,
+          stderr: "",
+        };
+      return { status: 0, stdout: "ii", stderr: "" };
+    };
+    ensurePg17FixtureImage(run);
+    expect(buildInput).toMatch(
+      /^FROM postgres:17\.10@sha256:[a-f0-9]{64}\n[\s\S]*install -y --no-install-recommends libatomic1/u,
+    );
+    expect(calls.map((call) => call[0])).not.toContain("create");
+    const proof = calls.find((call) => call[0] === "run")!;
+    expect(proof).toEqual(
+      expect.arrayContaining([
+        "--network",
+        "none",
+        "--read-only",
+        "libatomic1",
+      ]),
+    );
+    expect(proof).toContain(pg17FixtureImage);
+    expect(calls.findIndex((call) => call[0] === "build")).toBeLessThan(
+      calls.findIndex((call) => call[0] === "run"),
+    );
+  });
+
+  it.each(["valid", "wrong-base", "missing-libatomic"] as const)(
+    "qualifies a parallel build winner (%s)",
+    (outcome) => {
+      const calls: string[][] = [];
+      let buildAttempted = false;
+      const run = (args: string[]) => {
+        calls.push(args);
+        if (args[0] === "build") {
+          buildAttempted = true;
+          return { status: 1, stdout: "", stderr: "image already exists" };
+        }
+        if (args[0] === "image" && args[2] === pg17FixtureImage)
+          return { status: buildAttempted ? 0 : 1, stdout: "", stderr: "" };
+        if (args[0] === "image" && args[2] === "--format")
+          return {
+            status: 0,
+            stdout: outcome === "wrong-base" ? "wrong-base" : pg17BaseImage,
+            stderr: "",
+          };
+        if (args[0] === "run" && outcome === "missing-libatomic")
+          return { status: 1, stdout: "", stderr: "libatomic1 missing" };
+        return { status: 0, stdout: "ii", stderr: "" };
+      };
+      if (outcome === "valid")
+        expect(() => ensurePg17FixtureImage(run)).not.toThrow();
+      else
+        expect(() => ensurePg17FixtureImage(run)).toThrow(
+          outcome === "wrong-base"
+            ? "managed_pg17_fixture_image:base_label"
+            : "managed_pg17_fixture_image:libatomic1",
+        );
+      expect(calls.filter((args) => args[0] === "build")).toHaveLength(1);
+      expect(calls).toContainEqual([
+        "image",
+        "inspect",
+        "--format",
+        '{{ index .Config.Labels "reviewrouter.fixture.base" }}',
+        pg17FixtureImage,
+      ]);
+      if (outcome !== "wrong-base")
+        expect(calls.find((args) => args[0] === "run")).toContain("libatomic1");
+    },
+  );
+
+  it("rejects a fixture image without libatomic1 with a bounded diagnostic", () => {
+    const run = (args: string[]) =>
+      args[0] === "run"
+        ? {
+            status: 1,
+            stdout: "",
+            stderr: "dpkg-query: no packages found matching libatomic1",
+          }
+        : { status: 0, stdout: pg17BaseImage, stderr: "" };
+    expect(() => ensurePg17FixtureImage(run)).toThrow(
+      /^managed_pg17_fixture_image:libatomic1:1:dpkg-query: no packages/u,
+    );
+  });
+
+  it("reports a failed base inspection before building anything without claiming image absence", () => {
+    const calls: string[][] = [];
+    const run = (args: string[]) => {
+      calls.push(args);
+      return { status: 1, stdout: secret, stderr: secret };
+    };
+    expect(() => ensurePg17FixtureImage(run)).toThrow(
+      /^managed_pg17_fixture_image:base_inspect:status=1:code=none:signal=none$/u,
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual(["image", "inspect", pg17BaseImage]);
+  });
+
+  it.each(["ENOENT", "EACCES", "EAGAIN"])(
+    "distinguishes base-inspect spawn failure %s without child output or cause text",
+    (code) => {
+      const run = vi.fn(() => ({
+        status: null,
+        signal: null,
+        stdout: secret,
+        stderr: secret,
+        error: Object.assign(new Error(secret), { code }),
+      }));
+      expect(() => ensurePg17FixtureImage(run)).toThrow(
+        new RegExp(
+          `^managed_pg17_fixture_image:base_inspect:status=none:code=${code}:signal=none$`,
+          "u",
+        ),
+      );
+      expect(run).toHaveBeenCalledExactlyOnceWith([
+        "image",
+        "inspect",
+        pg17BaseImage,
+      ]);
+    },
+  );
+
+  it("distinguishes a signalled base inspector without treating it as a missing image", () => {
+    const run = vi.fn(() => ({
+      status: null,
+      signal: "SIGKILL" as const,
+      stdout: secret,
+      stderr: secret,
+    }));
+    expect(() => ensurePg17FixtureImage(run)).toThrow(
+      /^managed_pg17_fixture_image:base_inspect:status=none:code=none:signal=SIGKILL$/u,
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a contradictory successful status with a spawn error", () => {
+    const run = vi.fn(() => ({
+      status: 0,
+      stdout: secret,
+      stderr: secret,
+      error: Object.assign(new Error(secret), { code: "EPERM" }),
+    }));
+    expect(() => ensurePg17FixtureImage(run)).toThrow(
+      /^managed_pg17_fixture_image:base_inspect:status=0:code=EPERM:signal=none$/u,
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("bounds unknown process facts without echoing arbitrary codes or signals", () => {
+    const run = vi.fn(() => ({
+      status: 1000,
+      signal: secret as NodeJS.Signals,
+      stdout: secret,
+      stderr: secret,
+      error: Object.assign(new Error(secret), { code: secret }),
+    }));
+    expect(() => ensurePg17FixtureImage(run)).toThrow(
+      /^managed_pg17_fixture_image:base_inspect:status=other:code=other:signal=other$/u,
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a cached fixture tag whose base label is wrong", () => {
+    const run = (args: string[]) => ({
+      status: 0,
+      stdout: args[2] === "--format" ? "postgres:17.10@sha256:wrong" : "",
+      stderr: "",
+    });
+    expect(() => ensurePg17FixtureImage(run)).toThrow(
+      "managed_pg17_fixture_image:base_label",
+    );
+  });
+
+  it("reports a failed build with a finite diagnostic", () => {
+    const noisy = `${"x".repeat(5000)} E: Unable to locate package libatomic1`;
+    const run = (args: string[]) =>
+      args[0] === "build"
+        ? { status: 100, stdout: "", stderr: noisy }
+        : {
+            status: args[2] === pg17FixtureImage ? 1 : 0,
+            stdout: "",
+            stderr: "",
+          };
+    let message = "";
+    try {
+      ensurePg17FixtureImage(run);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toMatch(
+      /^managed_pg17_fixture_image:build:100:.*Unable to locate package libatomic1$/u,
+    );
+    expect(message.length).toBeLessThan(260);
+  });
+
+  it("surfaces a missing shared library of the copied Node as itself, not a timeout", () => {
+    const loader =
+      "node: error while loading shared libraries: libatomic.so.1: cannot open shared object file: No such file or directory";
+    expect(() =>
+      assertFixtureNodeRuns({ status: 127, stdout: "", stderr: loader }),
+    ).toThrow(/^managed_pg17_node_runtime:127:.*libatomic\.so\.1/u);
+    expect(() =>
+      assertFixtureNodeRuns({ status: 127, stdout: "", stderr: loader }),
+    ).not.toThrow(/timeout|wire_closed/u);
+    expect(() =>
+      assertFixtureNodeRuns({ status: 0, stdout: "v26.11.1", stderr: "" }),
+    ).not.toThrow();
   });
 
   it("distinguishes connection and command validation", () => {

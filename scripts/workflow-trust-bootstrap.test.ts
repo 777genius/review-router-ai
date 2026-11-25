@@ -13,6 +13,10 @@ const authorityMigration = readFileSync(
   ".github/workflows/release-authority-migration.yml",
   "utf8",
 );
+const additiveMigration = readFileSync(
+  ".github/workflows/production-additive-migrations-105-109.yml",
+  "utf8",
+);
 const sha = "13165687d30af3b9fbb043f0e294744de612a6a0";
 
 function jobs(source: string): string[] {
@@ -112,6 +116,21 @@ const authorityMigrationFixture: Fixture = {
     protectedEnvironment,
 };
 
+const additiveMigrationEnvironment = {
+  ...releaseEnvironment,
+  EXPECTED_SHA: sha,
+  CONFIRMATION: "APPLY_ADDITIVE_105_109",
+  REQUIRED_ENVIRONMENT: "production",
+};
+const additiveMigrationFixture: Fixture = {
+  "/repos/777genius/review-router-ai/branches/main": {
+    protected: true,
+    commit: { sha },
+  },
+  "/repos/777genius/review-router-ai/environments/production":
+    protectedEnvironment,
+};
+
 const rolloutEnvironment = {
   ...releaseEnvironment,
   GITHUB_RUN_ATTEMPT: "1",
@@ -207,6 +226,40 @@ describe("release workflow immutable trust bootstrap", () => {
     );
     expect(result.status).not.toBe(0);
     expect(result.githubOutput).toBeUndefined();
+  });
+});
+
+describe("production additive migration trust bootstrap", () => {
+  it("accepts only the current protected commit and explicit operation", () => {
+    const accepted = executeBootstrap(
+      additiveMigration,
+      additiveMigrationEnvironment,
+      additiveMigrationFixture,
+    );
+    expect(accepted.status).toBe(0);
+    expect(accepted.githubOutput).toBe(`trusted_sha=${sha}\n`);
+
+    for (const environment of [
+      { ...additiveMigrationEnvironment, EXPECTED_SHA: "a".repeat(40) },
+      { ...additiveMigrationEnvironment, CONFIRMATION: "APPLY_ANYTHING" },
+    ]) {
+      expect(
+        executeBootstrap(
+          additiveMigration,
+          environment,
+          additiveMigrationFixture,
+        ).status,
+      ).not.toBe(0);
+    }
+    expect(
+      executeBootstrap(additiveMigration, additiveMigrationEnvironment, {
+        ...additiveMigrationFixture,
+        "/repos/777genius/review-router-ai/environments/production": {
+          ...protectedEnvironment,
+          protection_rules: [],
+        },
+      }).status,
+    ).not.toBe(0);
   });
 });
 

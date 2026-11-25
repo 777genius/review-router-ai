@@ -7,6 +7,89 @@ import {
 const credential = "cli-operator-credential-with-at-least-32-characters";
 
 describe("ReviewRouter operator CLI", () => {
+  it("confirms only the explicitly named installed repository and never accepts owner/proof options", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        result: {
+          status: "blocked",
+          issue: "installed_gateway_workflow_incompatible",
+        },
+      }),
+    );
+    const env = {
+      REVIEW_ROUTER_REVIEW_CONFIG_OPERATOR_CREDENTIAL: credential,
+      REVIEW_ROUTER_API_URL: "https://api.reviewrouter.org",
+    };
+    const args = [
+      "repositories",
+      "confirm-installed",
+      "--workspace",
+      "workspace",
+      "--repo",
+      "example/repository",
+      "--confirm",
+      "example/repository",
+    ];
+    expect(
+      await executeReviewRouterOperatorCli(args, env, { fetchImpl }),
+    ).toEqual({
+      status: "blocked",
+      issue: "installed_gateway_workflow_incompatible",
+    });
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(url.toString()).toBe(
+      "https://api.reviewrouter.org/api/operator/v1/workflow-provisioning/confirm-installed-gateway",
+    );
+    expect(init).toMatchObject({
+      method: "POST",
+      redirect: "error",
+      headers: { authorization: `Bearer ${credential}` },
+    });
+    expect(JSON.parse(String(init?.body))).toEqual({
+      workspace: "workspace",
+      repository: "example/repository",
+      confirm: "example/repository",
+    });
+    fetchImpl.mockClear();
+    await expect(
+      executeReviewRouterOperatorCli([...args, "--owner", "forged"], env, {
+        fetchImpl,
+      }),
+    ).rejects.toThrow("reviewrouter_operator_option_unknown");
+    await expect(
+      executeReviewRouterOperatorCli(
+        [...args.slice(0, -1), "other/repository"],
+        env,
+        { fetchImpl },
+      ),
+    ).rejects.toThrow("reviewrouter_operator_confirmation_invalid");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+  it("redacts installed-workflow transport failures instead of reflecting credentials", async () => {
+    await expect(
+      executeReviewRouterOperatorCli(
+        [
+          "repositories",
+          "confirm-installed",
+          "--workspace",
+          "workspace",
+          "--repo",
+          "example/repository",
+          "--confirm",
+          "example/repository",
+        ],
+        {
+          REVIEW_ROUTER_REVIEW_CONFIG_OPERATOR_CREDENTIAL: credential,
+          REVIEW_ROUTER_API_URL: "https://api.reviewrouter.org",
+        },
+        {
+          fetchImpl: vi.fn(async () => {
+            throw new Error(credential);
+          }),
+        },
+      ),
+    ).rejects.toThrow("reviewrouter_operator_workflow_confirmation_failed");
+  });
   it("sends an authenticated set request and returns only the result", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () =>
       Response.json({
@@ -29,7 +112,7 @@ describe("ReviewRouter operator CLI", () => {
       ],
       {
         REVIEW_ROUTER_REVIEW_CONFIG_OPERATOR_CREDENTIAL: credential,
-        REVIEW_ROUTER_API_URL: "https://api.reviewrouter.site",
+        REVIEW_ROUTER_API_URL: "https://api.reviewrouter.org",
       },
       { fetchImpl },
     );
@@ -41,7 +124,7 @@ describe("ReviewRouter operator CLI", () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
     const [url, init] = fetchImpl.mock.calls[0]!;
     expect(url.toString()).toBe(
-      "https://api.reviewrouter.site/api/operator/v1/review-config",
+      "https://api.reviewrouter.org/api/operator/v1/review-config",
     );
     expect(init).toMatchObject({
       method: "PATCH",
@@ -62,7 +145,7 @@ describe("ReviewRouter operator CLI", () => {
   it("reads the credential file and sends workspace-qualified get", async () => {
     const readFileImpl = vi.fn(async () =>
       JSON.stringify({
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl: "https://api.reviewrouter.org",
         credential,
       }),
     );
@@ -101,7 +184,7 @@ describe("ReviewRouter operator CLI", () => {
       "utf8",
     );
     expect(fetchImpl.mock.calls[0]?.[0].toString()).toBe(
-      "https://api.reviewrouter.site/api/operator/v1/review-config?repo=Padelapp-Club%2Fmonorepository&provider=github&workspace=padelapp",
+      "https://api.reviewrouter.org/api/operator/v1/review-config?repo=Padelapp-Club%2Fmonorepository&provider=github&workspace=padelapp",
     );
     expect(fetchImpl.mock.calls[0]?.[1]).toMatchObject({
       method: "GET",
@@ -124,7 +207,7 @@ describe("ReviewRouter operator CLI", () => {
       ["investigation", "status", "--investigation-id", "investigation-1"],
       {
         REVIEW_ROUTER_REVIEW_CONFIG_OPERATOR_CREDENTIAL: credential,
-        REVIEW_ROUTER_API_URL: "https://api.reviewrouter.site",
+        REVIEW_ROUTER_API_URL: "https://api.reviewrouter.org",
       },
       { fetchImpl },
     );
@@ -134,7 +217,7 @@ describe("ReviewRouter operator CLI", () => {
       nextAction: "run_critic",
     });
     expect(fetchImpl.mock.calls[0]?.[0].toString()).toBe(
-      "https://api.reviewrouter.site/api/operator/v1/review-investigations/investigation-1/status",
+      "https://api.reviewrouter.org/api/operator/v1/review-investigations/investigation-1/status",
     );
     expect(fetchImpl.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
     expect(JSON.stringify(result)).not.toContain(credential);
@@ -164,14 +247,14 @@ describe("ReviewRouter operator CLI", () => {
       argumentsList,
       {
         REVIEW_ROUTER_INVESTIGATION_PROMOTION_CREDENTIAL: credential,
-        REVIEW_ROUTER_API_URL: "https://api.reviewrouter.site",
+        REVIEW_ROUTER_API_URL: "https://api.reviewrouter.org",
       },
       { fetchImpl },
     );
 
     const [url, init] = fetchImpl.mock.calls[0]!;
     expect(url.toString()).toBe(
-      "https://api.reviewrouter.site/api/operator/v1/review-investigation-promotion-reports",
+      "https://api.reviewrouter.org/api/operator/v1/review-investigation-promotion-reports",
     );
     expect(init).toMatchObject({ method: "POST" });
     expect(JSON.parse(String(init?.body))).toEqual({
@@ -188,7 +271,7 @@ describe("ReviewRouter operator CLI", () => {
         [...argumentsList, "--min-seeded-samples", "1"],
         {
           REVIEW_ROUTER_INVESTIGATION_PROMOTION_CREDENTIAL: credential,
-          REVIEW_ROUTER_API_URL: "https://api.reviewrouter.site",
+          REVIEW_ROUTER_API_URL: "https://api.reviewrouter.org",
         },
         { fetchImpl },
       ),
@@ -204,7 +287,7 @@ describe("ReviewRouter operator CLI", () => {
         ["config", "get", "--repo", "a/b", "--effort", "high"],
         {
           REVIEW_ROUTER_REVIEW_CONFIG_OPERATOR_CREDENTIAL: credential,
-          REVIEW_ROUTER_API_URL: "https://api.reviewrouter.site",
+          REVIEW_ROUTER_API_URL: "https://api.reviewrouter.org",
         },
       ),
     ).rejects.toThrow("reviewrouter_operator_option_unknown");
@@ -218,11 +301,11 @@ describe("ReviewRouter operator CLI", () => {
           "--effort",
           "ultra",
           "--api-url",
-          "http://reviewrouter.site",
+          "http://reviewrouter.org",
         ],
         {
           REVIEW_ROUTER_REVIEW_CONFIG_OPERATOR_CREDENTIAL: credential,
-          REVIEW_ROUTER_API_URL: "https://api.reviewrouter.site",
+          REVIEW_ROUTER_API_URL: "https://api.reviewrouter.org",
         },
       ),
     ).rejects.toThrow("reviewrouter_operator_api_url_invalid");
@@ -245,7 +328,7 @@ describe("ReviewRouter operator CLI", () => {
       ["config", "get", "--repo", "777genius/example"],
       {
         REVIEW_ROUTER_REVIEW_CONFIG_OPERATOR_CREDENTIAL: credential,
-        REVIEW_ROUTER_API_URL: "https://api.reviewrouter.site",
+        REVIEW_ROUTER_API_URL: "https://api.reviewrouter.org",
       },
       { fetchImpl },
     ).catch((caught: unknown) => caught);
@@ -279,7 +362,7 @@ describe("ReviewRouter operator CLI", () => {
         ],
         {
           REVIEW_ROUTER_REVIEW_CONFIG_OPERATOR_CREDENTIAL: credential,
-          REVIEW_ROUTER_API_URL: "https://api.reviewrouter.site",
+          REVIEW_ROUTER_API_URL: "https://api.reviewrouter.org",
         },
       ),
     ).rejects.toThrow("reviewrouter_operator_option_unknown");
@@ -297,7 +380,7 @@ describe("ReviewRouter operator CLI", () => {
           })) as never,
           readFileImpl: (async () =>
             JSON.stringify({
-              apiUrl: "https://api.reviewrouter.site",
+              apiUrl: "https://api.reviewrouter.org",
               credential,
             })) as never,
           homeDirectory: "/home/operator",

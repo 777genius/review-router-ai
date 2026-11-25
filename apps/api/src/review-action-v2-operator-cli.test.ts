@@ -1,10 +1,24 @@
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { reviewerPlanDescriptorDigest } from "@reviewrouter/shared";
+import { describe, expect, it, vi } from "vitest";
+
+// These parser/operator-policy tests must not construct production services.
+vi.mock("./review-action-v2-production-composition.js", () => ({
+  composeReviewActionV2ProductionRunControl: () => {
+    throw new Error("production_composition_not_expected_in_cli_policy_test");
+  },
+}));
 import { InvestigationRolloutProvider } from "@reviewrouter/features-review-investigation-operations";
 import {
   ImmutableRegistryWriteStatus,
   ReviewSafetyCapability,
+  ReviewSafetyControlWriteStatus,
+  ReviewSafetyPolicyScope,
   ReviewSafetyRolloutMode,
+  type ReviewSafetyEmergencyControl,
 } from "@reviewrouter/features-review-run-control";
 import {
   inspectEnvironment,
@@ -13,6 +27,7 @@ import {
   parseArguments,
   parseInvestigationRolloutProvider,
   parseReviewV2ReleaseBundleCandidate,
+  parseReviewV2ExpectedEmergencyVersion,
   requireConfirmation,
   reviewV2CohortEmergencyInitialization,
   reviewV2CohortOperationForCommand,
@@ -22,6 +37,7 @@ import {
   reviewV2WorkspaceEmergencyTransitionForCommand,
   resolveImmutableRegistryProfileId,
   serializeOperatorCliJson,
+  updateGlobalEmergencyControl,
 } from "./review-action-v2-operator-cli";
 
 describe("review action v2 operator CLI", () => {
@@ -90,7 +106,7 @@ describe("review action v2 operator CLI", () => {
 
   it("reports only missing or malformed environment variable names", () => {
     const credential = "operator-secret";
-    const result = inspectEnvironment({
+    const environment: Record<string, string | undefined> = {
       DATABASE_URL: "postgresql://example.invalid/reviewrouter",
       GITHUB_APP_ID: "123",
       GITHUB_APP_PRIVATE_KEY: "private-key",
@@ -106,7 +122,8 @@ describe("review action v2 operator CLI", () => {
       REVIEW_ROUTER_REVIEW_V2_OPERATOR_CREDENTIAL_SHA256: createHash("sha256")
         .update(credential, "utf8")
         .digest("hex"),
-    });
+    };
+    const result = inspectEnvironment(environment);
 
     expect(result).toEqual({
       ready: false,
@@ -114,6 +131,41 @@ describe("review action v2 operator CLI", () => {
       invalid: ["REVIEW_ROUTER_REVIEW_V2_PROVIDER_VOTE_LANES_JSON"],
     });
     expect(JSON.stringify(result)).not.toContain(credential);
+    const directory = mkdtempSync(join(tmpdir(), "producer-cli-"));
+    try {
+      const path = join(directory, "registry.json");
+      writeFileSync(path, "[]");
+      delete environment.REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON;
+      environment.REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_FILE =
+        path;
+      environment.REVIEW_ROUTER_REVIEW_V2_PROVIDER_VOTE_LANES_JSON = "[]";
+      expect(inspectEnvironment(environment)).toEqual({
+        ready: true,
+        missing: [],
+        invalid: [],
+      });
+      environment.REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON =
+        "[]";
+      expect(inspectEnvironment(environment)).toEqual({
+        ready: false,
+        missing: [],
+        invalid: ["REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_FILE"],
+      });
+      delete environment.REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON;
+      writeFileSync(path, "private-malformed-marker");
+      const rejected = inspectEnvironment(environment);
+      expect(rejected).toEqual({
+        ready: false,
+        missing: [],
+        invalid: ["REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_FILE"],
+      });
+      expect(JSON.stringify(rejected)).not.toContain(
+        "private-malformed-marker",
+      );
+      expect(JSON.stringify(rejected)).not.toContain(path);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("preflights release registration without unrelated runtime secrets", () => {
@@ -167,9 +219,193 @@ describe("review action v2 operator CLI", () => {
   });
 
   it("parses the exact normalized producer release candidate shape", () => {
-    expect(parseReviewV2ReleaseBundleCandidate(releaseCandidate())).toEqual(
-      releaseCandidate(),
-    );
+    const parsed = parseReviewV2ReleaseBundleCandidate(releaseCandidate());
+    expect(parsed).toEqual(releaseCandidate());
+    expect(Object.hasOwn(parsed, "prDescriptionProfile")).toBe(false);
+  });
+
+  it("preserves exact dispatch and reviewer-plan approval without granting heuristic defaults", () => {
+    const modelDispatchProfile = {
+      extensionId: "review-model-dispatch.v2",
+      descriptorDigest:
+        "sha256:be55241ba86af0788b6a60973ac7c55e6aa33244d18bba52a230cbc195ba4a2d",
+      policyVersion: "model-dispatch-policy.v2",
+      transports: ["account_gateway"],
+      wireProtocols: ["openai-responses"],
+      defaultAgentProfileRefs: { account_gateway: "ocr-managed-v5" },
+      limits: {
+        maxRequests: 32,
+        maxConcurrentRequests: 1,
+        maxRequestBytes: 16 * 1024 * 1024,
+        maxResponseBytes: 8 * 1024 * 1024,
+        maxOutputTokens: 32768,
+      },
+    };
+    const reviewerPlanProfile = {
+      planVersion: 2,
+      descriptorDigest: reviewerPlanDescriptorDigest,
+    };
+    const qualifiedAgent = {
+      profileRef: "ocr-managed-v5",
+      agentKind: "ocr",
+      binarySha256: "a".repeat(64),
+      packageVersion: "1.13.1-rr.6",
+      modelTransports: ["account_gateway", "provider_api"],
+      contextGateway: false,
+      cancellation: true,
+      reviewSkillsVersion: 1,
+    };
+    const candidate = {
+      ...releaseCandidate(),
+      agentProfiles: [qualifiedAgent],
+      modelDispatchProfile,
+      reviewerPlanProfile,
+    };
+    expect(parseReviewV2ReleaseBundleCandidate(candidate)).toEqual(candidate);
+    for (const field of ["modelDispatchProfile", "reviewerPlanProfile"])
+      expect(
+        parseReviewV2ReleaseBundleCandidate(releaseCandidate()),
+      ).not.toHaveProperty(field);
+    for (const agentProfiles of [
+      [],
+      [qualifiedAgent, qualifiedAgent],
+      [{ ...qualifiedAgent, profileRef: "other" }],
+      [{ ...qualifiedAgent, agentKind: "codex", contextGateway: true }],
+      [{ ...qualifiedAgent, reviewSkillsVersion: undefined }],
+      [{ ...qualifiedAgent, modelTransports: ["provider_api"] }],
+    ])
+      expect(() =>
+        parseReviewV2ReleaseBundleCandidate({ ...candidate, agentProfiles }),
+      ).toThrow();
+    for (const value of [
+      null,
+      { ...modelDispatchProfile, defaultAgentProfileRefs: {} },
+      { ...modelDispatchProfile, descriptorDigest: `sha256:${"0".repeat(64)}` },
+      {
+        ...modelDispatchProfile,
+        limits: { ...modelDispatchProfile.limits, maxRequests: 33 },
+      },
+      { ...modelDispatchProfile, endpoint: "https://unapproved.example" },
+    ])
+      expect(() =>
+        parseReviewV2ReleaseBundleCandidate({
+          ...candidate,
+          modelDispatchProfile: value,
+        }),
+      ).toThrow();
+    for (const value of [
+      null,
+      { ...reviewerPlanProfile, planVersion: 3 },
+      { ...reviewerPlanProfile, descriptorDigest: "invalid" },
+      { ...reviewerPlanProfile, enabled: true },
+    ])
+      expect(() =>
+        parseReviewV2ReleaseBundleCandidate({
+          ...candidate,
+          reviewerPlanProfile: value,
+        }),
+      ).toThrow();
+  });
+
+  it("preserves the approved MCP descriptor in the normal registration bundle", () => {
+    const contextToolsProfile = {
+      extensionId: "context-tools.v1",
+      descriptorDigest:
+        "sha256:c188ad0a29581317f23b6aec3f103a7419f67576bea6fb3dc9910cf9ca3a3f7a",
+    };
+    const candidate = { ...releaseCandidate(), contextToolsProfile };
+    expect(parseReviewV2ReleaseBundleCandidate(candidate)).toEqual(candidate);
+    expect(
+      Object.hasOwn(
+        parseReviewV2ReleaseBundleCandidate(releaseCandidate()),
+        "contextToolsProfile",
+      ),
+    ).toBe(false);
+    for (const value of [
+      null,
+      { ...contextToolsProfile, enabled: true },
+      { ...contextToolsProfile, descriptorDigest: "bad" },
+    ]) {
+      expect(() =>
+        parseReviewV2ReleaseBundleCandidate({
+          ...candidate,
+          contextToolsProfile: value,
+        }),
+      ).toThrow();
+    }
+  });
+
+  it("preserves and validates optional PR description approval in registration bundles", () => {
+    const profile = {
+      extensionId: "pr-description.v1",
+      canonicalizerDigest:
+        "aa043184eb0a1a0cf230d8fbb03c6a63a05b950c82c0107bee7d2533c386eed0",
+    };
+    const candidate = { ...releaseCandidate(), prDescriptionProfile: profile };
+    expect(parseReviewV2ReleaseBundleCandidate(candidate)).toEqual(candidate);
+    expect(
+      parseReviewV2ReleaseBundleCandidate({
+        ...candidate,
+        prDescriptionProfile: null,
+      }).prDescriptionProfile,
+    ).toBeNull();
+    for (const prDescriptionProfile of [
+      { ...profile, canonicalizerDigest: "invalid" },
+      { ...profile, enabled: true },
+    ]) {
+      expect(() =>
+        parseReviewV2ReleaseBundleCandidate({
+          ...candidate,
+          prDescriptionProfile,
+        }),
+      ).toThrow();
+    }
+  });
+
+  it("binds optional lifecycle approval without granting caller model settings", () => {
+    const profile = {
+      extensionId: "lifecycle-verification.v1",
+      descriptorDigest: `sha256:${"a".repeat(64)}`,
+    };
+    const candidate = {
+      ...releaseCandidate(),
+      lifecycleVerificationProfile: profile,
+    };
+    expect(parseReviewV2ReleaseBundleCandidate(candidate)).toEqual(candidate);
+    expect(
+      parseReviewV2ReleaseBundleCandidate({
+        ...candidate,
+        lifecycleVerificationProfile: null,
+      }).lifecycleVerificationProfile,
+    ).toBeNull();
+    expect(() =>
+      parseReviewV2ReleaseBundleCandidate({
+        ...candidate,
+        lifecycleVerificationProfile: { ...profile, model: "other" },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects registration without a qualified agent profile", () => {
+    const candidate = releaseCandidate();
+    delete candidate.agentProfiles;
+    expect(() => parseReviewV2ReleaseBundleCandidate(candidate)).toThrow();
+    for (const agentProfiles of [
+      [],
+      [{ agentKind: "codex" }],
+      [
+        {
+          ...(releaseCandidate().agentProfiles as Record<string, unknown>[])[0],
+          binarySha256: "unknown",
+        },
+      ],
+    ])
+      expect(() =>
+        parseReviewV2ReleaseBundleCandidate({
+          ...releaseCandidate(),
+          agentProfiles,
+        }),
+      ).toThrow();
   });
 
   it("rejects flattened raw-manifest investigation fields", () => {
@@ -312,6 +548,86 @@ describe("review action v2 operator CLI", () => {
     ).toBeNull();
   });
 
+  it("accepts an optional exact positive emergency-control version", () => {
+    expect(
+      parseReviewV2ExpectedEmergencyVersion(parseArguments([])),
+    ).toBeUndefined();
+    expect(
+      parseReviewV2ExpectedEmergencyVersion(
+        parseArguments(["--expected-version", "1"]),
+      ),
+    ).toBe(1);
+    expect(() =>
+      parseReviewV2ExpectedEmergencyVersion(
+        parseArguments(["--expected-version=1"]),
+      ),
+    ).toThrow("review_v2_option_invalid:expected-version");
+    for (const value of [
+      undefined,
+      "0",
+      "-1",
+      "1.5",
+      "1e2",
+      "0x10",
+      "01",
+      "9007199254740992",
+      "not-a-version",
+    ]) {
+      const args =
+        value === undefined
+          ? ["--expected-version"]
+          : ["--expected-version", value];
+      expect(() =>
+        parseReviewV2ExpectedEmergencyVersion(parseArguments(args)),
+      ).toThrow("review_v2_option_invalid:expected-version");
+    }
+  });
+
+  it("refuses a newer operator stop without calling its mutation port", async () => {
+    const f = globalEmergencyFixture(2);
+    await expect(
+      updateGlobalEmergencyControl(
+        f.runtime,
+        { stopped: false, reason: "open" },
+        1,
+      ),
+    ).rejects.toThrow("review_v2_global_emergency_control_version_conflict");
+    expect(f.write).not.toHaveBeenCalled();
+    expect(f.current()).toMatchObject({ version: 2, stopped: true });
+  });
+
+  it("retains the supplied version through the write when an operator races the read", async () => {
+    const f = globalEmergencyFixture(1, true);
+    await expect(
+      updateGlobalEmergencyControl(
+        f.runtime,
+        { stopped: false, reason: "open" },
+        1,
+      ),
+    ).rejects.toThrow("review_v2_global_emergency_control_version_conflict");
+    expect(f.write).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedVersion: 1, stopped: false }),
+    );
+    expect(f.current()).toMatchObject({
+      version: 2,
+      stopped: true,
+      updatedBy: "concurrent-operator",
+    });
+  });
+
+  it("keeps the existing current-version behavior when no expected version is supplied", async () => {
+    const f = globalEmergencyFixture(4);
+    const result = await updateGlobalEmergencyControl(f.runtime, {
+      stopped: false,
+      reason: "open",
+    });
+    expect(result.status).toBe(ReviewSafetyControlWriteStatus.Updated);
+    expect(f.write).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedVersion: 4 }),
+    );
+    expect(f.current()).toMatchObject({ version: 5, stopped: false });
+  });
+
   it("maps only explicit repository emergency transitions", () => {
     expect(
       reviewV2RepositoryEmergencyTransitionForCommand(
@@ -371,8 +687,69 @@ describe("review action v2 operator CLI", () => {
   });
 });
 
+function globalEmergencyFixture(version: number, changeBeforeWrite = false) {
+  let current: ReviewSafetyEmergencyControl = {
+    emergencyControlId: "global-review-v2",
+    scope: { scope: ReviewSafetyPolicyScope.Global },
+    version,
+    stopped: true,
+    reason: "operator-stop",
+    updatedBy: "existing-operator",
+    updatedAt: new Date("2026-11-07T00:00:00Z"),
+  };
+  type WriteInput = Parameters<
+    Parameters<
+      typeof updateGlobalEmergencyControl
+    >[0]["runControl"]["safetyControls"]["setReviewSafetyEmergencyStop"]
+  >[0];
+  const write = vi.fn(async (input: WriteInput) => {
+    if (changeBeforeWrite) {
+      current = {
+        ...current,
+        version: current.version + 1,
+        stopped: true,
+        updatedBy: "concurrent-operator",
+      };
+    }
+    if (input.expectedVersion !== current.version) {
+      return { status: ReviewSafetyControlWriteStatus.Conflict };
+    }
+    current = {
+      ...current,
+      version: current.version + 1,
+      stopped: input.stopped,
+      reason: input.reason,
+      updatedBy: input.updatedBy,
+    };
+    return { status: ReviewSafetyControlWriteStatus.Updated, control: current };
+  });
+  return {
+    current: () => current,
+    write,
+    runtime: {
+      repositories: {
+        safetyControls: {
+          findReviewSafetyEmergencyControl: async () => ({ ...current }),
+        },
+      },
+      runControl: { safetyControls: { setReviewSafetyEmergencyStop: write } },
+    },
+  };
+}
+
 function releaseCandidate(): Record<string, unknown> {
   return {
+    agentProfiles: [
+      {
+        profileRef: "codex-default",
+        agentKind: "codex",
+        binarySha256: "a".repeat(64),
+        packageVersion: "0.147.0",
+        modelTransports: ["account_gateway", "provider_api"],
+        contextGateway: true,
+        cancellation: true,
+      },
+    ],
     producerReleaseId: "review-action-v2-release",
     distributionKind: "public_reusable",
     actionCommitSha: "1".repeat(40),

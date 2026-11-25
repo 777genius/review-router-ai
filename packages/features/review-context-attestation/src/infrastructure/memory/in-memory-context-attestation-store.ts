@@ -2,6 +2,7 @@ import {
   ContextAttestationPersistenceStatus,
   type ContextAttestationPersistenceResult,
   type ContextAttestationStorePort,
+  type GatewaySessionOpeningLimits,
 } from "../../application/ports/context-attestation-ports";
 import type { AcceptedDependencyAttestation } from "../../domain/accepted-dependency-attestation";
 import {
@@ -35,13 +36,14 @@ export class InMemoryContextAttestationStore implements ContextAttestationStoreP
 
   async openSession(
     session: GatewaySession,
+    openingLimits?: GatewaySessionOpeningLimits,
   ): Promise<ContextAttestationPersistenceResult<GatewaySession>> {
     const openingKey = sessionOpeningKey(session);
     const existingId = this.sessionIdsByOpening.get(openingKey);
     if (existingId) {
       const existing = this.sessions.get(existingId);
       if (!existing) throw new Error("gateway_session_index_corrupt");
-      return sameOpening(existing, session)
+      return sameOpening(existing, session, openingLimits)
         ? persisted(ContextAttestationPersistenceStatus.Idempotent, existing)
         : conflict();
     }
@@ -190,7 +192,11 @@ export class InMemoryContextAttestationStore implements ContextAttestationStoreP
   }
 }
 
-function sameOpening(left: GatewaySession, right: GatewaySession): boolean {
+function sameOpening(
+  left: GatewaySession,
+  right: GatewaySession,
+  openingLimits?: GatewaySessionOpeningLimits,
+): boolean {
   return (
     JSON.stringify([
       left.scope,
@@ -232,7 +238,12 @@ function sameOpening(left: GatewaySession, right: GatewaySession): boolean {
       right.selectedProtocolVersion,
       right.confinementProofHash,
       right.eventChainSeedHash,
-      right.expiresAtMs - right.openedAtMs,
+      openingLimits
+        ? Math.min(
+            openingLimits.sessionLifetimeMs,
+            openingLimits.expiresAtLimitMs - left.openedAtMs,
+          )
+        : right.expiresAtMs - right.openedAtMs,
     ])
   );
 }

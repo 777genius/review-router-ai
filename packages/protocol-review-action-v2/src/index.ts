@@ -2,3 +2,14 @@
 export * from "./generated/review-action-v2-negotiation.js";
 export * from "./generated/review-action-v2.js";
 export * from "./generated/provider-invocation-manifest-v1.js";
+export {
+  normalizePrDescriptionInvocationManifestV1,
+  canonicalizePrDescriptionInvocationManifestV1,
+  serializePrDescriptionInvocationManifestV1CanonicalWireJson,
+  prDescriptionInvocationManifestV1CanonicalizerDescriptor,
+  prDescriptionExtensionV1,
+} from "./generated/pr-description-invocation-manifest-v1.js";
+export * from "./generated/usage-v1.js";
+export * from "./generated/review-reviewer-plan.js";
+export * as reviewActionV2LegacySlot from "./generated/review-action-v2-legacy.js";
+export * from "./schema-slots.js";

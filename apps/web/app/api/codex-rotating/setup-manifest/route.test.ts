@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../../../src/server/prisma", () => ({
   getPrisma: () => ({ transaction: "route-test" }),
 }));
-vi.mock("../../../../src/server/codex-rotating-setup-manifest", () => ({
+vi.mock("@reviewrouter/features-provider-setup/composition", () => ({
   resolveCodexRotatingSetupManifestForNonce:
     mocks.resolveCodexRotatingSetupManifestForNonce,
 }));
@@ -24,7 +24,7 @@ const manifest = buildCodexRotatingSetupManifest({
   repositoryFullName: "owner/repository",
   repositoryId: "123456",
   repositoryIdentityVersion: 1,
-  installerUrl: "https://reviewrouter.site/install/codex-rotating",
+  installerUrl: "https://reviewrouter.org/install/codex-rotating",
   installerVersion: "route-test",
   installerSha256: "a".repeat(64),
   setupNonce: "setup:route-test",
@@ -54,7 +54,7 @@ describe("Codex rotating setup manifest route", () => {
   it("routes the strict v2 manifest without a setup-time secret name", async () => {
     const response = await GET(
       new Request(
-        "https://reviewrouter.site/api/codex-rotating/setup-manifest?nonce=setup%3Aroute-test",
+        "https://reviewrouter.org/api/codex-rotating/setup-manifest?nonce=setup%3Aroute-test",
       ),
     );
     const body = await response.json();

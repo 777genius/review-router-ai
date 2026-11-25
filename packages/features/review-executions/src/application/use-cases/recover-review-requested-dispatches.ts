@@ -9,6 +9,7 @@ import {
 import {
   ReviewRequestedIntentState,
   ReviewRequestedIntentTerminalReason,
+  reviewRequestedQueuedRunWaitExtension,
   type ReviewRequestedIntent,
 } from "../../domain/review-requested-intent";
 import {
@@ -27,6 +28,16 @@ export type RecoverReviewRequestedDispatchesResult = Readonly<{
 }>;
 
 type CandidateResolution = "pending" | "recovered" | "failed";
+
+/**
+ * Resolution passes before the deadline in which a queued run may get one more
+ * window. Several, so the check lands before the last minute: a runner that
+ * arrives after it still finds a whole window, and one that arrived before it
+ * still has time for admission (`reviewRequestedAdmissionHandoffMinimumMs`).
+ * Never more than a quarter window, so a long pass interval cannot turn the
+ * check into an extension right after dispatch.
+ */
+const queuedRunExtensionPasses = 4;
 
 export class RecoverReviewRequestedDispatches {
   private readonly policy: ReviewRequestedDispatchPolicy;
@@ -178,7 +189,12 @@ export class RecoverReviewRequestedDispatches {
       });
       return transitionApplied(recovered.status) ? "recovered" : "failed";
     }
-    if (runStatus === ReviewRequestedDispatchRunStatus.TerminalStaleRevision) {
+    if (
+      runStatus === ReviewRequestedDispatchRunStatus.TerminalStaleRevision ||
+      runStatus === ReviewRequestedDispatchRunStatus.TerminalNotRetryable
+    ) {
+      // Stop this request without a successor. A newer revision arrives through
+      // ingress; an operator cancellation must not be undone by a redispatch.
       const recovered = await this.commands.recoverDispatch({
         requestId: intent.requestId,
         expectedVersion: intent.version,
@@ -195,6 +211,12 @@ export class RecoverReviewRequestedDispatches {
         successorCandidate: null,
       });
       return transitionApplied(recovered.status) ? "recovered" : "failed";
+    }
+    if (
+      runStatus === ReviewRequestedDispatchRunStatus.Pending &&
+      (await this.extendWhileWaitingForRunner(intent, now, deadline))
+    ) {
+      return "pending";
     }
     if (now < deadline) {
       return this.defer(intent, now, deadline);
@@ -224,6 +246,49 @@ export class RecoverReviewRequestedDispatches {
       // the run may have completed concurrently or SCM may be unavailable.
     }
     return "recovered";
+  }
+
+  /**
+   * Plan 88: a run that GitHub has not given a runner keeps its place in the
+   * GitHub queue. In the last passes before its deadline the request gets one
+   * more authorization window, but only when GitHub states that every job is
+   * still queued without a runner and the pull request still shows the
+   * revision. A passed deadline is never reopened, and any doubt stops the
+   * request at its deadline as before.
+   */
+  private async extendWhileWaitingForRunner(
+    intent: ReviewRequestedIntent,
+    now: Date,
+    deadline: Date,
+  ): Promise<boolean> {
+    if (
+      reviewRequestedQueuedRunWaitExtension(
+        intent,
+        this.policy.authorizationResolutionTimeoutMs,
+      ) === null ||
+      now >= deadline ||
+      deadline.getTime() - now.getTime() >
+        Math.min(
+          queuedRunExtensionPasses * this.policy.authorizationResolutionDelayMs,
+          this.policy.authorizationResolutionTimeoutMs / 4,
+        )
+    ) {
+      return false;
+    }
+    const runner = await this.gateway
+      .inspectRunnerWait({ intent })
+      .catch(() => null);
+    if (!runner?.waitingForRunner || !runner.revisionCurrent) return false;
+    const extended = await this.commands.extendQueuedRunWait({
+      requestId: intent.requestId,
+      expectedVersion: intent.version,
+      now,
+      windowMs: this.policy.authorizationResolutionTimeoutMs,
+      nextResolutionAt: new Date(
+        now.getTime() + this.policy.authorizationResolutionDelayMs,
+      ),
+    });
+    return transitionApplied(extended.status);
   }
 
   private async defer(

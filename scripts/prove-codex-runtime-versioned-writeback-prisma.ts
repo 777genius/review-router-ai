@@ -1,3 +1,4 @@
+import { managedCodexWorkflowPath } from "../packages/shared/src/scm/review-workflow";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
@@ -19,9 +20,12 @@ import { PrismaCodexRotatingOAuthRepository } from "../packages/features/action-
 import {
   issueCodexRotatingSetupCommand,
   resolveCodexRotatingSetupManifestForNonce,
-} from "../apps/web/src/server/codex-rotating-setup-manifest";
-import { PrismaCodexRotatingSetupRecovery } from "../apps/web/src/server/prisma-codex-rotating-setup-recovery";
-import { PrismaCodexRotatingSetupPayloadClaim } from "../apps/web/src/server/prisma-codex-rotating-setup-payload-claim";
+} from "../packages/features/provider-setup/src/composition/index";
+import { PrismaCodexRotatingSetupRecovery } from "../packages/features/provider-setup/src/composition/index";
+import {
+  PrismaCodexRotatingSetupPayloadClaim,
+  PrismaCodexRotatingWorkflowAttestation,
+} from "../packages/features/provider-setup/src/composition/index";
 
 const providerAdminDatabaseUrl = requiredUrl(
   "REVIEW_ROUTER_PRISMA_EVIDENCE_PROVIDER_ADMIN_DATABASE_URL",
@@ -69,7 +73,7 @@ const attestationFor = (
 ) =>
   createVersionedSecretWorkflowSourceAttestation({
     repositoryId: "900007",
-    workflowPath: ".github/workflows/reviewrouter-codex.yml",
+    workflowPath: managedCodexWorkflowPath,
     workflowSourceCommitSha: marker.repeat(40),
     workflowSourceBlobSha: marker.repeat(40),
     workflowSourceSha256: marker.repeat(64),
@@ -256,6 +260,7 @@ try {
   await adminPrisma.repositoryConnection.update({
     where: { id: "repo-7" },
     data: { installationId: "runtime-proof-installation" },
+    select: { id: true },
   });
   await adminPrisma.scmRepositoryIdentity.update({
     where: { scmRepositoryIdentityId: "scm-identity-proof" },
@@ -398,7 +403,7 @@ try {
     namespaceId: initialDispatch.namespaceId,
     namespaceEpoch: initialDispatch.namespaceEpoch,
     secretName: initialDispatch.secretName,
-    workflowPath: ".github/workflows/reviewrouter-codex.yml",
+    workflowPath: managedCodexWorkflowPath,
     workflowSourceCommitSha: "1".repeat(40),
     workflowSourceBlobSha: "1".repeat(40),
     workflowSourceSha256: "1".repeat(64),
@@ -917,7 +922,7 @@ try {
     namespaceId: replacement.namespaceId,
     namespaceEpoch: replacement.namespaceEpoch,
     secretName: replacement.secretName,
-    workflowPath: ".github/workflows/reviewrouter-codex.yml",
+    workflowPath: managedCodexWorkflowPath,
     workflowSourceCommitSha: "4".repeat(40),
     workflowSourceBlobSha: "4".repeat(40),
     workflowSourceSha256: "4".repeat(64),
@@ -935,6 +940,10 @@ try {
   });
   verifiedWorkflowAttestation = attestationFor(recoveredNamespace, "4", 4);
   const reattestedWorkflow = attestationFor(recoveredNamespace, "5", 5);
+  const workflowAttestation = new PrismaCodexRotatingWorkflowAttestation(
+    webPrisma,
+    databaseRecoveryWitnessW2,
+  );
   await reattestCodexRotatingWorkflow(
     {
       claimId: prepared.claimId,
@@ -942,11 +951,11 @@ try {
       expectedGenerationHash: "h".repeat(43),
       repositoryId: "900007",
       repositoryFullName,
-      workflowPath: ".github/workflows/reviewrouter-codex.yml",
+      workflowPath: managedCodexWorkflowPath,
       namespace: recoveredNamespace,
     },
     {
-      currentWorkflowAttestation: setupLedger,
+      currentWorkflowAttestation: workflowAttestation,
       defaultWorkflowSource: {
         readDefaultSourceIdentity: async () => ({
           repositoryId: "900007",
@@ -959,7 +968,7 @@ try {
             ? verifiedWorkflowAttestation
             : reattestedWorkflow,
       },
-      workflowReattestation: setupLedger,
+      workflowReattestation: workflowAttestation,
     },
   );
   verifiedWorkflowAttestation = reattestedWorkflow;

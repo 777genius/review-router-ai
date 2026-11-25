@@ -1,9 +1,9 @@
+import type { ReviewExecutionInputAdmissionPort } from "./review-execution-input-admission-port";
 import { createHash } from "node:crypto";
 import {
   Prisma,
   ReviewInvocationLeaseStateV2 as PrismaLeaseState,
   type PrismaClient,
-  type ReviewExecutionV2 as ExecutionRecord,
   type ReviewInvocationLeaseV2 as LeaseRecord,
 } from "@prisma/client";
 import {
@@ -39,17 +39,13 @@ import type { InvocationFlightQueryPort } from "../../application/ports/invocati
 import {
   createEmptyReviewExecutionStream,
   reviewRevisionsEqual,
-  reviewExecutionAbsoluteMaxWorkSlots,
-  type FinalizedReviewProjectionArtifact,
   type ReviewExecution,
-  type ReviewExecutionObservationRef,
   type ReviewExecutionScope,
   type ReviewExecutionSnapshot,
   type ReviewExecutionStream,
   type ReviewInvocationLease,
   ReviewInvocationLeasePurpose,
   ReviewExecutionState,
-  type ReviewWorkSlot,
 } from "../../domain/review-execution";
 import {
   ExecutionAdmissionDecisionStatus,
@@ -88,20 +84,33 @@ import {
   type InvocationFlight,
 } from "../../domain/invocation-flight";
 import {
+  artifactCreateData,
   artifactFromRecord,
-  attachmentKindToPrisma,
-  coverageStateToPrisma,
-  executionStateToPrisma,
-  executionToDomain,
+  executionCreateData,
+  executionUpdateData,
+  finalizedOutboxData,
+  finalizedOutboxIdentity,
+  leaseCreateData,
+  observationRefCreateData,
+  scopeWhere,
+  workSlotUpdateData,
   leasePurposeToPrisma,
   leaseStateToPrisma,
   leaseToDomain,
-  observationRefToDomain,
   providerKindToPrisma,
   streamToDomain,
   taskKindToPrisma,
-  workSlotStateToPrisma,
 } from "./prisma-review-execution-mappers";
+import {
+  loadSnapshot,
+  loadExecution,
+  loadActiveLeases,
+  loadLease,
+  loadAttachmentTarget,
+  sameScope,
+  requiredSnapshot,
+  type AttachmentTarget,
+} from "./prisma-review-execution-snapshot";
 import {
   databaseRelativeDate,
   isTransactionConflictError,
@@ -142,10 +151,38 @@ export class PrismaReviewExecutionStore
         snapshot.stream.activeExecutionId === snapshot.execution.executionId,
     );
   }
+  /** Candidates only; exact source terminality and authority are rechecked before mutation. */
+  async listRevokedRunning(input: {
+    readonly before: Date;
+    readonly after: string;
+    readonly limit: number;
+  }) {
+    assertLimit(input.limit);
+    const records = await this.prisma.$queryRaw<{ executionId: string }[]>`
+      SELECT e."executionId" FROM "ReviewExecutionV2" e
+      JOIN "ReviewRunAuthorization" a ON a."authorizationId"=e."authorizationId"
+      JOIN "ReviewExecutionStreamV2" s ON s."activeExecutionId"=e."executionId"
+      JOIN "ReviewRequestedIntent" i ON i."executionId"=e."executionId"
+        AND i."authorizationId"=e."authorizationId" AND i."sourceRunId"=e."sourceRunId"
+        AND i."sourceRunAttempt"=e."sourceRunAttempt"
+      WHERE e.state='running' AND a.state IN ('revoked','expired')
+        AND e."updatedAt"<=${input.before} AND e."executionId">${input.after}
+      ORDER BY e."executionId" LIMIT ${input.limit}`;
+    const snapshots = await Promise.all(
+      records.map((record) => this.findExecution(record.executionId)),
+    );
+    return snapshots.filter(
+      (snapshot): snapshot is ReviewExecutionSnapshot =>
+        snapshot !== null &&
+        snapshot.stream.activeExecutionId === snapshot.execution.executionId,
+    );
+  }
   constructor(
     private readonly prisma: PrismaClient,
     private readonly options: Readonly<{
       progressCapture?: ReviewExecutionProgressCapturePort;
+      historyCapture?: ReviewExecutionProgressCapturePort;
+      inputAdmission?: ReviewExecutionInputAdmissionPort;
     }> = {},
   ) {}
 
@@ -153,6 +190,7 @@ export class PrismaReviewExecutionStore
     transaction: Transaction,
     execution: ReviewExecution,
   ): Promise<void> {
+    await this.options.historyCapture?.(transaction, execution);
     await this.options.progressCapture?.(transaction, execution);
   }
 
@@ -625,6 +663,7 @@ export class PrismaReviewExecutionStore
       try {
         return await this.prisma.$transaction(
           async (transaction) => {
+            await this.options.inputAdmission?.lock(transaction, command);
             await lockScopes(transaction, [command.scope]);
             const executionIdentity =
               await transaction.reviewExecutionV2.findUnique({
@@ -683,7 +722,20 @@ export class PrismaReviewExecutionStore
             if (snapshot === null) {
               return { status: ReviewInvocationLeaseAcquireStatus.Missing };
             }
-            const now = await databaseNow(transaction);
+            let now = await databaseNow(transaction);
+            if (
+              this.options.inputAdmission &&
+              !(await this.options.inputAdmission.admit(transaction, {
+                command,
+                execution: snapshot.execution,
+                now,
+              }))
+            ) {
+              return { status: ReviewInvocationLeaseAcquireStatus.InputStale };
+            }
+            // Input admission may wait on current-authority locks. All deadline and
+            // lease-duration decisions use the database clock after those waits.
+            now = await databaseNow(transaction);
             let decision = await decideLeaseAcquireForSnapshot(
               transaction,
               snapshot,
@@ -756,7 +808,7 @@ export class PrismaReviewExecutionStore
                     expiry.lease,
                     incumbentExecution,
                     expiry.execution,
-                    this.options.progressCapture,
+                    (tx, execution) => this.captureProgress(tx, execution),
                   );
                   snapshot = await loadSnapshot(
                     transaction,
@@ -822,6 +874,13 @@ export class PrismaReviewExecutionStore
           command.purpose === ReviewInvocationLeasePurpose.ProviderExecution &&
           isLegacyProviderVoteLaneUniqueConstraintError(error)
         ) {
+          // The 000079 bridge has no expiresAt filter, so a crashed run's
+          // stale lease must be expired here or it busy-polls the whole lane.
+          const laneClear =
+            await this.reclaimStaleProviderVoteLaneIncumbent(command);
+          if (laneClear && attempt < acquireTransactionRetryLimit) {
+            continue;
+          }
           return { status: ReviewInvocationLeaseAcquireStatus.Busy };
         }
         if (isUniqueConstraintError(error)) {
@@ -1177,6 +1236,27 @@ export class PrismaReviewExecutionStore
     );
   }
 
+  async failObservedTerminalRunningExecution(
+    command: FailExpiredRunningExecutionCommand & {
+      readonly sourceRunId: string;
+      readonly sourceRunAttempt: string;
+      readonly authorizationId: string;
+    },
+  ) {
+    return this.transitionExecutionLifecycle(
+      command,
+      (snapshot, now) =>
+        decideExpiredRunningExecutionFailure({
+          stream: snapshot.stream,
+          execution: snapshot.execution,
+          activeLeases: snapshot.activeLeases,
+          now,
+          sourceTerminal: true,
+        }),
+      command,
+    );
+  }
+
   async pruneRetainedHistory(input: { readonly limit: number }) {
     assertLimit(input.limit);
     return this.prisma.$transaction(
@@ -1310,7 +1390,7 @@ export class PrismaReviewExecutionStore
             decision.lease,
             execution,
             decision.execution,
-            this.options.progressCapture,
+            (tx, execution) => this.captureProgress(tx, execution),
           );
           if (decision.status === LeaseTransitionDecisionStatus.Expired) {
             return { status: ReviewInvocationLeaseTransitionStatus.Expired };
@@ -1414,6 +1494,11 @@ export class PrismaReviewExecutionStore
       snapshot: ReviewExecutionSnapshot,
       now: Date,
     ) => ReturnType<typeof decideAbandonedPreparationFailure>,
+    terminalProof?: {
+      readonly sourceRunId: string;
+      readonly sourceRunAttempt: string;
+      readonly authorizationId: string;
+    },
   ) {
     try {
       return await this.prisma.$transaction(
@@ -1426,6 +1511,32 @@ export class PrismaReviewExecutionStore
             return {
               status: ReviewExecutionLifecycleTransitionStatus.Missing,
             };
+          }
+          if (terminalProof) {
+            const e = snapshot.execution;
+            if (
+              e.authorizationId !== terminalProof.authorizationId ||
+              e.sourceRunId !== terminalProof.sourceRunId ||
+              e.sourceRunAttempt !== terminalProof.sourceRunAttempt
+            )
+              return {
+                status: ReviewExecutionLifecycleTransitionStatus.NotEligible,
+              };
+            const authority = await transaction.$queryRaw<{ state: string }[]>`
+              SELECT a.state::text AS state FROM "ReviewRunAuthorization" a
+              JOIN "ReviewRequestedIntent" i ON i."authorizationId"=a."authorizationId"
+              WHERE a."authorizationId"=${terminalProof.authorizationId} AND a.state IN ('revoked','expired')
+                AND a."workspaceId"=${e.workspaceId} AND a."repositoryConnectionId"=${e.repositoryConnectionId}
+                AND a."scmRepositoryIdentityId"=${e.scmRepositoryIdentityId} AND a."pullRequestNumber"=${e.pullRequestNumber}
+                AND a."sourceRunId"=${terminalProof.sourceRunId} AND a."sourceRunAttempt"=${terminalProof.sourceRunAttempt}
+                AND i."workspaceId"=${e.workspaceId} AND i."repositoryConnectionId"=${e.repositoryConnectionId}
+                AND i."scmRepositoryIdentityId"=${e.scmRepositoryIdentityId} AND i."pullRequestNumber"=${e.pullRequestNumber}
+                AND i."executionId"=${command.executionId} AND i."sourceRunId"=${terminalProof.sourceRunId}
+                AND i."sourceRunAttempt"=${terminalProof.sourceRunAttempt} FOR SHARE OF a,i`;
+            if (authority.length !== 1)
+              return {
+                status: ReviewExecutionLifecycleTransitionStatus.NotEligible,
+              };
           }
           const decision = decide(snapshot, await databaseNow(transaction));
           if (decision.status === ExecutionLifecycleDecisionStatus.Restored) {
@@ -1544,6 +1655,70 @@ export class PrismaReviewExecutionStore
     return { status: ReviewExecutionAdmissionStatus.ConcurrencyConflict };
   }
 
+  // Mirrors the 000079 bridge trigger's account-wide lane scope: report a
+  // live incumbent busy, expire incumbents already past expiresAt.
+  private async reclaimStaleProviderVoteLaneIncumbent(
+    command: AcquireReviewInvocationLeaseCommand,
+  ): Promise<boolean> {
+    try {
+      return await this.prisma.$transaction(
+        async (transaction) => {
+          const now = await databaseNow(transaction);
+          const incumbentRecords =
+            await transaction.reviewInvocationLeaseV2.findMany({
+              where: {
+                providerVoteIdentityHash: command.providerVoteIdentityHash,
+                purpose: leasePurposeToPrisma(
+                  ReviewInvocationLeasePurpose.ProviderExecution,
+                ),
+                state: PrismaLeaseState.active,
+              },
+              orderBy: { leaseId: "asc" },
+            });
+          if (
+            incumbentRecords.some(
+              (record) => leaseToDomain(record).expiresAt > now,
+            )
+          ) {
+            return false;
+          }
+          for (const incumbentRecord of incumbentRecords) {
+            const incumbent = leaseToDomain(incumbentRecord);
+            const incumbentExecutionRecord =
+              await transaction.reviewExecutionV2.findUnique({
+                where: { executionId: incumbent.executionId },
+              });
+            const incumbentExecution = incumbentExecutionRecord
+              ? await loadExecution(transaction, incumbentExecutionRecord)
+              : null;
+            const expiry = decideLeaseExpiry({
+              lease: incumbent,
+              execution: incumbentExecution,
+              now,
+            });
+            await persistLeaseTransition(
+              transaction,
+              incumbent,
+              expiry.lease,
+              incumbentExecution,
+              expiry.execution,
+              (tx, execution) => this.captureProgress(tx, execution),
+            );
+          }
+          return true;
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (error) {
+      if (isSerializationError(error)) {
+        // A concurrent renew or reclaim won the race; the caller retries and
+        // re-observes the lane.
+        return true;
+      }
+      throw error;
+    }
+  }
+
   private async resolveLeaseAcquireRace(
     command: AcquireReviewInvocationLeaseCommand,
   ): Promise<ReviewInvocationLeaseAcquireResult> {
@@ -1575,6 +1750,9 @@ export class PrismaReviewExecutionStore
           select: { leaseId: true },
         });
         if (incumbent !== null) {
+          // Expire a stale incumbent so the lane unblocks on the next attempt;
+          // never reinterpret that incumbent as joinable.
+          await this.reclaimStaleProviderVoteLaneIncumbent(command);
           return { status: ReviewInvocationLeaseAcquireStatus.Busy };
         }
       }
@@ -1667,139 +1845,6 @@ export class PrismaReviewExecutionStore
   }
 }
 
-type AttachmentTarget = {
-  readonly stream: ReviewExecutionStream;
-  readonly execution: ReviewExecution;
-  readonly slot: ReviewWorkSlot;
-  readonly existingRefForSlot: ReviewExecutionObservationRef | null;
-  readonly existingRefByIdentity: ReviewExecutionObservationRef | null;
-};
-
-async function loadSnapshot(
-  transaction: Transaction,
-  executionId: string,
-): Promise<ReviewExecutionSnapshot | null> {
-  const record = await transaction.reviewExecutionV2.findUnique({
-    where: { executionId },
-  });
-  if (record === null) return null;
-  const execution = await loadExecution(transaction, record);
-  const streamRecord = await transaction.reviewExecutionStreamV2.findFirst({
-    where: scopeWhere(record),
-  });
-  const refs = await transaction.reviewExecutionObservationRefV2.findMany({
-    where: { executionId },
-    orderBy: { workSlotId: "asc" },
-    take: reviewExecutionAbsoluteMaxWorkSlots + 1,
-  });
-  const leases = await transaction.reviewInvocationLeaseV2.findMany({
-    where: {
-      executionId,
-      state: PrismaLeaseState.active,
-    },
-    orderBy: { leaseId: "asc" },
-    take: reviewExecutionAbsoluteMaxWorkSlots + 1,
-  });
-  const artifactRecord =
-    await transaction.finalizedReviewProjectionArtifactV2.findUnique({
-      where: { executionId },
-    });
-  if (streamRecord === null) {
-    throw new Error("review_execution_stream_missing");
-  }
-  assertBoundedAggregateCollection(refs, "observation_refs");
-  assertBoundedAggregateCollection(leases, "active_leases");
-  return {
-    stream: streamToDomain(streamRecord),
-    execution,
-    observationRefs: Object.freeze(refs.map(observationRefToDomain)),
-    activeLeases: Object.freeze(leases.map(leaseToDomain)),
-    artifact:
-      artifactRecord === null
-        ? null
-        : artifactFromRecord(artifactRecord, execution),
-  };
-}
-
-async function loadExecution(
-  transaction: Transaction,
-  record: ExecutionRecord,
-): Promise<ReviewExecution> {
-  const workSlots = await transaction.reviewExecutionWorkSlotV2.findMany({
-    where: { executionId: record.executionId },
-    orderBy: { planOrdinal: "asc" },
-    take: reviewExecutionAbsoluteMaxWorkSlots + 1,
-  });
-  assertBoundedAggregateCollection(workSlots, "work_slots");
-  return executionToDomain(record, workSlots);
-}
-
-async function loadActiveLeases(
-  transaction: Transaction,
-  executionId: string,
-): Promise<readonly ReviewInvocationLease[]> {
-  const records = await transaction.reviewInvocationLeaseV2.findMany({
-    where: { executionId, state: PrismaLeaseState.active },
-    orderBy: { leaseId: "asc" },
-    take: reviewExecutionAbsoluteMaxWorkSlots + 1,
-  });
-  assertBoundedAggregateCollection(records, "active_leases");
-  return records.map(leaseToDomain);
-}
-
-async function loadLease(
-  transaction: Transaction,
-  leaseId: string,
-): Promise<ReviewInvocationLease | null> {
-  const record = await transaction.reviewInvocationLeaseV2.findUnique({
-    where: { leaseId },
-  });
-  return record === null ? null : leaseToDomain(record);
-}
-
-async function loadAttachmentTarget(
-  transaction: Transaction,
-  command: {
-    readonly scope: ReviewExecutionScope;
-    readonly executionId: string;
-    readonly workSlotId: string;
-    readonly observationRefId: string;
-  },
-): Promise<AttachmentTarget | null> {
-  const snapshot = await loadSnapshot(transaction, command.executionId);
-  if (snapshot === null || !sameScope(snapshot.execution, command.scope)) {
-    return null;
-  }
-  const slot = snapshot.execution.workSlots.find(
-    (entry) => entry.workSlotId === command.workSlotId,
-  );
-  if (slot === undefined) return null;
-  const existingRefForSlot =
-    await transaction.reviewExecutionObservationRefV2.findFirst({
-      where: {
-        executionId: command.executionId,
-        workSlotId: command.workSlotId,
-      },
-    });
-  const existingRefByIdentity =
-    await transaction.reviewExecutionObservationRefV2.findUnique({
-      where: { observationRefId: command.observationRefId },
-    });
-  return {
-    stream: snapshot.stream,
-    execution: snapshot.execution,
-    slot,
-    existingRefForSlot:
-      existingRefForSlot === null
-        ? null
-        : observationRefToDomain(existingRefForSlot),
-    existingRefByIdentity:
-      existingRefByIdentity === null
-        ? null
-        : observationRefToDomain(existingRefByIdentity),
-  };
-}
-
 async function persistObservationDecision(
   transaction: Transaction,
   target: AttachmentTarget,
@@ -1882,13 +1927,13 @@ async function persistExecutionUpdate(
 ): Promise<void> {
   const result = await transaction.reviewExecutionV2.updateMany({
     where: { executionId: current.executionId, version: current.version },
-    data: executionMutableData(next),
+    data: executionUpdateData(next),
   });
   if (result.count !== 1) throw new ConcurrentExecutionMutationError();
   for (const slot of next.workSlots) {
     const updated = await transaction.reviewExecutionWorkSlotV2.updateMany({
       where: { executionId: next.executionId, workSlotId: slot.workSlotId },
-      data: workSlotMutableData(slot),
+      data: workSlotUpdateData(slot),
     });
     if (updated.count !== 1) {
       throw new Error("review_execution_work_slot_missing");
@@ -1915,7 +1960,7 @@ async function createExecution(
       required: slot.required,
       attemptBudget: slot.attemptBudget,
       retryPolicyVersion: slot.retryPolicyVersion,
-      ...workSlotMutableData(slot),
+      ...workSlotUpdateData(slot),
     })),
   });
 }
@@ -2030,192 +2075,6 @@ async function requiredStreamRecord(
   return record;
 }
 
-function executionCreateData(execution: ReviewExecution) {
-  return {
-    executionId: execution.executionId,
-    ...scopeWhere(execution),
-    generation: execution.generation,
-    version: execution.version,
-    baseSha: execution.revision.baseSha,
-    mergeBaseSha: execution.revision.mergeBaseSha,
-    headSha: execution.revision.headSha,
-    reviewRevisionHash: execution.revision.reviewRevisionHash,
-    compatibilityKey: execution.compatibilityKey,
-    planHash: execution.planHash,
-    assignmentManifestVersion: execution.assignmentManifestVersion ?? null,
-    assignmentManifestHash: execution.assignmentManifestHash ?? null,
-    assignmentManifestJson:
-      execution.assignmentManifestCanonicalJson === null ||
-      execution.assignmentManifestCanonicalJson === undefined
-        ? Prisma.DbNull
-        : parseAssignmentManifestJson(
-            execution.assignmentManifestCanonicalJson,
-          ),
-    startIdentityHash: execution.startIdentityHash,
-    canonicalStartHash: execution.canonicalStartHash,
-    state: executionStateToPrisma(execution.state),
-    authorizationId: execution.authorizationId,
-    producerReleaseId: execution.producerReleaseId,
-    mutationEpoch: execution.mutationEpoch,
-    admissionSafetyDecisionHash: execution.admissionSafetyDecisionHash,
-    protocolLimitsProfileId: execution.protocolLimitsProfileId,
-    sourceRunId: execution.sourceRunId,
-    sourceRunAttempt: execution.sourceRunAttempt,
-    supersededByExecutionId: execution.supersededByExecutionId,
-    finalizedArtifactId: execution.finalizedArtifactId,
-    createdAt: execution.createdAt,
-    updatedAt: execution.updatedAt,
-    admissionDeadlineAt: execution.admissionDeadlineAt,
-    admissionCheckedAt: execution.admissionCheckedAt,
-    executionDeadlineAt: execution.executionDeadlineAt,
-    retainUntil: execution.retainUntil,
-  };
-}
-
-function parseAssignmentManifestJson(value: string): Prisma.InputJsonObject {
-  const parsed: unknown = JSON.parse(value);
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error("review_assignment_manifest_not_object");
-  }
-  return parsed as Prisma.InputJsonObject;
-}
-
-function executionMutableData(execution: ReviewExecution) {
-  return {
-    version: execution.version,
-    state: executionStateToPrisma(execution.state),
-    supersededByExecutionId: execution.supersededByExecutionId,
-    finalizedArtifactId: execution.finalizedArtifactId,
-    updatedAt: execution.updatedAt,
-    admissionCheckedAt: execution.admissionCheckedAt,
-  };
-}
-
-function workSlotMutableData(slot: ReviewWorkSlot) {
-  return {
-    state: workSlotStateToPrisma(slot.state),
-    nextAttemptOrdinal: slot.nextAttemptOrdinal,
-    activeLeaseId: slot.activeLeaseId,
-    acceptedObservationRefId: slot.acceptedObservationRefId,
-  };
-}
-
-function leaseCreateData(lease: ReviewInvocationLease) {
-  return {
-    leaseId: lease.leaseId,
-    ...scopeWhere(lease),
-    executionId: lease.executionId,
-    executionGeneration: lease.executionGeneration,
-    providerInvocationKey: lease.providerInvocationKey,
-    preparedManifestCanonicalJson: lease.preparedManifestCanonicalJson,
-    preparedManifestKey: lease.preparedManifestKey,
-    providerVoteIdentityHash: lease.providerVoteIdentityHash,
-    workSlotId: lease.workSlotId,
-    purpose: leasePurposeToPrisma(lease.purpose),
-    authorizationId: lease.authorizationId,
-    producerReleaseId: lease.producerReleaseId,
-    reviewRevisionHash: lease.reviewRevisionHash,
-    mutationEpoch: lease.mutationEpoch,
-    leaseSafetyDecisionHash: lease.leaseSafetyDecisionHash,
-    attemptId: lease.attemptId,
-    sourceObservationId: lease.sourceObservationId,
-    attemptOrdinal: lease.attemptOrdinal,
-    acquireRequestIdHash: lease.acquireRequestIdHash,
-    acquireRequestHash: lease.acquireRequestHash,
-    lastRenewRequestIdHash: lease.lastRenewRequestIdHash,
-    lastRenewRequestHash: lease.lastRenewRequestHash,
-    ownerIdHash: lease.ownerIdHash,
-    leaseCapabilityId: lease.leaseCapabilityId,
-    capabilitySigningKeyId: lease.capabilitySigningKeyId,
-    fencingToken: lease.fencingToken,
-    state: leaseStateToPrisma(lease.state),
-    acquiredAt: lease.acquiredAt,
-    renewedAt: lease.renewedAt,
-    expiresAt: lease.expiresAt,
-    resultReportUntil: lease.resultReportUntil,
-    retainUntil: lease.retainUntil,
-  };
-}
-
-function observationRefCreateData(ref: ReviewExecutionObservationRef) {
-  return {
-    observationRefId: ref.observationRefId,
-    executionId: ref.executionId,
-    workSlotId: ref.workSlotId,
-    providerInvocationKey: ref.providerInvocationKey,
-    observationId: ref.observationId,
-    providerVoteIdentityHash: ref.providerVoteIdentityHash,
-    attachmentKind: attachmentKindToPrisma(ref.attachmentKind),
-    eligibilityPolicyVersion: ref.eligibilityPolicyVersion,
-    reuseSafetyDecisionHash: ref.reuseSafetyDecisionHash,
-    sourceExecutionId: ref.sourceExecutionId,
-    sourceLeaseId: ref.sourceLeaseId,
-    sourceFencingToken: ref.sourceFencingToken,
-    payloadHash: ref.payloadHash,
-    byteCount: ref.byteCount,
-    findingCount: ref.findingCount,
-    attachedAt: ref.attachedAt,
-  };
-}
-
-function artifactCreateData(
-  artifact: FinalizedReviewProjectionArtifact,
-  artifactHash: string,
-) {
-  const projectionEnvelope = parseProjectionEnvelope(
-    artifact.projectionEnvelopeJson,
-  );
-  return {
-    artifactId: artifact.artifactId,
-    executionId: artifact.executionId,
-    artifactHash,
-    generation: artifact.generation,
-    reviewedHeadSha: artifact.reviewedHeadSha,
-    reviewRevisionHash: artifact.reviewRevisionHash,
-    coverageState: coverageStateToPrisma(artifact.coverageState),
-    projectionEnvelopeVersion: artifact.projectionEnvelopeVersion,
-    projectionEnvelope,
-    projectionEnvelopeCanonicalJson: artifact.projectionEnvelopeJson,
-    projectionHash: artifact.projectionHash,
-    byteCount: artifact.byteCount,
-    findingCount: artifact.findingCount,
-    lifecycleStateHash: artifact.lifecycleStateHash,
-    commandLedgerWatermark: artifact.commandLedgerWatermark,
-    projectionPolicyVersion: artifact.projectionPolicyVersion,
-    authorizationId: artifact.publicationPermit.authorizationId,
-    producerReleaseId: artifact.publicationPermit.producerReleaseId,
-    permitEpoch: artifact.publicationPermit.permitEpoch,
-    publicationSafetyDecisionHash:
-      artifact.publicationPermit.publicationSafetyDecisionHash,
-    publicationNotAfter: artifact.publicationPermit.publicationNotAfter,
-    createdAt: artifact.createdAt,
-    retainUntil: artifact.retainUntil,
-  };
-}
-
-function finalizedOutboxData(
-  artifact: FinalizedReviewProjectionArtifact,
-  artifactHash: string,
-): Prisma.OutboxEventUncheckedCreateInput {
-  return {
-    type: "review.execution.finalized",
-    version: 2,
-    idempotencyKey: finalizedOutboxIdentity(artifact.executionId),
-    workspaceId: artifact.publicationPermit.workspaceId,
-    repositoryId: artifact.publicationPermit.repositoryConnectionId,
-    aggregateId: artifact.executionId,
-    payload: {
-      executionId: artifact.executionId,
-      artifactId: artifact.artifactId,
-      artifactHash,
-      generation: artifact.generation.toString(),
-      reviewRevisionHash: artifact.reviewRevisionHash,
-      projectionHash: artifact.projectionHash,
-    },
-    occurredAt: artifact.createdAt,
-  };
-}
-
 async function assertFinalizedOutbox(
   transaction: Transaction,
   executionId: string,
@@ -2255,18 +2114,6 @@ function sameFinalizedOutboxPayload(
     value.artifactId === artifactId &&
     value.artifactHash === artifactHash
   );
-}
-
-function finalizedOutboxIdentity(executionId: string): string {
-  return `review-execution-finalized:v2:${executionId}`;
-}
-
-function parseProjectionEnvelope(value: string): Prisma.InputJsonObject {
-  const parsed: unknown = JSON.parse(value);
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error("review_execution_projection_envelope_not_object");
-  }
-  return parsed as Prisma.InputJsonObject;
 }
 
 function observationFacts(
@@ -2372,27 +2219,6 @@ function admissionVerdict(
     case ReviewExecutionAdmissionVerdict.Unavailable:
       return ExecutionAdmissionVerdict.Unavailable;
   }
-}
-
-function scopeWhere(scope: ReviewExecutionScope) {
-  return {
-    workspaceId: scope.workspaceId,
-    repositoryConnectionId: scope.repositoryConnectionId,
-    scmRepositoryIdentityId: scope.scmRepositoryIdentityId,
-    pullRequestNumber: scope.pullRequestNumber,
-  };
-}
-
-function sameScope(
-  left: ReviewExecutionScope,
-  right: ReviewExecutionScope,
-): boolean {
-  return (
-    left.workspaceId === right.workspaceId &&
-    left.repositoryConnectionId === right.repositoryConnectionId &&
-    left.scmRepositoryIdentityId === right.scmRepositoryIdentityId &&
-    left.pullRequestNumber === right.pullRequestNumber
-  );
 }
 
 async function lockScope(
@@ -2610,22 +2436,6 @@ function providerInvocationKeyTombstoneHash(value: string): string {
     .digest("hex");
 }
 
-function requiredSnapshot(
-  snapshot: ReviewExecutionSnapshot | null,
-): ReviewExecutionSnapshot {
-  if (snapshot === null) throw new Error("review_execution_snapshot_missing");
-  return snapshot;
-}
-
-function assertBoundedAggregateCollection(
-  records: readonly unknown[],
-  kind: string,
-): void {
-  if (records.length > reviewExecutionAbsoluteMaxWorkSlots) {
-    throw new Error(`review_execution_unbounded_${kind}`);
-  }
-}
-
 function assertLimit(limit: number): void {
   if (!Number.isSafeInteger(limit) || limit <= 0 || limit > 1_000) {
     throw new Error("review_execution_prune_limit_invalid");
@@ -2647,6 +2457,9 @@ function isLegacyProviderVoteLaneUniqueConstraintError(
   if (!isUniqueConstraintError(error)) return false;
   const legacyConstraint =
     "ReviewInvocationLeaseV2_one_active_provider_vote_lane";
+  // The bridge RAISE uses this stable message; driver adapters surface it as
+  // originalMessage without the constraint identity.
+  const legacyBridgeMessage = "mixed-version provider vote lane is busy";
   let metadata = "";
   try {
     metadata = JSON.stringify(error.meta) ?? "";
@@ -2655,7 +2468,9 @@ function isLegacyProviderVoteLaneUniqueConstraintError(
   }
   return (
     metadata.includes(legacyConstraint) ||
-    error.message.includes(legacyConstraint)
+    metadata.includes(legacyBridgeMessage) ||
+    error.message.includes(legacyConstraint) ||
+    error.message.includes(legacyBridgeMessage)
   );
 }
 

@@ -14,7 +14,7 @@ describe("resolveInstallCodexRedirect", () => {
   });
 
   it("sends browser requests to the human setup guide", () => {
-    const request = new Request("https://reviewrouter.site/install/codex", {
+    const request = new Request("https://reviewrouter.org/install/codex", {
       headers: {
         accept:
           "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -22,12 +22,12 @@ describe("resolveInstallCodexRedirect", () => {
     });
 
     expect(resolveInstallCodexRedirect(request)).toBe(
-      "https://reviewrouter.site/getting-started#codex-oauth-rotating",
+      "https://reviewrouter.org/getting-started#codex-oauth-rotating",
     );
   });
 
   it("keeps curl requests on the raw rotating seed script", () => {
-    const request = new Request("https://reviewrouter.site/install/codex", {
+    const request = new Request("https://reviewrouter.org/install/codex", {
       headers: { accept: "*/*" },
     });
 
@@ -37,7 +37,7 @@ describe("resolveInstallCodexRedirect", () => {
   });
 
   it("keeps requests without accept headers on the raw rotating seed script", () => {
-    const request = new Request("https://reviewrouter.site/install/codex");
+    const request = new Request("https://reviewrouter.org/install/codex");
 
     expect(resolveInstallCodexRedirect(request)).toBe(
       "https://raw.githubusercontent.com/777genius/review-router/0123456789abcdef0123456789abcdef01234567/scripts/seed-codex-rotating-auth.sh",

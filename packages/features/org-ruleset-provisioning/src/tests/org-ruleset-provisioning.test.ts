@@ -320,7 +320,7 @@ describe("org ruleset provisioning", () => {
       {
         provisioningId: queued.id,
         actionRef: "777genius/review-router@main",
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl: "https://api.reviewrouter.org",
         runtimeConfigMode: "oidc",
         attemptedAt: requestedAt,
       },
@@ -352,6 +352,28 @@ describe("org ruleset provisioning", () => {
     });
   });
 
+  it("refuses a static workflow without explicit policy before writing source", async () => {
+    const provisioning = new InMemoryOrgRulesetProvisioningRepository(target);
+    const queued = await provisioning.upsertRequested(
+      createRequest({ scope: "all_repositories" }),
+    );
+    const gateway = new StaticOrgRulesetSetupGateway({ ok: true });
+    await expect(
+      provisionOrgRulesetRequiredWorkflow(
+        {
+          provisioningId: queued.id,
+          actionRef: "777genius/review-router@main",
+          apiUrl: "https://api.reviewrouter.org",
+          runtimeConfigMode: "static",
+          attemptedAt: requestedAt,
+        },
+        { provisioning, setupGateway: gateway },
+      ),
+    ).rejects.toThrow("workflow_static_policy_required");
+    expect(gateway.rulesetWrites).toEqual([]);
+    expect(provisioning.record?.status).toBe("failed");
+  });
+
   it("keeps all-repositories worker payload from targeting the source repository", async () => {
     const provisioning = new InMemoryOrgRulesetProvisioningRepository(target);
     const queued = await provisioning.upsertRequested(
@@ -363,7 +385,7 @@ describe("org ruleset provisioning", () => {
       {
         provisioningId: queued.id,
         actionRef: "777genius/review-router@main",
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl: "https://api.reviewrouter.org",
         runtimeConfigMode: "oidc",
         attemptedAt: requestedAt,
       },

@@ -1,450 +1,509 @@
 import { describe, expect, it } from "vitest";
+import { parseReviewConfiguration } from "@reviewrouter/features-review-config";
+import { workspacePolicyFixture } from "../../../../packages/features/review-config/src/tests/current-policy-fixture";
 import {
-  parseReviewConfiguration,
-  safeDefaultReviewConfiguration,
-  type ReviewConfiguration,
-} from "@reviewrouter/features-review-config";
-import {
-  buildConfiguredProviderSetupByRepositoryId,
-  buildEffectiveProviderSetupStateByRepositoryId,
-  buildProviderSetupMismatchRepositoryIds,
-  repositoryHealthStatusWithProviderSetupReadiness,
+  getGatewaySetupAccounts,
+  getReadyGatewayAccounts,
+  isGatewayProviderSetupReady,
 } from "./dashboard-provider-setup-readiness";
+import type { AccountsPage, AccountsResult } from "./account-gateway-accounts";
 
-describe("dashboard provider setup readiness", () => {
-  it("does not treat legacy Codex setup as configured for rotating Codex", () => {
-    const configured = buildConfiguredProviderSetupByRepositoryId({
-      providerSetup: [
-        providerSetup({
-          authMode: "codex_subscription_oauth",
-          updatedAt: new Date("2026-01-01T00:00:00Z"),
-        }),
-      ],
-      repositories: [{ id: "repo_1" }],
-      repositoryConfigs: [],
-      activeConfig: safeDefaultReviewConfiguration,
-    });
-
-    expect(configured.has("repo_1")).toBe(false);
-  });
-
-  it("uses only configured setup rows that match the effective provider auth", () => {
-    const configuredAt = new Date("2026-01-02T00:00:00Z");
-    const configured = buildConfiguredProviderSetupByRepositoryId({
-      providerSetup: [
-        providerSetup({
-          authMode: "codex_subscription_oauth",
-          updatedAt: new Date("2026-01-01T00:00:00Z"),
-        }),
-        providerSetup({
-          authMode: "codex_subscription_oauth_rotating",
-          updatedAt: configuredAt,
-        }),
-      ],
-      repositories: [{ id: "repo_1" }],
-      repositoryConfigs: [],
-      activeConfig: safeDefaultReviewConfiguration,
-    });
-
-    expect(configured.get("repo_1")?.updatedAt).toEqual(configuredAt);
-  });
-
-  it("does not treat a repository as configured when any matching provider setup row is missing", () => {
-    const providerSetupRows = [
-      providerSetup({
-        providerKind: "openrouter",
-        authMode: "openrouter_api_key",
-        updatedAt: new Date("2026-01-02T00:00:00Z"),
-      }),
-      providerSetup({
-        providerKind: "claude",
-        authMode: "claude_code_oauth",
-        state: "missing",
-        updatedAt: new Date("2026-01-03T00:00:00Z"),
-      }),
-    ];
-    const activeConfig = multiProviderReviewConfig();
-    const effectiveProviderSetupStateByRepositoryId =
-      buildEffectiveProviderSetupStateByRepositoryId({
-        providerSetup: providerSetupRows,
-        repositories: [{ id: "repo_1" }],
-        repositoryConfigs: [],
-        activeConfig,
+describe("dashboard Gateway provider evidence", () => {
+  it("requires a fresh catalog on the selected dynamic binding and keeps fallback explicit", () => {
+    const profileId = "openrouter-openai-responses-apikey-v1";
+    const model = "openai/gpt-4.1";
+    const anchor = "openai/gpt-5.4-nano";
+    const config = (selected = model) =>
+      parseReviewConfiguration({
+        ...workspacePolicyFixture,
+        providers: [
+          {
+            kind: "codex",
+            authMode: "codex_account_gateway",
+            gatewayBindingId: "binding_1",
+            gatewayProfileRef: profileId,
+            model: selected,
+            reasoningEffort: "medium",
+            agenticContext: true,
+            fastMode: false,
+          },
+        ],
       });
-
+    const now = Date.now();
+    const catalog = {
+      status: "snapshot" as const,
+      source: "openrouter" as const,
+      models: [model],
+      fetchedAt: new Date(now - 1_000).toISOString(),
+      expiresAt: new Date(now + 60_000).toISOString(),
+    };
+    const accounts: AccountsResult<AccountsPage> = {
+      status: "ok",
+      value: {
+        accounts: [
+          {
+            connectionId: "connection_1",
+            label: "OpenRouter",
+            profileId,
+            profileLabel: "OpenRouter",
+            state: "active",
+            gatewayRevision: 2,
+            mirrorRevision: 2,
+            binding: {
+              id: "binding_1",
+              revision: 1,
+              state: "active",
+              fencePending: false,
+            },
+            modelCatalog: catalog,
+          },
+        ],
+        profiles: [
+          {
+            id: profileId,
+            label: "OpenRouter",
+            protocol: "openai-responses",
+            authKind: "api_key",
+            models: [anchor],
+          },
+        ],
+        nextCursor: null,
+      },
+    };
+    expect(isGatewayProviderSetupReady(config(), accounts)).toBe(true);
+    for (const invalid of [
+      { ...catalog, expiresAt: new Date(now - 1).toISOString() },
+      { ...catalog, fetchedAt: new Date(now + 60_000).toISOString() },
+      { ...catalog, fetchedAt: "invalid" },
+      { ...catalog, source: "codex" as const },
+      { ...catalog, models: [anchor] },
+      {
+        status: "unknown" as const,
+        source: "legacy_profile" as const,
+        models: [model],
+      },
+      {
+        status: "unsupported" as const,
+        source: "legacy_profile" as const,
+        models: [model],
+      },
+    ]) {
+      const page: AccountsResult<AccountsPage> = {
+        status: "ok",
+        value: {
+          ...accounts.value,
+          accounts: [{ ...accounts.value.accounts[0]!, modelCatalog: invalid }],
+        },
+      };
+      expect(isGatewayProviderSetupReady(config(), page)).toBe(false);
+    }
+    const unavailable: AccountsResult<AccountsPage> = {
+      status: "ok",
+      value: {
+        ...accounts.value,
+        accounts: [
+          {
+            ...accounts.value.accounts[0]!,
+            modelCatalog: {
+              status: "unavailable",
+              source: "legacy_profile",
+              models: [anchor, model],
+            },
+          },
+        ],
+      },
+    };
+    expect(isGatewayProviderSetupReady(config(anchor), unavailable)).toBe(true);
+    expect(isGatewayProviderSetupReady(config(), unavailable)).toBe(false);
+    const withoutCatalog = { ...accounts.value.accounts[0]! };
+    delete withoutCatalog.modelCatalog;
     expect(
-      buildConfiguredProviderSetupByRepositoryId({
-        providerSetup: providerSetupRows,
-        repositories: [{ id: "repo_1" }],
-        repositoryConfigs: [],
-        activeConfig,
-      }).has("repo_1"),
-    ).toBe(false);
-    expect(
-      repositoryHealthStatusWithProviderSetupReadiness({
-        repositoryId: "repo_1",
-        healthStatus: "healthy",
-        effectiveProviderSetupStateByRepositoryId,
-        providerSetupMismatchRepositoryIds:
-          buildProviderSetupMismatchRepositoryIds({
-            providerSetup: providerSetupRows,
-            repositories: [{ id: "repo_1" }],
-            repositoryConfigs: [],
-            activeConfig,
-          }),
+      isGatewayProviderSetupReady(config(anchor), {
+        status: "ok",
+        value: {
+          ...accounts.value,
+          accounts: [withoutCatalog],
+        },
       }),
-    ).toBe("provider_needs_setup");
+    ).toBe(false);
   });
 
-  it("does not treat a multi-auth repository as configured after only one provider is confirmed", () => {
-    const providerSetupRows = [
-      providerSetup({
-        providerKind: "openrouter",
-        authMode: "openrouter_api_key",
-        updatedAt: new Date("2026-01-02T00:00:00Z"),
-      }),
-    ];
-    const activeConfig = multiProviderReviewConfig();
-    const effectiveProviderSetupStateByRepositoryId =
-      buildEffectiveProviderSetupStateByRepositoryId({
-        providerSetup: providerSetupRows,
-        repositories: [{ id: "repo_1" }],
-        repositoryConfigs: [],
-        activeConfig,
-      });
-
-    expect(
-      buildConfiguredProviderSetupByRepositoryId({
-        providerSetup: providerSetupRows,
-        repositories: [{ id: "repo_1" }],
-        repositoryConfigs: [],
-        activeConfig,
-      }).has("repo_1"),
-    ).toBe(false);
-    expect(
-      repositoryHealthStatusWithProviderSetupReadiness({
-        repositoryId: "repo_1",
-        healthStatus: "healthy",
-        effectiveProviderSetupStateByRepositoryId,
-        providerSetupMismatchRepositoryIds:
-          buildProviderSetupMismatchRepositoryIds({
-            providerSetup: providerSetupRows,
-            repositories: [{ id: "repo_1" }],
-            repositoryConfigs: [],
-            activeConfig,
-          }),
-      }),
-    ).toBe("provider_needs_setup");
-  });
-
-  it("uses repository overrides when matching provider setup rows", () => {
-    const openRouterConfig = reviewConfigFor(
-      "openrouter",
-      "openrouter_api_key",
-    );
-    const configured = buildConfiguredProviderSetupByRepositoryId({
-      providerSetup: [
-        providerSetup({
-          authMode: "codex_subscription_oauth_rotating",
-          updatedAt: new Date("2026-01-01T00:00:00Z"),
-        }),
-        providerSetup({
-          providerKind: "openrouter",
-          authMode: "openrouter_api_key",
-          updatedAt: new Date("2026-01-02T00:00:00Z"),
-        }),
-      ],
-      repositories: [{ id: "repo_1" }],
-      repositoryConfigs: [
+  it("requires the selected live Gateway binding and catalog model", () => {
+    const config = parseReviewConfiguration({
+      ...workspacePolicyFixture,
+      providers: [
         {
-          repositoryId: "repo_1",
-          config: { config: openRouterConfig },
+          kind: "codex",
+          authMode: "codex_account_gateway",
+          gatewayBindingId: "binding_1",
+          gatewayProfileRef: "openai-responses-apikey-v1",
+          model: "mimo-v2.6-pro",
+          reasoningEffort: "medium",
+          agenticContext: true,
+          fastMode: false,
         },
       ],
-      activeConfig: safeDefaultReviewConfiguration,
     });
+    const accounts: AccountsResult<AccountsPage> = {
+      status: "ok",
+      value: {
+        accounts: [
+          {
+            connectionId: "connection_1",
+            label: "Workspace account",
+            profileId: "openai-responses-apikey-v1",
+            profileLabel: "MiMo",
+            state: "active",
+            gatewayRevision: 2,
+            mirrorRevision: 2,
+            binding: {
+              id: "binding_1",
+              revision: 1,
+              state: "active",
+              fencePending: false,
+            },
+          },
+        ],
+        profiles: [
+          {
+            id: "openai-responses-apikey-v1",
+            label: "MiMo",
+            protocol: "openai-responses",
+            models: ["mimo-v2.6-pro"],
+          },
+        ],
+        nextCursor: null,
+      },
+    };
+    expect(getReadyGatewayAccounts(accounts)).toHaveLength(1);
+    expect(isGatewayProviderSetupReady(config, accounts)).toBe(true);
 
-    expect(configured.get("repo_1")?.updatedAt).toEqual(
-      new Date("2026-01-02T00:00:00Z"),
-    );
-  });
-
-  it("downgrades healthy reports when provider setup no longer matches policy", () => {
-    const providerSetupRows = [
-      providerSetup({
-        authMode: "codex_subscription_oauth",
-        updatedAt: new Date("2026-01-01T00:00:00Z"),
-      }),
+    const account = accounts.value.accounts[0]!;
+    const binding = account.binding!;
+    const blockedPages: AccountsResult<AccountsPage>[] = [
+      { status: "unavailable" },
+      { status: "denied" },
+      { status: "ok", value: { ...accounts.value, accounts: [] } },
+      ...[
+        { ...account, state: "quarantined" as const },
+        { ...account, binding: { ...binding, state: "revoked" as const } },
+        { ...account, binding: { ...binding, fencePending: true } },
+        { ...account, binding: { ...binding, id: "another_binding" } },
+        { ...account, profileId: "another_profile" },
+      ].map((blocked) => ({
+        status: "ok" as const,
+        value: { ...accounts.value, accounts: [blocked] },
+      })),
+      {
+        status: "ok",
+        value: {
+          ...accounts.value,
+          profiles: [
+            { ...accounts.value.profiles[0]!, models: ["another-model"] },
+          ],
+        },
+      },
     ];
-    const effectiveProviderSetupStateByRepositoryId =
-      buildEffectiveProviderSetupStateByRepositoryId({
-        providerSetup: providerSetupRows,
-        repositories: [{ id: "repo_1" }],
-        repositoryConfigs: [],
-        activeConfig: safeDefaultReviewConfiguration,
-      });
-
-    expect(
-      repositoryHealthStatusWithProviderSetupReadiness({
-        repositoryId: "repo_1",
-        healthStatus: "healthy",
-        effectiveProviderSetupStateByRepositoryId,
-        providerSetupMismatchRepositoryIds:
-          buildProviderSetupMismatchRepositoryIds({
-            providerSetup: providerSetupRows,
-            repositories: [{ id: "repo_1" }],
-            repositoryConfigs: [],
-            activeConfig: safeDefaultReviewConfiguration,
-          }),
-      }),
-    ).toBe("provider_needs_setup");
+    for (const page of blockedPages) {
+      expect(isGatewayProviderSetupReady(config, page)).toBe(false);
+    }
   });
-
-  it("downgrades healthy reports when matching provider setup is missing", () => {
-    const providerSetupRows = [
-      providerSetup({
-        authMode: "codex_subscription_oauth_rotating",
-        state: "missing",
-        updatedAt: new Date("2026-01-01T00:00:00Z"),
-      }),
-    ];
-    const effectiveProviderSetupStateByRepositoryId =
-      buildEffectiveProviderSetupStateByRepositoryId({
-        providerSetup: providerSetupRows,
-        repositories: [{ id: "repo_1" }],
-        repositoryConfigs: [],
-        activeConfig: safeDefaultReviewConfiguration,
-      });
-
-    expect(
-      repositoryHealthStatusWithProviderSetupReadiness({
-        repositoryId: "repo_1",
-        healthStatus: "healthy",
-        effectiveProviderSetupStateByRepositoryId,
-        providerSetupMismatchRepositoryIds:
-          buildProviderSetupMismatchRepositoryIds({
-            providerSetup: providerSetupRows,
-            repositories: [{ id: "repo_1" }],
-            repositoryConfigs: [],
-            activeConfig: safeDefaultReviewConfiguration,
-          }),
-      }),
-    ).toBe("provider_needs_setup");
-  });
-
-  it("downgrades healthy reports when setup metadata is absent for the effective policy", () => {
-    const effectiveProviderSetupStateByRepositoryId =
-      buildEffectiveProviderSetupStateByRepositoryId({
-        providerSetup: [],
-        repositories: [{ id: "repo_1" }],
-        repositoryConfigs: [],
-        activeConfig: safeDefaultReviewConfiguration,
-      });
-
-    expect(effectiveProviderSetupStateByRepositoryId.get("repo_1")).toEqual({
-      state: "missing",
-      updatedAt: new Date(0),
+  it("requires every reviewer and uses exact account catalogs rather than a shared profile seed", () => {
+    const provider = {
+      kind: "codex",
+      authMode: "codex_account_gateway",
+      gatewayBindingId: "binding-1",
+      gatewayProfileRef: "profile",
+      model: "model-one",
+      reasoningEffort: "high",
+      agenticContext: true,
+      fastMode: false,
+    } as const;
+    const config = parseReviewConfiguration({
+      ...workspacePolicyFixture,
+      providers: [
+        provider,
+        { ...provider, gatewayBindingId: "binding-2", model: "model-two" },
+      ],
+      execution: {
+        providerLimit: 2,
+        providerMaxParallel: 2,
+        inlineMinAgreement: 1,
+      },
     });
+    const row = (id: string, model: string) => ({
+      connectionId: `connection-${id}`,
+      label: id,
+      profileId: "profile",
+      profileLabel: "Model profile",
+      state: "active" as const,
+      gatewayRevision: 1,
+      mirrorRevision: 1,
+      binding: {
+        id,
+        revision: 1,
+        state: "active" as const,
+        fencePending: false,
+      },
+      modelCatalog: {
+        status: "snapshot" as const,
+        source: "codex" as const,
+        models: [model],
+      },
+    });
+    const page = {
+      accounts: [row("binding-1", "model-one"), row("binding-2", "model-two")],
+      profiles: [
+        {
+          id: "profile",
+          label: "Models",
+          protocol: "openai-responses" as const,
+          models: ["seed-only"],
+        },
+      ],
+      nextCursor: null,
+    };
     expect(
-      repositoryHealthStatusWithProviderSetupReadiness({
-        repositoryId: "repo_1",
-        healthStatus: "healthy",
-        effectiveProviderSetupStateByRepositoryId,
-        providerSetupMismatchRepositoryIds: new Set(),
-      }),
-    ).toBe("provider_needs_setup");
-  });
-
-  it("downgrades healthy reports when only an unrelated old provider setup row exists", () => {
-    const providerSetupRows = [
-      providerSetup({
-        authMode: "codex_subscription_oauth_rotating",
-        updatedAt: new Date("2026-01-01T00:00:00Z"),
-      }),
-    ];
-    const openRouterConfig = reviewConfigFor(
-      "openrouter",
-      "openrouter_api_key",
-    );
-
+      isGatewayProviderSetupReady(config, { status: "ok", value: page }),
+    ).toBe(true);
+    for (const status of ["unknown", "snapshot"] as const) {
+      const recovering: AccountsResult<AccountsPage> = {
+        status: "ok",
+        value: {
+          ...page,
+          profiles: [
+            { ...page.profiles[0]!, models: ["model-one", "model-two"] },
+          ],
+          accounts: [
+            page.accounts[0]!,
+            {
+              ...page.accounts[1]!,
+              modelCatalog: { status, source: "codex", models: [] },
+            },
+          ],
+        },
+      };
+      expect(getGatewaySetupAccounts(recovering)).toHaveLength(2);
+      expect(getReadyGatewayAccounts(recovering)).toHaveLength(1);
+      expect(isGatewayProviderSetupReady(config, recovering)).toBe(false);
+    }
     expect(
-      repositoryHealthStatusWithProviderSetupReadiness({
-        repositoryId: "repo_1",
-        healthStatus: "healthy",
-        effectiveProviderSetupStateByRepositoryId:
-          buildEffectiveProviderSetupStateByRepositoryId({
-            providerSetup: providerSetupRows,
-            repositories: [{ id: "repo_1" }],
-            repositoryConfigs: [
-              {
-                repositoryId: "repo_1",
-                config: { config: openRouterConfig },
-              },
-            ],
-            activeConfig: safeDefaultReviewConfiguration,
-          }),
-        providerSetupMismatchRepositoryIds:
-          buildProviderSetupMismatchRepositoryIds({
-            providerSetup: providerSetupRows,
-            repositories: [{ id: "repo_1" }],
-            repositoryConfigs: [
-              {
-                repositoryId: "repo_1",
-                config: { config: openRouterConfig },
-              },
-            ],
-            activeConfig: safeDefaultReviewConfiguration,
-          }),
+      isGatewayProviderSetupReady(config, {
+        status: "ok",
+        value: { ...page, accounts: [page.accounts[0]!] },
       }),
-    ).toBe("provider_needs_setup");
-  });
-
-  it("keeps healthy reports when a matching provider setup row exists beside unrelated old setup", () => {
-    const providerSetupRows = [
-      providerSetup({
-        authMode: "codex_subscription_oauth_rotating",
-        updatedAt: new Date("2026-01-01T00:00:00Z"),
-      }),
-      providerSetup({
-        providerKind: "openrouter",
-        authMode: "openrouter_api_key",
-        updatedAt: new Date("2026-01-02T00:00:00Z"),
-      }),
-    ];
-    const openRouterConfig = reviewConfigFor(
-      "openrouter",
-      "openrouter_api_key",
-    );
-
+    ).toBe(false);
     expect(
-      repositoryHealthStatusWithProviderSetupReadiness({
-        repositoryId: "repo_1",
-        healthStatus: "healthy",
-        effectiveProviderSetupStateByRepositoryId:
-          buildEffectiveProviderSetupStateByRepositoryId({
-            providerSetup: providerSetupRows,
-            repositories: [{ id: "repo_1" }],
-            repositoryConfigs: [
-              {
-                repositoryId: "repo_1",
-                config: { config: openRouterConfig },
-              },
-            ],
-            activeConfig: safeDefaultReviewConfiguration,
-          }),
-        providerSetupMismatchRepositoryIds:
-          buildProviderSetupMismatchRepositoryIds({
-            providerSetup: providerSetupRows,
-            repositories: [{ id: "repo_1" }],
-            repositoryConfigs: [
-              {
-                repositoryId: "repo_1",
-                config: { config: openRouterConfig },
-              },
-            ],
-            activeConfig: safeDefaultReviewConfiguration,
-          }),
+      isGatewayProviderSetupReady(config, {
+        status: "ok",
+        value: {
+          ...page,
+          accounts: [page.accounts[0]!, row("binding-2", "wrong-model")],
+        },
       }),
-    ).toBe("healthy");
-  });
-  it("treats an active hosted workspace pool session as provider-ready", () => {
-    const effectiveProviderSetupStateByRepositoryId =
-      buildEffectiveProviderSetupStateByRepositoryId({
-        providerSetup: [],
-        repositories: [{ id: "repo_1" }],
-        repositoryConfigs: [],
-        activeConfig: safeDefaultReviewConfiguration,
-      });
-
-    expect(
-      repositoryHealthStatusWithProviderSetupReadiness({
-        repositoryId: "repo_1",
-        healthStatus: "healthy",
-        effectiveProviderSetupStateByRepositoryId,
-        providerSetupMismatchRepositoryIds: new Set(),
-        hostedSessionReady: true,
-      }),
-    ).toBe("healthy");
-    expect(
-      repositoryHealthStatusWithProviderSetupReadiness({
-        repositoryId: "repo_1",
-        healthStatus: "provider_needs_setup",
-        effectiveProviderSetupStateByRepositoryId,
-        providerSetupMismatchRepositoryIds: new Set(),
-        hostedSessionReady: true,
-      }),
-    ).toBe("healthy");
+    ).toBe(false);
   });
 });
 
-function providerSetup(input: {
-  readonly providerKind?: string;
-  readonly authMode: string;
-  readonly state?: string;
-  readonly updatedAt: Date;
-}) {
-  return {
-    repositoryId: "repo_1",
-    providerKind: input.providerKind ?? "codex",
-    authMode: input.authMode,
-    state: input.state ?? "configured",
-    updatedAt: input.updatedAt,
+describe.each([
+  ["glm-coding-global-responses-apikey-v1", "glm-5.3-flash", "glm-5.3"],
+  ["kimi-code-global-responses-apikey-v1", "k3-256k", "vendor/live-model"],
+  [
+    "minimax-mplan-global-responses-apikey-v1",
+    "MiniMax-M3.1-Flash",
+    "vendor/live-model",
+  ],
+])("native catalogue readiness for %s", (profileId, anchor, listed) => {
+  const config = (selected: string) =>
+    parseReviewConfiguration({
+      ...workspacePolicyFixture,
+      providers: [
+        {
+          kind: "codex",
+          authMode: "codex_account_gateway",
+          gatewayBindingId: "binding_1",
+          gatewayProfileRef: profileId,
+          model: selected,
+          agenticContext: true,
+          fastMode: false,
+        },
+      ],
+    });
+  const accountsWith = (
+    modelCatalog: NonNullable<
+      Extract<
+        AccountsResult<AccountsPage>,
+        { status: "ok" }
+      >["value"]["accounts"][number]["modelCatalog"]
+    >,
+  ): AccountsResult<AccountsPage> => ({
+    status: "ok",
+    value: {
+      accounts: [
+        {
+          connectionId: "connection_1",
+          label: "Plan",
+          profileId,
+          profileLabel: "Coding plan",
+          state: "active",
+          gatewayRevision: 2,
+          mirrorRevision: 2,
+          binding: {
+            id: "binding_1",
+            revision: 1,
+            state: "active",
+            fencePending: false,
+          },
+          modelCatalog,
+        },
+      ],
+      profiles: [
+        {
+          id: profileId,
+          label: "Coding plan",
+          protocol: "openai-responses",
+          authKind: "api_key",
+          models: [anchor],
+        },
+      ],
+      nextCursor: null,
+    },
+  });
+  const now = Date.now();
+  const snapshot = {
+    status: "snapshot" as const,
+    source: "native_catalog" as const,
+    models: [anchor, listed],
+    fetchedAt: new Date(now - 1_000).toISOString(),
+    expiresAt: new Date(now + 60_000).toISOString(),
   };
-}
 
-function reviewConfigFor(
-  kind: "codex" | "openrouter",
-  authMode: "codex_subscription_oauth_rotating" | "openrouter_api_key",
-): ReviewConfiguration {
-  return parseReviewConfiguration({
-    schemaVersion: 2,
-    providers: [
-      {
-        kind,
-        authMode,
-        model: kind === "codex" ? "gpt-5.5" : "poolside/laguna-m.1:free",
-        reasoningEffort: "medium",
-        agenticContext: true,
-        fastMode: false,
-      },
-    ],
-    execution: {
-      providerMaxParallel: 1,
-      inlineMinAgreement: 1,
-    },
-    blockingPolicy: { failOnSeverity: "critical" },
-    limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
+  it("is ready for the anchor and the catalogue model only from a fresh native_catalog snapshot", () => {
+    expect(
+      isGatewayProviderSetupReady(config(listed), accountsWith(snapshot)),
+    ).toBe(true);
+    expect(
+      isGatewayProviderSetupReady(config(anchor), accountsWith(snapshot)),
+    ).toBe(true);
+    for (const invalid of [
+      { ...snapshot, source: "openrouter" as const },
+      { ...snapshot, expiresAt: new Date(now - 1).toISOString() },
+      { ...snapshot, models: [anchor] },
+    ])
+      expect(
+        isGatewayProviderSetupReady(config(listed), accountsWith(invalid)),
+      ).toBe(false);
   });
-}
 
-function multiProviderReviewConfig(): ReviewConfiguration {
-  return parseReviewConfiguration({
-    schemaVersion: 2,
-    providers: [
-      {
-        kind: "openrouter",
-        authMode: "openrouter_api_key",
-        model: "poolside/laguna-m.1:free",
-        reasoningEffort: "medium",
-        agenticContext: true,
-        fastMode: false,
-        requiredHealthy: true,
-      },
-      {
-        kind: "claude",
-        authMode: "claude_code_oauth",
-        model: "sonnet",
-        reasoningEffort: "medium",
-        agenticContext: true,
-        fastMode: false,
-        requiredHealthy: false,
-      },
-    ],
-    execution: {
-      providerMaxParallel: 2,
-      inlineMinAgreement: 1,
-    },
-    blockingPolicy: { failOnSeverity: "critical" },
-    limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
+  it("keeps only the anchor ready when the catalogue is explicitly unavailable", () => {
+    const unavailable = {
+      status: "unavailable" as const,
+      source: "legacy_profile" as const,
+      models: [anchor],
+    };
+    expect(
+      isGatewayProviderSetupReady(config(anchor), accountsWith(unavailable)),
+    ).toBe(true);
+    expect(
+      isGatewayProviderSetupReady(config(listed), accountsWith(unavailable)),
+    ).toBe(false);
   });
-}
+
+  it("is not ready without a catalogue because the profile now requires one", () => {
+    const withoutCatalog = accountsWith(snapshot);
+    if (withoutCatalog.status !== "ok") throw new Error("fixture");
+    delete withoutCatalog.value.accounts[0]!.modelCatalog;
+    expect(isGatewayProviderSetupReady(config(anchor), withoutCatalog)).toBe(
+      false,
+    );
+  });
+});
+
+describe("multi-reviewer dynamic Gateway readiness", () => {
+  it("requires a fresh exact catalog for every reviewer even when profile seeds contain both models", () => {
+    const profileId = "openrouter-openai-responses-apikey-v1";
+    const provider = (id: string, model: string) => ({
+      kind: "codex" as const,
+      authMode: "codex_account_gateway" as const,
+      gatewayBindingId: id,
+      gatewayProfileRef: profileId,
+      model,
+      reasoningEffort: "medium" as const,
+      agenticContext: true,
+      fastMode: false,
+    });
+    const config = parseReviewConfiguration({
+      ...workspacePolicyFixture,
+      providers: [
+        provider("binding-1", "model-one"),
+        provider("binding-2", "model-two"),
+      ],
+      execution: {
+        providerLimit: 2,
+        providerMaxParallel: 2,
+        inlineMinAgreement: 1,
+      },
+    });
+    const now = Date.now();
+    const row = (id: string, model: string) => ({
+      connectionId: `connection-${id}`,
+      label: id,
+      profileId,
+      profileLabel: "OpenRouter",
+      state: "active" as const,
+      gatewayRevision: 1,
+      mirrorRevision: 1,
+      binding: {
+        id,
+        revision: 1,
+        state: "active" as const,
+        fencePending: false,
+      },
+      modelCatalog: {
+        status: "snapshot" as const,
+        source: "openrouter" as const,
+        models: [model],
+        fetchedAt: new Date(now - 1000).toISOString(),
+        expiresAt: new Date(now + 60000).toISOString(),
+      },
+    });
+    const first = row("binding-1", "model-one");
+    const second = row("binding-2", "model-two");
+    const page = {
+      accounts: [first, second],
+      profiles: [
+        {
+          id: profileId,
+          label: "OpenRouter",
+          protocol: "openai-responses" as const,
+          authKind: "api_key" as const,
+          models: ["model-one", "model-two"],
+        },
+      ],
+      nextCursor: null,
+    };
+    expect(
+      isGatewayProviderSetupReady(config, { status: "ok", value: page }),
+    ).toBe(true);
+    for (const catalog of [
+      { ...second.modelCatalog, expiresAt: new Date(now - 1).toISOString() },
+      { ...second.modelCatalog, source: "codex" as const },
+      {
+        ...second.modelCatalog,
+        status: "unknown" as const,
+        source: "legacy_profile" as const,
+      },
+      { ...second.modelCatalog, models: ["model-one"] },
+    ]) {
+      expect(
+        isGatewayProviderSetupReady(config, {
+          status: "ok",
+          value: {
+            ...page,
+            accounts: [first, { ...second, modelCatalog: catalog }],
+          },
+        }),
+      ).toBe(false);
+    }
+  });
+});

@@ -1,5 +1,6 @@
 import type { WorkflowProvisioningStatus } from "../../domain/workflow-provisioning";
 import type { ReviewRouterWorkflowStyle } from "../../domain/workflow-template";
+import type { WorkflowRequirement } from "../../domain/workflow-transport";
 
 export type WorkflowProvisioningScope = {
   readonly workspaceId: string;
@@ -19,10 +20,14 @@ export type WorkflowProvisioningRecord = WorkflowProvisioningScope & {
   readonly workflowPath: string;
   readonly workflowStyle: ReviewRouterWorkflowStyle;
   readonly actionVersion: string;
+  /** What the workflow this record installs is rendered for. */
+  readonly workflowRequirement: WorkflowRequirement;
   readonly pullRequestHeadSha?: string | null;
   readonly pullRequestUrl?: string | null;
   readonly errorMessage?: string | null;
 };
+
+export type WorkflowProvisioningTransition = "applied" | "superseded";
 
 export interface WorkflowProvisioningRepositoryPort {
   beginAttempt(
@@ -30,8 +35,8 @@ export interface WorkflowProvisioningRepositoryPort {
   ): Promise<WorkflowProvisioningAttempt>;
   markSetupPullRequestOpen(
     record: WorkflowProvisioningRecord & WorkflowProvisioningAttempt,
-  ): Promise<void>;
+  ): Promise<WorkflowProvisioningTransition>;
   markFailed(
     record: WorkflowProvisioningRecord & WorkflowProvisioningAttempt,
-  ): Promise<void>;
+  ): Promise<WorkflowProvisioningTransition>;
 }

@@ -2,6 +2,7 @@ import {
   HOSTED_CODEX_DEVICE_LOGIN_TTL_MS,
   type HostedCodexDeviceAuthGateway,
   type HostedCodexDeviceLoginStore,
+  type HostedCodexDeviceReconnectTarget,
 } from "../ports/hosted-codex-device-login-port";
 import type {
   HostedDeviceLoginId,
@@ -23,6 +24,7 @@ export async function startHostedCodexDeviceLogin(
     readonly actor: string;
     readonly label: string;
     readonly priority: number;
+    readonly reconnectTarget?: HostedCodexDeviceReconnectTarget | null;
     readonly now: Date;
   },
   dependencies: {
@@ -30,6 +32,9 @@ export async function startHostedCodexDeviceLogin(
     readonly deviceAuth: HostedCodexDeviceAuthGateway;
   },
 ): Promise<HostedCodexDeviceLoginPublicView> {
+  const reconnectTarget = command.reconnectTarget
+    ? { ...command.reconnectTarget }
+    : null;
   await dependencies.store.expireStalePending(command.workspaceId, command.now);
   const existing = await dependencies.store.findPendingByWorkspace(
     command.workspaceId,
@@ -46,6 +51,7 @@ export async function startHostedCodexDeviceLogin(
     actor: command.actor,
     label: command.label,
     priority: command.priority,
+    reconnectTarget,
     userCode: userCode.userCode,
     verificationUrl: userCode.verificationUrl,
     deviceAuthId: userCode.deviceAuthId,

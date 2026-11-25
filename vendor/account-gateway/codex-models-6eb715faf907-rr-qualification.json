@@ -1,0 +1,72 @@
+{
+  "contract": "gateway-codex-models-consumer-qualification/v1",
+  "qualifiedSourceCommit": "76508fbf70830719bed1f1c2f07d55447e012782",
+  "upstreamBase": "e81287badcefcc4ed52ffb4f005f5520eba30a4e",
+  "sdkArchive": "agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz",
+  "sdkSHA256": "6eb715faf9076d5962713c9cb0f2af5296548f293c1efd620fae22e50143710a",
+  "sourceHashes": {
+    "apps/api/src/dashboard-gateway-probe-access.ts": "1c90d5675026931f6d50dfe71ed0ce7c3a70e47945ce3ce6477317e73e5945f5",
+    "apps/api/src/review-run-gateway-relay.ts": "b9875959cdb05981fe6537499de169f7294d66c3e562d944d698c3c28af02014",
+    "apps/web/app/dashboard/dashboard-workspace-page.tsx": "3e47fd30de41b1fcabfef04b4337efcf5bc0929ef09e079483b9759310caba11",
+    "apps/web/app/dashboard/gateway-model-account-actions.ts": "02232ccb81ec5604229fd3b7ccccc6d1b5f1fef2381063a630bfa1ad62fadc13",
+    "apps/web/app/dashboard/gateway-model-account-options.tsx": "467f7e9cc56e20e4fa18c0469be66c2023e75daa57347c72b80b2ebbc31e86b8",
+    "apps/web/app/dashboard/gateway-model-catalog-status.tsx": "ba34a53dec7070fde92b904fdb32513fff00d5ab467c2ac78175170feaa5b2a9",
+    "apps/web/app/dashboard/personal-account-actions.ts": "f11dc80f5c4c2a1d575156fcba31fc11f5aac9d2d27fb404812246257423bf56",
+    "apps/web/app/dashboard/provider-setup-actions.ts": "1cc573e68a6460df95fa4846591a6a5d2868eeeda5827eb518d1dff8afa8092e",
+    "apps/web/app/dashboard/provider-setup/provider-list.tsx": "2bb046ad8dc9c9bd3b80c8aa06f437999a07ee330438d8b47e60e66b9a24e2ad",
+    "apps/web/app/dashboard/provider-setup/provider-model-fields.tsx": "3069d459a60889c6505e67cf45c28c01313a9aae48b2543976aad1171e308614",
+    "apps/web/app/dashboard/provider-setup/provider-setup-dialog.tsx": "033e8a8d45dce1e6404ba4947cb3a81bf65986aff22511b1663c43601299a188",
+    "apps/web/src/features/account-gateway/connection-capabilities.ts": "a0d3c856300614e350f19eaef33ffe48fec56f2900356642b15de70fd410ce86",
+    "apps/web/src/features/account-gateway/review-reasoning-capabilities.ts": "0d1100def5c93eb29a5c99a96809a3a9eaf31fc94108efa751bd1551b2b03b9e",
+    "apps/web/src/server/account-gateway-accounts.ts": "63fe3a79ba6b30eb2bc9bf074cb7f6e8cfcb809c9cced00c3ef5b3104d25365b",
+    "apps/web/src/server/dashboard-gateway-accounts.ts": "450d1a07810931d9c42511c74d417b67376135c6bc721410b5908e2a1a997f93",
+    "apps/web/src/server/dashboard-review-configuration-validation.ts": "0f74e2d8e130e20a6580c95b1a3e347b4ce15dd36be201014c1b25393d874bf2",
+    "apps/web/src/server/gateway-model-account-composition.ts": "b1ca4b062904844d9cf747992332dee59ba11fb068d1d72ed7f66031c7d69907",
+    "apps/web/src/server/gateway-model-account-options.ts": "2f6d2df17187fa7ca8476ad9dab14a1f886cc844ca686ded8912e6f05d776d27",
+    "apps/web/src/server/gateway-review-config-catalog.ts": "1753bf5e79d6512a4b30089c4eff23426148b03970b659c03afc744b7ca09f2c",
+    "packages/features/action-control-plane/src/domain/action-control-plane.ts": "da8cb9fc4e67bef56f3f3f5398308313c8e4c7a9012989cfe72f295137e97f00",
+    "packages/features/review-config/src/domain/review-configuration.ts": "b8eaec3640f1d28412073e2b275465195833d9b522c68dcd893c530c40d157c3",
+    "packages/features/review-providers/src/domain/provider-models.ts": "63b7c854c775bc8516c23f3e1f17c391c7e315a5ad74cfeafe187e47889f39e2"
+  },
+  "checks": {
+    "focusedTests": {
+      "files": 13,
+      "passed": 270
+    },
+    "apiTypecheck": "passed",
+    "webTypecheck": "passed",
+    "foundation": "passed; zero diagnostics",
+    "protocol": "deterministic and current",
+    "bundleParity": "passed",
+    "browser": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "freshMigrations": 150,
+      "boundary": "Real browser/session/PostgreSQL persistence and authenticated installed SDK over controlled Gateway HTTP. No live provider or native admission claim.",
+      "observed": "Edit/add/select/refresh/save, preservation of the saved ID, exact binding catalog and rejection of a model available only to another account."
+    }
+  },
+  "generatedBundle": {
+    "path": "action-dist/conflict-runtime.cjs",
+    "sha256": "dc88fe47476c557b0bd280f4988c5907f38105ad766fd6f705cb7b6999953c9b"
+  },
+  "evidenceSHA256": {
+    "final-action-build.log": "c18524a9c7b297e2ab8015676783d7400e50a6dde8154a51696bf0c4ba6a1c46",
+    "final-action-check.log": "36e66084e30beb1906f4bc88afcc5d2cdc5400b9008afbaca258d38a88963bc8",
+    "final-api-types.log": "09556e73e1de5cb88232e8e32f9cbf39117e92112e40fbc78e67af87d0527ad2",
+    "final-compiler-install.log": "e47b8402ff2f0467715eae1564926b8399f1634462c42d39c9204189ca1ec866",
+    "final-focused-tests.log": "f9c54842770c008b48c41c223c59228de4a0bcc4bc7b53ffbe230cbc26c9a26a",
+    "final-foundation.log": "89bef577be42b08ba8ea8fc010238b9488b2f47dc97d37dde03cf6464c912f96",
+    "final-harness-install.log": "ae444b5d5acf6c86df988f53b949b741203935bdb4e0425698e3ccb709beecc4",
+    "final-harness-types.log": "70685b4df7789c854b9e1ceab7d78a6d0f9a0831c11eb0010b7b5fdbe0e50c39",
+    "final-install.log": "bf815f7739d09a3f0f9a374f91e0d19b8cddd04ff350ed797cbdc3cde63554df",
+    "final-pinned-runtime.log": "0a61366c45377e2b5cd23dcb2789b2bc6e24f7969a46db6313323702a2625b10",
+    "final-prisma.log": "756e368d522dba95a08d05cac17857824c94bf171cbf207a1230b5896f683655",
+    "final-protocol-check.log": "5cdac5f70649bab46274ee25737349a961d3d3ec54e339dac1c8fac80e93da45",
+    "final-web-types.log": "09556e73e1de5cb88232e8e32f9cbf39117e92112e40fbc78e67af87d0527ad2",
+    "browser-final.log": "0a38446e6a9bd08dce03a1d8a74169271cf625f4553afd7be6a0c89984f78b5b"
+  },
+  "productionActivated": false,
+  "publicPublished": false
+}

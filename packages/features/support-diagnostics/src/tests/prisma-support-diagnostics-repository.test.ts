@@ -23,7 +23,12 @@ describe("PrismaSupportDiagnosticsRepository", () => {
     }));
     const prisma = {
       workspace: { findUnique: workspaceFindUnique },
-      outboxEvent: { findMany: vi.fn(async () => []) },
+      outboxEvent: {
+        groupBy: vi.fn(async () => [
+          { status: "pending", _count: { _all: 2516 } },
+          { status: "dead_letter", _count: { _all: 3 } },
+        ]),
+      },
       memoryItem: { groupBy: vi.fn(async () => []) },
       memorySuggestion: { groupBy: vi.fn(async () => []) },
       memoryUsageEvent: { count: vi.fn(async () => 0) },
@@ -34,6 +39,8 @@ describe("PrismaSupportDiagnosticsRepository", () => {
       repository.getWorkspaceDiagnosticsInput("workspace_1"),
     ).resolves.toEqual(
       expect.objectContaining({
+        // The counter must cover the whole workspace, not the 50 newest rows.
+        outboxStatusCounts: { pending: 2516, dead_letter: 3 },
         repositories: [
           expect.objectContaining({
             id: "repository_1",

@@ -37,15 +37,17 @@
   "dependencies": {
     "@octokit/app": "^16.1.2",
     "@prisma/client": "7.8.0",
-    "@reviewrouter/shared": "workspace:*"
+    "@reviewrouter/shared": "workspace:*",
+    "@reviewrouter/platform-signed-capabilities": "workspace:*",
+    "jose": "^6.2.3"
   },
   "devDependencies": {
     "@reviewrouter/platform-db": "workspace:*"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "build:contract-source": "tsc -p tsconfig.contract-source.json",
+    "build": "node ../../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.build.json",
+    "build:contract-source": "node ../../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.contract-source.json",
     "test": "vitest run --root ../../.. packages/features/review-publishing/src/v2/tests",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "node ../../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json"
   }
 }

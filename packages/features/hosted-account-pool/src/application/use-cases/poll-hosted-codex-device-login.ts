@@ -56,6 +56,9 @@ export async function pollHostedCodexDeviceLogin(
   if (record.status !== "pending" || !record.deviceAuthId) {
     throw new Error("hosted_pool_device_login_failed");
   }
+  const reconnectTarget = record.reconnectTarget
+    ? { ...record.reconnectTarget }
+    : null;
 
   let poll: Awaited<
     ReturnType<HostedCodexDeviceAuthGateway["pollAuthorization"]>
@@ -109,6 +112,7 @@ export async function pollHostedCodexDeviceLogin(
       workspaceId: record.workspaceId,
       label: record.label,
       priority: record.priority,
+      reconnectTarget,
       authJson,
     });
   } catch (error) {

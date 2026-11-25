@@ -1,0 +1,629 @@
+"use client";
+import { useState } from "react";
+import { Button } from "@reviewrouter/ui";
+import type { ProviderUsageReport } from "./provider-usage-model";
+import {
+  currencyCostsLabel,
+  count,
+  providerColor,
+  requestedModelLabel,
+  costLabel,
+  valuationLabel,
+  selectedCosts,
+  shortIdentity,
+  humanUtcRange,
+  latencyLabel,
+  missingCostLabel,
+  NOT_REPORTED,
+  observedPair,
+  observedValues,
+  tokenCoverage,
+  usagePricing,
+  type UsagePricing,
+} from "./provider-usage-format";
+import type { UsageTotals } from "@reviewrouter/features-provider-usage";
+
+type ModelRow = ProviderUsageReport["overview"]["models"][number];
+type RunRow = ProviderUsageReport["overview"]["runs"][number];
+const cell = "px-3 py-3 align-top";
+const tableClass = "w-full min-w-[780px] text-left text-xs tabular-nums";
+const desktop = "hidden max-w-full overflow-x-auto @min-[56rem]:block";
+const narrow = "@min-[56rem]:hidden";
+function Head({ labels }: { labels: string[] }) {
+  return (
+    <thead>
+      <tr className="border-b border-slate-600/60 text-slate-400">
+        {labels.map((label) => (
+          <th key={label} scope="col" className={`${cell} font-medium`}>
+            {label}
+          </th>
+        ))}
+      </tr>
+    </thead>
+  );
+}
+export function UsageCoverage({ totals }: { totals: UsageTotals }) {
+  const coverage = tokenCoverage(totals);
+  return (
+    <span
+      className={coverage.incomplete ? "text-slate-300" : "text-slate-400"}
+      title={coverage.detail}
+    >
+      {coverage.label}
+    </span>
+  );
+}
+export function UsageCosts({
+  costs,
+  selectedCurrency,
+  basis,
+  unknownCostCount = 0,
+  pricing,
+}: {
+  costs: readonly { amount: string; currency: string; basis: string }[];
+  selectedCurrency?: string | undefined;
+  basis?: string | undefined;
+  unknownCostCount?: number | undefined;
+  /** Proven reason why every call in this bucket has no per-call price. */
+  pricing?: UsagePricing;
+}) {
+  const values = selectedCosts(costs, selectedCurrency, basis);
+  // A reported amount in any currency or basis wins over the pricing label.
+  if (!costs.length && pricing)
+    return pricing === "free_model" ? (
+      <span
+        className="text-slate-200"
+        title="OpenRouter free variant: no per-token charge"
+      >
+        Free model
+      </span>
+    ) : (
+      <span
+        className="text-slate-200"
+        title="Billed by a flat subscription or coding plan; calls have no per-call price, but they count against the plan's limits"
+      >
+        Included in subscription
+      </span>
+    );
+  if (!costs.length)
+    return (
+      <span
+        className="text-slate-400"
+        title="No cost was reported or estimated for these calls. Missing cost does not mean zero cost."
+      >
+        {NOT_REPORTED}
+      </span>
+    );
+  return (
+    <div>
+      {values.length ? (
+        <div className="space-y-1">
+          {values.map((cost) => (
+            <p
+              key={JSON.stringify([cost.currency, cost.basis])}
+              className="break-words"
+              title={costLabel(cost)}
+            >
+              <span className="font-medium text-slate-100">
+                {cost.amount} {cost.currency}
+              </span>{" "}
+              <span
+                className={
+                  cost.basis === "estimated"
+                    ? "font-medium text-amber-300"
+                    : "font-medium text-cyan-200"
+                }
+              >
+                {valuationLabel(cost.basis)}
+              </span>
+            </p>
+          ))}
+        </div>
+      ) : (
+        <span>{currencyCostsLabel(costs, selectedCurrency, basis)}</span>
+      )}
+      {unknownCostCount > 0 && !pricing ? (
+        <p className="mt-1 text-xs text-slate-400">
+          {missingCostLabel(unknownCostCount)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+function ModelIdentity({ row }: { row: ModelRow }) {
+  const identity = `${row.provider} / ${requestedModelLabel(row.requestedModel)}`;
+  return (
+    <div className="flex min-w-0 items-start gap-2.5">
+      <span
+        className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
+        style={{ backgroundColor: providerColor(row.provider) }}
+      />
+      <div className="min-w-0">
+        <span
+          className="line-clamp-2 break-words text-slate-100"
+          title={identity}
+        >
+          {identity}
+        </span>
+        {identity.length > 56 ? (
+          <details className="mt-1 text-xs text-slate-400">
+            <summary className="min-h-9 cursor-pointer py-2 text-cyan-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300">
+              Full requested model
+            </summary>
+            <p className="break-all py-1">{identity}</p>
+          </details>
+        ) : null}
+        <ModelObserved row={row} />
+      </div>
+    </div>
+  );
+}
+function CompactValues({ label, values }: { label: string; values: string[] }) {
+  const first = values[0] ?? NOT_REPORTED;
+  if (values.length <= 1 && first.length <= 56)
+    return (
+      <p className="break-words text-xs text-slate-400">
+        {label}: {first}
+      </p>
+    );
+  return (
+    <details className="text-xs text-slate-400">
+      <summary className="min-h-9 cursor-pointer py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300">
+        <span>
+          {label}: {shortIdentity(first, 48)}
+          {values.length > 1 ? ` +${values.length - 1}` : ""}
+          {values.includes(NOT_REPORTED) && first !== NOT_REPORTED
+            ? " · some not reported"
+            : ""}
+        </span>
+      </summary>
+      <div className="space-y-1 pb-2">
+        {values.map((value) => (
+          <p key={value} className="break-all">
+            {value}
+          </p>
+        ))}
+      </div>
+    </details>
+  );
+}
+function ModelObserved({ row }: { row: ModelRow }) {
+  if (
+    !row.hasUnknownObservedModel &&
+    row.observedModels.length === 1 &&
+    row.observedModels[0] === row.requestedModel
+  )
+    return null;
+  return (
+    <CompactValues
+      label="Observed"
+      values={observedValues(row.observedModels, row.hasUnknownObservedModel)}
+    />
+  );
+}
+function KeyMetrics({
+  totals,
+  selectedCurrency,
+  pricing,
+}: {
+  totals: UsageTotals;
+  selectedCurrency?: string | undefined;
+  pricing?: UsagePricing;
+}) {
+  return (
+    <dl className="mt-3 grid grid-cols-2 gap-x-5 gap-y-3 text-sm tabular-nums">
+      <div>
+        <dt className="text-xs text-slate-400">Requests</dt>
+        <dd className="mt-1 font-medium text-slate-100">
+          {count(totals.providerAttempts)}
+        </dd>
+      </div>
+      <div>
+        <dt className="text-xs text-slate-400">Known tokens</dt>
+        <dd className="mt-1 font-medium text-slate-100">
+          {count(totals.tokens.total)}
+          {totals.tokens.total !== null && tokenCoverage(totals).totalHint ? (
+            <small className="mt-1 block text-xs font-normal text-slate-400">
+              {tokenCoverage(totals).totalHint}
+            </small>
+          ) : null}
+        </dd>
+      </div>
+      <div className="col-span-2 min-w-0">
+        <dt className="mb-1 text-xs text-slate-400">Known cost</dt>
+        <dd>
+          <UsageCosts
+            costs={totals.costs}
+            unknownCostCount={totals.unknownCostCount}
+            selectedCurrency={selectedCurrency}
+            pricing={pricing}
+          />
+        </dd>
+      </div>
+    </dl>
+  );
+}
+export function ModelUsageTable({
+  report,
+  selectedCurrency,
+}: {
+  report: ProviderUsageReport;
+  selectedCurrency?: string | undefined;
+}) {
+  const modelPricing = (row: ModelRow) =>
+    usagePricing([row], [row.route], report.subscriptionProviders);
+  return (
+    <div className="@container min-w-0">
+      <div className={desktop}>
+        <table aria-label="Requested model usage" className={tableClass}>
+          <Head
+            labels={[
+              "Provider / requested model",
+              "Route",
+              "Requests",
+              "Input tokens",
+              "Output tokens",
+              "Known cost",
+              "Status",
+            ]}
+          />
+          <tbody>
+            {report.overview.models.map((row) => (
+              <tr
+                key={JSON.stringify([
+                  row.provider,
+                  row.requestedModel,
+                  row.route,
+                ])}
+                className="border-b border-slate-700/40"
+              >
+                <th scope="row" className={`${cell} max-w-80 font-normal`}>
+                  <ModelIdentity row={row} />
+                </th>
+                <td className={cell}>{row.route}</td>
+                <td className={cell}>{count(row.totals.providerAttempts)}</td>
+                <td className={cell}>{count(row.totals.tokens.inputTotal)}</td>
+                <td className={cell}>{count(row.totals.tokens.outputTotal)}</td>
+                <td className={`${cell} min-w-36`}>
+                  <UsageCosts
+                    costs={row.totals.costs}
+                    unknownCostCount={row.totals.unknownCostCount}
+                    selectedCurrency={selectedCurrency}
+                    pricing={modelPricing(row)}
+                  />
+                </td>
+                <td className={cell}>
+                  <UsageCoverage totals={row.totals} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <section aria-label="Model usage summaries" className={narrow}>
+        <ul aria-label="Models">
+          {report.overview.models.map((row) => (
+            <li
+              key={JSON.stringify([
+                row.provider,
+                row.requestedModel,
+                row.route,
+              ])}
+              className="border-b border-slate-700/40 py-4"
+            >
+              <div className="text-sm font-medium">
+                <ModelIdentity row={row} />
+              </div>
+              <p className="mt-1 text-xs text-slate-400">{row.route}</p>
+              <KeyMetrics
+                totals={row.totals}
+                selectedCurrency={selectedCurrency}
+                pricing={modelPricing(row)}
+              />
+              <details className="mt-2 text-xs text-slate-400">
+                <summary className="min-h-9 cursor-pointer py-2 text-cyan-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300">
+                  Token details and status
+                </summary>
+                <p>
+                  Input tokens: {count(row.totals.tokens.inputTotal)} · Output
+                  tokens: {count(row.totals.tokens.outputTotal)}
+                </p>
+                <UsageCoverage totals={row.totals} />
+              </details>
+            </li>
+          ))}
+        </ul>
+      </section>
+      {!report.overview.models.length ? (
+        <p className="py-5 text-sm text-slate-400">
+          No measured model observations for this interval.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+function RunIdentity({ row }: { row: RunRow }) {
+  const [copyStatus, setCopyStatus] = useState("");
+  return (
+    <div className="min-w-0">
+      <p className="break-words font-medium text-slate-100" title={row.runId}>
+        {shortIdentity(row.runId)}
+      </p>
+      <p
+        className="mt-1 text-xs text-slate-400"
+        title={`${row.firstOccurredAt} to ${row.lastOccurredAt}`}
+      >
+        {humanUtcRange(row.firstOccurredAt, row.lastOccurredAt)}
+      </p>
+      <details className="mt-1 text-xs text-slate-400">
+        <summary className="min-h-9 cursor-pointer py-2 text-cyan-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300">
+          Run details
+        </summary>
+        <p className="break-all py-1">
+          Full run ID: <code>{row.runId}</code>
+        </p>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(row.runId);
+              setCopyStatus("Run ID copied");
+            } catch {
+              setCopyStatus("Copy unavailable. Select the full run ID.");
+            }
+          }}
+        >
+          Copy run ID
+        </Button>
+        {copyStatus ? <p role="status">{copyStatus}</p> : null}
+        <div className="mt-2 space-y-2">
+          <CompactValues
+            label="Requested"
+            values={row.identities.map(
+              (identity) =>
+                `${identity.provider} / ${requestedModelLabel(identity.requestedModel)}`,
+            )}
+          />
+          <CompactValues
+            label="Observed"
+            values={observedValues(
+              row.observedModels,
+              row.hasUnknownObservedModel,
+            )}
+          />
+          <p>Routes: {row.routes.join(", ")}</p>
+          <UsageCoverage totals={row.totals} />
+        </div>
+      </details>
+    </div>
+  );
+}
+export function RunUsageTable({
+  report,
+  onNext,
+  onPrevious,
+  busy,
+  selectedCurrency,
+}: {
+  report: ProviderUsageReport;
+  onNext: () => void;
+  onPrevious?: (() => void) | undefined;
+  busy?: boolean | undefined;
+  selectedCurrency?: string | undefined;
+}) {
+  const runPricing = (row: RunRow) =>
+    usagePricing(row.identities, row.routes, report.subscriptionProviders);
+  return (
+    <>
+      <div className="@container min-w-0">
+        <div className={desktop}>
+          <table aria-label="Review run usage" className={tableClass}>
+            <Head
+              labels={[
+                "Run / UTC interval",
+                "Requested providers / models",
+                "Routes",
+                "Requests",
+                "Known tokens",
+                "Known cost",
+                "Status",
+              ]}
+            />
+            <tbody>
+              {report.overview.runs.map((row) => (
+                <tr key={row.runId} className="border-b border-slate-700/40">
+                  <th scope="row" className={`${cell} max-w-64 font-normal`}>
+                    <RunIdentity row={row} />
+                  </th>
+                  <td className={`${cell} max-w-72`}>
+                    <CompactValues
+                      label="Requested"
+                      values={row.identities.map(
+                        (identity) =>
+                          `${identity.provider} / ${requestedModelLabel(identity.requestedModel)}`,
+                      )}
+                    />
+                    <CompactValues
+                      label="Observed"
+                      values={observedValues(
+                        row.observedModels,
+                        row.hasUnknownObservedModel,
+                      )}
+                    />
+                  </td>
+                  <td className={cell}>{row.routes.join(", ")}</td>
+                  <td className={cell}>{count(row.totals.providerAttempts)}</td>
+                  <td className={cell}>{count(row.totals.tokens.total)}</td>
+                  <td className={`${cell} min-w-36`}>
+                    <UsageCosts
+                      costs={row.totals.costs}
+                      unknownCostCount={row.totals.unknownCostCount}
+                      selectedCurrency={selectedCurrency}
+                      pricing={runPricing(row)}
+                    />
+                  </td>
+                  <td className={cell}>
+                    <UsageCoverage totals={row.totals} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <section aria-label="Run usage summaries" className={narrow}>
+          <ul aria-label="Runs">
+            {report.overview.runs.map((row) => (
+              <li key={row.runId} className="border-b border-slate-700/40 py-4">
+                <RunIdentity row={row} />
+                <KeyMetrics
+                  totals={row.totals}
+                  selectedCurrency={selectedCurrency}
+                  pricing={runPricing(row)}
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
+        {!report.overview.runs.length ? (
+          <p className="py-5 text-sm text-slate-400">
+            No measured runs for this interval.
+          </p>
+        ) : null}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
+        <p>
+          Run totals cover all matching observations in the period. Run outcome
+          is not inferred.
+        </p>
+        <UsagePageNavigation
+          kind="run"
+          onPrevious={onPrevious}
+          onNext={report.overview.nextRunCursor ? onNext : undefined}
+          busy={busy}
+        />
+      </div>
+    </>
+  );
+}
+export function ObservationTable({
+  report,
+  onNext,
+  onPrevious,
+  busy,
+  selectedCurrency,
+}: {
+  report: ProviderUsageReport;
+  onNext: () => void;
+  onPrevious?: (() => void) | undefined;
+  busy?: boolean | undefined;
+  selectedCurrency?: string | undefined;
+}) {
+  return (
+    <>
+      <div className="max-w-full overflow-x-auto">
+        <table aria-label="Usage observations" className={tableClass}>
+          <Head
+            labels={[
+              "Day (UTC)",
+              "Requested / observed provider and model",
+              "Route / purpose",
+              "Tokens",
+              "Cost / basis",
+              "Coverage / authority",
+              "Latency / TTFT",
+            ]}
+          />
+          <tbody>
+            {report.rows.map((row) => {
+              const requested = {
+                provider: row.requestedProvider ?? row.provider,
+                requestedModel:
+                  row.requestedModel === undefined
+                    ? row.model
+                    : row.requestedModel,
+              };
+              return (
+                <tr key={row.id} className="border-b border-slate-700/40">
+                  <th scope="row" className={`${cell} font-normal`}>
+                    {row.day}
+                  </th>
+                  <td className={`${cell} max-w-80 break-words`}>
+                    Requested: {requested.provider} /{" "}
+                    {requestedModelLabel(requested.requestedModel)}
+                    <br />
+                    Observed:{" "}
+                    {observedPair(row.actualProvider, row.actualModel)}
+                  </td>
+                  <td className={cell}>
+                    {row.route} / {row.purpose}
+                  </td>
+                  <td className={cell}>
+                    {`${count(row.total)} (${row.granularity})`}
+                  </td>
+                  <td className={cell}>
+                    <UsageCosts
+                      costs={row.cost ? [row.cost] : []}
+                      selectedCurrency={selectedCurrency}
+                      pricing={usagePricing(
+                        [requested],
+                        [row.route],
+                        report.subscriptionProviders,
+                      )}
+                    />
+                  </td>
+                  <td className={cell}>
+                    {row.completeness} / {row.authority ?? "unavailable"}
+                  </td>
+                  <td className={cell}>
+                    {latencyLabel(row.durationMs, row.ttftMs)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-3 text-xs text-slate-400">
+        Showing up to 100 observations; totals cover the entire selected period.
+      </p>
+      <UsagePageNavigation
+        kind="observation"
+        onPrevious={onPrevious}
+        onNext={report.hasMore ? onNext : undefined}
+        busy={busy}
+      />
+    </>
+  );
+}
+
+export function UsagePageNavigation({
+  kind,
+  onPrevious,
+  onNext,
+  busy = false,
+}: {
+  kind: "run" | "observation";
+  onPrevious?: (() => void) | undefined;
+  onNext?: (() => void) | undefined;
+  busy?: boolean | undefined;
+}) {
+  if (!onPrevious && !onNext) return null;
+  return (
+    <nav
+      aria-label={`${kind === "run" ? "Run" : "Observation"} pages`}
+      className="flex gap-2"
+    >
+      {onPrevious ? (
+        <Button variant="ghost" size="sm" disabled={busy} onClick={onPrevious}>
+          Previous {kind} page
+        </Button>
+      ) : null}
+      {onNext ? (
+        <Button variant="ghost" size="sm" disabled={busy} onClick={onNext}>
+          Next {kind} page
+        </Button>
+      ) : null}
+    </nav>
+  );
+}

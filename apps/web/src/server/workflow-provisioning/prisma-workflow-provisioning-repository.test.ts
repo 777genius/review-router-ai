@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { PrismaRepositoryConnectionRepository } from "@reviewrouter/features-repositories";
-import { PrismaWorkflowProvisioningRepository } from "@reviewrouter/features-workflow-provisioning";
-import { PrismaWorkflowProvisioningStatusAuthority } from "@reviewrouter/features-workflow-provisioning";
+import { PrismaWorkflowProvisioningRepository } from "@reviewrouter/features-workflow-provisioning/composition";
+import { PrismaWorkflowProvisioningStatusAuthority } from "@reviewrouter/features-workflow-provisioning/composition";
 import {
   conflict,
   createProvisioningPrisma,
@@ -45,6 +45,27 @@ describe("provisioning attempt writers", () => {
       pullRequestUrl: initialCandidate.pullRequestUrl,
     });
   });
+  it.each(["markSetupPullRequestOpen", "markFailed"] as const)(
+    "reports the final %s update count, even after a matching read",
+    async (method) => {
+      const f = createProvisioningPrisma(null);
+      const writer = new PrismaWorkflowProvisioningRepository(
+        f.prisma as never,
+      );
+      const attempt = await writer.beginAttempt(record);
+      f.workflowProvisioning.updateMany.mockResolvedValueOnce({ count: 0 });
+      await expect(writer[method]({ ...record, ...attempt })).resolves.toBe(
+        "superseded",
+      );
+      expect(f.current()?.status).toBe("not_started");
+      await expect(writer[method]({ ...record, ...attempt })).resolves.toBe(
+        "applied",
+      );
+      await expect(writer[method]({ ...record, ...attempt })).resolves.toBe(
+        "superseded",
+      );
+    },
+  );
   it("permits an explicit new attempt and fences the previous one", async () => {
     const f = createProvisioningPrisma({
       ...initialCandidate,

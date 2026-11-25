@@ -1,3 +1,8 @@
+import {
+  ReviewV2PublicationPayloadKind,
+  type ReviewV2PublicationPayload,
+  type ReviewV2PublicationPayloadPort,
+} from "@reviewrouter/features-review-publishing/v2";
 import { createHash } from "node:crypto";
 import type { FinalizedReviewProjectionArtifact } from "@reviewrouter/features-review-executions";
 import {
@@ -10,10 +15,13 @@ import {
   publishedReviewProjectionPublicationEnvelopeVersion,
   renderCanonicalReviewPublication,
   resolveReviewPublicationRenderPolicyVersion,
+  validateReviewPublicationLifecycleVerification,
+  type ReviewPublicationLifecycleVerificationFact,
   type PublishedReviewProjectionPublicationEnvelope,
   type ReviewPublicationOperation,
   type ReviewPublicationOccurrenceCounts,
   type ReviewPublicationPermitIdentity,
+  type ReviewPrDescriptionSource,
 } from "@reviewrouter/features-review-publishing/v2";
 import {
   LineageHintEvictionReason,
@@ -23,63 +31,6 @@ import {
   type OccurrenceProvenanceDto,
 } from "@reviewrouter/features-review-snapshots/v2";
 import type { ReviewCompletionProjectionMapperPort } from "./review-v2-context-adapters";
-
-export enum ReviewV2PublicationPayloadKind {
-  Summary = "summary",
-  ManagedCheck = "managed_check",
-  PendingReviewCreate = "pending_review_create",
-  PendingReviewSubmit = "pending_review_submit",
-  SubmittedReview = "submitted_review",
-  ThreadLifecycle = "thread_lifecycle",
-}
-
-type ReviewV2PublicationPayloadIdentity = {
-  readonly marker: string;
-  readonly markerHash: string;
-  readonly bodyHash: string;
-  readonly bodyByteCount: number;
-};
-
-export type ReviewV2PublicationPayload =
-  | (ReviewV2PublicationPayloadIdentity & {
-      readonly kind: ReviewV2PublicationPayloadKind.Summary;
-      readonly body: string;
-    })
-  | (ReviewV2PublicationPayloadIdentity & {
-      readonly kind: ReviewV2PublicationPayloadKind.ManagedCheck;
-      readonly name: string;
-      readonly title: string;
-      readonly summary: string;
-      readonly conclusion: "success" | "failure" | "neutral";
-    })
-  | (ReviewV2PublicationPayloadIdentity & {
-      readonly kind:
-        | ReviewV2PublicationPayloadKind.PendingReviewCreate
-        | ReviewV2PublicationPayloadKind.SubmittedReview;
-      readonly body: string;
-      readonly comments: readonly {
-        readonly path: string;
-        readonly line: number;
-        readonly startLine: number | null;
-        readonly body: string;
-      }[];
-    })
-  | (ReviewV2PublicationPayloadIdentity & {
-      readonly kind: ReviewV2PublicationPayloadKind.PendingReviewSubmit;
-      readonly body: string;
-    })
-  | (ReviewV2PublicationPayloadIdentity & {
-      readonly kind: ReviewV2PublicationPayloadKind.ThreadLifecycle;
-      readonly threadId: string;
-      readonly resolve: boolean;
-    });
-
-export interface ReviewV2PublicationPayloadPort {
-  resolve(input: {
-    readonly permit: ReviewPublicationPermitIdentity;
-    readonly operation: ReviewPublicationOperation;
-  }): Promise<ReviewV2PublicationPayload | null>;
-}
 
 export interface ReviewV2FinalizedArtifactQueryPort {
   findArtifact(executionId: string): Promise<{
@@ -102,11 +53,12 @@ export class CanonicalReviewV2ProjectionAdapter
 
   async publicationEnvelope(
     artifact: FinalizedReviewProjectionArtifact,
+    options?: Readonly<{ includeVerifiedFixReplies?: boolean }>,
   ): Promise<PublishedReviewProjectionPublicationEnvelope | null> {
     const loaded = await this.loadMatching(artifact.publicationPermit);
     if (!loaded) return null;
     const projection = parseProjection(artifact.projectionEnvelopeJson);
-    const catalog = buildCatalog(projection, artifact);
+    const catalog = buildCatalog(projection, artifact, options);
     const partial = artifact.coverageState === "partial";
     return {
       envelopeVersion: publishedReviewProjectionPublicationEnvelopeVersion,
@@ -133,6 +85,9 @@ export class CanonicalReviewV2ProjectionAdapter
             ? ReviewPublicationSummarySemantic.AllClear
             : ReviewPublicationSummarySemantic.Findings,
       },
+      ...(catalog.prDescription === null
+        ? {}
+        : { prDescription: facts(catalog.prDescription) }),
       managedCheck:
         catalog.managedCheck === null ? null : facts(catalog.managedCheck),
       inlineReviews: partial
@@ -148,9 +103,12 @@ export class CanonicalReviewV2ProjectionAdapter
         : catalog.lifecycle.map((entry, chunkIndex) => ({
             chunkIndex,
             ...facts(entry.payload),
-            semantic: entry.payload.resolve
-              ? ReviewPublicationLifecycleSemantic.Resolve
-              : ReviewPublicationLifecycleSemantic.Reopen,
+            semantic:
+              entry.payload.kind === ReviewV2PublicationPayloadKind.ThreadReply
+                ? ReviewPublicationLifecycleSemantic.ConfirmReply
+                : entry.payload.resolve
+                  ? ReviewPublicationLifecycleSemantic.Resolve
+                  : ReviewPublicationLifecycleSemantic.Reopen,
           })),
     };
   }
@@ -205,6 +163,7 @@ type ProjectionEnvelope = {
   readonly commandLedgerWatermark: string;
   readonly occurrences: readonly ProjectionOccurrence[];
   readonly publishing: {
+    readonly prDescription?: ReviewPrDescriptionSource;
     readonly summary: {
       readonly marker: string;
       readonly body: string;
@@ -234,6 +193,7 @@ type ProjectionEnvelope = {
       readonly threadId: string;
       readonly verdict: string;
       readonly mutationEligible: boolean;
+      readonly verification?: ReviewPublicationLifecycleVerificationFact;
     }[];
   };
   readonly snapshot: {
@@ -257,6 +217,7 @@ type PayloadOfKind<TKind extends ReviewV2PublicationPayloadKind> =
   ReviewV2PublicationPayload & { readonly kind: TKind };
 
 type PublicationCatalog = {
+  readonly prDescription: PayloadOfKind<ReviewV2PublicationPayloadKind.PrDescription> | null;
   readonly summary: PayloadOfKind<ReviewV2PublicationPayloadKind.Summary>;
   readonly managedCheck: PayloadOfKind<ReviewV2PublicationPayloadKind.ManagedCheck> | null;
   readonly inlineChunks: readonly {
@@ -265,13 +226,16 @@ type PublicationCatalog = {
     readonly submit: PayloadOfKind<ReviewV2PublicationPayloadKind.PendingReviewSubmit>;
   }[];
   readonly lifecycle: readonly {
-    readonly payload: PayloadOfKind<ReviewV2PublicationPayloadKind.ThreadLifecycle>;
+    readonly payload:
+      | PayloadOfKind<ReviewV2PublicationPayloadKind.ThreadLifecycle>
+      | PayloadOfKind<ReviewV2PublicationPayloadKind.ThreadReply>;
   }[];
 };
 
 function buildCatalog(
   projection: ProjectionEnvelope,
   artifact: FinalizedReviewProjectionArtifact,
+  options?: Readonly<{ includeVerifiedFixReplies?: boolean }>,
 ): PublicationCatalog {
   const rendered = renderCanonicalReviewPublication(
     {
@@ -282,6 +246,9 @@ function buildCatalog(
       renderPolicyVersion: resolveReviewPublicationRenderPolicyVersion(
         artifact.projectionPolicyVersion,
       ),
+      ...(options?.includeVerifiedFixReplies === undefined
+        ? {}
+        : { includeVerifiedFixReplies: options.includeVerifiedFixReplies }),
       targetCommitId: artifact.reviewedHeadSha,
       occurrenceStates: projection.occurrences.map((occurrence) =>
         reviewPublicationOccurrenceState(occurrence.state),
@@ -324,14 +291,31 @@ function buildCatalog(
     } as const,
   }));
   const lifecycle = rendered.lifecycle.map((entry) => ({
-    payload: {
-      kind: ReviewV2PublicationPayloadKind.ThreadLifecycle,
-      ...payloadFields(entry),
-      threadId: entry.threadId,
-      resolve: entry.resolve,
-    } as const,
+    payload:
+      entry.semantic === ReviewPublicationLifecycleSemantic.ConfirmReply
+        ? ({
+            kind: ReviewV2PublicationPayloadKind.ThreadReply,
+            ...payloadFields(entry),
+            threadId: entry.threadId,
+            targetId: entry.targetId,
+            body: entry.body,
+          } as const)
+        : ({
+            kind: ReviewV2PublicationPayloadKind.ThreadLifecycle,
+            ...payloadFields(entry),
+            threadId: entry.threadId,
+            resolve: entry.resolve,
+          } as const),
   }));
-  return { summary, managedCheck, inlineChunks, lifecycle };
+  const prDescription: PublicationCatalog["prDescription"] =
+    rendered.prDescription === undefined
+      ? null
+      : {
+          kind: ReviewV2PublicationPayloadKind.PrDescription,
+          ...payloadFields(rendered.prDescription),
+          body: rendered.prDescription.body,
+        };
+  return { summary, prDescription, managedCheck, inlineChunks, lifecycle };
 }
 
 function reviewPublicationOccurrenceState(
@@ -366,6 +350,8 @@ function payloadForOperation(
   operation: ReviewPublicationOperation,
 ): ReviewV2PublicationPayload | null {
   switch (operation.publicationKind) {
+    case ReviewPublicationKind.PrDescription:
+      return operation.chunkIndex === 0 ? catalog.prDescription : null;
     case ReviewPublicationKind.Summary:
       return operation.chunkIndex === 0 ? catalog.summary : null;
     case ReviewPublicationKind.ManagedCheck:
@@ -385,7 +371,23 @@ function payloadForOperation(
     case ReviewPublicationKind.SubmittedReview:
       return null;
     case ReviewPublicationKind.ThreadLifecycle:
-      return catalog.lifecycle[operation.chunkIndex]?.payload ?? null;
+    case ReviewPublicationKind.ThreadReply: {
+      // Existing V6 attempts retain their original chunk indexes. The marker
+      // and body are bound to that immutable operation, even after new replies
+      // have been introduced ahead of guarded resolutions.
+      const expectedKind =
+        operation.publicationKind === ReviewPublicationKind.ThreadReply
+          ? ReviewV2PublicationPayloadKind.ThreadReply
+          : ReviewV2PublicationPayloadKind.ThreadLifecycle;
+      return (
+        catalog.lifecycle.find(
+          (entry) =>
+            entry.payload.kind === expectedKind &&
+            entry.payload.markerHash === operation.markerHash &&
+            entry.payload.bodyHash === operation.bodyHash,
+        )?.payload ?? null
+      );
+    }
   }
 }
 
@@ -464,6 +466,15 @@ function parseProjection(value: string): ProjectionEnvelope {
     !Array.isArray(snapshot.lineageHints)
   ) {
     throw new Error("review_v2_projection_shape_invalid");
+  }
+  for (const entry of publishing.lifecycle) {
+    if (!isRecord(entry))
+      throw new Error("review_v2_projection_lifecycle_invalid");
+    if (entry.verification !== undefined)
+      validateReviewPublicationLifecycleVerification(
+        entry.verification,
+        requireIdentifier(entry.targetId, "target_id_invalid"),
+      );
   }
   return parsed as unknown as ProjectionEnvelope;
 }

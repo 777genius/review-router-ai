@@ -532,8 +532,7 @@ catalog, or infrastructure fault is resolved.
 Run from the exact candidate checkout:
 
 ```bash
-corepack enable
-corepack prepare pnpm@10.33.0 --activate
+npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
 pnpm install --frozen-lockfile
 export REVIEW_ROUTER_PRIVATE_PG17_REHEARSAL=1
 export REVIEW_ROUTER_REHEARSAL_PG16_IMAGE='postgres:16.13-bookworm@sha256:<approved-64-hex-digest>'
@@ -657,6 +656,16 @@ repositories, user projects, and reused customer runners are forbidden fixtures.
    health; current source backup; complete source writer list; independently
    observed target identity/recovery witness; pre-provisioned guard; auto-deploy
    off.
+
+   Private runner prerequisite: the `role-bootstrap-private` and
+   `pg17-cutover-private` jobs call `pnpm` directly (no Corepack, no
+   setup-node) and rely on pnpm 10.33.0 baked into the runner image by
+   `deploy/private-runner/Dockerfile`. Before dispatch, rebuild that image from
+   the reviewed source and update the reviewed runner provenance and image
+   attestation variables for it. An image built before this change has no
+   `pnpm` and those jobs will fail. This document makes no claim that a
+   rebuilt or attested image currently exists.
+
 3. Generate a unique rollout ID and dispatch only through Actions:
 
    ```bash

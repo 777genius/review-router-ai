@@ -8,12 +8,12 @@
 - workspace/repo metadata
 - audit logs
 - workflow provisioning permissions
-- customer provider secrets in GitHub, not SaaS
-- customer private code in GitHub/CI, not SaaS
+- customer provider secrets in GitHub, not control plane
+- customer private code in GitHub/CI, not control plane
 
 Opt-in hosted workspace account pool exception:
 
-- SaaS-custodied, envelope-encrypted Codex account sessions
+- control plane-custodied, envelope-encrypted Codex account sessions
 - bounded Action run grants
 - transient relay prompts, tool outputs, and Responses events
 - account/repository bindings, credential generations, and database incarnation
@@ -27,7 +27,7 @@ ReviewRouter API -> GitHub API
 ReviewRouter Action -> customer repository/CI/provider
 ```
 
-ReviewRouter SaaS does not cross into customer code execution in v1.
+ReviewRouter does not cross into customer code execution in v1.
 
 For repositories explicitly bound under
 [ADR-029](../decisions/029-opt-in-hosted-workspace-account-pool.md), add:
@@ -39,7 +39,7 @@ ReviewRouter relay -> encrypted session store -> KMS/keyring
 
 Checkout, tools, and the agent loop still execute in GitHub Actions. The relay
 transiently processes prompts, tool outputs, and responses, but credentials stay
-inside SaaS and relay bodies are not retained.
+inside control plane and relay bodies are not retained.
 
 ## Threats
 

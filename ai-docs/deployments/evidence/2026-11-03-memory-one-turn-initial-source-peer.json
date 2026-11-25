@@ -1,0 +1,31 @@
+{
+  "status": "SOURCE_GO",
+  "role": "owner-delegated agent source peer; not human/external independent approval",
+  "sourceBase": "dbc161c9865f88e9cf60c8ad21b2814ecec8eec2",
+  "exactRosterSha256": "3eda4472fc45f7d16ac27928b54686fb266560f34d1010b2b50e9b9bb64d231c",
+  "verifiedRosterPaths": 26,
+  "resolvedFindings": [
+    "source-fence comparison participates in actual dispatch tx after recall receipt",
+    "independent observations accepts missing/wrong decision fields; legacy strict root unchanged",
+    "shared authority projection includes scope/source/fullbinding/suppression/entryIds and excludes harmless delivery progress",
+    "same frozen authoritydigest compared under final reservation sourceLock alongside epoch, maintained transfer immediately before admission vetoes",
+    "per-event fixture memory ports prevent stale cross-intent closures",
+    "positive parent receipt test binds exact processingId"
+  ],
+  "reviewedBoundaries": [
+    "prepare owns changed-source invalidation before final context capture",
+    "same sourceFence/settings/context/actor/account parent binding, no recaptured authority",
+    "strict quote/bounds/known branches; omission/invalid observations unavailable, valid[] real complete-empty",
+    "actual SDK closed-success parent only; pending/UNKNOWN no observation consumption and no fabricated child receipt",
+    "pendingObservations immutable manifest/rawselection digest+validated bodies under parentFORUPDATE before normal writer",
+    "normal confirmation/source/admission/finalCAS/legacy.learn paths retained",
+    "new eval mechanism exact parent processing/run/model/account receipt and closed cleanup; child receipt/call forbidden; historical reports retain oldmechanism; reliability refuses mixed mechanisms"
+  ],
+  "limits": [
+    "No reviewer tests/types/lint/host/model/DB effects",
+    "Writer remoteQA evidence remains separate; source GO makes no semanticquality/deployment claim",
+    "No H3 body/labels inspected",
+    "Docs publication updates are author-owned, not independently reviewed by their author"
+  ],
+  "qaReported": "157/158 initial; paired Action mount retry passed; API/eval strict and targeted lint/format retry pass. Root/writer retain exact receipts."
+}

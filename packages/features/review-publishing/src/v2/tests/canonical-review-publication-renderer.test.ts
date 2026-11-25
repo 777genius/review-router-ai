@@ -11,12 +11,284 @@ import {
   hiddenMarkerReviewProjectionPolicyVersion,
   legacyPartialReviewPublicationSummary,
   partialReviewPublicationSummary,
+  publishedSummaryIncomplete,
   resolveReviewPublicationRenderPolicyVersion,
   renderCanonicalReviewPublication,
   type ReviewPublicationRenderingSource,
 } from "../index";
 
+describe("published summary verdict", () => {
+  const complete =
+    "<!-- reviewrouter:review-status:complete -->\nReview complete";
+  const incomplete =
+    "<!-- reviewrouter:review-status:incomplete -->\nReview incomplete";
+  const verdict = (
+    coverage: ReviewPublicationProjectionCoverage,
+    producerCoverageComplete: boolean,
+    sourceSummaryBody: string,
+  ) =>
+    publishedSummaryIncomplete({
+      coverage,
+      producerCoverageComplete,
+      sourceSummaryBody,
+    });
+
+  it("is incomplete exactly when the summary says so", () => {
+    const { Completed, Partial } = ReviewPublicationProjectionCoverage;
+    expect(verdict(Completed, true, complete)).toBe(false);
+    // Unverified previous findings: coverage claim complete, marker incomplete.
+    expect(verdict(Completed, true, incomplete)).toBe(true);
+    // Unverified native spans: the claim itself is partial.
+    expect(verdict(Completed, false, incomplete)).toBe(true);
+    // An older producer without a status marker still reports its claim.
+    expect(verdict(Completed, false, "Review")).toBe(true);
+    // The server's own partial summary.
+    expect(verdict(Partial, true, complete)).toBe(true);
+  });
+
+  it("reads only the first status marker", () => {
+    const quoted = `${complete}\n\`\`\`mermaid\n%% <!-- reviewrouter:review-status:incomplete -->\n\`\`\``;
+    expect(
+      verdict(ReviewPublicationProjectionCoverage.Completed, true, quoted),
+    ).toBe(false);
+  });
+});
+
 describe("canonical review publication renderer", () => {
+  it("renders immutable pre-effect fix candidates without native-closed counts or reopen operations", () => {
+    const base = source({
+      summaryBody:
+        "2 fixes verified. Closure status as of projection: closure planned.",
+    });
+    const lifecycle: ReviewPublicationRenderingSource["lifecycle"] = [
+      "tax-a",
+      "tax-b",
+    ].map((targetId) => ({
+      targetId,
+      threadId: `thread-${targetId}`,
+      verdict: "resolved",
+      mutationEligible: true,
+      verification: {
+        targetId,
+        semanticVerdict: "resolved",
+        confirmationState: "fix_confirmed_thread_open",
+        severity: "major",
+        observationIds: ["observation-1"],
+        providerVoteKeys: ["verifier/account"],
+        reasonCodes: ["accepted_verification"],
+        mutationStatus: "pending",
+      },
+    }));
+    const frozen = Object.freeze({
+      ...base,
+      check: { ...base.check, summary: base.summary.body },
+      lifecycle: Object.freeze(lifecycle),
+    });
+    const frozenJson = JSON.stringify(frozen);
+    const render = () =>
+      renderCanonicalReviewPublication(
+        {
+          coverage: ReviewPublicationProjectionCoverage.Completed,
+          renderPolicyVersion: resolveReviewPublicationRenderPolicyVersion(
+            "review-projection-policy.v7-lifecycle-verification",
+          ),
+          targetCommitId: "a".repeat(40),
+          occurrenceStates: [ReviewPublicationOccurrenceState.New],
+          source: frozen,
+        },
+        primitives,
+      );
+    const before = render();
+    expect(before.summary.body).toContain("2 fixes verified");
+    expect(before.managedCheck?.summary).toContain("2 fixes verified");
+    expect(frozen.summary.occurrenceCounts.resolved).toBe(0);
+    expect(before.lifecycle.map((entry) => entry.semantic)).toEqual([
+      ReviewPublicationLifecycleSemantic.ConfirmReply,
+      ReviewPublicationLifecycleSemantic.ConfirmReply,
+      ReviewPublicationLifecycleSemantic.Resolve,
+      ReviewPublicationLifecycleSemantic.Resolve,
+    ]);
+    expect(before.lifecycle.map((entry) => entry.chunkIndex)).toEqual([
+      0, 1, 2, 3,
+    ]);
+    expect(before.lifecycle[0]?.body).toContain(
+      "ReviewRouter verified this fix",
+    );
+    expect(JSON.stringify(frozen)).toBe(frozenJson);
+    expect(render()).toEqual(before);
+    const legacyPlan = renderCanonicalReviewPublication(
+      {
+        coverage: ReviewPublicationProjectionCoverage.Completed,
+        renderPolicyVersion:
+          CanonicalReviewPublicationRenderPolicyVersion.LifecycleVerificationV6,
+        includeVerifiedFixReplies: false,
+        targetCommitId: "a".repeat(40),
+        occurrenceStates: [ReviewPublicationOccurrenceState.New],
+        source: frozen,
+      },
+      primitives,
+    );
+    expect(legacyPlan.lifecycle.map((entry) => entry.semantic)).toEqual([
+      ReviewPublicationLifecycleSemantic.Resolve,
+      ReviewPublicationLifecycleSemantic.Resolve,
+    ]);
+    expect(legacyPlan.lifecycle.map((entry) => entry.chunkIndex)).toEqual([
+      0, 1,
+    ]);
+    expect(() =>
+      renderCanonicalReviewPublication(
+        {
+          coverage: ReviewPublicationProjectionCoverage.Completed,
+          renderPolicyVersion:
+            CanonicalReviewPublicationRenderPolicyVersion.LifecycleVerificationV6,
+          targetCommitId: "a".repeat(40),
+          occurrenceStates: [ReviewPublicationOccurrenceState.New],
+          source: {
+            ...frozen,
+            lifecycle: [
+              {
+                ...lifecycle[0]!,
+                verdict: "still_valid",
+                verification: {
+                  ...lifecycle[0]!.verification!,
+                  semanticVerdict: "still_valid",
+                  confirmationState: "confirmed_open",
+                  mutationStatus: "not_eligible",
+                },
+              },
+            ],
+          },
+        },
+        primitives,
+      ),
+    ).toThrow("publication_verification_mutation_invalid");
+    expect(() =>
+      renderCanonicalReviewPublication(
+        {
+          coverage: ReviewPublicationProjectionCoverage.Completed,
+          renderPolicyVersion:
+            CanonicalReviewPublicationRenderPolicyVersion.LifecycleVerificationV6,
+          targetCommitId: "a".repeat(40),
+          occurrenceStates: [ReviewPublicationOccurrenceState.New],
+          source: {
+            ...frozen,
+            lifecycle: [
+              {
+                ...lifecycle[0]!,
+                verification: {
+                  ...lifecycle[0]!.verification!,
+                  observationIds: [],
+                },
+              },
+            ],
+          },
+        },
+        primitives,
+      ),
+    ).toThrow("publication_verification_semantics_invalid");
+  });
+
+  it("publishes one native reply in report-only mode without requesting thread resolution", () => {
+    const targetId = "rrt_verified_1";
+    const base = source();
+    const verified = {
+      targetId,
+      threadId: "PRRT_target_1",
+      verdict: "resolved",
+      mutationEligible: false,
+      verification: {
+        targetId,
+        semanticVerdict: "resolved",
+        confirmationState: "fix_confirmed_thread_open",
+        severity: "major",
+        observationIds: ["observation-verified"],
+        providerVoteKeys: ["verifier/account"],
+        reasonCodes: ["accepted_verification"],
+        mutationStatus: "report_only",
+      },
+    } as const;
+    const render = (
+      coverage: ReviewPublicationProjectionCoverage,
+      lifecycle: ReviewPublicationRenderingSource["lifecycle"] = [verified],
+    ) =>
+      renderCanonicalReviewPublication(
+        {
+          coverage,
+          renderPolicyVersion:
+            CanonicalReviewPublicationRenderPolicyVersion.LifecycleVerificationV6,
+          targetCommitId: "a".repeat(40),
+          occurrenceStates: [ReviewPublicationOccurrenceState.New],
+          source: { ...base, lifecycle },
+        },
+        primitives,
+      );
+
+    const completed = render(ReviewPublicationProjectionCoverage.Completed);
+    expect(completed.lifecycle).toHaveLength(1);
+    expect(completed.lifecycle[0]).toMatchObject({
+      chunkIndex: 0,
+      semantic: ReviewPublicationLifecycleSemantic.ConfirmReply,
+      threadId: "PRRT_target_1",
+      targetId,
+      resolve: false,
+    });
+    expect(completed.lifecycle[0]?.body).toContain(
+      "<!-- reviewrouter:fix-verified:v1:rrt_verified_1 -->",
+    );
+    expect(completed.lifecycle[0]?.body).not.toContain("thread resolved");
+    expect(render(ReviewPublicationProjectionCoverage.Completed)).toEqual(
+      completed,
+    );
+    expect(
+      render(ReviewPublicationProjectionCoverage.Partial).lifecycle,
+    ).toEqual([]);
+    expect(
+      render(ReviewPublicationProjectionCoverage.Completed, [
+        {
+          ...verified,
+          verdict: "uncertain",
+          verification: {
+            ...verified.verification,
+            semanticVerdict: "uncertain",
+            confirmationState: "unverified",
+            mutationStatus: "not_eligible",
+            observationIds: [],
+            providerVoteKeys: [],
+          },
+        },
+      ]).lifecycle,
+    ).toEqual([]);
+  });
+
+  it("accepts the comparison policy without changing stored v5 partial bytes", () => {
+    const version = resolveReviewPublicationRenderPolicyVersion(
+      "review-projection-policy.v6-comparison",
+    );
+    const rendered = renderCanonicalReviewPublication(
+      {
+        coverage: ReviewPublicationProjectionCoverage.Partial,
+        renderPolicyVersion: version,
+        targetCommitId: "a".repeat(40),
+        occurrenceStates: [ReviewPublicationOccurrenceState.New],
+        source: source({
+          summaryBody:
+            "## Review incomplete - 0 findings\n\nFull agent-readable context remains here.",
+        }),
+      },
+      primitives,
+    );
+    expect(rendered.summary.body).toContain("**Review incomplete.**");
+    expect(rendered.summary.body).toContain(
+      "Full agent-readable context remains here.",
+    );
+    expect(rendered.summary.body).not.toContain("### Partial review details");
+    expect(rendered.summary.body).not.toContain("ReviewRouter");
+    expect(rendered.summary.body).toContain("<!-- summary -->");
+    expect(rendered.managedCheck).toBeNull();
+    expect(rendered.inlineReviews).toEqual([]);
+    expect(rendered.lifecycle).toEqual([]);
+  });
+
   it("renders one conservative summary for partial coverage", () => {
     const rendered = renderCanonicalReviewPublication(
       {

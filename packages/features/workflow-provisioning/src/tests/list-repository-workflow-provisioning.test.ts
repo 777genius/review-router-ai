@@ -36,6 +36,7 @@ describe("listRepositoryWorkflowProvisioning", () => {
         actionVersion: "777genius/review-router@v1",
         pullRequestUrl: "https://github.com/777genius/example/pull/1",
         errorMessage: null,
+        installedWorkflowRequirement: null,
         updatedAt: new Date("2026-05-03T12:00:00.000Z"),
       },
     ]);

@@ -12,7 +12,7 @@ import {
 import { readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { buildCodexRotatingAction } from "./lib/codex-rotating-action-build.mjs";
+import { buildCodexRotatingAction } from "./lib/codex-rotating-action-build.ts";
 
 const outfile = "action-dist/index.cjs";
 const bundledCodexOutfile = "action-dist/codex/linux-x64/codex";

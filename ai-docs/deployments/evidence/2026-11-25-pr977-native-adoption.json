@@ -1,0 +1,520 @@
+{
+  "schemaVersion": 1,
+  "kind": "pr977-published-native-adoption-and-final-local-checkpoint",
+  "recordedAt": "2026-11-25T02:21:28.189227+00:00",
+  "status": "NATIVE_LINT_QUALIFIED_ARCHITECTURE_FAILED_READY_CI_PENDING",
+  "allPrGreenClaimed": false,
+  "pr": "https://github.com/777genius/review-router-ai/pull/977",
+  "publishedSource": {
+    "statisticsCommit": "6378ee3f35b1fc1fd2f1cdc7811e2624a418a388",
+    "adoptionCommit": "29e8386ed8490ce9e5a1765c6262ede2a0c18a75",
+    "tree": "b6ff9ca33b20d6c9848549319d71cf99c6aafbdb",
+    "actualExecutionHead": "6b6f1d00bed23dc2dca87052783399c2d9738bbe",
+    "executionState": "Nine uncommitted candidate files on the recorded execution head, later published in the two commits above; executed receipts are not relabeled as clean-commit runs.",
+    "nineFileHashes": {
+      "package.json": "c1ad34edc2265413e5e251e4ae9faac91b80b1ca7a9b52132fb0cbe1180b5a84",
+      "pnpm-lock.yaml": "bc640e13fd261f30b746ae9b422206f3619b0d1249b5c3658034dc3908bd9109",
+      "pnpm-workspace.yaml": "ddcdb9714277bfde7098245c6ac9f1924328aa19120d07408e5c546a47293549",
+      "scripts/local-checks/lint-format-test-support.ts": "cf0bb4d1b6d0d2e8ba0b304f0d4cffe8d6b40a896422aedc6102aa3ab95f1278",
+      "scripts/local-checks/lint-format-safety.test.ts": "fa561269b766af6f955cc40b41776ae0d1e4b685ac3d8de566070219bce99e0b",
+      "scripts/local-checks/lint-format-pilot.md": "6448369facee3eca12600cf690a4fec001547c0f939d045d8807d00463a2d713",
+      "scripts/statistics-e2e/node-options.ts": "e982d68c6cd07d6dc560dffd0065cdf780919e74d79ac068f1e8e0495b15cdc4",
+      "scripts/statistics-e2e/node-options.test.ts": "90edcf9b9c0ca39f1fc7949f88d95b8ac6556db5daba629bd146fc652bc66662",
+      "scripts/statistics-e2e/README.md": "30ada74551af25a52e49a1854531804a0c1cab7fb2e1d0bb7f41d157c1937b25"
+    },
+    "binding": {
+      "path": "tmp/round32-lint/published-source-binding.json",
+      "sha256": "12514b85bef233920092e382d9355bc17b917a83117fe1aa06bfc61e1338acd6"
+    },
+    "presentSourceHashesMatchedPublishedBlobs": 4862,
+    "trackedPathEntries": 4868,
+    "absentBeforeAndAfter": [
+      "action-dist/codex/linux-x64/codex-linux-x64.tgz",
+      "action-dist/codex/linux-x64/manifest.json",
+      "ai-docs/assets/unified-ocr-desktop-pending.png",
+      "ai-docs/assets/unified-ocr-mobile-migration.png",
+      "ai-docs/assets/unified-ocr-next-desktop.png",
+      "ai-docs/assets/unified-ocr-next-mobile.png"
+    ],
+    "absenceLimit": "Six explicit null records, all skip-worktree paths per independent review; these asset bytes were not qualified. Their immutable Git blobs are unchanged between the execution head and publication.",
+    "liveWorktreeCleanClaimed": false
+  },
+  "changes": {
+    "statistics": "Reject percentage heap flags, including tokenized quoted/underscore forms, because they override the fixed scenario heap cap. Retain inherited qualification preloads and accepted absolute options; preserve scenario assertions, timeouts and environment allowlist.",
+    "nativeLint": "Pin the actually published stack-toolchain 0.3.1 compiler-free Node ESLint syntax adapter; remove the direct legacy typescript-eslint dependency. Keep the independent 20-rule oracle and native load guard unchanged.",
+    "protectedPins": {
+      "@get-modular/core": "0.8.0",
+      "@get-modular/assembly": "0.8.0",
+      "typescript": "7.0.2",
+      "@agent-teams/engineering-foundation": "3.1.0",
+      "@get-modular/conformance": "0.5.2",
+      "@get-modular/resources": "0.2.2",
+      "@agent-teams/feature-module-standard": "0.3.2"
+    },
+    "fmsFilesUnchanged": {
+      "architecture/review-skills/consumer-module-profile.json": true,
+      "scripts/review-skills-tooling/package.json": true,
+      "scripts/review-skills-tooling/pnpm-workspace.yaml": true,
+      "scripts/review-skills-tooling/pnpm-lock.yaml": true
+    }
+  },
+  "producer": {
+    "repository": "agent-teams-ai/engineering-foundation",
+    "pr": "https://github.com/agent-teams-ai/engineering-foundation/pull/472",
+    "mergeSource": "fac03920e50ebde038ae415edeb7aa9e3d610ada",
+    "mergeTime": "2026-11-25T00:16:57Z",
+    "ownerPerformedRelease": true,
+    "consumerTriggeredProducerMutation": false,
+    "attempt1": {
+      "result": "FAIL",
+      "run": "https://github.com/agent-teams-ai/engineering-foundation/actions/runs/45516866453/attempts/1",
+      "jobId": 138878428373,
+      "error": "npm audit did not cryptographically verify signature and provenance for @agent-teams/repository-mutation@0.5.0.",
+      "capturedLog": {
+        "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/merge977-review/upstream-release-45516866453.log",
+        "bytes": 102204,
+        "sha256": "efffd6eb0093d2012e461f5ef5e5a432d9ff9fee411773da8439c1ce288cd03c"
+      },
+      "decodedTextRepresentation": {
+        "bytes": 102203,
+        "sha256": "b72fd36a6775c7f11b9bcf7a6791f721feff5ea1269547847aac7812c97bf229",
+        "relationship": "Captured log with exactly one final LF byte removed; this is not the retained file digest."
+      }
+    },
+    "attempt2": {
+      "result": "SUCCESS",
+      "run": "https://github.com/agent-teams-ai/engineering-foundation/actions/runs/45516866453/attempts/2",
+      "job": "https://github.com/agent-teams-ai/engineering-foundation/actions/runs/45516866453/job/138886523939",
+      "finishedAt": "2026-11-25T00:55:30Z",
+      "stackPublishedAt": "2026-11-25T00:49:55.5326965Z",
+      "visibilityVerifiedAt": "2026-11-25T00:54:17.3705498Z",
+      "signatureVerifiedAt": "2026-11-25T00:54:24.8876655Z",
+      "reconciliationVerifiedAt": "2026-11-25T00:54:50.7096638Z",
+      "decodedLogSha256": "1f7adb270e723e6b052f5c00e629218a5f5e3a0537734bee29d81f88c61844ee"
+    },
+    "signatureScope": "The producer Release job reports successful cryptographic registry signature/provenance verification. Consumer inspection independently verified payload SRI, full manifest, exports and attestation subject/source binding; consumer DSSE parsing does not independently verify the signature."
+  },
+  "publishedArtifact": {
+    "name": "stack-toolchain",
+    "version": "0.3.1",
+    "observedAt": "2026-11-25T01:06:09.960086+00:00",
+    "tarballUrl": "https://registry.npmjs.org/stack-toolchain/-/stack-toolchain-0.3.1.tgz",
+    "tarballSha256": "2cef8769bfa8408025f4c30f5c2702abc0c4b43a43937fdb1b67a4cb33c892ed",
+    "sri": "sha512-chxhm1Hn/lfE/y+ttOeqL6JmjJqq8IVNXs6fdEUNDmdVHmmXXbhBfHLVh2W9EUBhp+s+DrskUaKy6QbehLUE3w==",
+    "manifestFileCount": 339,
+    "manifestSemanticMismatches": [],
+    "allPublicExportTargetsPresent": true,
+    "sourceCommit": "fac03920e50ebde038ae415edeb7aa9e3d610ada",
+    "attestationSubjectSha512": "721c619b51e7fe57c4ff2fadb4e7aa2fa2668c9aaaf0854d5ece9f74450d0e67551e69975db8417c72d58765bd114061a7eb3e0ebb2451a2b2e906de84b504df",
+    "inspectionReceipt": {
+      "path": "tmp/round32-adoption/artifact-verification.json",
+      "sha256": "42b0b9e391b53c9e0fc69986c75a89169ed6d19b711543f4d884f38b0d72ec5d"
+    },
+    "parserCohort": {
+      "eslint-parser-oxc": "0.1.1",
+      "@typescript-eslint/scope-manager": "8.73.0",
+      "@typescript-eslint/visitor-keys": "8.73.0",
+      "@typescript-eslint/types": "8.73.0",
+      "typescript": "7.0.2",
+      "samePhysicalScopeManager": true
+    }
+  },
+  "installation": {
+    "node": "26.11.1",
+    "pnpm": "11.28.7",
+    "receipt": {
+      "path": "tmp/round32-adoption/receipt.json",
+      "sha256": "14c989a62429b2c70a9ddbc1c560b9773e99b431278b17cdc1d143bdf80a924e"
+    },
+    "generatedLockSha256": "bc640e13fd261f30b746ae9b422206f3619b0d1249b5c3658034dc3908bd9109",
+    "lockChanges": {
+      "rootImporterOnly": true,
+      "addedPackageEntries": 92,
+      "removedPackageEntries": 13,
+      "rootChanges": "Exact Stack 0.3.1 added, direct typescript-eslint removed, existing Oxlint 1.87.0 gains its compatible native peer context; other importer versions preserved.",
+      "survivingPackageEntriesUnchanged": true,
+      "otherImportersUnchanged": 56
+    },
+    "releaseAgeException": {
+      "exact": "stack-toolchain@0.3.1",
+      "addedBy": "pnpm11.28.7 during actual resolution",
+      "otherPolicyUnchanged": true
+    },
+    "buildPolicy": {
+      "newExactOptionalDenial": {
+        "bun@1.4.3": false
+      },
+      "existingAllowBuildsPreserved": true,
+      "noBroadIgnoreFlag": true,
+      "pnpmExactSelectorSupport": "Checked actual pinned package matchesPackageSpec and false-rule handling; normal frozen rerun exit0.",
+      "pnpmSourceSha256": "356a0741afb798e286c909769e1bb3c77d7912d1fd0405195f122bc61baa47d8",
+      "reason": "Consumer uses compiler-free Node ESLint adapter; optional Bun postinstall is not adopted. Exact false preserves default-deny and all required builds."
+    },
+    "initialFrozenInstall": {
+      "result": "FAIL",
+      "exitCode": 1,
+      "reason": "ERR_PNPM_IGNORED_BUILDS: bun@1.4.3",
+      "normalRootLifecycleCompleted": true,
+      "log": {
+        "path": "tmp/round32-adoption/install.log",
+        "sha256": "76720326d27a88823c65ee45d00e43fa5b8387377ed9e45ddeb7e103f424149f"
+      }
+    },
+    "frozenInstallAfterExactDenial": {
+      "result": "PASS",
+      "exitCode": 0,
+      "normalLifecycle": [
+        "pinned subscription artifacts in two peer contexts",
+        "original Prisma 7.8.0 generation",
+        "isolated native TypeScript 7.0.2 preparation"
+      ],
+      "log": {
+        "path": "tmp/round32-adoption/install-final.log",
+        "sha256": "40e59e6f7fa947bf0ffd4f51219085ed207e15af14f8f46cb500e72161665972"
+      }
+    },
+    "accountsExistingIsland": {
+      "command": "pnpm --dir scripts/accounts-reference-e2e install --frozen-lockfile",
+      "pnpm": "11.28.7",
+      "result": "PASS",
+      "exitCode": 0,
+      "normalLifecycle": true,
+      "rootAndIslandManifestLockBytesUnchanged": true,
+      "receipt": {
+        "path": "tmp/round32-accounts-install/receipt.json",
+        "sha256": "0054b9ac8c8045a7caed0a099670896f2e0408a1f13652b5a943ad949361b885"
+      }
+    },
+    "dependencyStorage": "Independent worktree node_modules and virtual stores; standard shared pnpm store with hardlinks. No shared mutable node_modules link and no blanket lifecycle bypass."
+  },
+  "localQualification": {
+    "statistics": {
+      "result": "PASS",
+      "tests": {
+        "passed": 9,
+        "total": 9,
+        "failed": 0,
+        "skipped": 0
+      },
+      "receipt": {
+        "path": "tmp/round32-statistics/qualification.json",
+        "sha256": "aa31b8b05f438256f8cc8b92319bf5e7fa99ae94d7ad892a94e3ff56908c16d5"
+      },
+      "report": {
+        "path": "tmp/round32-statistics/green-portable.json",
+        "sha256": "68b85fd583fac4c5b54e7a6b655e590ef62f51bb64701b20152e26d02404466f"
+      }
+    },
+    "originalToolingStrict": {
+      "result": "PASS",
+      "exitCode": 0,
+      "durationSeconds": 48.367,
+      "command": [
+        "/workspace/scratch/rr977-tools-20261124/node-v26.11.1-linux-x64/bin/node",
+        "scripts/local-checks/compiler-cli.ts",
+        "--native",
+        "--noEmit",
+        "-p",
+        "tsconfig.tooling.json"
+      ],
+      "receipt": {
+        "path": "tmp/round32-statistics/tooling-strict-after-island-receipt.json",
+        "sha256": "2b28fc369a566a6e7716bc0aba16cb2c42b81443ce9ec744ae927a1e5919de27"
+      },
+      "bindingLimit": "Hash snapshot of owned Statistics source, direct qualification manifests/configs and reused utility; not an exhaustive compiler input closure."
+    },
+    "lintFormatStrict": {
+      "name": "typecheck",
+      "exitCode": 0,
+      "elapsedSeconds": 2.888812835997669,
+      "receipt": {
+        "path": "tmp/round32-lint/typecheck/receipt.json",
+        "sha256": "90b97468fd7fe00b02c39b2309bbbc4b3b179208e6c90a60ae2eae53e1e94d73"
+      },
+      "log": {
+        "path": "tmp/round32-lint/typecheck/command.log",
+        "sha256": "ef092e770a7cced8c69db6851bcf1e841bb7f2c76ffd04cd314f0803897cff60"
+      }
+    },
+    "fullGuardedLint": {
+      "name": "lint",
+      "exitCode": 0,
+      "elapsedSeconds": 32.989086978999694,
+      "receipt": {
+        "path": "tmp/round32-lint/lint/receipt.json",
+        "sha256": "bd63b595473f1a639e37d47b344d5b3edf7d78e89673b8d897dfe591488b0293"
+      },
+      "log": {
+        "path": "tmp/round32-lint/lint/command.log",
+        "sha256": "050c69da23536758722729aeda55a8d0fb9d557495ef6d33d70873a3b64a71c1"
+      }
+    },
+    "completeQualification": {
+      "name": "qualify-retry",
+      "exitCode": 0,
+      "elapsedSeconds": 49.62703468199834,
+      "receipt": {
+        "path": "tmp/round32-lint/qualify-retry/receipt.json",
+        "sha256": "fce005e09d1586912fa15a151aa79602cd1316310df44b717d706460b3db81fd"
+      },
+      "log": {
+        "path": "tmp/round32-lint/qualify-retry/command.log",
+        "sha256": "2a5386917cee68eab2f6eae8c1b0e09e796783bc4374865e444cae66c080cd69"
+      },
+      "wrapperReceipt": {
+        "path": "tmp/round32-lint/qualify-retry/qualification/receipt.json",
+        "sha256": "0484d4550e252772745bae230c7ff5e3a0807404062f3186eb392a6ca7f41e4c"
+      },
+      "status": "passed",
+      "results": {
+        "nativeFormatter": {
+          "total": 47,
+          "passed": 47
+        },
+        "safetyAndQualification": {
+          "total": 90,
+          "passed": 90
+        }
+      },
+      "originalInputCount": 38,
+      "originalAndCopiedInputsMatch": true,
+      "cleanupCompleted": true,
+      "ruleLedgers": [
+        {
+          "rows": 624,
+          "path": "tmp/round32-lint/qualify-retry/qualification/rule-ledger-n1-test-5ksebA.json",
+          "sha256": "4c665f734f3a8a3e840c43edd3ae9f3ccb1c95f35c91fe7ca41be0a268d82bf2"
+        }
+      ],
+      "auditCounts": {
+        "guard-installed": 622,
+        "native-typescript-module": 6,
+        "formatter-module": 704,
+        "blocked-before-initialization": 6
+      }
+    },
+    "twentyRuleOracle": {
+      "path": "scripts/local-checks/lint-format-eslint-oracle.ts",
+      "sha256": "a7391b6df3ffb095932d861a6af680139b097aed66c3165d4ce4d60a1b512a1e",
+      "unchanged": true
+    },
+    "negativeFixtureBlocks": {
+      "countPerQualificationRun": 6,
+      "expected": true,
+      "categories": {
+        "Prettier bundled legacy parser (ESM and CJS)": 2,
+        "Synthetic TypeScript 6.0.3 (ESM and CJS)": 2,
+        "Synthetic legacy typescript-eslint (ESM and CJS)": 2
+      },
+      "meaning": "All blocked before initialization by deliberate negative fixtures; these events are not legacy compiler execution. Full lint and standalone lint-format strict have zero block events."
+    },
+    "installedGraphCustody": {
+      "fileCount": 5314,
+      "linkCount": 2078,
+      "scope": "Installed root, isolated native compiler, and Accounts island package manifests and package links; pnpm graph metadata; full admitted Stack/native-parser/scope/type/compiler package payloads. Other dependency payload bytes are outside this snapshot.",
+      "beforeAfterUnchanged": true
+    },
+    "independentReview": {
+      "path": "tmp/round32-lint/independent-review.json",
+      "sha256": "b4b0781bb9a762e202c8840f6dd42839e71eaa33329dd8561638304bab37b7e6"
+    },
+    "lintHandoff": {
+      "path": "tmp/round32-lint/summary.json",
+      "sha256": "0efc5b7847d191994febb0314fd44c5faa1711bacb816337a5188a993ec537ed"
+    }
+  },
+  "failuresRetained": {
+    "firstRootFrozenInstall": "Recorded above; only exact optional bun@1.4.3 denial changed before normal successful frozen rerun.",
+    "firstFullToolingStrict": {
+      "result": "FAIL",
+      "exitCode": 1,
+      "reason": "Missing existing Accounts island @electric-sql/pglite and @electric-sql/pglite-socket dependencies, plus a consequent event type diagnostic.",
+      "receipt": {
+        "path": "tmp/round32-statistics/tooling-strict-receipt.json",
+        "sha256": "25bf6e28877c89e846264bbfec94b3c1d0d9c9a5021f75fcdb493e693c0d387b"
+      },
+      "recovery": "Prepare the unchanged existing island with its maintained ordinary frozen command, then rerun the original full tooling project."
+    },
+    "firstFullQualification": {
+      "retainedAs": "FAIL",
+      "nodeTests": {
+        "passed": 88,
+        "total": 90,
+        "failed": 2,
+        "skipped": 0
+      },
+      "failures": [
+        {
+          "test": "native parity cts no-regex-spaces: positive and rejecting",
+          "observation": "spawnSync ETIMEDOUT under the unchanged 30,000 ms child budget; no rule mismatch reported"
+        },
+        {
+          "test": "real lint adapter checks native plus retained rules and reports skips",
+          "observation": "null status instead of expected 1 after 35.6 s; original assertion did not emit the child error or signal"
+        }
+      ],
+      "retryChange": "Only the fresh evidence directory and disposable TEST path; no source, installed graph, fixture, oracle, timeout, assertion or command-scope change.",
+      "receipt": {
+        "path": "tmp/round32-lint/qualify/receipt.json",
+        "sha256": "e4f8c52b689a91e160b42ca57cc02ef406cf2b7ca8d1ee179585ac9bde5435ab"
+      },
+      "wrapperReceipt": {
+        "path": "tmp/round32-lint/qualify/qualification/receipt.json",
+        "sha256": "11143d8562b8ef29fb44ce31c88a803607f79c3c90843fbf23777fde81723b47"
+      }
+    },
+    "latestFullArchitecture": {
+      "result": "FAIL",
+      "exitCode": 1,
+      "head": "29e8386ed8490ce9e5a1765c6262ede2a0c18a75",
+      "durationSeconds": 168.702,
+      "passedBeforeFailure": [
+        "694-file domain/application boundary",
+        "WEB entrypoints",
+        "Foundation",
+        "Memory 23 cases",
+        "Statistics 6 cases",
+        "History",
+        "account metadata layout"
+      ],
+      "failure": "Final account-metadata native compiler received SIGKILL, with no TypeScript diagnostic. Signal cause is not established.",
+      "sourceEntriesRestored": 4868,
+      "sourceInputsUnchanged": true,
+      "installedGraphMetadataUnchanged": true,
+      "receipt": {
+        "path": "tmp/round32-final/architecture/receipt.json",
+        "sha256": "9b6b9e8fbf124fa467281440facf1a3f3132c6bb38674f9803402a7820a64740"
+      },
+      "nextStep": "Use unchanged ordinary Ready CI; no further identical local retry or aggregate PASS is claimed.",
+      "sourceCardinalityAddendum": {
+        "path": "tmp/round32-final/architecture/source-cardinality-addendum.json",
+        "sha256": "a61e711d594df6bb406ade7f8a3cb74e8f4c348f44255000fe9fe069cb8058e0"
+      },
+      "sourceCardinality": "4,868 tracked entries comprise 4,862 present-file hashes and six absent sparse records; the addendum preserves the original receipt and corrects cardinality wording."
+    }
+  },
+  "historicalRecovery": {
+    "isolatedMetadata": {
+      "result": "PASS",
+      "head": "1357cdfc9deac393c9e39877a62a7adda513b547",
+      "command": [
+        "node",
+        "scripts/local-checks/compiler-cli.ts",
+        "--native",
+        "--noEmit",
+        "-p",
+        "tsconfig.account-metadata.json"
+      ],
+      "durationSeconds": 20.869,
+      "actualChildExits": [
+        {
+          "at": "2026-11-25T00:36:19.183Z",
+          "callerPid": 28,
+          "childPid": 36,
+          "command": "/workspace/scratch/rr977-tools-20261124/node-v26.11.1-linux-x64/bin/node",
+          "arguments": [
+            "/workspace/scratch/d86a8e224bfa/review-router-977/scripts/local-checks/native/node_modules/.pnpm/typescript@7.0.2/node_modules/typescript/bin/tsc",
+            "--noEmit",
+            "-p",
+            "tsconfig.account-metadata.json"
+          ],
+          "status": 0,
+          "signal": null,
+          "errorCode": null
+        }
+      ],
+      "compilerInputCount": 603,
+      "allBoundInputCount": 672,
+      "relevantInputsUnchanged": true,
+      "receipt": {
+        "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round31-execution/metadata-capacity-retry/receipt.json",
+        "sha256": "6a3fe35c29f68adfd114d77fe804e59531e15a45cc02f10753028266ae3a62e6"
+      },
+      "limit": "A separate completed original metadata-only run at its recorded source; earlier and current failed full architecture attempts remain failed."
+    },
+    "sourceIdentity": {
+      "mapping": "ai-docs/deployments/evidence/2026-11-25-pr977-source-identity.json",
+      "mappingSha256": "9e30222b6f7a168d0e92411b9cd7183bf0fb40411775cbb8d61e9e40d6680cb8",
+      "originalHead": "1169070c85d0c10fe044b39433717471e61bb883",
+      "replacementHead": "fd1089e691a01b962dd321506867bbfe10e10ffd",
+      "preservedTree": "6fdbb27aa48531c315231c641843067d873e0821",
+      "backupBranch": "recovery/rr977-original-1169070c-20261125",
+      "originalSourceCohortCount": 106,
+      "reconstructedObjects": 49,
+      "unchangedOriginalObjects": 57,
+      "limit": "Original source trees, ordered parents and raw messages were independently preserved; integration metadata dates changed. Original automated bundle provenance remains recorded. Later source commits do not rewrite this mapping."
+    },
+    "earlierReports": "Production17 on original 1169070c/equivalent fd1089e6, UI16 on 41ff7190 with its public-asset limitation, historical paired45 composite, and later partial paired attempts retain their existing source and scope; none is relabeled as a current-head full E2E run."
+  },
+  "remainingAcceptance": {
+    "ordinaryReadyCI": "PENDING",
+    "currentUI16AssetComplete": "PENDING",
+    "currentCompletePaired45": "PENDING",
+    "statisticsBrowserFollowthrough": "PENDING",
+    "fullArchitecture": "FAILED_LOCALLY_PENDING_ORDINARY_CI",
+    "finalExactHeadReviewAndMerge": "PENDING",
+    "postMergeMainVerification": "PENDING",
+    "stagingAndProduction": "OUTSIDE_REQUEST_PENDING"
+  },
+  "evidenceAvailability": "Compact source identities, outcomes and immutable hashes are intended for the repository. Detailed raw logs/receipts remain in the listed local paths and producer Actions URLs; availability of local scratch is not a permanent artifact-retention claim.",
+  "ciPrerequisites": {
+    "workflow": ".github/workflows/ci.yml",
+    "workflowSha256": "8ebe44301cd0dca3e7ccbc1e268519747e4f04f2eef545473d1dcc8b555fe7ed",
+    "sourceBeforeChange": "29e8386ed8490ce9e5a1765c6262ede2a0c18a75",
+    "jobs": ["static-checks", "quality", "quality-source-certification"],
+    "change": "Run the existing separate Accounts harness ordinary frozen installation immediately after the root dependency installation in all three jobs that consume its tooling or runtime imports.",
+    "command": "pnpm --dir scripts/accounts-reference-e2e install --frozen-lockfile",
+    "reason": "The root workspace does not install this dependency island. Original tooling compilation requires its PGlite modules; the existing accounts-reference-next-app.test.ts imports app.ts and database.ts at runtime.",
+    "existingCommandsConditionsAndTriggersPreserved": true,
+    "validation": "Maintained guarded Prettier YAML check passes. Parsed before/after workflow comparison differs only by the three inserted prerequisite steps. Full original tooling and ordinary island install were independently qualified locally; remote execution is pending.",
+    "receipt": {
+      "path": "tmp/round32-final/ci-prerequisite/receipt.json",
+      "sha256": "403a17a62a9d815ba93516e9222ff11f591903aac39e3cb1915a6320864615c4"
+    }
+  },
+  "concurrentE2ECheckpoint": {
+    "source": "6b6f1d00bed23dc2dca87052783399c2d9738bbe",
+    "draft": {
+      "path": "/workspace/scratch/0f054634e853/review-router-977-final/tmp/round32-current-review/historical-e2e-draft-observed.json",
+      "sha256": "af6d737c617d2b4e0060c8e36c76d8ee8bc78b038f8c21d681633cdfac1ae7a6",
+      "originalMutablePath": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round33-final/evidence-draft.json"
+    },
+    "status": "Historical backend qualification and failed browser attempts; current Stack graph E2E pending.",
+    "production": {
+      "passed": 17,
+      "failed": 0
+    },
+    "paired": {
+      "passed": 45,
+      "failed": 0,
+      "completeFiles": 6
+    },
+    "assetCompleteUi": {
+      "passed": 12,
+      "failed": 4,
+      "nextChildSignal": "SIGKILL",
+      "signalCause": "unproved",
+      "publicAssetsMatchGit": 28,
+      "httpBodyProof": ["logo"],
+      "missingHttpBodyProof": ["GitHub icon", "GitLab icon"]
+    },
+    "statistics": {
+      "result": "FAIL before browser launch",
+      "reason": "authenticated SSR warmup fetch failed",
+      "journeyRecords": 0,
+      "captures": 0
+    },
+    "historicalToolingNode": "24.22.3",
+    "historicalArchitectureNode": "26.11.1",
+    "separateCurrentToolingAttempt": {
+      "source": "29e8386ed8490ce9e5a1765c6262ede2a0c18a75",
+      "result": "FAIL",
+      "signal": "SIGKILL",
+      "receipt": {
+        "path": "/workspace/scratch/d86a8e224bfa/review-router-977/tmp/round33-recovery/tooling-29e8386/receipt.json",
+        "sha256": "4b0ec3fac7b0e905ee4bac82ebf4fcd759b7719c6cf38449d0fa8d6dd79fe626"
+      }
+    },
+    "limits": "These separate attempts do not alter the successful guarded candidate tooling receipt, are not relabeled onto the new graph, and do not qualify current browser acceptance."
+  }
+}

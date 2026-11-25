@@ -27,10 +27,10 @@ const requestBody = {
 
 const prisma = (proofs: unknown[]) =>
   ({
+    $executeRawUnsafe: vi.fn(async () => 1),
     $queryRawUnsafe: vi.fn(async (sql: string) => {
       if (sql.includes("pg_control_system"))
         return [{ systemIdentifier: "200" }];
-      if (sql.includes("request_runtime_canary_challenge")) return [];
       if (sql.includes("read_runtime_canary_challenge_proofs")) return proofs;
       return [{ nonce: requestBody.nonce }];
     }),

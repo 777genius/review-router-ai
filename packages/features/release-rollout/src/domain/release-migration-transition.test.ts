@@ -26,7 +26,10 @@ import {
   readRenderSchemaHandoffCatalog,
   readRenderManagedCheckoutInventory,
   readReviewedRenderManagedContract,
+  partitionRenderSchemaHandoffCheckout,
   renderManagedMigrationPhases,
+  renderReviewSkillsCheckoutExtension,
+  renderConversationalMemoryCheckoutExtension,
 } from "../../../../../scripts/lib/render-schema-handoff-policy.mjs";
 
 import { readRenderHistorical96CheckoutInventory } from "../../../../../scripts/lib/render-historical96-checkout.mjs";
@@ -93,29 +96,432 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps full108 source admission separate from historical96 and managed92 authority", () => {
+  it("keeps checkout160, merged checkout159 and published checkout158/157/156/155 admission separate from historical96 and managed92", () => {
     type Row = { migrationName: string; checksum: string };
-    const names: readonly string[] = canonicalPrismaMigrationNames;
-    const full = names.map((migrationName) => ({
+    // Historical signed checkout160 remains unchanged by additive app-only
+    // Claude credential migration161 and the later personal import journal.
+    const names: readonly string[] = canonicalPrismaMigrationNames.filter(
+      (name) =>
+        name !== "000157_claude_code_api_key_secret" &&
+        name !== "000158_review_run_allocation_provider_quota" &&
+        name !== "000159_producer_reviewer_plan_v2" &&
+        name !== "000160_personal_credential_import_method",
+    );
+    const checkout161 = names.map((migrationName) => ({
       migrationName,
       checksum: sha256(
         readFileSync(`${migrationRoot}/${migrationName}/migration.sql`),
       ).slice(7),
     }));
+    expect(checkout161).toHaveLength(161);
+    const verifiedReplyExtension: Row = {
+      migrationName: "000156_verified_thread_reply",
+      checksum:
+        "690327803b321cad8914c1ac489751ad140e7b39126115bf826138959b3f3888",
+    };
+    expect(checkout161.at(-1)).toEqual(verifiedReplyExtension);
+    const checkout160 = checkout161.filter(
+      (row) => row.migrationName !== verifiedReplyExtension.migrationName,
+    );
+    expect(checkout160).toHaveLength(160);
+    const memberIndexExtension: Row = {
+      migrationName: "000155_usage_member_report_index",
+      checksum:
+        "3f443fcdc18924dd5f1bf3c6eacbbc68969ce26811975206261b3aca014dcfd7",
+    };
+    expect(checkout160.at(-1)).toEqual(memberIndexExtension);
+    const checkout159 = checkout160.filter(
+      (row) => row.migrationName !== memberIndexExtension.migrationName,
+    );
+    expect(checkout159).toHaveLength(159);
+    const unifiedExtension: Row = {
+      migrationName: "000154_unified_model_dispatch",
+      checksum:
+        "0ecebe5d1437544b0be81e946731a8bde39d1d3eb51a3516b465014323c70884",
+    };
+    expect(checkout159.at(-1)).toEqual(unifiedExtension);
+    const checkout158 = checkout159.filter(
+      (row) => row.migrationName !== unifiedExtension.migrationName,
+    );
+    expect(checkout158).toHaveLength(158);
+    const gatewayAllocationsExtension: Row = {
+      migrationName: "000152_review_run_gateway_allocations",
+      checksum:
+        "013e9b1917940ed3a796f8df6fa85a0c9c0cc5a4e76a7b19841911f3ea24bd6d",
+    };
+    const checkout157 = checkout158.filter(
+      (row) => row.migrationName !== gatewayAllocationsExtension.migrationName,
+    );
+    const checkout156 = checkout158.filter(
+      (row) =>
+        !renderConversationalMemoryCheckoutExtension.some(
+          (extension) => extension.migrationName === row.migrationName,
+        ),
+    );
+    expect(checkout157).toHaveLength(157);
+    expect(checkout157.slice(-2)).toEqual(
+      renderConversationalMemoryCheckoutExtension,
+    );
+    expect(checkout156).toHaveLength(156);
+    expect(checkout156.at(-1)).toEqual(gatewayAllocationsExtension);
+    const checkout155 = checkout156.filter(
+      (row) => row.migrationName !== gatewayAllocationsExtension.migrationName,
+    );
+    expect(checkout155).toHaveLength(155);
+    const reviewHistoryExtension: Row = {
+      migrationName: "000151_review_history",
+      checksum:
+        "276fc355d90fd41ba95797eeb21a73aa78755c0709a82426f33552ecb2c05274",
+    };
+    expect(checkout155.at(-1)).toEqual(reviewHistoryExtension);
+    const checkout154 = checkout155.filter(
+      (row) => row.migrationName !== reviewHistoryExtension.migrationName,
+    );
+    expect(checkout154).toHaveLength(154);
+    const skillsCatalogExtension: Row = {
+      migrationName: "000150_skills_catalog_security",
+      checksum:
+        "4a5ecd80f83b0631982519fc747c411d0ed5d9b04624ee8e3d176a82ae96e4b8",
+    };
+    expect(
+      checkout154.find(
+        (row) => row.migrationName === skillsCatalogExtension.migrationName,
+      ),
+    ).toEqual(skillsCatalogExtension);
+    const checkout153 = checkout154.filter(
+      (row) => row.migrationName !== skillsCatalogExtension.migrationName,
+    );
+    expect(checkout153).toHaveLength(153);
+    const memoryExtension: readonly Row[] = [
+      {
+        migrationName: "000142_memory_knowledge_authority",
+        checksum:
+          "b40e545bd31f9d4cc65146c78b05afc8b662333e4945380ea4ed5f511d7ebcf9",
+      },
+      {
+        migrationName: "000143_memory_maintenance_fence",
+        checksum:
+          "1f8552ab409ece31536505c42ec62f0ef3df5b6220b7caa0cb90fcb2ee8aa83e",
+      },
+    ];
+    const isMemoryExtension = (row: Row) =>
+      memoryExtension.some(
+        (extension) => extension.migrationName === row.migrationName,
+      );
+    expect(checkout153.filter(isMemoryExtension)).toEqual(memoryExtension);
+    // Recover the exact previously reviewed checkout, not a moving prefix or
+    // a count-based slice: these two names sort among existing migrations.
+    const checkout151 = checkout153.filter((row) => !isMemoryExtension(row));
+    expect(checkout151).toHaveLength(151);
+    const checkout150 = checkout151.filter(
+      (row) =>
+        row.migrationName !== "000149_api_key_repository_secret_profiles",
+    );
+    expect(checkout150).toHaveLength(150);
+    const checkout149 = checkout150.filter(
+      (row) => row.migrationName !== "000148_lifecycle_verification",
+    );
+    expect(checkout149).toHaveLength(149);
+    const current = checkout149.filter(
+      (row) => row.migrationName !== "000147_review_skills_mutation_identity",
+    );
+    expect(current).toHaveLength(148);
+    expect(
+      current.filter((row) =>
+        renderReviewSkillsCheckoutExtension.some(
+          (skill) => row.migrationName === skill.migrationName,
+        ),
+      ),
+    ).toEqual(renderReviewSkillsCheckoutExtension);
+    const previous147 = current.filter(
+      (row) =>
+        row.migrationName !== "000146_drop_review_configuration_projection",
+    );
+    const previous146 = previous147.filter(
+      (row) => row.migrationName !== "000145_workspace_provider_profiles",
+    );
+    const previous145 = previous146.filter(
+      (row) => row.migrationName !== "000144_review_statistics",
+    );
+    const full = previous145.filter(
+      (row) =>
+        !renderReviewSkillsCheckoutExtension.some(
+          (skill) => row.migrationName === skill.migrationName,
+        ),
+    );
     const manifest = (rows: readonly Row[]) =>
       sha256(
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
-    expect(full).toHaveLength(108);
-    expect(full).toEqual(readRenderManagedCheckoutInventory());
-    expect(full.slice(-3).map((row) => row.migrationName)).toEqual([
-      "000107_hosted_v4_relay_turn_contract",
-      "000108_sdk_growth_verifier_assignment",
-      "000109_sdk_growth_verifier_assignment_lock",
-    ]);
+    const mainCheckout157 = checkout159.filter(
+      (row) =>
+        !renderConversationalMemoryCheckoutExtension.some(
+          (extension) => extension.migrationName === row.migrationName,
+        ),
+    );
+    const unifiedCheckout156 = mainCheckout157.filter(
+      (row) => row.migrationName !== gatewayAllocationsExtension.migrationName,
+    );
+    const historical152 = [...checkout151, unifiedExtension];
+    for (const [rows, count, expected] of [
+      [
+        checkout160,
+        160,
+        "sha256:59f0189f4e0083528dbcdf75c05b509019f1f1ba74cec7df7a157f926198db54",
+      ],
+      [
+        checkout159,
+        159,
+        "sha256:35d11ac132da5057b2ed6ff8a0eb82fcf0bd0c289975e7772deea55b1f14ad98",
+      ],
+      [
+        mainCheckout157,
+        157,
+        "sha256:b632de30125258ef10541fa8c71301a6b5d1c9504bcca155c171374808ed01ba",
+      ],
+      [
+        unifiedCheckout156,
+        156,
+        "sha256:67de1583cf2ae194e7b6dd5cef021d08b60eb64988d516cb2adcbc2d01bbbda3",
+      ],
+      [
+        historical152,
+        152,
+        "sha256:f8bc4e6289b679d7f4142426e67e77ab347be8f8bed5937072ebc1ca54218fcc",
+      ],
+    ] as const) {
+      expect(rows).toHaveLength(count);
+      expect(manifest(rows)).toBe(expected);
+      expect(partitionRenderSchemaHandoffCheckout(rows)).toEqual(managed);
+      expect(() =>
+        partitionRenderSchemaHandoffCheckout(
+          rows.map((row) =>
+            row.migrationName === unifiedExtension.migrationName
+              ? { ...row, checksum: "0".repeat(64) }
+              : row,
+          ),
+        ),
+      ).toThrow("checkout_extension");
+    }
+    expect(manifest(checkout158)).toBe(
+      "sha256:b0ce46334153bca9e201a44ccf2b1eecc3a960d7a6fe2465530005099fc490f5",
+    );
+    expect(partitionRenderSchemaHandoffCheckout(checkout158)).toEqual(managed);
+    expect(manifest(checkout156)).toBe(
+      "sha256:ef2c303008c8edac0df3372f725f374ba417042a6707daf25b69c87897bd1e38",
+    );
+    expect(partitionRenderSchemaHandoffCheckout(checkout156)).toEqual(managed);
+    for (const catalog of [
+      checkout159,
+      checkout158,
+      mainCheckout157,
+      checkout156,
+    ]) {
+      expect(() =>
+        partitionRenderSchemaHandoffCheckout(
+          catalog.map((row) =>
+            row.migrationName === gatewayAllocationsExtension.migrationName
+              ? { ...row, checksum: "0".repeat(64) }
+              : row,
+          ),
+        ),
+      ).toThrow("checkout_extension");
+    }
+    expect(manifest(checkout157)).toBe(
+      "sha256:142e0ea44ad7c65c9e27e133c2902d35a88c1dcb39c0ea5274059fc81ae2de49",
+    );
+    expect(partitionRenderSchemaHandoffCheckout(checkout157)).toEqual(managed);
+    expect(manifest(checkout155)).toBe(
+      "sha256:3d7b45be5b1654757f1bf72626e6f3f7c9b1351bb82ce93819bca2e4a38b7dbf",
+    );
+    expect(partitionRenderSchemaHandoffCheckout(checkout155)).toEqual(managed);
+    expect(manifest(checkout153)).toBe(
+      "sha256:5d42e163ba89faae7c49fa4fa9ff65bc2a8b87a6774b57a5f70c6a027e4331dd",
+    );
+    expect(partitionRenderSchemaHandoffCheckout(checkout154)).toEqual(managed);
+    expect(partitionRenderSchemaHandoffCheckout(checkout153)).toEqual(managed);
+    expect(partitionRenderSchemaHandoffCheckout(checkout151)).toEqual(managed);
+    expect(() =>
+      partitionRenderSchemaHandoffCheckout(
+        checkout154.map((row) =>
+          row.migrationName === skillsCatalogExtension.migrationName
+            ? { ...row, checksum: "0".repeat(64) }
+            : row,
+        ),
+      ),
+    ).toThrow("checkout_extension");
+    for (const extension of memoryExtension)
+      expect(() =>
+        partitionRenderSchemaHandoffCheckout(
+          checkout153.filter(
+            (row) => row.migrationName !== extension.migrationName,
+          ),
+        ),
+      ).toThrow("checkout_extension");
+    expect(manifest(checkout151)).toBe(
+      "sha256:bde611c1eb4753d8d21f0f5ac2b97f2c93818aaf7fb48cc9181abe28aa708035",
+    );
+    expect(manifest(checkout150)).toBe(
+      "sha256:ae1f73631c1ae9e359a22c421d7bb83751fd831f22ba77304be1d20d01878472",
+    );
+    expect(manifest(checkout149)).toBe(
+      "sha256:597739d44aa5f10551930c1349bed5c1a634b868fd55f9738b32b33ac230e897",
+    );
+    expect(manifest(current)).toBe(
+      "sha256:000decc06ca41637beceb84da74858f434d2300c3c4c3af8c96dcac0aee3efba",
+    );
+    expect(previous147).toHaveLength(147);
+    expect(manifest(previous147)).toBe(
+      "sha256:bf77d4720a7c41e4e9f427595e1a6ecc044149a74ec5a243aaacbbd5ba886cab",
+    );
+    expect(previous146).toHaveLength(146);
+    expect(manifest(previous146)).toBe(
+      "sha256:28c55f9026bfb1bd139bc25925571ea62e2c454a10e151ef6149aae0358a4178",
+    );
+    expect(previous145).toHaveLength(145);
+    expect(manifest(previous145)).toBe(
+      "sha256:33e264e0296d1a14920007a0dfdfcd297e79337132f374ec02859fda3c7680af",
+    );
+    expect(full).toHaveLength(143);
     expect(manifest(full)).toBe(
-      "sha256:1d97937b91028e91b3987eee05057fbe915b7f2354cf2464c8fb507f1086590f",
+      "sha256:4fe4b459218a0cc56c8638b6f6d5a33d08d09579205d612b72d2781a7a0962bf",
+    );
+    const previous142 = full.filter(
+      (row) => row.migrationName !== "000143_workspace_draft_review_setting",
+    );
+    expect(previous142).toHaveLength(142);
+    expect(manifest(previous142)).toBe(
+      "sha256:a0cd29f30a38777a777aad492da123023a0c5258ed093589643655c96ebb5d7f",
+    );
+    const previous141 = previous142.filter(
+      (row) => row.migrationName !== "000142_optional_gateway_reasoning",
+    );
+    expect(previous141).toHaveLength(141);
+    expect(manifest(previous141)).toBe(
+      "sha256:f57efc9ec8fd5f1efcd8f9cea07586957e5bd4bf983f02f252b30dc474a67ec8",
+    );
+    const old125 = previous141
+      .filter(
+        (row) =>
+          row.migrationName !== "000126_review_configuration_mimo_auth_kind" &&
+          row.migrationName !== "000127_owner_workspace_deletion" &&
+          row.migrationName !== "000128_account_admission_row_lock" &&
+          row.migrationName !== "000129_personal_run_snapshot_v2" &&
+          row.migrationName !== "000130_personal_canonical_operations" &&
+          row.migrationName !== "000131_personal_canonical_unentered_claim" &&
+          row.migrationName !== "000132_review_policy_schema_v3" &&
+          row.migrationName !== "000134_account_lifecycle" &&
+          row.migrationName !== "000134_review_provider_kind_v2_ocr" &&
+          row.migrationName !== "000136_provider_usage" &&
+          row.migrationName !== "000135_review_run_checkout_repository_lock" &&
+          row.migrationName !== "000138_pr_description" &&
+          row.migrationName !== "000139_review_context_tools" &&
+          row.migrationName !== "000140_personal_oauth_method" &&
+          row.migrationName !== "000141_memory_search_projections" &&
+          row.migrationName !== "000133_allow_first_time_scm_identity_bind",
+        "000132_review_policy_schema_v3",
+      )
+      .map((row) =>
+        row.migrationName === "000119_review_configuration_gateway_binding"
+          ? {
+              ...row,
+              checksum:
+                "2c0dde1720111063059d5226c6011c15389b6877a6a1f924177a24a36aa81a70",
+            }
+          : row,
+      );
+    expect(manifest(old125)).toBe(
+      "sha256:fcd4d6ea3f95504edfd4485185ccfd4b139349509083cf67d188786dd57d97ae",
+    );
+    const historicalFull = old125.filter(
+      (row) => row.migrationName !== "000125_hosted_codex_device_reconnect",
+    );
+    expect(historicalFull).toHaveLength(124);
+    expect(manifest(historicalFull)).toBe(
+      "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
+    );
+    expect(checkout160).toEqual(
+      readRenderManagedCheckoutInventory().filter(
+        (row) =>
+          row.migrationName !== "000157_claude_code_api_key_secret" &&
+          row.migrationName !== "000158_review_run_allocation_provider_quota" &&
+          row.migrationName !== "000159_producer_reviewer_plan_v2" &&
+          row.migrationName !== "000160_personal_credential_import_method" &&
+          row.migrationName !== "000156_verified_thread_reply",
+      ),
+    );
+    expect(full.slice(-35).map((row) => row.migrationName)).toEqual([
+      "000110_historical_unknown_scope_barrier",
+      "000110_provider_api_key_workspace_management",
+      "000111_sdk_growth_source_binding",
+      "000112_sdk_growth_operator_credential",
+      "000113_sdk_growth_approval_ledger",
+      "000114_sdk_growth_v3_tool_artifact",
+      "000115_sdk_growth_v3_approved_manifest",
+      "000116_hosted_codex_relay_admission_utc",
+      "000117_provider_accounts",
+      "000118_workspace_binding_fences",
+      "000119_review_configuration_gateway_binding",
+      "000120_review_run_runtime_snapshot",
+      "000121_review_run_gateway_execution_binding",
+      "000122_review_configuration_operation_receipt",
+      "000123_personal_workspace_identity",
+      "000124_personal_account_operations",
+      "000125_hosted_codex_device_reconnect",
+      "000126_review_configuration_mimo_auth_kind",
+      "000127_owner_workspace_deletion",
+      "000128_account_admission_row_lock",
+      "000129_personal_run_snapshot_v2",
+      "000130_personal_canonical_operations",
+      "000131_personal_canonical_unentered_claim",
+      "000132_review_policy_schema_v3",
+      "000133_allow_first_time_scm_identity_bind",
+      "000134_account_lifecycle",
+      "000134_review_provider_kind_v2_ocr",
+      "000135_review_run_checkout_repository_lock",
+      "000136_provider_usage",
+      "000138_pr_description",
+      "000139_review_context_tools",
+      "000140_personal_oauth_method",
+      "000141_memory_search_projections",
+      "000142_optional_gateway_reasoning",
+      "000143_workspace_draft_review_setting",
+    ]);
+    const withoutProviderKey = historicalFull.filter(
+      (row) =>
+        row.migrationName !== "000110_provider_api_key_workspace_management",
+    );
+    expect(withoutProviderKey).toHaveLength(123);
+    expect(manifest(withoutProviderKey)).toBe(
+      "sha256:f26da08b44ad6830f4486f93ed33979acda7b5669a8550601c34dbf9c0322443",
+    );
+    expect(manifest(full.slice(0, 116))).toBe(
+      "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
+    );
+    expect(manifest(withoutProviderKey.slice(0, 122))).toBe(
+      "sha256:5629630be035cbf1677692e840bc07c7292729bfb5bfc0c242f38179f3230df4",
+    );
+    expect(manifest(withoutProviderKey.slice(0, 121))).toBe(
+      "sha256:858537d185e32ef6258ddf674b5a201e6cc0c4e44fa948a18af23d6dd55905ec",
+    );
+    expect(manifest(withoutProviderKey.slice(0, 120))).toBe(
+      "sha256:5f01c4416620cf984ffa5fee8dbb26bcf171ae3a89ec4e4b8615e4c7c8461c64",
+    );
+    expect(manifest(withoutProviderKey.slice(0, 119))).toBe(
+      "sha256:f998e11bee1748adecf31dc07ec61d59b55ead60b2734a71f90065d3f9f4aa6b",
+    );
+    expect(manifest(withoutProviderKey.slice(0, 118))).toBe(
+      "sha256:2ee71e958dc9b4a564fd113a4983917ad6e3f7ea22cd19fa29bdb7dc72320e1c",
+    );
+    expect(manifest(withoutProviderKey.slice(0, 117))).toBe(
+      "sha256:6bd2cd3c077f6cf56735c7192dd6e0f84a21bbec5a2657271cb5afaf1d2f20cf",
+    );
+    expect(manifest(withoutProviderKey.slice(0, 116))).toBe(
+      "sha256:c5c0618f105799d06d21424433cec4a59fc052e63f594c2aace0657ebb52d1dd",
+    );
+    expect(manifest(withoutProviderKey.slice(0, 115))).toBe(
+      "sha256:30f68ffc62e0b46815bc007339d83aa7894b61b23f301c012b8990713cc0ad14",
     );
     const historical = readRenderHistorical96CheckoutInventory();
     expect(historical).toHaveLength(96);

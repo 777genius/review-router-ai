@@ -60,15 +60,15 @@ describe("ReviewRunControlLegacyMutationAdmission", () => {
       for (const input of [
         commentTokenInput(
           "workflow_dispatch",
-          ".github/workflows/reviewrouter-codex.yml",
+          ".github/workflows/reviewrouter-review.yml",
         ),
         commentTokenInput(
           "pull_request",
-          ".github/workflows/reviewrouter-codex.yml",
+          ".github/workflows/reviewrouter-review.yml",
         ),
         commentTokenInput(
           "pull_request_target",
-          ".github/workflows/reviewrouter-codex.yml",
+          ".github/workflows/reviewrouter-review.yml",
         ),
         commentTokenInput(
           "issue_comment",
@@ -89,7 +89,7 @@ describe("ReviewRunControlLegacyMutationAdmission", () => {
       ).assertLegacyReviewMutationAllowed(
         commentTokenInput(
           "workflow_dispatch",
-          ".github/workflows/reviewrouter-codex.yml",
+          ".github/workflows/reviewrouter-review.yml",
         ),
       ),
     ).rejects.toThrow(
@@ -132,10 +132,11 @@ describe("ReviewRunControlLegacyMutationAdmission", () => {
 
   it.each([
     ["workflow_dispatch", ".github/workflows/reviewrouter-codex.yml"] as const,
-    ["pull_request", ".github/workflows/reviewrouter-codex.yml"] as const,
+    ["workflow_dispatch", ".github/workflows/reviewrouter-review.yml"] as const,
+    ["pull_request", ".github/workflows/reviewrouter-review.yml"] as const,
     [
       "pull_request_target",
-      ".github/workflows/reviewrouter-codex.yml",
+      ".github/workflows/reviewrouter-review.yml",
     ] as const,
     [
       "issue_comment",
@@ -167,7 +168,7 @@ describe("ReviewRunControlLegacyMutationAdmission", () => {
 
   it.each([
     ["workflow_dispatch", ".github/workflows/untrusted.yml"] as const,
-    ["issue_comment", ".github/workflows/reviewrouter-codex.yml"] as const,
+    ["issue_comment", ".github/workflows/reviewrouter-review.yml"] as const,
     ["pull_request", ".github/workflows/untrusted.yml"] as const,
     [
       "pull_request_target",

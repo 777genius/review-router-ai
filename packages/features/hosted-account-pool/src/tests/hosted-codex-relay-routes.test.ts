@@ -230,6 +230,69 @@ describe("hosted Codex relay routes", () => {
     await app.close();
   });
 
+  it("reports transient lane saturation as a retryable fact", async () => {
+    const app = Fastify({ logger: false });
+    await registerHostedCodexRelayRoutes(app, {
+      enabled: true,
+      grants: { issue: vi.fn() },
+      commentTokens: { issue: vi.fn() },
+      authorization: {
+        authorize: async () => {
+          throw new Error("hosted_relay_concurrency_budget_exhausted");
+        },
+      },
+      relay: { open: vi.fn() },
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: hostedCodexResponsesPath,
+      headers: {
+        authorization: "Bearer opaque-grant",
+        "idempotency-key": "saturation-1",
+        "x-reviewrouter-request-ordinal": "1",
+        "content-type": "application/json",
+      },
+      payload: '{"input":"hello"}',
+    });
+    expect(response.statusCode).toBe(503);
+    expect(response.headers["retry-after"]).toBe("1");
+    expect(response.json()).toEqual({
+      error: { code: "lane_saturated", effect: "not_dispatched" },
+    });
+    await app.close();
+  });
+
+  it("reports exhausted request budget as a terminal fact", async () => {
+    const app = Fastify({ logger: false });
+    await registerHostedCodexRelayRoutes(app, {
+      enabled: true,
+      grants: { issue: vi.fn() },
+      commentTokens: { issue: vi.fn() },
+      authorization: {
+        authorize: async () => {
+          throw new Error("hosted_relay_request_budget_exhausted");
+        },
+      },
+      relay: { open: vi.fn() },
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: hostedCodexResponsesPath,
+      headers: {
+        authorization: "Bearer opaque-grant",
+        "idempotency-key": "budget-1",
+        "x-reviewrouter-request-ordinal": "1",
+        "content-type": "application/json",
+      },
+      payload: '{"input":"hello"}',
+    });
+    expect(response.statusCode).toBe(429);
+    expect(response.json()).toEqual({
+      error: { code: "budget_exhausted", effect: "not_dispatched" },
+    });
+    await app.close();
+  });
+
   it("does not register any route while the master flag is off", async () => {
     const app = Fastify({ logger: false });
     await registerHostedCodexRelayRoutes(app, {

@@ -1,3 +1,4 @@
+import { appendFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import readline from "node:readline";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -25,7 +26,7 @@ type JsonRpcRequest = Readonly<{
   params?: Readonly<Record<string, unknown>>;
 }>;
 
-const briefMarker = "REVIEWROUTER_INVESTIGATION_TURN_BRIEF_V1_BASE64URL:";
+const briefMarker = "REVIEWROUTER_INVESTIGATION_TURN_BRIEF_V1_JSON:";
 const scenarioMarker = "REVIEWROUTER_PAIRED_E2E_SCENARIO:";
 const codexVersion = requireCodexVersion(
   process.env.REVIEW_ROUTER_PAIRED_CODEX_APP_SERVER_VERSION,
@@ -52,11 +53,14 @@ async function main(): Promise<void> {
     crlfDelay: Infinity,
   });
   input.on("line", (line) => {
-    void handleRequest(JSON.parse(line) as JsonRpcRequest).catch(fail);
+    void handleRequest(JSON.parse(line) as JsonRpcRequest, line).catch(fail);
   });
 }
 
-async function handleRequest(message: JsonRpcRequest): Promise<void> {
+async function handleRequest(
+  message: JsonRpcRequest,
+  serializedInput: string,
+): Promise<void> {
   switch (message.method) {
     case "initialize":
       await respond(message, {
@@ -93,6 +97,27 @@ async function handleRequest(message: JsonRpcRequest): Promise<void> {
       const prompt = turnPrompt(
         requireRecord(message.params, "turn_start_params"),
       );
+      const witnessPath = process.env.REVIEW_ROUTER_PAIRED_MEMORY_WITNESS_PATH;
+      if (witnessPath) {
+        const statements = JSON.parse(
+          process.env.REVIEW_ROUTER_PAIRED_MEMORY_STATEMENTS!,
+        ) as string[];
+        await appendFile(
+          witnessPath,
+          JSON.stringify({
+            serializedInputHash: sha256(serializedInput),
+            promptHash: sha256(prompt),
+            reviewContextPromptHash: sha256(
+              prompt.slice(
+                0,
+                prompt.indexOf("\n\nREVIEW INVESTIGATION TURN CONTRACT:"),
+              ),
+            ),
+            purpose: decodeBrief(prompt).purpose,
+            includesStatements: statements.map((body) => prompt.includes(body)),
+          }) + "\n",
+        );
+      }
       await respond(message, { turn: turnRecord("inProgress") });
       await notify("turn/started", {
         threadId,
@@ -425,9 +450,7 @@ function decodeBrief(prompt: string): TurnBrief {
     .find((line) => line.startsWith(briefMarker))
     ?.slice(briefMarker.length);
   if (!encoded) throw new Error("paired_fake_turn_brief_missing");
-  return JSON.parse(
-    Buffer.from(encoded, "base64url").toString("utf8"),
-  ) as TurnBrief;
+  return JSON.parse(encoded) as TurnBrief;
 }
 
 function decodeScenario(prompt: string): Scenario {

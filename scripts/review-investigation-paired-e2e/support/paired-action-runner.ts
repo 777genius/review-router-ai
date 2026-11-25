@@ -6,6 +6,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { build } from "esbuild";
+import { audienceMemoryStatements } from "../../memory-e2e/support/approved-memory-fixture.js";
 
 type Scenario =
   | "success"
@@ -17,6 +18,7 @@ type Scenario =
 
 type RunnerConfig = Readonly<{
   scenario: Scenario;
+  memory?: boolean;
   apiUrl: string;
   oidcToken: string;
   actionSourceDir: string;
@@ -98,6 +100,7 @@ async function main(): Promise<void> {
       artifactsRoot,
       config.actionSourceDir,
       codexVersion,
+      config.memory === true,
     );
     const result = await executeScenario(config, modules, fakeCodexPath);
     emitResult(result);
@@ -225,8 +228,68 @@ async function executeScenario(
     sourceRunAttempt: authorization.facts.sourceRunAttempt,
   });
 
+  const pr = {
+    number: authorization.facts.pullRequestNumber,
+    title: "Review the disposable contract change",
+    body: "",
+    author: "fixture",
+    draft: false,
+    labels: [],
+    files: config.changedFiles.map((file) => ({
+      filename: file.path,
+      status: file.status,
+      additions: 1,
+      deletions: 1,
+      changes: 2,
+      patch: file.patch,
+    })),
+    diff: config.fullDiff,
+    additions: 1,
+    deletions: 1,
+    baseSha: config.revision.baseSha,
+    headSha: config.revision.headSha,
+  };
+  const memorySession = config.memory
+    ? await modules.memory.ReviewMemorySession.capture({
+        apiUrl: config.apiUrl,
+        authorizationToken: authorization.authorizationToken,
+        binding: {
+          authorizationId: authorization.authorizationId,
+          repositoryConnectionId: authorization.facts.repositoryConnectionId,
+          pullRequestNumber: authorization.facts.pullRequestNumber,
+          baseSha: config.revision.baseSha,
+          headSha: config.revision.headSha,
+          reviewRevisionHash: config.revision.reviewRevisionHash,
+        },
+        enabled: true,
+        task: "investigation",
+        pr,
+      })
+    : null;
+  const memorySnapshot = memorySession?.current();
+  if (config.memory && !memorySnapshot)
+    throw new Error("paired_memory_snapshot_missing");
+  const preparedPrompt = memorySnapshot
+    ? await modules.invocationManifest.prepareCodexReviewPrompt(
+        new modules.prompts.PromptBuilder({
+          ...modules.defaults.DEFAULT_CONFIG,
+          codexAgenticContext: true,
+        }),
+        {
+          workSlot: assignment.workSlot,
+          reviewRevisionHash: config.revision.reviewRevisionHash,
+          mergeBaseSha: config.revision.mergeBaseSha,
+          context: pr,
+          lifecycleTargets: [],
+          liveLifecycleStateHash: sha256("empty-lifecycle"),
+        },
+        true,
+        memorySnapshot,
+      )
+    : null;
   const reviewPrompt = [
-    "Review the disposable contract change and its repository relationships.",
+    preparedPrompt?.investigationContextPrompt ??
+      "Review the disposable contract change and its repository relationships.",
     `REVIEWROUTER_PAIRED_E2E_SCENARIO:${
       config.scenario === "incomplete_path_chain" ||
       config.scenario === "high_risk_proposal"
@@ -234,25 +297,29 @@ async function executeScenario(
         : "success"
     }`,
   ].join("\n");
-  const coverageManifest = modules.coverage.createReviewPromptCoverageManifest({
-    workSlotId: assignment.workSlot.workSlotId,
-    reviewRevisionHash: config.revision.reviewRevisionHash,
-    assignedPaths: ["src/contract.ts"],
-    pathCoverage: [
-      {
-        path: "src/contract.ts",
-        kind: modules.coverage.ReviewPromptPathCoverageKind.FullPatch,
-        contentHash: sha256(config.fullDiff),
-      },
-    ],
-  });
-  const probePlan = modules.probes.createReviewInvestigationProbePlan({
-    files: config.changedFiles.map((file) => ({
-      ...file,
-      status: modules.probes.ReviewInvestigationChangedFileStatus.Modified,
-    })),
-    fullDiff: config.fullDiff,
-  });
+  const coverageManifest =
+    preparedPrompt?.coverageManifest ??
+    modules.coverage.createReviewPromptCoverageManifest({
+      workSlotId: assignment.workSlot.workSlotId,
+      reviewRevisionHash: config.revision.reviewRevisionHash,
+      assignedPaths: ["src/contract.ts"],
+      pathCoverage: [
+        {
+          path: "src/contract.ts",
+          kind: modules.coverage.ReviewPromptPathCoverageKind.FullPatch,
+          contentHash: sha256(config.fullDiff),
+        },
+      ],
+    });
+  const probePlan =
+    preparedPrompt?.preparedPrompt.investigationProbePlan ??
+    modules.probes.createReviewInvestigationProbePlan({
+      files: config.changedFiles.map((file) => ({
+        ...file,
+        status: modules.probes.ReviewInvestigationChangedFileStatus.Modified,
+      })),
+      fullDiff: config.fullDiff,
+    });
   const requestedModel = "gpt-paired-e2e";
   const preparedSeed = modules.seed.buildReviewInvestigationSeedEnvelope({
     canonicalInventory: await modules.inventory.buildCanonicalGitInventory({
@@ -279,6 +346,7 @@ async function executeScenario(
       providerCapabilityHash: sha256("paired-codex-capability-v1"),
       providerRequestEnvelopeHash: preparedSeed.hash,
       outputSchemaHash: sha256("paired-investigation-output-schema-v2"),
+      ...(memorySnapshot ? { memoryBundleHash: memorySnapshot.hash } : {}),
       filePatchManifestHash: sha256(config.fullDiff),
       contextManifestHash: coverageManifest.coverageHash,
       lifecycleTargetSetHash: null,
@@ -528,6 +596,28 @@ async function executeScenario(
       ok: true,
       scenario: config.scenario,
       releaseManifestHash: config.releaseManifestHash,
+      ...(memorySnapshot
+        ? {
+            memoryWitness: {
+              snapshotHash: memorySnapshot.hash,
+              providerManifestHash: manifest.manifestKey,
+              seedReviewPromptHash: JSON.parse(preparedSeed.canonicalJson)
+                .reviewPromptHash,
+              turns: (
+                await readFile(
+                  path.join(
+                    path.dirname(fakeCodexPath),
+                    "memory-witness.jsonl",
+                  ),
+                  "utf8",
+                )
+              )
+                .trim()
+                .split("\n")
+                .map((line) => JSON.parse(line)),
+            },
+          }
+        : {}),
       observation: Object.freeze({
         investigationCertificateId: observation.investigationCertificateId,
         investigationCertificateHash: observation.investigationCertificateHash,
@@ -608,6 +698,9 @@ async function loadActionModules(actionSourceDir: string) {
     investigationPort,
     replayInvestigation,
     contextReplay,
+    memory,
+    prompts,
+    defaults,
   ] = await Promise.all([
     load("src/control-plane/review-action-v2-client.ts"),
     load(
@@ -667,8 +760,14 @@ async function loadActionModules(actionSourceDir: string) {
     load(
       "src/review-orchestration/infrastructure/context-attestation-replay-runner.ts",
     ),
+    load("src/control-plane/review-memory-v2.ts"),
+    load("src/analysis/llm/prompt-builder.ts"),
+    load("src/config/defaults.ts"),
   ]);
   return {
+    memory,
+    prompts,
+    defaults,
     client,
     controlPlane,
     investigationControlPlane,
@@ -758,6 +857,7 @@ async function buildFakeCodex(
   artifactsRoot: string,
   actionSourceDir: string,
   codexVersion: string,
+  memory: boolean,
 ): Promise<string> {
   const output = path.join(artifactsRoot, "paired-fake-codex.cjs");
   await build({
@@ -775,6 +875,12 @@ async function buildFakeCodex(
     banner: { js: "#!/usr/bin/env node" },
     nodePaths: [path.join(actionSourceDir, "node_modules")],
     define: {
+      "process.env.REVIEW_ROUTER_PAIRED_MEMORY_WITNESS_PATH": JSON.stringify(
+        memory ? path.join(artifactsRoot, "memory-witness.jsonl") : "",
+      ),
+      "process.env.REVIEW_ROUTER_PAIRED_MEMORY_STATEMENTS": JSON.stringify(
+        JSON.stringify(audienceMemoryStatements.map(({ body }) => body)),
+      ),
       "process.env.REVIEW_ROUTER_PAIRED_CODEX_APP_SERVER_VERSION":
         JSON.stringify(codexVersion),
     },

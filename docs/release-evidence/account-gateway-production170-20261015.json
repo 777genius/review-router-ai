@@ -1,0 +1,243 @@
+{
+  "kind": "account_gateway_normal_production170_review_acceptance",
+  "observedDate": "2026-10-15",
+  "contract53Sha256": "66a2393e7a55f76df1a78281af44379d0b455a0770d82f34e587dcca284157b0",
+  "normalReviewAccepted": true,
+  "wholePlanComplete": false,
+  "runtime": {
+    "saasSource": "6d7478f523199699ff93eaed1add12d25ca59aeb",
+    "saasImage": "sha256:89ebafa749ac0c7ed8fbc9593dc533e1fd4b36ee4bbb263ef0055fb48157d0d8",
+    "actionSource": "ce8106e02c475e31b93b29e0a55151e2af803a8f",
+    "gatewaySource": "4f334cbdf75ece216ed14a6fa0ead25b80a2f3fb",
+    "nativeCompatibilitySource": "d7181e38e292594ea2245224ea6d735d3b748bf3",
+    "wholeUpstreamMainRuntimeQualified": false
+  },
+  "normalReview": {
+    "repository": "777genius/rr-selfhost-direct-v2-e2e-20260730t120036z",
+    "pullRequest": 2,
+    "reviewedHead": "705049c7159a3ae1ed10fca44c78d890b9250468",
+    "defaultCallerSource": "2bd79747ef9e0843ee4aac0e11a313fc8735d5dd",
+    "setupPullRequest": 13,
+    "runId": "38664268518",
+    "runAttempt": 1,
+    "requestId": "review-request-9c733b9d11fb1cf095586588e949beeb53638e7e46f4987d5a780a406d0fdb02",
+    "executionId": "rr:execution:f84de630c29cc7aa4fefb59bf43e27c12bcb28b5",
+    "provider": "MiMo",
+    "model": "mimo-v2.6-pro",
+    "fastMode": false,
+    "reasoningEffort": "high",
+    "workflowConclusion": "failure",
+    "watcherExit": 1,
+    "failureCode": "review_merge_gate_failed",
+    "interpretation": "Completed review and App publication with one blocking major finding; not infrastructure failure.",
+    "appReviewId": 5526985883,
+    "appInlineCommentId": 4278122640,
+    "appSummaryCommentId": 6182392161,
+    "appActor": "review-router-ai[bot]",
+    "inlinePath": "src/cart.js",
+    "inlineLine": 6,
+    "inlineBodyBytes": 1587,
+    "rawModelFinalByteCount": "NOT_MEASURED",
+    "normalizedObservationByteCount": 3574,
+    "normalizedFindingCount": 1,
+    "qualityFlagCount": 0,
+    "coverageState": "completed",
+    "authenticatedSuccessfulToolCount": 14,
+    "contextAttestationComplete": true,
+    "confinementTainted": false,
+    "automaticReruns": 0,
+    "pushCount": 1,
+    "manualWorkflowDispatchCount": 0
+  },
+  "changedBoundaryEvidence": {
+    "kind": "normal170_strict_review_tools_seal_acceptance",
+    "sessions": [
+      {
+        "state": "accepted",
+        "openedAt": "2026-10-15T01:11:54.112",
+        "sealedAt": "2026-10-15T01:37:01.462",
+        "expiresAt": "2026-10-15T07:11:34",
+        "eventCount": 14,
+        "openToSealMs": 1507350.0,
+        "sealedBeforeApprovedExpiry": true,
+        "sealedBeyondOldTwentyMinutes": true
+      }
+    ],
+    "observedAt": "2026-10-15T03:42:08.389391+02:00",
+    "attestations": [
+      {
+        "complete": true,
+        "eventCount": 14,
+        "modelMatches": true,
+        "dependencyCount": 14,
+        "confinementTainted": false,
+        "successfulToolCount": 14,
+        "terminalFailureClass": null
+      }
+    ],
+    "observations": [
+      {
+        "byteCount": 3574,
+        "findingCount": 1,
+        "modelMatches": true,
+        "qualityFlagCount": 0,
+        "transportAttemptCount": 1,
+        "normalizedFindingCount": 1,
+        "contextAttestationPresent": true
+      }
+    ],
+    "executionCount": 1,
+    "finalizedArtifacts": [
+      {
+        "byteCount": 10058,
+        "findingCount": 1,
+        "coverageState": "completed",
+        "projectionHash": "36b13e6da3b58918eff68f2853109c522796f2a8cb3d286e41346cd398f00c94"
+      }
+    ],
+    "databaseIdentityVerified": true
+  },
+  "terminalClosure": {
+    "executionState": "completed",
+    "workSlots": {
+      "satisfied": 1
+    },
+    "leases": {
+      "released": 1
+    },
+    "authorizationState": "revoked",
+    "activeInvocationLeases": 0,
+    "kernel": {
+      "observedAt": "2026-10-15T01:41:14.307544+00:00",
+      "requestCount": 4,
+      "cleanupByState": {
+        "done": 1
+      },
+      "consumerExists": true,
+      "executionCount": 1,
+      "requestsByEffect": {
+        "completed": 4
+      },
+      "executionsByState": {
+        "closed": 1
+      },
+      "prepareOperationCodes": [
+        {
+          "code": null,
+          "state": "applied"
+        }
+      ],
+      "occupiedTransportCount": 0,
+      "databaseIdentityVerified": true,
+      "prepareOperationsByState": {
+        "applied": 1
+      },
+      "matchingExecutionsOtherConsumerCount": 0,
+      "matchingOperationsOtherConsumerCount": 0
+    },
+    "closureEvidenceKind": "Exact durable kernel state joined to the unchanged qualified ACK-gated closure implementation.",
+    "separatelyCapturedNativeTransportAck": "NOT_VERIFIED"
+  },
+  "retainedEvidence": [
+    {
+      "path": "tmp/normal170-production/rr.initial.actual.public.jsonl",
+      "sha256": "a3feb61733a642c429d381770d879edfa9408331e98c702f77130776cd8bcb80"
+    },
+    {
+      "path": "tmp/normal170-production/rr.terminal.corrected.actual.public.jsonl",
+      "sha256": "52be2acaa6b647ac578f4f46ffcecca5f3dcf9c05a157700022a5129b06cdc99"
+    },
+    {
+      "path": "tmp/normal170-production/review.acceptance.actual.public.json",
+      "sha256": "60784e6c9579df0d9d64ed75742b13e655b8067139b4d896b2e285847e762d83"
+    },
+    {
+      "path": "tmp/normal170-production/kernel.terminal.actual.public.jsonl",
+      "sha256": "641a5017673dba06b41d78959a6ac9e140cc669fde4ea5e07a9e246c5763d32b"
+    },
+    {
+      "path": "tmp/saas170-release/publication-acceptance/release170.acceptance.actual.public.json",
+      "sha256": "1b801a69d82632d876880f125968ea190607479bd53b1d9d8d904becbb01bc9d"
+    },
+    {
+      "path": "tmp/saas170-release/runtime-execution/apply.actual.public.json",
+      "sha256": "de40891f48736af5462c9107c17f6f48a85c37a928957d8321114a21e144efc0"
+    },
+    {
+      "path": "tmp/padel-recovery/disabled-reauthorization-delivery/canonical-recovery-proof/canonical-recovery.actual.public.json",
+      "sha256": "ab72d47bd922918f8ccac52ea3097f190cd7ef6abc3ddf1ef3cff39242396f7d"
+    }
+  ],
+  "remainingAndScope": {
+    "padelCanonicalCodexUseGrant": "APPLIED_EXPLICITLY_CONFIRMED_BINDING_REVISION_1",
+    "canonicalCodexAccount": "ACTIVE under its original operator workspace; fresh reauthorization, not claim transfer.",
+    "memoryQualification": "STOPPED_BY_OWNER_UNQUALIFIED",
+    "personalMultiOrganizationSharing": "DEFERRED_H",
+    "productionDeletion": "NOT_RUN_NOT_REQUIRED",
+    "providerProofReuse": "Earlier D-long MiMo, E OpenRouter, F Codex and joined G remain accepted within their original pinned scopes; this run does not relabel them current170.",
+    "historicalPadelConfirmationPendingAtInitialRecord": true,
+    "ownerDirectedFinishScope": "Implementation and accepted production review plus confirmed canonical Padel use are delivered. Owner-stopped RAM remains unqualified and H sharing deferred; no unrestricted whole-Norm53 qualification claim."
+  },
+  "independentTerminalAcceptance": {
+    "path": "tmp/normal170-production/independent-evidence/terminal-acceptance.actual.public.json",
+    "sha256": "7a8dfe99c303374807b526113dc0ade053e9c8cd878c7c9a539fac2ead97bac8",
+    "classification": "ACCEPT_COMPLETED_REVIEW_MAJOR_GATE_BLOCKED"
+  },
+  "confirmedPadelUse": {
+    "specificHumanConfirmationReceived": true,
+    "normalUiGrantSubmissions": 1,
+    "normalUiResult": "Use granted at binding revision 1.",
+    "padelUiAccountState": "ACTIVE",
+    "padelUiBindingState": "WORKSPACE BINDING READY",
+    "sameCanonicalConnection": true,
+    "proof": {
+      "kind": "padel_explicit_canonical_codex_use_grant",
+      "padelUse": {
+        "state": "active",
+        "revision": 1,
+        "bindingId": "cmv91lfx6000207nvuuys9x6v",
+        "workspaceId": "cmp6uhxh4000i30l17qas7qyf",
+        "connectionId": "agc_f8c3b910b90c3908b5da87e91de5b9ded3ebe6061a8707ae62f050b623f7",
+        "pendingFence": false,
+        "policyRevision": 1
+      },
+      "observedAt": "2026-10-15T06:33:40.755476+02:00",
+      "canonicalAccount": {
+        "state": "active",
+        "profileRef": "openai-codex-oauth-responses-v1",
+        "connectionId": "agc_f8c3b910b90c3908b5da87e91de5b9ded3ebe6061a8707ae62f050b623f7",
+        "ownerWorkspaceId": "cmoss4xkf000228sbtcmpdjb5",
+        "gatewayAccountRef": "8be745af-d76f-454b-bd12-edcb39cda001",
+        "displayNameMatches": true
+      },
+      "activePadelUseCount": 1,
+      "actorAdminInBothVerified": true,
+      "canonicalConnectionCount": 1,
+      "databaseIdentityVerified": true
+    },
+    "primaryReceiptSha256": "21e013ddbc0eb575a10097a01bb4833e1da4ed7d94fc37e46997d0929ab041fa",
+    "providerRoutingChanged": false,
+    "newOAuthLogin": false,
+    "newProviderCanary": false,
+    "oldDuplicateAccountActivatedOrTransferred": false,
+    "uiProvenanceBadge": "NOT_PRESENT; current UI shows the shared canonical label and readiness, without a shared-account or owner badge.",
+    "retainedEvidence": {
+      "sqlCommandFile": "docs/release-evidence/padel-canonical-use-20261015.readonly.sql",
+      "sqlResultFile": "docs/release-evidence/padel-canonical-use-20261015.actual.public.json",
+      "execution": {
+        "transport": "Strict-host-key SSH to the verified production host; guarded read-only PostgreSQL session",
+        "command": "sudo -n -u reviewrouter_pg /usr/lib/postgresql/17/bin/psql -X -qAt -v ON_ERROR_STOP=1 -h /var/lib/review-router-postgres/socket -p 5434 -U reviewrouter_pg -d review_router_dimy < padel-canonical-use-20261015.readonly.sql",
+        "sessionId": 3813,
+        "exitCode": 0
+      },
+      "uiAction": {
+        "command": "Accounts > canonical Codex main Account > Manage operator grant; target Padel workspace stable ID, expected revision0, state active; click Apply once after explicit user confirmation",
+        "result": "Use granted at binding revision 1.",
+        "subsequentRead": "Padel Accounts: ACTIVE / WORKSPACE BINDING READY",
+        "browserTaskId": "2dca076d-b9eb-45a9-b6c6-dbab60d66f29",
+        "ownerTarget": "075983A2EA00655AB30DAAB91DC38C57",
+        "padelTarget": "32E8390EFF81B6CBD4E5A2C7B7F7C484"
+      }
+    }
+  }
+}

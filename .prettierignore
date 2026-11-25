@@ -4,6 +4,9 @@ node_modules
 .serena
 dist
 action-dist
+# Generated standalone parser and its byte-parity manifest; checked by the TS generator.
+deploy/self-hosted/conversation-verifier.mjs
+deploy/self-hosted/conversation-verifier.inputs.json
 build
 coverage
 pnpm-lock.yaml
@@ -17,3 +20,15 @@ docs/release-evidence/activation-catalog-policy-v29-schema-v5-pr245-candidate.js
 docs/release-evidence/activation-catalog-policy-raw-independent-review.md
 docs/release-evidence/activation-catalog-policy-raw-reviewer-runtime.json
 .local-secrets
+.codex-tmp
+.worktrees
+.pnpm-store
+.tmp-*
+goal-*.js
+tmp
+playwright-report
+test-results
+# Preserve the exact licensed upstream design reference bytes.
+ai-docs/design/impeccable/reference
+ai-docs/design/impeccable/LICENSE
+ai-docs/design/impeccable/NOTICE.md

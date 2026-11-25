@@ -1,0 +1,767 @@
+// @vitest-environment jsdom
+import type { ReactNode } from "react";
+import {
+  GatewayModelAccountsProvider,
+  type GatewayModelAccountsApi,
+} from "../gateway-model-account-options";
+import { ProviderModelCatalogProvider } from "../provider-model-catalog";
+import type { ProviderModelCatalogSnapshot } from "@reviewrouter/features-review-providers";
+import type { readProviderModelCatalog } from "../provider-model-catalog-api";
+import type { ReviewModelOption } from "@reviewrouter/features-review-providers";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  buildProviderListView,
+  type ProviderListFacts,
+} from "../../../src/features/provider-setup/provider-list-model";
+import type { ProviderSetupView } from "../../../src/features/provider-setup/provider-setup-model";
+import {
+  clearWorkspaceDefaultProviderAction,
+  saveProviderRosterAction,
+  updateProviderProfileAction,
+} from "../provider-setup-actions";
+import {
+  ProviderList,
+  profileActionErrorText,
+  type ProviderListProps,
+} from "./provider-list";
+import { providerSetupQueryKeys } from "./provider-setup-api";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
+vi.mock("../actions", () => ({
+  checkProviderRepositorySecretClientAction: vi.fn(),
+}));
+vi.mock("../provider-setup-actions", () => ({
+  archiveProviderProfileAction: vi.fn(),
+  clearWorkspaceDefaultProviderAction: vi.fn(),
+  createProviderProfileAction: vi.fn(),
+  inheritWorkspaceDefaultProviderAction: vi.fn(),
+  saveProviderSetupAction: vi.fn(),
+  saveProviderRosterAction: vi.fn(),
+  updateProviderProfileAction: vi.fn(),
+}));
+const facts = (
+  overrides: Partial<ProviderListFacts> = {},
+): ProviderListFacts => ({
+  workspaceId: "workspace_1",
+  actor: { userId: "user_member", role: "member" },
+  workspace: { personalOwnerUserId: null, providerManagementAdminOnly: false },
+  profiles: [
+    {
+      id: "team",
+      label: "Team ChatGPT",
+      model: "gpt-5.6-sol",
+      authMode: "claude_code_oauth",
+      credentialKind: "user_ci_secret",
+      createdByUserId: "user_owner",
+      gatewayBindingId: null,
+      personalBinding: false,
+      rotatingRepositoryId: null,
+    },
+    {
+      id: "mine",
+      label: "My Claude",
+      model: "opus",
+      authMode: "claude_code_oauth",
+      credentialKind: "user_ci_secret",
+      createdByUserId: "user_member",
+      gatewayBindingId: null,
+      personalBinding: false,
+      rotatingRepositoryId: null,
+    },
+  ],
+  defaultProfileId: "team",
+  usage: [
+    { profileId: "team", workspaceDefault: true, repositoryIds: [] },
+    { profileId: "mine", workspaceDefault: false, repositoryIds: ["repo_a"] },
+  ],
+  repositoryNames: new Map([["repo_a", "acme/web"]]),
+  creators: new Map([["user_owner", { login: "owner", member: true }]]),
+  accounts: new Map(),
+  ...overrides,
+});
+
+function renderList(
+  input: Partial<ProviderListFacts> = {},
+  modelOptions: readonly ReviewModelOption[] = [
+    { value: "opus", label: "opus", provider: "claude" },
+    { value: "sonnet", label: "sonnet", provider: "claude" },
+  ],
+  options: Pick<ProviderListProps, "gatewayAccounts"> & {
+    setupView?: ProviderSetupView;
+    wrap?: (children: ReactNode) => ReactNode;
+  } = { gatewayAccounts: undefined },
+) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  if (options.setupView)
+    client.setQueryData(
+      providerSetupQueryKeys.view(options.setupView.workspaceId, []),
+      options.setupView,
+    );
+  const children = (
+    <QueryClientProvider client={client}>
+      <ProviderList
+        view={buildProviderListView(facts(input))}
+        mutationsEnabled
+        modelOptions={modelOptions}
+        gatewayAccounts={options.gatewayAccounts}
+        agentProfileOptions={[]}
+        accessRightsHref="/dashboard?section=other"
+      />
+    </QueryClientProvider>
+  );
+  return render(options.wrap ? options.wrap(children) : children);
+}
+
+const rowOf = (label: string) =>
+  screen.getByText(label, { selector: "span" }).closest("li")! as HTMLElement;
+const button = (scope: HTMLElement, name: string) =>
+  within(scope).getByRole("button", { name }) as HTMLButtonElement;
+
+beforeEach(() => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    },
+  );
+  vi.mocked(updateProviderProfileAction).mockResolvedValue({
+    status: "saved",
+  });
+});
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+  vi.unstubAllGlobals();
+});
+
+describe("Providers list", () => {
+  it("explains once what a member cannot do and keeps only row-specific refusals on the rows", () => {
+    renderList();
+    const team = rowOf("Team ChatGPT");
+    expect(within(team).getByText("Default")).toBeTruthy();
+    // Refused for a reason stated above the list: left out of the row.
+    expect(within(team).queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(
+      within(team).queryByRole("button", { name: "Review settings" }),
+    ).toBeNull();
+    expect(
+      within(team).queryByRole("button", { name: "Remove as default" }),
+    ).toBeNull();
+    expect(
+      screen.getAllByText("You can edit or remove the providers you added."),
+    ).toHaveLength(1);
+    expect(
+      screen.getAllByText(
+        "Only workspace owners and admins set the default and replace saved keys.",
+      ),
+    ).toHaveLength(1);
+    expect(within(team).getByText(/Added by @owner/)).toBeTruthy();
+
+    const mine = rowOf("My Claude");
+    expect(button(mine, "Edit").disabled).toBe(false);
+    // A refusal of this row only stays visible with its reason.
+    expect(button(mine, "Remove").disabled).toBe(true);
+    expect(
+      within(mine).getByText(
+        "To remove it, first choose another provider wherever it is used.",
+      ),
+    ).toBeTruthy();
+    expect(within(mine).getByText("acme/web")).toBeTruthy();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Add provider",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+  });
+
+  it.each(["medium", "high"] as const)(
+    "opens the current default's saved %s settings and explicitly restores Gateway defaults",
+    async (reasoningEffort) => {
+      const model = "vendor/live-model";
+      const profileId = "saved-openrouter";
+      const gatewayProfileId = "openrouter-profile";
+      const savedSelection = {
+        profileId,
+        reasoningEffort,
+        fastMode: true,
+        agenticContext: true,
+        requiredHealthy: true,
+      };
+      const setupView: ProviderSetupView = {
+        workspaceId: "workspace_1",
+        target: "workspace",
+        repositories: [],
+        defaultSelection: savedSelection,
+        profiles: [
+          {
+            id: profileId,
+            label: "Current OpenRouter",
+            model,
+            authMode: "codex_account_gateway",
+            credentialKind: "gateway_binding",
+            gatewayBindingId: "binding-1",
+            gatewayProfileRef: gatewayProfileId,
+            isDefault: true,
+            decision: { allowed: true },
+            refusedRepositoryCount: 0,
+          },
+        ],
+        sources: [],
+        viewerIsAdmin: true,
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => ({ ok: true, json: async () => setupView })),
+      );
+      vi.mocked(saveProviderRosterAction).mockResolvedValue({
+        status: "saved",
+        results: [],
+      });
+      const publicSnapshot = (
+        toolCalling: boolean,
+      ): ProviderModelCatalogSnapshot => ({
+        providerKind: "openrouter",
+        source: "openrouter",
+        fetchedAt: Date.now(),
+        lastAttemptAt: Date.now(),
+        state: "fresh",
+        error: null,
+        refresh: "cached",
+        models: [
+          {
+            id: model,
+            name: model,
+            contextTokens: 10000,
+            textInput: true,
+            textOutput: true,
+            toolCalling,
+            pricing: null,
+          },
+        ],
+      });
+      const refreshPublic = vi
+        .fn<typeof readProviderModelCatalog>()
+        .mockImplementation(async ({ providerKind }) =>
+          providerKind === "openrouter"
+            ? publicSnapshot(true)
+            : {
+                ...publicSnapshot(true),
+                providerKind,
+                models: [],
+                source: "models.dev",
+              },
+        );
+      const refreshGateway = vi
+        .fn<GatewayModelAccountsApi["get"]>()
+        .mockResolvedValue({
+          status: "ok",
+          value: {
+            account: {
+              connectionId: "connection-1",
+              profileId: gatewayProfileId,
+              profileLabel: "OpenRouter",
+              label: "Current connection",
+              state: "active",
+              gatewayRevision: 1,
+              mirrorRevision: 1,
+              binding: {
+                id: "binding-1",
+                state: "active",
+                revision: 1,
+                fencePending: false,
+              },
+              modelCatalog: {
+                status: "unknown",
+                source: "legacy_profile",
+                models: [model],
+              },
+            },
+            profile: {
+              id: gatewayProfileId,
+              label: "OpenRouter",
+              provider: "openrouter",
+              authKind: "api_key",
+              protocol: "openai-responses",
+              models: [model],
+              connection: {
+                provider: "openrouter",
+                planLabel: "API",
+                regionLabel: "Global",
+                completionInputKind: "none",
+                limitsContract: "none",
+                modelSettings: [
+                  {
+                    modelId: model,
+                    reasoning: null,
+                    fast: null,
+                    tools: { allowed: ["function"], default: "function" },
+                  },
+                ],
+              },
+            },
+          },
+        });
+      renderList(
+        {
+          actor: { userId: "user_owner", role: "owner" },
+          defaultProfileId: profileId,
+          profiles: [
+            {
+              id: profileId,
+              label: "Current OpenRouter",
+              model,
+              authMode: "codex_account_gateway",
+              credentialKind: "gateway_binding",
+              gatewayBindingId: "binding-1",
+              gatewayProfileRef: gatewayProfileId,
+              personalBinding: false,
+              createdByUserId: "user_owner",
+              rotatingRepositoryId: null,
+            },
+          ],
+        },
+        [],
+        {
+          setupView,
+          wrap: (children) => (
+            <GatewayModelAccountsProvider
+              scope="test-viewer:workspace:workspace_1"
+              api={{
+                list: async () => ({
+                  status: "ok",
+                  value: { accounts: [], profiles: [], nextCursor: null },
+                }),
+                get: refreshGateway,
+              }}
+            >
+              <ProviderModelCatalogProvider
+                snapshots={[
+                  publicSnapshot(false),
+                  {
+                    ...publicSnapshot(true),
+                    providerKind: "codex",
+                    source: "models.dev",
+                    models: [],
+                  },
+                  {
+                    ...publicSnapshot(true),
+                    providerKind: "claude",
+                    source: "models.dev",
+                    models: [],
+                  },
+                ]}
+                api={refreshPublic}
+              >
+                {children}
+              </ProviderModelCatalogProvider>
+            </GatewayModelAccountsProvider>
+          ),
+          gatewayAccounts: {
+            status: "ok",
+            value: {
+              nextCursor: null,
+              accounts: [
+                {
+                  connectionId: "connection-1",
+                  profileId: gatewayProfileId,
+                  profileLabel: "OpenRouter",
+                  label: "Current connection",
+                  state: "active",
+                  gatewayRevision: 1,
+                  mirrorRevision: 1,
+                  binding: {
+                    id: "binding-1",
+                    state: "active",
+                    revision: 1,
+                    fencePending: false,
+                  },
+                },
+              ],
+              profiles: [
+                {
+                  id: gatewayProfileId,
+                  label: "OpenRouter",
+                  provider: "openrouter",
+                  authKind: "api_key",
+                  protocol: "openai-responses",
+                  models: [model],
+                  connection: {
+                    provider: "openrouter",
+                    planLabel: "API",
+                    regionLabel: "Global",
+                    completionInputKind: "none",
+                    limitsContract: "none",
+                    modelSettings: [
+                      {
+                        modelId: model,
+                        reasoning: null,
+                        fast: null,
+                        tools: { allowed: ["function"], default: "function" },
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        },
+      );
+      const row = rowOf("Current OpenRouter");
+      expect(within(row).getByText("Default")).toBeTruthy();
+      expect(
+        within(row).queryByRole("button", { name: "Make default" }),
+      ).toBeNull();
+      fireEvent.click(button(row, "Edit"));
+      const edit = await screen.findByRole("dialog");
+      expect(
+        within(edit).getByRole("button", { name: "Test connection" }),
+      ).toBeTruthy();
+      expect(
+        within(edit).queryByText(
+          "Access to these models has not been checked.",
+        ),
+      ).toBeNull();
+      const refreshModels = await within(edit).findByRole("button", {
+        name: "Try again",
+      });
+      expect(
+        within(edit).getAllByRole("button", { name: "Try again" }),
+      ).toHaveLength(1);
+      expect(refreshPublic).not.toHaveBeenCalled();
+      expect(
+        refreshGateway.mock.calls.some(([, options]) => options?.forceRefresh),
+      ).toBe(false);
+      fireEvent.click(refreshModels);
+      await waitFor(() =>
+        expect(refreshPublic).toHaveBeenCalledWith(
+          expect.objectContaining({
+            providerKind: "openrouter",
+            forceRefresh: true,
+          }),
+        ),
+      );
+      await waitFor(() =>
+        expect(refreshGateway).toHaveBeenCalledWith("binding-1", {
+          forceRefresh: true,
+        }),
+      );
+      fireEvent.click(
+        within(edit).getByRole("button", { name: "Close provider edit" }),
+      );
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      fireEvent.click(button(row, "Review settings"));
+      const dialog = await screen.findByRole("dialog");
+      await within(dialog).findByText(
+        /ReviewRouter does not offer review depth or fast mode settings/,
+      );
+      expect(
+        within(dialog).queryByText(/Review settings are unavailable/),
+      ).toBeNull();
+      const depth = within(dialog).getByRole("combobox", {
+        name: /^Review depth/,
+      });
+      expect(depth.textContent).toContain(
+        `${reasoningEffort} (saved, unavailable in ReviewRouter)`,
+      );
+      expect(
+        within(dialog).getByRole("checkbox", { name: /^Fast mode/ }),
+      ).toHaveProperty("checked", true);
+      const save = within(dialog).getByRole("button", {
+        name: "Save reviewers",
+      });
+      expect(save).toHaveProperty("disabled", true);
+      expect(saveProviderRosterAction).not.toHaveBeenCalled();
+      fireEvent.click(depth);
+      const accountDefault = await screen.findByRole("option", {
+        name: "Account default",
+      });
+      fireEvent.mouseMove(accountDefault);
+      fireEvent.click(accountDefault);
+      expect(save).toHaveProperty("disabled", true);
+      fireEvent.click(
+        within(dialog).getByRole("checkbox", { name: /^Fast mode/ }),
+      );
+      await waitFor(() => expect(save).toHaveProperty("disabled", false));
+      fireEvent.click(save);
+      await waitFor(() =>
+        expect(saveProviderRosterAction).toHaveBeenCalledExactlyOnceWith({
+          workspaceId: "workspace_1",
+          target: { kind: "workspace" },
+          expectedWorkspaceVersion: null,
+          providerMode: "parallel",
+          reviewers: [
+            {
+              provider: { kind: "profile", profileId },
+              settings: {
+                agenticContext: true,
+                fastMode: false,
+                requiredHealthy: true,
+              },
+            },
+          ],
+        }),
+      );
+      expect(clearWorkspaceDefaultProviderAction).not.toHaveBeenCalled();
+      expect(updateProviderProfileAction).not.toHaveBeenCalled();
+      expect(savedSelection).toMatchObject({ reasoningEffort, fastMode: true });
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    },
+  );
+
+  it("with admin-only Access rights tells members only owners and admins manage providers", () => {
+    renderList({
+      workspace: {
+        personalOwnerUserId: null,
+        providerManagementAdminOnly: true,
+      },
+    });
+    const mine = rowOf("My Claude");
+    expect(within(mine).queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(within(mine).queryByRole("button", { name: "Remove" })).toBeNull();
+    expect(
+      screen.getAllByText(
+        "Only workspace owners and admins can manage providers.",
+      ),
+    ).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "Access rights" })).toBeTruthy();
+  });
+
+  it("saves only the changed model of a provider and names what blocks an edit", async () => {
+    vi.mocked(updateProviderProfileAction).mockResolvedValueOnce({
+      status: "error",
+      error: "provider_profile_model_incompatible",
+      blocking: { workspaceDefault: false, repositories: ["acme/web"] },
+    });
+    renderList();
+    fireEvent.click(button(rowOf("My Claude"), "Edit"));
+    const dialog = await screen.findByRole("dialog");
+    // The credential is shown but cannot change.
+    expect(
+      within(dialog).getByText(
+        "The credential cannot change. To use a different one, add a new provider.",
+      ),
+    ).toBeTruthy();
+    fireEvent.change(within(dialog).getByRole("combobox", { name: "Model" }), {
+      target: { value: "sonnet" },
+    });
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Save changes" }),
+    );
+    await waitFor(() =>
+      expect(updateProviderProfileAction).toHaveBeenCalledWith({
+        workspaceId: "workspace_1",
+        profileId: "mine",
+        model: "sonnet",
+      }),
+    );
+    expect(
+      await within(dialog).findByText(
+        "The new model does not support the review depth or fast mode used by acme/web. Change their settings first, or keep the current model.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("preserves an unchanged saved model for a rename but rejects changing to a known disabled model", async () => {
+    renderList({}, [
+      {
+        provider: "claude",
+        value: "opus",
+        label: "Saved unavailable model",
+        disabled: true,
+      },
+      {
+        provider: "claude",
+        value: "disabled/model",
+        label: "Disabled model",
+        disabled: true,
+      },
+    ]);
+    fireEvent.click(button(rowOf("My Claude"), "Edit"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Name"), {
+      target: { value: "Renamed Claude" },
+    });
+    const save = within(dialog).getByRole("button", { name: "Save changes" });
+    expect(save).toHaveProperty("disabled", false);
+    const model = within(dialog).getByRole("combobox", { name: "Model" });
+    fireEvent.change(model, { target: { value: "disabled/model" } });
+    expect(save).toHaveProperty("disabled", true);
+    expect(updateProviderProfileAction).not.toHaveBeenCalled();
+    fireEvent.change(model, { target: { value: "custom/unknown-model" } });
+    expect(save).toHaveProperty("disabled", false);
+  });
+
+  it("shows a removed default at once, without waiting for the page to re-render", async () => {
+    const owner = { userId: "user_owner", role: "owner" } as const;
+    // The page re-render (router.refresh) is mocked out: only the list's own
+    // refetch after the write can bring the new state.
+    const fetchMock = vi.fn<
+      (input: string, init?: RequestInit) => Promise<unknown>
+    >(async () => ({
+      ok: true,
+      json: async () =>
+        buildProviderListView(
+          facts({
+            actor: owner,
+            readAt: 1,
+            defaultProfileId: null,
+            usage: [
+              { profileId: "team", workspaceDefault: false, repositoryIds: [] },
+              {
+                profileId: "mine",
+                workspaceDefault: false,
+                repositoryIds: ["repo_a"],
+              },
+            ],
+          }),
+        ),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(clearWorkspaceDefaultProviderAction).mockResolvedValueOnce({
+      status: "saved",
+    });
+    renderList({ actor: owner });
+    const team = rowOf("Team ChatGPT");
+    expect(within(team).getByText("Default")).toBeTruthy();
+
+    fireEvent.click(button(team, "Remove as default"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Remove as default" }),
+    );
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(clearWorkspaceDefaultProviderAction).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      profileId: "team",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/dashboard/provider-list?workspace=workspace_1",
+      expect.objectContaining({ cache: "no-store" }),
+    );
+    // Already current when the dialog closes.
+    expect(within(rowOf("Team ChatGPT")).queryByText("Default")).toBeNull();
+    expect(
+      screen.getByText(/^No default provider: repositories without/),
+    ).toBeTruthy();
+  });
+
+  it.each([
+    ["a body that is not JSON", null],
+    ["a proxy page", "<html>Bad gateway</html>"],
+    [
+      "another workspace's list",
+      buildProviderListView(
+        facts({
+          workspaceId: "workspace_2",
+          readAt: 9,
+          defaultProfileId: null,
+          usage: [],
+        }),
+      ),
+    ],
+  ])(
+    "keeps the shown list when a successful refetch returns %s",
+    async (_name, body) => {
+      const owner = { userId: "user_owner", role: "owner" } as const;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => ({
+          ok: true,
+          json: async () => {
+            if (body === null) throw new SyntaxError("Unexpected token <");
+            return body;
+          },
+        })),
+      );
+      vi.mocked(clearWorkspaceDefaultProviderAction).mockResolvedValueOnce({
+        status: "saved",
+      });
+      renderList({ actor: owner });
+      fireEvent.click(button(rowOf("Team ChatGPT"), "Remove as default"));
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.click(
+        within(dialog).getByRole("button", { name: "Remove as default" }),
+      );
+
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      // The server-rendered list stays; the page refresh brings the change.
+      expect(within(rowOf("Team ChatGPT")).getByText("Default")).toBeTruthy();
+      expect(rowOf("My Claude")).toBeTruthy();
+    },
+  );
+
+  it("shows the newer of a server render and an earlier cached read after a remount", () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    // Nothing is fetched: both views come from server renders.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise(() => {})),
+    );
+    const list = (view: ProviderListProps["view"]) => (
+      <QueryClientProvider client={client}>
+        <ProviderList
+          view={view}
+          mutationsEnabled
+          modelOptions={[]}
+          gatewayAccounts={undefined}
+          agentProfileOptions={[]}
+          accessRightsHref="/dashboard?section=other"
+        />
+      </QueryClientProvider>
+    );
+    const first = render(list(buildProviderListView(facts({ readAt: 1 }))));
+    expect(within(rowOf("Team ChatGPT")).getByText("Default")).toBeTruthy();
+    first.unmount();
+
+    // A later render after the default was removed elsewhere.
+    render(
+      list(
+        buildProviderListView(
+          facts({
+            readAt: 2,
+            defaultProfileId: null,
+            usage: [
+              { profileId: "team", workspaceDefault: false, repositoryIds: [] },
+            ],
+          }),
+        ),
+      ),
+    );
+    expect(within(rowOf("Team ChatGPT")).queryByText("Default")).toBeNull();
+    expect(
+      screen.getByText(/^No default provider: repositories without/),
+    ).toBeTruthy();
+  });
+
+  it("names what still uses a provider without changing repository names", () => {
+    expect(
+      profileActionErrorText({
+        status: "error",
+        error: "provider_profile_in_use",
+        blocking: { workspaceDefault: true, repositories: ["acme/web"] },
+      }),
+    ).toBe(
+      "This provider is still the workspace default and used by acme/web. Choose another provider there first.",
+    );
+  });
+});

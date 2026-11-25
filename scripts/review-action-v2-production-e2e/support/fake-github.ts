@@ -34,6 +34,13 @@ export class FakeGitHubTransport {
   readonly checkRuns: StoredCheckRun[] = [];
   revision: FakeGitHubRevision;
   sourceRunId: string;
+  sourceRunAttempt = "1";
+  workflowPath = ".github/workflows/reviewrouter-review.yml";
+  readonly dispatches: Array<{
+    readonly requestId: string;
+    readonly sourceRunId: string;
+  }> = [];
+  pullRequestTitle = "Joined source review history";
   failNextCommentAfterWrite = false;
   private nextExternalId = 10_000;
 
@@ -43,6 +50,7 @@ export class FakeGitHubTransport {
       repo: string;
       pullRequestNumber: number;
       sourceRunId: string;
+      repositoryId: string;
       installationId: string;
       appSlug: string;
       oidcKeyId: string;
@@ -64,7 +72,7 @@ export class FakeGitHubTransport {
     }
   }
 
-  seedProgressDuplicate(body: string): number {
+  seedAppComment(body: string): number {
     const id = this.nextExternalId++;
     this.comments.push({
       id,
@@ -105,10 +113,11 @@ export class FakeGitHubTransport {
       url.pathname ===
         `/app/installations/${this.options.installationId}/access_tokens`
     ) {
+      const tokenRequest = await requestJson(request);
       return json(201, {
         token: "fake-installation-token",
         expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
-        permissions: {
+        permissions: tokenRequest.permissions ?? {
           checks: "write",
           contents: "read",
           issues: "write",
@@ -126,12 +135,50 @@ export class FakeGitHubTransport {
 
     const repositoryPrefix = `/repos/${this.options.owner}/${this.options.repo}`;
     if (
+      method === "POST" &&
+      decodeURIComponent(url.pathname) ===
+        `${repositoryPrefix}/actions/workflows/${this.workflowPath}/dispatches`
+    ) {
+      const body = await requestJson(request);
+      const inputs = record(body.inputs);
+      const requestId = requiredString(inputs.review_request_id);
+      this.sourceRunId = String(
+        BigInt(this.options.sourceRunId) + BigInt(this.dispatches.length),
+      );
+      this.sourceRunAttempt = "1";
+      this.dispatches.push({ requestId, sourceRunId: this.sourceRunId });
+      return json(200, { workflow_run_id: Number(this.sourceRunId) });
+    }
+    const attemptPrefix = `${repositoryPrefix}/actions/runs/${this.sourceRunId}/attempts/`;
+    const attempt = url.pathname.startsWith(attemptPrefix)
+      ? url.pathname.slice(attemptPrefix.length)
+      : null;
+    if (method === "GET" && attempt !== null && /^[1-9][0-9]*$/.test(attempt)) {
+      return json(200, {
+        id: Number(this.sourceRunId),
+        repository: { id: Number(this.options.repositoryId) },
+        run_attempt: Number(attempt),
+        pull_requests: [{ number: this.options.pullRequestNumber }],
+        event: "workflow_dispatch",
+        path: this.workflowPath,
+        display_title: `ReviewRouter review ${this.dispatches.at(-1)?.requestId ?? "fixture"}`,
+        status: "in_progress",
+      });
+    }
+
+    if (
       method === "GET" &&
       url.pathname === `${repositoryPrefix}/actions/runs/${this.sourceRunId}`
     ) {
       return json(200, {
         id: Number(this.sourceRunId),
+        repository: { id: Number(this.options.repositoryId) },
+        run_attempt: Number(this.sourceRunAttempt),
         pull_requests: [{ number: this.options.pullRequestNumber }],
+        event: "workflow_dispatch",
+        path: this.workflowPath,
+        display_title: `ReviewRouter review ${this.dispatches.at(-1)?.requestId ?? "fixture"}`,
+        status: "in_progress",
       });
     }
     if (
@@ -142,11 +189,23 @@ export class FakeGitHubTransport {
       return json(200, {
         number: this.options.pullRequestNumber,
         state: "open",
+        title: this.pullRequestTitle,
+        draft: false,
+        user: { type: "User" },
+        additions: 2,
+        deletions: 1,
         base: {
           sha: this.revision.baseSha,
+          ref: "main",
+          repo: {
+            id: Number(this.options.repositoryId),
+            full_name: `${this.options.owner}/${this.options.repo}`,
+          },
+        },
+        head: {
+          sha: this.revision.headSha,
           repo: { full_name: `${this.options.owner}/${this.options.repo}` },
         },
-        head: { sha: this.revision.headSha },
       });
     }
     if (
@@ -174,7 +233,12 @@ export class FakeGitHubTransport {
       const page = positivePage(url.searchParams.get("page"));
       const perPage = positivePage(url.searchParams.get("per_page"));
       const start = (page - 1) * perPage;
-      return json(200, this.comments.slice(start, start + perPage));
+      return json(
+        200,
+        this.comments
+          .slice(start, start + perPage)
+          .map((comment) => this.issueScopedComment(comment)),
+      );
     }
     if (method === "POST" && url.pathname === commentsPath) {
       const body = await requestJson(request);
@@ -188,7 +252,7 @@ export class FakeGitHubTransport {
         this.failNextCommentAfterWrite = false;
         throw new TypeError("fake_scm_response_lost_after_write");
       }
-      return json(201, comment);
+      return json(201, this.issueScopedComment(comment));
     }
     const commentMatch = new RegExp(
       `^${repositoryPrefix}/issues/comments/(\\d+)$`,
@@ -198,11 +262,11 @@ export class FakeGitHubTransport {
       const commentId = Number(commentMatch[1]);
       const comment = this.comments.find(({ id }) => id === commentId);
       if (!comment) return json(404, { message: "Not Found" });
-      if (method === "GET") return json(200, comment);
+      if (method === "GET") return json(200, this.issueScopedComment(comment));
       if (method === "PATCH") {
         const body = await requestJson(request);
         comment.body = requiredString(body.body);
-        return json(200, comment);
+        return json(200, this.issueScopedComment(comment));
       }
       if (method === "DELETE") {
         const index = this.comments.findIndex(({ id }) => id === commentId);
@@ -246,6 +310,14 @@ export class FakeGitHubTransport {
       message: `fake_transport_unhandled:${method}:${url.pathname}`,
     });
   };
+
+  /** Model the issue-scoped fields returned by real GitHub comment endpoints. */
+  private issueScopedComment(comment: StoredComment) {
+    return {
+      ...comment,
+      issue_url: `https://api.github.com/repos/${this.options.owner}/${this.options.repo}/issues/${this.options.pullRequestNumber}`,
+    };
+  }
 
   private graphql(body: Readonly<Record<string, unknown>>): Response {
     const query = requiredString(body.query);

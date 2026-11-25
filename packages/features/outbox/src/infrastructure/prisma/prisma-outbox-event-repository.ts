@@ -1,4 +1,5 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
+import { writePrismaOutboxEvent } from "./write-prisma-outbox-event";
 import type {
   NewOutboxEvent,
   OutboxClaimTerm,
@@ -22,41 +23,7 @@ export class PrismaOutboxEventRepository
   constructor(private readonly prisma: PrismaClient) {}
 
   async enqueue(event: NewOutboxEvent): Promise<{ readonly created: boolean }> {
-    try {
-      await this.prisma.outboxEvent.create({
-        data: {
-          type: event.type,
-          version: event.version,
-          idempotencyKey: event.idempotencyKey,
-          workspaceId: event.workspaceId ?? null,
-          repositoryId: event.repositoryId ?? null,
-          aggregateId: event.aggregateId ?? null,
-          payload: toPrismaJson(event.payload),
-          maxAttempts: event.maxAttempts ?? 5,
-          occurredAt: event.occurredAt,
-        },
-      });
-      return { created: true };
-    } catch (error) {
-      if (isUniqueConstraintError(error)) {
-        const existing = await this.prisma.outboxEvent.findUnique({
-          where: { idempotencyKey: event.idempotencyKey },
-          select: {
-            type: true,
-            version: true,
-            workspaceId: true,
-            repositoryId: true,
-            aggregateId: true,
-            payload: true,
-          },
-        });
-        if (!existing || !sameImmutableEvent(existing, event)) {
-          throw new Error("outbox_idempotency_conflict", { cause: error });
-        }
-        return { created: false };
-      }
-      throw error;
-    }
+    return writePrismaOutboxEvent(this.prisma, event);
   }
 
   async findStatusByIdempotencyKey(idempotencyKey: string) {
@@ -70,6 +37,7 @@ export class PrismaOutboxEventRepository
   }
 
   async recoverStaleProcessing(input: {
+    readonly eventTypes?: readonly string[];
     readonly now: Date;
     readonly legacyStaleBefore: Date;
     readonly nextAttemptAt: Date;
@@ -77,8 +45,12 @@ export class PrismaOutboxEventRepository
     readonly errorCode: string;
     readonly safeErrorSummary: string;
   }): Promise<{ readonly recovered: number }> {
+    const typeFilter: Prisma.OutboxEventWhereInput = input.eventTypes
+      ? { type: { in: [...input.eventTypes] } }
+      : {};
     const stale = await this.prisma.outboxEvent.findMany({
       where: {
+        ...typeFilter,
         status: "processing",
         OR: [
           { claimUntil: { lte: input.now } },
@@ -103,6 +75,7 @@ export class PrismaOutboxEventRepository
         (transaction) =>
           transaction.outboxEvent.updateMany({
             where: {
+              ...typeFilter,
               id: event.id,
               status: "processing",
               claimId: event.claimId,
@@ -501,54 +474,4 @@ function toOutboxFailure(record: {
     occurredAt: record.occurredAt,
     updatedAt: record.updatedAt,
   };
-}
-
-function isUniqueConstraintError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { readonly code?: unknown }).code === "P2002"
-  );
-}
-
-function toPrismaJson(value: unknown): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
-}
-
-function sameImmutableEvent(
-  existing: {
-    readonly type: string;
-    readonly version: number;
-    readonly workspaceId: string | null;
-    readonly repositoryId: string | null;
-    readonly aggregateId: string | null;
-    readonly payload: unknown;
-  },
-  candidate: NewOutboxEvent,
-): boolean {
-  return (
-    existing.type === candidate.type &&
-    existing.version === candidate.version &&
-    existing.workspaceId === (candidate.workspaceId ?? null) &&
-    existing.repositoryId === (candidate.repositoryId ?? null) &&
-    existing.aggregateId === (candidate.aggregateId ?? null) &&
-    canonicalJson(existing.payload) === canonicalJson(candidate.payload)
-  );
-}
-
-function canonicalJson(value: unknown): string {
-  return JSON.stringify(sortJson(value));
-}
-
-function sortJson(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortJson);
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right, "en"))
-        .map(([key, child]) => [key, sortJson(child)]),
-    );
-  }
-  return value;
 }

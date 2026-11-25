@@ -51,14 +51,14 @@ export function parseArgs(argv, cwd = process.cwd()) {
 }
 
 export function checkReleaseManifest(input) {
-  assertGitRepository(input.saasRepo, "SaaS");
+  assertGitRepository(input.saasRepo, "control plane");
   assertGitRepository(input.actionRepo, "public Action");
   const manifestBytes = readFileSync(input.manifest, "utf8");
   const manifest = parseReleaseManifest(manifestBytes);
   assertCommitExists(
     input.saasRepo,
     manifest.saasSourceCommit,
-    "release manifest SaaS source commit",
+    "release manifest control plane source commit",
   );
   assertCommitExists(
     input.actionRepo,
@@ -86,7 +86,7 @@ export function checkReleaseManifest(input) {
     canonicalJson(verifiedAction.handoff) !== canonicalJson(expectedHandoff)
   ) {
     throw new Error(
-      "committed handoff does not match the canonical SaaS source commit",
+      "committed handoff does not match the canonical control plane source commit",
     );
   }
   const expectedRelease = buildReleaseManifest({
@@ -96,6 +96,25 @@ export function checkReleaseManifest(input) {
     runtimeEntrypointPath: verifiedAction.runtimeEntrypointPath,
     runtimeEntrypointDigest: verifiedAction.runtimeEntrypointDigest,
     contextGatewayReleaseMetadata: verifiedAction.contextGatewayReleaseMetadata,
+    agentProfiles: verifiedAction.agentProfiles,
+    ...(verifiedAction.modelDispatchProfile === undefined
+      ? {}
+      : { modelDispatchProfile: verifiedAction.modelDispatchProfile }),
+    ...(verifiedAction.lifecycleVerificationProfile === undefined
+      ? {}
+      : {
+          lifecycleVerificationProfile:
+            verifiedAction.lifecycleVerificationProfile,
+        }),
+    ...(verifiedAction.reviewerPlanProfile === undefined
+      ? {}
+      : { reviewerPlanProfile: verifiedAction.reviewerPlanProfile }),
+    ...(verifiedAction.contextToolsProfile === undefined
+      ? {}
+      : { contextToolsProfile: verifiedAction.contextToolsProfile }),
+    ...(verifiedAction.prDescriptionProfile === undefined
+      ? {}
+      : { prDescriptionProfile: verifiedAction.prDescriptionProfile }),
   });
   if (canonicalJson(expectedRelease) !== manifestBytes) {
     throw new Error(
@@ -117,8 +136,8 @@ function usage() {
   pnpm protocol:release-manifest:check --manifest <path> --action-repo <path> [options]
 
 Options:
-  --saas-repo <path>           SaaS repository. Default: current directory.
-  --source-directory <path>    Canonical generated source within SaaS.
+  --saas-repo <path>           control plane repository. Default: current directory.
+  --source-directory <path>    Canonical generated source within control plane.
   --help                       Show this help.`;
 }
 

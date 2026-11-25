@@ -65,6 +65,8 @@ export function HostedPoolDeviceLogin({
   pollAction,
   onImported,
   previewFlight,
+  reconnectAccount = null,
+  onClearReconnect,
 }: {
   readonly workspaceId: string;
   readonly mutationsEnabled: boolean;
@@ -75,11 +77,14 @@ export function HostedPoolDeviceLogin({
   readonly pollAction: DeviceLoginAction<HostedPoolDeviceLoginPollResult>;
   readonly onImported?: (account: HostedAccountSafeSummary) => void;
   readonly previewFlight?: HostedPoolDeviceLoginFlight | undefined;
+  readonly reconnectAccount?: HostedAccountSafeSummary | null;
+  readonly onClearReconnect?: () => void;
 }): React.ReactElement {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [imported, setImported] = useState(false);
+  const [reconnected, setReconnected] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [flight, setFlight] = useState<HostedPoolDeviceLoginFlight | null>(
     previewFlight ?? null,
@@ -139,6 +144,7 @@ export function HostedPoolDeviceLogin({
   async function start(formData: FormData): Promise<void> {
     setError(null);
     setImported(false);
+    setReconnected(formData.get("accountId") !== null);
     const result = await startAction(formData);
     if (!result.ok) {
       setError(result.params.error ?? "hosted_pool_action_failed");
@@ -158,25 +164,52 @@ export function HostedPoolDeviceLogin({
     <form action={start} className="grid gap-3">
       <input type="hidden" name="workspaceId" value={workspaceId} />
       <input type="hidden" name="priority" value="100" />
-      <label className="grid gap-2 text-sm text-slate-300">
-        <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-          Account name
-        </span>
-        <input
-          name="label"
-          required
-          maxLength={80}
-          autoComplete="off"
-          placeholder="Work laptop"
-          className={fieldClassName}
-        />
-      </label>
+      {reconnectAccount ? (
+        <>
+          <input
+            type="hidden"
+            name="accountId"
+            value={String(reconnectAccount.id)}
+          />
+          <input
+            type="hidden"
+            name="expectedGeneration"
+            value={reconnectAccount.authGeneration}
+          />
+          <input
+            type="hidden"
+            name="expectedHealthVersion"
+            value={reconnectAccount.healthVersion}
+          />
+          <input type="hidden" name="label" value={reconnectAccount.label} />
+          <p className="text-sm text-slate-300">
+            Reconnect {reconnectAccount.label} with the same ChatGPT account. It
+            stays paused until you choose Use for reviews again.
+          </p>
+        </>
+      ) : (
+        <label className="grid gap-2 text-sm text-slate-300">
+          <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+            Account name
+          </span>
+          <input
+            name="label"
+            required
+            maxLength={80}
+            autoComplete="off"
+            placeholder="Work laptop"
+            className={fieldClassName}
+          />
+        </label>
+      )}
       <FormSubmitButton
         variant="outline"
         size="sm"
         className="w-fit min-h-11 whitespace-nowrap text-cyan-50"
         disabled={!mutationsEnabled}
-        idleLabel="Start ChatGPT sign-in"
+        idleLabel={
+          reconnectAccount ? "Start reconnect sign-in" : "Start ChatGPT sign-in"
+        }
         pendingLabel="Starting..."
       />
     </form>
@@ -187,8 +220,12 @@ export function HostedPoolDeviceLogin({
       {imported ? (
         <ActionToast
           tone="success"
-          title="ChatGPT connected"
-          body="ReviewRouter detected the login. This account is ready for reviews. The session is encrypted on the server and never sent to the browser."
+          title={reconnected ? "ChatGPT reconnected" : "ChatGPT connected"}
+          body={
+            reconnected
+              ? "The new session is saved. This account stays paused. Choose Use for reviews again when ready."
+              : "ReviewRouter detected the login. This account is ready for reviews. The session is encrypted on the server and never sent to the browser."
+          }
         />
       ) : null}
       {error ? (
@@ -234,7 +271,10 @@ export function HostedPoolDeviceLogin({
               className="w-fit max-w-full whitespace-nowrap text-cyan-50"
               disabled={!mutationsEnabled}
               aria-expanded={addOpen}
-              onClick={() => setAddOpen((open) => !open)}
+              onClick={() => {
+                onClearReconnect?.();
+                setAddOpen((open) => !open);
+              }}
             >
               <Plus aria-hidden="true" className="h-4 w-4" />
               Add another ChatGPT account
@@ -242,7 +282,7 @@ export function HostedPoolDeviceLogin({
           )}
         </div>
         {toasts}
-        {flight ? codePanel : addOpen ? addFormPanel : null}
+        {flight ? codePanel : addOpen || reconnectAccount ? addFormPanel : null}
         {children}
       </div>
     );
@@ -421,6 +461,12 @@ function deviceLoginErrorText(error: string): string {
       return "ChatGPT sign-in is temporarily unavailable. Try again shortly, or upload auth.json.";
     case "hosted_account_subject_already_enrolled":
       return "This ChatGPT is already on the list, or it was removed and cannot be added again.";
+    case "hosted_codex_account_identity_drift":
+      return "Sign in with the same ChatGPT account as the selected paused account.";
+    case "hosted_codex_reconnect_conflict":
+      return "This account changed or is no longer paused. Refresh the dashboard and start a new sign-in.";
+    case "hosted_pool_reconnect_busy":
+      return "This account is refreshing. Start a new reconnect sign-in shortly.";
     case "not_workspace_admin":
     case "workspace_mutation_forbidden":
       return "Your GitHub user is not an owner/admin for this workspace.";

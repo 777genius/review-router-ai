@@ -3,22 +3,27 @@ import {
   freeBetaEntitlement,
   type EntitlementRepositoryPort,
 } from "@reviewrouter/features-entitlements";
-import { memoryError } from "../../domain/memory-errors";
+import { MemoryKnowledgeError } from "../../domain/memory-knowledge";
 import {
   createMemoryPolicyConfig,
   type MemoryPolicyConfig,
   type MemoryPolicyConfigOverrides,
   type MemoryPolicyConfigPort,
+  type MemoryWorkspaceSettings,
 } from "../../application/ports/memory-policy-config-port";
 
 export type EntitlementMemoryPolicyConfigOptions = {
   readonly serviceEnabled?: boolean;
   readonly defaults?: MemoryPolicyConfigOverrides;
+  readonly workspaceSettings?: (
+    workspaceId: string,
+  ) => Promise<MemoryWorkspaceSettings>;
 };
 
 export class EntitlementMemoryPolicyConfig implements MemoryPolicyConfigPort {
   private readonly serviceEnabled: boolean;
   private readonly defaults: MemoryPolicyConfigOverrides;
+  private readonly workspaceSettings: EntitlementMemoryPolicyConfigOptions["workspaceSettings"];
 
   constructor(
     private readonly entitlements: EntitlementRepositoryPort,
@@ -26,6 +31,7 @@ export class EntitlementMemoryPolicyConfig implements MemoryPolicyConfigPort {
   ) {
     this.serviceEnabled = options.serviceEnabled ?? true;
     this.defaults = options.defaults ?? {};
+    this.workspaceSettings = options.workspaceSettings;
   }
 
   async getPolicy(input: {
@@ -34,10 +40,19 @@ export class EntitlementMemoryPolicyConfig implements MemoryPolicyConfigPort {
   }): Promise<MemoryPolicyConfig> {
     const workspaceId = input.workspaceId.trim();
     if (!workspaceId) {
-      throw memoryError("memory_input_invalid");
+      throw new MemoryKnowledgeError("invalid_input");
     }
 
-    const basePolicy = createMemoryPolicyConfig(this.defaults);
+    const settings = await this.workspaceSettings?.(workspaceId);
+    const basePolicy = createMemoryPolicyConfig({
+      ...this.defaults,
+      ...(settings
+        ? {
+            requireConfirmation: settings.requireConfirmation,
+            settingsRevision: String(settings.version ?? 0),
+          }
+        : {}),
+    });
     if (!this.serviceEnabled) {
       return createMemoryPolicyConfig({
         ...basePolicy,

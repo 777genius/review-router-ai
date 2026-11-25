@@ -32,6 +32,7 @@ export enum ReviewPublicationLifecycleSemantic {
   Resolve = "resolve",
   Reopen = "reopen",
   MarkStale = "mark_stale",
+  ConfirmReply = "confirm_reply",
 }
 
 export enum ReviewPublicationOperationIdentityVersion {
@@ -96,6 +97,7 @@ export type PublishedReviewProjectionPublicationEnvelope = {
   readonly renderPolicyVersion: number;
   readonly publicationNotAfter: Date;
   readonly summary: PublishedReviewSummary;
+  readonly prDescription?: CanonicalReviewPublicationBodyFacts;
   readonly managedCheck: PublishedReviewManagedCheck | null;
   readonly inlineReviews: readonly PublishedInlineReview[];
   readonly lifecycle: readonly PublishedReviewLifecycleMutation[];
@@ -170,6 +172,7 @@ export function planReviewPublicationOperations(input: {
     readonly effectStrategy: ReviewPublicationEffectStrategy;
     readonly role: ReviewPublicationOperationRole;
     readonly dependsOnOperationId: string | null;
+    readonly required?: boolean;
   }): ReviewPublicationOperationPlan => {
     assertCanonicalBodyFacts(input.facts);
     if (markers.has(input.facts.markerHash)) {
@@ -196,7 +199,7 @@ export function planReviewPublicationOperations(input: {
       renderPolicyVersion: envelope.renderPolicyVersion,
       targetCommitId: envelope.targetCommitId,
       reviewRevisionHash: envelope.reviewRevisionHash,
-      required: true,
+      required: input.required ?? true,
       dependsOnOperationId: input.dependsOnOperationId,
       reconcileUntil,
     };
@@ -264,14 +267,52 @@ export function planReviewPublicationOperations(input: {
     }
   }
 
+  // Verified acknowledgements are additive. Preserve capacity for every
+  // required resolution even when some optional replies cannot fit the release.
+  let requiredLifecycleCount = 0;
+  let requiredLifecycleBytes = 0;
   for (const lifecycle of envelope.lifecycle) {
     assertLifecycleSemantic(lifecycle.semantic);
+    assertCanonicalBodyFacts(lifecycle);
+    if (
+      lifecycle.semantic !== ReviewPublicationLifecycleSemantic.ConfirmReply
+    ) {
+      requiredLifecycleCount += 1;
+      requiredLifecycleBytes = safeAddBodyBytes(
+        requiredLifecycleBytes,
+        lifecycle.bodyByteCount,
+      );
+    }
+  }
+  for (const lifecycle of envelope.lifecycle) {
+    const isReply =
+      lifecycle.semantic === ReviewPublicationLifecycleSemantic.ConfirmReply;
+    if (isReply) {
+      if (
+        operations.length + requiredLifecycleCount + 1 >
+          limits.maxPublicationOperations ||
+        chunkCount + requiredLifecycleCount + 1 > limits.maxPublicationChunks ||
+        lifecycle.bodyByteCount >
+          limits.maxPublicationBodyBytes -
+            totalBodyBytes -
+            requiredLifecycleBytes
+      ) {
+        continue;
+      }
+    } else {
+      requiredLifecycleCount -= 1;
+      requiredLifecycleBytes -= lifecycle.bodyByteCount;
+    }
     chunkCount += 1;
     append({
-      publicationKind: ReviewPublicationKind.ThreadLifecycle,
+      publicationKind: isReply
+        ? ReviewPublicationKind.ThreadReply
+        : ReviewPublicationKind.ThreadLifecycle,
       chunkIndex: lifecycle.chunkIndex,
       facts: lifecycle,
-      effectStrategy: ReviewPublicationEffectStrategy.ReversibleLifecycle,
+      effectStrategy: isReply
+        ? ReviewPublicationEffectStrategy.AppendOnlyCanonicalReceipt
+        : ReviewPublicationEffectStrategy.ReversibleLifecycle,
       role: ReviewPublicationOperationRole.Standalone,
       dependsOnOperationId: null,
     });
@@ -285,6 +326,28 @@ export function planReviewPublicationOperations(input: {
   }
   if (totalBodyBytes > limits.maxPublicationBodyBytes) {
     fail(ReviewPublicationPlanningErrorCode.BodyLimitExceeded);
+  }
+
+  if (envelope.prDescription !== undefined) {
+    assertCanonicalBodyFacts(envelope.prDescription);
+    // Optional prose must fit the capacity left by the valid required plan.
+    // Subtraction keeps the byte comparison safe before append sums the facts.
+    if (
+      operations.length < limits.maxPublicationOperations &&
+      chunkCount < limits.maxPublicationChunks &&
+      envelope.prDescription.bodyByteCount <=
+        limits.maxPublicationBodyBytes - totalBodyBytes
+    ) {
+      append({
+        publicationKind: ReviewPublicationKind.PrDescription,
+        required: false,
+        chunkIndex: 0,
+        facts: envelope.prDescription,
+        effectStrategy: ReviewPublicationEffectStrategy.MutableSingleton,
+        role: ReviewPublicationOperationRole.Standalone,
+        dependsOnOperationId: null,
+      });
+    }
   }
 
   return operations.map(cloneOperationPlan);
@@ -332,6 +395,9 @@ export function assertPublishedReviewProjectionPublicationEnvelopeIdentity(
   if (
     !isRecord(envelope) ||
     !isRecord(envelope.summary) ||
+    !(
+      envelope.prDescription === undefined || isRecord(envelope.prDescription)
+    ) ||
     !(envelope.managedCheck === null || isRecord(envelope.managedCheck)) ||
     !Array.isArray(envelope.inlineReviews) ||
     !envelope.inlineReviews.every(isRecord) ||
@@ -444,6 +510,7 @@ function assertCoveragePolicy(
         envelope.summary.semantic !==
           ReviewPublicationSummarySemantic.PartialCoverage ||
         envelope.managedCheck !== null ||
+        envelope.prDescription !== undefined ||
         envelope.inlineReviews.length > 0 ||
         envelope.lifecycle.length > 0
       ) {
@@ -489,6 +556,7 @@ function assertLifecycleSemantic(
     case ReviewPublicationLifecycleSemantic.Resolve:
     case ReviewPublicationLifecycleSemantic.Reopen:
     case ReviewPublicationLifecycleSemantic.MarkStale:
+    case ReviewPublicationLifecycleSemantic.ConfirmReply:
       return;
     default:
       fail(ReviewPublicationPlanningErrorCode.LifecycleSemanticUnsupported);

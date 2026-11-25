@@ -13,6 +13,21 @@ const expected = {
   bindingRevision: 1,
 };
 describe("setup source migration classification", () => {
+  it.each(["hosted", "repository_owned"] as const)(
+    "preserves canonical %s setup at the retained public API alias",
+    (kind) => {
+      const current = { ...expected, apiUrl: "https://api.reviewrouter.org" };
+      const retained = { ...current, apiUrl: "https://api.reviewrouter.site" };
+      const source =
+        kind === "hosted"
+          ? renderCanonicalHostedPoolWorkflowV2(retained)
+          : renderCanonicalCodexRotatingT0WorkflowV2({
+              ...retained,
+              refreshScheduleCron: null,
+            });
+      expect(classifyHostedPoolSetupSource(source, current)).toBe(kind);
+    },
+  );
   it("recognizes canonical App-first repository-owned input for replacement", () => {
     expect(
       classifyHostedPoolSetupSource(

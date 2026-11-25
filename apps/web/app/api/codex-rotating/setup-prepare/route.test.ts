@@ -19,14 +19,11 @@ describe("Codex rotating setup prepare transport", () => {
 
   it("does not cache malformed JSON", async () => {
     const response = await POST(
-      new Request(
-        "https://reviewrouter.site/api/codex-rotating/setup-prepare",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: "not-json",
-        },
-      ),
+      new Request("https://reviewrouter.org/api/codex-rotating/setup-prepare", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "not-json",
+      }),
     );
 
     expect(mocks.prepare).not.toHaveBeenCalled();

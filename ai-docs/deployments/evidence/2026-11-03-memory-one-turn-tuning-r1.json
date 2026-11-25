@@ -1,0 +1,52 @@
+{
+  "kind": "memory-one-turn-real-tuning-disposition/v1",
+  "source": "849f319a245e80d5470716a5da216370800ac581",
+  "runId": "2cfb5780-a8d7-45cf-b329-ff4d56401467",
+  "corpusRevision": "2026-11-03-full-thread-r3",
+  "split": "tuning",
+  "observations": 50,
+  "reviewer": "Codex agent review (owner-delegated; not human/external)",
+  "officialScore": "FAIL",
+  "precision": {
+    "numerator": 20,
+    "denominator": 23
+  },
+  "eligibleRecall": {
+    "numerator": 20,
+    "denominator": 21
+  },
+  "unauthorizedEffects": 3,
+  "criticalSilentRecall": {
+    "numerator": 1,
+    "denominator": 2
+  },
+  "findings": [
+    "A bot-authored quoted control referent was stored instead of the technical proposal adopted by the maintainer.",
+    "Two human-authored rejection/unresolved discussion-status statements were stored as engineering facts."
+  ],
+  "decision": "No further measurement, protected checkpoint, deployment or activation on this candidate. Narrow evidence-binding source repair and fresh qualification required.",
+  "productionActivated": false,
+  "qualificationIssued": false,
+  "nativeEffectsDuringScoring": 0,
+  "modelCallsDuringScoring": 0,
+  "scoreNetwork": "none",
+  "sourceClaim": "Frozen 107-file mounted conversation candidate on retained6e dependency image; not an entire849 image qualification.",
+  "evidence": {
+    "tuning-r1.json": {
+      "sha256": "12c902effbdcfa77eae7c73bd68f06abfaecffe57495aee09514efa2ca8adbac",
+      "retainedOperatorPath": "/Users/belief/.codex/worktrees/memory-production-fix/review-router/tmp/memory-production/tuning849-preparation-20261103/tuning-r1.json"
+    },
+    "semantic-rubric-r1.json": {
+      "sha256": "22a3977ed0e0555e953cbfe7d7dfc69ae9214fcd77091b3304749b88f38b4452",
+      "retainedOperatorPath": "/Users/belief/.codex/worktrees/memory-production-fix/review-router/tmp/memory-production/tuning849-preparation-20261103/semantic-rubric-r1.json"
+    },
+    "official-score-r1.json": {
+      "sha256": "1782e6df2d94268723f3d2d5af0e4ff5f664ac0c5e825c1c8a3359bdced90bd4",
+      "retainedOperatorPath": "/Users/belief/.codex/worktrees/memory-production-fix/review-router/tmp/memory-production/tuning849-preparation-20261103/official-score-r1.json"
+    },
+    "reachability-readonly.json": {
+      "sha256": "1ae27d092d64cc391bc106a05ffcec9f9147a74daca86134947198ea9bcca7f6",
+      "retainedOperatorPath": "/Users/belief/.codex/worktrees/memory-production-fix/review-router/tmp/memory-production/tuning849-preparation-20261103/reachability-readonly.json"
+    }
+  }
+}

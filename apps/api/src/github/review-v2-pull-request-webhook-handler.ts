@@ -35,7 +35,9 @@ export class ReviewV2PullRequestWebhookHandler implements GitHubPullRequestWebho
     private readonly dependencies: Readonly<{
       ingress: GitHubReviewRequestIngressPort;
       clock: { now(): Date };
-      policy: { reviewDrafts(repositoryFullName: string): boolean };
+      policy: {
+        reviewDrafts(githubInstallationId: string): Promise<boolean> | boolean;
+      };
     }>,
   ) {}
 
@@ -61,13 +63,13 @@ export class ReviewV2PullRequestWebhookHandler implements GitHubPullRequestWebho
     ) {
       return { reviewV2Intent: "ignored", reason: "trust_domain_unsupported" };
     }
-    const reviewDrafts = this.dependencies.policy.reviewDrafts(
-      payload.repository.full_name,
-    );
     const cancel =
       payload.action === "closed" ||
       pullRequest.state !== "open" ||
-      (pullRequest.draft && !reviewDrafts);
+      (pullRequest.draft &&
+        !(await this.dependencies.policy.reviewDrafts(
+          String(payload.installation.id),
+        )));
     const commandKind = cancel
       ? GitHubReviewRequestIngressCommandKind.Cancel
       : GitHubReviewRequestIngressCommandKind.Request;

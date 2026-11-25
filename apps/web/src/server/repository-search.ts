@@ -7,20 +7,6 @@ export type RepositorySetupStatus =
   | "configured"
   | "needs_attention";
 
-export type RepositorySearchFilter =
-  | "all"
-  | "private"
-  | "public"
-  | "needs_setup"
-  | "needs_attention"
-  | "ready";
-export type RepositorySearchReadiness =
-  | "ready"
-  | "needs_setup"
-  | "needs_attention";
-
-export type RepositorySetupStep = 1 | 2 | 3 | 4;
-
 export function buildRepositorySearchText({
   fullName,
   owner,
@@ -67,81 +53,6 @@ export function buildRepositorySearchText({
   ]
     .join(" ")
     .toLowerCase();
-}
-
-export function repositoryMatchesSearchFilter(
-  row: {
-    readonly repository: { readonly visibility: string };
-    readonly readiness: RepositorySearchReadiness;
-  },
-  filter: RepositorySearchFilter,
-): boolean {
-  switch (filter) {
-    case "private":
-      return row.repository.visibility === "private";
-    case "public":
-      return row.repository.visibility === "public";
-    case "needs_setup":
-      return row.readiness === "needs_setup";
-    case "needs_attention":
-      return row.readiness === "needs_attention";
-    case "ready":
-      return row.readiness === "ready";
-    case "all":
-      return true;
-  }
-}
-
-export function tokenizeRepositorySearch(query: string): string[] {
-  return query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-}
-
-export function repositorySetupProgressStep({
-  setupStatus,
-  healthStatus,
-  workflowCurrent,
-  providerSetupConfirmed,
-  setupNeedsAttention = false,
-}: {
-  readonly setupStatus: string;
-  readonly healthStatus: string | undefined;
-  readonly workflowCurrent: boolean;
-  readonly providerSetupConfirmed: boolean;
-  readonly setupNeedsAttention?: boolean;
-}): RepositorySetupStep {
-  if (setupNeedsAttention) return 1;
-  if (healthStatus === "healthy") return 4;
-  if (workflowCurrent && providerSetupConfirmed) return 4;
-  if (workflowCurrent) return 3;
-  if (setupStatus === "setup_pr_open" || healthStatus === "setup_pr_open") {
-    return 2;
-  }
-
-  return 1;
-}
-
-export function repositorySearchReadiness({
-  setupProgressStep,
-  healthStatus,
-}: {
-  readonly setupProgressStep: RepositorySetupStep;
-  readonly healthStatus: RepositoryHealthStatus | undefined;
-}): RepositorySearchReadiness {
-  const healthView = describeRepositoryHealth(healthStatus);
-  if (healthView.tone === "danger") return "needs_attention";
-  if (healthView.blocksReview) return "needs_setup";
-  return setupProgressStep === 4 ? "ready" : "needs_setup";
-}
-
-export function workflowSetupAlreadyCurrent(
-  status: string | undefined,
-): boolean {
-  return [
-    "healthy",
-    "provider_needs_setup",
-    "provider_unhealthy",
-    "provider_report_stale",
-  ].includes(status ?? "");
 }
 
 export function describeRepositorySetup(

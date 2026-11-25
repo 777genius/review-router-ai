@@ -16,11 +16,13 @@ import {
 import {
   canonicalHostedPoolProviderInstanceId,
   provisionHostedPoolRepositoryWorkflow,
+  type WorkflowProvisioningRepositoryPort,
+} from "@reviewrouter/features-workflow-provisioning";
+import {
   PrismaWorkflowProvisioningTarget,
   PrismaWorkflowProvisioningRepository,
   OctokitWorkflowSetupGateway,
-  type WorkflowProvisioningRepositoryPort,
-} from "@reviewrouter/features-workflow-provisioning";
+} from "@reviewrouter/features-workflow-provisioning/composition";
 import type { HostedPoolOperatorConnect } from "./hosted-pool-operator-composition.js";
 
 type Requester = ConstructorParameters<typeof OctokitWorkflowSetupGateway>[0];
@@ -330,6 +332,7 @@ export function createHostedPoolOperatorConnect(
                   status: "not_started",
                   errorMessage: null,
                   actionVersion: input.actionRef,
+                  attemptWorkflowRequirement: record.workflowRequirement,
                 },
               });
               if (resumed.count !== 1)

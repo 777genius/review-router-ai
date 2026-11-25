@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim AS builder
+FROM node:26.11.1-bookworm-slim AS builder
 
 WORKDIR /build
 
@@ -12,11 +12,11 @@ RUN ./node_modules/.bin/esbuild packages/features/review-publishing/src/interfac
     --bundle \
     --platform=node \
     --format=esm \
-    --target=node24 \
+    --target=node26 \
     --alias:@reviewrouter/shared=/build/packages/shared/src/index.ts \
     --outfile=/build/reviewrouter-gitlab-review.mjs
 
-FROM node:24-bookworm-slim
+FROM node:26.11.1-bookworm-slim
 
 ARG IMAGE_SOURCE="https://github.com/777genius/review-router-ai"
 ARG IMAGE_REVISION="unknown"

@@ -16,6 +16,7 @@ import {
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { exportJWK, SignJWT } from "jose";
 import {
@@ -34,6 +35,12 @@ import {
   reviewActionV2CanonicalizerDigest,
   reviewActionV2PublishedSchemaDigest,
 } from "../../../packages/protocol-review-action-v2/src/index.js";
+import { parseReviewConfigurationStrict } from "../../../packages/features/review-config/src/index.js";
+import { PrismaReviewConfigurationRepository } from "../../../packages/features/review-config/src/composition/index.js";
+import {
+  systemPolicyWriteFixture,
+  workspacePolicyDocumentFixture,
+} from "../../../packages/features/review-config/src/tests/current-policy-fixture.js";
 import { createApiApp } from "../../../apps/api/src/app.js";
 import {
   composeReviewActionV2ProductionRoutes,
@@ -65,6 +72,19 @@ import { reviewActionV2ProjectionPolicyVersion } from "../../../apps/api/src/rev
 import { FakeGitHubTransport } from "../../review-action-v2-production-e2e/support/fake-github.js";
 import { assertDisposableDatabaseUrl } from "../../review-action-v2-production-e2e/support/review-action-v2-e2e-harness.js";
 import { resetReviewInvestigationProductionE2EDatabase } from "../../review-investigation-production-e2e/support/review-investigation-production-e2e-harness.js";
+import {
+  audienceMemoryStatements,
+  createApprovedMemoryFixture,
+  cleanupApprovedMemoryFixture,
+} from "../../memory-e2e/support/approved-memory-fixture.js";
+import {
+  createReviewMemoryInputAdmission,
+  createInvestigationMemoryInputAdmission,
+} from "../../../apps/api/src/review-memory-admission.js";
+import {
+  ReviewMemoryRuntimeGateway,
+  registerReviewMemoryRuntimeRoutes,
+} from "../../../apps/api/src/review-memory-runtime.js";
 // @ts-expect-error The shared release parser is intentionally ESM JavaScript.
 import { parseContextGatewayReleaseMetadata } from "../../lib/review-action-v2-release-manifests.mjs";
 
@@ -77,6 +97,19 @@ const pullRequestNumber = 73;
 const githubRepositoryId = "9988776655";
 const githubInstallationId = "887766";
 const sourceRunId = "770001";
+// This isolated investigation runner uses a scripted provider, not the released CLI installer.
+// Its explicit fixture producer profile never registers or qualifies a live producer.
+const pairedAgentProfiles = [
+  {
+    profileRef: "codex-default",
+    agentKind: "codex",
+    binarySha256: sha256("paired-scripted-agent"),
+    packageVersion: "0.147.0",
+    modelTransports: ["provider_api"],
+    contextGateway: true,
+    cancellation: true,
+  },
+];
 const providerVoteIdentityHash = sha256("paired-action-saas-provider-vote");
 const capabilityKeyId = "paired-action-saas-capability-key";
 const contextReplayKeyId = "paired-action-saas-context-replay-key";
@@ -115,6 +148,18 @@ export type PairedActionProcessResult = Readonly<{
   ok: boolean;
   scenario: PairedActionScenario;
   releaseManifestHash: string;
+  memoryWitness?: Readonly<{
+    snapshotHash: string;
+    providerManifestHash: string;
+    seedReviewPromptHash: string;
+    turns: readonly Readonly<{
+      serializedInputHash: string;
+      promptHash: string;
+      reviewContextPromptHash: string;
+      purpose: string;
+      includesStatements: readonly boolean[];
+    }>[];
+  }>;
   replayPreparationMissing?: boolean;
   preparedObligationCount?: number;
   sourceInvestigationId?: string;
@@ -183,6 +228,7 @@ export class PairedActionSaasE2EHarness {
   private readonly fakeGitHub: FakeGitHubTransport;
   private readonly originalFetch: typeof globalThis.fetch;
   private readonly temporaryRoot: string;
+  private memoryGeneration?: string;
   private oidcOrdinal = 0;
   private runOidcToken?: Readonly<{
     identity: string;
@@ -237,6 +283,7 @@ export class PairedActionSaasE2EHarness {
     databaseUrl: string;
     actionSourceDir: string;
     actionRef: string;
+    memory?: boolean;
   }): Promise<PairedActionSaasE2EHarness> {
     assertDisposableDatabaseUrl(input.databaseUrl);
     const sourceActionDir = path.resolve(input.actionSourceDir);
@@ -276,6 +323,7 @@ export class PairedActionSaasE2EHarness {
       repo,
       pullRequestNumber,
       sourceRunId,
+      repositoryId: githubRepositoryId,
       installationId: githubInstallationId,
       appSlug: "reviewrouter-paired-e2e",
       oidcKeyId,
@@ -326,11 +374,30 @@ export class PairedActionSaasE2EHarness {
           );
         },
       };
+      const memoryGeneration = input.memory ? `${prefix}-memory` : undefined;
+      const approvedMemory = memoryGeneration
+        ? await createApprovedMemoryFixture({
+            prisma,
+            workspaceId,
+            repositoryId: repositoryConnectionId,
+            generation: memoryGeneration,
+            statements: audienceMemoryStatements,
+          })
+        : undefined;
       const routes = composeReviewActionV2ProductionRoutes({
         enabled: true,
         env,
         runtime,
         prisma,
+        ...(approvedMemory
+          ? {
+              memoryInputAdmission: createReviewMemoryInputAdmission(
+                approvedMemory.runtime,
+              ),
+              investigationMemoryInputAdmission:
+                createInvestigationMemoryInputAdmission(approvedMemory.runtime),
+            }
+          : {}),
       });
       const app = await createApiApp({
         prisma,
@@ -344,8 +411,20 @@ export class PairedActionSaasE2EHarness {
         reviewSnapshotReadV2Dependencies: routes.snapshot,
         reviewPublicationRequestV2Dependencies: routes.publication,
       });
+      if (approvedMemory) {
+        if (!routes.contextTools)
+          throw new Error("paired_memory_authorization_missing");
+        await registerReviewMemoryRuntimeRoutes(
+          app,
+          new ReviewMemoryRuntimeGateway({
+            prisma,
+            runtime: approvedMemory.runtime,
+            access: routes.contextTools,
+          }),
+        );
+      }
       const apiUrl = await app.listen({ host: "127.0.0.1", port: 0 });
-      return new PairedActionSaasE2EHarness({
+      const harness = new PairedActionSaasE2EHarness({
         prisma,
         diagnostics,
         releaseManifest: release.manifest,
@@ -366,6 +445,8 @@ export class PairedActionSaasE2EHarness {
         originalFetch,
         temporaryRoot,
       });
+      if (memoryGeneration) harness.memoryGeneration = memoryGeneration;
+      return harness;
     } catch (error) {
       globalThis.fetch = originalFetch;
       await prisma.$disconnect();
@@ -376,6 +457,7 @@ export class PairedActionSaasE2EHarness {
 
   async run(
     scenario: PairedActionScenario,
+    options: Readonly<{ memory?: boolean }> = {},
   ): Promise<PairedActionProcessResult> {
     const configPath = path.join(
       this.temporaryRoot,
@@ -386,6 +468,7 @@ export class PairedActionSaasE2EHarness {
       configPath,
       JSON.stringify({
         scenario,
+        memory: options.memory === true,
         apiUrl: this.apiUrl,
         oidcToken,
         actionSourceDir: this.actionSourceDir,
@@ -417,7 +500,7 @@ export class PairedActionSaasE2EHarness {
       { encoding: "utf8", mode: 0o600 },
     );
     try {
-      const tsxCli = require.resolve("tsx/cli");
+      const tsxLoader = pathToFileURL(require.resolve("tsx")).href;
       const runner = path.resolve(
         "scripts/review-investigation-paired-e2e/support/paired-action-runner.ts",
       );
@@ -429,7 +512,7 @@ export class PairedActionSaasE2EHarness {
       try {
         const completed = await execFileAsync(
           process.execPath,
-          [tsxCli, runner, configPath],
+          ["--import", tsxLoader, runner, configPath],
           {
             cwd: path.resolve("."),
             env: {
@@ -506,6 +589,12 @@ export class PairedActionSaasE2EHarness {
 
   async close(): Promise<void> {
     await this.app.close();
+    if (this.memoryGeneration)
+      await cleanupApprovedMemoryFixture(
+        this.prisma,
+        this.memoryGeneration,
+        this.workspaceId,
+      );
     globalThis.fetch = this.originalFetch;
     await this.prisma.$disconnect();
     await rm(this.temporaryRoot, { recursive: true, force: true });
@@ -536,15 +625,15 @@ export class PairedActionSaasE2EHarness {
     const expiresAt = issuedAt + 10 * 60;
     this.oidcOrdinal += 1;
     const token = await new SignJWT({
-      sub: `repo:${owner}/${repo}:pull_request`,
+      sub: `repo:${owner}/${repo}:ref:refs/heads/main`,
       repository: `${owner}/${repo}`,
       repository_id: githubRepositoryId,
       repository_owner: owner,
-      event_name: "pull_request",
-      ref: `refs/pull/${pullRequestNumber}/merge`,
+      event_name: "workflow_dispatch",
+      ref: "refs/heads/main",
       run_id: this.fakeGitHub.sourceRunId,
       run_attempt: "1",
-      workflow_ref: `${owner}/${repo}/.github/workflows/reviewrouter.yml@refs/pull/${pullRequestNumber}/merge`,
+      workflow_ref: `${owner}/${repo}/.github/workflows/reviewrouter-codex.yml@refs/heads/main`,
       workflow_sha: this.repository.headSha,
       job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${this.actionRef}`,
       job_workflow_sha: this.actionRef,
@@ -774,6 +863,7 @@ async function seedControlPlane(
     data: {
       producerReleaseId: input.producerReleaseId,
       distributionKind: "public_reusable",
+      agentProfilesJson: JSON.stringify(pairedAgentProfiles),
       actionCommitSha: input.release.actionCommitSha,
       runtimeCommitSha: input.release.runtimeCommitSha,
       wrapperEntrypointDigest: null,
@@ -799,7 +889,7 @@ async function seedControlPlane(
     data: {
       id: input.workspaceId,
       slug: `${input.prefix}-workspace`,
-      name: "Paired Action SaaS E2E",
+      name: "Paired Action control plane E2E",
     },
   });
   await prisma.gitHubInstallation.create({
@@ -847,6 +937,68 @@ async function seedControlPlane(
       currentRepositoryConnectionId: input.repositoryConnectionId,
       boundAt: now,
     },
+  });
+  // Rotating is repository-only: the workspace document keeps the settings
+  // without a default and the repository selects its rotating profile.
+  const pairedConfig = parseReviewConfigurationStrict({
+    schemaVersion: 3,
+    providers: [
+      {
+        kind: "codex",
+        authMode: "codex_subscription_oauth_rotating",
+        model: "gpt-paired-e2e",
+        reasoningEffort: "xhigh",
+        agenticContext: true,
+        fastMode: false,
+        requiredHealthy: false,
+      },
+    ],
+    execution: {
+      providerLimit: 1,
+      providerMaxParallel: 1,
+      inlineMinAgreement: 1,
+    },
+    blockingPolicy: { failOnSeverity: "major" },
+    limits: { inlineMaxComments: 5, targetTokensPerBatch: 12000 },
+    reviewLanguage: null,
+    investigationRollout: {
+      recordingEnabled: true,
+      shadowEnabled: true,
+      contextCriticEnabled: true,
+      verifiedCleanEnabled: true,
+      crossRevisionReplayEnabled: true,
+      productionEffectsEnabled: true,
+    },
+  });
+  const repositoryTarget = {
+    scope: "repository" as const,
+    workspaceId: input.workspaceId,
+    repositoryId: input.repositoryConnectionId,
+  };
+  const repositoryWrite = systemPolicyWriteFixture(
+    pairedConfig,
+    repositoryTarget,
+  );
+  await new PrismaReviewConfigurationRepository(
+    prisma,
+    undefined,
+    false,
+    undefined,
+  ).saveNextVersions({
+    workspaceId: input.workspaceId,
+    writes: [
+      {
+        target: { scope: "workspace", workspaceId: input.workspaceId },
+        policy: workspacePolicyDocumentFixture(pairedConfig),
+        expectedVersion: null,
+      },
+      {
+        target: repositoryTarget,
+        policy: repositoryWrite.policy,
+        expectedVersion: null,
+      },
+    ],
+    profileDrafts: repositoryWrite.profileDrafts,
   });
   await prisma.reviewMutationAuthority.create({
     data: {
@@ -915,6 +1067,7 @@ function productionEnvironment(input: {
   ]);
   return {
     NODE_ENV: "production",
+    REVIEW_ROUTER_AGENT_PROFILE: "codex-default",
     GITHUB_APP_ID: "1",
     GITHUB_APP_PRIVATE_KEY: input.appPrivateKey,
     REVIEW_ROUTER_PUBLIC_API_URL: "https://api.reviewrouter.test",
@@ -925,6 +1078,7 @@ function productionEnvironment(input: {
       {
         producerReleaseId: input.producerReleaseId,
         distributionKind: "public_reusable",
+        agentProfiles: pairedAgentProfiles,
         actionCommitSha: input.release.actionCommitSha,
         runtimeCommitSha: input.release.runtimeCommitSha,
         wrapperEntrypointDigest: null,

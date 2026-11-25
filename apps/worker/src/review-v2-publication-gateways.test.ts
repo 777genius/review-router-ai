@@ -9,6 +9,12 @@ import {
   ReviewPublicationOperationRole,
   ReviewPublicationOperationState,
   ReviewPublicationReceiptStatus,
+  CanonicalReviewPublicationRenderPolicyVersion,
+  ReviewPublicationProjectionCoverage,
+  ReviewPublicationOccurrenceState,
+  renderCanonicalReviewPublication,
+  renderReviewPrDescription,
+  reviewPrDescriptionStartMarker,
 } from "@reviewrouter/features-review-publishing/v2";
 import {
   CapabilityAudience,
@@ -17,61 +23,86 @@ import {
   JoseRotatingCapabilityCodec,
 } from "@reviewrouter/platform-signed-capabilities";
 import {
+  type ReviewV2ProviderCredentialPort,
+  type ReviewV2ProviderPublicationClientPort,
+} from "@reviewrouter/features-review-publishing/v2";
+import {
   ProviderNeutralReviewV2ScmCredentialRouter,
   RotatingReviewV2OperationCapabilityIssuer,
   SignedReviewV2OperationCapabilityVerifier,
   GitHubReviewV2PublicationClient,
   readGitHubReviewV2LiveRevision,
   type GitHubInstallationClient,
-  type ReviewV2ProviderCredentialPort,
-  type ReviewV2ProviderPublicationClientPort,
-} from "./review-v2-publication-gateways";
+} from "@reviewrouter/features-review-publishing/v2/composition";
 import {
   ReviewV2PublicationPayloadKind,
   type ReviewV2PublicationPayload,
-} from "./review-v2-publication-payloads";
+} from "@reviewrouter/features-review-publishing/v2";
+
 import {
   ReviewV2ScmMutationFailureOutcome,
   ReviewV2ScmCredentialPurpose,
   ReviewV2ScmProvider,
-} from "./review-v2-publication-ports";
+} from "@reviewrouter/features-review-publishing/v2";
 
 describe("protocol v2 provider-neutral SCM gateways", () => {
-  it.each([ReviewV2ScmProvider.GitHub, ReviewV2ScmProvider.GitLab])(
-    "routes %s through an adapter-bound credential session without exposing a token",
-    async (provider) => {
+  it.each([
+    [ReviewV2ScmProvider.GitHub, ReviewV2ScmCredentialPurpose.Mutate],
+    [ReviewV2ScmProvider.GitHub, ReviewV2ScmCredentialPurpose.ReconcileOnly],
+    [ReviewV2ScmProvider.GitLab, ReviewV2ScmCredentialPurpose.Mutate],
+    [ReviewV2ScmProvider.GitLab, ReviewV2ScmCredentialPurpose.ReconcileOnly],
+  ] as const)(
+    "routes %s %s through a verified, purpose-scoped credential session",
+    async (provider, purpose) => {
       const acquired: unknown[] = [];
-      const client = fakeClient();
+      const lifecycle: string[] = [];
+      const client = { ...fakeClient(), privateToken: "fixture-only-token" };
       const credentials: ReviewV2ProviderCredentialPort = {
         provider,
         async acquireClient(input) {
+          lifecycle.push("acquire");
           acquired.push(input);
-          return { client, async close() {} };
+          return {
+            client,
+            async close() {
+              lifecycle.push("close");
+            },
+          };
         },
       };
       const router = new ProviderNeutralReviewV2ScmCredentialRouter(
         [credentials],
-        allowingCapabilityVerifier,
+        {
+          async verify() {
+            lifecycle.push("verify");
+          },
+        },
       );
 
       const session = await router.acquire({
         provider,
-        purpose: ReviewV2ScmCredentialPurpose.ReconcileOnly,
+        purpose,
         permit: permit(),
         operation: operation(),
         capability: capability(),
         claim: claim(),
         signedCapability: signedCapability(),
       });
-      expect(session.purpose).toBe(ReviewV2ScmCredentialPurpose.ReconcileOnly);
-      expect("applyOperation" in session.gateway).toBe(false);
+      expect(session.purpose).toBe(purpose);
+      expect("applyOperation" in session.gateway).toBe(
+        purpose === ReviewV2ScmCredentialPurpose.Mutate,
+      );
+      expect(Object.keys(session.gateway).sort()).toEqual(
+        purpose === ReviewV2ScmCredentialPurpose.Mutate
+          ? ["applyOperation", "findAllByMarker", "markStaleOrDelete"]
+          : ["findAllByMarker", "markStaleOrDelete"],
+      );
       expect(acquired).toEqual([
-        {
-          purpose: ReviewV2ScmCredentialPurpose.ReconcileOnly,
-          permit: permit(),
-          capability: capability(),
-        },
+        { purpose, permit: permit(), capability: capability() },
       ]);
+      expect(lifecycle).toEqual(["verify", "acquire"]);
+      await session.close();
+      expect(lifecycle).toEqual(["verify", "acquire", "close"]);
       expect(collectKeys(acquired)).not.toContainEqual(
         expect.stringMatching(/^(?:token|secret|credential)$/i),
       );
@@ -690,6 +721,122 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
     });
   });
 
+  it.each([
+    { line: 2, startLine: 1 },
+    { line: 1, startLine: null },
+  ])(
+    "preserves the OCR publication range $startLine..$line through rendering and the GitHub request",
+    async ({ line, startLine }) => {
+      const rendered = renderCanonicalReviewPublication(
+        {
+          coverage: ReviewPublicationProjectionCoverage.Completed,
+          renderPolicyVersion:
+            CanonicalReviewPublicationRenderPolicyVersion.PreliminaryFindingsV4,
+          targetCommitId: hash("9"),
+          occurrenceStates: [ReviewPublicationOccurrenceState.New],
+          source: {
+            summary: {
+              marker: "summary-ocr",
+              body: "One finding",
+              allClear: false,
+              occurrenceCounts: {
+                new: 1,
+                reconfirmed: 0,
+                changed: 0,
+                carried_unverified: 0,
+                resolved: 0,
+                uncertain: 0,
+                suppressed_by_human: 0,
+              },
+            },
+            check: {
+              marker: "check-ocr",
+              name: "ReviewRouter",
+              title: "Review complete",
+              summary: "One finding",
+              conclusion: "failure",
+            },
+            inlineReviewChunks: [
+              {
+                chunkIndex: 0,
+                marker: "inline-ocr",
+                comments: [
+                  {
+                    marker: "finding-ocr",
+                    path: "src/a.ts",
+                    line,
+                    startLine,
+                    body: "Verified finding",
+                  },
+                ],
+              },
+            ],
+            lifecycle: [],
+          },
+        },
+        {
+          digestUtf8: hash,
+          utf8ByteLength: (value) => Buffer.byteLength(value, "utf8"),
+        },
+      );
+      const created = rendered.inlineReviews[0]!.create;
+      const payload = {
+        ...created,
+        kind: ReviewV2PublicationPayloadKind.PendingReviewCreate,
+        body: created.reviewBody,
+      } as const;
+      const requests: Readonly<Record<string, unknown>>[] = [];
+      const client = githubPublicationClient(
+        {
+          async request(route, parameters = {}) {
+            requests.push({ route, ...parameters });
+            if (route.startsWith("POST "))
+              return {
+                data: {
+                  id: 7,
+                  body: payload.body,
+                  commit_id: hash("9"),
+                  state: "PENDING",
+                  user: { login: "review-router[bot]" },
+                  app: { slug: "review-router" },
+                },
+              };
+            return {
+              data: payload.comments.map((comment) => ({
+                path: comment.path,
+                line: comment.line,
+                start_line: comment.startLine,
+                body: comment.body,
+              })),
+            };
+          },
+          async graphql<T = unknown>(): Promise<T> {
+            throw new Error("unexpected_graphql_call");
+          },
+        },
+        payload,
+      );
+      await client.applyOperation({
+        operation: reviewOperation(),
+        capability: capability(),
+      });
+      const mutation = requests.find(
+        (request) =>
+          request.route ===
+          "POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+      );
+      expect(mutation?.comments).toEqual([
+        {
+          path: "src/a.ts",
+          line,
+          ...(startLine === null ? {} : { start_line: startLine }),
+          side: "RIGHT",
+          body: payload.comments[0]!.body,
+        },
+      ]);
+    },
+  );
+
   it("keeps a created review ambiguous when post-mutation observation fails", async () => {
     const marker = "<!-- review-router:review-observation-failure -->";
     const payload = {
@@ -1001,6 +1148,221 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
     expect(refs).toEqual([targetCommitId]);
   });
 
+  it("posts exactly one native verified-fix reply, reconciles a retry and leaves the thread open", async () => {
+    const sha = (value: string) =>
+      createHash("sha256").update(value).digest("hex");
+    const threadId = "PRRT_native_1";
+    const parentId = "PRRC_native_parent";
+    const fingerprint = "rrl_0123456789abcdef0123456789abcdef";
+    const targetId = `rrt_${sha(`${threadId}\n${parentId}\n${fingerprint}`).slice(0, 16)}`;
+    const marker = `reviewrouter:fix-verified:v1:${targetId}`;
+    const body = `✅ **ReviewRouter verified this fix** against the reviewed revision.\nThis confirmation is separate from GitHub thread resolution; the thread may remain open.\n\n<!-- ${marker} -->`;
+    const payload = {
+      kind: ReviewV2PublicationPayloadKind.ThreadReply,
+      marker,
+      markerHash: sha(marker),
+      bodyHash: sha(body),
+      bodyByteCount: Buffer.byteLength(body),
+      threadId,
+      targetId,
+      body,
+    } as const;
+    const nativeReplies: Array<Record<string, unknown>> = [];
+    let posts = 0;
+    const graphqlQueries: string[] = [];
+    const octokit: GitHubInstallationClient = {
+      async request(route, params = {}) {
+        if (
+          route === "GET /repos/{owner}/{repo}/pulls/{pull_number}/comments"
+        ) {
+          return { data: [...nativeReplies] };
+        }
+        if (
+          route ===
+          "POST /repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies"
+        ) {
+          expect(params.comment_id).toBe(4532358290);
+          expect(params.body).toBe(body);
+          posts++;
+          const reply = {
+            id: 4532358291,
+            in_reply_to_id: 4532358290,
+            body,
+            user: { login: "review-router[bot]" },
+          };
+          nativeReplies.push(reply);
+          return { data: reply };
+        }
+        throw new Error(`unexpected_gitHub_route:${route}`);
+      },
+      async graphql<T>(query: string): Promise<T> {
+        graphqlQueries.push(query);
+        if (query.includes("ReviewRouterPublicationThread")) {
+          return {
+            node: {
+              id: threadId,
+              isResolved: false,
+              pullRequest: {
+                number: 42,
+                repository: { nameWithOwner: "owner/repo" },
+              },
+            },
+          } as T;
+        }
+        if (query.includes("ReviewRouterVerifiedReplyParent")) {
+          return {
+            node: {
+              id: threadId,
+              comments: {
+                nodes: [
+                  {
+                    id: parentId,
+                    databaseId: 4532358290,
+                    viewerDidAuthor: false,
+                    author: { login: "review-router-ai", __typename: "Bot" },
+                    body: `finding\n<!-- reviewrouter:finding:v2:${fingerprint} -->`,
+                  },
+                ],
+              },
+            },
+          } as T;
+        }
+        throw new Error("unexpected_query");
+      },
+    };
+    const client = githubPublicationClient(
+      octokit,
+      payload,
+      assertUnreservedCheckIdentity,
+      new Set(["review-router-ai[bot]"]),
+    );
+    const publishingOperation = {
+      ...operation(),
+      publicationKind: ReviewPublicationKind.ThreadReply,
+      effectStrategy:
+        ReviewPublicationEffectStrategy.AppendOnlyCanonicalReceipt,
+      markerHash: payload.markerHash,
+      bodyHash: payload.bodyHash,
+    };
+    expect(
+      await client.findAllByMarker({
+        operation: publishingOperation,
+        cursor: null,
+      }),
+    ).toEqual({ objects: [], nextCursor: null });
+    const receipt = await client.applyOperation({
+      operation: publishingOperation,
+      capability: capability(),
+    });
+    expect(receipt).toMatchObject({
+      externalObjectId: "review-comment:4532358291",
+      bodyHash: payload.bodyHash,
+      effectKind: ReviewPublicationExternalEffectKind.MutationAcknowledged,
+    });
+    const replay = await client.findAllByMarker({
+      operation: publishingOperation,
+      cursor: null,
+    });
+    expect(replay.objects).toHaveLength(1);
+    expect(replay.objects[0]).toMatchObject({
+      externalObjectId: receipt.externalObjectId,
+      bodyHash: receipt.bodyHash,
+    });
+    expect(posts).toBe(1);
+    expect(graphqlQueries.every((query) => !query.includes("mutation "))).toBe(
+      true,
+    );
+    await expect(
+      client.markStaleOrDelete({
+        operation: publishingOperation,
+        canonicalExternalObjectId: receipt.externalObjectId,
+        duplicateExternalObjectIds: [],
+        compensateCanonical: true,
+      }),
+    ).resolves.toBe(ReviewPublicationReceiptStatus.StaleVisible);
+    expect(nativeReplies).toHaveLength(1);
+    nativeReplies[0]!.body = `${body}\n<!-- edited -->`;
+    await expect(
+      client.findAllByMarker({
+        operation: publishingOperation,
+        cursor: null,
+      }),
+    ).rejects.toThrow("github_verified_reply_body_conflict");
+    expect(posts).toBe(1);
+  });
+
+  it("refuses an unproven parent before writing a verified-fix reply", async () => {
+    const sha = (value: string) =>
+      createHash("sha256").update(value).digest("hex");
+    const fingerprint = "rrl_0123456789abcdef0123456789abcdef";
+    const targetId = `rrt_${sha(`thread-1\nforged-parent\n${fingerprint}`).slice(0, 16)}`;
+    const marker = `reviewrouter:fix-verified:v1:${targetId}`;
+    const body = `Verified fix\n<!-- ${marker} -->`;
+    const payload = {
+      kind: ReviewV2PublicationPayloadKind.ThreadReply,
+      marker,
+      markerHash: sha(marker),
+      bodyHash: sha(body),
+      bodyByteCount: Buffer.byteLength(body),
+      body,
+      threadId: "thread-1",
+      targetId,
+    } as const;
+    let mutations = 0;
+    const client = githubPublicationClient(
+      {
+        async request() {
+          mutations++;
+          throw new Error("unexpected_mutation");
+        },
+        async graphql<T>(query: string): Promise<T> {
+          if (query.includes("ReviewRouterPublicationThread")) {
+            return {
+              node: {
+                id: "thread-1",
+                isResolved: false,
+                pullRequest: {
+                  number: 42,
+                  repository: { nameWithOwner: "owner/repo" },
+                },
+              },
+            } as T;
+          }
+          return {
+            node: {
+              id: "thread-1",
+              comments: {
+                nodes: [
+                  {
+                    id: "forged-parent",
+                    databaseId: 100,
+                    body: `finding\n<!-- reviewrouter:finding:v2:${fingerprint} -->`,
+                    viewerDidAuthor: false,
+                    author: { login: "untrusted-app", __typename: "Bot" },
+                  },
+                ],
+              },
+            },
+          } as T;
+        },
+      },
+      payload,
+    );
+    await expect(
+      client.applyOperation({
+        operation: {
+          ...operation(),
+          publicationKind: ReviewPublicationKind.ThreadReply,
+        },
+        capability: capability(),
+      }),
+    ).rejects.toMatchObject({
+      safeCode: "github_review_reply_parent_provenance_mismatch",
+      outcome: "definitely_no_effect",
+    });
+    expect(mutations).toBe(0);
+  });
+
   it("binds a lifecycle thread to the permitted repository and pull request before mutation", async () => {
     const graphqlCalls: string[] = [];
     const octokit: GitHubInstallationClient = {
@@ -1086,6 +1448,208 @@ function pendingReviewClient(
   };
 }
 
+describe("GitHub App PR description publication", () => {
+  const block = renderReviewPrDescription(
+    "## Changes\n\nGenerated description",
+  );
+  const payload: ReviewV2PublicationPayload = {
+    kind: ReviewV2PublicationPayloadKind.PrDescription,
+    marker: reviewPrDescriptionStartMarker,
+    markerHash: createHash("sha256")
+      .update(reviewPrDescriptionStartMarker)
+      .digest("hex"),
+    bodyHash: createHash("sha256").update(block).digest("hex"),
+    bodyByteCount: Buffer.byteLength(block),
+    body: block,
+  };
+  const descriptionOperation = () => ({
+    ...operation(),
+    publicationKind: ReviewPublicationKind.PrDescription,
+    markerHash: payload.markerHash,
+    bodyHash: payload.bodyHash,
+  });
+
+  function fixture(
+    input: {
+      body?: string;
+      secondBody?: string;
+      headSha?: string;
+      unknownPatch?: boolean;
+      readbackBody?: string;
+    } = {},
+  ) {
+    let body = input.body ?? "Author context\r\n";
+    let headSha = input.headSha ?? hash("a");
+    let reads = 0;
+    const writes: Readonly<Record<string, unknown>>[] = [];
+    const octokit: GitHubInstallationClient = {
+      async request(route, parameters = {}) {
+        if (route === "GET /repos/{owner}/{repo}/pulls/{pull_number}") {
+          reads += 1;
+          if (reads === 2 && input.secondBody !== undefined)
+            body = input.secondBody;
+          if (reads === 3 && input.readbackBody !== undefined)
+            body = input.readbackBody;
+          return { data: { body, head: { sha: headSha } } };
+        }
+        if (route === "PATCH /repos/{owner}/{repo}/pulls/{pull_number}") {
+          writes.push(parameters);
+          body = parameters.body as string;
+          if (input.unknownPatch) throw new Error("socket_timeout");
+          return { data: {} };
+        }
+        throw new Error("unexpected_route");
+      },
+      async graphql<T>(): Promise<T> {
+        throw new Error("unexpected_graphql");
+      },
+    };
+    return {
+      client: githubPublicationClient(octokit, payload),
+      writes,
+      setCurrent(value: { body: string; headSha: string }) {
+        body = value.body;
+        headSha = value.headSha;
+      },
+    };
+  }
+
+  it("merges the fetched legacy body, preserves author bytes, and is idempotent", async () => {
+    const before =
+      "  Human context\r\n" +
+      renderReviewPrDescription("Old summary") +
+      "\nHuman footer  ";
+    const fixtureState = fixture({ body: before });
+    const applied = await fixtureState.client.applyOperation({
+      operation: descriptionOperation(),
+      capability: capability(),
+    });
+    expect(fixtureState.writes).toEqual([
+      {
+        owner: githubRepository.owner,
+        repo: githubRepository.repo,
+        pull_number: permit().pullRequestNumber,
+        body: "  Human context\r\n" + block + "\nHuman footer  ",
+      },
+    ]);
+    expect(applied.bodyHash).toBe(payload.bodyHash);
+    await fixtureState.client.applyOperation({
+      operation: descriptionOperation(),
+      capability: capability(),
+    });
+    expect(fixtureState.writes).toHaveLength(1);
+  });
+
+  it("uses the same visible-object hash for acknowledgement and unchanged readback", async () => {
+    const state = fixture();
+    const acknowledged = await state.client.applyOperation({
+      operation: descriptionOperation(),
+      capability: capability(),
+    });
+    const read = () =>
+      state.client.findAllByMarker({
+        operation: descriptionOperation(),
+        cursor: null,
+      });
+    const unchanged = await read();
+    expect(unchanged.objects).toMatchObject([
+      {
+        externalObjectId: acknowledged.externalObjectId,
+        markerHash: acknowledged.markerHash,
+        bodyHash: acknowledged.bodyHash,
+        observedObjectHash: acknowledged.observedObjectHash,
+      },
+    ]);
+
+    state.setCurrent({
+      body: "Changed author context\n\n" + block,
+      headSha: hash("a"),
+    });
+    const changedAuthor = await read();
+    expect(changedAuthor.objects[0]?.bodyHash).toBe(acknowledged.bodyHash);
+    expect(changedAuthor.objects[0]?.observedObjectHash).not.toBe(
+      acknowledged.observedObjectHash,
+    );
+
+    state.setCurrent({
+      body: String(state.writes[0]?.body),
+      headSha: hash("b"),
+    });
+    const changedHead = await read();
+    expect(changedHead.objects[0]?.bodyHash).toBe(acknowledged.bodyHash);
+    expect(changedHead.objects[0]?.observedObjectHash).not.toBe(
+      acknowledged.observedObjectHash,
+    );
+    expect(state.writes).toHaveLength(1);
+  });
+
+  it.each([
+    { headSha: hash("b") },
+    { secondBody: "Concurrent author edit" },
+    { body: reviewPrDescriptionStartMarker + "malformed" },
+  ])(
+    "refuses a stale head, concurrent body edit, or ambiguous marker before PATCH: %o",
+    async (input) => {
+      const fixtureState = fixture(input);
+      await expect(
+        fixtureState.client.applyOperation({
+          operation: descriptionOperation(),
+          capability: capability(),
+        }),
+      ).rejects.toMatchObject({
+        outcome: ReviewV2ScmMutationFailureOutcome.DefinitelyNoEffect,
+        retryable: false,
+      });
+      expect(fixtureState.writes).toHaveLength(0);
+    },
+  );
+
+  it("reconciles a response-lost PATCH by its owned block without repeating the mutation", async () => {
+    const fixtureState = fixture({ unknownPatch: true });
+    await expect(
+      fixtureState.client.applyOperation({
+        operation: descriptionOperation(),
+        capability: capability(),
+      }),
+    ).rejects.toMatchObject({
+      outcome: ReviewV2ScmMutationFailureOutcome.EffectMayExist,
+    });
+    const inventory = await fixtureState.client.findAllByMarker({
+      operation: descriptionOperation(),
+      cursor: null,
+    });
+    expect(inventory.objects).toEqual([
+      expect.objectContaining({ bodyHash: payload.bodyHash }),
+    ]);
+    expect(fixtureState.writes).toHaveLength(1);
+  });
+
+  it("surfaces readback conflicts and never compensates by overwriting the body", async () => {
+    const fixtureState = fixture({
+      readbackBody: "Concurrent author description",
+    });
+    await expect(
+      fixtureState.client.applyOperation({
+        operation: descriptionOperation(),
+        capability: capability(),
+      }),
+    ).rejects.toMatchObject({
+      safeCode: "github_pr_description_post_write_conflict",
+      outcome: ReviewV2ScmMutationFailureOutcome.EffectMayExist,
+      retryable: false,
+    });
+    await expect(
+      fixtureState.client.markStaleOrDelete({
+        operation: descriptionOperation(),
+        canonicalExternalObjectId: "pull-request-body:1",
+        duplicateExternalObjectIds: [],
+        compensateCanonical: true,
+      }),
+    ).resolves.toBe(ReviewPublicationReceiptStatus.StaleVisible);
+    expect(fixtureState.writes).toHaveLength(1);
+  });
+});
+
 function githubRevisionClient(
   headSequence: readonly [string, string],
 ): GitHubInstallationClient {
@@ -1112,6 +1676,7 @@ function githubPublicationClient(
   assertCheckIdentityAllowed: (
     name: string,
   ) => void = assertUnreservedCheckIdentity,
+  trustedParentAuthors?: ReadonlySet<string>,
 ) {
   return new GitHubReviewV2PublicationClient({
     octokit,
@@ -1125,6 +1690,7 @@ function githubPublicationClient(
       },
     },
     botLogin: "review-router[bot]",
+    trustedParentAuthors,
   });
 }
 

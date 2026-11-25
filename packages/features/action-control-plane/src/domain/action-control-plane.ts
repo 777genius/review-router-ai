@@ -14,13 +14,41 @@ import {
   looksLikeSecretValue,
   safeConflictReviewDispatchId,
   safeGitHubBranchName,
+  reviewRouterWorkflowPath,
+  managedCodexWorkflowPath,
 } from "@reviewrouter/shared";
 import {
-  managedCodexWorkflowPath,
   managedInteractionWorkflowPath,
   managedReviewRouterWorkflowPaths,
+  reviewRouterRuntimeWorkflowRefPattern,
 } from "@reviewrouter/protocol-review-workflow";
 import { z } from "zod";
+import {
+  conflictReviewRuntimeProtocolVersion,
+  conflictReviewRuntimeDiffMaxFiles,
+  conflictReviewRuntimeDiffMaxBytes,
+  conflictReviewRuntimeDiffMaxPatchBytesPerFile,
+  conflictReviewAdvisoryStatusContext,
+  conflictReviewPostingSessionPath,
+  conflictReviewPostingSummaryPath,
+  conflictReviewPostingStatusPath,
+  conflictReviewSummaryMaxBytes,
+  actionConflictReviewRuntimeConfigSchema,
+  type ActionConflictReviewRuntimeConfig,
+} from "./conflict-review-runtime-contract.js";
+export {
+  conflictReviewRuntimeProtocolVersion,
+  conflictReviewRuntimeDiffMaxFiles,
+  conflictReviewRuntimeDiffMaxBytes,
+  conflictReviewRuntimeDiffMaxPatchBytesPerFile,
+  conflictReviewAdvisoryStatusContext,
+  conflictReviewPostingSessionPath,
+  conflictReviewPostingSummaryPath,
+  conflictReviewPostingStatusPath,
+  conflictReviewSummaryMaxBytes,
+  actionConflictReviewRuntimeConfigSchema,
+} from "./conflict-review-runtime-contract.js";
+export type { ActionConflictReviewRuntimeConfig } from "./conflict-review-runtime-contract.js";
 
 export {
   legacyReviewRouterWorkflowPath,
@@ -60,7 +88,8 @@ export function isManagedV2SessionBootstrapSource(input: {
     repositoryFullName: input.repositoryFullName ?? "",
   });
   if (
-    input.workflowPath === managedCodexWorkflowPath &&
+    (input.workflowPath === reviewRouterWorkflowPath ||
+      input.workflowPath === managedCodexWorkflowPath) &&
     repositoryReviewWorkflowPath === managedCodexWorkflowPath &&
     (input.eventName === "workflow_dispatch" ||
       input.eventName === "schedule" ||
@@ -87,7 +116,7 @@ export function isManagedV2SessionBootstrapSource(input: {
   );
 }
 export const trustedReviewRouterReusableWorkflowRefPattern =
-  /^777genius\/review-router\/\.github\/workflows\/(?:reviewrouter(?:-interaction)?-reusable\.ya?ml@(refs\/tags\/v1(?:\.[0-9]+\.[0-9]+)?|refs\/heads\/main|[a-fA-F0-9]{40})|reviewrouter-execution-reusable\.ya?ml@[a-fA-F0-9]{40})$/i;
+  /^777genius\/review-router\/\.github\/workflows\/(?:reviewrouter(?:-interaction)?-reusable\.ya?ml@(refs\/tags\/v1(?:\.[0-9]+\.[0-9]+)?|refs\/heads\/main|[a-fA-F0-9]{40})|reviewrouter-execution-reusable\.ya?ml@[a-fA-F0-9]{40}|reviewrouter-secrets-runtime\.yml@[a-f0-9]{40})$/;
 
 export const allowedActionEvents = [
   "pull_request",
@@ -125,6 +154,10 @@ export const githubActionsOidcClaimsSchema = z.object({
     .optional(),
   runner_environment: z.string().optional(),
   actor: z.string().min(1),
+  actor_id: z
+    .string()
+    .regex(/^[1-9]\d{0,19}$/)
+    .optional(),
   iat: z.number().optional(),
   nbf: z.number().optional(),
   exp: z.number().optional(),
@@ -163,10 +196,15 @@ export type ActionSessionClaims = {
   readonly repository: string;
   readonly identityBindingEpoch?: string;
   readonly githubActorLogin: string | null;
+  /** Signed GitHub numeric identity; absent only on legacy sessions. */
+  readonly githubActorId?: string;
   readonly githubRunId: string;
   readonly githubRunAttempt: string;
   readonly eventName: (typeof allowedActionEvents)[number];
   readonly workflowPath?: string;
+  /** Signed reusable source facts; finite contextual profiles require an exact immutable match. */
+  readonly jobWorkflowRef?: string;
+  readonly jobWorkflowSha?: string;
   readonly reviewKind?: "normal" | "conflict-head";
   readonly conflictDispatchId?: string;
   readonly pullRequestNumber?: number;
@@ -353,13 +391,35 @@ const actionRuntimeProviderSchema = z
     kind: providerKindSchema,
     authMode: providerAuthModeSchema,
     model: z.string().min(1),
-    reasoningEffort: z.enum(["low", "medium", "high", "xhigh", "max", "ultra"]),
+    reasoningEffort: z
+      .enum(["minimal", "low", "medium", "high", "xhigh", "max", "ultra"])
+      .optional(),
     agenticContext: z.boolean(),
     fastMode: z.boolean(),
     requiredHealthy: z.boolean().default(false),
     secretBackedProviderEnabled: z.boolean(),
   })
   .superRefine((provider, context) => {
+    if (
+      provider.authMode !== "codex_account_gateway" &&
+      provider.reasoningEffort === "minimal"
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["reasoningEffort"],
+        message: "minimal reasoning requires an account-scoped Gateway catalog",
+      });
+    }
+    if (
+      provider.authMode !== "codex_account_gateway" &&
+      provider.reasoningEffort === undefined
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["reasoningEffort"],
+        message: "reasoning effort is required for legacy providers",
+      });
+    }
     if (!providerAuthModeBelongsToKind(provider.authMode, provider.kind)) {
       context.addIssue({
         code: "custom",
@@ -368,79 +428,6 @@ const actionRuntimeProviderSchema = z
       });
     }
   });
-
-export const conflictReviewRuntimeProtocolVersion = 1;
-export const conflictReviewRuntimeDiffMaxFiles = 100;
-export const conflictReviewRuntimeDiffMaxBytes = 256 * 1024;
-export const conflictReviewRuntimeDiffMaxPatchBytesPerFile = 48 * 1024;
-export const conflictReviewAdvisoryStatusContext =
-  "ReviewRouter conflict review";
-export const conflictReviewPostingSessionPath =
-  "/api/action/v1/conflict-posting/session";
-export const conflictReviewPostingSummaryPath =
-  "/api/action/v1/conflict-posting/summary";
-export const conflictReviewPostingStatusPath =
-  "/api/action/v1/conflict-posting/status";
-export const conflictReviewSummaryMaxBytes = 60_000;
-
-const shaSchema = z.string().regex(/^[a-fA-F0-9]{40}$/);
-
-export const actionConflictReviewRuntimeConfigSchema = z
-  .object({
-    protocolVersion: z.literal(conflictReviewRuntimeProtocolVersion),
-    reviewKind: z.literal("conflict-head"),
-    dispatchId: safeConflictReviewDispatchId,
-    pullRequestNumber: z.number().int().positive(),
-    headSha: shaSchema,
-    baseRef: safeGitHubBranchName,
-    baseSha: shaSchema,
-    checkout: z
-      .object({
-        mode: z.literal("exact_head_sha"),
-        headSha: shaSchema,
-        baseRef: safeGitHubBranchName,
-        baseSha: shaSchema,
-        persistCredentials: z.literal(false),
-      })
-      .strict(),
-    diff: z
-      .object({
-        mode: z.literal("expected_base_to_head"),
-        baseSha: shaSchema,
-        headSha: shaSchema,
-        maxFiles: z.number().int().positive(),
-        maxBytes: z.number().int().positive(),
-        maxPatchBytesPerFile: z.number().int().positive(),
-      })
-      .strict(),
-    posting: z.discriminatedUnion("mode", [
-      z
-        .object({
-          mode: z.literal("disabled"),
-          reason: z.literal("posting_proxy_not_enabled"),
-        })
-        .strict(),
-      z
-        .object({
-          mode: z.literal("proxy"),
-          sessionEndpoint: z.literal(conflictReviewPostingSessionPath),
-          summaryEndpoint: z.literal(conflictReviewPostingSummaryPath),
-          statusEndpoint: z.literal(conflictReviewPostingStatusPath),
-          allowedOperations: z.tuple([
-            z.literal("summary_comment"),
-            z.literal("advisory_status"),
-          ]),
-          summaryMaxBytes: z.literal(conflictReviewSummaryMaxBytes),
-          statusContext: z.literal(conflictReviewAdvisoryStatusContext),
-        })
-        .strict(),
-    ]),
-  })
-  .strict();
-
-export type ActionConflictReviewRuntimeConfig = z.infer<
-  typeof actionConflictReviewRuntimeConfigSchema
->;
 
 export function buildActionConflictReviewRuntimeConfig(
   session: ActionSessionClaims,
@@ -777,7 +764,7 @@ export function validateOidcClaimsAgainstRepository(input: {
           : [
               ...allowedWorkflowPaths.filter(
                 (path) =>
-                  path !== managedCodexWorkflowPath ||
+                  path !== reviewRouterWorkflowPath ||
                   codexWorkflowIdentityAdmitted,
               ),
             ],
@@ -932,7 +919,10 @@ function isTrustedWorkflowRef(
   workflowRef: string,
   trustedWorkflowRefs: readonly string[] | undefined,
 ): boolean {
-  if (trustedReviewRouterReusableWorkflowRefPattern.test(workflowRef)) {
+  if (
+    reviewRouterRuntimeWorkflowRefPattern.test(workflowRef) ||
+    trustedReviewRouterReusableWorkflowRefPattern.test(workflowRef)
+  ) {
     return true;
   }
 

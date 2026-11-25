@@ -18,12 +18,12 @@ src/github/interaction.ts           /rr commands and discussion routing
 src/discussion/codex-responder.ts   AI discussion replies
 ```
 
-The SaaS should not rewrite this from scratch. It should package and configure this runtime through generated workflows.
+The control plane should not rewrite this from scratch. It should package and configure this runtime through generated workflows.
 
 ## Runtime Boundary
 
 ```text
-SaaS control plane
+control plane
   -> writes workflow PR and stores config metadata
   -> never runs Codex by default
   -> never sees diff/code/provider secrets
@@ -33,7 +33,7 @@ GitHub Actions workflow in customer repo
   -> restores provider credentials from GitHub Secrets or persistent runner
   -> runs ReviewRouter Action/runtime
   -> posts comments/checks to GitHub
-  -> reports metadata-only health to SaaS through OIDC
+  -> reports metadata-only health to control plane through OIDC
 ```
 
 ## Existing Codex Execution Model
@@ -94,7 +94,7 @@ The prompt instructs Codex to inspect related files with read-only commands and 
 
 ## Workflow Shape
 
-SaaS-generated workflow should be thin:
+control plane-generated workflow should be thin:
 
 ```yaml
 name: ReviewRouter
@@ -145,7 +145,7 @@ jobs:
           REVIEW_ROUTER_CONFIG_SOURCE: saas
 ```
 
-The exact action version and env are generated from SaaS config.
+The exact action version and env are generated from control plane config.
 
 ## Runtime Packaging Direction
 
@@ -164,9 +164,9 @@ Provider adapters
 
 First implementation can keep using the existing Action entrypoint. Later, extract `review-runtime` into an internal package when the monorepo scaffold is ready.
 
-## SaaS Config Contract
+## Control Plane Config Contract
 
-SaaS returns runtime config, not secrets:
+control plane returns runtime config, not secrets:
 
 ```json
 {
@@ -182,10 +182,10 @@ SaaS returns runtime config, not secrets:
 ```
 
 The Action maps this to environment variables expected by the current runtime.
-Only safe runtime keys are accepted from SaaS config. Keys that look like tokens,
+Only safe runtime keys are accepted from control plane config. Keys that look like tokens,
 secrets, API keys, private keys, passwords, or auth JSON are rejected before
 being written to `process.env`. Provider credentials must still come from
-GitHub Secrets or a trusted runner, never from SaaS runtime config.
+GitHub Secrets or a trusted runner, never from control plane runtime config.
 
 Current migration state:
 
@@ -198,7 +198,7 @@ Implemented:
   unit tests for fallback, blocked versions, and unsafe runtimeEnv rejection
   unit tests for health report payload classification and non-blocking report failures
 
-Still requires hosted HTTPS SaaS for true GitHub-hosted OIDC E2E:
+Still requires hosted HTTPS control plane for true GitHub-hosted OIDC E2E:
   GitHub-hosted runner -> public ReviewRouter API -> config exchange -> health report
 ```
 
@@ -213,20 +213,20 @@ GitHub Actions environment secrets later
 trusted self-hosted runner filesystem
 ```
 
-SaaS can check whether a required secret exists only by safe health metadata from the Action, not by reading the secret.
+control plane can check whether a required secret exists only by safe health metadata from the Action, not by reading the secret.
 
 ## Tests Required Before Productizing
 
 ## Revision-Aware Ownership
 
 The public Action owns planning, final immutable invocation preparation, provider
-scheduling and current projection construction. SaaS owns authorization, durable
+scheduling and current projection construction. control plane owns authorization, durable
 execution/evidence and server-side publication. Provider adapters execute the same
 prepared object that was canonicalized; retries that change prompt/options receive
 a new invocation key. Subscription runtime remains credential/process custody and
 does not own ReviewRouter planning, evidence or lifecycle policy.
 
-- generated workflow maps SaaS config to current runtime env correctly
+- generated workflow maps control plane config to current runtime env correctly
 - fork PR skips secret-backed review
 - same-repo PR restores Codex auth only in trusted event context
 - Codex provider still excludes GitHub token from subprocess env

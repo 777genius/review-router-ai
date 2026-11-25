@@ -26,14 +26,19 @@ export type DashboardPendingWorkspaceTabItem = {
   readonly statusLabel: string;
 };
 
+export const workspaceAddTabClass =
+  "inline-flex min-h-12 w-auto shrink-0 items-center gap-2 rounded-lg border border-dashed border-white/[0.16] px-3 py-2.5 text-sm font-semibold text-slate-200 transition duration-200 ease-out hover:saturate-125 hover:border-cyan-200/45 hover:bg-white/[0.07] hover:text-cyan-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-200";
+
 export function DashboardWorkspaceTabs({
   items,
   selectedWorkspaceId,
   pendingInstallRequest,
+  addWorkspace,
 }: {
   readonly items: readonly DashboardWorkspaceTabItem[];
   readonly selectedWorkspaceId: string;
   readonly pendingInstallRequest?: DashboardPendingWorkspaceTabItem | null;
+  readonly addWorkspace?: React.ReactNode;
 }): React.ReactElement {
   const { startNavigation } = useNavigationFeedback();
   const [showPendingRequest, setShowPendingRequest] = useState(false);
@@ -65,11 +70,14 @@ export function DashboardWorkspaceTabs({
   }, [activeLabels, pendingInstallRequest]);
 
   return (
-    <Tabs.Root value={selectedWorkspaceId}>
+    <Tabs.Root
+      value={selectedWorkspaceId}
+      className="flex items-stretch gap-2 overflow-x-auto overflow-y-hidden pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+    >
       <Tabs.List
         aria-label="Workspace"
         activateOnFocus
-        className="flex gap-4 overflow-x-auto overflow-y-hidden border-b border-cyan-200/15 pb-px [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex shrink-0 items-stretch gap-1 border-b border-white/[0.10]"
       >
         {visibleItems.map((item) => {
           const href = dashboardClientNavigationHref(item.href);
@@ -91,10 +99,10 @@ export function DashboardWorkspaceTabs({
               }
               className={({ active }) =>
                 [
-                  "group relative inline-flex min-h-12 shrink-0 items-center gap-2 rounded-t-xl border-b-2 px-2 py-3 text-sm font-semibold transition duration-200 ease-out hover:bg-cyan-300/[0.04] hover:saturate-125 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-200",
+                  "group relative -mb-px inline-flex min-h-12 shrink-0 items-center gap-2 border-b-2 px-3 pb-2.5 pt-2 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-200",
                   active
-                    ? "border-cyan-200 text-cyan-50"
-                    : "border-transparent text-slate-300 hover:border-cyan-300/35 hover:text-cyan-50",
+                    ? "border-cyan-300/80 text-cyan-50"
+                    : "border-transparent text-slate-300 hover:border-white/30 hover:text-cyan-100",
                 ].join(" ")
               }
             >
@@ -117,6 +125,7 @@ export function DashboardWorkspaceTabs({
           );
         })}
       </Tabs.List>
+      {addWorkspace}
     </Tabs.Root>
   );
 }

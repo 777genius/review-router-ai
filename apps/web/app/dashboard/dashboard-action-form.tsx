@@ -1,8 +1,11 @@
 "use client";
 
+import { workflowSetupOutcomePresentation } from "./dashboard-copy";
+
 import { useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ActionToast } from "../action-toast";
+import { repositoryAccessErrorPresentation } from "./dashboard-copy";
 
 export type DashboardActionFormAction = (
   formData: FormData,
@@ -22,12 +25,15 @@ export function DashboardActionForm({
   fallbackParams,
   className,
   refresh = true,
+  onComplete,
   children,
 }: {
   readonly action: DashboardActionFormAction;
   readonly fallbackParams: Record<string, string>;
   readonly className?: string;
   readonly refresh?: boolean;
+  /** Runs with the action's result, for example to invalidate a query. */
+  readonly onComplete?: (params: Record<string, string>) => void;
   readonly children: ReactNode;
 }): React.ReactElement {
   const router = useRouter();
@@ -47,6 +53,7 @@ export function DashboardActionForm({
       ...dashboardActionToast(params),
       key: (current?.key ?? 0) + 1,
     }));
+    onComplete?.(params);
     if (refresh) {
       startTransition(() => router.refresh());
     }
@@ -73,7 +80,16 @@ function replaceDashboardContextUrl(params: Record<string, string>): void {
   const url = new URL(window.location.href);
   let changed = false;
 
-  for (const key of ["notice", "error", "pr", "version", "provisioning"]) {
+  for (const key of [
+    "notice",
+    "error",
+    "pr",
+    "setupOutcome",
+    "recoveryError",
+    "workflowPath",
+    "version",
+    "provisioning",
+  ]) {
     if (url.searchParams.has(key)) {
       url.searchParams.delete(key);
       changed = true;
@@ -101,26 +117,50 @@ function replaceDashboardContextUrl(params: Record<string, string>): void {
 function dashboardActionToast(
   params: Record<string, string>,
 ): Omit<DashboardActionToast, "key"> {
+  const outcome = workflowSetupOutcomePresentation(params);
+  if (outcome) return outcome;
   if (params.error) {
+    const access = repositoryAccessErrorPresentation(params.error);
     return {
       tone: "danger",
-      title: "Action needs attention",
-      body: dashboardActionErrorText(params.error),
+      title: access?.title ?? "Action needs attention",
+      body: access?.body ?? dashboardActionErrorText(params.error),
+      ...(access?.actionUrl
+        ? { actionUrl: access.actionUrl, actionLabel: access.actionLabel }
+        : {}),
     };
   }
 
   switch (params.notice) {
+    case "workspace_memory_settings_saved":
+      return {
+        tone: "success",
+        title: "Memory settings saved",
+        body: "Memory confirmation settings were updated for every repository in this workspace.",
+      };
+    case "workspace_review_settings_saved":
+      return {
+        tone: "success",
+        title: "Settings saved",
+        body: "Workspace review settings were updated for every repository.",
+      };
+    case "workspace_access_rights_saved":
+      return {
+        tone: "success",
+        title: "Access rights saved",
+        body: "Provider management access was updated for this workspace.",
+      };
     case "sync_requested":
       return {
         tone: "success",
-        title: "Repository refresh queued",
-        body: "ReviewRouter queued a repository metadata refresh. Reload in a few seconds if GitHub metadata is still catching up.",
+        title: "Repository scan started",
+        body: "ReviewRouter is scanning GitHub again. The repository list updates automatically when the scan finishes.",
       };
     case "sync_already_requested":
       return {
         tone: "accent",
-        title: "Repository refresh already queued",
-        body: "A repository metadata refresh was already requested recently.",
+        title: "Repository scan already requested",
+        body: "A repository scan was requested in the last minute. The repository list updates automatically when it finishes.",
       };
     case "repository_access_refreshed":
       return {

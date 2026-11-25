@@ -2,11 +2,11 @@
 
 ## Goal
 
-ReviewRouter SaaS outages should not unnecessarily break customer pull request review when a safe static configuration exists.
+ReviewRouter outages should not unnecessarily break customer pull request review when a safe static configuration exists.
 
 ## Principle
 
-The customer CI execution plane should degrade gracefully when SaaS control plane is temporarily unavailable.
+The customer CI execution plane should degrade gracefully when control plane is temporarily unavailable.
 
 ## Action Behavior
 
@@ -20,13 +20,13 @@ At startup:
 5. if no safe config exists, skip with clear reason instead of running unknown behavior
 ```
 
-## What Can Continue During SaaS Outage
+## What Can Continue During control plane Outage
 
 - review execution with static config
 - posting comments/status using customer GitHub token/App token if configured
 - provider execution with customer secrets if workflow trust policy allows it
 
-## What Cannot Continue During SaaS Outage
+## What Cannot Continue During control plane Outage
 
 - dashboard config changes
 - new workflow provisioning
@@ -39,7 +39,7 @@ At startup:
 Action should write a concise note:
 
 ```text
-ReviewRouter SaaS config fetch failed. Continuing with static workflow config.
+ReviewRouter config fetch failed. Continuing with static workflow config.
 ```
 
 Only fail the check if:
@@ -58,7 +58,7 @@ Last health report: 2 hours ago
 Runtime config sync: no recent report
 ```
 
-Do not claim repo is broken solely because SaaS did not receive a recent report.
+Do not claim repo is broken solely because control plane did not receive a recent report.
 
 ## Tests
 
@@ -71,7 +71,7 @@ execution; it never becomes a reuse hit. Ambiguous SCM mutation enters bounded
 reconciliation. Existing signed ownership terms remain valid only through their
 persisted expiry/report windows.
 
-- SaaS config fetch timeout falls back to static config
+- control plane config fetch timeout falls back to static config
 - fallback disabled causes skipped result with clear reason
 - health report failure does not fail review
 - incompatible static config fails safely

@@ -75,6 +75,8 @@ export type GitLabRepositoryContext = {
   readonly workspaceId: string;
   readonly repositoryId: string;
   readonly gitlabProjectId: string;
+  /** Optional for legacy static GitLab.com inventory. */
+  readonly sourceBaseUrl?: string;
   readonly fullName: string;
   readonly owner: string;
   readonly selected: boolean;

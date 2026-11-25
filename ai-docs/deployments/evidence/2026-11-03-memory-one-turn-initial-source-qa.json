@@ -1,0 +1,37 @@
+{
+  "status": "SOURCE_QA_PASS",
+  "baseCommit": "dbc161c9865f88e9cf60c8ad21b2814ecec8eec2",
+  "sourceRosterSha256": "3eda4472fc45f7d16ac27928b54686fb266560f34d1010b2b50e9b9bb64d231c",
+  "pgSdk": {
+    "originalTotal": 158,
+    "originalPassed": 157,
+    "originalFailed": 1,
+    "failedReason": "QA omitted retained paired Action source mount",
+    "targetedPreviouslyFailedTestPassed": 1,
+    "combinedUniquePassed": 158
+  },
+  "evalRisk": {
+    "passed": 52,
+    "failed": 0
+  },
+  "apiStrict": "PASS_after_callback_narrowing_fix",
+  "evalStrict": "PASS_after_callback_narrowing_fix",
+  "lint": "PASS_after_removing_unused_private_argument",
+  "format": "PASS",
+  "sourceStamp": "PASS",
+  "releaseVerifier": "PASS",
+  "modelCalls": 0,
+  "productionQueries": 0,
+  "nativeEffects": 0,
+  "deployed": false,
+  "qualified": false,
+  "sourceReview": "AGENT_SOURCE_GO",
+  "evidence": [
+    "receipt-v2.json",
+    "retry/receipt-v2.json",
+    "artifacts/phases.json",
+    "retry/artifacts/phases.json"
+  ],
+  "sourcePeerEvidence": "../one-turn-source-peer-20261103/final.json",
+  "sourcePeerSha256": "5e8603837aeb596c2daf1d48a6b51fe7afabdef26326a1c143abe47b81afcfa6"
+}

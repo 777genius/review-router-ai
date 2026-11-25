@@ -7,6 +7,7 @@ import {
 } from "../../domain/review-observation";
 import { reviewReuseEligibilityPolicyVersion } from "../../domain/review-reuse-eligibility";
 import {
+  ReviewTaskKind,
   ReviewObservationQualityFlag,
   ReviewObservationStatus,
   ProviderExecutionProfile,
@@ -58,6 +59,7 @@ export enum AcceptReviewObservationStatus {
 export enum AcceptReviewObservationRejectionReason {
   None = "none",
   AttemptNotFound = "attempt_not_found",
+  AuxiliaryTaskNotReviewEvidence = "auxiliary_task_not_review_evidence",
   AttemptAuthorityMismatch = "attempt_authority_mismatch",
   AttemptManifestMismatch = "attempt_manifest_mismatch",
   AttemptNotReportable = "attempt_not_reportable",
@@ -130,6 +132,11 @@ export class AcceptReviewObservation {
     if (!matchesReportAuthority(facts, command)) {
       return rejected(
         AcceptReviewObservationRejectionReason.AttemptAuthorityMismatch,
+      );
+    }
+    if (facts.manifest.taskKindSet.includes(ReviewTaskKind.PrDescription)) {
+      return rejected(
+        AcceptReviewObservationRejectionReason.AuxiliaryTaskNotReviewEvidence,
       );
     }
     const canonicalIdentity = await buildProviderInvocationIdentity(

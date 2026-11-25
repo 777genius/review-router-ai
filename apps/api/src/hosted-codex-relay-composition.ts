@@ -12,6 +12,7 @@ import {
   hostedCodexAcceptedRelayCustodyModes,
   PrismaHostedCodexSessionPersistence,
   PrismaInvocationGrantRepository,
+  PrismaHostedHistoricalScopeBarrier,
   PrismaHostedCommentTokenMintLedger,
   HostedCommentTokenClosureReconciler,
   startHostedCommentTokenClosureReconciler,
@@ -49,6 +50,9 @@ export type HostedCodexFeatureFlags = {
   readonly failover: boolean;
 };
 
+// Legacy direct hosted-pool composition. The selected production transport is
+// Account Gateway/Sub2API; these existing flags are not a fallback selection.
+// This documentation does not change deployed flags or retained custody.
 export function readHostedCodexFeatureFlags(
   env: Readonly<Record<string, string | undefined>>,
 ): HostedCodexFeatureFlags {
@@ -180,6 +184,16 @@ export async function composeProductionHostedCodexRelayRoutes(input: {
     privateKey: input.githubAppPrivateKey,
   });
   const ledger = new PrismaInvocationGrantRepository(input.prisma);
+  const historicalScopes = new PrismaHostedHistoricalScopeBarrier(
+    input.prisma,
+    {
+      required:
+        input.env.REVIEW_ROUTER_HOSTED_HISTORICAL_SCOPE_DESTINATION_REQUIRED ===
+        "1",
+      resourceIdentity: databaseResourceIdentity,
+      incarnation: databaseIncarnation,
+    },
+  );
   const stopEffectSweeper = startHostedCodexEffectSweeper(
     new PrismaHostedCodexUpstreamEffectLedger(input.prisma),
   );
@@ -260,11 +274,13 @@ export async function composeProductionHostedCodexRelayRoutes(input: {
         relayUrl,
         workflowSources,
         commentTokens: durableCommentTokens,
+        historicalScopes,
         clock,
       })
     : undefined;
   const relay = new FetchHostedCodexStreamingRelay(runtime, ledger, fetch, {
     failoverEnabled: flags.failover,
+    historicalScopes,
     faultPlans: composeHostedCodexCanaryFaultPlans(input),
   });
   return {
@@ -293,6 +309,7 @@ export async function composeProductionHostedCodexRelayRoutes(input: {
         return new PrismaHostedCodexRelayAuthorization(
           input.prisma,
           flags.failover,
+          historicalScopes,
         ).authorize(request);
       },
     },

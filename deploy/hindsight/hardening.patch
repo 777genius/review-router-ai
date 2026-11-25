@@ -1,0 +1,392 @@
+--- a/hindsight-api-slim/hindsight_api/__init__.py
++++ b/hindsight-api-slim/hindsight_api/__init__.py
+@@ -31,6 +31,10 @@
+ than they used to.
+ """
+ 
++from .native_privacy import install as _install_native_privacy
++
++_install_native_privacy()
++
+ from typing import TYPE_CHECKING
+ 
+ # Cap native ML thread pools (OpenBLAS/OpenMP/MKL) before any import pulls in
+--- a/hindsight-api-slim/hindsight_api/config.py
++++ b/hindsight-api-slim/hindsight_api/config.py
+@@ -2302,28 +2302,12 @@
+         self._allowed_fields = allowed_fields
+ 
+     def format(self, record: logging.LogRecord) -> str:
+-        log_entry = {
+-            "severity": self.SEVERITY_MAP.get(record.levelno, "DEFAULT"),
+-            "message": record.getMessage(),
+-            "timestamp": datetime.now(timezone.utc).isoformat(),
+-            "logger": record.name,
+-        }
+-
+-        # Lazy import to avoid circular dependency (engine imports from config).
+-        from hindsight_api.engine.memory_engine import _current_schema
+-
+-        tenant = _current_schema.get()
+-        if tenant:
+-            log_entry["tenant"] = tenant
+-
+-        # Add exception info if present
+-        if record.exc_info:
+-            log_entry["exception"] = self.formatException(record.exc_info)
+-
+-        if self._allowed_fields is not None:
+-            log_entry = {k: v for k, v in log_entry.items() if k in self._allowed_fields}
+-
+-        return json.dumps(log_entry)
++        return json.dumps({
++            "severity": self.SEVERITY_MAP.get(record.levelno, "DEFAULT"),
++            "event": record.getMessage(),
++            "timestamp": datetime.now(timezone.utc).isoformat(),
++            "logger": record.name,
++        })
+ 
+ 
+ def _parse_str_list(value: str) -> list[str]:
+--- a/hindsight-api-slim/hindsight_api/api/http.py
++++ b/hindsight-api-slim/hindsight_api/api/http.py
+@@ -2634,6 +2634,8 @@
+ 
+ 
+ class DryRunExtractRequest(BaseModel):
++    strict_preview: bool = Field(default=False, description="One complete chunk; no split or retries.")
++
+     """Request to run fact extraction ONLY (no resolution/links/embeddings/persistence).
+ 
+     Every field below the content/context/date is a prompt-affecting override applied just for this
+@@ -5523,6 +5525,9 @@
+ 
+     _instrument_app_for_tracing(app, config)
+ 
++    from hindsight_api.native_privacy import install_http
++
++    install_http(app)
+     return app
+ 
+ 
+@@ -6138,7 +6143,9 @@
+             if "entity_labels" in overrides:
+                 overrides["entity_labels"] = [lg.model_dump() for lg in overrides["entity_labels"]]
+ 
+-            return await app.state.memory.extract_dry_run(
++            from hindsight_api.strict_preview import run as run_strict_preview
++
++            return await run_strict_preview(body.strict_preview, app.state.memory.extract_dry_run,
+                 bank_id,
+                 body.content,
+                 context=body.context or "",
+--- a/hindsight-api-slim/hindsight_api/main.py
++++ b/hindsight-api-slim/hindsight_api/main.py
+@@ -100,7 +100,7 @@
+             loop.close()
+             print("\npg0 stopped.")
+         except Exception as e:
+-            print(f"\nError stopping pg0: {e}")
++            print(f"\nError stopping pg0: {type(e).__name__}")
+ 
+ 
+ def _signal_handler(signum, frame):
+--- a/hindsight-api-slim/hindsight_api/banner.py
++++ b/hindsight-api-slim/hindsight_api/banner.py
+@@ -89,7 +89,7 @@
+     if version:
+         print(f"  {dim('Version:')} {color(f'v{version}', 0.1)}")
+     print(f"  {dim('URL:')} {color(f'http://{host}:{port}', 0.2)}")
+-    print(f"  {dim('Database:')} {color(mask_network_location(database_url), 0.4)}")
++    print("  Database: configured")
+     print(f"  {dim('LLM:')} {color(f'{llm_provider} / {llm_model}', 0.6)}")
+     print(f"  {dim('Embeddings:')} {color(embeddings_provider, 0.8)}")
+     print(f"  {dim('Reranker:')} {color(reranker_provider, 1.0)}")
+--- a/hindsight-api-slim/hindsight_api/worker/main.py
++++ b/hindsight-api-slim/hindsight_api/worker/main.py
+@@ -313,7 +313,7 @@
+ 
+         await memory.initialize()
+ 
+-        print(f"Database connected: {config.database_url}")
++        print("Database connected")
+ 
+         if tenant_extension:
+             print("Tenant extension loaded - schemas will be discovered dynamically on each poll")
+@@ -451,7 +451,7 @@
+                 loop.close()
+                 print("\npg0 stopped.")
+             except Exception as e:
+-                print(f"\nError stopping pg0: {e}")
++                print(f"\nError stopping pg0: {type(e).__name__}")
+ 
+     atexit.register(cleanup)
+ 
+--- a/hindsight-api-slim/hindsight_api/worker/poller.py
++++ b/hindsight-api-slim/hindsight_api/worker/poller.py
+@@ -949,7 +949,7 @@
+         """
+         table = fq_table("async_operations", schema)
+         # Truncate error message if too long (max 5000 chars in schema)
+-        error_message = error_message[:5000] if len(error_message) > 5000 else error_message
++        error_message = "native_task_failed"
+ 
+         async with self._backend.acquire() as conn:
+             async with conn.transaction():
+@@ -1080,7 +1080,7 @@
+         after being cancelled goes back to 'pending' and gets re-claimed.
+         """
+         table = fq_table("async_operations", schema)
+-        error_message = error_message[:5000] if len(error_message) > 5000 else error_message
++        error_message = "native_task_failed"
+         async with self._backend.acquire() as conn:
+             result = await conn.execute(
+                 f"""
+--- a/hindsight-api-slim/hindsight_api/worker/exceptions.py
++++ b/hindsight-api-slim/hindsight_api/worker/exceptions.py
+@@ -10,8 +10,7 @@
+     ``Task execution failed: graph_maintenance, error: ``, which says nothing at
+     all about what went wrong (issue #3218).
+     """
+-    message = str(e)
+-    return f"{type(e).__name__}: {message}" if message else type(e).__name__
++    return type(e).__name__
+ 
+ 
+ class RetryTaskAt(Exception):
+--- a/hindsight-api-slim/hindsight_api/engine/memory_engine.py
++++ b/hindsight-api-slim/hindsight_api/engine/memory_engine.py
+@@ -5587,8 +5587,7 @@
+         try:
+             backend = await self._get_backend()
+             # Truncate error message to avoid extremely long strings
+-            full_error = f"{error_message}\n\nTraceback:\n{error_traceback}"
+-            truncated_error = full_error[:5000] if len(full_error) > 5000 else full_error
++            truncated_error = "native_task_failed"
+ 
+             async with acquire_with_retry(backend) as conn:
+                 async with conn.transaction():
+@@ -6613,7 +6612,7 @@
+             # no args, and str(e) is "" for those — the probe payload is what an
+             # operator reads first when the database looks down, so it must name
+             # the exception class even when the message is empty.
+-            return {"status": "unhealthy", "database": "error", "error": repr(e)}
++            return {"status": "unhealthy", "database": "error", "error": type(e).__name__}
+ 
+     @staticmethod
+     def _pool_health_stats(backend: Any) -> dict:
+@@ -21992,7 +21991,7 @@
+                        result_metadata, retry_count, next_retry_at
+                 FROM {fq_table("async_operations")}
+                 WHERE {where_clause}
+-                ORDER BY created_at DESC
++                ORDER BY created_at DESC, operation_id DESC
+                 LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}
+                 """,
+                 *params,
+--- a/hindsight-api-slim/hindsight_api/engine/memories/pg/links.py
++++ b/hindsight-api-slim/hindsight_api/engine/memories/pg/links.py
+@@ -574,7 +574,7 @@
+         logger.error(f"Failed to create temporal links: {str(e)}")
+         import traceback
+ 
+-        traceback.print_exc()
++        logging.getLogger(__name__).error("native_link_failed", exc_info=True)
+         raise
+ 
+ 
+@@ -939,7 +939,7 @@
+         logger.error(f"Failed to create semantic links: {str(e)}")
+         import traceback
+ 
+-        traceback.print_exc()
++        logging.getLogger(__name__).error("native_link_failed", exc_info=True)
+         raise
+ 
+ 
+@@ -1052,7 +1052,7 @@
+         logger.error(f"Failed to create causal links: {str(e)}")
+         import traceback
+ 
+-        traceback.print_exc()
++        logging.getLogger(__name__).error("native_link_failed", exc_info=True)
+         raise
+ 
+ 
+--- /dev/null
++++ b/hindsight-api-slim/hindsight_api/native_privacy.py
+@@ -0,0 +1,86 @@
++"""Bounded diagnostic-sink hardening for the pinned Hindsight deployment.
++
++No exception is wrapped or mutated: native retry classification sees the original.
++Diagnostic messages are deliberately metadata-only, rather than regex-redacted.
++"""
++
++import json
++import logging
++import sys
++import threading
++
++
++def safe_error(error: BaseException) -> str:
++    return type(error).__name__
++
++
++def install() -> None:
++    """Run before native configuration/provider imports, including spawned workers."""
++    if getattr(logging, "_router_privacy_installed", False):
++        return
++    logging._router_privacy_installed = True
++    original = logging.Logger.makeRecord
++    standard_fields = frozenset(logging.LogRecord("", 0, "", 0, "", (), None).__dict__)
++
++    def make_record(self, *args, **kwargs):
++        record = original(self, *args, **kwargs)
++        error_type = safe_error(record.exc_info[1]) if record.exc_info and record.exc_info[1] else "none"
++        for field in tuple(record.__dict__):
++            if field not in standard_fields:
++                del record.__dict__[field]
++        record.msg = "native_event=%s:%d exception_class=%s"
++        record.args = (record.module, record.lineno, error_type)
++        record.exc_info = None
++        record.exc_text = None
++        record.stack_info = None
++        return record
++
++    logging.Logger.makeRecord = make_record
++    logging.captureWarnings(True)
++
++    def uncaught(error_type, error, traceback):
++        # Do not call the original hook: exception messages and source lines can
++        # carry bodies/credentials. Exit semantics remain Python's responsibility.
++        sys.stderr.write(json.dumps({"event": "uncaught_exception", "exception_class": safe_error(error)}) + "\n")
++
++    sys.excepthook = uncaught
++    threading.excepthook = lambda args: uncaught(args.exc_type, args.exc_value, args.exc_traceback)
++
++
++def install_http(app) -> None:
++    """Preserve protocol status/retry headers while removing error-body echoes."""
++    from fastapi.exceptions import RequestValidationError
++    from fastapi.responses import JSONResponse
++    from starlette.exceptions import HTTPException
++    from hindsight_api.extensions.tenant import AuthenticationError
++    from hindsight_api.engine.memories.base import StoreWriteUnavailable
++
++    async def http_error(request, error):
++        headers = {}
++        # Native StoreWriteUnavailable uses this header for backpressure.
++        retry_after = (error.headers or {}).get("Retry-After")
++        if retry_after is not None:
++            try:
++                headers["Retry-After"] = str(max(0, min(86400, int(retry_after))))
++            except (TypeError, ValueError):
++                pass
++        return JSONResponse(status_code=error.status_code, content={"detail": "native_request_failed"}, headers=headers)
++
++    async def validation_error(request, error):
++        return JSONResponse(status_code=422, content={"detail": "native_request_invalid"})
++
++    async def unexpected_error(request, error):
++        logging.getLogger(__name__).error("native_request_failed", exc_info=error)
++        return JSONResponse(status_code=500, content={"detail": "native_request_failed"})
++
++    async def authentication_error(request, error):
++        return JSONResponse(status_code=401, content={"detail": "native_authentication_failed"})
++
++    async def store_unavailable(request, error):
++        return await http_error(request, HTTPException(status_code=503, detail="native_unavailable", headers={"Retry-After": str(getattr(error, "retry_after", 30))}))
++
++    app.add_exception_handler(HTTPException, http_error)
++    app.add_exception_handler(RequestValidationError, validation_error)
++    app.add_exception_handler(Exception, unexpected_error)
++    app.add_exception_handler(AuthenticationError, authentication_error)
++    app.add_exception_handler(StoreWriteUnavailable, store_unavailable)
+--- a/hindsight-api-slim/hindsight_api/engine/retain/fact_extraction.py
++++ b/hindsight-api-slim/hindsight_api/engine/retain/fact_extraction.py
+@@ -6,6 +6,7 @@
+ """
+ 
+ import asyncio
++from hindsight_api.strict_preview import active as strict_preview_active
+ import json
+ import logging
+ import re
+@@ -2115,7 +2116,7 @@
+     # same budget as its default, and in a multi-LLM chain each member may override
+     # it (``HINDSIGHT_API_LLM_<n>_MAX_RETRIES``). A per-call value would win over the
+     # member's own and hand every member the same budget.
+-    outer_attempts = llm_max_retries + 1
++    outer_attempts = 1 if strict_preview_active() else llm_max_retries + 1
+     last_error: Exception | None = None
+ 
+     usage = TokenUsage()  # Track cumulative usage across retries
+@@ -2157,6 +2158,10 @@
+                 prompt_cache=prompt_cache,
+             )
+ 
++            if strict_preview_active():
++                if len(getattr(llm_config, "members", [llm_config])) != 1:
++                    raise ValueError("strict_preview_single_provider_required")
++                call_kwargs["max_retries"] = 0
+             extraction_call = await llm_config.call(**call_kwargs)
+             extraction_response_json = extraction_call.content
+             call_usage = extraction_call.usage
+@@ -2484,6 +2489,8 @@
+                     f"{chunk_index + 1}/{total_chunks} after {outer_attempts} attempts{cause}"
+                 )
+ 
++            if strict_preview_active() and (has_malformed_facts or len(chunk_facts) != len(raw_facts)):
++                raise ValueError("strict_preview_dropped_facts")
+             return chunk_facts, usage
+ 
+         except BadRequestError as e:
+@@ -2583,6 +2590,8 @@
+             extraction_prompt=extraction_prompt,
+         )
+     except OutputTooLongError:
++        if strict_preview_active():
++            raise
+         # Output exceeded token limits - split the chunk and retry. Conversation
+         # chunks are JSON arrays, so preserve array/turn boundaries when possible.
+         logger.warning(
+@@ -2718,6 +2727,9 @@
+         max_attachments_per_chunk=config.retain_max_attachments_per_chunk,
+     )
+ 
++    if strict_preview_active() and len(chunks) != 1:
++        raise ValueError("strict_preview_requires_one_chunk")
++
+     # Log chunk count before starting LLM requests
+     total_chars = sum(len(c) for c in chunks)
+     if len(chunks) > 1:
+--- /dev/null
++++ b/hindsight-api-slim/hindsight_api/strict_preview.py
+@@ -0,0 +1,27 @@
++"""Dry-run-only execution control. No semantic extraction algorithm lives here."""
++from contextvars import ContextVar
++
++_active = ContextVar("hindsight_strict_preview", default=False)
++
++
++def active():
++    return _active.get()
++
++
++async def run(enabled, extraction, *args, **kwargs):
++    if not enabled:
++        return await extraction(*args, **kwargs)
++    from fastapi.responses import JSONResponse
++
++    token = _active.set(True)
++    try:
++        result = await extraction(*args, **kwargs)
++        # One complete extraction chunk, including true completed abstention.
++        if len(result.chunks) != 1 or len(result.facts) > 4:
++            raise ValueError("strict_preview_incomplete")
++        return JSONResponse(
++            content=result.model_dump(mode="json"),
++            headers={"X-Hindsight-Strict-Preview": "v1"},
++        )
++    finally:
++        _active.reset(token)

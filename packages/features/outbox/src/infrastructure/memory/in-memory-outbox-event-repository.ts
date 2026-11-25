@@ -74,6 +74,7 @@ export class InMemoryOutboxEventRepository
   }
 
   async recoverStaleProcessing(input: {
+    readonly eventTypes?: readonly string[];
     readonly now: Date;
     readonly legacyStaleBefore: Date;
     readonly nextAttemptAt: Date;
@@ -85,6 +86,7 @@ export class InMemoryOutboxEventRepository
       .filter(
         (event) =>
           event.status === "processing" &&
+          (!input.eventTypes || input.eventTypes.includes(event.type)) &&
           ((event.claimUntil !== null && event.claimUntil <= input.now) ||
             (event.claimId === null &&
               event.updatedAt < input.legacyStaleBefore)),

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { InMemoryOutboxEventRepository } from "@reviewrouter/features-outbox";
 import {
   GitHubReviewRequestIngressCommandKind,
@@ -29,6 +29,39 @@ describe("ReviewV2PullRequestWebhookHandler", () => {
         expectedHeadSha: "b".repeat(40),
       },
     });
+  });
+
+  it("queues drafts when workspace review is enabled", async () => {
+    const { handler, outbox } = fixture(true);
+    const draft = envelope();
+    draft.payload.pull_request.draft = true;
+    await expect(
+      handler.handleGitHubPullRequestWebhook(draft),
+    ).resolves.toMatchObject({
+      commandKind: GitHubReviewRequestIngressCommandKind.Request,
+    });
+    expect([...outbox.events.values()][0]?.payload).toMatchObject({
+      draftAtIngress: true,
+    });
+  });
+
+  it("does not enqueue drafts when the workspace policy lookup is unavailable", async () => {
+    const enqueue = vi.fn();
+    const handler = new ReviewV2PullRequestWebhookHandler({
+      ingress: { enqueue },
+      clock: { now: () => new Date() },
+      policy: {
+        reviewDrafts: async () => {
+          throw new Error("database_unavailable");
+        },
+      },
+    });
+    const draft = envelope();
+    draft.payload.pull_request.draft = true;
+    await expect(handler.handleGitHubPullRequestWebhook(draft)).rejects.toThrow(
+      "database_unavailable",
+    );
+    expect(enqueue).not.toHaveBeenCalled();
   });
 
   it("preserves distinct deliveries for worker-side current-revision coalescing", async () => {
@@ -96,7 +129,7 @@ describe("ReviewV2PullRequestWebhookHandler", () => {
   });
 });
 
-function fixture() {
+function fixture(reviewDrafts = false) {
   const outbox = new InMemoryOutboxEventRepository();
   const handler = new ReviewV2PullRequestWebhookHandler({
     ingress: new ReviewV2GitHubRequestIngressOutbox(outbox, {
@@ -105,7 +138,7 @@ function fixture() {
     }),
     clock: { now: () => new Date("2026-07-23T10:00:00.000Z") },
     policy: {
-      reviewDrafts: () => false,
+      reviewDrafts: async () => reviewDrafts,
     },
   });
   return { handler, outbox };

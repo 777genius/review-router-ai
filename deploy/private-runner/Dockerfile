@@ -1,14 +1,13 @@
-FROM node:24-bookworm-slim@sha256:65932751ed4073ed02f5c04e494e4b2572a891b7dbea0568a863dc80341bf848 AS builder
+FROM node:26.11.1-bookworm-slim@sha256:86f07bc9c5dce4578cf37e5a418b7bfc7f817cda25cde66e2b66e95ed86c4567 AS builder
 WORKDIR /build
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages/features/release-rollout/package.json ./packages/features/release-rollout/package.json
-RUN corepack enable \
-  && corepack prepare pnpm@10.33.0 --activate \
+RUN npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7 \
   && pnpm install --frozen-lockfile --filter @reviewrouter/features-release-rollout...
 COPY packages/features/release-rollout ./packages/features/release-rollout
 RUN pnpm --filter @reviewrouter/features-release-rollout build
 
-FROM node:24-bookworm-slim@sha256:65932751ed4073ed02f5c04e494e4b2572a891b7dbea0568a863dc80341bf848
+FROM node:26.11.1-bookworm-slim@sha256:86f07bc9c5dce4578cf37e5a418b7bfc7f817cda25cde66e2b66e95ed86c4567
 ARG GITHUB_ACTIONS_RUNNER_VERSION
 ARG GITHUB_ACTIONS_RUNNER_SHA256
 ARG DEBIAN_SNAPSHOT=20260115T000000Z
@@ -26,6 +25,7 @@ RUN test -n "$GITHUB_ACTIONS_RUNNER_VERSION" && test -n "$GITHUB_ACTIONS_RUNNER_
   && tar --extract --gzip --file /tmp/runner.tgz --directory /runner \
   && rm /tmp/runner.tgz \
   && chown -R runner:runner /runner
+RUN npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
 WORKDIR /app
 COPY --from=builder /build/packages/features/release-rollout/dist ./packages/features/release-rollout/dist
 COPY --from=builder /build/node_modules ./node_modules

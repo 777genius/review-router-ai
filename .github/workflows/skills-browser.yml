@@ -1,0 +1,457 @@
+name: Skills browser acceptance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - .github/workflows/skills-browser.yml
+      - apps/web/**
+      # Public marketing-only paths do not execute dashboard, memory or OCR.
+      - "!apps/web/app/home-*"
+      - "!apps/web/app/page.tsx"
+      - "!apps/web/app/opengraph-image.tsx"
+      - "!apps/web/app/robots.ts"
+      - "!apps/web/app/sitemap.ts"
+      - "!apps/web/app/favicon.ico"
+      - "!apps/web/app/pricing/**"
+      - "!apps/web/app/privacy/**"
+      - "!apps/web/app/terms/**"
+      - "!apps/web/app/refund-policy/**"
+      - "!apps/web/app/security/**"
+      # Statistics-only UI routes are qualified by statistics-followthrough-browser.
+      - "!apps/web/app/dashboard/provider-usage-*"
+      - "!apps/web/app/dashboard/review-statistics-*"
+      - "!apps/web/app/api/dashboard/provider-usage/**"
+      - "!apps/web/app/api/dashboard/review-statistics/**"
+      - apps/worker/**
+      - apps/api/src/review-action-v2-production-composition.ts
+      - apps/api/src/review-run-runtime-snapshot*
+      - packages/features/auth/**
+      - packages/features/github-installations/**
+      - packages/features/provider-accounts/**
+      - packages/features/repositories/**
+      - packages/features/review-config/**
+      - packages/features/review-context-tools/**
+      - packages/features/review-run-control/**
+      - packages/features/review-skills/**
+      - packages/features/rate-limits/**
+      - packages/features/outbox/**
+      - packages/features/workflow-provisioning/**
+      - packages/platform/**
+      - packages/protocol-review-action-v2/**
+      - packages/shared/**
+      - packages/ui/**
+      - vendor/**
+      - scripts/accounts-reference-e2e/**
+      - scripts/lib/next-generated-env.ts
+      - scripts/lib/next-generated-env.test.ts
+      - scripts/lib/next-browser-test-compiler.ts
+      - scripts/lib/next-browser-test-compiler.test.ts
+      - scripts/install-private-dependencies.mjs
+      - scripts/generate-prisma-offline.mjs
+      - scripts/prepare-pinned-subscription-runtime.ts
+      - services/skill-scanner/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - tsconfig*.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: skills-browser-${{ github.event_name }}-${{ (github.event_name == 'pull_request' || github.event_name == 'push') && (github.event.pull_request.number || github.ref) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+
+jobs:
+  skills-browser:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: Skills real Next and PostgreSQL browser acceptance
+    # The real Next dev server needs the maintained build pool's memory headroom.
+    runs-on: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:github-hosted') && 'ubuntu-latest' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LINUX_BUILD_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+        env:
+          POSTGRES_USER: fixture_owner
+          POSTGRES_DB: review_router_accounts_reference_e2e_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+          TZ: UTC
+        ports: ["127.0.0.1:5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U fixture_owner -d review_router_accounts_reference_e2e_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      EXPECTED_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+      ACCOUNTS_REFERENCE_E2E_GREP: Skills real Next
+      DATABASE_URL: postgresql://fixture_owner@127.0.0.1:5432/review_router_accounts_reference_e2e_test?schema=public
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/tmp/accounts-reference-e2e/browser-cache
+      # Leave headroom for the large dev graph; keep navigation budgets unchanged.
+      NODE_OPTIONS: --max-old-space-size=4096
+      NEXT_TELEMETRY_DISABLED: "1"
+      TZ: UTC
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.12.1
+
+      - name: Prepare owned temporary directories
+        run: mkdir -p "$GITHUB_WORKSPACE/tmp/accounts-reference-e2e/tmp" "$PLAYWRIGHT_BROWSERS_PATH"
+
+      - name: Install pinned pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+
+      - name: Install pinned dependencies
+        run: |
+          node scripts/install-private-dependencies.mjs --ignore-scripts --frozen-lockfile
+          # Fetch only the locked engines before isolated Prisma generation.
+          pnpm rebuild @prisma/engines
+          node scripts/prepare-pinned-subscription-runtime.ts
+          pnpm --dir scripts/accounts-reference-e2e install --ignore-scripts --frozen-lockfile
+
+      - name: Verify portable Skills import and export
+        run: pnpm exec vitest run apps/web/src/features/review-skills/portable-skill.test.ts --maxWorkers=1 --no-file-parallelism
+
+      - name: Generate Prisma without network access
+        env:
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
+        run: node scripts/generate-prisma-offline.mjs
+
+      - name: Typecheck browser harness with isolated TypeScript 7.0.2
+        run: |
+          pnpm --dir scripts/local-checks/native install --ignore-workspace --ignore-scripts --frozen-lockfile
+          node scripts/local-checks/compiler-cli.ts --native --noEmit -p scripts/accounts-reference-e2e/tsconfig.json
+
+      - name: Install locked Chromium
+        run: pnpm --dir scripts/accounts-reference-e2e exec playwright install --with-deps chromium
+
+      - name: Run all Skills browser scenarios
+        env:
+          TMPDIR: ${{ github.workspace }}/tmp/accounts-reference-e2e/tmp
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_REVISION"
+          git diff --exit-code HEAD
+          node --import ./scripts/accounts-reference-e2e/node_modules/tsx/dist/loader.mjs \
+            scripts/accounts-reference-e2e/src/run.ts \
+            --repo-root "$GITHUB_WORKSPACE" \
+            --database-url "$DATABASE_URL" \
+            --work-dir "$GITHUB_WORKSPACE/tmp/accounts-reference-e2e/runs/skills-ci" \
+            --expected-revision "$EXPECTED_REVISION" \
+            --skills-fixture
+
+      - name: Verify complete acceptance receipt
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          import { readFileSync } from 'node:fs';
+          const directory = 'tmp/accounts-reference-e2e/runs/skills-ci';
+          const result = JSON.parse(readFileSync(`${directory}/result.json`, 'utf8'));
+          const runtime = JSON.parse(readFileSync(`${directory}/runtime.json`, 'utf8'));
+          assert.equal(result.actualRevision, process.env.EXPECTED_REVISION);
+          assert.equal(runtime.baselineExpected, process.env.EXPECTED_REVISION);
+          assert.equal(result.sourceDeltaSha256, createHash('sha256').update('').digest('hex'));
+          assert.equal(result.outcome, 'done');
+          assert.equal(result.boot.ok, true);
+          assert.equal(result.databaseMode, 'explicit-test-url');
+          assert.equal(result.databaseBaseline, 'fresh migrated');
+          assert.equal(result.externalNetworkAllowed, false);
+          assert.equal(result.tests.passed, 24);
+          assert.equal(result.tests.failed, 0);
+          assert.equal(result.tests.skipped, 0);
+          assert.deepEqual(result.tests.failures, []);
+          NODE
+
+      - name: Retain PostgreSQL service evidence
+        if: always()
+        env:
+          SKILLS_PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          skills_evidence="$GITHUB_WORKSPACE/tmp/accounts-reference-e2e/runs/skills-ci"
+          mkdir -p "$skills_evidence"
+          docker exec "$SKILLS_PG_CONTAINER" postgres --version > "$skills_evidence/version.log"
+          docker logs "$SKILLS_PG_CONTAINER" > "$skills_evidence/postgres.log" 2>&1
+
+      - name: Upload browser acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: skills-browser-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            tmp/accounts-reference-e2e/runs/skills-ci/*.json
+            tmp/accounts-reference-e2e/runs/skills-ci/*.jsonl
+            tmp/accounts-reference-e2e/runs/skills-ci/*.log
+            tmp/accounts-reference-e2e/runs/skills-ci/boot-viewer.html
+            tmp/accounts-reference-e2e/runs/skills-ci/browser-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+
+  catalog-browser:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: Catalog real static and AI browser acceptance
+    runs-on: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:github-hosted') && 'ubuntu-latest' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+        env:
+          POSTGRES_USER: fixture_owner
+          POSTGRES_DB: review_router_accounts_reference_e2e_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+          TZ: UTC
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U fixture_owner -d review_router_accounts_reference_e2e_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      account-models-postgres:
+        image: postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+        env:
+          POSTGRES_USER: fixture_owner
+          POSTGRES_DB: review_router_accounts_reference_e2e_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+          TZ: UTC
+        ports: ["127.0.0.1:5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U fixture_owner -d review_router_accounts_reference_e2e_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      EXPECTED_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+      ACCOUNTS_REFERENCE_E2E_GREP: Catalog real checked import
+      DATABASE_URL: postgresql://fixture_owner@127.0.0.1:5432/review_router_accounts_reference_e2e_test?schema=public
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/tmp/accounts-reference-e2e/browser-cache
+      REVIEW_ROUTER_SKILL_SCANNER_TEST_PYTHON: ${{ github.workspace }}/tmp/skill-scanner/venv/bin/python
+      NODE_OPTIONS: --max-old-space-size=3072
+      NEXT_TELEMETRY_DISABLED: "1"
+      TZ: UTC
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.12.1
+
+      - name: Install pinned dependencies
+        run: |
+          npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+          node scripts/install-private-dependencies.mjs --ignore-scripts --frozen-lockfile
+          # Fetch only the locked engine binaries during dependency preparation.
+          # Prisma generation below still runs with the network disabled.
+          pnpm rebuild @prisma/engines
+          node scripts/prepare-pinned-subscription-runtime.ts
+          pnpm --dir scripts/accounts-reference-e2e install --ignore-scripts --frozen-lockfile
+
+      - name: Generate Prisma without network access
+        env:
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
+        run: node scripts/generate-prisma-offline.mjs
+
+      - name: Setup pinned SkillSpector Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12.16"
+          architecture: x64
+
+      - name: Install actual pinned SkillSpector and locked Chromium
+        run: |
+          python3.12 -c 'import sys; assert sys.version_info[:3] == (3, 12, 16), sys.version; print(sys.executable); print(sys.version)'
+          python3.12 -m venv "$GITHUB_WORKSPACE/tmp/skill-scanner/venv"
+          "$REVIEW_ROUTER_SKILL_SCANNER_TEST_PYTHON" -m pip install \
+            --require-hashes -r services/skill-scanner/build-requirements.lock
+          "$REVIEW_ROUTER_SKILL_SCANNER_TEST_PYTHON" -m pip install \
+            --no-build-isolation --require-hashes -r services/skill-scanner/requirements.lock
+          TIKTOKEN_CACHE_DIR="$GITHUB_WORKSPACE/tmp/skill-scanner/venv/share/tiktoken" \
+            "$REVIEW_ROUTER_SKILL_SCANNER_TEST_PYTHON" -c 'import tiktoken; tiktoken.get_encoding("cl100k_base"); tiktoken.get_encoding("o200k_base")'
+          pnpm --dir scripts/accounts-reference-e2e exec playwright install --with-deps chromium
+
+      - name: Typecheck browser harness with isolated TypeScript 7.0.2
+        run: |
+          pnpm --dir scripts/local-checks/native install --ignore-workspace --ignore-scripts --frozen-lockfile
+          node scripts/local-checks/compiler-cli.ts --native --noEmit -p scripts/accounts-reference-e2e/tsconfig.json
+
+      - name: Verify HTTP response inspection across navigation
+        run: node --test scripts/accounts-reference-e2e/src/secret-leak-capture.spec.ts
+
+      - name: Run all catalog browser scenarios
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_REVISION"
+          git diff --exit-code HEAD
+          node --import ./scripts/accounts-reference-e2e/node_modules/tsx/dist/loader.mjs \
+            scripts/accounts-reference-e2e/src/run.ts \
+            --repo-root "$GITHUB_WORKSPACE" \
+            --database-url "$DATABASE_URL" \
+            --work-dir "$GITHUB_WORKSPACE/tmp/accounts-reference-e2e/runs/catalog-ci" \
+            --expected-revision "$EXPECTED_REVISION" \
+            --skills-fixture --skill-catalog-fixture
+
+      - name: Verify complete catalog acceptance receipt
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          import { readFileSync } from 'node:fs';
+          const directory = 'tmp/accounts-reference-e2e/runs/catalog-ci';
+          const result = JSON.parse(readFileSync(`${directory}/result.json`, 'utf8'));
+          const runtime = JSON.parse(readFileSync(`${directory}/runtime.json`, 'utf8'));
+          const scanner = JSON.parse(readFileSync(`${directory}/skill-catalog-receipts.json`, 'utf8'));
+          assert.equal(result.actualRevision, process.env.EXPECTED_REVISION);
+          assert.equal(runtime.baselineExpected, process.env.EXPECTED_REVISION);
+          assert.equal(result.sourceDeltaSha256, createHash('sha256').update('').digest('hex'));
+          assert.equal(result.outcome, 'done');
+          assert.equal(result.boot.ok, true);
+          assert.equal(result.databaseMode, 'explicit-test-url');
+          assert.equal(result.databaseBaseline, 'fresh migrated');
+          assert.equal(result.externalNetworkAllowed, false);
+          assert.equal(result.tests.passed, 12);
+          assert.equal(result.tests.failed, 0);
+          assert.equal(result.tests.skipped, 0);
+          assert.deepEqual(result.tests.failures, []);
+          assert.equal(scanner.scannerAlive, true);
+          assert.equal(scanner.workerAlive, true);
+          const executed = scanner.requests.filter(request => request.path === '/v1/scans' && request.native);
+          assert.equal(executed.filter(request => request.mode === 'static').length, 9);
+          assert.equal(executed.filter(request => request.mode === 'ai').length, 1);
+          assert.deepEqual([...new Set(scanner.profiles.profiles.map(profile => profile.mode))].sort(), ['ai', 'static']);
+          NODE
+
+      - name: Preserve and restore only Next-generated source
+        run: |
+          cat > tmp/accounts-reference-e2e/verify-generated-next-env.mjs <<'NODE'
+          import assert from 'node:assert/strict';
+          import { execFileSync } from 'node:child_process';
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { restoreOwnedNextEnv } from '../../scripts/lib/next-generated-env.ts';
+          const path = 'apps/web/next-env.d.ts';
+          const original = execFileSync('git', ['show', `HEAD:${path}`], { encoding: 'utf8' });
+          writeFileSync(`${process.argv[2]}/next-env-generated.diff.log`, execFileSync('git', ['diff', '--binary', 'HEAD', '--', path]));
+          const changed = execFileSync('git', ['diff', '--name-only', '-z', 'HEAD'], { encoding: 'utf8' }).split('\0').filter(Boolean);
+          assert.deepEqual(changed.filter(file => file !== path), [], 'Unexpected tracked source changes');
+          const current = readFileSync(path, 'utf8');
+          writeFileSync(path, restoreOwnedNextEnv(original, current, './.next/dev/types'));
+          execFileSync('git', ['diff', '--exit-code', 'HEAD'], { stdio: 'inherit' });
+          NODE
+          node tmp/accounts-reference-e2e/verify-generated-next-env.mjs \
+            tmp/accounts-reference-e2e/runs/catalog-ci
+
+      - name: Run provider connection and model browser scenarios
+        id: account_models
+        env:
+          ACCOUNTS_REFERENCE_E2E_GREP: dynamic Codex account models|public catalogs refresh|Add provider|subscription connections|model list updates itself|Codex import
+          DATABASE_URL: postgresql://fixture_owner@127.0.0.1:5433/review_router_accounts_reference_e2e_test?schema=public
+          TMPDIR: ${{ github.workspace }}/tmp/accounts-reference-e2e/tmp
+        run: |
+          mkdir -p "$TMPDIR"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_REVISION"
+          git diff --exit-code HEAD
+          node --import ./scripts/accounts-reference-e2e/node_modules/tsx/dist/loader.mjs \
+            scripts/accounts-reference-e2e/src/run.ts \
+            --repo-root "$GITHUB_WORKSPACE" \
+            --database-url "$DATABASE_URL" \
+            --work-dir "$GITHUB_WORKSPACE/tmp/accounts-reference-e2e/runs/account-models-ci" \
+            --expected-revision "$EXPECTED_REVISION" \
+            --account-models-fixture --catalog-fixture \
+            --api-key-storage-fixture --subscription-fixture
+
+      - name: Verify provider connection and model acceptance receipt
+        if: ${{ always() && steps.account_models.outcome != 'skipped' }}
+        run: |
+          node tmp/accounts-reference-e2e/verify-generated-next-env.mjs \
+            tmp/accounts-reference-e2e/runs/account-models-ci
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          import { readFileSync } from 'node:fs';
+          import { API_KEY_STORAGE_FIXTURE_BOUNDARY } from './scripts/accounts-reference-e2e/src/contracts.ts';
+          const directory = 'tmp/accounts-reference-e2e/runs/account-models-ci';
+          const result = JSON.parse(readFileSync(`${directory}/result.json`, 'utf8'));
+          const runtime = JSON.parse(readFileSync(`${directory}/runtime.json`, 'utf8'));
+          assert.equal(result.actualRevision, process.env.EXPECTED_REVISION);
+          assert.equal(runtime.revision, process.env.EXPECTED_REVISION);
+          assert.equal(runtime.baselineExpected, process.env.EXPECTED_REVISION);
+          assert.equal(result.sourceDeltaSha256, createHash('sha256').update('').digest('hex'));
+          assert.equal(result.outcome, 'done');
+          assert.equal(result.boot.ok, true);
+          assert.equal(result.databaseMode, 'explicit-test-url');
+          assert.equal(result.databaseBaseline, 'fresh migrated');
+          assert.equal(runtime.databaseName, 'review_router_accounts_reference_e2e_test');
+          assert.equal(result.externalNetworkAllowed, false);
+          assert.equal(runtime.externalNetworkAllowed, false);
+          assert.equal(result.fixtureBoundary, API_KEY_STORAGE_FIXTURE_BOUNDARY);
+          assert.equal(runtime.fixtureBoundary, API_KEY_STORAGE_FIXTURE_BOUNDARY);
+          assert.equal(result.tests.passed, 9);
+          assert.equal(result.tests.failed, 0);
+          assert.equal(result.tests.skipped, 0);
+          assert.deepEqual(result.tests.failures, []);
+          const report = JSON.parse(readFileSync(`${directory}/playwright-result.json`, 'utf8'));
+          const specs = [];
+          const collect = suites => {
+            for (const suite of suites ?? []) {
+              specs.push(...(suite.specs ?? []));
+              collect(suite.suites);
+            }
+          };
+          collect(report.suites);
+          assert.deepEqual(specs.map(spec => spec.title).sort(), [
+            'Add provider connects an API-key account in place and saves it with its model',
+            'Add provider signs in to Grok in place and selects the new account',
+            'Add provider resets unsubmitted credentials when switching providers and preserves existing Codex without enrollment',
+            'Codex import refresh_token submits and reconnects through real server actions',
+            'Codex import oauth_auth_json submits through real server actions',
+            'an NVIDIA account\'s model list updates itself when it lapses, with Try again only after a failure',
+            'dynamic Codex account models work in provider edit and add with exact binding refresh and save validation',
+            'public catalogs refresh direct providers, preserve the selected ID, and never test a connection automatically',
+            'subscription connections use real server actions for all four providers and remain compact on mobile',
+          ].sort());
+          for (const spec of specs) {
+            assert.equal(spec.tests.length, 1);
+            assert.equal(spec.tests[0].results.length, 1);
+            assert.equal(spec.tests[0].results[0].status, 'passed');
+          }
+          NODE
+
+      - name: Upload catalog browser evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: catalog-browser-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            tmp/accounts-reference-e2e/runs/catalog-ci/*.json
+            tmp/accounts-reference-e2e/runs/catalog-ci/*.jsonl
+            tmp/accounts-reference-e2e/runs/catalog-ci/*.log
+            tmp/accounts-reference-e2e/runs/catalog-ci/browser-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload account model browser evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: account-models-browser-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            tmp/accounts-reference-e2e/runs/account-models-ci/*.json
+            tmp/accounts-reference-e2e/runs/account-models-ci/*.jsonl
+            tmp/accounts-reference-e2e/runs/account-models-ci/*.log
+            tmp/accounts-reference-e2e/runs/account-models-ci/boot-viewer.html
+            tmp/accounts-reference-e2e/runs/account-models-ci/browser-artifacts/
+          if-no-files-found: warn
+          retention-days: 14

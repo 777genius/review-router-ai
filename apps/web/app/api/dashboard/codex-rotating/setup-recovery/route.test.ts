@@ -20,17 +20,14 @@ vi.mock("../../../../../src/server/codex-rotating-setup-recovery", () => ({
 vi.mock("@reviewrouter/platform-config", () => ({
   requireReviewRouterDatabaseRecoveryWitness: () => "w".repeat(43),
 }));
-vi.mock(
-  "../../../../../src/server/prisma-codex-rotating-setup-recovery",
-  () => ({
-    PrismaCodexRotatingSetupRecovery: class {
-      constructor(...args: unknown[]) {
-        mocks.recoveryConstructor(...args);
-      }
-      inspectStatus = mocks.inspectStatus;
-    },
-  }),
-);
+vi.mock("@reviewrouter/features-provider-setup/composition", () => ({
+  PrismaCodexRotatingSetupRecovery: class {
+    constructor(...args: unknown[]) {
+      mocks.recoveryConstructor(...args);
+    }
+    inspectStatus = mocks.inspectStatus;
+  },
+}));
 
 import { GET, POST } from "./route";
 

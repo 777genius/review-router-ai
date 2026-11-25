@@ -1,4 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as React from "react";
+import type { PrismaClient } from "@prisma/client";
+
+// Use the installed server React implementation: the default client export's
+// cache is a no-op and cannot detect stale authorization inside an RSC request.
+vi.mock("react", async () => {
+  const { createRequire } = await import("node:module");
+  const { dirname, join } = await import("node:path");
+  const require = createRequire(import.meta.url);
+  return require(
+    join(
+      dirname(require.resolve("react/package.json")),
+      "react.react-server.js",
+    ),
+  );
+});
 
 const mocks = vi.hoisted(() => ({
   assertWorkspaceMutationAllowed: vi.fn(),
@@ -60,9 +76,11 @@ import {
   assertDashboardRepositoryConfigMutationAllowed,
   assertDashboardRepositoryMutationAllowed,
   assertDashboardRepositoryRecoveryAllowed,
+  assertDashboardWorkspaceAdminMutationAllowed,
   createGitHubUserOctokit,
   getDashboardSignedInActor,
   mintFreshGitHubAppRepositorySecretWriteToken,
+  repositoryAccessRefreshErrorCode,
 } from "./dashboard-mutations";
 
 const repository = {
@@ -108,6 +126,17 @@ describe("dashboard repository mutations", () => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+  });
+
+  it("refuses workspace-admin writes before identity or database work when disabled", async () => {
+    vi.stubEnv("REVIEW_ROUTER_ENABLE_DASHBOARD_MUTATIONS", "0");
+
+    await expect(
+      assertDashboardWorkspaceAdminMutationAllowed("workspace_1"),
+    ).rejects.toThrow("dashboard_mutations_disabled");
+
+    expect(mocks.getServerSession).not.toHaveBeenCalled();
+    expect(mocks.getPrisma).not.toHaveBeenCalled();
   });
 
   it("rejects repo-only mutations when the live collaborator permission no longer allows management", async () => {
@@ -372,6 +401,39 @@ describe("dashboard repository mutations", () => {
     ).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["github_oauth_client_misconfigured", "dashboard_auth_misconfigured"],
+    ["github_oauth_refresh_failed", "repository_access_token_refresh_failed"],
+  ])(
+    "preserves the recovery category for %s before a GitHub request",
+    async (errorCode, expected) => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      mocks.getValidGitHubUserAccessToken.mockResolvedValueOnce({
+        status: "refresh_failed",
+        errorCode,
+      });
+      await expect(
+        createGitHubUserOctokit({
+          userId: "user_1",
+          sourceProvider: "github",
+          externalUserId: "123",
+          sourceLogin: "maintainer",
+          githubUserId: "123",
+          githubLogin: "maintainer",
+          actor: "user:github:maintainer",
+        }),
+      ).rejects.toThrow(expected);
+      expect(
+        repositoryAccessRefreshErrorCode({
+          status: "token_refresh_failed",
+          errorCode,
+        }),
+      ).toBe(expected);
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("creates a GitHub user-token requester for user-triggered repository writes", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ ok: true }), {
@@ -442,6 +504,54 @@ describe("dashboard repository mutations", () => {
       githubUserId: "123",
       githubLogin: "maintainer",
     });
+  });
+
+  it("rereads a supplied transaction identity under an active React server cache", async () => {
+    const internals = (
+      React as unknown as {
+        __SERVER_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE: {
+          A: null | { getCacheForType<T>(factory: () => T): T };
+        };
+      }
+    ).__SERVER_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+    const previous = internals.A;
+    const cache = new Map<() => unknown, unknown>();
+    internals.A = {
+      getCacheForType<T>(factory: () => T): T {
+        if (!cache.has(factory)) cache.set(factory, factory());
+        return cache.get(factory) as T;
+      },
+    };
+    const defaultRead = vi.fn().mockResolvedValue({ userId: "default-user" });
+    const transactionRead = vi
+      .fn()
+      .mockResolvedValue({ userId: "transaction-user" });
+    mocks.getPrisma.mockReturnValue({
+      userExternalIdentity: { findUnique: defaultRead },
+    });
+    const transaction = {
+      userExternalIdentity: { findUnique: transactionRead },
+    } as unknown as Pick<PrismaClient, "userExternalIdentity">;
+    try {
+      const cachedActor = await getDashboardSignedInActor();
+      expect(cachedActor?.userId).toBe("default-user");
+      defaultRead.mockResolvedValue(null);
+      expect(await getDashboardSignedInActor()).toEqual(cachedActor);
+      expect(defaultRead).toHaveBeenCalledOnce();
+      expect(mocks.getServerSession).toHaveBeenCalledOnce();
+
+      expect(
+        (await getDashboardSignedInActor({ prisma: transaction }))?.userId,
+      ).toBe("transaction-user");
+      transactionRead.mockResolvedValue(null);
+      expect(
+        await getDashboardSignedInActor({ prisma: transaction }),
+      ).toBeNull();
+      expect(transactionRead).toHaveBeenCalledTimes(2);
+      expect(defaultRead).toHaveBeenCalledOnce();
+    } finally {
+      internals.A = previous;
+    }
   });
 
   it("does not copy GitLab external ids into GitHub actor fields", async () => {

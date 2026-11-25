@@ -3,7 +3,7 @@
 ## Short Privacy Copy
 
 In the default repository-owned mode, ReviewRouter manages configuration and
-setup while your code review runs inside GitHub Actions. ReviewRouter SaaS does
+setup while your code review runs inside GitHub Actions. ReviewRouter does
 not store your repository code, pull request diffs, Codex OAuth files, prompts,
 or model API keys.
 
@@ -15,13 +15,13 @@ Repository and workspace memory requires maintainer, repository admin, or worksp
 
 ## Codex OAuth Copy
 
-Codex subscription auth stays in your GitHub repo/org secrets or trusted self-hosted runner. ReviewRouter SaaS only tracks setup status and health metadata.
+Codex subscription auth stays in your GitHub repo/org secrets or trusted self-hosted runner. ReviewRouter only tracks setup status and health metadata.
 
 ## Hosted Workspace Account Pool Copy
 
 Hosted workspace account pools are a separate opt-in mode for explicitly bound
 repositories. ReviewRouter stores the workspace's Codex session credentials
-encrypted in SaaS; those credentials never enter GitHub Actions. ReviewRouter
+encrypted in control plane; those credentials never enter GitHub Actions. ReviewRouter
 transiently relays prompts, tool outputs, and model responses for each invocation
 without retaining their bodies. Checkout, tools, and the agent still run in your
 GitHub Actions workflow. Availability may be disabled if the upstream contract or

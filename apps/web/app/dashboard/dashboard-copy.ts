@@ -5,17 +5,173 @@ type DashboardWorkspaceInstallation = {
   readonly repositorySelection: string;
 };
 
+type RepositoryAccessPresentation = {
+  readonly badge: string;
+  readonly title: string;
+  readonly body: string;
+  readonly reconnect: boolean;
+  readonly canRefresh: boolean;
+  readonly tone: "accent" | "warning";
+  readonly actionUrl?: string;
+  readonly actionLabel?: string;
+};
+
+const repositoryAccessSetupIssue: RepositoryAccessPresentation = {
+  badge: "Setup needs attention",
+  title: "GitHub repository access is unavailable.",
+  body: "ReviewRouter needs a setup fix before it can check your GitHub access. Contact support to restore repository discovery.",
+  reconnect: false,
+  canRefresh: false,
+  tone: "warning",
+  actionUrl: "/support",
+  actionLabel: "Contact support",
+};
+
+export function repositoryAccessPresentation(
+  status: string,
+  errorCode?: string,
+  context: "notice" | "empty" = "notice",
+): RepositoryAccessPresentation {
+  if (
+    status === "token_encryption_misconfigured" ||
+    errorCode === "github_oauth_client_misconfigured"
+  )
+    return repositoryAccessSetupIssue;
+  if (status === "token_missing")
+    return {
+      badge: "GitHub connection needed",
+      title: "Reconnect GitHub to show repositories you can manage.",
+      body: "Reconnect GitHub so ReviewRouter can check which connected repositories you have permission to manage.",
+      reconnect: true,
+      canRefresh: false,
+      tone: "warning",
+    };
+  if (
+    status === "token_revoked" ||
+    status === "token_expired" ||
+    status === "token_decryption_failed"
+  )
+    return {
+      badge: "GitHub reconnection needed",
+      title: "Reconnect GitHub to restore repository access.",
+      body: "Your GitHub connection can no longer be used to check repository access. Reconnect GitHub to continue.",
+      reconnect: true,
+      canRefresh: false,
+      tone: "warning",
+    };
+  if (status === "github_error" || status === "token_refresh_failed")
+    return {
+      badge: "GitHub access",
+      title: "GitHub repository access could not be refreshed.",
+      body: "Try refreshing access again shortly.",
+      reconnect: false,
+      canRefresh: true,
+      tone: "warning",
+    };
+  return context === "empty"
+    ? {
+        badge: "No repositories found",
+        title: "No connected repositories found.",
+        body: "Connect GitHub repositories, then return to the dashboard to finish setup. GitLab is in development and not available yet.",
+        reconnect: false,
+        canRefresh: true,
+        tone: "accent",
+      }
+    : {
+        badge: "GitHub access",
+        title: "Repository access follows your GitHub permissions.",
+        body: "Only connected repositories where you have write, maintain, or admin access are shown.",
+        reconnect: false,
+        canRefresh: true,
+        tone: "accent",
+      };
+}
+
+export function repositoryAccessErrorPresentation(
+  error: string,
+): RepositoryAccessPresentation | null {
+  if (error === "dashboard_auth_misconfigured")
+    return repositoryAccessSetupIssue;
+  const statuses = [
+    "token_missing",
+    "token_revoked",
+    "token_expired",
+    "token_refresh_failed",
+    "token_decryption_failed",
+    "token_encryption_misconfigured",
+    "github_error",
+  ];
+  const status = error.replace(/^repository_access_/u, "");
+  return error.startsWith("repository_access_") && statuses.includes(status)
+    ? repositoryAccessPresentation(status)
+    : null;
+}
+
+export const repositoryWorkflowUpdateCopy = {
+  status:
+    "The installed review workflow needs an update. Create an update PR and merge it on GitHub, then verify setup here.",
+  stepTitle: "Update review workflow",
+  helper: "Create a pull request with the workflow update.",
+  actionLabel: "Create update PR",
+  pendingLabel: "Creating update PR...",
+  openActionLabel: "Open update PR",
+} as const;
+
+export const repositoryWorkflowVerificationCopy = {
+  status:
+    "ReviewRouter has not verified this repository’s review workflow. Select Verify setup to check it before the next review.",
+  helper: "Check the review workflow installed on GitHub.",
+} as const;
+
+export function repositorySetupProgressSummary(
+  step: "setup_pr" | "merge_setup_pr" | "provider" | "ready",
+  options: {
+    readonly verificationNeeded?: boolean;
+    readonly workflowUpdateRequired?: boolean;
+    readonly providerSetupBeforeWorkflow?: boolean;
+  } = {},
+): string {
+  switch (step) {
+    case "setup_pr":
+      return options.verificationNeeded
+        ? "1 of 4 - verification needed"
+        : options.workflowUpdateRequired
+          ? "1 of 4 - workflow update needed"
+          : options.providerSetupBeforeWorkflow
+            ? "1 of 4 - connect Codex"
+            : "1 of 4 - setup PR needed";
+    case "merge_setup_pr":
+      return options.verificationNeeded
+        ? "2 of 4 - verify setup"
+        : "2 of 4 - merge setup PR";
+    case "provider":
+      return options.providerSetupBeforeWorkflow
+        ? "3 of 4 - check Codex setup"
+        : "3 of 4 - enable review";
+    case "ready":
+      return "4 of 4 - complete";
+  }
+}
+
 export function dashboardNoticeText(
   notice: string,
   repository: string,
 ): string {
   switch (notice) {
+    case "runtime_migration_bootstrap_pr_ready":
+      return "First update PR ready. Merge the temporary migration workflow, then create the next update PR. Your existing credentials stay in GitHub Secrets. A second PR updates the review workflow after existing reviews finish.";
+    case "runtime_migration_draining":
+      return "The old review workflow is paused while admitted reviews finish. Create the next update PR after they finish. The migration has not copied credentials yet.";
+    case "runtime_migration_running":
+      return "The credential migration run is confirmed in GitHub. After it finishes, create the final workflow update PR. Reviews resume after that PR is merged and verified.";
+    case "runtime_migration_recovery_required":
+      return "The migration outcome is not confirmed. The old workflow stays paused. Check the existing GitHub migration run and recover the setup before continuing; the dispatch or secret write will not be repeated automatically.";
     case "app_installed":
-      return "GitHub App is connected. Search for one repository, then follow its provider-specific setup sequence from this dashboard.";
+      return "GitHub App is connected. Its repositories appear below as soon as the scan finishes. Choose a provider first, then create a setup PR for a repository.";
     case "sync_requested":
-      return "Repository metadata refresh was queued. Reload in a few seconds if the repository list does not update immediately.";
+      return "ReviewRouter is scanning GitHub again. The repository list updates automatically when the scan finishes.";
     case "sync_already_requested":
-      return "Repository metadata refresh was already queued for this installation recently.";
+      return "A repository scan was requested in the last minute. The repository list updates automatically when it finishes.";
     case "repository_access_refreshed":
       return "GitHub repository access was refreshed for your account.";
     case "setup_pr_ready":
@@ -87,6 +243,7 @@ export function dashboardNoticeText(
 }
 
 export function dashboardNoticeTitle(notice: string): string {
+  if (notice.startsWith("runtime_migration_")) return "Workflow update";
   switch (notice) {
     case "app_installed":
       return "GitHub App installed";
@@ -149,6 +306,7 @@ export function dashboardNoticeTitle(notice: string): string {
 export function dashboardNoticeTone(
   notice: string,
 ): "success" | "warning" | "danger" | "accent" {
+  if (notice.startsWith("runtime_migration_")) return "warning";
   switch (notice) {
     case "setup_pr_ready":
     case "setup_pr_merged":
@@ -286,6 +444,7 @@ export function isMemoryError(error: string): boolean {
     "contains_prompt_injection",
     "contains_secret_like_text",
     "memory_active_item_quota_exceeded",
+    "memory_dashboard_in_development",
     "memory_disabled",
     "memory_not_found",
     "memory_pending_suggestion_quota_exceeded",
@@ -306,7 +465,8 @@ export function isSetupRecoveryIssue(
   return (
     value === "setup_pr_closed" ||
     value === "setup_pr_branch_deleted" ||
-    value === "setup_pr_wrong_base_branch"
+    value === "setup_pr_wrong_base_branch" ||
+    value === "setup_pr_workflow_mismatch"
   );
 }
 
@@ -359,6 +519,32 @@ export function orgRulesetStatusTone(
 
 export function orgRulesetErrorText(error: string): string {
   switch (error) {
+    case "codex_runtime_migration_target_unavailable":
+      return "A compatible credential-preserving runtime update is not published for this connection yet. The existing pin remains installed.";
+    case "codex_runtime_migration_source_mismatch":
+    case "codex_runtime_migration_source_changed":
+    case "codex_runtime_migration_repository_changed":
+    case "codex_runtime_migration_bootstrap_source_mismatch":
+    case "codex_runtime_migration_ingress_changed":
+      return "The repository, workflow, or current credentials changed during the runtime update. Review the existing migration run and setup state before continuing.";
+    case "codex_runtime_migration_runs_not_drained":
+      return "Admitted reviews are still running. Wait for them to finish, then continue the runtime update.";
+    case "codex_runtime_migration_inventory_incomplete":
+    case "codex_runtime_migration_inventory_changed":
+    case "codex_runtime_migration_ingress_state_unknown":
+    case "codex_runtime_migration_ingress_not_disabled":
+    case "codex_runtime_migration_disable_unconfirmed":
+    case "codex_runtime_migration_enable_unconfirmed":
+    case "codex_runtime_migration_dispatch_ambiguous":
+    case "codex_runtime_migration_recovery_required":
+    case "codex_runtime_migration_recovery_conflict":
+    case "codex_runtime_migration_activation_invalid":
+      return "The runtime update needs recovery because its exact GitHub or setup state could not be confirmed. Inspect the existing migration run before continuing. The old workflow is not re-enabled automatically.";
+    case "codex_runtime_migration_bootstrap_cleanup_required":
+      return "Merge the final runtime setup PR, which removes the temporary migration workflow, then verify setup to resume reviews.";
+    case "codex_runtime_migration_workflow_missing_or_ambiguous":
+    case "codex_runtime_migration_bootstrap_not_ready":
+      return "Merge the first workflow update PR into the default branch and wait for GitHub to index its migration workflow, then create the next update PR.";
     case "org_admin_permission_required":
       return "Organization Administration: write is required for org-wide rulesets.";
     case "org_rulesets_not_supported":
@@ -375,6 +561,8 @@ export function orgRulesetErrorText(error: string): string {
 }
 
 export function dashboardErrorText(error: string): string {
+  const repositoryAccess = repositoryAccessErrorPresentation(error);
+  if (repositoryAccess) return repositoryAccess.body;
   if (isCodexRotatingProviderState(error)) {
     return codexRotatingProviderStateCopy(error).body;
   }
@@ -382,21 +570,8 @@ export function dashboardErrorText(error: string): string {
   switch (error) {
     case "dashboard_mutations_disabled":
       return "Dashboard mutations are disabled on this environment.";
-    case "dashboard_auth_misconfigured":
-      return "GitHub OAuth is not configured. Set AUTH_SECRET, GITHUB_APP_CLIENT_ID, and GITHUB_APP_CLIENT_SECRET.";
     case "dashboard_mutation_requires_sign_in":
       return "Sign in with GitHub before changing repository setup.";
-    case "repository_access_token_missing":
-      return "Reconnect GitHub to discover repositories you can manage.";
-    case "repository_access_token_revoked":
-    case "repository_access_token_expired":
-    case "repository_access_token_refresh_failed":
-    case "repository_access_token_decryption_failed":
-      return "GitHub authorization expired. Reconnect GitHub, then refresh repository access.";
-    case "repository_access_token_encryption_misconfigured":
-      return "Server setup is incomplete. Set REVIEW_ROUTER_TOKEN_ENCRYPTION_KEY before maintainer repository discovery can run.";
-    case "repository_access_github_error":
-      return "GitHub repository access could not be refreshed. Try again shortly.";
     case "workspace_mutation_forbidden":
       return "Your GitHub user is not an owner/admin for this workspace.";
     case "repository_mutation_forbidden":
@@ -407,6 +582,46 @@ export function dashboardErrorText(error: string): string {
       return "Another setup or sync operation is already running. Try again shortly.";
     case "rate_limited":
       return "Too many dashboard requests for this resource. Wait a bit before retrying.";
+    case "review_policy_resave_required":
+      return "Saved review policy uses a retired or unreadable format and reviews are stopped. Review and save the policy explicitly, or remove the repository override to inherit workspace settings.";
+    case "review_provider_selection_required":
+      return "No review provider applies here yet. Choose a workspace default or a provider for this repository before enabling reviews.";
+    case "review_provider_profile_unavailable":
+      return "The selected provider was archived or removed. Choose another provider and save again.";
+    case "rotating_profile_repository_only":
+      return "A rotating Codex provider belongs to its own repository and cannot be used anywhere else.";
+    case "review_configuration_gateway_profile_mismatch":
+      return "The account behind this provider now uses another profile. Choose the account again to create a new provider.";
+    case "review_workspace_policy_retired":
+      return "The workspace settings use a retired format. An owner or admin replaces them by choosing a default provider; then choose this repository's provider.";
+    case "hosted_pool_session_source_required":
+      return "A hosted Codex pool is turned on for each repository with its session source setting, so it cannot be chosen here or made the default.";
+    case "provider_profile_invalid":
+      return "The provider details are invalid. Check the model and label, then try again.";
+    case "provider_profile_not_found":
+      return "This provider no longer exists in the workspace. Refresh the dashboard.";
+    case "provider_profile_credential_unavailable":
+      return "The credential of this provider is not available. Connect the account or upload the managed key first.";
+    case "provider_profile_workspace_unavailable":
+      return "This workspace is being deleted, so its providers cannot change.";
+    case "provider_profile_duplicate":
+      return "A provider with the same credential and model already exists in this workspace.";
+    case "provider_profile_in_use":
+      return "This provider is still selected by the workspace default or a repository. Choose another provider there first.";
+    case "provider_profile_model_incompatible":
+      return "The new model does not support the reasoning or fast settings some repositories use with this provider.";
+    case "review_provider_settings_incompatible":
+      return "The reasoning or fast settings do not fit this provider's model. Choose the provider again and check its settings.";
+    case "review_inherited_execution_limits_incompatible":
+      return "A repository that inherits this roster requires more parallel reviewers or agreeing votes than the new roster provides. Lower that repository’s explicit limits, or keep more reviewers in the workspace roster.";
+    case "account_gateway_mixed_transport_unsupported":
+      return "Connected-account reviewers must use connected accounts throughout this roster. Choose a connected account for every reviewer.";
+    case "review_execution_limits_incompatible":
+      return "The saved parallel review or agreement limits name more providers than are selected. Choose the provider again in its provider dialog: that fits the limits to it.";
+    case "provider_management_forbidden":
+      return "Your role cannot manage this provider. Ask a workspace owner or admin.";
+    case "workflow_delete_untrusted":
+      return "A ReviewRouter workflow belongs to another active mode (GitHub Secrets/Hosted Pool) or was edited, so it is not removed automatically. Disconnect that mode, or remove the exact file named in the Diagnostics audit event, then retry.";
     case "invalid_form":
       return "The submitted form is invalid. Refresh the dashboard and try again.";
     case "dashboard_action_failed":
@@ -427,6 +642,58 @@ export function dashboardErrorText(error: string): string {
       return "GitHub is temporarily unavailable for this action. Retry after GitHub recovers.";
     case "hosted_account_subject_already_enrolled":
       return "This ChatGPT is already on the list, or it was removed and cannot be added again.";
+    case "account_gateway_workflow_options_not_supported":
+      return "Gateway setup requires the reusable workflow style and review discussions turned off. Update these options and try again.";
+    case "gateway_review_reasoning_effort_unsupported":
+      return "The selected Gateway model does not support this reasoning effort. Choose a supported reasoning effort in review settings and save again.";
+    case "agent_profile_requires_agentic_context":
+      return "OpenCodeReview needs native repository context. Enable Agentic context or choose a compatible ReviewRouter profile before saving.";
+    case "provider_api_direct_requires_single_provider":
+      return "Use one supported provider and model, then save the review settings.";
+    case "provider_api_fast_mode_unsupported":
+      return "Turn off Fast mode for MiMo and save the review settings.";
+    case "provider_api_reasoning_effort_unsupported":
+      return "Choose Low, Medium, or High review depth for MiMo, then save.";
+    case "openrouter_direct_requires_single_provider":
+      return "Direct OpenRouter reviews currently support one provider and one model. Select a single OpenRouter provider without multi-provider agreement before saving or installing the workflow. Your saved policy has not been replaced.";
+    case "openrouter_direct_workflow_options_not_supported":
+      return "Direct provider reviews require the reusable App-first workflow without discussion or conflict fallback. Use the review engine approved for your installed runtime.";
+    case "claude_subscription_runtime_not_ready":
+      return "The Claude review runtime could not be verified. Try creating the setup PR again. If this continues, ask your workspace administrator to check the configured release.";
+    case "claude_subscription_workflow_not_qualified":
+      return "The saved Claude model or review settings changed during setup, or this runtime does not support them yet. Refresh the dashboard and check the saved connection before creating the setup PR again.";
+    case "claude_subscription_workflow_options_not_supported":
+      return "Claude reviews require the reusable App-first workflow without discussion or conflict fallback. Choose those workflow settings before creating the setup PR.";
+    case "gateway_review_v2_inventory_retry":
+      return "GitHub is still calculating pull request mergeability, or branches changed during the workflow check. Wait a minute, then click “I merged it” again to check the setup.";
+    case "gateway_review_v2_workflow_incompatible":
+      return "Gateway found incompatible ReviewRouter workflows. Check the base branches of open pull requests for legacy .github/workflows/reviewrouter.yml or reviewrouter-codex.yml; remove only obsolete ReviewRouter files from those branches, and close obsolete setup PRs that add them. Then check the merged setup again.";
+    case "gateway_review_v2_provisioning_failed":
+      return "Gateway setup verification failed. Check audit events or ask your workspace administrator for the safe server error code before trying again.";
+    case "gateway_review_v2_release_untrusted":
+      return "The Gateway runtime release is not approved. Ask your workspace administrator to check the configured release and its registration, then check the merged setup again.";
+    case "gateway_review_v2_dispatch_unavailable":
+      return "The GitHub App cannot dispatch reviews for this repository. Check its repository access and Actions write permission, then check the merged setup again.";
+    case "gateway_review_v2_proof_blocked":
+      return "Gateway authorization prerequisites are incomplete. Ask your workspace administrator to check the repository enrollment and safe server error code.";
+    case "gateway_review_v2_safety_blocked":
+      return "Workspace safety policy or an emergency stop blocks Gateway reviews. Ask your workspace administrator to review that restriction before checking setup again.";
+    case "gateway_review_v2_runtime_not_ready":
+      return "The Gateway review runtime is not ready on the server. Ask your workspace administrator to check the worker and runtime registration, then check the merged setup again.";
+    case "gateway_review_v2_release_registry_missing":
+      return "The Gateway release registry is not configured on the server. Ask your workspace administrator to register the review runtime release, then check the merged setup again.";
+    case "gateway_review_v2_policy_conflict":
+      return "The repository policy conflicts with the Gateway enrollment state. Ask your workspace administrator to review the saved policy and retry.";
+    case "gateway_review_v2_authority_conflict":
+      return "Another Gateway enrollment update is in progress for this repository. Wait a minute, then check the merged setup again.";
+    case "gateway_review_v2_authority_invalid":
+      return "The Gateway enrollment record is out of date. Refresh the dashboard and check the merged setup again.";
+    case "gateway_repository_identity_missing":
+      return "The repository identity is not registered with the Gateway yet. Sync the installation, then check the merged setup again.";
+    case "gateway_repository_binding_conflict":
+      return "This repository is already bound to a different Gateway enrollment. Ask your workspace administrator to reconcile the binding, then retry.";
+    case "mutation_authority_unavailable":
+      return "The service that applies this change is temporarily unavailable. Wait a minute, then retry.";
     case "github_operation_failed":
       return "GitHub operation failed. Check audit events or server logs for the safe error code.";
     case "repository_not_selected":
@@ -436,13 +703,17 @@ export function dashboardErrorText(error: string): string {
     case "installation_not_active":
       return "The GitHub App installation is not active.";
     case "setup_pr_not_merged":
-      return "GitHub does not show the workflow on the setup PR target branch yet. If you just merged the setup PR, wait a few seconds; the dashboard will advance automatically when GitHub metadata catches up.";
+      return "GitHub does not show the workflow on the setup PR target branch yet. If you just merged the setup PR, wait a few seconds; the dashboard will advance automatically when GitHub metadata catches up. If the setup PR was merged a while ago, an older ReviewRouter workflow left in the repository can also block this check: remove reviewrouter.yml, reviewrouter-codex.yml and reviewrouter-interaction.yml if they exist, then check again.";
+    case "setup_legacy_workflows_present":
+      return "Older ReviewRouter workflows are still in the repository (reviewrouter.yml, reviewrouter-codex.yml or reviewrouter-interaction.yml), so the new setup cannot be confirmed. Recreate the setup PR: it removes them (including the /rr comment commands), then merge it and check again.";
     case "setup_pr_closed":
       return "The saved setup PR was closed before it was merged. Recreate the setup PR, then merge the new one.";
     case "setup_pr_branch_deleted":
       return "The saved setup PR branch was deleted, so GitHub cannot merge that PR anymore. Recreate the setup PR to continue.";
     case "setup_pr_wrong_base_branch":
-      return "The saved setup PR was merged outside the allowed setup branches. Recreate the setup PR, then merge it into dev, develop, or the repository default branch.";
+      return "The saved setup PR was merged outside the allowed setup branches. Recreate the setup PR, then merge it into the repository default branch.";
+    case "setup_pr_workflow_mismatch":
+      return "The merged setup PR does not contain the expected ReviewRouter workflow. Recreate the setup PR and merge it without edits, then check again.";
     case "repository_not_visible_to_github_app":
       return "The GitHub App installation cannot read this repository. Update App repository access or sync repositories, then try again.";
     case "provider_secret_not_found":
@@ -455,6 +726,14 @@ export function dashboardErrorText(error: string): string {
       return "Organization secret setup requires workspace owner/admin access. Use a repository secret for repo-scoped setup.";
     case "entitlement_denied":
       return "This workspace plan does not allow that action. Check the plan status or feature flags.";
+    case "workflow_provisioning_external_uncertain":
+      return "GitHub did not confirm the setup request. The setup branch or PR may already exist. Inspect the repository and refresh its status before making another setup request.";
+    case "workflow_provisioning_superseded":
+      return "Another setup request replaced this one. Refresh the repository status and use its current setup PR.";
+    case "workflow_provisioning_persistence_uncertain":
+      return "The setup status could not be confirmed. A GitHub PR may already exist. Check the repository and refresh its status before making another setup request.";
+    case "workflow_provisioning_audit_unavailable":
+      return "The setup activity record could not be saved. Refresh the repository status before making another setup request. If this continues, ask your workspace administrator to check the activity log.";
     case "workflow_provisioning_disabled":
       return "Workflow provisioning is disabled. Set REVIEW_ROUTER_ENABLE_WORKFLOW_PROVISIONING=1 in a trusted local or beta environment.";
     case "codex_rotating_not_enabled":
@@ -513,6 +792,8 @@ export function dashboardErrorText(error: string): string {
       return "This repository is not available for memory changes. It may be archived, unselected, or outside the workspace.";
     case "memory_active_item_quota_exceeded":
       return "Workspace memory quota is full. Disable or delete older memory before saving or confirming new memory.";
+    case "memory_dashboard_in_development":
+      return "The memory dashboard is in development. No memory was changed.";
     case "memory_disabled":
       return "Balanced Memory is disabled for this workspace or environment. Existing memory can still be reviewed and removed by authorized admins.";
     case "memory_pending_suggestion_quota_exceeded":
@@ -536,8 +817,23 @@ export function dashboardErrorText(error: string): string {
     case "memory_safety_blocked":
       return "Memory policy blocked this change. Refresh and try again with a safer distilled memory.";
     default:
-      return "GitHub operation failed. Check audit events or server logs for the safe error code.";
+      return unmappedDashboardErrorText(error);
   }
+}
+
+/**
+ * The single text for "no dedicated guidance exists". Compared against
+ * `dashboardErrorText` to decide whether a code may reach the UI, so the switch
+ * stays the only source of truth about which codes are explained.
+ */
+export function unmappedDashboardErrorText(code: string): string {
+  return code
+    ? `GitHub operation failed (code: ${code}). Ask your workspace administrator to look up this code in Diagnostics audit events.`
+    : "GitHub operation failed. Check audit events or server logs for the safe error code.";
+}
+
+export function hasDedicatedDashboardErrorCopy(code: string): boolean {
+  return dashboardErrorText(code) !== unmappedDashboardErrorText(code);
 }
 
 function isCodexRotatingProviderState(
@@ -576,4 +872,50 @@ export function buildInstallationSettingsUrl(
     return `https://github.com/organizations/${installation.accountLogin}/settings/installations/${installation.githubInstallationId}`;
   }
   return `https://github.com/settings/installations/${installation.githubInstallationId}`;
+}
+
+/** Shared safe presentation for provisioning outcomes across setup and source changes. */
+export function workflowSetupOutcomePresentation(
+  params: Readonly<Record<string, string>>,
+): {
+  readonly tone: "warning";
+  readonly title: string;
+  readonly body: string;
+  readonly actionUrl?: string;
+  readonly actionLabel?: string;
+} | null {
+  if (
+    params.error === "workflow_provisioning_audit_unavailable" &&
+    params.setupOutcome === "committed"
+  ) {
+    return {
+      tone: "warning",
+      title: "Setup PR saved",
+      body: "Your setup PR was created and saved, but its activity record could not be completed. Open the PR or refresh its status before making another setup request.",
+      ...(params.pr
+        ? { actionUrl: params.pr, actionLabel: "Open setup PR" }
+        : {}),
+    };
+  }
+  if (
+    [
+      "workflow_provisioning_superseded",
+      "workflow_provisioning_external_uncertain",
+      "workflow_provisioning_persistence_uncertain",
+      "workflow_provisioning_audit_unavailable",
+    ].includes(params.error ?? "")
+  ) {
+    const recovery =
+      params.recoveryError === "workflow_delete_untrusted"
+        ? ` A workflow was not removed automatically${params.workflowPath && /^\.github\/workflows\/[A-Za-z0-9][A-Za-z0-9._-]{0,78}\.ya?ml$/u.test(params.workflowPath) ? ` (${params.workflowPath})` : ""}. Check whether it belongs to another active mode or contains manual changes before replacing it.`
+        : params.recoveryError === "github_operation_forbidden"
+          ? " Check GitHub App Contents, Workflows, and Pull requests write permissions."
+          : "";
+    return {
+      tone: "warning",
+      title: "Check setup status",
+      body: dashboardErrorText(params.error!) + recovery,
+    };
+  }
+  return null;
 }

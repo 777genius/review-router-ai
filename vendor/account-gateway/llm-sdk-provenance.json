@@ -1,0 +1,15 @@
+{
+  "schema": "account-gateway-llm-sdk-consumer/v1",
+  "archive": "agent-teams-account-gateway-0.1.0-quota-0db9a2b65798.tgz",
+  "sha256": "0db9a2b65798d5aa655df9ad8a0cf6915c8613d9f1babcdb5f67d0e07d6a4809",
+  "sourceRepository": "agent-teams-ai/account-gateway",
+  "sourceCommit": "493b946368779d0de15602a90f8561ed3c118c23",
+  "previousArchive": "agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz",
+  "qualification": {
+    "sdkBuild": "passed on pinned TS7 host",
+    "relayIntegrationCases": 100,
+    "providerModels": 0
+  },
+  "sourceAssociation": "provider-quota-sdk-commit-association.json",
+  "packedSource": "provider-quota-sdk-source-pack.json"
+}

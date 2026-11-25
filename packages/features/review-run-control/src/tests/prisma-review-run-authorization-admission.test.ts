@@ -1,4 +1,5 @@
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
+import { isPrismaTransactionConflictError } from "../infrastructure/prisma/prisma-review-run-control-utils";
 import { describe, expect, it, vi } from "vitest";
 import { ReviewRunAuthorizationCreateStatus } from "../application/ports/review-run-authorization-ports";
 import { ProducerReleaseState } from "../domain/review-run-control-types";
@@ -8,6 +9,26 @@ import { provisionV2AuthorizationContext } from "./fixtures";
 
 // Execute the production transaction callback without opening a database connection.
 describe("Prisma selected-release admission precondition", () => {
+  it("recognizes the real Prisma 7 adapter's nested serialization code for Skills fence retries", () => {
+    const failure = (originalCode: string) =>
+      new Prisma.PrismaClientKnownRequestError("Raw query failed", {
+        code: "P2010",
+        clientVersion: "7.8.0",
+        meta: {
+          driverAdapterError: {
+            cause: {
+              originalCode,
+              originalMessage:
+                "could not serialize access due to concurrent update",
+              kind: "TransactionWriteConflict",
+            },
+          },
+        },
+      });
+    expect(isPrismaTransactionConflictError(failure("40001"))).toBe(true);
+    expect(isPrismaTransactionConflictError(failure("40P01"))).toBe(true);
+    expect(isPrismaTransactionConflictError(failure("42501"))).toBe(false);
+  });
   it.each(["missing", "revoked", "identity drift", "registered", "unmatched"])(
     "checks the attested base inside the transaction: %s",
     async (state) => {
@@ -27,6 +48,9 @@ describe("Prisma selected-release admission precondition", () => {
       };
       const row = {
         ...expectedBase,
+        agentProfilesJson: expectedBase.agentProfiles
+          ? JSON.stringify(expectedBase.agentProfiles)
+          : null,
         state:
           state === "revoked"
             ? ProducerReleaseState.Revoked

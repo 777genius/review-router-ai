@@ -1,0 +1,1025 @@
+import { createHash, randomUUID } from "node:crypto";
+import Fastify from "fastify";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  canonicalJson,
+  ClaimReviewRunCompanionDispatch,
+  ReviewRunAuthorizationTokenResolutionStatus,
+  ReviewRunCompanionDispatchFailure,
+  type ReviewRunAuthorization,
+  type ReviewRunCompanionDispatchClaim,
+} from "@reviewrouter/features-review-run-control";
+import { PrismaReviewRunCompanionDispatchRepository } from "@reviewrouter/features-review-run-control/composition";
+import {
+  reviewModelDispatchContract,
+  reviewModelDispatchCapacity128Contract,
+  reviewModelDispatchCapacity128DescriptorDigest,
+  reviewModelDispatchDescriptorDigest,
+  reviewModelDispatchIdPreimage,
+  type ReviewModelDispatchCapability,
+  type ReviewModelDispatchProfile,
+  type ReviewModelDispatchSettlementV2,
+  type ReviewModelTransport,
+} from "@reviewrouter/shared";
+import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
+import { createReviewDispatchDatabaseFixture } from "./test-support/review-dispatch-database-fixture";
+import { assertReviewModelDispatchEvidence } from "./review-model-dispatch-evidence";
+import {
+  registerReviewModelDispatchRoutes,
+  type ReviewModelDispatchApi,
+  type ReviewModelDispatchClaimFailureDiagnostic,
+} from "./review-model-dispatch";
+
+const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
+const describeDatabase = databaseUrl ? describe : describe.skip;
+const hash = (value: string) =>
+  createHash("sha256").update(value).digest("hex");
+type Fixture = Awaited<
+  ReturnType<typeof createReviewDispatchDatabaseFixture>
+> & {
+  budget: ReviewModelDispatchCapability;
+};
+
+describe("model dispatch claim failure diagnostics", () => {
+  for (const throwingSink of [false, true]) {
+    it.each([
+      {
+        name: "malformed JSON before the handler",
+        authorized: false,
+        authority: true,
+        invalidBody: false,
+        error: new Error("secret-native-error"),
+        status: 500,
+        code: "model_dispatch_unavailable",
+        phase: "input",
+      },
+      {
+        name: "denied authorization",
+        authorized: false,
+        authority: true,
+        invalidBody: false,
+        error: new Error("secret-native-error"),
+        status: 401,
+        code: "model_dispatch_authorization_denied",
+        phase: "authentication",
+      },
+      {
+        name: "changed authority",
+        authorized: true,
+        authority: false,
+        invalidBody: false,
+        error: new Error("secret-native-error"),
+        status: 409,
+        code: "model_dispatch_authority_changed",
+        phase: "authority",
+      },
+      {
+        name: "invalid body",
+        authorized: true,
+        authority: true,
+        invalidBody: true,
+        error: new Error("secret-native-error"),
+        status: 400,
+        code: "model_dispatch_request_invalid",
+        phase: "body",
+      },
+      {
+        name: "known admission rejection",
+        authorized: true,
+        authority: true,
+        invalidBody: false,
+        error: new ReviewRunCompanionDispatchFailure(
+          "model_dispatch_profile_mismatch",
+        ),
+        status: 409,
+        code: "model_dispatch_profile_mismatch",
+        phase: "admission",
+      },
+      {
+        name: "unknown admission rejection code",
+        authorized: true,
+        authority: true,
+        invalidBody: false,
+        error: new ReviewRunCompanionDispatchFailure("secret-native-error"),
+        status: 409,
+        code: "secret-native-error",
+        phase: "admission",
+      },
+      {
+        name: "unexpected admission error",
+        authorized: true,
+        authority: true,
+        invalidBody: false,
+        error: Object.assign(new Error("secret-native-error"), {
+          code: "model_dispatch_profile_mismatch",
+        }),
+        status: 500,
+        code: "model_dispatch_unavailable",
+        phase: "admission",
+      },
+    ])("$name (throwing sink: " + throwingSink + ")", async (testCase) => {
+      const authorization = {
+        authorizationId: "server-resolved-authorization",
+      } as ReviewRunAuthorization;
+      const events: ReviewModelDispatchClaimFailureDiagnostic[] = [];
+      const app = Fastify({ logger: false });
+      const reject = async (): Promise<never> => {
+        throw testCase.error;
+      };
+      const api: ReviewModelDispatchApi = {
+        authorizations: {
+          resolveReviewRunAuthorizationToken: async () =>
+            testCase.authorized
+              ? {
+                  status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+                  authorization,
+                }
+              : { status: ReviewRunAuthorizationTokenResolutionStatus.Expired },
+        },
+        checkAuthority: async () => testCase.authority,
+        admission: {
+          claim: reject,
+          forward: reject,
+          read: reject,
+          readReceipt: reject,
+          settle: reject,
+          settleReceipt: reject,
+        },
+      };
+      await registerReviewModelDispatchRoutes(app, api, (event) => {
+        events.push(event);
+        if (throwingSink) throw new Error("secret-logger-error");
+      });
+      await app.listen({ host: "127.0.0.1", port: 0 });
+      try {
+        const address = app.server.address();
+        if (!address || typeof address === "string") throw new Error("fixture");
+        const response = await fetch(
+          `http://127.0.0.1:${address.port}${reviewModelDispatchContract.claimPath}`,
+          {
+            method: "POST",
+            headers: {
+              authorization: "Bearer secret-run-token",
+              "content-type": "application/json",
+              "x-untrusted-authorization-id": "secret-caller-authorization",
+            },
+            body:
+              testCase.phase === "input"
+                ? "{secret-request-body"
+                : JSON.stringify(
+                    testCase.invalidBody
+                      ? { secret: "secret-request-body" }
+                      : {
+                          dispatchVersion: 2,
+                          dispatchId: `rr-model-${"a".repeat(64)}`,
+                          executionId: "secret-caller-execution",
+                          workSlotId: "secret-caller-slot",
+                          attemptOrdinal: 1,
+                          requestOrdinal: 1,
+                          leaseId: "secret-caller-lease",
+                          leaseCapability: "secret-lease-capability",
+                          fencingToken: "1",
+                          preparedManifestKey: "secret-caller-manifest",
+                          routeIdentityHash: "b".repeat(64),
+                          providerRequestEnvelopeHash: "c".repeat(64),
+                          requestBytes: 1024,
+                          maxOutputTokens: 1024,
+                        },
+                  ),
+          },
+        );
+        expect(response.status).toBe(testCase.status);
+        expect(await response.json()).toEqual({ code: testCase.code });
+        expect(events).toEqual([
+          {
+            event: "review_model_dispatch_claim_rejected",
+            phase: testCase.phase,
+            code:
+              testCase.code === "secret-native-error"
+                ? "model_dispatch_unavailable"
+                : testCase.code,
+            httpStatus: testCase.status,
+            ...(testCase.authorized
+              ? { authorizationId: authorization.authorizationId }
+              : {}),
+          },
+        ]);
+        expect(JSON.stringify(events)).not.toContain("secret-");
+      } finally {
+        await app.close();
+      }
+    });
+  }
+});
+
+describe("authenticated frozen model dispatch capacity over HTTP", () => {
+  it.each([
+    { policy: null, maximum: 32, ordinal: 32, status: 409 },
+    { policy: null, maximum: 32, ordinal: 33, status: 400 },
+    {
+      policy: "model-dispatch-policy.capacity128.v1",
+      maximum: 128,
+      ordinal: 33,
+      status: 409,
+    },
+    {
+      policy: "model-dispatch-policy.capacity128.v1",
+      maximum: 128,
+      ordinal: 128,
+      status: 409,
+    },
+    {
+      policy: "model-dispatch-policy.capacity128.v1",
+      maximum: 128,
+      ordinal: 129,
+      status: 400,
+    },
+    {
+      policy: "model-dispatch-policy.capacity128.v1",
+      maximum: 16,
+      ordinal: 17,
+      status: 400,
+    },
+    { policy: "unapproved-capacity", maximum: 128, ordinal: 33, status: 400 },
+  ])(
+    "selects ordinal$ordinal from frozen policy=$policy/max$maximum before admission",
+    async ({ policy, maximum, ordinal, status }) => {
+      const cap = {
+        extensionId: "review-model-dispatch.v2",
+        version: 2,
+        ...(policy ? { capacityPolicy: policy } : {}),
+        routeIdentityHash: "b".repeat(64),
+        transport: "runner_local_responses",
+        wireProtocol: "openai-responses",
+        outputTokenLimit: "upstream_request",
+        providerIndex: 0,
+        model: "qualified-model",
+        deadline: "2126-10-21T00:00:00.000Z",
+        maxRequests: maximum,
+        maxConcurrentRequests: 1,
+        maxRequestBytes: 65536,
+        maxResponseBytes: 32768,
+        maxOutputTokens: 4096,
+      };
+      const authorization = {
+        authorizationId: "server-resolved-authorization",
+        runtimeSnapshotCanonicalJson: canonicalJson({
+          snapshotVersion: 3,
+          configurationSource: "workspace",
+          configurationVersion: 1,
+          workspaceConfigurationVersion: 1,
+          repositoryConfigurationVersion: null,
+          effectivePolicyDigest: `sha256:${"d".repeat(64)}`,
+          agent: {
+            profileRef: "ocr-qualified",
+            agentKind: "ocr",
+            binarySha256: "e".repeat(64),
+            packageVersion: "1.0.0",
+            modelTransports: ["provider_api"],
+            contextGateway: false,
+            cancellation: true,
+            reviewSkillsVersion: 1,
+          },
+          agentProfileDigest: "f".repeat(64),
+          producer: {
+            producerReleaseId: "release",
+            actionCommitSha: "a".repeat(40),
+            runtimeCommitSha: "b".repeat(40),
+          },
+          configurationCanonicalJson: canonicalJson({
+            schemaVersion: 3,
+            providers: [
+              { authMode: "openrouter_api_key", model: "qualified-model" },
+            ],
+          }),
+          deadline: cap.deadline,
+          gateway: null,
+          modelDispatchCapability: cap,
+        }),
+      } as ReviewRunAuthorization;
+      const admittedOrdinals: number[] = [];
+      const unavailable = async (): Promise<never> => {
+        throw new Error("unexpected_fixture_call");
+      };
+      const app = Fastify({ logger: false });
+      await registerReviewModelDispatchRoutes(app, {
+        authorizations: {
+          resolveReviewRunAuthorizationToken: async () => ({
+            status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+            authorization,
+          }),
+        },
+        checkAuthority: async () => true,
+        admission: {
+          claim: async (_authorization, claim) => {
+            admittedOrdinals.push(claim.requestOrdinal!);
+            throw new ReviewRunCompanionDispatchFailure(
+              "model_dispatch_budget_exhausted",
+            );
+          },
+          forward: unavailable,
+          read: unavailable,
+          readReceipt: unavailable,
+          settle: unavailable,
+          settleReceipt: unavailable,
+        },
+      });
+      await app.listen({ host: "127.0.0.1", port: 0 });
+      try {
+        const address = app.server.address();
+        if (!address || typeof address === "string") throw new Error("fixture");
+        const response = await fetch(
+          `http://127.0.0.1:${address.port}${reviewModelDispatchContract.claimPath}`,
+          {
+            method: "POST",
+            headers: {
+              authorization: "Bearer synthetic-run-capability",
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              dispatchVersion: 2,
+              dispatchId: `rr-model-${"a".repeat(64)}`,
+              executionId: "execution",
+              workSlotId: "discovery",
+              attemptOrdinal: 1,
+              requestOrdinal: ordinal,
+              leaseId: "lease",
+              leaseCapability: "synthetic-lease",
+              fencingToken: "1",
+              preparedManifestKey: "manifest",
+              routeIdentityHash: cap.routeIdentityHash,
+              providerRequestEnvelopeHash: "c".repeat(64),
+              requestBytes: 1024,
+              maxOutputTokens: 1024,
+            }),
+          },
+        );
+        expect(response.status).toBe(status);
+        expect(await response.json()).toEqual({
+          code:
+            status === 409
+              ? "model_dispatch_budget_exhausted"
+              : "model_dispatch_request_invalid",
+        });
+        expect(admittedOrdinals).toEqual(status === 409 ? [ordinal] : []);
+      } finally {
+        await app.close();
+      }
+    },
+  );
+});
+
+describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
+  const fixtures: Fixture[] = [];
+  afterEach(async () => {
+    for (const fixture of fixtures.splice(0)) await fixture.dispose();
+  });
+
+  async function fixture(
+    maxRequests = 4,
+    transport: ReviewModelTransport = "runner_local_responses",
+    capacity128 = false,
+    frozenCapacity128 = capacity128,
+  ): Promise<Fixture> {
+    const prefix = `model-dispatch-test-${randomUUID()}`;
+    const deadline = new Date(Date.now() + 600_000).toISOString();
+    const limits = {
+      maxRequests,
+      maxConcurrentRequests: 1 as const,
+      maxRequestBytes: 65536,
+      maxResponseBytes: 32768,
+      maxOutputTokens: 4096,
+    };
+    const budget: ReviewModelDispatchCapability = {
+      ...limits,
+      ...(frozenCapacity128
+        ? {
+            capacityPolicy:
+              reviewModelDispatchCapacity128Contract.capacityPolicy,
+          }
+        : {}),
+      extensionId: reviewModelDispatchContract.extensionId,
+      version: 2,
+      transport,
+      wireProtocol:
+        transport === "account_gateway"
+          ? "openai-responses"
+          : transport === "runner_local_anthropic"
+            ? "anthropic-messages"
+            : "codex-responses",
+      outputTokenLimit:
+        transport === "runner_local_anthropic"
+          ? "upstream_request"
+          : "terminal_acceptance",
+      routeIdentityHash: hash(`${prefix}-original-account-model-route`),
+      providerIndex: 0,
+      model: "gpt-5.5",
+      deadline,
+    };
+    const profile: ReviewModelDispatchProfile = {
+      extensionId: reviewModelDispatchContract.extensionId,
+      descriptorDigest: capacity128
+        ? reviewModelDispatchCapacity128DescriptorDigest
+        : reviewModelDispatchDescriptorDigest,
+      policyVersion: capacity128
+        ? reviewModelDispatchCapacity128Contract.policyVersion
+        : reviewModelDispatchContract.policyVersion,
+      transports: [transport],
+      wireProtocols: [budget.wireProtocol],
+      defaultAgentProfileRefs: { [transport]: "codex-default" },
+      limits,
+    };
+    const gateway = transport === "account_gateway";
+    const runtimeSnapshotCanonicalJson = canonicalJson({
+      snapshotVersion: 3,
+      configurationSource: "repository",
+      configurationVersion: 1,
+      workspaceConfigurationVersion: 1,
+      repositoryConfigurationVersion: 1,
+      effectivePolicyDigest: `sha256:${hash("policy")}`,
+      agent: {
+        profileRef: "codex-default",
+        agentKind: "codex",
+        binarySha256: hash("binary"),
+        packageVersion: "0.147.0",
+        modelTransports: [gateway ? "account_gateway" : "provider_api"],
+        contextGateway: true,
+        cancellation: true,
+      },
+      agentProfileDigest: hash("profile"),
+      producer: {
+        producerReleaseId: `${prefix}-release`,
+        actionCommitSha: "a".repeat(40),
+        runtimeCommitSha: "b".repeat(40),
+      },
+      configurationCanonicalJson: canonicalJson(
+        gateway
+          ? {
+              ...workspacePolicyFixture,
+              providers: [
+                {
+                  ...workspacePolicyFixture.providers[0],
+                  authMode: "codex_account_gateway",
+                  gatewayBindingId: "binding-1",
+                  gatewayProfileRef: "profile-1",
+                },
+              ],
+            }
+          : workspacePolicyFixture,
+      ),
+      deadline,
+      modelDispatchCapability: budget,
+      gateway: gateway
+        ? {
+            providerIndex: 0,
+            bindingId: "binding-1",
+            connectionId: "connection-1",
+            bindingRevision: 1,
+            policySubject: "binding-1",
+            policyRevision: 1,
+            permittedAccountRef: "original-account",
+            profileRef: "profile-1",
+            invocationId: "invocation-1",
+            attemptId: "attempt-1",
+            operationId: "operation-1",
+            limits: {
+              requests: maxRequests,
+              concurrency: 1,
+              requestBytes: 65536,
+              outputBytes: 32768,
+              tokens: 4096,
+            },
+          }
+        : null,
+    });
+    const result = {
+      ...(await createReviewDispatchDatabaseFixture(databaseUrl!, prefix, {
+        runtimeSnapshotCanonicalJson,
+        modelDispatchProfile: profile,
+        skipInitialLease: true,
+      })),
+      budget,
+    };
+    fixtures.push(result);
+    return result;
+  }
+  function claim(
+    base: ReviewRunCompanionDispatchClaim,
+    f: Fixture,
+    ordinal = 1,
+  ): ReviewRunCompanionDispatchClaim {
+    return {
+      ...base,
+      dispatchVersion: 2,
+      requestOrdinal: ordinal,
+      routeIdentityHash: f.budget.routeIdentityHash,
+      requestBytes: 200,
+      maxOutputTokens: 1024,
+      providerRequestEnvelopeHash:
+        base.workSlotId === "discovery"
+          ? hash(`wire-${ordinal}`)
+          : base.providerRequestEnvelopeHash,
+      dispatchId: `rr-model-${hash(reviewModelDispatchIdPreimage({ ...base, requestOrdinal: ordinal }))}`,
+    };
+  }
+  function completed(
+    c: ReviewRunCompanionDispatchClaim,
+    f: Fixture,
+  ): ReviewModelDispatchSettlementV2 {
+    return {
+      state: "completed",
+      receipt: {
+        version: 2,
+        routeIdentityHash: f.budget.routeIdentityHash,
+        providerRequestEnvelopeHash: c.providerRequestEnvelopeHash,
+        actualModel: f.budget.model,
+        responseHash: hash(`response-${c.requestOrdinal}`),
+        responseBytes: 100,
+        fullyConsumed: true,
+        terminal: "completed",
+        usage: { inputTokens: 50, outputTokens: 25, totalTokens: 75 },
+      },
+    };
+  }
+  async function finish(f: Fixture, c: ReviewRunCompanionDispatchClaim) {
+    const result = await f.repository.claim(c);
+    expect(result.status).toBe("claimed");
+    await f.repository.settleReceipt(
+      c.dispatchId,
+      result.receiptToken!,
+      completed(c, f),
+    );
+    return result;
+  }
+  async function closeSlot(f: Fixture, c: ReviewRunCompanionDispatchClaim) {
+    await f.releaseClaim(c);
+    await f.prisma.reviewExecutionWorkSlotV2.update({
+      where: {
+        executionId_workSlotId: {
+          executionId: c.executionId,
+          workSlotId: c.workSlotId,
+        },
+      },
+      data: { state: "exhausted" },
+    });
+  }
+
+  it.each([false, true])(
+    "serializes duplicate claims, preserves unknown fences and never refunds positively unpaid reservations (capacity128=%s)",
+    async (capacity128) => {
+      const f = await fixture(4, "runner_local_responses", capacity128);
+      const base = await f.acquireClaim(0);
+      const first = claim(base, f);
+      const pair = await Promise.all([
+        f.repository.claim(first),
+        f.repository.claim(first),
+      ]);
+      expect(pair.map((result) => result.status).sort()).toEqual([
+        "claimed",
+        "restored",
+      ]);
+      const fresh = pair.find((result) => result.status === "claimed")!;
+      expect(fresh.receiptToken).toMatch(/^[a-f0-9]{64}$/);
+      expect(
+        pair.find((result) => result.status === "restored"),
+      ).not.toHaveProperty("receiptToken");
+      await expect(
+        f.repository.claim({
+          ...first,
+          providerRequestEnvelopeHash: hash("changed-wire"),
+        }),
+      ).rejects.toMatchObject({ code: "companion_dispatch_conflict" });
+      const second = claim(base, f, 2);
+      await expect(f.repository.claim(second)).rejects.toMatchObject({
+        code: "model_dispatch_effect_unresolved",
+      });
+      await f.repository.settleReceipt(first.dispatchId, fresh.receiptToken!, {
+        state: "effect_unknown",
+      });
+      const restarted = new PrismaReviewRunCompanionDispatchRepository(
+        f.prisma,
+        {
+          lockSelection: async () => true,
+          validateManifest: () => {},
+        },
+      );
+      await expect(restarted.claim(first)).resolves.toMatchObject({
+        status: "restored",
+        dispatch: { state: "effect_unknown" },
+      });
+      await expect(restarted.claim(second)).rejects.toMatchObject({
+        code: "model_dispatch_effect_unresolved",
+      });
+      await f.repository.settleReceipt(first.dispatchId, fresh.receiptToken!, {
+        state: "not_dispatched",
+        proof: "local_before_forward",
+      });
+      await finish(f, second);
+      expect(
+        await f.prisma.reviewRunCompanionDispatchV1.count({
+          where: { authorizationId: base.authorizationId },
+        }),
+      ).toBe(2);
+      await expect(
+        assertReviewModelDispatchEvidence({
+          prisma: f.prisma,
+          authorization: {
+            authorizationId: base.authorizationId,
+            runtimeSnapshotCanonicalJson: f.snapshot,
+          },
+          executionId: base.executionId,
+          workSlotId: base.workSlotId,
+          leaseId: base.leaseId,
+          fencingToken: base.fencingToken,
+          preparedManifestKey: base.preparedManifestKey,
+          providerRequestEnvelopeHash: base.providerRequestEnvelopeHash,
+          actualModel: f.budget.model,
+          role: "finding_discovery",
+        }),
+      ).resolves.toBeUndefined();
+    },
+  );
+
+  it.each([false, true])(
+    "shares the original allowance across discovery and verifier and rejects the V1 escape path (capacity128=%s)",
+    async (capacity128) => {
+      const f = await fixture(3, "runner_local_responses", capacity128);
+      const discovery = await f.acquireClaim(0);
+      await expect(f.repository.claim(discovery)).rejects.toMatchObject({
+        code: "model_dispatch_version_required",
+      });
+      await finish(f, claim(discovery, f, 1));
+      await finish(f, claim(discovery, f, 2));
+      await closeSlot(f, discovery);
+      const verifier = await f.acquireClaim(1);
+      await finish(f, claim(verifier, f));
+      await closeSlot(f, verifier);
+      const nextVerifier = claim(await f.acquireClaim(2), f);
+      await expect(f.repository.claim(nextVerifier)).rejects.toMatchObject({
+        code: "model_dispatch_budget_exhausted",
+      });
+      expect(
+        await f.prisma.reviewRunCompanionDispatchV1.count({
+          where: { authorizationId: discovery.authorizationId },
+        }),
+      ).toBe(3);
+    },
+  );
+
+  it.each([
+    { capacity128: false, allowance: 32 },
+    { capacity128: true, allowance: 128 },
+  ])(
+    "reserves exactly the explicitly approved $allowance requests and denies the next ordinal",
+    async ({ capacity128, allowance }) => {
+      const f = await fixture(allowance, "runner_local_responses", capacity128);
+      const base = await f.acquireClaim(0);
+      for (let ordinal = 1; ordinal <= allowance; ordinal++)
+        await finish(f, claim(base, f, ordinal));
+      await expect(
+        f.repository.claim(claim(base, f, allowance + 1)),
+      ).rejects.toMatchObject({ code: "model_dispatch_claim_invalid" });
+      expect(
+        await f.prisma.reviewRunCompanionDispatchV1.count({
+          where: { authorizationId: base.authorizationId },
+        }),
+      ).toBe(allowance);
+    },
+    60000,
+  );
+
+  it.each([false, true])(
+    "denies mixed frozen/release capacity identity even when numeric limits fit both (capacity128=%s)",
+    async (capacity128) => {
+      const f = await fixture(
+        4,
+        "runner_local_responses",
+        capacity128,
+        !capacity128,
+      );
+      const base = await f.acquireClaim(0);
+      await expect(f.repository.claim(claim(base, f))).rejects.toMatchObject({
+        code: "model_dispatch_profile_mismatch",
+      });
+      expect(
+        await f.prisma.reviewRunCompanionDispatchV1.count({
+          where: { authorizationId: base.authorizationId },
+        }),
+      ).toBe(0);
+    },
+  );
+
+  it("fences further paid work when terminal output usage is unknown or exceeds its accepted ceiling", async () => {
+    const f = await fixture();
+    const base = await f.acquireClaim(0);
+    const c = claim(base, f);
+    const reservation = await f.repository.claim(c);
+    const terminal = completed(c, f);
+    if (terminal.state !== "completed") throw new Error("fixture");
+    for (const outputTokens of [null, c.maxOutputTokens! + 1]) {
+      await expect(
+        f.repository.settleReceipt(c.dispatchId, reservation.receiptToken!, {
+          ...terminal,
+          receipt: {
+            ...terminal.receipt,
+            usage: { inputTokens: null, outputTokens, totalTokens: null },
+          },
+        }),
+      ).rejects.toMatchObject({ code: "model_dispatch_receipt_mismatch" });
+      await expect(f.repository.claim(claim(base, f, 2))).rejects.toMatchObject(
+        {
+          code: "model_dispatch_effect_unresolved",
+        },
+      );
+    }
+    expect(
+      (await f.repository.readReceipt(c.dispatchId, reservation.receiptToken!))
+        ?.state,
+    ).toBe("dispatch_may_have_started");
+    // Later exact terminal proof can settle this paid request; it never causes
+    // another provider invocation or refunds the existing reservation.
+    await f.repository.settleReceipt(
+      c.dispatchId,
+      reservation.receiptToken!,
+      terminal,
+    );
+    expect(
+      await f.prisma.reviewRunCompanionDispatchV1.count({
+        where: { authorizationId: c.authorizationId },
+      }),
+    ).toBe(1);
+  });
+
+  it("settles after authority expiry without reopening work and rejects changed receipts, wrong rows and expired retention", async () => {
+    const f = await fixture();
+    const c = claim(await f.acquireClaim(0), f);
+    const reservation = await f.repository.claim(c);
+    // Model a valid authority whose lifetime already ended. Moving only expiry
+    // into the past can put it before creation on fast CI runners and violate
+    // the real lifetime constraint instead of testing late receipts.
+    const [clock] = await f.prisma.$queryRaw<{ now: Date }[]>`
+      SELECT (clock_timestamp() AT TIME ZONE 'UTC') AS "now"
+    `;
+    if (!clock) throw new Error("fixture_database_clock_missing");
+    await f.prisma.reviewRunAuthorization.update({
+      where: { authorizationId: c.authorizationId },
+      data: {
+        state: "expired",
+        createdAt: new Date(clock.now.getTime() - 60_000),
+        expiresAt: new Date(clock.now.getTime() - 1_000),
+      },
+    });
+    await f.prisma.reviewInvocationLeaseV2.update({
+      where: { leaseId: c.leaseId },
+      data: { state: "expired" },
+    });
+    const settlement = completed(c, f);
+    await expect(
+      f.repository.settleReceipt(
+        c.dispatchId,
+        reservation.receiptToken!,
+        settlement,
+      ),
+    ).resolves.toMatchObject({ state: "completed" });
+    await expect(
+      f.repository.settleReceipt(
+        c.dispatchId,
+        reservation.receiptToken!,
+        settlement,
+      ),
+    ).resolves.toMatchObject({ state: "completed" });
+    await expect(f.repository.claim(claim(c, f, 2))).rejects.toMatchObject({
+      code: "companion_authorization_denied",
+    });
+    expect(
+      await f.repository.readReceipt(
+        `rr-model-${"0".repeat(64)}`,
+        reservation.receiptToken!,
+      ),
+    ).toBeNull();
+    expect(
+      await f.repository.readReceipt(c.dispatchId, "0".repeat(64)),
+    ).toBeNull();
+    if (settlement.state !== "completed") throw new Error("fixture");
+    await expect(
+      f.repository.settleReceipt(c.dispatchId, reservation.receiptToken!, {
+        ...settlement,
+        receipt: {
+          ...settlement.receipt,
+          responseHash: hash("changed-response"),
+        },
+      }),
+    ).rejects.toMatchObject({ code: "model_dispatch_settlement_conflict" });
+    await f.repository.settleReceipt(c.dispatchId, reservation.receiptToken!, {
+      state: "effect_unknown",
+    });
+    expect(
+      (await f.repository.readReceipt(c.dispatchId, reservation.receiptToken!))
+        ?.state,
+    ).toBe("completed");
+    await f.prisma.reviewRunCompanionDispatchV1.update({
+      where: {
+        authorizationId_dispatchId: {
+          authorizationId: c.authorizationId,
+          dispatchId: c.dispatchId,
+        },
+      },
+      data: { retainUntil: new Date(Date.now() - 1000) },
+    });
+    expect(
+      await f.repository.readReceipt(c.dispatchId, reservation.receiptToken!),
+    ).toBeNull();
+    await expect(
+      f.repository.settleReceipt(
+        c.dispatchId,
+        reservation.receiptToken!,
+        settlement,
+      ),
+    ).rejects.toMatchObject({ code: "model_dispatch_receipt_denied" });
+    expect(
+      await f.prisma.reviewRunCompanionDispatchV1.count({
+        where: { authorizationId: c.authorizationId },
+      }),
+    ).toBe(1);
+  });
+
+  it("requires one durable native forwarding transition and complete original receipts for evidence", async () => {
+    const f = await fixture(4, "account_gateway");
+    const base = await f.acquireClaim(0);
+    const c = claim(base, f);
+    await expect(
+      f.repository.claim({ ...c, forwardExisting: true }),
+    ).rejects.toMatchObject({ code: "model_dispatch_reservation_required" });
+    const reservation = await f.repository.claim(c);
+    await expect(
+      f.repository.claim({ ...c, forwardExisting: true }),
+    ).resolves.toMatchObject({ status: "claimed" });
+    await expect(
+      f.repository.claim({ ...c, forwardExisting: true }),
+    ).rejects.toMatchObject({ code: "model_dispatch_already_forwarded" });
+    await expect(
+      f.repository.settleReceipt(
+        c.dispatchId,
+        reservation.receiptToken!,
+        completed(c, f),
+      ),
+    ).rejects.toMatchObject({ code: "model_dispatch_native_proof_required" });
+    await f.repository.settle(c.authorizationId, c.dispatchId, "completed");
+    const proof = {
+      prisma: f.prisma,
+      authorization: {
+        authorizationId: c.authorizationId,
+        runtimeSnapshotCanonicalJson: f.snapshot,
+      },
+      executionId: c.executionId,
+      workSlotId: c.workSlotId,
+      leaseId: c.leaseId,
+      fencingToken: c.fencingToken,
+      preparedManifestKey: c.preparedManifestKey,
+      providerRequestEnvelopeHash: c.providerRequestEnvelopeHash,
+      actualModel: f.budget.model,
+      role: "finding_discovery" as const,
+    };
+    await expect(assertReviewModelDispatchEvidence(proof)).rejects.toThrow();
+    await f.repository.settleReceipt(
+      c.dispatchId,
+      reservation.receiptToken!,
+      completed(c, f),
+    );
+    await expect(
+      assertReviewModelDispatchEvidence(proof),
+    ).resolves.toBeUndefined();
+    await expect(
+      assertReviewModelDispatchEvidence({
+        ...proof,
+        leaseId: "different-original-lease",
+      }),
+    ).rejects.toThrow();
+    const second = claim(base, f, 2);
+    await f.repository.claim(second);
+    await expect(assertReviewModelDispatchEvidence(proof)).rejects.toThrow();
+    await f.prisma.reviewRunCompanionDispatchV1.deleteMany({
+      where: { authorizationId: c.authorizationId },
+    });
+    await expect(assertReviewModelDispatchEvidence(proof)).rejects.toThrow();
+  });
+
+  it("uses real HTTP receipt authority after expiry, without token reissue or claim authority", async () => {
+    const f = await fixture();
+    const c = claim(await f.acquireClaim(0), f);
+    let active = true;
+    const authorization = {
+      authorizationId: c.authorizationId,
+      runtimeSnapshotCanonicalJson: f.snapshot,
+    } as ReviewRunAuthorization;
+    const admission = new ClaimReviewRunCompanionDispatch(
+      f.repository,
+      async (token) => {
+        if (token !== "synthetic-lease-capability") throw new Error("invalid");
+        return {
+          capabilityId: c.leaseCapabilityId,
+          authorizationId: c.authorizationId,
+          mutationEpoch: c.capabilityMutationEpoch,
+          scopeHash: c.capabilityScopeHash,
+          executionId: c.executionId,
+          workSlotId: c.workSlotId,
+          leaseId: c.leaseId,
+          ownerIdHash: c.ownerIdHash,
+          providerInvocationKey: c.providerInvocationKey,
+          purpose: "provider_execution",
+          reviewRevisionHash: c.capabilityReviewRevisionHash,
+          ownershipExpiresAt: c.ownershipExpiresAt,
+        };
+      },
+    );
+    const app = Fastify({ logger: false });
+    await registerReviewModelDispatchRoutes(app, {
+      admission,
+      checkAuthority: async () => active,
+      authorizations: {
+        resolveReviewRunAuthorizationToken: async ({ token }) =>
+          active && token === "synthetic-run-authorization"
+            ? {
+                status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+                authorization,
+              }
+            : { status: ReviewRunAuthorizationTokenResolutionStatus.Expired },
+      },
+    });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    try {
+      const address = app.server.address();
+      if (!address || typeof address === "string") throw new Error("fixture");
+      const origin = `http://127.0.0.1:${address.port}`;
+      const body = {
+        dispatchVersion: 2,
+        dispatchId: c.dispatchId,
+        executionId: c.executionId,
+        workSlotId: c.workSlotId,
+        attemptOrdinal: 1,
+        requestOrdinal: 1,
+        leaseId: c.leaseId,
+        leaseCapability: "synthetic-lease-capability",
+        fencingToken: c.fencingToken.toString(),
+        preparedManifestKey: c.preparedManifestKey,
+        routeIdentityHash: c.routeIdentityHash,
+        providerRequestEnvelopeHash: c.providerRequestEnvelopeHash,
+        requestBytes: c.requestBytes,
+        maxOutputTokens: c.maxOutputTokens,
+      };
+      const headers = {
+        authorization: "Bearer synthetic-run-authorization",
+        "content-type": "application/json",
+      };
+      const sent = await fetch(
+        `${origin}${reviewModelDispatchContract.claimPath}`,
+        { method: "POST", headers, body: JSON.stringify(body) },
+      );
+      expect(sent.status).toBe(200);
+      const first = (await sent.json()) as { receiptToken: string };
+      const duplicate = await fetch(
+        `${origin}${reviewModelDispatchContract.claimPath}`,
+        { method: "POST", headers, body: JSON.stringify(body) },
+      );
+      expect(await duplicate.json()).toMatchObject({ status: "restored" });
+      const tokenHeaders = {
+        "content-type": "application/json",
+        [reviewModelDispatchContract.receiptHeader]: first.receiptToken,
+      };
+      const forbidden = await fetch(
+        `${origin}${reviewModelDispatchContract.claimPath}`,
+        { method: "POST", headers: tokenHeaders, body: JSON.stringify(body) },
+      );
+      expect(forbidden.status).toBe(401);
+      active = false;
+      const denied = await fetch(
+        `${origin}${reviewModelDispatchContract.claimPath}`,
+        { method: "POST", headers, body: JSON.stringify(body) },
+      );
+      expect(denied.status).toBe(401);
+      const settled = await fetch(
+        `${origin}${reviewModelDispatchContract.basePath}/${c.dispatchId}/settle`,
+        {
+          method: "POST",
+          headers: tokenHeaders,
+          body: JSON.stringify(completed(c, f)),
+        },
+      );
+      expect(settled.status).toBe(200);
+      expect(await settled.json()).toMatchObject({
+        dispatch: { state: "completed" },
+      });
+      const invalid = await fetch(
+        `${origin}${reviewModelDispatchContract.basePath}/${c.dispatchId}`,
+        {
+          headers: {
+            [reviewModelDispatchContract.receiptHeader]: `${first.receiptToken},${first.receiptToken}`,
+          },
+        },
+      );
+      expect(invalid.status).toBe(400);
+    } finally {
+      await app.close();
+    }
+  });
+});

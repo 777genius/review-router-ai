@@ -1,3 +1,4 @@
+import { reviewRouterApiUrlsMatch } from "@reviewrouter/shared";
 import {
   readCanonicalHostedPoolWorkflowMetadata,
   readCanonicalCodexRotatingT0WorkflowSourceMetadata,
@@ -21,7 +22,7 @@ export function classifyHostedPoolSetupSource(
       metadata.bindingId !== expected.bindingId ||
       metadata.bindingRevision !== expected.bindingRevision ||
       metadata.actionRef !== expected.actionRef ||
-      metadata.apiUrl !== expected.apiUrl ||
+      !reviewRouterApiUrlsMatch(metadata.apiUrl, expected.apiUrl) ||
       metadata.providerInstanceId !== expected.providerInstanceId
     ) {
       throw new Error("hosted_pool_setup_conflict");
@@ -32,7 +33,7 @@ export function classifyHostedPoolSetupSource(
   const previous = readCanonicalCodexRotatingT0WorkflowSourceMetadata(workflow);
   if (
     previous.workflowSchemaVersion < 2 ||
-    previous.apiUrl !== expected.apiUrl ||
+    !reviewRouterApiUrlsMatch(previous.apiUrl, expected.apiUrl) ||
     !(expected.trustedPriorActionRefs ?? [expected.actionRef]).includes(
       previous.actionRef,
     )

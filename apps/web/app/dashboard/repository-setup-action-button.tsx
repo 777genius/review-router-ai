@@ -1,10 +1,17 @@
 "use client";
 
+import { workflowSetupOutcomePresentation } from "./dashboard-copy";
+
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type ReactElement } from "react";
 import { Button } from "@reviewrouter/ui";
 import { ActionToast } from "../action-toast";
-import { dashboardErrorText } from "./dashboard-copy";
+import {
+  dashboardErrorText,
+  dashboardNoticeText,
+  repositoryAccessErrorPresentation,
+  repositoryWorkflowUpdateCopy,
+} from "./dashboard-copy";
 import {
   confirmSetupPullRequestMergedClientAction,
   createSetupPullRequestClientAction,
@@ -28,6 +35,7 @@ export function RepositorySetupActionButton({
   workflowCurrent,
   workflowRefresh = false,
   mutationsEnabled,
+  unavailableReason,
   variant = "solid",
   onComplete,
 }: {
@@ -39,6 +47,8 @@ export function RepositorySetupActionButton({
   readonly workflowCurrent: boolean;
   readonly workflowRefresh?: boolean;
   readonly mutationsEnabled: boolean;
+  /** A prerequisite outside this button is missing; shown as its reason. */
+  readonly unavailableReason?: string | undefined;
   readonly variant?: "solid" | "soft" | "outline" | "ghost";
   readonly onComplete?: (params: Record<string, string>) => void;
 }): ReactElement {
@@ -50,7 +60,19 @@ export function RepositorySetupActionButton({
     !selected ||
     archived ||
     (workflowCurrent && !workflowRefresh) ||
+    Boolean(unavailableReason) ||
     isPending;
+  const disabledReason = !mutationsEnabled
+    ? "Dashboard changes are disabled for this workspace."
+    : unavailableReason
+      ? unavailableReason
+      : !selected
+        ? "This repository is no longer selected for the GitHub App installation."
+        : archived
+          ? "Archived repositories cannot be provisioned."
+          : workflowCurrent && !workflowRefresh
+            ? "ReviewRouter workflow is already current."
+            : undefined;
 
   function completeWithoutUrl(params: Record<string, string>): void {
     setToast((current) => ({
@@ -65,7 +87,7 @@ export function RepositorySetupActionButton({
     <form
       action={(formData) => {
         startTransition(() => {
-          void createSetupPullRequestClientAction(formData)
+          return createSetupPullRequestClientAction(formData)
             .then(({ params }) => {
               if (onComplete) {
                 onComplete(params);
@@ -102,30 +124,13 @@ export function RepositorySetupActionButton({
       <input type="hidden" name="workspaceId" value={workspaceId} />
       <input type="hidden" name="repositoryId" value={repositoryId} />
       <input type="hidden" name="workflowStyle" value="reusable" />
-      <label className="mb-3 flex max-w-xl items-start gap-3 rounded-lg border border-cyan-200/15 bg-slate-950/40 px-3 py-3 text-left text-sm text-slate-200">
-        <input
-          type="checkbox"
-          name="reviewDiscussionMode"
-          value="suggest"
-          disabled={disabled}
-          className="mt-1 h-4 w-4 rounded border-cyan-200/30 bg-slate-950 text-cyan-300"
-        />
-        <span className="grid gap-1">
-          <span className="font-semibold text-cyan-50">
-            Enable AI suggested replies
-          </span>
-          <span className="text-xs leading-5 text-slate-400">
-            Adds suggest-only AI replies to ReviewRouter finding discussions
-            after this setup PR is merged.
-          </span>
-        </span>
-      </label>
       <Button
         type="submit"
         variant={variant}
         size="sm"
         className="min-h-11 w-full min-w-0 rounded-lg px-3 sm:w-auto sm:min-w-[9.5rem] sm:px-5"
         disabled={disabled}
+        {...(disabled && disabledReason ? { title: disabledReason } : {})}
         aria-busy={isPending}
       >
         {isPending ? (
@@ -137,10 +142,10 @@ export function RepositorySetupActionButton({
             <span>
               {setupStatus === "setup_pr_open"
                 ? "Updating setup PR..."
-                : workflowRefresh
-                  ? "Updating setup PR..."
-                  : setupStatus === "needs_attention"
-                    ? "Recreating setup PR..."
+                : setupStatus === "needs_attention"
+                  ? "Recreating setup PR..."
+                  : workflowRefresh
+                    ? repositoryWorkflowUpdateCopy.pendingLabel
                     : "Creating setup PR..."}
             </span>
           </span>
@@ -149,8 +154,10 @@ export function RepositorySetupActionButton({
         ) : (
           <>
             <SetupPrIcon />
-            {workflowRefresh
-              ? "Update setup PR"
+            {workflowRefresh &&
+            setupStatus !== "setup_pr_open" &&
+            setupStatus !== "needs_attention"
+              ? repositoryWorkflowUpdateCopy.actionLabel
               : setupPrButtonLabel(setupStatus)}
           </>
         )}
@@ -165,19 +172,38 @@ export function RepositorySetupMergedButton({
   selected,
   archived,
   mutationsEnabled,
+  unavailableReason,
   onComplete,
+  label = "I merged it",
 }: {
   readonly workspaceId: string;
   readonly repositoryId: string;
   readonly selected: boolean;
   readonly archived: boolean;
   readonly mutationsEnabled: boolean;
+  /** A prerequisite outside this button is missing; shown as its reason. */
+  readonly unavailableReason?: string | undefined;
   readonly onComplete?: (params: Record<string, string>) => void;
+  readonly label?: "I merged it" | "Verify setup";
 }): ReactElement {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [toast, setToast] = useState<SetupActionToast | null>(null);
-  const disabled = !mutationsEnabled || !selected || archived || isPending;
+  const disabled =
+    !mutationsEnabled ||
+    !selected ||
+    archived ||
+    Boolean(unavailableReason) ||
+    isPending;
+  const disabledReason = !mutationsEnabled
+    ? "Dashboard changes are disabled for this workspace."
+    : unavailableReason
+      ? unavailableReason
+      : !selected
+        ? "This repository is no longer selected for the GitHub App installation."
+        : archived
+          ? "Archived repositories cannot be provisioned."
+          : undefined;
 
   function completeWithoutUrl(params: Record<string, string>): void {
     setToast((current) => ({
@@ -192,7 +218,7 @@ export function RepositorySetupMergedButton({
     <form
       action={(formData) => {
         startTransition(() => {
-          void confirmSetupPullRequestMergedClientAction(formData)
+          return confirmSetupPullRequestMergedClientAction(formData)
             .then(({ params }) => {
               if (onComplete) {
                 onComplete(params);
@@ -234,6 +260,7 @@ export function RepositorySetupMergedButton({
         size="sm"
         className="min-h-9 w-full min-w-0 rounded-lg border border-cyan-300/20 bg-cyan-300/[0.035] px-3 text-xs sm:w-auto"
         disabled={disabled}
+        {...(disabled && disabledReason ? { title: disabledReason } : {})}
         aria-busy={isPending}
       >
         {isPending ? (
@@ -245,7 +272,7 @@ export function RepositorySetupMergedButton({
             Checking...
           </span>
         ) : (
-          "I merged it"
+          label
         )}
       </Button>
     </form>
@@ -291,15 +318,33 @@ function setupPrButtonLabel(setupStatus: string): string {
 function setupActionToast(
   params: Record<string, string>,
 ): Omit<SetupActionToast, "key"> {
+  const outcome = workflowSetupOutcomePresentation(params);
+  if (outcome) return outcome;
   if (params.error) {
+    const access = repositoryAccessErrorPresentation(params.error);
     return {
       tone: "danger",
-      title: "Action needs attention",
+      title: access?.title ?? "Action needs attention",
       body: setupActionErrorText(params.error),
+      ...(access?.actionUrl
+        ? { actionUrl: access.actionUrl, actionLabel: access.actionLabel }
+        : {}),
     };
   }
 
   switch (params.notice) {
+    case "runtime_migration_bootstrap_pr_ready":
+    case "runtime_migration_draining":
+    case "runtime_migration_running":
+    case "runtime_migration_recovery_required":
+      return {
+        tone: "warning",
+        title: "Workflow update",
+        body: dashboardNoticeText(params.notice, params.repository ?? ""),
+        ...(params.pr
+          ? { actionUrl: params.pr, actionLabel: "Open first update PR" }
+          : {}),
+      };
     case "setup_pr_ready":
       return {
         tone: "success",
@@ -342,13 +387,17 @@ function setupActionErrorText(error: string): string {
     case "dashboard_action_failed":
       return "The dashboard action failed. Retry once, then inspect server logs if it repeats.";
     case "setup_pr_not_merged":
-      return "GitHub does not show the workflow on the setup PR target branch yet. If you just merged the setup PR, wait a few seconds.";
+      return "GitHub does not show the workflow on the setup PR target branch yet. If you just merged the setup PR, wait a few seconds. If the setup PR was merged a while ago, an older ReviewRouter workflow left in the repository can also block this check: remove reviewrouter.yml, reviewrouter-codex.yml and reviewrouter-interaction.yml if they exist, then check again.";
+    case "setup_legacy_workflows_present":
+      return "Older ReviewRouter workflows are still in the repository (reviewrouter.yml, reviewrouter-codex.yml or reviewrouter-interaction.yml), so the new setup cannot be confirmed. Recreate the setup PR: it removes them (including the /rr comment commands), then merge it and check again.";
     case "setup_pr_closed":
       return "The saved setup PR was closed before it was merged. Recreate the setup PR, then merge the new one.";
     case "setup_pr_branch_deleted":
       return "The saved setup PR branch was deleted. Recreate the setup PR to continue.";
     case "setup_pr_wrong_base_branch":
-      return "The saved setup PR was merged outside the allowed setup branches. Recreate the setup PR, then merge it into dev, develop, or the repository default branch.";
+      return "The saved setup PR was merged outside the allowed setup branches. Recreate the setup PR, then merge it into the repository default branch.";
+    case "setup_pr_workflow_mismatch":
+      return "The merged setup PR does not contain the expected ReviewRouter workflow. Recreate the setup PR and merge it without edits, then check again.";
     case "github_operation_forbidden":
       return "GitHub refused the setup PR update. Check GitHub App Contents, Workflows, and Pull requests write permissions, then retry.";
     case "github_operation_not_found":
@@ -360,7 +409,7 @@ function setupActionErrorText(error: string): string {
     case "github_service_unavailable":
       return "GitHub is temporarily unavailable for this setup action. Retry after GitHub recovers.";
     case "github_operation_failed":
-      return "GitHub did not complete the setup PR action. Check audit events or server logs for the safe error code.";
+      return "The setup check could not be completed. The repository may have changed while it ran, so wait a moment and check again. If it repeats, look for dashboard_action_unclassified_error in the web server log.";
     case "rate_limited":
       return "Too many dashboard requests for this repository. Wait a bit before retrying.";
     case "repository_not_selected":
@@ -376,7 +425,14 @@ function cleanDashboardActionUrl(section: string): void {
   const url = new URL(window.location.href);
   let changed = false;
 
-  for (const key of ["notice", "error", "pr"]) {
+  for (const key of [
+    "notice",
+    "error",
+    "pr",
+    "setupOutcome",
+    "recoveryError",
+    "workflowPath",
+  ]) {
     if (url.searchParams.has(key)) {
       url.searchParams.delete(key);
       changed = true;

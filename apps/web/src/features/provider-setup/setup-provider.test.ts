@@ -1,0 +1,303 @@
+import { describe, expect, it } from "vitest";
+import {
+  connectsInProviderDialog,
+  gatewaySetupProvidersForProfiles,
+  getSetupProvider,
+  setupProviderForDirectAuthMode,
+  setupProviderForGatewayProfile,
+  setupProviderForSource,
+  setupProviders,
+} from "./setup-provider";
+import type { AccountProfileView } from "../../server/account-gateway-accounts";
+
+function profile(
+  input: Partial<AccountProfileView> & Pick<AccountProfileView, "id">,
+): AccountProfileView {
+  return {
+    label: "Editable display name",
+    protocol: "openai-responses",
+    models: ["display-model"],
+    ...input,
+  };
+}
+
+const codex = profile({
+  id: "openai-codex-oauth-responses-v1",
+  provider: "codex",
+  authKind: "oauth",
+});
+const claude = profile({
+  id: "anthropic-claude-oauth-messages-v1",
+  provider: "claude",
+  protocol: "openai-responses",
+  authKind: "oauth",
+});
+
+describe("provider setup registry", () => {
+  it("names every provider independently of credential storage", () => {
+    expect(
+      setupProviders.map((provider) => [provider.id, provider.label]),
+    ).toEqual([
+      ["codex", "Codex"],
+      ["claude-code", "Claude Code"],
+      ["openrouter", "OpenRouter"],
+      ["mimo", "MiMo Token Plan"],
+      ["kimi", "Kimi Code"],
+      ["anthropic", "Anthropic API"],
+      ["gemini", "Gemini API"],
+      ["nvidia", "NVIDIA Build"],
+      ["glm", "GLM Coding Plan"],
+      ["minimax", "MiniMax M Plan"],
+      ["grok", "Grok"],
+    ]);
+    expect(getSetupProvider("codex").githubSource).toBe("repository_rotating");
+    expect(getSetupProvider("claude-code").githubSource).toBe(
+      "user_ci_secret:claude_code_oauth",
+    );
+  });
+
+  it.each([
+    ["repository_rotating", "codex"],
+    ["user_ci_secret:claude_code_oauth", "claude-code"],
+    ["user_ci_secret:claude_code_api_key", "claude-code"],
+    ["user_ci_secret:openrouter_api_key", "openrouter"],
+    ["managed_api_key:openrouter_api_key", "openrouter"],
+    ["user_ci_secret:mimo_token_plan_api_key", "mimo"],
+    ["managed_api_key:mimo_token_plan_api_key", "mimo"],
+    ["user_ci_secret:kimi_code_api_key", "kimi"],
+    ["gateway_binding", undefined],
+  ] as const)(
+    "maps source %s without guessing a Gateway vendor",
+    (key, expected) => {
+      expect(setupProviderForSource({ key })).toBe(expected);
+    },
+  );
+
+  it("keeps hosted and removed legacy auth out of the GitHub source mapping", () => {
+    expect(
+      setupProviderForDirectAuthMode("codex_subscription_oauth_hosted_pool"),
+    ).toBeUndefined();
+    expect(
+      setupProviderForDirectAuthMode("codex_account_gateway"),
+    ).toBeUndefined();
+    expect(
+      setupProviderForDirectAuthMode("codex_subscription_oauth_rotating"),
+    ).toBe("codex");
+    expect(setupProviderForDirectAuthMode("claude_code_oauth")).toBe(
+      "claude-code",
+    );
+    expect(setupProviderForDirectAuthMode("claude_code_api_key")).toBe(
+      "claude-code",
+    );
+  });
+
+  it("never advertises central Claude subscription OAuth enrollment", () => {
+    expect(gatewaySetupProvidersForProfiles([codex, claude])).toEqual([
+      "codex",
+    ]);
+    expect(gatewaySetupProvidersForProfiles([claude])).toEqual([]);
+    // The user-owned GitHub Secret routes are still available.
+    expect(setupProviderForDirectAuthMode("claude_code_oauth")).toBe(
+      "claude-code",
+    );
+    expect(setupProviderForDirectAuthMode("claude_code_api_key")).toBe(
+      "claude-code",
+    );
+  });
+
+  it.each([false, true])(
+    "uses the same native create permission for embedded import and enrollment (%s)",
+    (create) => {
+      const imported = profile({
+        ...codex,
+        availability: "enabled",
+        connection: {
+          provider: "openai",
+          planLabel: "Codex subscription",
+          regionLabel: "Global",
+          completionInputKind: "none",
+          limitsContract: "account-limits/v2",
+          modelSettings: [],
+          methods: [
+            {
+              kind: "credential_import",
+              method: "oauth_auth_json",
+              maxBytes: 65536,
+              create,
+              reconnect: true,
+            },
+          ],
+        },
+      });
+      expect(connectsInProviderDialog(imported, "codex")).toBe(create);
+      expect(gatewaySetupProvidersForProfiles([imported])).toEqual(
+        create ? ["codex"] : [],
+      );
+      // Existing connection identity remains usable when creation is off.
+      expect(setupProviderForGatewayProfile(imported)).toBe("codex");
+      expect(
+        connectsInProviderDialog(
+          { ...imported, availability: "deployment_configuration_required" },
+          "codex",
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it.each([
+    ["glm", "glm-coding-global-responses-apikey-v1", "api_key"],
+    ["minimax", "minimax-mplan-global-responses-apikey-v1", "api_key"],
+    ["grok", "grok-subscription-responses-oauth-v1", "oauth"],
+  ] as const)(
+    "preserves the admitted %s Gateway provider without inventing a GitHub runtime",
+    (provider, profileId, authKind) => {
+      const connected = profile({
+        id: profileId,
+        provider: "codex",
+        authKind,
+        connection: {
+          provider,
+          planLabel: "Subscription",
+          regionLabel: "Global",
+          completionInputKind:
+            authKind === "oauth" ? "authorization_code" : "none",
+          limitsContract: "account-limits/v2",
+          modelSettings: [],
+        },
+      });
+      expect(setupProviderForGatewayProfile(connected)).toBe(provider);
+      expect(gatewaySetupProvidersForProfiles([connected])).toEqual([provider]);
+      expect(getSetupProvider(provider).githubSource).toBeNull();
+      expect(getSetupProvider(provider).publicCatalogProvider).toBeNull();
+      expect(
+        setupProviderForGatewayProfile({
+          ...connected,
+          id: "unqualified-profile",
+        }),
+      ).toBeUndefined();
+      expect(
+        setupProviderForGatewayProfile({
+          ...connected,
+          authKind: authKind === "oauth" ? "api_key" : "oauth",
+        }),
+      ).toBeUndefined();
+      expect(
+        gatewaySetupProvidersForProfiles([
+          { ...connected, availability: "deployment_configuration_required" },
+        ]),
+      ).toEqual([]);
+    },
+  );
+
+  it("admits NVIDIA only as its own Gateway API-key profile, without a direct secret", () => {
+    const nvidia = profile({
+      id: "nvidia-build-chat-apikey-v1",
+      provider: "nvidia",
+      authKind: "api_key",
+      connection: {
+        provider: "nvidia",
+        planLabel: "NVIDIA Build evaluation",
+        regionLabel: "Global",
+        completionInputKind: "none",
+        limitsContract: "none",
+        modelSettings: [],
+      },
+    });
+    expect(setupProviderForGatewayProfile(nvidia)).toBe("nvidia");
+    expect(gatewaySetupProvidersForProfiles([nvidia])).toEqual(["nvidia"]);
+    expect(getSetupProvider("nvidia").githubSource).toBeNull();
+    expect(getSetupProvider("nvidia").publicCatalogProvider).toBeNull();
+    expect(
+      setupProviderForGatewayProfile({ ...nvidia, id: "unqualified-nvidia" }),
+    ).toBeUndefined();
+    expect(
+      setupProviderForGatewayProfile({ ...nvidia, authKind: "oauth" }),
+    ).toBeUndefined();
+    expect(
+      setupProviderForGatewayProfile({ ...nvidia, provider: "openrouter" }),
+    ).toBeUndefined();
+    expect(
+      setupProviderForGatewayProfile({
+        ...nvidia,
+        connection: { ...nvidia.connection!, provider: "openrouter" },
+      }),
+    ).toBeUndefined();
+  });
+
+  it("uses the authenticated deployment availability and deduplicates profiles", () => {
+    expect(
+      gatewaySetupProvidersForProfiles([
+        codex,
+        codex,
+        { ...claude, availability: "deployment_configuration_required" },
+        profile({
+          id: "openrouter-fixed",
+          provider: "openrouter",
+          authKind: "api_key",
+        }),
+      ]),
+    ).toEqual(["codex", "openrouter"]);
+    expect(gatewaySetupProvidersForProfiles([])).toEqual([]);
+  });
+
+  it("rejects unknown subscription profiles and mismatched auth or vendor metadata", () => {
+    expect(setupProviderForGatewayProfile(undefined)).toBeUndefined();
+    expect(
+      setupProviderForGatewayProfile({
+        ...codex,
+        id: "unqualified-openai-oauth",
+      }),
+    ).toBeUndefined();
+    expect(
+      setupProviderForGatewayProfile({
+        ...claude,
+        id: "unqualified-anthropic-oauth",
+      }),
+    ).toBeUndefined();
+    expect(
+      setupProviderForGatewayProfile({ ...codex, authKind: "api_key" }),
+    ).toBeUndefined();
+    const claudeWithoutAuth = { ...claude };
+    delete claudeWithoutAuth.authKind;
+    expect(setupProviderForGatewayProfile(claudeWithoutAuth)).toBeUndefined();
+    expect(
+      setupProviderForGatewayProfile({ ...claude, provider: "codex" }),
+    ).toBeUndefined();
+    expect(
+      setupProviderForGatewayProfile({
+        ...claude,
+        protocol: "anthropic-messages",
+      }),
+    ).toBeUndefined();
+    const conflictingConnection: NonNullable<AccountProfileView["connection"]> =
+      {
+        provider: "anthropic",
+        planLabel: "Untrusted display label",
+        regionLabel: "Global",
+        completionInputKind: "callback_url",
+        limitsContract: "none",
+        modelSettings: [],
+      };
+    expect(
+      setupProviderForGatewayProfile({
+        ...codex,
+        connection: conflictingConnection,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("maps qualified connection metadata and ignores editable labels or models", () => {
+    expect(setupProviderForGatewayProfile(codex)).toBe("codex");
+    expect(setupProviderForGatewayProfile(claude)).toBeUndefined();
+    expect(
+      setupProviderForGatewayProfile(
+        profile({
+          id: "another-oauth-profile",
+          label: "Codex",
+          models: ["gpt-5.6-sol"],
+          authKind: "oauth",
+        }),
+      ),
+    ).toBeUndefined();
+  });
+});

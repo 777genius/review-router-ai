@@ -1,0 +1,415 @@
+# Companion Gateway refusal diagnostics
+
+- Task ID: `2026-11-01-companion-gateway-refusal-diagnostics`
+- Goal: preserve safe, specific SDK refusal evidence for companion and ordinary
+  requests whose callers otherwise lose the internal refusal details.
+- Affected services: API; deploy with the coherent application fleet.
+- Implementation: [PR #772](https://github.com/777genius/review-router-ai/pull/772) (includes the source prepared in #775),
+  source `4cc7ae2e215ec9fe10f7d05d44dcac9ea72aff4b`.
+- Dependencies: ordinary coherent release; the same PR includes strict client-side
+  release verification.
+- Last updated: `2026-11-02`.
+
+## Environment status
+
+| Environment | Status     | Actual application revision                | Evidence / next step                                                                                          |
+| ----------- | ---------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| staging     | `pending`  | Not selected for this task                 | Owner selected direct production delivery in the source session.                                              |
+| production  | `deployed` | `57cc15137e62068ccf12b98eb4206b2dbbf43fef` | Corrected logger active; coordinated Gateway cutover and fresh FREE review acceptance verified, coverage 1/1. |
+
+## Failure and evidence
+
+[Live review attempt 10](https://github.com/777genius/rr-selfhost-direct-v2-e2e-20260730t120036z/actions/runs/40800168729/attempts/10)
+failed at 2026-11-01 10:57 UTC. Native preparation applied, then the execution
+closed with request count zero. The request has no native row and no native
+failure log. This does not constitute a contractual non-entry receipt; retain
+the dispatch's `effect_unknown` state. The relay discarded the SDK diagnostic.
+
+A single subsequent supported metadata read returned an OpenRouter catalog
+snapshot in 102 ms. Both GPT-4.1 and the actual default Nemotron model were
+included. The saved GPT-4.1 configuration has no reasoning effort; offline
+validation of the shipped OCR request shape succeeds. Neither finding proves
+the historical rejection cause.
+
+## Ordered rollout
+
+1. Build the locally verified exact source. The owner explicitly authorized
+   fast production delivery without waiting for CI; ordinary PR merge still
+   requires exact-head CI. Preserve concurrent application fixes and live settings. No migration, new environment
+   variable, catalog promotion or Gateway restart is required by this change.
+2. Follow [the release process](../operations/07-environments-and-release-management.md)
+   and `deploy/hetzner/release.sh`; preserve the post-ACL worker grant.
+3. Verify exact fleet revisions, real worker database privileges and readiness.
+4. Observe a separately authorized fresh test-repository review. Inspect the
+   closed JSON diagnostic on failure. Do not replay the uncertain native request
+   from attempt 10 or relabel its historical effect as unpaid.
+
+## Verification and rollback
+
+The full real-loopback relay suite passed 76 tests. Serialization, throwing-sink
+and local-authority phase cases passed. Two ordinary 403/503 cases also verify
+the original SDK error, unchanged public response and exactly one native POST.
+Companion and ordinary failures use one closed-field diagnostic helper. API typecheck, formatting and diff checks passed. No raw error,
+message, headers, bodies, token or opaque upstream reference is logged.
+Settlement, one-request budgeting and cancellation remain unchanged. Rollback
+uses the preserved previous application containers; no schema rollback is needed.
+
+## Related production repairs during continuation
+
+- All 31 historical permission-denied installation sync events left by the
+  previous recovery were preserved, requeued and processed successfully.
+  Worker privilege verification then passed all six checks; `/ready` returned 200.
+- At 11:07:20 UTC, two stale loopback Caddy upstreams in
+  `/etc/caddy/projects/review-router.caddy` were changed from port 13195 to 14171.
+  Complete disk configuration matched live before the change; full validation,
+  reload and disk/live comparison succeeded. The loopback catalog route now
+  returns unauthenticated 401, with zero Gateway restarts. This is a real separate
+  repair, not evidence of the cause of attempt 10.
+- Protected Caddy recovery receipt:
+  `/srv/platform/projects/review-router/releases/caddy-loopback-gateway-20261101T110720Z/receipt.json`.
+  Original source SHA256 `d822e9af7d442ede1e3bc3f0bfb7fe76c1b61496fcc9d64a92ba9e4dc419b302`;
+  replacement `d9c2b23948ab235828031e77f5533617ab47fdd6f0ad2398a7059465d4c42467`.
+- [platform-infra #488](https://github.com/777genius/platform-infra/pull/488)
+  merged at `953cd67bfe29d86be9cef800c59915a082058e02`: new activation packets,
+  the Caddy example and runbook use the production `.org` origin. Historical
+  staged packets and their hash-bound receipts were preserved.
+- [Issue #761](https://github.com/777genius/review-router-ai/issues/761) remains
+  the canonical ACL/activation routine and INSERT-guard follow-up. The ordinary
+  Hetzner deployment path applies and now verifies the narrow worker grant.
+
+## Additional continuation checks
+
+- The signed-in organization Statistics page was verified at 11:36 UTC: two
+  distinct pull requests, three completed reviews and zero issue facts, matching
+  the database. The report renders; a direct seven-day URL also selects the
+  expected period. This is frontend evidence, not just an owner SQL count.
+- Legacy `reviewrouter-codex.yml` was disabled through the supported Actions
+  workflow-state API in both `agent-teams-ai/.github` (workflow 325491799) and
+  `agent-teams-ai/engineering-foundation` (325491577). Readback is
+  `disabled_manually`; their modern `reviewrouter-review.yml` callers remain
+  `active`. Existing source bytes, exact Action pins, interaction workflows and
+  required checks were preserved. Deleting the files requires a separate owning
+  contract migration: both repositories currently enforce their presence.
+- Companion failure diagnostics now distinguish session validation, local
+  authority, local forward validation, SDK request, post-request authority and
+  stream wrapping. A real loopback case confirms local authority refusal makes
+  zero native POSTs while retaining the consumed reservation and unknown effect.
+
+## Applied application rollout
+
+- Fast build finished at 12:30:36 UTC, exit 0 (320 seconds). Image
+  `sha256:ed5398998d720a85ef6259e42679b791ea3aed29b399c0bba12c2dc6d9dd2b0b`
+  carries exact application source `6e900a26ff0e98b91c70287196dbde876e8cc48e`.
+- Plan-only exposed the release script looking for the private scan network at
+  the API. The API correctly has only the platform network. The script now
+  selects the scan container's single private network; its actual Python body
+  passes eleven topology cases and fails normal topology before the fix.
+  This external operator-script fix is `d41d7e6dc`; no app rebuild was needed.
+- Preserved plan and application receipt:
+  `/srv/platform/projects/review-router/releases/fleet-overlay-6e900a26-u20Qv6n8`.
+  Cutover applied after the OCR owner released its window and confirmed no
+  running/planned executions or active leases, with allocation cleanup complete.
+  Retained authorizations were preserved.
+- All four roles report the full requested source, running with zero restarts.
+  The actual worker connection passes six privileges and `/ready` returns 200.
+  Gateway remains active with zero restarts. No migrations, ACL changes, Gateway
+  restart, producer change or MCP policy changes occurred in this rollout.
+- New container IDs: API `9be662825782`, worker `e9d8c4f5a2a5`,
+  scan `9cdfd83dd6e5`, web `4cb28a2bc179`. Previous fleet is retained for rollback.
+- Post-cutover signed-in UI check at 12:40 UTC: organization Statistics renders
+  the seven-day period, two reviewed PRs, three reviews and zero caught issues;
+  no alert is present.
+
+## Intermediate memory/diagnostics union
+
+- Source `14bead9640d0b4e6c6741aa5645c2a6c160fdd2f` merges this PR head
+  `c47d28882` with [PR #776](https://github.com/777genius/review-router-ai/pull/776)
+  source `0cdb162855ffbc363df6357462849bdfa9c35bc6`. The latter repairs the shared
+  V4 memory authorizer and has independent PostgreSQL17, strict TypeScript7 and
+  scoped lint evidence. Production files merge without conflicts; the index
+  preserves both records. Both PRs retain their own CI and merge flow.
+- Build finished 12:50:11 UTC, exit 0 in 283 seconds; image
+  `sha256:21dc5822d2bee10fd2bc6903d3243aadd7bf05712041292f4d575d089ee983a6`.
+- Union protected controller/receipt:
+  `/srv/platform/projects/review-router/releases/fleet-overlay-14bead96-7G4aXMdJ`.
+  All four roles report exact union revision, running with zero restarts; actual
+  worker passes six privileges and `/ready` returns 200. Gateway is active with
+  zero restarts. No migration, ACL, producer or MCP policy change occurred.
+- Union IDs: API `88b30ac0871f`, worker `6754a0745272`, scan `0953424250e2`,
+  web `f25f454a9b80`. Previous `6e900a26f` fleet is retained for rollback.
+  Both owners confirmed no active owned requests before cutover. One shared
+  fresh canary will verify OCR and memory together; historical unknown requests
+  remain unchanged.
+
+## Current fleet and availability recovery
+
+- The memory owner subsequently deployed source
+  `e7f2e600acc896448b91ea0a9985c6e766a3c95b`, whose direct parent is the union
+  `14bead9640d0b4e6c6741aa5645c2a6c160fdd2f`. Image:
+  `sha256:7cee23648d3fb708fdf63f99fa0578e8d5726a512b06a5bbc992cdcf4cb6ec8a`.
+  This retains the application diagnostics and adds local receipt preflight for
+  run authorization. Independent release verification passed: all four roles
+  at this exact source, running with zero restarts, all six real worker privilege
+  checks and readiness HTTP 200. Private Gateway access without credentials
+  returns the expected HTTP 401.
+- At 13:45 UTC the host exhausted service-available disk space. PostgreSQL logs
+  explicitly record ENOSPC; the existing Gateway and its PostgreSQL17 container
+  stopped. This later evidence does not establish the cause of earlier
+  `effect_unknown` failures.
+- Only three finished build source extractions owned by this continuation were
+  removed; source archives, logs, image IDs and rollback artifacts were retained.
+  Selective daemon cache GC then removed 19 individually verified private,
+  immutable, unused regular cache records. No image, container or volume
+  identities changed during that GC. Docker reported 1.462 GB reclaimed; net
+  filesystem availability increased by 1,365,262,336 bytes. Concurrent activity
+  had already restored other space, so the total recovery is not attributed to
+  this cleanup. Final service-available space was 11,519,590,400 bytes.
+- Durable selective-GC plan and receipt:
+  `/srv/platform/projects/review-router/releases/selective-cache-gc-20261101-dll_hf9p/`.
+  The memory owner started the existing PostgreSQL17 container and the same old
+  Gateway unit after storage recovered. Existing database files, configuration,
+  native binary and wrapper source were preserved; there was no database
+  initialization, migration, key rotation or foreign authorization cleanup.
+- Gateway retained wrapper source `3a838c8d8531b6ae04446e6191c35b6549694a6a`
+  and native binary SHA256
+  `2339a4d30d2c319b3618fd0756fdd79bb841c091ad2dd17b1728c79cabed589e`.
+  The restored service is active with zero automatic restarts. This recovery is
+  distinct from the earlier application cutovers, which did not restart it.
+
+## Fresh functional acceptance
+
+- [Run 41318061244](https://github.com/777genius/rr-codex-rotating-e2e/actions/runs/41318061244)
+  on the current fleet completed both required OCR reviewers using GPT-6.1.
+  Coverage is 2/2; each isolated Cloudflare, Firecrawl and DeepWiki invocation
+  succeeded for both reviewers: six real MCP successes, zero failed attempts
+  and zero builtin fallbacks.
+- One accepted finding was published by `review-router-ai[bot]`: review
+  `5728711263`, inline comment `4436133109`, summary `6559604798`. The workflow's
+  red conclusion is the intentional `review_merge_gate_failed` result for the
+  deliberately faulty TTL fixture; provider execution and publication succeeded.
+- Cleanup was accepted at 15:00:56 UTC: disposable PR 132 closed with original
+  body, original singleton GPT-6.1 policy restored, all seven MCP connections
+  off, definitions/secrets/profiles unchanged, no running executions, active
+  leases or pending allocation cleanup. Terminal authorizations were preserved.
+- This establishes Gateway/MCP review acceptance, not delivery of memory to both
+  reviewers. Memory acceptance remains owned by PR #776 and its follow-ups.
+  Historical unknown effects were neither replayed nor relabeled.
+- Optional bounded native failure diagnostics were merged separately in
+  [account-gateway #95](https://github.com/agent-teams-ai/account-gateway/pull/95)
+  as `a717bfe50e46d01092eb380582c83d82c261b58c`, after all 20 executable CI
+  checks passed. The exact-installed-source candidate remains staged only;
+  neither it nor current Gateway main was deployed. Successful acceptance needs
+  no additional Gateway restart or V3 cleanup.
+
+## Follow-up: first-time repository identity binding
+
+A later live run of the strengthened release verifier selected the inspected
+worker ID in the same remote invocation and surfaced two new
+`installation.sync_requested` permission dead letters, at 17:10:26 and 17:13:02
+UTC. The six earlier any-column/table probes still passed. The new repository
+rows exist and received inventory updates, but remain without SCM identity
+bindings. The registered identities remain unbound because the binding
+transaction rolls back when it updates `RepositoryConnection.scmRepositoryIdentityId`.
+
+The narrow supplemental grant omitted UPDATE on that single column. Installed
+migration 000133 already protects this transition: only a first binding to an
+identity declaring the same connection and workspace is accepted; clearing,
+retargeting and parent moves remain forbidden. Read-only source/runtime audit
+confirmed the exact guard body, trusted owner, enabled trigger and actual worker
+`session_user` / `current_user` both equal to `reviewrouter_worker`.
+
+The corrective grant adds only that UPDATE column, retaining the forbidden
+identity INSERT and absence of table-level writes. Before granting, it checks
+the qualified guard body SHA256
+`2dba7b0fe03733cbe66ae6f61331e449ac679c866af6a0d1d43fc81acbd72771`,
+owner, search path and complete enabled trigger. It uses the existing
+activation/migration advisory fence with a bounded timeout. It changes neither
+routine bodies nor activation trust roots. Canonical ACL alignment and the
+separate INSERT-guard gap remain tracked in issue #761.
+
+The checker now has a seventh probe for the specific binding column, preserving
+expected-role and unknown-role refusals. Both the dedicated worker and default
+shared self-hosted `reviewrouter` policy use these worker requirements. The
+operator verifies the entire fleet before invoking the checker in the already
+inspected worker by immutable container ID, passing the local checker bytes as
+data. Missing/failing fleet or database checks stop before readiness.
+
+The real PostgreSQL 17.11 contract passed on a fresh private Unix-socket-only
+cluster: the previous grant fails at the real LOGIN-worker first bind, while the
+corrected grant commits it. Eight forbidden actions, seven guard-drift cases
+and contention on the existing advisory fence fail closed; repeat grant is
+idempotent. The checker has ten passing tests, including the default shared role,
+expected-role mismatch, unknown role, unreadable outbox and the previously missed
+binding column. Release shell contract, ShellCheck, lint and formatting pass.
+
+Applied source `8263f5a51da54c550aa72bb9082422f7f2191196`; grant SHA256
+`97e4289933cb42e2cec290208b5c5eb6b06d34c108fd3e23f90149c62df542a1`.
+Protected plan, complete pre-retry event snapshots, grant/retry SQL, metadata and
+verification receipt:
+`/srv/platform/projects/review-router/releases/worker-first-bind-8263f5a51da5-2x30dgun/`.
+Before/after comparison proves exactly one added column privilege:
+`scmRepositoryIdentityId:UPDATE`; all other column/table privileges and the guard
+body remain unchanged.
+
+The two preserved events were retried with a compare-and-set on their original
+claim versions, timestamps and exact permission-failure cohort, following the
+existing outbox maintenance transition. Their identities, payloads and
+idempotency keys were retained. Both processed with one attempt, at 18:21:23 and
+18:21:29 UTC; both new repository bindings are coherent. Final receipt at
+18:24 UTC records zero remaining permission dead letters. Live release verification
+passes all four roles at unchanged application source `e7f2e600`, zero restarts,
+seven real worker privilege checks and readiness HTTP 200. Application rebuild,
+inference replay and Gateway restart were unnecessary for this correction.
+
+## Fresh OpenRouter selection and pre-dispatch diagnostic gap
+
+The workspace default is OpenRouter `nvidia/nemotron-3-ultra-550b-a55b:free`.
+Agent-runtime had an independent MiMo override. The supported application
+command removed only its repository provider selection, creating policy version 6
+and audit `cmvy8r6jy00026tp6cqb64y0p`; the workspace default remains version 9.
+Private custody: `/srv/platform/projects/review-router/releases/agent-runtime-provider-inherit-gk7iwueo/`.
+No model call or deployment was needed for this configuration change.
+
+One fresh [sub2api review](https://github.com/agent-teams-ai/sub2api/actions/runs/41343643088)
+froze the correct FREE model/account, but ended partial with one attempt and no
+accepted evidence. Its authorization retained no Gateway allocation binding or
+companion dispatch. This does not establish an OpenRouter provider failure.
+The owned temporary PR 88 was closed unmerged and its branch deleted.
+
+Offline qualification used the exact OCR binary SHA256
+`9dd5f115747d24100f0767133a3288d268f3bc399675f5b826e7a867d101ee5c`
+and compiled Action `72634bbcb75a8cc11bc03457ee6d45543a1b459c`.
+Both native request construction and the compiled adapter's normalize/reserve
+passed against a network-isolated synthetic loopback upstream. These results
+do not recover the historical production refusal or prove live provider health.
+
+The claim endpoint returned finite refusal codes without recording them, while
+the Action discarded the response details. Additional source `857511c73` records
+only a closed phase/code/status and the server-resolved authorization ID.
+Unknown codes collapse to a generic diagnostic; response status/body and
+authority behavior are unchanged, including when logging throws. Fourteen
+real-loopback regression cases fail before the change and pass afterward; the
+six PostgreSQL cases were not part of that focused local run.
+
+Remaining: qualify the integrated source, deploy this observer with the coherent
+application batch using the release process above, verify fleet/readiness, then
+inspect one separately authorized fresh review's closed outcome. Do not replay
+the historical uncertain MiMo request. The observer itself adds no retries,
+model dispatches, authority or feature flags. Production `e7f2e600` does not yet
+include this additional claim observer.
+
+## Latest coherent fleet and logger correction
+
+Production cutover at 2026-11-01 21:17 UTC installed source
+`06934abf5024f556b2ed0b8662a250fcaffa96c5`, image
+`sha256:5878cb6700a654dc766e194a46f71dbc313ed242b7b2d9f3ceca0d21fb1bdbc0`.
+This union preserves the already deployed `e7f2e600` memory fixes. All four
+roles reported the full source, running with zero restarts; seven actual worker
+privileges and readiness HTTP 200 passed. Previous containers are retained.
+Custody: `/srv/platform/projects/review-router/releases/fleet-overlay-06934abf-MjjxTvXP/`.
+Statistics and Usage public application readers subsequently passed with the
+real owner's existing workspace membership; invalid filters were rejected.
+
+The initial claim observer used Fastify's disabled request logger, so its route
+spy tests did not establish production logging. The correction injects the
+existing production ConsoleLogger through a typed callback. A real application
+composition regression failed before and passed after this change; the fourteen
+route cases also pass. Public responses, authority and settlement are unchanged.
+Actual ConsoleLogger output includes a trailing context object; whole-line
+JSON-only parsing is not sufficient to establish an absence of diagnostics.
+
+Corrected union source `94a20d36254690cca2ffdc6e37d53c36815c0ccf` is built once as
+`sha256:795dee33a6b1cbb688b953af8c4edc44e289333a99913456e450530668280d3b`.
+The exact target compatibility assessor passed with actual API-role inventory:
+14 active authorizations, 50 producers, 52 attestations, 65 required contracts,
+zero unsupported or missing contracts. This was an owner-SSH direct assessment,
+not authenticated CLI initialization; no credential was rotated.
+Receipt: `/srv/platform/projects/review-router/releases/owner-protocol-preflight-94-role-g6kbj9b0/host-receipt.json`.
+The image is not yet activated. At 23:27 UTC seven foreign native executions
+were open and one was streaming. Gateway SIGTERM closes active connections;
+there is no passive drain endpoint. Coordinate completion before replacement,
+preserving all authorizations and historical effects. Reuse the built image.
+
+## Retained FREE test and unresolved Gateway boundary
+
+The user explicitly requested keeping the test stand. Preserve the open draft
+[sub2api PR 89](https://github.com/agent-teams-ai/sub2api/pull/89), its branch,
+repository, containers, volumes, data and diagnostic artifacts. The persistent
+retention marker is
+`/srv/platform/projects/review-router/tests/RETAIN-USER-REQUESTED-20261101.json`.
+Earlier docs-only fixtures matched the repository's ignore rules and selected
+no review items. Their skipped outcome was not a model health test.
+
+The corrected seven-line Go fixture at head
+`d4a4395e85f11258691616e2158751a872173965` selected one review item.
+[Run 41355008564](https://github.com/agent-teams-ai/sub2api/actions/runs/41355008564)
+failed with zero accepted evidence. The API diagnostic binds request
+`rr-companion-b639aa38-6cfd-4ee4-84fe-3db9f50ea5d6` to SDK-stage HTTP 503,
+`safe_error`, `upstream_failure`, `effect_unknown`; the API mapped that to 502.
+This is not an observed OpenRouter HTTP 502. Native request count zero and
+absence of a journal row are not a non-entry or unpaid receipt. Do not replay.
+
+Read-only checks confirmed the exact installed account scope, descriptor/profile
+bounds and retained credential integrity using the existing native codec, with
+no provider call or secret output. They did not identify the failed dispatch
+phase. Missing service_tier is excluded on this path: the SaaS normalizer forces
+`default` before the SDK. The bounded Gateway diagnostic candidate remains
+staged; activation and one fresh, separately scoped review remain required to
+resolve the FREE failure. The historical MiMo PR244 failure is separate.
+
+## Final production acceptance — 2026-11-02
+
+The current four-role application fleet runs source
+`57cc15137e62068ccf12b98eb4206b2dbbf43fef`, image
+`sha256:3550f3c7ea126acdef99b25305afecc9a0462defdb380107743f9e6943637171`.
+It includes the corrected production logger and preserves the memory fixes.
+The older built image94 was not redeployed. API source/readiness were checked
+again immediately before the final test.
+
+The memory workstream owns the coordinated Gateway rollout. It activated
+`a717bfe50e46d01092eb380582c83d82c261b58c` with native source
+`f2deab244b62469cebfa1492e70d80a4f766dc1f`, preserving all 6565 historical
+request records and the three previously open executions. The new facade issues
+stateless HMAC execution locators instead of appending issued credentials to the
+old 128-entry catalogue. Its active runtime wiring was verified independently.
+The native source directly retains merged PR86, and its two OpenRouter replay
+implementation/test files remain byte-identical to that fix.
+
+The exact historical catalogue occupancy was not recovered. Current-worker
+request proofs established only 85 issued execution capabilities, so saturation
+is a source-backed failure mechanism, not a proven attribution of every older 503. The separate theory that 640 requests exceeded an SDK 128 limit was rejected:
+the actual SDK permits 10,000 requests; 128 limits concurrency. Existing response
+constructors and parsers have compatible schemas/status/content type.
+
+One fresh pre-cutover test failed with invalid_response/effect_unknown after
+preparation applied and before the SaaS binding attached. Its original request
+was not replayed. Its orphan execution `94530768-6e1a-452e-aa58-014339620196` was
+explicitly handed to the rollout owner for preservation, without forged bearer,
+manual authorization mutation or parser bypass.
+
+After the relevant Gateway fix was active, one new normal synchronize at head
+`be1bc76061dc664134e3c788cb107e71d5b90ffd` produced
+[successful run 41425170166](https://github.com/agent-teams-ai/sub2api/actions/runs/41425170166).
+The frozen provider was OpenRouter, model
+`nvidia/nemotron-3-ultra-550b-a55b:free`, account
+`3839fff1-2a48-4304-af7a-6727c09cfad8`. Required coverage is 1/1, accepted evidence 1,
+findings 0. [The complete summary](https://github.com/agent-teams-ai/sub2api/pull/89#issuecomment-6574335979)
+was independently read back: author `review-router-ai[bot]`, complete marker,
+Files reviewed 1/1, Not reviewed 0, Providers 1/1, No findings.
+
+Authorization `c86c9cfb-f5a7-40c0-894d-39c600343b0a` is revoked, both provider
+leases are released. Native execution `305c9a61-cf5b-4473-8f5a-caf5c5e63c72` is
+fenced with zero occupancy and scoped cleanup DONE; both requests have closure
+proofs. The required request completed. The optional PR-description request
+retains `effect_unknown` and was not presented as successful or retried.
+The held window for this test has ended; this is not global idle clearance.
+
+Private retained receipts:
+`/Users/belief/dev/projects/review-router/tmp/openrouter-free-followup-20261102/run-receipt.json`
+and
+`/Users/belief/dev/projects/review-router/tmp/openrouter-free-after-cutover-20261102/run-receipt.json`.
+PR89 remains open/Draft; branch, repository, data and artifacts are retained.
+No Brave browser was opened. The attempt-neutral wording change is merged in
+Action PR364 at `41c8d65d627bdf7eb0626b711fd57832ff63d7c3`; activation was not
+claimed by this workstream. No extra model run, app deployment or release was
+performed solely for that copy change.

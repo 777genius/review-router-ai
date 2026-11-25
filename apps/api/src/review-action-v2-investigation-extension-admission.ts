@@ -1,25 +1,70 @@
-import type { ReviewRunAuthorization } from "@reviewrouter/features-review-run-control";
+import {
+  canonicalJson,
+  parseReviewRunRuntimeSnapshot,
+  type ReviewRunAuthorization,
+} from "@reviewrouter/features-review-run-control";
 import {
   InvestigationRolloutCapability,
   isInvestigationRolloutCapability,
   isInvestigationRolloutCapabilitySetDependencyClosed,
 } from "@reviewrouter/features-review-investigation-operations";
-import { reviewInvestigationExtensionV1 } from "@reviewrouter/protocol-review-action-v2";
+import { reviewActionV2InvestigationExtensionForSchema } from "@reviewrouter/protocol-review-action-v2";
 
 export type ReviewInvestigationAuthorizedProviderKind = "codex" | "claude_code";
 
 export type ReviewInvestigationExtensionRequirement = Readonly<{
   providerKind: ReviewInvestigationAuthorizedProviderKind;
   capability: InvestigationRolloutCapability;
+  providerVoteIdentityHash?: string;
+  reviewerId?: string;
 }>;
 
 export function hasAuthorizedReviewInvestigationExtension(
   authorization: Pick<
     ReviewRunAuthorization,
-    "reviewInvestigationAuthorizationDescriptorCanonicalJson"
-  >,
+    "reviewInvestigationAuthorizationDescriptorCanonicalJson" | "schemaDigest"
+  > &
+    Partial<Pick<ReviewRunAuthorization, "runtimeSnapshotCanonicalJson">>,
   requirement?: ReviewInvestigationExtensionRequirement,
 ): boolean {
+  try {
+    const snapshot = parseReviewRunRuntimeSnapshot(
+      authorization.runtimeSnapshotCanonicalJson,
+    );
+    if (snapshot?.snapshotVersion === 4) {
+      if (requirement === undefined)
+        return snapshot.reviewers.some(
+          (reviewer) =>
+            reviewer.investigationGrant !== null &&
+            hasAuthorizedReviewInvestigationExtension({
+              schemaDigest: authorization.schemaDigest,
+              reviewInvestigationAuthorizationDescriptorCanonicalJson:
+                canonicalJson(reviewer.investigationGrant.descriptor),
+            }),
+        );
+      if (requirement.providerVoteIdentityHash === undefined) return false;
+      const reviewer = snapshot.reviewers.find(
+        (row) =>
+          row.providerVoteIdentityHash === requirement.providerVoteIdentityHash,
+      );
+      if (
+        !reviewer?.investigationGrant ||
+        (requirement.reviewerId !== undefined &&
+          requirement.reviewerId !== reviewer.reviewerId)
+      )
+        return false;
+      return hasAuthorizedReviewInvestigationExtension(
+        {
+          schemaDigest: authorization.schemaDigest,
+          reviewInvestigationAuthorizationDescriptorCanonicalJson:
+            canonicalJson(reviewer.investigationGrant.descriptor),
+        },
+        requirement,
+      );
+    }
+  } catch {
+    return false;
+  }
   const canonical =
     authorization.reviewInvestigationAuthorizationDescriptorCanonicalJson;
   if (canonical === null) return false;
@@ -44,15 +89,18 @@ export function hasAuthorizedReviewInvestigationExtension(
   ) {
     return false;
   }
+  const extension = reviewActionV2InvestigationExtensionForSchema(
+    authorization.schemaDigest,
+    value.extensionCanonicalizerDigest,
+  );
+  if (!extension) return false;
   if (
     value.authorizationDescriptorVersion === 3 &&
     value.capability === "review_investigation_v1" &&
     isSha256(value.coverageProfileHash) &&
-    value.extensionId === reviewInvestigationExtensionV1.extensionId &&
-    value.extensionSchemaDigest ===
-      reviewInvestigationExtensionV1.schemaDigest &&
-    value.extensionCanonicalizerDigest ===
-      reviewInvestigationExtensionV1.canonicalizerDigest &&
+    value.extensionId === extension.extensionId &&
+    value.extensionSchemaDigest === extension.schemaDigest &&
+    value.extensionCanonicalizerDigest === extension.canonicalizerDigest &&
     isSha256(value.policyHash)
   ) {
     const providerCapabilities = validatedProviderCapabilities(

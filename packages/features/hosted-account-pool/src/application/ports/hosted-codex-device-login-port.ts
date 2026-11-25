@@ -11,12 +11,20 @@ export type HostedCodexDeviceLoginStatus =
   | "failed"
   | "expired";
 
+export type HostedCodexDeviceReconnectTarget = {
+  readonly accountId: string;
+  readonly expectedGeneration: number;
+  readonly expectedHealthVersion: number;
+};
+
 export type HostedCodexDeviceLoginRecord = {
   readonly id: HostedDeviceLoginId;
   readonly workspaceId: WorkspaceId;
   readonly actor: string;
   readonly label: string;
   readonly priority: number;
+  /** Absent on historical/create flights. Only start may select a target. */
+  readonly reconnectTarget?: HostedCodexDeviceReconnectTarget | null;
   readonly userCode: string;
   readonly verificationUrl: string;
   readonly deviceAuthId: string | null;
@@ -83,6 +91,7 @@ export interface HostedCodexDeviceLoginEnrollPort {
     readonly workspaceId: string;
     readonly label: string;
     readonly priority: number;
+    readonly reconnectTarget?: HostedCodexDeviceReconnectTarget | null;
     readonly authJson: Uint8Array;
   }): Promise<void>;
 }

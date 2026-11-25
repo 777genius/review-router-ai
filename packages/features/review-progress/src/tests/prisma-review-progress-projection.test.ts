@@ -8,6 +8,8 @@ import {
   type ReviewExecution,
 } from "@reviewrouter/features-review-executions";
 import { captureReviewProgress } from "../infrastructure/prisma/prisma-review-progress-projection";
+import { progressCommentMinEditIntervalMs } from "../domain/progress-comment-cadence";
+import { computeProgressSnapshot } from "../domain/review-progress";
 
 describe("Prisma review progress projection", () => {
   it("fails before projection writes when the scope row was not locked", async () => {
@@ -47,6 +49,84 @@ describe("Prisma review progress projection", () => {
     expect(fixture.upsertProgress).not.toHaveBeenCalled();
   });
 
+  it("captures v2 lifecycle work without inflating file coverage", async () => {
+    const current = execution();
+    const verifier = {
+      ...current.workSlots[0]!,
+      workSlotId: "slot-verifier",
+      taskKind: ReviewTaskKind.LifecycleRevalidation,
+      required: false,
+    };
+    const fixture = transactionFixture({
+      assignmentManifestVersion: 2,
+      assignmentManifestJson: lifecycleManifest(),
+    });
+
+    await captureReviewProgress(
+      fixture.transaction,
+      execution({ workSlots: [...current.workSlots, verifier] }),
+      { fileCoverageEnabled: true },
+    );
+
+    expect(fixture.upsertProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          snapshotJson: expect.objectContaining({
+            counts: expect.objectContaining({
+              total: 2,
+              requiredTotal: 1,
+              optionalTotal: 1,
+            }),
+            fileCoverage: {
+              valid: true,
+              total: 1,
+              covered: 0,
+              uncovered: 0,
+              excluded: 0,
+            },
+          }),
+        }),
+      }),
+    );
+    expect(fixture.createPublication).toHaveBeenCalledOnce();
+  });
+
+  it.each([2, 3])(
+    "rejects stored version %s when it disagrees with the v1 body",
+    async (storedVersion) => {
+      const fixture = transactionFixture({
+        assignmentManifestVersion: storedVersion,
+        assignmentManifestJson: fileManifest(),
+      });
+      await expect(
+        captureReviewProgress(fixture.transaction, execution()),
+      ).rejects.toThrow("review_assignment_manifest_persisted_invalid");
+      expect(fixture.upsertProgress).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves v1 file coverage capture", async () => {
+    const fixture = transactionFixture({
+      assignmentManifestVersion: 1,
+      assignmentManifestJson: fileManifest(),
+    });
+    await captureReviewProgress(fixture.transaction, execution(), {
+      fileCoverageEnabled: true,
+    });
+    expect(fixture.upsertProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          snapshotHash:
+            "aa6d4b61ca115effd4f9167cc06f780aca1e1da505c6a988952f034612498ce0",
+          eligibleFileCount: 1,
+          coveredFileCount: 0,
+          uncoveredFileCount: 0,
+          excludedFileCount: 0,
+        }),
+      }),
+    );
+  });
+
   it("rejects a malformed persisted progress snapshot with a stable error", async () => {
     const fixture = transactionFixture({
       existingProgress: {
@@ -80,6 +160,87 @@ describe("Prisma review progress projection", () => {
           desiredVersion: 5n,
           failureCount: 0,
           lastErrorCode: null,
+        }),
+      }),
+    );
+  });
+
+  const lastPublishedAt = new Date("2026-08-12T11:59:30.000Z");
+  const pendingPhaseChangeAt = new Date("2026-08-12T11:59:50.000Z");
+  it.each([
+    {
+      name: "holds a same-phase update for the minimum edit interval",
+      previousPhase: "reviewing" as const,
+      publishedVersion: 4n,
+      expected: new Date(
+        lastPublishedAt.getTime() + progressCommentMinEditIntervalMs,
+      ),
+    },
+    {
+      name: "publishes a phase change at once",
+      previousPhase: "preparing" as const,
+      publishedVersion: 4n,
+      expected: execution().updatedAt,
+    },
+    {
+      name: "publishes a new review taking over the pull request at once",
+      previousPhase: null,
+      publishedVersion: 4n,
+      expected: execution().updatedAt,
+    },
+    {
+      name: "keeps an unpublished phase change due when counts move after it",
+      previousPhase: "reviewing" as const,
+      publishedVersion: 3n,
+      expected: pendingPhaseChangeAt,
+    },
+  ])("$name", async ({ previousPhase, publishedVersion, expected }) => {
+    const fixture = transactionFixture({
+      existingProgress:
+        previousPhase === null
+          ? null
+          : {
+              sourceExecutionVersion: 0n,
+              snapshotHash: "a".repeat(64),
+              desiredVersion: 4n,
+              snapshotJson: computeProgressSnapshot({
+                generation: 1,
+                sourceIdentity: {
+                  sourceRunId: "700001",
+                  sourceRunAttempt: "1",
+                },
+                phase: previousPhase,
+                terminal: "none",
+                updatedAt: "2026-08-12T11:59:00.000Z",
+                slots: [{ slotId: "slot-1", required: true, state: "pending" }],
+              }),
+            },
+      publication: {
+        activeGeneration: 1n,
+        desiredVersion: 4n,
+        publishedVersion,
+        nextPublishAt: pendingPhaseChangeAt,
+        lastPublishedAt,
+      },
+    });
+
+    await captureReviewProgress(
+      fixture.transaction,
+      execution({
+        version: 2n,
+        workSlots: [
+          {
+            ...execution().workSlots[0]!,
+            state: ReviewWorkSlotState.Leased,
+          },
+        ],
+      }),
+    );
+
+    expect(fixture.updatePublication).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          nextPublishAt: expected,
         }),
       }),
     );
@@ -213,5 +374,82 @@ function execution(overrides: Partial<ReviewExecution> = {}): ReviewExecution {
     executionDeadlineAt: new Date(now.getTime() + 120_000),
     retainUntil: new Date(now.getTime() + 86_400_000),
     ...overrides,
+  };
+}
+
+function fileManifest() {
+  return {
+    manifestVersion: 1,
+    assignments: [{ workSlotId: "slot-1", paths: ["src/a.ts"] }],
+    eligiblePaths: ["src/a.ts"],
+    uncoveredPaths: [],
+    excludedPaths: [],
+  };
+}
+
+function testHash(value: string) {
+  return value.repeat(64);
+}
+
+function lifecycleManifest() {
+  return {
+    manifestVersion: 2,
+    assignments: [
+      { workSlotId: "slot-1", paths: ["src/a.ts"] },
+      { workSlotId: "slot-verifier", paths: [] as string[] },
+    ],
+    eligiblePaths: ["src/a.ts"],
+    uncoveredPaths: [],
+    excludedPaths: [],
+    lifecyclePlan: {
+      version: 1,
+      capabilityHash: testHash("a"),
+      descriptorDigest: `sha256:${testHash("b")}`,
+      policyDigest: testHash("c"),
+      inventoryHash: testHash("d"),
+      inventoryCount: 1,
+      dispositionCounts: {
+        eligible: 1,
+        manual: 0,
+        unsupported: 0,
+        capped: 0,
+        unavailable: 0,
+        resolved: 0,
+      },
+      participantRoster: [{ providerVoteIdentityHash: testHash("c") }],
+      targets: [
+        {
+          targetId: "target-1",
+          threadId: "thread-1",
+          fingerprint: "rrl_" + "f".repeat(32),
+          parentId: "parent-1",
+          parentCreatedAt: "2026-10-20T00:00:00.000Z",
+          parentUpdatedAt: "2026-10-20T00:00:00.000Z",
+          parentBodyHash: testHash("a"),
+          claimHash: testHash("b"),
+          commentStateHash: testHash("c"),
+          ledgerWatermark: "0",
+          originalPath: "src/outside-diff.ts",
+          currentPath: "src/outside-diff.ts",
+          originalLine: 1,
+          currentLine: 1,
+          severity: "major",
+          resolutionHistory: {
+            historyCut: "2026-10-19T00:00:00.000Z",
+            guardVersion: "0",
+            state: "before_cut_unobserved",
+          },
+        },
+      ],
+      assignments: [
+        {
+          workSlotId: "slot-verifier",
+          packetHash: testHash("e"),
+          targetIds: ["target-1"],
+          lifecycleTargetSetHash: testHash("f"),
+          liveLifecycleStateHash: testHash("a"),
+        },
+      ],
+    },
   };
 }

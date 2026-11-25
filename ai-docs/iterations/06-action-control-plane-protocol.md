@@ -2,7 +2,7 @@
 
 ## Goal
 
-Allow ReviewRouter Action running in customer CI to fetch current SaaS-managed config and report safe health metadata without storing a SaaS token or sending code/diff.
+Allow ReviewRouter Action running in customer CI to fetch current control plane-managed config and report safe health metadata without storing a control plane token or sending code/diff.
 
 ## Scope
 
@@ -17,7 +17,7 @@ Allow ReviewRouter Action running in customer CI to fetch current SaaS-managed c
 - legacy unversioned aliases retained during local beta Action runtime migration
 - server-side code/diff/secret-looking payload rejection
 - generated workflow includes `id-token: write`
-- static config fallback when OIDC/SaaS unavailable
+- static config fallback when OIDC/control plane unavailable
 
 ## Security Boundary
 
@@ -49,7 +49,7 @@ Forbidden:
 - unselected repo rejected
 - health report rejects code/diff-like and secret-looking payloads
 - oversized health report rejected
-- action can fall back to static config when OIDC/SaaS unavailable
+- action can fall back to static config when OIDC/control plane unavailable
 
 ## Done When
 

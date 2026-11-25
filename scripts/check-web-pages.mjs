@@ -2,6 +2,8 @@
 /* global fetch */
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
+import { hasH1Text } from "./lib/server-rendered-heading.ts";
+import { isGitHubAuthConfigured } from "../apps/web/src/auth/auth-env.ts";
 
 const repoCodexCommandFragment =
   "Copy and run the complete command generated there";
@@ -10,25 +12,21 @@ const setupNonceFragment = "short-lived setup nonce";
 const gettingStartedNamespaceFragment = "Server-issued versioned namespace";
 const securityNamespaceFragment = "server-issued versioned namespace";
 const commonTexts = ["ReviewRouter", "Security", "Support"];
-const landingHeroText = "Free privacy-first";
+const landingHeroText = "Full control and security";
+// Signed-out dashboard visits stream a redirect to the landing page.
+const signedOutHomeRedirect = "NEXT_REDIRECT;replace;/;307;";
+const githubSignInText = isGitHubAuthConfigured(process.env)
+  ? "Continue with GitHub"
+  : "GitHub sign-in unavailable";
 
 const pages = [
   [
     "/",
-    [
-      landingHeroText,
-      "AI code review",
-      "that stays inside your CI",
-      "Install GitHub App",
-    ],
+    [landingHeroText, "AI code review", "OpenCodeReview", "Install GitHub App"],
   ],
   [
     "/auth/signin",
-    [
-      "Sign in to ReviewRouter",
-      "Continue with GitHub",
-      "No secrets stored here",
-    ],
+    ["Sign in to ReviewRouter", githubSignInText, "No secrets stored here"],
   ],
   [
     "/auth/signin?error=OAuthCallback",
@@ -57,7 +55,7 @@ const pages = [
   ["/disconnect", ["Disconnect"]],
   ["/privacy", ["Privacy"]],
   ["/terms", ["Terms"]],
-  ["/support", ["Trusted beta support"]],
+  ["/support", ["Get help with ReviewRouter", "support@reviewrouter.org"]],
 ];
 
 const rotatingActionRef =
@@ -92,6 +90,8 @@ const child = spawn(
     "exec",
     "next",
     "start",
+    "--hostname",
+    "127.0.0.1",
     "-p",
     String(port),
   ],
@@ -122,7 +122,11 @@ const waitForServer = async () => {
     }
 
     try {
-      const response = await fetch(baseUrl);
+      const response = await fetch(baseUrl, {
+        signal: globalThis.AbortSignal.timeout(
+          Math.max(1, deadline - Date.now()),
+        ),
+      });
       if (response.ok) return;
     } catch {
       // Server is still starting.
@@ -145,6 +149,47 @@ try {
     }
 
     const html = await response.text();
+    if (path === "/") {
+      const discoveryLinks = html.match(/<link\b[^>]*>/gi) ?? [];
+      const hasCoveringFile = discoveryLinks.some((tag) => {
+        const coversSite = /\brel="describedby"/.test(tag);
+        const pointsToLlmsTxt = /\bhref="\/llms\.txt"/.test(tag);
+        return coversSite && pointsToLlmsTxt;
+      });
+      if (!hasCoveringFile) {
+        await fail("home missing llms.txt v2 describedby link");
+      }
+    }
+    if (path === "/") {
+      // Verify the price on the actual free WebApplication, not an unrelated
+      // JSON-LD object or an arbitrary HTML substring.
+      const schemaNodes = [
+        ...html.matchAll(
+          /<script\b[^>]*\btype=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
+        ),
+      ].flatMap(([, json]) => {
+        const schema = JSON.parse(json);
+        return Array.isArray(schema?.["@graph"]) ? schema["@graph"] : [schema];
+      });
+      const freeControlPlanes = schemaNodes.filter(
+        (node) =>
+          node &&
+          typeof node === "object" &&
+          node["@type"] === "WebApplication" &&
+          typeof node["@id"] === "string" &&
+          node["@id"].endsWith("/#free-ci-control-plane"),
+      );
+      if (
+        freeControlPlanes.length !== 1 ||
+        freeControlPlanes[0].offers?.["@type"] !== "Offer" ||
+        freeControlPlanes[0].offers?.price !== "0" ||
+        freeControlPlanes[0].offers?.priceCurrency !== "USD"
+      ) {
+        await fail(
+          "home missing the current free CI control-plane structured offer",
+        );
+      }
+    }
     if (
       path === "/getting-started" &&
       (html.includes("curl -fsSL ") || html.includes("curl -q -fsSL "))
@@ -161,8 +206,63 @@ try {
       }
     }
     for (const expectedText of expectedTexts) {
-      if (!html.includes(expectedText)) {
+      const found =
+        path === "/auth/signin" && expectedText === "Sign in to ReviewRouter"
+          ? hasH1Text(html, expectedText)
+          : html.includes(expectedText);
+      if (!found) {
         await fail(`${path} did not include expected text: ${expectedText}`);
+      }
+    }
+  }
+
+  // Assert the published static discovery routes are actually served as text.
+  const discoveryResources = [
+    {
+      path: "/llms.txt",
+      required: [
+        "# ReviewRouter",
+        "openapi.json",
+        "auth.md",
+        "not a general agent action API",
+      ],
+    },
+    {
+      path: "/auth.md",
+      required: [
+        "# ReviewRouter authentication",
+        "GitHub",
+        "OAuth",
+        "no public general-purpose agent OAuth",
+      ],
+    },
+    {
+      path: "/agents.md",
+      required: [
+        "# How AI assistants",
+        "setup PR",
+        "not available for purchase",
+      ],
+    },
+  ];
+  for (const { path, required } of discoveryResources) {
+    const response = await fetch(`${baseUrl}${path}`, {
+      headers: { accept: "text/plain" },
+      redirect: "manual",
+    });
+    if (response.status !== 200)
+      await fail(`${path} returned HTTP ${response.status}`);
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.startsWith("text/") || contentType.includes("html")) {
+      await fail(`${path} must return plain text/Markdown, got ${contentType}`);
+    }
+    const content = await response.text();
+    if (content.toLowerCase().includes("<!doctype html")) {
+      await fail(`${path} returned HTML`);
+    }
+    for (const expected of required) {
+      if (!content.includes(expected)) {
+        await fail(`${path} missing required guidance: ${expected}`);
       }
     }
   }
@@ -193,6 +293,9 @@ try {
         "Finish ReviewRouter setup",
         "Manage repository review rollout",
         "ReviewRouter is a metadata control plane",
+        signedOutHomeRedirect,
+        // Signed-out visitors are handed off to /setup with the install query.
+        "NEXT_REDIRECT;replace;/setup?installation_id=123",
       ],
       "dashboard post-install should render landing, setup handoff, dashboard, or signed-out metadata shell",
     );
@@ -229,15 +332,34 @@ try {
     }
   } else if (dashboardCleanResponse.ok) {
     const dashboardCleanHtml = await dashboardCleanResponse.text();
-    assertIncludesAny(
-      dashboardCleanHtml,
-      [
-        landingHeroText,
-        "Manage repository review rollout",
-        "ReviewRouter is a metadata control plane",
-      ],
-      "stale install query should render landing, dashboard, or signed-out metadata shell",
-    );
+    // Streamed pages carry the redirect in an RSC template instead of a
+    // Location header: it must stay on the dashboard and drop the install id.
+    const dashboardCleanRedirect = dashboardCleanHtml.match(
+      /NEXT_REDIRECT;replace;(\/dashboard\?[^"]*?);30\d;/,
+    )?.[1];
+    if (dashboardCleanRedirect !== undefined) {
+      assertIncludes(
+        dashboardCleanRedirect,
+        "workspace=777genius",
+        "stale install query should preserve workspace",
+      );
+      assertNotIncludes(
+        dashboardCleanRedirect,
+        "installation_id=",
+        "stale install query should drop installation_id",
+      );
+    } else {
+      assertIncludesAny(
+        dashboardCleanHtml,
+        [
+          landingHeroText,
+          "Manage repository review rollout",
+          "ReviewRouter is a metadata control plane",
+          signedOutHomeRedirect,
+        ],
+        "stale install query should render landing, dashboard, or signed-out metadata shell",
+      );
+    }
     assertNotIncludes(
       dashboardCleanHtml,
       "This page couldn",
@@ -350,6 +472,7 @@ try {
       landingHeroText,
       "Manage repository review rollout",
       "ReviewRouter is a metadata control plane",
+      signedOutHomeRedirect,
     ],
     "dashboard setup PR notice should render landing or dashboard",
   );
@@ -374,6 +497,7 @@ try {
       landingHeroText,
       "Manage repository review rollout",
       "ReviewRouter is a metadata control plane",
+      signedOutHomeRedirect,
     ],
     "dashboard sync notice should render landing or dashboard",
   );

@@ -26,6 +26,15 @@ export interface ResolvedSdkGrowthExecution {
   readonly verifierRevision: string;
   readonly sourceCommit: string;
   readonly sourceTree: string;
+  /** Independently captured exact PR head; never supplied by candidate JSON. */
+  readonly pullRequest: number;
+  readonly headRepositoryId: string;
+  readonly baseRepositoryId: string;
+  readonly baseRef: string;
+  readonly baseCommit: string;
+  readonly baseTree: string;
+  readonly mergeBaseCommit: string;
+  readonly mergeBaseTree: string;
 }
 
 export interface SdkGrowthExecutionResolverPort {
@@ -37,7 +46,29 @@ export interface SdkGrowthExecutionResolverPort {
     readonly runId: string;
     readonly runAttempt: string;
     readonly verifierRevision: string;
+    readonly pullRequest: number;
+    readonly workflowRef: string;
   }): Promise<ResolvedSdkGrowthExecution | null>;
+  /** Historical bridge-v1 run SHA/tree, for authenticated GET readback only. */
+  resolveHistorical?(input: {
+    readonly installationId: string;
+    readonly githubRepositoryId: string;
+    readonly repositoryFullName: string;
+    readonly runId: string;
+    readonly runAttempt: string;
+    readonly verifierRevision: string;
+    readonly pullRequest: number;
+    readonly workflowRef: string;
+  }): Promise<Pick<
+    ResolvedSdkGrowthExecution,
+    | "installationId"
+    | "runId"
+    | "runAttempt"
+    | "verifierRevision"
+    | "pullRequest"
+    | "sourceCommit"
+    | "sourceTree"
+  > | null>;
 }
 
 export interface SdkGrowthRequestAuthenticationPort {
@@ -45,6 +76,13 @@ export interface SdkGrowthRequestAuthenticationPort {
     request: FastifyRequest,
     route: { readonly repositoryId: string; readonly pullRequest: number },
   ): Promise<AuthenticatedEfExecution>;
+  authenticateReadback?(
+    request: FastifyRequest,
+    route: { readonly repositoryId: string; readonly pullRequest: number },
+  ): Promise<{
+    current: AuthenticatedEfExecution | null;
+    historical: (() => Promise<AuthenticatedEfExecution | null>) | null;
+  }>;
 }
 
 export class SdkGrowthOidcAuthentication implements SdkGrowthRequestAuthenticationPort {
@@ -63,6 +101,29 @@ export class SdkGrowthOidcAuthentication implements SdkGrowthRequestAuthenticati
     request: FastifyRequest,
     route: { readonly repositoryId: string; readonly pullRequest: number },
   ): Promise<AuthenticatedEfExecution> {
+    const { current } = await this.resolveAuthenticated(request, route, false);
+    if (!current) throw new AuthorityError("wrong-identity");
+    return current;
+  }
+
+  async authenticateReadback(
+    request: FastifyRequest,
+    route: { readonly repositoryId: string; readonly pullRequest: number },
+  ): Promise<{
+    current: AuthenticatedEfExecution | null;
+    historical: (() => Promise<AuthenticatedEfExecution | null>) | null;
+  }> {
+    return this.resolveAuthenticated(request, route, true);
+  }
+
+  private async resolveAuthenticated(
+    request: FastifyRequest,
+    route: { readonly repositoryId: string; readonly pullRequest: number },
+    readback: boolean,
+  ): Promise<{
+    current: AuthenticatedEfExecution | null;
+    historical: (() => Promise<AuthenticatedEfExecution | null>) | null;
+  }> {
     const authorization = request.headers.authorization;
     if (!authorization?.startsWith("Bearer ") || authorization.length > 16_384)
       throw new AuthorityError("wrong-identity");
@@ -90,22 +151,42 @@ export class SdkGrowthOidcAuthentication implements SdkGrowthRequestAuthenticati
       repository.fullName.toLowerCase() !== claims.repository.toLowerCase()
     )
       throw new AuthorityError("wrong-identity");
+    if (
+      claims.event_name !== "pull_request" ||
+      claims.sub !== `repo:${repository.fullName}:pull_request` ||
+      claims.ref !== `refs/pull/${route.pullRequest}/merge` ||
+      (!readback && !claims.job_workflow_sha)
+    )
+      throw new AuthorityError("wrong-identity");
     const claimRevision = verifierRevision(claims);
-    const resolved = await this.executions.resolve({
+    const resolverInput = {
       installationId: repository.githubInstallationId,
       githubRepositoryId: repository.githubRepositoryId,
       repositoryFullName: repository.fullName,
       runId: claims.run_id,
       runAttempt: claims.run_attempt,
       verifierRevision: claimRevision,
-    });
+      pullRequest: route.pullRequest,
+      workflowRef: claims.workflow_ref,
+    };
+    const resolved = claims.job_workflow_sha
+      ? await this.executions.resolve(resolverInput)
+      : null;
     if (
-      !resolved ||
-      resolved.installationId !== repository.githubInstallationId ||
-      resolved.runId !== claims.run_id ||
-      resolved.runAttempt !== claims.run_attempt ||
-      resolved.verifierRevision !== claimRevision
+      resolved &&
+      (resolved.installationId !== repository.githubInstallationId ||
+        resolved.runId !== claims.run_id ||
+        resolved.runAttempt !== claims.run_attempt ||
+        resolved.verifierRevision !== claimRevision ||
+        resolved.pullRequest !== route.pullRequest ||
+        resolved.baseRepositoryId !== repository.githubRepositoryId ||
+        resolved.headRepositoryId !== repository.githubRepositoryId)
     )
+      throw new AuthorityError("wrong-identity");
+    const historicalResolver = readback
+      ? this.executions.resolveHistorical
+      : undefined;
+    if (!resolved && !historicalResolver)
       throw new AuthorityError("wrong-identity");
     const consumed = await this.replayNonces.tryConsumeNonce({
       key: buildActionOidcReplayNonceKey(claims),
@@ -116,18 +197,56 @@ export class SdkGrowthOidcAuthentication implements SdkGrowthRequestAuthenticati
       now: this.now(),
     });
     if (!consumed) throw new AuthorityError("wrong-identity");
-    return {
+    const identity = {
       tenantId: repository.workspaceId,
       repositoryId: repository.repositoryId,
       pullRequest: route.pullRequest,
       githubRepositoryId: repository.githubRepositoryId,
-      installationId: resolved.installationId,
+      installationId: repository.githubInstallationId,
       subject: claims.sub,
-      runId: resolved.runId,
-      runAttempt: resolved.runAttempt,
-      verifierRevision: resolved.verifierRevision,
-      sourceCommit: lowerCommit(resolved.sourceCommit),
-      sourceTree: lowerCommit(resolved.sourceTree),
+      runId: claims.run_id,
+      runAttempt: claims.run_attempt,
+      verifierRevision: claimRevision,
+    };
+    return {
+      current: resolved
+        ? {
+            ...identity,
+            sourceCommit: lowerCommit(resolved.sourceCommit),
+            sourceTree: lowerCommit(resolved.sourceTree),
+            sourceBinding: {
+              headRepositoryId: resolved.headRepositoryId,
+              baseRepositoryId: resolved.baseRepositoryId,
+              baseRef: resolved.baseRef,
+              baseCommit: lowerCommit(resolved.baseCommit),
+              baseTree: lowerCommit(resolved.baseTree),
+              mergeBaseCommit: lowerCommit(resolved.mergeBaseCommit),
+              mergeBaseTree: lowerCommit(resolved.mergeBaseTree),
+            },
+          }
+        : null,
+      historical: historicalResolver
+        ? async () => {
+            const legacy = await historicalResolver.call(
+              this.executions,
+              resolverInput,
+            );
+            if (!legacy) return null;
+            if (
+              legacy.installationId !== repository.githubInstallationId ||
+              legacy.runId !== claims.run_id ||
+              legacy.runAttempt !== claims.run_attempt ||
+              legacy.verifierRevision !== claimRevision ||
+              legacy.pullRequest !== route.pullRequest
+            )
+              throw new AuthorityError("wrong-identity");
+            return {
+              ...identity,
+              sourceCommit: lowerCommit(legacy.sourceCommit),
+              sourceTree: lowerCommit(legacy.sourceTree),
+            };
+          }
+        : null,
     };
   }
 }
@@ -203,27 +322,48 @@ async function authenticate(
   try {
     return await authentication.authenticate(request, route);
   } catch (error) {
-    if (
-      error instanceof AuthorityError ||
-      error instanceof AuthenticationFailure
-    )
-      throw error;
-    // Credential failures are distinct from repository, nonce-store, provider,
-    // and JWKS availability failures during authentication.
-    const code = (error as { code?: unknown } | null)?.code;
-    if (
-      [
-        "ERR_JWT_EXPIRED",
-        "ERR_JWT_CLAIM_VALIDATION_FAILED",
-        "ERR_JWT_INVALID",
-        "ERR_JWS_INVALID",
-        "ERR_JWS_SIGNATURE_VERIFICATION_FAILED",
-        "ERR_JOSE_ALG_NOT_ALLOWED",
-      ].includes(String(code))
-    )
-      throw new AuthenticationFailure();
-    throw error;
+    throw authenticationError(error);
   }
+}
+
+async function authenticateReadback(
+  authentication: SdkGrowthRequestAuthenticationPort,
+  request: FastifyRequest,
+  route: { repositoryId: string; pullRequest: number },
+): Promise<{
+  current: AuthenticatedEfExecution | null;
+  historical: (() => Promise<AuthenticatedEfExecution | null>) | null;
+}> {
+  if (!authentication.authenticateReadback)
+    return {
+      current: await authenticate(authentication, request, route),
+      historical: null,
+    };
+  try {
+    return await authentication.authenticateReadback(request, route);
+  } catch (error) {
+    throw authenticationError(error);
+  }
+}
+
+function authenticationError(error: unknown): unknown {
+  if (error instanceof AuthorityError || error instanceof AuthenticationFailure)
+    return error;
+  // Credential failures are distinct from repository, nonce-store, provider,
+  // and JWKS availability failures during authentication.
+  const code = (error as { code?: unknown } | null)?.code;
+  if (
+    [
+      "ERR_JWT_EXPIRED",
+      "ERR_JWT_CLAIM_VALIDATION_FAILED",
+      "ERR_JWT_INVALID",
+      "ERR_JWS_INVALID",
+      "ERR_JWS_SIGNATURE_VERIFICATION_FAILED",
+      "ERR_JOSE_ALG_NOT_ALLOWED",
+    ].includes(String(code))
+  )
+    return new AuthenticationFailure();
+  return error;
 }
 
 function status(error: unknown): number {
@@ -300,18 +440,30 @@ export async function registerSdkGrowthAuthorityRoutes(
       const value = await handled(reply, async (serviceStarted) => {
         const route = scope(request);
         const requestDigest = digestParameter(request.params.requestDigest);
-        const execution = await authenticate(
+        const executions = await authenticateReadback(
           dependencies.authentication,
           request,
           route,
         );
         serviceStarted();
-        return dependencies.service.admissionReadback(
-          execution,
-          route.repositoryId,
-          route.pullRequest,
-          requestDigest,
-        );
+        const current = executions.current
+          ? await dependencies.service.admissionReadback(
+              executions.current,
+              route.repositoryId,
+              route.pullRequest,
+              requestDigest,
+            )
+          : null;
+        if (current !== null) return current;
+        const historical = await executions.historical?.();
+        return historical
+          ? dependencies.service.admissionReadback(
+              historical,
+              route.repositoryId,
+              route.pullRequest,
+              requestDigest,
+            )
+          : null;
       });
       if (value === null) return reply.code(404).send({ error: "not-found" });
       if (value) return sendWire(reply, value);
@@ -352,19 +504,32 @@ export async function registerSdkGrowthAuthorityRoutes(
         const completionDigest = digestParameter(
           request.query.completionDigest,
         );
-        const execution = await authenticate(
+        const executions = await authenticateReadback(
           dependencies.authentication,
           request,
           route,
         );
         serviceStarted();
-        return dependencies.service.completionReadback(
-          execution,
-          route.repositoryId,
-          route.pullRequest,
-          requestDigest,
-          completionDigest,
-        );
+        const current = executions.current
+          ? await dependencies.service.completionReadback(
+              executions.current,
+              route.repositoryId,
+              route.pullRequest,
+              requestDigest,
+              completionDigest,
+            )
+          : null;
+        if (current !== null) return current;
+        const historical = await executions.historical?.();
+        return historical
+          ? dependencies.service.completionReadback(
+              historical,
+              route.repositoryId,
+              route.pullRequest,
+              requestDigest,
+              completionDigest,
+            )
+          : null;
       });
       if (value === null) return reply.code(404).send({ error: "not-found" });
       if (value) return sendWire(reply, value);
@@ -376,18 +541,30 @@ export async function registerSdkGrowthAuthorityRoutes(
       const value = await handled(reply, async (serviceStarted) => {
         const route = scope(request);
         const requestDigest = digestParameter(request.query.requestDigest);
-        const execution = await authenticate(
+        const executions = await authenticateReadback(
           dependencies.authentication,
           request,
           route,
         );
         serviceStarted();
-        return dependencies.service.status(
-          execution,
-          route.repositoryId,
-          route.pullRequest,
-          requestDigest,
-        );
+        const current = executions.current
+          ? await dependencies.service.status(
+              executions.current,
+              route.repositoryId,
+              route.pullRequest,
+              requestDigest,
+            )
+          : null;
+        if (current !== null) return current;
+        const historical = await executions.historical?.();
+        return historical
+          ? dependencies.service.historicalStatus(
+              historical,
+              route.repositoryId,
+              route.pullRequest,
+              requestDigest,
+            )
+          : null;
       });
       if (value === null) return reply.code(404).send({ error: "not-found" });
       if (value)

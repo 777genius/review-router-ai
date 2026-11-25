@@ -1,0 +1,48 @@
+{
+  "kind": "private-release227-publication/v1",
+  "status": "PUBLISHED_NOT_FLEET_DEPLOYED",
+  "source": "dbc161c9865f88e9cf60c8ad21b2814ecec8eec2",
+  "publishedAt": "2026-11-03T11:26:42Z",
+  "releaseUrl": "https://github.com/777genius/review-router-ai/releases/tag/v1.0.227",
+  "workflow": {
+    "runId": 41623082062,
+    "attempt": 1,
+    "conclusion": "success",
+    "url": "https://github.com/777genius/review-router-ai/actions/runs/41623082062"
+  },
+  "refs": {
+    "v1.0.227": "dbc161c9865f88e9cf60c8ad21b2814ecec8eec2",
+    "v1": "dbc161c9865f88e9cf60c8ad21b2814ecec8eec2"
+  },
+  "identityArtifact": {
+    "id": 13225782786,
+    "name": "hosted-runtime-image-v1.0.227",
+    "digest": "sha256:44b7391dee409f3c5e72a52b2eb9448c121e2cdc5a56a6d5c88215dda35db0af",
+    "expired": false
+  },
+  "hostedRuntimeImage": {
+    "schemaVersion": "reviewrouter.hosted-runtime-image.v1",
+    "repository": "777genius/review-router-ai",
+    "commit": "dbc161c9865f88e9cf60c8ad21b2814ecec8eec2",
+    "imageUrl": "ghcr.io/777genius/review-router-saas-runtime@sha256:89a28e11e9c3191b1160abd1fbdd12b1cdadcd3f820e75e52a3ea617f5a3947a",
+    "imageDigest": "sha256:89a28e11e9c3191b1160abd1fbdd12b1cdadcd3f820e75e52a3ea617f5a3947a"
+  },
+  "sourceReceiptsSha256": {
+    "actual-release-receipt.json": "eab5e1ae6064ca39b9a83970c5cee3207b3def2e68377dd8cc25014ac1da2d74",
+    "hosted-runtime-image.json": "a8f5032acf3171494e354cb8711b8f396b8426049f4c029cde4ee743096ce915"
+  },
+  "installedFleet": {
+    "release": "v1.0.226",
+    "source": "6e6a0f07829c465202512f87fb6a3195412ca347",
+    "producerAndWorkflowChannel": "fa3e87a71f500f63f9ef64bcbc63f640c4e4d7f8"
+  },
+  "fleetDeployed": false,
+  "producerAdoptionComplete": false,
+  "workflowChannelPromoted": false,
+  "memoryQualified": false,
+  "oneTurnMemoryCandidateIncluded": false,
+  "independentRuntimeProvenanceVerifierClaimed": false,
+  "imagePullClaimed": false,
+  "nativeOrDatabaseChangeClaimed": false,
+  "memoryDeploymentDeferred": true
+}

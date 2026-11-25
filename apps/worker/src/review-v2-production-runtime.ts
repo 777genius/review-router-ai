@@ -1,11 +1,14 @@
+import { createWorkerPublicationLifecyclePort } from "./review-v2-publication-lifecycle";
+import type { HistoryCapture } from "@reviewrouter/features-review-history/composition";
+import { createReviewRequestedDispatchCleanupHandler } from "./review-v2-dispatch-cleanup-handler";
+import { PrismaWorkspaceReviewSettings } from "@reviewrouter/features-review-config/composition";
 import { assertUnreservedCheckIdentity } from "@reviewrouter/features-sdk-growth-authority";
 import { createHash, randomUUID } from "node:crypto";
 import { hostname } from "node:os";
-import { App } from "@octokit/app";
+import { createProgressInstallationRequester } from "./review-progress-installation-requester";
 import {
   HmacActionLedgerKey,
   PrismaActionControlPlaneRepository,
-  managedCodexWorkflowPath,
 } from "@reviewrouter/features-action-control-plane";
 import {
   ReviewCoverageState,
@@ -24,6 +27,7 @@ import {
 import { PrismaReviewObservationStore } from "@reviewrouter/features-review-evidence/composition";
 import { PrismaInvestigationStore } from "@reviewrouter/features-review-investigations/composition";
 import { ResolveInvestigationRollout } from "@reviewrouter/features-review-investigation-operations";
+import type { Logger } from "@reviewrouter/platform-logger";
 import {
   EnvironmentInvestigationRolloutPolicyQuery,
   RunControlInvestigationEmergencyStopQuery,
@@ -33,12 +37,17 @@ import {
   PrismaReviewExecutionStore,
   PrismaReviewRequestedIntentStore,
 } from "@reviewrouter/features-review-executions/composition";
-import { createPrismaReviewProgressCapture } from "@reviewrouter/features-review-progress/composition";
+import {
+  createConfiguredReviewProgressCapture,
+  readReviewProgressSettings,
+  type ReviewProgressSettings,
+} from "@reviewrouter/features-review-progress/composition";
 import {
   ReviewCompletionSchedulerMode,
   PrismaReviewCompletionProcessRepository,
   PrismaReviewCompletionRecoveryFeed,
   composeReviewCompletionProcesses,
+  type ReviewCompletionSettlementHook,
 } from "@reviewrouter/features-review-processes/composition";
 import {
   CurrentMutationAuthorityStatus,
@@ -50,14 +59,12 @@ import {
   ReviewPublicationCapability,
   ReviewPublicationEffectStrategy,
   ReviewPublicationOperationPlanningService,
-  ReviewPublicationLifecycleExpectationStatus,
   ReviewPublicationRunControlStatus,
   ReviewPublicationTerminalOutcome,
-  ResolveCurrentPublicationLifecycle,
   effectiveReviewPublicationOutcome,
-  reviewPublicationLifecycleExpectationFromProjection,
   type LiveReviewPublicationLifecyclePort,
   type ReviewPublicationAttemptQueryPort,
+  type ReviewPublicationResolutionHistoryPort,
   type ReviewPublicationAdjudicationEvidencePort,
   type ReviewPublicationDecisionPorts,
   type ReviewPublicationPermitIdentity,
@@ -69,6 +76,9 @@ import {
   HmacReviewCommandLedgerVerifier,
   OctokitGitHubInstallationGraphqlClientFactory,
   PrismaReviewPublicationRepository,
+  PrismaReviewPublicationWorkFeed,
+  PrismaReviewThreadResolutionHistory,
+  createPrismaResolutionWriterQualification,
   createReviewPublicationV2Application,
   resolveReviewCommandLedgerHmacSecret,
   trustedReviewCommandLedgerAuthorsFromEnv,
@@ -106,13 +116,17 @@ import {
   JoseRotatingCapabilityCodec,
   type ConfiguredCapabilityVerificationKey,
 } from "@reviewrouter/platform-signed-capabilities";
-import type { SystemClock } from "@reviewrouter/shared";
+import {
+  reviewRouterWorkflowPath,
+  type SystemClock,
+} from "@reviewrouter/shared";
 import {
   DeterministicReviewPublicationRequestFactory,
   ReviewCompletionExecutionContextAdapter,
   ReviewCompletionPublicationContextAdapter,
   ReviewCompletionSnapshotContextAdapter,
   reviewPublicationReceiptSetHash,
+  reviewSnapshotSourceCoverage,
   type FinalizedArtifactIdentityQueryPort,
 } from "./review-v2-context-adapters";
 import {
@@ -121,17 +135,20 @@ import {
   RotatingReviewV2OperationCapabilityIssuer,
   SignedReviewV2OperationCapabilityVerifier,
   type ReviewV2GitHubRepositoryQueryPort,
-} from "./review-v2-publication-gateways";
-import { ExecuteReviewV2PublicationOperation } from "./review-v2-publication-executor";
+} from "@reviewrouter/features-review-publishing/v2/composition";
+import { ExecuteReviewV2PublicationOperation } from "@reviewrouter/features-review-publishing/v2";
+import {
+  ReviewV2PublicationMaintenance,
+  boundedRetryDelay,
+} from "./review-v2-publication-maintenance";
 import {
   ReviewV2PublicationCompensationDecision,
-  ReviewV2PublicationExecutionStatus,
   ReviewV2PublicationFreshnessReadStatus,
   ReviewV2ScmProvider,
   type ReviewV2PublicationCompensationPolicyPort,
   type ReviewV2PublicationFreshnessPort,
   type ReviewV2ScmLiveRevisionPort,
-} from "./review-v2-publication-ports";
+} from "@reviewrouter/features-review-publishing/v2";
 import { createProductionReviewInvestigationPublicationEffectGate } from "./review-v2-production-publication-effect-gate";
 import {
   CanonicalReviewV2ProjectionAdapter,
@@ -140,18 +157,23 @@ import {
 import {
   createReviewV2WorkerOwnerId,
   type ReviewV2CompletionRuntime,
-  type ReviewProgressSettlement,
+  type ReviewV2ExecutionRecoveryRuntime,
   type ReviewV2PublicationMaintenanceRuntime,
   type ReviewV2ProgressMaintenanceRuntime,
 } from "./review-v2-worker-runtime";
 import {
-  hostedProgressCommentWritesEnv,
   ReviewProgressPublisher,
+  type ReviewProgressInstallationRequesterFactory,
 } from "./review-progress-publisher";
+import { createReviewRequestedStartNoticeHandler } from "./review-v2-start-notice-handler";
+import { GitHubReviewRequestedStartNoticePublisher } from "./review-v2-start-notice-publisher";
 import { PrismaReviewProgressPublicationStore } from "./review-progress-store";
+import { ReviewProgressTerminalPromotion } from "./review-progress-terminal-promotion";
 import { GitHubActionsReviewRequestedDispatchGateway } from "./review-v2-intent-dispatcher";
+import { ReviewV2TerminalRunRecovery } from "./review-v2-terminal-run-recovery";
 import { GitHubReviewRequestEligibilityGateway } from "./review-v2-request-eligibility-gateway";
 import { createGitHubReviewRequestIngressHandler } from "./review-v2-github-request-ingress-handler";
+import { createWorkspaceDraftDispatchGate } from "./review-v2-draft-dispatch-gate";
 import {
   ReviewRequestIngressApplicationService,
   createReviewRequestIngressHandler,
@@ -164,6 +186,11 @@ import {
   type ContextReuseProducerReleaseQueryPort,
   type ReviewV2ContextReusePublicationGuardPort,
 } from "./review-v2-context-reuse-publication-guard";
+
+export {
+  progressOutcome,
+  publicationWorkProvider,
+} from "./review-v2-publication-maintenance";
 
 type PrismaClient = ReturnType<typeof createPrismaClient>;
 
@@ -185,39 +212,60 @@ export type ProductionReviewV2WorkerRuntime = {
       readonly failed: number;
     }>;
   };
-  readonly executionRecovery: RecoverExpiredReviewExecutions;
+  readonly executionRecovery: ReviewV2ExecutionRecoveryRuntime;
   readonly publication: ReviewV2PublicationMaintenanceRuntime;
   readonly progress?: ReviewV2ProgressMaintenanceRuntime;
   readonly ingressHandlers: readonly OutboxHandler[];
 };
 
 export function createProductionReviewV2WorkerRuntime(input: {
+  readonly historyWriter?: HistoryCapture;
   readonly prisma: PrismaClient;
   readonly clock: SystemClock;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly githubAppId: string;
   readonly githubPrivateKey: string;
+  readonly settlementHook: ReviewCompletionSettlementHook;
+  readonly logger?: Pick<Logger, "info" | "warn">;
 }): ProductionReviewV2WorkerRuntime {
   const capabilityKeyRing = readCapabilityKeyRing(input.env);
-  const executions = new PrismaReviewExecutionStore(
-    input.prisma,
-    input.env.REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE === "1"
+  const progressSettings = readReviewProgressSettings(input.env, input.logger);
+  const progressCapture =
+    createConfiguredReviewProgressCapture(progressSettings);
+  const historyWriter =
+    input.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1"
+      ? input.historyWriter
+      : undefined;
+  if (input.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1" && !historyWriter)
+    throw new Error("review_history_capture_binding_required");
+  const executions = new PrismaReviewExecutionStore(input.prisma, {
+    ...(historyWriter
       ? {
-          progressCapture: createPrismaReviewProgressCapture({
-            fileCoverageEnabled:
-              input.env.REVIEW_ROUTER_PROGRESS_FILE_COVERAGE === "1",
-          }),
+          historyCapture: (tx, execution) =>
+            historyWriter.captureExecution(tx, execution),
         }
-      : {},
-  );
-  const executionRecovery = new RecoverExpiredReviewExecutions(
+      : {}),
+    ...(progressCapture ? { progressCapture } : {}),
+  });
+  const expiredExecutionRecovery = new RecoverExpiredReviewExecutions(
     executions,
     executions,
     input.clock,
   );
   const observations = new PrismaReviewObservationStore(input.prisma);
   const investigations = new PrismaInvestigationStore(input.prisma);
-  const attempts = new PrismaReviewPublicationRepository(input.prisma);
+  const resolutionWriters = createPrismaResolutionWriterQualification({
+    prisma: input.prisma,
+    env: input.env,
+    now: () => input.clock.now(),
+  });
+  const resolutionHistory = new PrismaReviewThreadResolutionHistory(
+    input.prisma,
+  );
+  const attempts = new PrismaReviewPublicationRepository(
+    input.prisma,
+    resolutionWriters,
+  );
   const releases = new PrismaProducerReleaseRepository(input.prisma);
   const authorizations = new PrismaReviewRunAuthorizationRepository(
     input.prisma,
@@ -238,6 +286,8 @@ export function createProductionReviewV2WorkerRuntime(input: {
     ledgerHmacSecret ? new HmacActionLedgerKey(ledgerHmacSecret) : null,
   );
   const decisions = createProductionPublicationDecisions({
+    publications: attempts,
+    resolutionHistory,
     executions,
     releases,
     authorizations,
@@ -331,7 +381,17 @@ export function createProductionReviewV2WorkerRuntime(input: {
     "review_v2_completion_claim_ms_invalid",
   );
   const completion = composeReviewCompletionProcesses({
-    processes: new PrismaReviewCompletionProcessRepository(input.prisma),
+    processes: new PrismaReviewCompletionProcessRepository(
+      input.prisma,
+      input.settlementHook,
+      historyWriter
+        ? {
+            beforeMutation: (tx, id) => historyWriter.beforeCompletion(tx, id),
+            changed: (tx, next, previous) =>
+              historyWriter.captureCompletion(tx, next, previous),
+          }
+        : undefined,
+    ),
     executions: executionContext,
     publications: publicationContext,
     snapshots: snapshotContext,
@@ -358,6 +418,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
     githubRepositories,
     projections,
     assertUnreservedCheckIdentity,
+    trustedReviewCommandLedgerAuthorsFromEnv(input.env),
   );
   const operationCapabilityIssuer =
     new RotatingReviewV2OperationCapabilityIssuer(
@@ -380,7 +441,19 @@ export function createProductionReviewV2WorkerRuntime(input: {
   const ownerIdHash = createReviewV2WorkerOwnerId(
     `${hostname()}:${process.pid}:${randomUUID()}`,
   );
-  const requestedIntents = new PrismaReviewRequestedIntentStore(input.prisma);
+  const requestedIntents = new PrismaReviewRequestedIntentStore(
+    input.prisma,
+    historyWriter
+      ? {
+          historyCapture: {
+            register: (tx, intent, metadata) =>
+              historyWriter.register(tx, intent, metadata),
+            changed: (tx, intent, previous) =>
+              historyWriter.captureIntent(tx, intent, previous),
+          },
+        }
+      : {},
+  );
   const intentService = new ReviewRequestedIntentService(
     requestedIntents,
     requestedIntents,
@@ -393,31 +466,83 @@ export function createProductionReviewV2WorkerRuntime(input: {
       releases,
       digest: { digestUtf8: async (value) => sha256(value) },
     });
-  const draftRepositories = new Set(
-    (input.env.REVIEW_ROUTER_REVIEW_V2_DRAFT_REPOSITORIES ?? "")
-      .split(",")
-      .map((value) => value.trim().toLowerCase())
-      .filter(Boolean),
+  const workspaceReviewSettings = new PrismaWorkspaceReviewSettings(
+    input.prisma,
   );
+  const requestEligibility = new GitHubReviewRequestEligibilityGateway({
+    appId: input.githubAppId,
+    privateKey: input.githubPrivateKey,
+  });
   const ingressApplicationDependencies = {
     intents: intentService,
     revisions: intentPrerequisites.revisionResolver,
-    eligibility: new GitHubReviewRequestEligibilityGateway({
-      appId: input.githubAppId,
-      privateKey: input.githubPrivateKey,
-    }),
+    eligibility: requestEligibility,
     digest: { digestUtf8: async (value: string) => sha256(value) },
     clock: input.clock,
-    reviewDrafts: (repositoryFullName: string) =>
-      draftRepositories.has(repositoryFullName.toLowerCase()),
+    reviewDrafts: (workspaceId: string) =>
+      workspaceReviewSettings.reviewDrafts(workspaceId),
   } as const;
   const ingressApplication = new ReviewRequestIngressApplicationService(
     ingressApplicationDependencies,
   );
+  const intentGateway = new GitHubActionsReviewRequestedDispatchGateway(
+    input.prisma,
+    { appId: input.githubAppId, privateKey: input.githubPrivateKey },
+    input.env.REVIEW_ROUTER_REVIEW_V2_WORKFLOW_PATH?.trim() ||
+      reviewRouterWorkflowPath,
+  );
+  const terminalRunRecovery = new ReviewV2TerminalRunRecovery(
+    executions,
+    requestedIntents,
+    intentGateway,
+    input.clock,
+  );
+  const executionRecovery: ReviewV2ExecutionRecoveryRuntime = {
+    async execute(options) {
+      const expired = await expiredExecutionRecovery.execute(options);
+      const terminal = await terminalRunRecovery.execute(options);
+      return {
+        scanned: expired.scanned + terminal.scanned,
+        recovered: expired.recovered + terminal.recovered,
+        conflicts: expired.conflicts + terminal.conflicts,
+        failures: expired.failures + terminal.failures,
+      };
+    },
+  };
+  const progressInstallations = createProgressInstallationRequester({
+    githubAppId: input.githubAppId,
+    githubPrivateKey: input.githubPrivateKey,
+  });
+  const progressCommentWrites = progressSettings.hostedCommentWrites;
   const ingressHandlers = [
+    createReviewRequestedDispatchCleanupHandler({
+      intents: requestedIntents,
+      gateway: intentGateway,
+    }),
+    createReviewRequestedStartNoticeHandler({
+      intents: requestedIntents,
+      gateway: intentGateway,
+      publisher: progressCommentWrites
+        ? new GitHubReviewRequestedStartNoticePublisher(
+            input.prisma,
+            progressInstallations,
+            input.clock,
+            {
+              allowedRepositoryFullNames:
+                progressCommentWrites.allowedRepositoryFullNames,
+              maxCommentPages: progressMaxCommentPages(input.env),
+              minimumMutationIntervalMs: progressMinimumMutationIntervalMs(
+                input.env,
+              ),
+            },
+          )
+        : null,
+    }),
     createGitHubReviewRequestIngressHandler({
       repositories: new PrismaActionControlPlaneRepository(input.prisma),
       identities: new PrismaScmRepositoryIdentityRepository(input.prisma),
+      authorities,
+      ...(input.logger ? { logger: input.logger } : {}),
       application: ingressApplication,
       readyQuietPeriodMs: positiveInteger(
         input.env.REVIEW_ROUTER_REVIEW_V2_READY_QUIET_PERIOD_MS,
@@ -437,12 +562,6 @@ export function createProductionReviewV2WorkerRuntime(input: {
     }),
     createReviewRequestIngressHandler(ingressApplicationDependencies),
   ] as const;
-  const intentGateway = new GitHubActionsReviewRequestedDispatchGateway(
-    input.prisma,
-    { appId: input.githubAppId, privateKey: input.githubPrivateKey },
-    input.env.REVIEW_ROUTER_REVIEW_V2_WORKFLOW_PATH?.trim() ||
-      managedCodexWorkflowPath,
-  );
   const intentClaimDurationMs = positiveInteger(
     input.env.REVIEW_ROUTER_REVIEW_V2_INTENT_CLAIM_MS,
     60_000,
@@ -496,6 +615,30 @@ export function createProductionReviewV2WorkerRuntime(input: {
     intentIds,
     intentDigest,
     intentDispatchPolicy,
+    createWorkspaceDraftDispatchGate({
+      reviewDrafts: (workspaceId) =>
+        workspaceReviewSettings.reviewDrafts(workspaceId),
+      findGitHubRepository: async (repositoryConnectionId) => {
+        const repository = await input.prisma.repositoryConnection.findUnique({
+          where: { id: repositoryConnectionId },
+          select: {
+            workspaceId: true,
+            fullName: true,
+            installation: { select: { githubInstallationId: true } },
+          },
+        });
+        return repository?.installation
+          ? {
+              workspaceId: repository.workspaceId,
+              fullName: repository.fullName,
+              githubInstallationId: String(
+                repository.installation.githubInstallationId,
+              ),
+            }
+          : null;
+      },
+      eligibility: requestEligibility,
+    }),
   );
   const intentRecovery = new RecoverReviewRequestedDispatches(
     requestedIntents,
@@ -505,8 +648,11 @@ export function createProductionReviewV2WorkerRuntime(input: {
     { ids: intentIds, digest: intentDigest },
     intentDispatchPolicy,
   );
+  let preparationWasSaturated = false;
+  let submissionWasSaturated = false;
   const publicationExecutor = new ExecuteReviewV2PublicationOperation(
     {
+      digestUtf8: sha256,
       attempts,
       application: publicationApplication,
       freshness,
@@ -518,6 +664,8 @@ export function createProductionReviewV2WorkerRuntime(input: {
           (await capabilityKeyRing.activeSigningKey()).keyId,
       },
       effectGate: createProductionReviewInvestigationPublicationEffectGate({
+        resolutionWriters,
+        resolutionHistory,
         executions,
         observations,
         investigations,
@@ -562,7 +710,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
     },
   );
   const publication = new ReviewV2PublicationMaintenance(
-    new PrismaReviewV2PublicationWorkFeed(input.prisma),
+    new PrismaReviewPublicationWorkFeed(input.prisma),
     publicationExecutor,
     input.clock,
     ownerIdHash,
@@ -583,9 +731,10 @@ export function createProductionReviewV2WorkerRuntime(input: {
     prisma: input.prisma,
     clock: input.clock,
     env: input.env,
-    githubAppId: input.githubAppId,
-    githubPrivateKey: input.githubPrivateKey,
+    settings: progressSettings,
+    requestForInstallation: progressInstallations,
     ownerIdHash,
+    ...(input.logger ? { logger: input.logger } : {}),
   });
   const runtime: ReviewV2CompletionRuntime = {
     wake: completion.wake,
@@ -617,6 +766,22 @@ export function createProductionReviewV2WorkerRuntime(input: {
           ownerIdHash,
           limit,
         });
+        if (dispatch.preparationSaturated && !preparationWasSaturated) {
+          input.logger?.warn("Review request preparation capacity exhausted", {
+            inFlight: dispatch.preparationsInFlight,
+          });
+        } else if (!dispatch.preparationSaturated && preparationWasSaturated) {
+          input.logger?.info("Review request preparation capacity recovered");
+        }
+        preparationWasSaturated = dispatch.preparationSaturated;
+        if (dispatch.submissionSaturated && !submissionWasSaturated) {
+          input.logger?.warn("Review request submission capacity exhausted", {
+            inFlight: dispatch.submissionsInFlight,
+          });
+        } else if (!dispatch.submissionSaturated && submissionWasSaturated) {
+          input.logger?.info("Review request submission capacity recovered");
+        }
+        submissionWasSaturated = dispatch.submissionSaturated;
         return {
           scanned: recovery.scanned + dispatch.scanned,
           dispatched: dispatch.dispatched,
@@ -632,70 +797,45 @@ export function createProductionReviewV2WorkerRuntime(input: {
   };
 }
 
+function progressMinimumMutationIntervalMs(
+  env: Readonly<Record<string, string | undefined>>,
+): number {
+  return positiveInteger(
+    env.REVIEW_ROUTER_PROGRESS_MIN_MUTATION_INTERVAL_MS,
+    1_000,
+    "review_progress_mutation_interval_ms_invalid",
+  );
+}
+
+function progressMaxCommentPages(
+  env: Readonly<Record<string, string | undefined>>,
+): number {
+  return positiveInteger(
+    env.REVIEW_ROUTER_PROGRESS_MAX_COMMENT_PAGES,
+    5,
+    "review_progress_max_comment_pages_invalid",
+  );
+}
+
 function createHostedReviewProgressRuntime(input: {
   readonly prisma: PrismaClient;
   readonly clock: SystemClock;
   readonly env: Readonly<Record<string, string | undefined>>;
-  readonly githubAppId: string;
-  readonly githubPrivateKey: string;
+  readonly settings: ReviewProgressSettings;
+  readonly requestForInstallation: ReviewProgressInstallationRequesterFactory;
   readonly ownerIdHash: string;
+  readonly logger?: Pick<Logger, "warn">;
 }): ReviewV2ProgressMaintenanceRuntime | undefined {
-  if (input.env[hostedProgressCommentWritesEnv] !== "1") return undefined;
-  const repositorySelectors = new Set(
-    (input.env.REVIEW_ROUTER_PROGRESS_REPOSITORIES ?? "")
-      .split(",")
-      .map((value) => value.trim().toLowerCase())
-      .filter(Boolean),
-  );
-  // Hosted writes are deliberately fail-closed until a canary cohort is
-  // named. "*" is the explicit default-on cutover after rollout proves safe.
-  if (repositorySelectors.size === 0) return undefined;
+  // On by default for every repository; the writes kill switch or a malformed
+  // setting leaves the publisher out of the worker loop entirely.
+  const writes = input.settings.hostedCommentWrites;
+  if (!writes) return undefined;
   const store = new PrismaReviewProgressPublicationStore(input.prisma, {
-    allowedRepositoryFullNames: repositorySelectors.has("*")
-      ? null
-      : repositorySelectors,
+    allowedRepositoryFullNames: writes.allowedRepositoryFullNames,
   });
-  const app = new App({
-    appId: input.githubAppId,
-    privateKey: input.githubPrivateKey,
-  });
-  let botLogin: Promise<string> | null = null;
-  const resolveBotLogin = () => {
-    botLogin ??= app.octokit
-      .request("GET /app")
-      .then((response) => {
-        const slug = response.data?.slug;
-        if (!slug) throw new Error("review_progress_github_app_slug_missing");
-        return `${slug}[bot]`;
-      })
-      .catch((error: unknown) => {
-        botLogin = null;
-        throw error;
-      });
-    return botLogin;
-  };
   const publisher = new ReviewProgressPublisher(
     store,
-    async (installationId) => {
-      const numericInstallationId = Number(installationId);
-      if (
-        !Number.isSafeInteger(numericInstallationId) ||
-        numericInstallationId < 1
-      ) {
-        throw new Error("review_progress_github_installation_id_invalid");
-      }
-      const octokit = await app.getInstallationOctokit(numericInstallationId);
-      return {
-        request: async (route, parameters) => {
-          const response = await octokit.request(
-            route as "GET /rate_limit",
-            parameters as never,
-          );
-          return { data: response.data, headers: response.headers };
-        },
-        botLogin: await resolveBotLogin(),
-      };
-    },
+    input.requestForInstallation,
     input.clock,
     input.ownerIdHash,
     {
@@ -709,21 +849,13 @@ function createHostedReviewProgressRuntime(input: {
         25_000,
         "review_progress_publish_claim_ms_invalid",
       ),
-      minimumMutationIntervalMs: positiveInteger(
-        input.env.REVIEW_ROUTER_PROGRESS_MIN_MUTATION_INTERVAL_MS,
-        1_000,
-        "review_progress_mutation_interval_ms_invalid",
-      ),
+      minimumMutationIntervalMs: progressMinimumMutationIntervalMs(input.env),
       retryDelayMs: positiveInteger(
         input.env.REVIEW_ROUTER_PROGRESS_PUBLISH_RETRY_MS,
         5_000,
         "review_progress_publish_retry_ms_invalid",
       ),
-      maxCommentPages: positiveInteger(
-        input.env.REVIEW_ROUTER_PROGRESS_MAX_COMMENT_PAGES,
-        5,
-        "review_progress_max_comment_pages_invalid",
-      ),
+      maxCommentPages: progressMaxCommentPages(input.env),
       maxFailures: positiveInteger(
         input.env.REVIEW_ROUTER_PROGRESS_MAX_FAILURES,
         10,
@@ -731,12 +863,12 @@ function createHostedReviewProgressRuntime(input: {
       ),
     },
   );
+  const promotion = new ReviewProgressTerminalPromotion(store, input.clock, {
+    ...(input.logger ? { logger: input.logger } : {}),
+  });
   return {
     promoteSettledExecutions: ({ settlements }) =>
-      store.promoteSettledExecutions({
-        settlements,
-        now: input.clock.now(),
-      }),
+      promotion.promote(settlements),
     runMaintenance: () => publisher.runMaintenance(),
   };
 }
@@ -761,6 +893,8 @@ export const productionReviewV2AdjudicationEvidence: ReviewPublicationAdjudicati
   });
 
 function createProductionPublicationDecisions(input: {
+  readonly publications: ReviewPublicationAttemptQueryPort;
+  readonly resolutionHistory: ReviewPublicationResolutionHistoryPort;
   readonly executions: PrismaReviewExecutionStore;
   readonly releases: PrismaProducerReleaseRepository;
   readonly authorizations: PrismaReviewRunAuthorizationRepository;
@@ -768,44 +902,12 @@ function createProductionPublicationDecisions(input: {
   readonly safetyResolver: ResolveReviewSafetyPolicy;
   readonly liveLifecycle: LiveReviewPublicationLifecyclePort;
 }): ReviewPublicationDecisionPorts {
-  const lifecycle = new ResolveCurrentPublicationLifecycle({
-    expectations: {
-      async resolve(scope) {
-        try {
-          const stream = await input.executions.findStream(scope);
-          const snapshot = stream?.activeExecutionId
-            ? await input.executions.findExecution(stream.activeExecutionId)
-            : null;
-          const artifact = snapshot?.artifact;
-          if (!artifact) {
-            return {
-              status: ReviewPublicationLifecycleExpectationStatus.Missing,
-            };
-          }
-          const authorization =
-            await input.authorizations.findReviewRunAuthorizationById(
-              artifact.publicationPermit.authorizationId,
-            );
-          if (!authorization) {
-            return {
-              status: ReviewPublicationLifecycleExpectationStatus.Missing,
-            };
-          }
-          return reviewPublicationLifecycleExpectationFromProjection({
-            reviewedHeadSha: artifact.reviewedHeadSha,
-            lifecycleStateHash: artifact.lifecycleStateHash,
-            commandLedgerWatermark: artifact.commandLedgerWatermark,
-            projectionEnvelopeJson: artifact.projectionEnvelopeJson,
-            legacyObservationBoundary: authorization.createdAt,
-          });
-        } catch {
-          return {
-            status: ReviewPublicationLifecycleExpectationStatus.Unavailable,
-          };
-        }
-      },
-    },
-    live: input.liveLifecycle,
+  const lifecycle = createWorkerPublicationLifecyclePort({
+    executions: input.executions,
+    authorizationQueries: input.authorizations,
+    liveLifecycle: input.liveLifecycle,
+    publications: input.publications,
+    resolutionHistory: input.resolutionHistory,
   });
   return {
     permits: {
@@ -1366,9 +1468,12 @@ class PrismaFinalizedArtifactIdentityQuery implements FinalizedArtifactIdentityQ
   }
 }
 
-class PrismaReviewSnapshotEligibility implements ReviewSnapshotCommitEligibilityPort {
+export class PrismaReviewSnapshotEligibility implements ReviewSnapshotCommitEligibilityPort {
   constructor(
-    private readonly executions: ReviewExecutionQueryPort,
+    private readonly executions: Pick<
+      ReviewExecutionQueryPort,
+      "findExecution"
+    >,
     private readonly attempts: ReviewPublicationAttemptQueryPort,
     private readonly artifactIdentities: FinalizedArtifactIdentityQueryPort,
   ) {}
@@ -1401,7 +1506,8 @@ class PrismaReviewSnapshotEligibility implements ReviewSnapshotCommitEligibility
       sourceRunId: snapshot.execution.sourceRunId,
       sourceRunAttempt: snapshot.execution.sourceRunAttempt,
       coverageState:
-        snapshot.artifact.coverageState === ReviewCoverageState.Completed
+        reviewSnapshotSourceCoverage(snapshot.artifact) ===
+        ReviewCoverageState.Completed
           ? SnapshotSourceCoverageState.Completed
           : SnapshotSourceCoverageState.Partial,
       effectivePublicationOutcome: mapSnapshotPublicationOutcome(outcome),
@@ -1455,233 +1561,6 @@ function requiredGithubRepositoryId(repository: {
   return repository.githubRepositoryId.toString();
 }
 
-type PublicationWork = {
-  readonly executionId: string;
-  readonly publicationAttemptId: string;
-  readonly publicationOperationId: string;
-  readonly provider: ReviewV2ScmProvider;
-  readonly retryCount: number;
-};
-
-interface ReviewV2PublicationWorkFeed {
-  scan(input: {
-    readonly now: Date;
-    readonly limit: number;
-  }): Promise<readonly PublicationWork[]>;
-  defer(input: {
-    readonly work: PublicationWork;
-    readonly nextEligibleAt: Date;
-    readonly lastErrorCode: string;
-  }): Promise<void>;
-}
-
-class PrismaReviewV2PublicationWorkFeed implements ReviewV2PublicationWorkFeed {
-  constructor(private readonly prisma: PrismaClient) {}
-
-  async scan(input: { readonly now: Date; readonly limit: number }) {
-    const operations = await this.prisma.reviewPublicationOperationV2.findMany({
-      where: {
-        state: {
-          in: ["planned", "in_flight", "effect_observed", "reconciling"],
-        },
-        nextEligibleAt: { lte: input.now },
-      },
-      orderBy: [
-        { nextEligibleAt: "asc" },
-        { reconcileUntil: "asc" },
-        { publicationOperationId: "asc" },
-      ],
-      take: Math.min(input.limit * 4, 1_000),
-      select: {
-        publicationAttemptId: true,
-        publicationOperationId: true,
-        retryCount: true,
-      },
-    });
-    if (operations.length === 0) return [];
-    const attemptIds = [
-      ...new Set(operations.map((row) => row.publicationAttemptId)),
-    ];
-    const attempts = await this.prisma.reviewPublicationAttemptV2.findMany({
-      where: {
-        publicationAttemptId: { in: attemptIds },
-        state: { in: ["pending", "publishing", "reconciling"] },
-        retainUntil: { gt: input.now },
-      },
-      select: {
-        publicationAttemptId: true,
-        repositoryConnectionId: true,
-        executionId: true,
-      },
-    });
-    const repositoryIds = [
-      ...new Set(attempts.map((row) => row.repositoryConnectionId)),
-    ];
-    const repositories = await this.prisma.repositoryConnection.findMany({
-      where: { id: { in: repositoryIds } },
-      select: { id: true, provider: true },
-    });
-    const attemptById = new Map(
-      attempts.map((row) => [row.publicationAttemptId, row]),
-    );
-    const providerByRepository = new Map(
-      repositories.map((row) => [row.id, row.provider]),
-    );
-    return operations
-      .flatMap((operation) => {
-        const attempt = attemptById.get(operation.publicationAttemptId);
-        if (!attempt) return [];
-        const provider = providerByRepository.get(
-          attempt.repositoryConnectionId,
-        );
-        const mapped = mapProvider(provider);
-        return mapped
-          ? [
-              {
-                ...operation,
-                executionId: attempt.executionId,
-                provider: mapped,
-              },
-            ]
-          : [];
-      })
-      .slice(0, input.limit);
-  }
-
-  async defer(input: {
-    readonly work: PublicationWork;
-    readonly nextEligibleAt: Date;
-    readonly lastErrorCode: string;
-  }): Promise<void> {
-    const updated = await this.prisma.reviewPublicationOperationV2.updateMany({
-      where: {
-        publicationOperationId: input.work.publicationOperationId,
-        publicationAttemptId: input.work.publicationAttemptId,
-        retryCount: input.work.retryCount,
-        state: {
-          in: ["planned", "in_flight", "effect_observed", "reconciling"],
-        },
-      },
-      data: {
-        retryCount: { increment: 1 },
-        nextEligibleAt: input.nextEligibleAt,
-        lastErrorCode: input.lastErrorCode,
-      },
-    });
-    if (updated.count > 1) {
-      throw new Error("review_v2_publication_retry_cas_invalid");
-    }
-  }
-}
-
-class ReviewV2PublicationMaintenance implements ReviewV2PublicationMaintenanceRuntime {
-  constructor(
-    private readonly feed: ReviewV2PublicationWorkFeed,
-    private readonly executor: ExecuteReviewV2PublicationOperation,
-    private readonly clock: SystemClock,
-    private readonly ownerIdHash: string,
-    private readonly policy: {
-      readonly limit: number;
-      readonly minimumRetryMs: number;
-    },
-  ) {}
-
-  async runMaintenance() {
-    const now = this.clock.now();
-    const work = await this.feed.scan({ now, limit: this.policy.limit });
-    let processed = 0;
-    let manualRequired = 0;
-    let terminalUnknown = 0;
-    const settledExecutionIds = new Set<string>();
-    const progressSettlements = new Map<
-      string,
-      ReviewProgressSettlement["outcome"]
-    >();
-    for (const item of work) {
-      const result = await this.executor.execute({
-        publicationAttemptId: item.publicationAttemptId,
-        publicationOperationId: item.publicationOperationId,
-        provider: item.provider,
-        ownerIdHash: this.ownerIdHash,
-      });
-      processed += 1;
-      if (result.status === ReviewV2PublicationExecutionStatus.ManualRequired) {
-        manualRequired += 1;
-      }
-      if (
-        result.status === ReviewV2PublicationExecutionStatus.TerminalUnknown
-      ) {
-        terminalUnknown += 1;
-      }
-      if (
-        result.status === ReviewV2PublicationExecutionStatus.Completed ||
-        result.status === ReviewV2PublicationExecutionStatus.AlreadyCompleted ||
-        result.status === ReviewV2PublicationExecutionStatus.Terminalized
-      ) {
-        settledExecutionIds.add(item.executionId);
-        const outcome = progressOutcome(result);
-        if (!outcome) continue;
-        const previous = progressSettlements.get(item.executionId);
-        progressSettlements.set(
-          item.executionId,
-          strongestProgressOutcome(previous, outcome),
-        );
-        continue;
-      }
-      const retryDelayMs = Math.max(
-        this.policy.minimumRetryMs,
-        boundedRetryDelay(item.retryCount + 1),
-      );
-      await this.feed.defer({
-        work: item,
-        nextEligibleAt: new Date(now.getTime() + retryDelayMs),
-        lastErrorCode: result.safeReason,
-      });
-    }
-    return {
-      processed,
-      manualRequired,
-      terminalUnknown,
-      settledExecutionIds: [...settledExecutionIds].sort(),
-      progressSettlements: [...progressSettlements]
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([executionId, outcome]) => ({ executionId, outcome })),
-    };
-  }
-}
-
-export function progressOutcome(
-  result: Awaited<ReturnType<ExecuteReviewV2PublicationOperation["execute"]>>,
-): ReviewProgressSettlement["outcome"] | null {
-  if (result.status === ReviewV2PublicationExecutionStatus.TerminalUnknown)
-    return null;
-  if (
-    result.status === ReviewV2PublicationExecutionStatus.Completed ||
-    result.status === ReviewV2PublicationExecutionStatus.AlreadyCompleted
-  )
-    return "succeeded";
-  if (result.status === ReviewV2PublicationExecutionStatus.Terminalized) {
-    if (result.terminalOutcome === ReviewPublicationTerminalOutcome.Succeeded)
-      return "succeeded";
-    if (
-      result.terminalOutcome ===
-        ReviewPublicationTerminalOutcome.SupersededNoEffect ||
-      result.terminalOutcome ===
-        ReviewPublicationTerminalOutcome.StaleCompensated
-    )
-      return "superseded";
-  }
-  return "failed";
-}
-
-function strongestProgressOutcome(
-  previous: ReviewProgressSettlement["outcome"] | undefined,
-  next: ReviewProgressSettlement["outcome"],
-): ReviewProgressSettlement["outcome"] {
-  const rank = { succeeded: 0, superseded: 1, failed: 2 } as const;
-  return previous && rank[previous] >= rank[next] ? previous : next;
-}
-
 function mapSnapshotPublicationOutcome(
   outcome: ReviewPublicationTerminalOutcome | null,
 ): SnapshotEffectivePublicationOutcome {
@@ -1700,22 +1579,6 @@ function mapSnapshotPublicationOutcome(
     case null:
       return SnapshotEffectivePublicationOutcome.TerminalUnknown;
   }
-}
-
-function mapProvider(provider: string | undefined): ReviewV2ScmProvider | null {
-  switch (provider) {
-    case "github":
-      return ReviewV2ScmProvider.GitHub;
-    case "gitlab":
-      return ReviewV2ScmProvider.GitLab;
-    default:
-      return null;
-  }
-}
-
-function boundedRetryDelay(attemptCount: number): number {
-  const exponent = Math.max(0, Math.min(attemptCount - 1, 8));
-  return Math.min(5_000 * 2 ** exponent, 5 * 60_000);
 }
 
 function positiveInteger(
@@ -1818,6 +1681,11 @@ export function mapPersistedContextReuseProviderKind(
       return EvidenceProviderKind.ClaudeCode;
     case EvidenceProviderKind.OpenRouter:
       return EvidenceProviderKind.OpenRouter;
+    // OCR keeps its real enum identity here so downstream safety mapping
+    // can answer fail-closed non-participation explicitly instead of
+    // swallowing the kind into Unknown.
+    case EvidenceProviderKind.Ocr:
+      return EvidenceProviderKind.Ocr;
     default:
       return EvidenceProviderKind.Unknown;
   }

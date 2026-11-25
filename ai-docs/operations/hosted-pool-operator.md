@@ -19,12 +19,12 @@ remain required. Never give this service credential to unrelated tenants.
 After the normal application build, use the existing operator profile:
 
 ```sh
-corepack pnpm reviewrouter pool status --workspace WORKSPACE
-corepack pnpm reviewrouter pool accounts import --workspace WORKSPACE --label primary --auth-file /private/native/auth.json
-corepack pnpm reviewrouter pool accounts import --workspace WORKSPACE --label backup --auth-file /private/second/auth.json
-corepack pnpm reviewrouter pool repositories connect --workspace WORKSPACE --all --dry-run
-corepack pnpm reviewrouter pool repositories connect --workspace WORKSPACE --all
-corepack pnpm reviewrouter pool repositories connect --workspace WORKSPACE --repo OWNER/NEW_REPO
+pnpm reviewrouter pool status --workspace WORKSPACE
+pnpm reviewrouter pool accounts import --workspace WORKSPACE --label primary --auth-file /private/native/auth.json
+pnpm reviewrouter pool accounts import --workspace WORKSPACE --label backup --auth-file /private/second/auth.json
+pnpm reviewrouter pool repositories connect --workspace WORKSPACE --all --dry-run
+pnpm reviewrouter pool repositories connect --workspace WORKSPACE --all
+pnpm reviewrouter pool repositories connect --workspace WORKSPACE --repo OWNER/NEW_REPO
 ```
 
 Auth files are local client inputs, limited to 1 MiB. HTTP accepts bounded bytes, never
@@ -35,9 +35,9 @@ status; do not blindly import or replace again. A reused label for another ident
 Read current versions from status before administrative mutations:
 
 ```sh
-corepack pnpm reviewrouter pool accounts pause --workspace WORKSPACE --account-id ACCOUNT --expected-health-version HEALTH_VERSION
-corepack pnpm reviewrouter pool accounts replace --workspace WORKSPACE --account-id ACCOUNT --expected-generation GENERATION --expected-health-version HEALTH_VERSION --auth-file /private/relogin/auth.json
-corepack pnpm reviewrouter pool accounts resume --workspace WORKSPACE --account-id ACCOUNT --expected-health-version NEW_HEALTH_VERSION
+pnpm reviewrouter pool accounts pause --workspace WORKSPACE --account-id ACCOUNT --expected-health-version HEALTH_VERSION
+pnpm reviewrouter pool accounts replace --workspace WORKSPACE --account-id ACCOUNT --expected-generation GENERATION --expected-health-version HEALTH_VERSION --auth-file /private/relogin/auth.json
+pnpm reviewrouter pool accounts resume --workspace WORKSPACE --account-id ACCOUNT --expected-health-version NEW_HEALTH_VERSION
 ```
 
 Replace requires a paused account and the same native provider subject. It uses the
@@ -77,7 +77,7 @@ run the existing ESM rewrite. The dedicated operator phase executes the compiled
 CLI against the normal API composition and a disposable PostgreSQL API role:
 
 ```sh
-corepack pnpm exec turbo run build --filter=@reviewrouter/api... --concurrency=2
+pnpm exec turbo run build --filter=@reviewrouter/api... --concurrency=2
 node scripts/rewrite-dist-esm-imports.mjs
 node --import tsx scripts/run-hosted-pool-postgres-e2e.mjs --operator-only
 ```

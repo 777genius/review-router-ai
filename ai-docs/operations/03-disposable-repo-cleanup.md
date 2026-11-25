@@ -4,7 +4,7 @@
 
 These repositories were created only for ReviewRouter smoke, E2E, reusable
 workflow, GitHub App token, and UI setup validation. They are not product
-repositories and are not required by the SaaS runtime.
+repositories and are not required by the control plane runtime.
 
 Cleanup policy:
 

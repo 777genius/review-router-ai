@@ -5,6 +5,7 @@ import { Children, useEffect, useMemo, useState } from "react";
 import {
   Check,
   CheckCircle2,
+  Circle,
   CircleAlert,
   Globe2,
   ListFilter,
@@ -12,23 +13,45 @@ import {
   Search,
   Wrench,
 } from "lucide-react";
-import { RepositorySetupRowDisclosureController } from "./repository-setup-optimistic-status";
-
-export type RepositorySearchFilter =
-  | "all"
-  | "private"
-  | "public"
-  | "needs_setup"
-  | "needs_attention"
-  | "ready";
+import { Badge } from "@reviewrouter/ui";
+import {
+  RepositorySetupRowDisclosureController,
+  RepositorySetupStepPillBody,
+  repositorySetupStepPillClassName,
+  type SetupStep,
+} from "./repository-setup-optimistic-status";
+import {
+  RepositorySelectionCheckbox,
+  RepositorySelectionToolbar,
+} from "./repository-action-selection";
+import {
+  RepositoryNameLink,
+  RepositoryStarsBadge,
+} from "../repository-row-display";
+import { RepositoryVisibilityBadge } from "../repository-visibility-badge";
+import {
+  readRepositorySetupFilter,
+  repositoryMatchesSetupFilter,
+  tokenizeRepositorySearch,
+  writeRepositorySetupFilter,
+  type RepositorySetupFilter,
+  type RepositorySetupState,
+} from "../../src/features/repository-setup/repository-setup-state";
+import {
+  SourceProviderLogo,
+  sourceProviderName,
+  type SourceProvider,
+} from "../source-provider-logo";
 
 export type RepositorySearchIndexItem = {
   readonly id: string;
   readonly fullName: string;
   readonly sourceUrl: string | null;
   readonly searchText: string;
+  readonly provider: SourceProvider;
   readonly visibility: string;
-  readonly readiness: "ready" | "needs_setup" | "needs_attention";
+  readonly state: RepositorySetupState;
+  readonly setupProgressStep: SetupStep;
   readonly stargazersCount: number;
   readonly archived: boolean;
 };
@@ -37,10 +60,15 @@ const repositoryFilterOptions = [
   { value: "all", label: "All", icon: ListFilter },
   { value: "private", label: "Private", icon: LockKeyhole },
   { value: "public", label: "Public", icon: Globe2 },
-  { value: "needs_setup", label: "Needs setup", icon: Wrench },
-  { value: "needs_attention", label: "Needs attention", icon: CircleAlert },
+  { value: "attention", label: "Needs attention", icon: CircleAlert },
+  { value: "setting_up", label: "Setting up", icon: Wrench },
   { value: "ready", label: "Ready", icon: CheckCircle2 },
-] as const;
+  { value: "not_set_up", label: "Not set up", icon: Circle },
+] as const satisfies readonly {
+  readonly value: RepositorySetupFilter;
+  readonly label: string;
+  readonly icon: unknown;
+}[];
 
 export function RepositoryLiveSearch({
   workspaceKey,
@@ -53,6 +81,7 @@ export function RepositoryLiveSearch({
   totalRepositoryCount,
   rowLimit,
   richRowIds,
+  selectable = false,
   children,
 }: {
   readonly workspaceKey: string;
@@ -60,20 +89,23 @@ export function RepositoryLiveSearch({
   readonly selectedRepositoryFullName: string | null;
   readonly selectedRepositoryId: string | null;
   readonly initialQuery: string;
-  readonly initialFilter: RepositorySearchFilter;
+  readonly initialFilter: RepositorySetupFilter;
   readonly searchIndex: readonly RepositorySearchIndexItem[];
   readonly totalRepositoryCount: number;
   readonly rowLimit: number;
   readonly richRowIds: readonly string[];
+  /** Rows carry a checkbox of the table-wide repository selection. */
+  readonly selectable?: boolean;
   readonly children: React.ReactNode;
 }): React.ReactElement {
   const router = useRouter();
   const [query, setQuery] = useState(initialQuery);
   const [activeFilter, setActiveFilter] =
-    useState<RepositorySearchFilter>(initialFilter);
+    useState<RepositorySetupFilter>(initialFilter);
   const [pendingRepositoryId, setPendingRepositoryId] = useState<string | null>(
     null,
   );
+  const [visibleLimit, setVisibleLimit] = useState(rowLimit);
   const normalizedQuery = query.trim();
   const matchingIds = useMemo(
     () => filterLocalSearch(searchIndex, normalizedQuery, activeFilter),
@@ -81,7 +113,7 @@ export function RepositoryLiveSearch({
   );
   const visibleIds = selectVisibleRepositoryIds(
     matchingIds,
-    rowLimit,
+    visibleLimit,
     selectedRepositoryId,
   );
   const richRows = Children.toArray(children);
@@ -128,7 +160,9 @@ export function RepositoryLiveSearch({
         return;
       const params = new URLSearchParams(window.location.search);
       const restoredQuery = params.get("q") ?? "";
-      const restoredFilter = readRepositorySearchFilter(params);
+      const restoredFilter = readRepositorySetupFilter((name) =>
+        params.get(name),
+      );
       setQuery(restoredQuery);
       setActiveFilter(restoredFilter);
       setPendingRepositoryId(null);
@@ -141,6 +175,10 @@ export function RepositoryLiveSearch({
   useEffect(() => {
     setPendingRepositoryId(null);
   }, [selectedRepositoryFullName, workspaceKey]);
+
+  useEffect(() => {
+    setVisibleLimit(rowLimit);
+  }, [activeFilter, normalizedQuery, rowLimit]);
 
   const searchControls = (
     <section
@@ -220,7 +258,7 @@ export function RepositoryLiveSearch({
         </div>
 
         <div
-          className="grid items-stretch gap-1 rounded-xl border border-slate-700/70 bg-slate-950/55 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] sm:grid-cols-3 2xl:h-11 2xl:grid-cols-6"
+          className="grid items-stretch gap-1 rounded-xl border border-slate-700/70 bg-slate-950/55 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] grid-cols-2 sm:grid-cols-4 2xl:h-11 2xl:grid-cols-7"
           role="group"
           aria-label="Repository filters"
         >
@@ -268,6 +306,10 @@ export function RepositoryLiveSearch({
         </div>
       </div>
 
+      {selectable ? (
+        <RepositorySelectionToolbar matchingIds={matchingIds} />
+      ) : null}
+
       {hasActiveFilter && matchingCount === 0 ? (
         <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/[0.055] p-3">
           <p className="font-mono text-xs font-semibold uppercase tracking-[0.16em] text-amber-100">
@@ -289,37 +331,70 @@ export function RepositoryLiveSearch({
       {searchControls}
       <div data-repository-results className="grid text-slate-200">
         <RepositorySetupRowDisclosureController />
-        {orderedIds.map((id) => {
+        {orderedIds.map((id, rowIndex) => {
+          const visible = visibleIdSet.has(id);
           const richRow = richRowById.get(id);
-          if (richRow) {
-            return (
-              <div
-                key={id}
-                hidden={!visibleIdSet.has(id)}
-                data-repository-result-slot
-              >
-                {richRow}
-              </div>
-            );
-          }
           const item = summaryById.get(id);
-          return item ? (
-            <div key={id} data-repository-result-slot>
-              <RepositorySummaryRow
-                item={item}
-                pending={pendingRepositoryId === id}
-                selected={id === selectedRepositoryId}
-                onOpen={() => {
-                  setPendingRepositoryId(id);
-                  router.replace(
-                    buildRepositorySelectionUrl(workspaceKey, item.fullName),
-                    { scroll: false },
-                  );
-                }}
-              />
+          const stripeClass = repositoryRowStripeClass({
+            rowIndex,
+            selected: id === selectedRepositoryId,
+            setupComplete: item?.setupProgressStep === "ready",
+          });
+          return (
+            <div
+              key={id}
+              hidden={!visible}
+              data-repository-result-slot
+              className={
+                visible
+                  ? [
+                      selectable
+                        ? "grid grid-cols-[2.75rem_minmax(0,1fr)] items-start"
+                        : "grid items-start",
+                      "border-t border-cyan-200/10 transition-colors",
+                      stripeClass,
+                    ].join(" ")
+                  : "hidden"
+              }
+            >
+              {selectable ? (
+                <RepositorySelectionCheckbox repositoryId={id} />
+              ) : null}
+              <div className="min-w-0">
+                {richRow ??
+                  (item ? (
+                    <RepositorySummaryRow
+                      item={item}
+                      pending={pendingRepositoryId === id}
+                      onOpen={() => {
+                        setPendingRepositoryId(id);
+                        router.replace(
+                          buildRepositorySelectionUrl(
+                            workspaceKey,
+                            item.fullName,
+                          ),
+                          { scroll: false },
+                        );
+                      }}
+                    />
+                  ) : null)}
+              </div>
             </div>
-          ) : null;
+          );
         })}
+        {matchingIds.length > visibleIds.length ? (
+          <div className="border-t border-cyan-200/10 px-4 py-4 sm:px-5 lg:px-6">
+            <button
+              type="button"
+              data-repository-load-more
+              onClick={() => setVisibleLimit((limit) => limit + rowLimit)}
+              className="w-full rounded-xl border border-cyan-300/35 px-4 py-2.5 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/[0.08]"
+            >
+              Show {Math.min(rowLimit, matchingIds.length - visibleIds.length)}{" "}
+              more
+            </button>
+          </div>
+        ) : null}
       </div>
     </>
   );
@@ -335,7 +410,7 @@ function useRepositorySearchHelperText({
   totalRepositoryCount,
 }: {
   readonly hasActiveQuery: boolean;
-  readonly activeFilter: RepositorySearchFilter;
+  readonly activeFilter: RepositorySetupFilter;
   readonly matchingCount: number;
   readonly renderedCountLabel: number;
   readonly renderedRepositoryCount: number;
@@ -373,7 +448,7 @@ export function buildRepositorySearchHelperText({
   totalRepositoryCount,
 }: {
   readonly hasActiveQuery: boolean;
-  readonly activeFilter: RepositorySearchFilter;
+  readonly activeFilter: RepositorySetupFilter;
   readonly matchingCount: number;
   readonly renderedCountLabel: number;
   readonly renderedRepositoryCount: number;
@@ -393,18 +468,20 @@ export function buildRepositorySearchHelperText({
   return "";
 }
 
-function repositoryFilterResultLabel(filter: RepositorySearchFilter): string {
+function repositoryFilterResultLabel(filter: RepositorySetupFilter): string {
   switch (filter) {
     case "private":
       return "private repositories";
     case "public":
       return "public repositories";
-    case "needs_setup":
-      return "repositories need setup";
-    case "needs_attention":
+    case "attention":
       return "repositories need attention";
+    case "setting_up":
+      return "repositories setting up";
     case "ready":
       return "ready repositories";
+    case "not_set_up":
+      return "repositories not set up";
     case "all":
       return "matching repositories";
   }
@@ -413,40 +490,16 @@ function repositoryFilterResultLabel(filter: RepositorySearchFilter): string {
 function filterLocalSearch(
   searchIndex: readonly RepositorySearchIndexItem[],
   query: string,
-  filter: RepositorySearchFilter,
+  filter: RepositorySetupFilter,
 ): string[] {
-  const tokens = tokenize(query);
+  const tokens = tokenizeRepositorySearch(query);
   return searchIndex
     .filter(
       (item) =>
-        repositoryMatchesFilter(item, filter) &&
+        repositoryMatchesSetupFilter(item, filter) &&
         tokens.every((token) => item.searchText.includes(token)),
     )
     .map((item) => item.id);
-}
-
-function repositoryMatchesFilter(
-  item: RepositorySearchIndexItem,
-  filter: RepositorySearchFilter,
-): boolean {
-  switch (filter) {
-    case "private":
-      return item.visibility === "private";
-    case "public":
-      return item.visibility === "public";
-    case "needs_setup":
-      return item.readiness === "needs_setup";
-    case "needs_attention":
-      return item.readiness === "needs_attention";
-    case "ready":
-      return item.readiness === "ready";
-    case "all":
-      return true;
-  }
-}
-
-function tokenize(query: string): string[] {
-  return query.trim().toLowerCase().split(/\s+/).filter(Boolean);
 }
 
 export function selectVisibleRepositoryIds(
@@ -466,69 +519,88 @@ export function selectVisibleRepositoryIds(
   return firstPage;
 }
 
+function repositoryRowStripeClass({
+  rowIndex,
+  selected,
+  setupComplete,
+}: {
+  readonly rowIndex: number;
+  readonly selected: boolean;
+  readonly setupComplete: boolean;
+}): string {
+  if (selected) {
+    return setupComplete ? "bg-emerald-400/[0.075]" : "bg-cyan-300/[0.045]";
+  }
+  if (setupComplete) {
+    return rowIndex % 2 === 0
+      ? "bg-emerald-400/[0.04] hover:bg-emerald-400/[0.07]"
+      : "bg-emerald-300/[0.07] hover:bg-emerald-300/[0.095]";
+  }
+  return rowIndex % 2 === 0
+    ? "bg-slate-950/[0.2] hover:bg-cyan-300/[0.035]"
+    : "bg-cyan-300/[0.035] hover:bg-cyan-300/[0.06]";
+}
+
 function RepositorySummaryRow({
   item,
   pending,
-  selected,
   onOpen,
 }: {
   readonly item: RepositorySearchIndexItem;
   readonly pending: boolean;
-  readonly selected: boolean;
   readonly onOpen: () => void;
 }): React.ReactElement {
-  const readinessLabel = {
-    ready: "Ready",
-    needs_setup: "Needs setup",
-    needs_attention: "Needs attention",
-  }[item.readiness];
-
   return (
     <div
       data-repository-row-id={item.id}
       data-repository-summary-row
-      className={[
-        "grid gap-2 border-t border-cyan-200/10 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center lg:px-6",
-        selected ? "bg-cyan-300/[0.045]" : "hover:bg-cyan-300/[0.035]",
-      ].join(" ")}
+      className="grid gap-3 px-4 py-3 lg:px-6 lg:py-3.5"
     >
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
-          {item.sourceUrl ? (
-            <a
-              href={item.sourceUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="break-words text-sm font-semibold text-cyan-50 hover:underline"
-            >
-              {item.fullName}
-            </a>
-          ) : (
-            <span className="break-words text-sm font-semibold text-cyan-50">
-              {item.fullName}
-            </span>
-          )}
-          <span className="text-xs text-slate-400">{item.visibility}</span>
-          {item.archived ? (
-            <span className="text-xs text-amber-200">Archived</span>
-          ) : null}
-          {item.stargazersCount > 0 ? (
-            <span className="text-xs text-amber-200">
-              {item.stargazersCount} stars
-            </span>
+      <div className="repository-setup-row-header grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span
+            title={`${sourceProviderName(item.provider)} repository`}
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-cyan-200/15 bg-cyan-300/[0.07]"
+          >
+            <SourceProviderLogo
+              provider={item.provider}
+              className="h-3.5 w-3.5"
+            />
+          </span>
+          <RepositoryNameLink
+            fullName={item.fullName}
+            repositoryUrl={item.sourceUrl}
+            className="min-w-0 break-words text-sm font-semibold leading-snug text-cyan-50 sm:text-[0.95rem]"
+          />
+          <Badge tone="neutral">{sourceProviderName(item.provider)}</Badge>
+          {item.provider === "github" ? (
+            <RepositoryStarsBadge stargazersCount={item.stargazersCount} />
           ) : null}
         </div>
-        <p className="mt-1 text-xs text-slate-400">{readinessLabel}</p>
+        <div className="repository-setup-toggle-row flex flex-wrap items-center gap-2 sm:justify-end">
+          <RepositoryVisibilityBadge visibility={item.visibility} />
+          {item.archived ? <Badge tone="warning">Archived</Badge> : null}
+          <button
+            type="button"
+            onClick={onOpen}
+            disabled={pending}
+            title={`Open setup/settings for ${item.fullName}`}
+            aria-label={`Open setup/settings for ${item.fullName}`}
+            className={[
+              repositorySetupStepPillClassName(
+                item.setupProgressStep === "ready",
+              ),
+              "disabled:cursor-wait disabled:opacity-70",
+            ].join(" ")}
+          >
+            {pending ? (
+              "Opening..."
+            ) : (
+              <RepositorySetupStepPillBody step={item.setupProgressStep} />
+            )}
+          </button>
+        </div>
       </div>
-      <button
-        type="button"
-        onClick={onOpen}
-        disabled={pending}
-        aria-label={`Open setup/settings for ${item.fullName}`}
-        className="w-fit rounded-lg border border-cyan-300/35 px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-300/[0.08] disabled:cursor-wait disabled:opacity-70"
-      >
-        {pending ? "Opening..." : "Open setup/settings"}
-      </button>
     </div>
   );
 }
@@ -564,7 +636,7 @@ function buildSearchUrl({
 }: {
   readonly workspaceKey: string;
   readonly query: string;
-  readonly filter: RepositorySearchFilter;
+  readonly filter: RepositorySetupFilter;
 }): string {
   const params = new URLSearchParams(window.location.search);
   params.set("workspace", workspaceKey);
@@ -574,30 +646,9 @@ function buildSearchUrl({
   } else {
     params.delete("q");
   }
-  appendFilterParams(params, filter);
+  writeRepositorySetupFilter(params, filter);
 
   return `${window.location.pathname}?${params.toString()}`;
-}
-
-function appendFilterParams(
-  params: URLSearchParams,
-  filter: RepositorySearchFilter,
-): void {
-  params.delete("visibility");
-  params.delete("setup");
-
-  if (filter === "private" || filter === "public") {
-    params.set("visibility", filter);
-  }
-  if (filter === "needs_setup") {
-    params.set("setup", "needed");
-  }
-  if (filter === "needs_attention") {
-    params.set("setup", "attention");
-  }
-  if (filter === "ready") {
-    params.set("setup", "ready");
-  }
 }
 
 function searchUrlMatchesCurrentPage(nextUrl: string): boolean {
@@ -617,21 +668,4 @@ function searchUrlMatchesCurrentPage(nextUrl: string): boolean {
       (current.searchParams.get(key) ?? "") ===
       (next.searchParams.get(key) ?? ""),
   );
-}
-
-function readRepositorySearchFilter(
-  params: URLSearchParams,
-): RepositorySearchFilter {
-  switch (params.get("setup")) {
-    case "needed":
-      return "needs_setup";
-    case "attention":
-      return "needs_attention";
-    case "ready":
-      return "ready";
-  }
-  const visibility = params.get("visibility");
-  return visibility === "private" || visibility === "public"
-    ? visibility
-    : "all";
 }

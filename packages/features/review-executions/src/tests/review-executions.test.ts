@@ -32,6 +32,7 @@ import {
   ReviewRequestedTransitionDecisionStatus,
   ReviewRequestedTransitionStatus,
   ReviewRequestedTriggerKind,
+  reviewRequestedPreparationTimeoutMs,
   ReviewTaskKind,
   ReviewWorkSlotState,
   ReviewWorkSlotTerminalReason,
@@ -43,6 +44,9 @@ import {
   claimReviewRequestedIntent,
   decideExecutionPreparation,
   decideExecutionPreparationReplay,
+  decideLeaseAcquire,
+  decideLeaseRelease,
+  LeaseAcquireDecisionStatus,
   ExecutionPreparationReplayDecisionStatus,
   ExecutionLifecycleDecisionStatus,
   decideReviewRequestedAdmission,
@@ -74,6 +78,10 @@ import {
   MonotonicBigIntFencingTokenSource,
 } from "../testing/index";
 import { reviewExecutionsContractDescriptor } from "../contract-source/index";
+import {
+  maxReviewRequestedRetryDelayMs,
+  reviewRequestedRetryDelayMs,
+} from "../application/use-cases/review-requested-dispatch-policy";
 
 const baseTime = new Date("2026-07-22T10:00:00.000Z");
 const scope: ReviewExecutionScope = {
@@ -162,6 +170,75 @@ describe("review execution domain", () => {
         "slot-1",
       ]),
     ).toThrowError("review_assignment_manifest_eligible_unaccounted");
+  });
+
+  it("binds bounded lifecycle ownership without adding discovery coverage", () => {
+    const candidate = lifecycleAssignmentFixture();
+    const parsed = validateReviewAssignmentManifest(candidate, [
+      "slot-1",
+      "slot-verifier",
+    ]);
+    expect(parsed.manifestVersion).toBe(2);
+    expect(parsed.eligiblePaths).toEqual(["src/a.ts"]);
+    expect(parsed.assignments[1]?.paths).toEqual([]);
+    expect(
+      canonicalReviewAssignmentManifestHashPreimage(
+        canonicalReviewAssignmentManifestJson(parsed),
+      ),
+    ).toBe(
+      `rr.review-assignment-manifest.v2\0${canonicalReviewAssignmentManifestJson(parsed)}`,
+    );
+    candidate.lifecyclePlan.targets[0]!.parentId = "changed-after-parse";
+    expect(parsed.lifecyclePlan?.targets[0]?.parentId).toBe("parent-1");
+    const coverageTheft = lifecycleAssignmentFixture();
+    coverageTheft.assignments[1]!.paths = ["src/a.ts"];
+    expect(() =>
+      validateReviewAssignmentManifest(coverageTheft, [
+        "slot-1",
+        "slot-verifier",
+      ]),
+    ).toThrow("review_lifecycle_assignment_slot_invalid");
+    const duplicate = lifecycleAssignmentFixture();
+    duplicate.lifecyclePlan.assignments[0]!.targetIds.push("target-1");
+    expect(() =>
+      validateReviewAssignmentManifest(duplicate, ["slot-1", "slot-verifier"]),
+    ).toThrow("review_lifecycle_assignment_target_assignment_invalid");
+    const wrongCount = lifecycleAssignmentFixture();
+    wrongCount.lifecyclePlan.inventoryCount = 2;
+    expect(() =>
+      validateReviewAssignmentManifest(wrongCount, ["slot-1", "slot-verifier"]),
+    ).toThrow("review_lifecycle_assignment_accounting_invalid");
+    const oversized = lifecycleAssignmentFixture();
+    oversized.lifecyclePlan.targets[0]!.parentId = "x".repeat(64 * 1024);
+    expect(() =>
+      validateReviewAssignmentManifest(oversized, ["slot-1", "slot-verifier"]),
+    ).toThrow("review_lifecycle_assignment_bounds_invalid");
+  });
+
+  it("rejects array-valued lifecycle witness enums", () => {
+    const invalidSeverity = lifecycleAssignmentFixture();
+    Reflect.set(invalidSeverity.lifecyclePlan.targets[0]!, "severity", [
+      "major",
+    ]);
+    expect(() =>
+      validateReviewAssignmentManifest(invalidSeverity, [
+        "slot-1",
+        "slot-verifier",
+      ]),
+    ).toThrow("review_lifecycle_assignment_severity_invalid");
+
+    const invalidHistory = lifecycleAssignmentFixture();
+    Reflect.set(
+      invalidHistory.lifecyclePlan.targets[0]!.resolutionHistory,
+      "state",
+      ["effect_unknown"],
+    );
+    expect(() =>
+      validateReviewAssignmentManifest(invalidHistory, [
+        "slot-1",
+        "slot-verifier",
+      ]),
+    ).toThrow("review_lifecycle_assignment_history_invalid");
   });
 
   it("domain-separates manifest and manifest-bound plan hashes", () => {
@@ -515,6 +592,149 @@ describe("review execution domain", () => {
     );
   });
 
+  // Production 2026-11-17, PR 821: synchronize was dispatched, then
+  // ready_for_review for the same head started a second run that took over
+  // the first run's execution after 19 minutes of reviewer work.
+  it("joins a lifecycle event to the dispatched request for the same revision", () => {
+    const awaiting = {
+      ...createReviewRequestedIntent(
+        intentCandidate("request-dispatched", "93", scope, revision),
+      ),
+      version: 4n,
+      state: ReviewRequestedIntentState.AwaitingAuthorization,
+      nextResolutionAt: new Date(baseTime.getTime() + 1_000),
+      resolutionDeadlineAt: new Date(baseTime.getTime() + 60_000),
+      sourceRunId: "source-run-dispatched",
+      sourceRunAttempt: "1",
+    };
+    const decide = (
+      candidateRevision: typeof revision,
+      triggerKind = ReviewRequestedTriggerKind.PullRequestReadyForReview,
+      createdAt = baseTime,
+    ) =>
+      decideReviewRequestedRegistration({
+        candidate: {
+          ...intentCandidate(
+            "request-lifecycle",
+            "94",
+            scope,
+            candidateRevision,
+          ),
+          triggerKind,
+          notBefore: createdAt,
+          createdAt,
+        },
+        existingByDelivery: null,
+        existingByRequestId: null,
+        preAdmissionInScope: awaiting,
+      });
+
+    const same = decide(revision);
+    expect(same.status).toBe(
+      ReviewRequestedRegistrationDecisionStatus.RegisterSuperseded,
+    );
+    expect(same.intent).toMatchObject({
+      requestId: "request-lifecycle",
+      state: ReviewRequestedIntentState.Superseded,
+      supersededByRequestId: awaiting.requestId,
+    });
+    if (
+      same.status !==
+      ReviewRequestedRegistrationDecisionStatus.RegisterSuperseded
+    ) {
+      throw new Error("expected_joined_request");
+    }
+    expect(same.supersededIntent).toBeNull();
+
+    // An explicit rerun, or a dispatch past its authorization window, keeps
+    // the new request on its own.
+    expect(
+      decide(revision, ReviewRequestedTriggerKind.ManualCommand).status,
+    ).toBe(ReviewRequestedRegistrationDecisionStatus.Register);
+    expect(
+      decide(
+        revision,
+        ReviewRequestedTriggerKind.PullRequestReadyForReview,
+        plus(60_000),
+      ).status,
+    ).toBe(ReviewRequestedRegistrationDecisionStatus.Register);
+
+    // A new head still replaces a dispatch that has not been admitted.
+    expect(decide(nextRevision).status).toBe(
+      ReviewRequestedRegistrationDecisionStatus.RegisterAndSupersede,
+    );
+  });
+
+  it("cancels a queued request when workspace eligibility changes before dispatch", async () => {
+    const intents = new InMemoryReviewRequestedIntentStore();
+    await intents.registerIntent({
+      candidate: intentCandidate("request-optout", "31", scope, revision),
+    });
+    const prepare = vi.fn();
+    const gateway = {
+      prepare,
+      findByRequestIdentity: vi.fn(),
+      inspectKnownRun: vi.fn(),
+      inspectRunnerWait: vi.fn(),
+      cancelKnownRun: vi.fn(),
+    };
+    const dispatcher = new DispatchDueReviewRequestedIntents(
+      intents,
+      intents,
+      gateway,
+      { now: () => baseTime },
+      { nextClaimId: () => "claim-optout", nextRequestId: () => "unused" },
+      {
+        digestUtf8: async (value) =>
+          createHash("sha256").update(value).digest("hex"),
+      },
+      undefined,
+      async () => false,
+    );
+    await expect(
+      dispatcher.execute({ ownerIdHash: hash("d"), limit: 10 }),
+    ).resolves.toMatchObject({ dispatched: 0, failed: 0 });
+    expect(prepare).not.toHaveBeenCalled();
+    await expect(
+      intents.findByRequestId("request-optout"),
+    ).resolves.toMatchObject({ state: ReviewRequestedIntentState.Superseded });
+  });
+
+  it("keeps a queued request retryable when the dispatch gate cannot decide", async () => {
+    const intents = new InMemoryReviewRequestedIntentStore();
+    await intents.registerIntent({
+      candidate: intentCandidate("request-unknown", "31", scope, revision),
+    });
+    const prepare = vi.fn();
+    const dispatcher = new DispatchDueReviewRequestedIntents(
+      intents,
+      intents,
+      {
+        prepare,
+        findByRequestIdentity: vi.fn(),
+        inspectKnownRun: vi.fn(),
+        inspectRunnerWait: vi.fn(),
+        cancelKnownRun: vi.fn(),
+      },
+      { now: () => baseTime },
+      { nextClaimId: () => "claim-unknown", nextRequestId: () => "unused" },
+      {
+        digestUtf8: async (value) =>
+          createHash("sha256").update(value).digest("hex"),
+      },
+      undefined,
+      async () => {
+        throw new Error("review_request_eligibility_unavailable");
+      },
+    );
+    await expect(
+      dispatcher.execute({ ownerIdHash: hash("d"), limit: 10 }),
+    ).resolves.toMatchObject({ dispatched: 0, failed: 1 });
+    expect(prepare).not.toHaveBeenCalled();
+    const stored = await intents.findByRequestId("request-unknown");
+    expect(stored?.state).not.toBe(ReviewRequestedIntentState.Superseded);
+  });
+
   it("reconciles a timeout-after-success without issuing a second POST", async () => {
     const intents = new InMemoryReviewRequestedIntentStore();
     await intents.registerIntent({
@@ -544,6 +764,9 @@ describe("review execution domain", () => {
           sourceRunId: "12345",
           sourceRunAttempt: "1",
         };
+      },
+      async inspectRunnerWait() {
+        return runnerAlreadyAssigned;
       },
       async inspectKnownRun() {
         return { status: ReviewRequestedDispatchRunStatus.Pending };
@@ -630,6 +853,148 @@ describe("review execution domain", () => {
     });
   });
 
+  it.each(["resolve", "reject"] as const)(
+    "does not dispatch after a hung preparation later settles (%s)",
+    async (settles) => {
+      vi.useFakeTimers();
+      try {
+        const intents = new InMemoryReviewRequestedIntentStore();
+        await intents.registerIntent({
+          candidate: intentCandidate("request-hung", "335", scope, revision),
+        });
+        let now = baseTime;
+        let claimNumber = 0;
+        let releasePreparation: (() => void) | undefined;
+        const submit = vi.fn();
+        const dispatcher = new DispatchDueReviewRequestedIntents(
+          intents,
+          intents,
+          {
+            prepare: async () => {
+              await new Promise<void>((resolve, reject) => {
+                releasePreparation = () =>
+                  settles === "resolve"
+                    ? resolve()
+                    : reject(new Error("late_prepare_failure"));
+              });
+              return { submit };
+            },
+            async findByRequestIdentity() {
+              return {
+                status: ReviewRequestedDispatchLookupStatus.Absent as const,
+              };
+            },
+            async inspectRunnerWait() {
+              return runnerAlreadyAssigned;
+            },
+            async inspectKnownRun() {
+              return { status: ReviewRequestedDispatchRunStatus.Pending };
+            },
+            async cancelKnownRun() {},
+          },
+          { now: () => now },
+          {
+            nextClaimId: () => `claim-hung-${++claimNumber}`,
+            nextRequestId: () => "unused",
+          },
+          { digestUtf8: async () => hash("1") },
+          testDispatchPolicy(),
+        );
+        const running = dispatcher.execute({
+          ownerIdHash: hash("a"),
+          limit: 10,
+        });
+        await vi.advanceTimersByTimeAsync(24_000);
+        await expect(running).resolves.toMatchObject({
+          failed: 1,
+          dispatched: 0,
+        });
+        releasePreparation!();
+        await Promise.resolve();
+        expect(submit).not.toHaveBeenCalled();
+        now = plus(reviewRequestedPreparationTimeoutMs + 1);
+        await expect(
+          dispatcher.execute({ ownerIdHash: hash("a"), limit: 10 }),
+        ).resolves.toMatchObject({ failed: 1, dispatched: 0 });
+        expect(await intents.findByRequestId("request-hung")).toMatchObject({
+          state: ReviewRequestedIntentState.Terminal,
+          terminalReason:
+            ReviewRequestedIntentTerminalReason.DispatchFailedNoEffect,
+        });
+        expect(submit).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it.each(["resolve", "reject"] as const)(
+    "does not start preparation when a timed-out gate later settles (%s)",
+    async (settles) => {
+      vi.useFakeTimers();
+      try {
+        const intents = new InMemoryReviewRequestedIntentStore();
+        await intents.registerIntent({
+          candidate: intentCandidate(
+            "request-gate-hung",
+            "337",
+            scope,
+            revision,
+          ),
+        });
+        let settleGate: (() => void) | undefined;
+        const prepare = vi.fn();
+        const dispatcher = new DispatchDueReviewRequestedIntents(
+          intents,
+          intents,
+          {
+            prepare,
+            async findByRequestIdentity() {
+              return {
+                status: ReviewRequestedDispatchLookupStatus.Absent as const,
+              };
+            },
+            async inspectRunnerWait() {
+              return runnerAlreadyAssigned;
+            },
+            async inspectKnownRun() {
+              return { status: ReviewRequestedDispatchRunStatus.Pending };
+            },
+            async cancelKnownRun() {},
+          },
+          { now: () => baseTime },
+          {
+            nextClaimId: () => "claim-gate-hung",
+            nextRequestId: () => "unused",
+          },
+          { digestUtf8: async () => hash("1") },
+          testDispatchPolicy(),
+          () =>
+            new Promise<boolean>((resolve, reject) => {
+              settleGate = () =>
+                settles === "resolve"
+                  ? resolve(true)
+                  : reject(new Error("late_gate_failure"));
+            }),
+        );
+        const running = dispatcher.execute({
+          ownerIdHash: hash("a"),
+          limit: 10,
+        });
+        await vi.advanceTimersByTimeAsync(24_000);
+        await expect(running).resolves.toMatchObject({
+          failed: 1,
+          dispatched: 0,
+        });
+        settleGate!();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(prepare).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it("retries failed transport preparation before entering unknown outcome", async () => {
     const intents = new InMemoryReviewRequestedIntentStore();
     await intents.registerIntent({
@@ -661,6 +1026,9 @@ describe("review execution domain", () => {
           return {
             status: ReviewRequestedDispatchLookupStatus.Absent as const,
           };
+        },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
         },
         async inspectKnownRun() {
           return { status: ReviewRequestedDispatchRunStatus.Pending };
@@ -733,6 +1101,9 @@ describe("review execution domain", () => {
             status: ReviewRequestedDispatchLookupStatus.Absent as const,
           };
         },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
+        },
         async inspectKnownRun() {
           return { status: ReviewRequestedDispatchRunStatus.Pending };
         },
@@ -794,6 +1165,9 @@ describe("review execution domain", () => {
           return {
             status: ReviewRequestedDispatchLookupStatus.Absent as const,
           };
+        },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
         },
         async inspectKnownRun() {
           return { status: ReviewRequestedDispatchRunStatus.Pending };
@@ -871,6 +1245,9 @@ describe("review execution domain", () => {
           return {
             status: ReviewRequestedDispatchLookupStatus.Absent as const,
           };
+        },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
         },
         async inspectKnownRun() {
           return { status: ReviewRequestedDispatchRunStatus.Pending };
@@ -1084,6 +1461,98 @@ describe("start and admission saga", () => {
       state: ReviewRequestedIntentState.Dispatched,
       authorizationId: "authorization-1",
       executionId: "execution-1",
+    });
+  });
+
+  it.each(["wrong_task", "wrong_vote", "unassigned"] as const)(
+    "rejects v2 lifecycle slot authority %s before execution is prepared",
+    async (fault) => {
+      const store = new InMemoryReviewExecutionStore();
+      const useCase = startUseCase(store, {
+        authorizationRevision: revision,
+        revisions: [revision, revision],
+      });
+      const request = lifecycleStartInput(`execution-${fault}`, fault);
+      const result = await useCase.execute(request);
+      expect(result).toMatchObject({
+        status: StartReviewExecutionStatus.AssignmentManifestRejected,
+        rejectionReason:
+          fault === "unassigned"
+            ? "review_lifecycle_assignment_slot_unassigned"
+            : "review_lifecycle_assignment_slot_authority_invalid",
+      });
+      expect(await store.findExecution(request.executionId)).toBeNull();
+    },
+  );
+
+  it("admits a v2 lifecycle assignment only with its actual lifecycle task and roster vote", async () => {
+    const store = new InMemoryReviewExecutionStore();
+    const useCase = startUseCase(store, {
+      authorizationRevision: revision,
+      revisions: [revision, revision],
+    });
+    const request = lifecycleStartInput("execution-lifecycle-authority");
+    expect((await useCase.execute(request)).status).toBe(
+      StartReviewExecutionStatus.Admitted,
+    );
+    expect(
+      (await store.findExecution(request.executionId))?.execution.workSlots,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          workSlotId: "slot-verifier",
+          taskKind: ReviewTaskKind.LifecycleRevalidation,
+          providerVoteIdentityHash: hash("c"),
+        }),
+      ]),
+    );
+  });
+
+  it("persists v2 zero-work lifecycle inventory under the same admitted plan identity", async () => {
+    const store = new InMemoryReviewExecutionStore();
+    const useCase = startUseCase(store, {
+      authorizationRevision: revision,
+      revisions: [revision, revision],
+    });
+    const base = startInput("execution-manifest-v2");
+    const candidate = lifecycleAssignmentFixture();
+    candidate.lifecyclePlan.targets = [];
+    candidate.lifecyclePlan.assignments = [];
+    candidate.lifecyclePlan.inventoryCount = 1;
+    candidate.lifecyclePlan.dispositionCounts.eligible = 0;
+    candidate.lifecyclePlan.dispositionCounts.manual = 1;
+    candidate.assignments = [candidate.assignments[0]!];
+    const canonical = canonicalReviewAssignmentManifestJson(
+      validateReviewAssignmentManifest(candidate, ["slot-1"]),
+    );
+    const assignmentManifestHash = createHash("sha256")
+      .update(canonicalReviewAssignmentManifestHashPreimage(canonical))
+      .digest("hex");
+    const planHash = createHash("sha256")
+      .update(
+        canonicalReviewExecutionPlanHashPreimage({
+          assignmentManifestHash,
+          compatibilityKey: hash("b"),
+          reviewRevisionHash: revision.reviewRevisionHash,
+          workSlots: base.workSlots,
+        }),
+      )
+      .digest("hex");
+    const result = await useCase.execute({
+      ...base,
+      compatibilityKey: hash("b"),
+      planHash,
+      assignmentManifestHash,
+      assignmentManifestCanonicalJson: canonical,
+    });
+    expect(result.status).toBe(StartReviewExecutionStatus.Admitted);
+    expect(
+      (await store.findExecution(base.executionId))?.execution,
+    ).toMatchObject({
+      assignmentManifestVersion: 2,
+      assignmentManifestHash,
+      assignmentManifestCanonicalJson: canonical,
+      planHash,
     });
   });
 
@@ -1452,6 +1921,158 @@ describe("start and admission saga", () => {
 });
 
 describe("work slots and fenced invocation leases", () => {
+  it.each(["execution", "authority"] as const)(
+    "caps lease and report windows at the absolute %s deadline",
+    async (owner) => {
+      const store = new InMemoryReviewExecutionStore();
+      const running = await prepareAndAdmit(store);
+      const notAfter = plus(10_000);
+      const input = {
+        ...leaseCommand(),
+        stream: running.stream,
+        execution: {
+          ...running.execution,
+          executionDeadlineAt:
+            owner === "execution"
+              ? notAfter
+              : running.execution.executionDeadlineAt,
+        },
+        ...(owner === "authority" ? { notAfter } : {}),
+        activeLease: null,
+        fencingToken: 1n,
+      };
+      const result = decideLeaseAcquire(input);
+      expect(result.status).toBe(LeaseAcquireDecisionStatus.Acquired);
+      if (result.status !== LeaseAcquireDecisionStatus.Acquired)
+        throw new Error("fixture_lease_not_acquired");
+      expect(result.lease.expiresAt).toEqual(notAfter);
+      expect(result.lease.resultReportUntil).toEqual(notAfter);
+      expect(result.lease.retainUntil).toEqual(input.retainUntil);
+      expect(result.execution.workSlots[0]?.nextAttemptOrdinal).toBe(2);
+    },
+  );
+
+  it.each(["execution", "authority"] as const)(
+    "does not charge a lease attempt at an expired %s deadline",
+    async (owner) => {
+      const store = new InMemoryReviewExecutionStore();
+      const running = await prepareAndAdmit(store);
+      const command = leaseCommand();
+      const input = {
+        ...command,
+        stream: running.stream,
+        execution: {
+          ...running.execution,
+          executionDeadlineAt:
+            owner === "execution"
+              ? command.now
+              : running.execution.executionDeadlineAt,
+        },
+        ...(owner === "authority" ? { notAfter: command.now } : {}),
+        activeLease: null,
+        fencingToken: 1n,
+      };
+      const before = structuredClone(input.execution);
+      expect(decideLeaseAcquire(input)).toEqual({
+        status: LeaseAcquireDecisionStatus.NotRunnable,
+      });
+      expect(input.execution).toEqual(before);
+      expect(input.execution.workSlots[0]?.nextAttemptOrdinal).toBe(1);
+    },
+  );
+
+  it("reports exhausted slots after the final lease is released", () => {
+    const prepared = decideExecutionPreparation({
+      stream: createEmptyReviewExecutionStream(scope, baseTime),
+      priorPrepared: null,
+      ...prepareCommand(),
+    });
+    const execution = {
+      ...prepared.execution,
+      state: ReviewExecutionState.Running,
+    };
+    const stream = {
+      ...prepared.stream,
+      preparedExecutionId: null,
+      activeExecutionId: execution.executionId,
+      currentRevision: revision,
+    };
+    const input = {
+      ...leaseCommand(),
+      stream,
+      execution,
+      activeLease: null,
+      fencingToken: 1n,
+    };
+    const acquired = decideLeaseAcquire(input);
+    if (acquired.status !== LeaseAcquireDecisionStatus.Acquired)
+      throw new Error("fixture_lease_not_acquired");
+    const released = decideLeaseRelease({
+      ...leaseTerm(acquired.lease),
+      lease: acquired.lease,
+      execution: acquired.execution,
+      now: plus(3),
+    });
+    if (!released.execution) throw new Error("fixture_execution_missing");
+    expect(released.execution.workSlots[0]).toMatchObject({
+      state: ReviewWorkSlotState.Exhausted,
+      attemptBudget: 1,
+      nextAttemptOrdinal: 2,
+      activeLeaseId: null,
+    });
+    const before = structuredClone(released.execution);
+    const retry = { ...input, execution: released.execution };
+    const exhausted = decideLeaseAcquire(retry);
+    expect(exhausted).toEqual({
+      status: LeaseAcquireDecisionStatus.AttemptBudgetExhausted,
+      execution: released.execution,
+      expiredLease: null,
+    });
+    if (!("execution" in exhausted)) throw new Error("exhaustion_missing");
+    expect(exhausted.execution).toBe(released.execution);
+    expect(released.execution).toEqual(before);
+
+    for (const state of [
+      ReviewWorkSlotState.Satisfied,
+      ReviewWorkSlotState.Cancelled,
+    ]) {
+      expect(
+        decideLeaseAcquire({
+          ...retry,
+          execution: {
+            ...released.execution,
+            workSlots: released.execution.workSlots.map((slot) => ({
+              ...slot,
+              state,
+            })),
+          },
+        }),
+      ).toEqual({ status: LeaseAcquireDecisionStatus.NotRunnable });
+    }
+    expect(
+      decideLeaseAcquire({
+        ...retry,
+        stream: { ...stream, activeExecutionId: null },
+      }),
+    ).toEqual({ status: LeaseAcquireDecisionStatus.NotRunnable });
+    expect(
+      decideLeaseAcquire({
+        ...retry,
+        execution: {
+          ...released.execution,
+          state: ReviewExecutionState.Failed,
+        },
+      }),
+    ).toEqual({ status: LeaseAcquireDecisionStatus.NotRunnable });
+    expect(
+      decideLeaseAcquire({ ...retry, workSlotId: "missing-slot" }),
+    ).toEqual({ status: LeaseAcquireDecisionStatus.MissingSlot });
+    expect(() =>
+      decideLeaseAcquire({ ...retry, providerVoteIdentityHash: hash("8") }),
+    ).toThrow("review_execution_provider_lane_identity_mismatch");
+    expect(released.execution).toEqual(before);
+  });
+
   it("forbids planned execution leases", async () => {
     const store = new InMemoryReviewExecutionStore();
     const prepared = await store.prepareExecution(prepareCommand());
@@ -2278,6 +2899,9 @@ describe("durable ReviewRequested ingress", () => {
             status: ReviewRequestedDispatchLookupStatus.Absent as const,
           };
         },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
+        },
         async inspectKnownRun() {
           return {
             status: ReviewRequestedDispatchRunStatus.TerminalCurrentRevision,
@@ -2354,6 +2978,9 @@ describe("durable ReviewRequested ingress", () => {
             status: ReviewRequestedDispatchLookupStatus.Absent as const,
           };
         },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
+        },
         async inspectKnownRun() {
           return {
             status: ReviewRequestedDispatchRunStatus.TerminalStaleRevision,
@@ -2382,6 +3009,268 @@ describe("durable ReviewRequested ingress", () => {
       supersededByRequestId: null,
     });
     expect(await store.findPendingByScope(scope)).toBeNull();
+  });
+
+  it("stops an operator-cancelled run instead of redispatching the same revision", async () => {
+    const store = new InMemoryReviewRequestedIntentStore();
+    await store.registerIntent({
+      candidate: intentCandidate("request-cancelled", "92", scope, revision),
+    });
+    const claimed = await store.claimIntent(
+      claimIntent("request-cancelled", "claim-cancelled", "owner-cancelled"),
+    );
+    await beginClaimedSubmission(store, claimed.intent!, plus(500));
+    await store.recordDispatch({
+      requestId: "request-cancelled",
+      claimId: "claim-cancelled",
+      ownerIdHash: "owner-cancelled",
+      fencingToken: claimed.intent!.claim!.fencingToken,
+      sourceRunId: "9003",
+      sourceRunAttempt: "1",
+      now: plus(1_000),
+      ...resolutionWindow(plus(1_000)),
+    });
+    const nextRequestId = vi.fn(() => "must-not-be-used");
+    const recovery = new RecoverReviewRequestedDispatches(
+      store,
+      store,
+      {
+        async prepare() {
+          throw new Error("must_not_dispatch");
+        },
+        async findByRequestIdentity() {
+          return {
+            status: ReviewRequestedDispatchLookupStatus.Absent as const,
+          };
+        },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
+        },
+        async inspectKnownRun() {
+          return {
+            status: ReviewRequestedDispatchRunStatus.TerminalNotRetryable,
+          };
+        },
+        async cancelKnownRun() {
+          throw new Error("must_not_cancel");
+        },
+      },
+      { now: () => plus(10_000) },
+      {
+        ids: { nextRequestId },
+        digest: {
+          digestUtf8: async () => {
+            throw new Error("must_not_hash_retry");
+          },
+        },
+      },
+      testDispatchPolicy(),
+    );
+
+    expect(await recovery.execute({ limit: 10 })).toMatchObject({
+      recovered: 1,
+      failed: 0,
+    });
+    expect(nextRequestId).not.toHaveBeenCalled();
+    expect(await store.findByRequestId("request-cancelled")).toMatchObject({
+      state: ReviewRequestedIntentState.Superseded,
+      supersededByRequestId: null,
+      sourceRunId: "9003",
+    });
+    expect(await store.findPendingByScope(scope)).toBeNull();
+    expect(await store.listDue({ now: plus(86_400_000), limit: 10 })).toEqual(
+      [],
+    );
+  });
+
+  it("backs off redispatch attempts exponentially up to the delay cap", () => {
+    const policy = { retryDelayMs: 30_000 };
+    expect(reviewRequestedRetryDelayMs(1, policy)).toBe(30_000);
+    expect(reviewRequestedRetryDelayMs(2, policy)).toBe(60_000);
+    expect(reviewRequestedRetryDelayMs(3, policy)).toBe(120_000);
+    // The largest failed attempt that still gets a successor (limit is 10).
+    expect(reviewRequestedRetryDelayMs(9, policy)).toBe(
+      maxReviewRequestedRetryDelayMs,
+    );
+    // A base delay above the cap is kept as is rather than shortened.
+    expect(reviewRequestedRetryDelayMs(3, { retryDelayMs: 7_200_000 })).toBe(
+      7_200_000,
+    );
+  });
+
+  it("schedules each recovered successor with the backoff of its failed attempt", async () => {
+    const store = new InMemoryReviewRequestedIntentStore();
+    await store.registerIntent({
+      candidate: intentCandidate("request-a1", "93", scope, revision),
+    });
+    let now = plus(10_000);
+    const requestIds = ["request-a2", "request-a3"];
+    const recovery = new RecoverReviewRequestedDispatches(
+      store,
+      store,
+      {
+        async prepare() {
+          throw new Error("must_not_dispatch");
+        },
+        async findByRequestIdentity() {
+          return {
+            status: ReviewRequestedDispatchLookupStatus.Absent as const,
+          };
+        },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
+        },
+        async inspectKnownRun() {
+          return {
+            status: ReviewRequestedDispatchRunStatus.TerminalCurrentRevision,
+          };
+        },
+        async cancelKnownRun() {},
+      },
+      { now: () => now },
+      {
+        ids: { nextRequestId: () => requestIds.shift()! },
+        digest: {
+          digestUtf8: async (value) =>
+            createHash("sha256").update(value).digest("hex"),
+        },
+      },
+      testDispatchPolicy(),
+    );
+    const dispatchAndFail = async (
+      requestId: string,
+      sourceRunId: string,
+      at: Date,
+    ) => {
+      const claimed = await store.claimIntent({
+        requestId,
+        claimId: `claim-${requestId}`,
+        ownerIdHash: `owner-${requestId}`,
+        now: at,
+        claimUntil: new Date(at.getTime() + 30_000),
+      });
+      await beginClaimedSubmission(
+        store,
+        claimed.intent!,
+        new Date(at.getTime() + 500),
+      );
+      await store.recordDispatch({
+        requestId,
+        claimId: `claim-${requestId}`,
+        ownerIdHash: `owner-${requestId}`,
+        fencingToken: claimed.intent!.claim!.fencingToken,
+        sourceRunId,
+        sourceRunAttempt: "1",
+        now: new Date(at.getTime() + 1_000),
+        ...resolutionWindow(new Date(at.getTime() + 1_000)),
+      });
+    };
+
+    await dispatchAndFail("request-a1", "9101", baseTime);
+    expect(await recovery.execute({ limit: 10 })).toMatchObject({
+      recovered: 1,
+      failed: 0,
+    });
+    expect(await store.findByRequestId("request-a2")).toMatchObject({
+      dispatchAttempt: 2,
+      notBefore: plus(10_000 + 2_000),
+    });
+
+    await dispatchAndFail("request-a2", "9102", plus(20_000));
+    now = plus(30_000);
+    expect(await recovery.execute({ limit: 10 })).toMatchObject({
+      recovered: 1,
+      failed: 0,
+    });
+    expect(await store.findByRequestId("request-a3")).toMatchObject({
+      dispatchAttempt: 3,
+      notBefore: plus(30_000 + 4_000),
+    });
+  });
+
+  it("isolates due blockers by every field of the PR scope", async () => {
+    const store = new InMemoryReviewRequestedIntentStore();
+    const first = intentCandidate("scope-owner", "0", scope, revision);
+    await store.registerIntent({ candidate: first });
+    expect(
+      (
+        await store.claimIntent(
+          claimIntent(first.requestId, "scope-claim", "scope-owner"),
+        )
+      ).status,
+    ).toBe(ReviewRequestedClaimStatus.Claimed);
+    const variants = [
+      { ...scope, workspaceId: `${scope.workspaceId}-other` },
+      {
+        ...scope,
+        repositoryConnectionId: `${scope.repositoryConnectionId}-other`,
+      },
+      {
+        ...scope,
+        scmRepositoryIdentityId: `${scope.scmRepositoryIdentityId}-other`,
+      },
+      { ...scope, pullRequestNumber: scope.pullRequestNumber + 1 },
+    ];
+    for (const [index, variant] of variants.entries()) {
+      await store.registerIntent({
+        candidate: intentCandidate(
+          `different-scope-${index}`,
+          String(index + 1),
+          variant,
+          revision,
+        ),
+      });
+    }
+    expect(
+      new Set(
+        (await store.listDue({ now: baseTime, limit: 10 })).map(
+          (intent) => intent.requestId,
+        ),
+      ),
+    ).toEqual(new Set(variants.map((_, index) => `different-scope-${index}`)));
+  });
+
+  it("unblocks a same-scope due intent exactly when the claim expires", async () => {
+    const store = new InMemoryReviewRequestedIntentStore();
+    const first = intentCandidate("boundary-first", "1", scope, revision);
+    await store.registerIntent({ candidate: first });
+    expect(
+      (
+        await store.claimIntent({
+          ...claimIntent(first.requestId, "boundary-owner", "boundary-hash"),
+          claimUntil: plus(1000),
+        })
+      ).status,
+    ).toBe(ReviewRequestedClaimStatus.Claimed);
+    const next = {
+      ...intentCandidate("boundary-next", "2", scope, revision),
+      triggerKind: ReviewRequestedTriggerKind.ManualCommand,
+    };
+    await store.registerIntent({ candidate: next });
+    expect(await store.listDue({ now: plus(999), limit: 10 })).toEqual([]);
+    expect(
+      (await store.listDue({ now: plus(1000), limit: 10 })).map(
+        (intent) => intent.requestId,
+      ),
+    ).toEqual(expect.arrayContaining([first.requestId, next.requestId]));
+    expect(
+      (
+        await store.claimIntent({
+          ...claimIntent(
+            next.requestId,
+            "boundary-next-claim",
+            "boundary-next-owner",
+          ),
+          now: plus(1000),
+          claimUntil: plus(2000),
+        })
+      ).status,
+    ).toBe(ReviewRequestedClaimStatus.Claimed);
+    expect(
+      (await store.listDue({ now: plus(1000), limit: 10 })).map(
+        (intent) => intent.requestId,
+      ),
+    ).not.toContain(first.requestId);
   });
 
   it("orders and bounds due intents", async () => {
@@ -2662,6 +3551,13 @@ function resolutionWindow(now: Date) {
   };
 }
 
+/** A run that GitHub already gave a runner: never waits longer (plan 88). */
+const runnerAlreadyAssigned = {
+  waitingForRunner: false,
+  neverStarted: false,
+  revisionCurrent: true,
+} as const;
+
 function testDispatchPolicy() {
   return {
     claimDurationMs: 30_000,
@@ -2816,4 +3712,123 @@ function plus(milliseconds: number): Date {
 
 function hash(character: string): string {
   return character.repeat(64).slice(0, 64);
+}
+
+function lifecycleAssignmentFixture() {
+  return {
+    manifestVersion: 2,
+    assignments: [
+      { workSlotId: "slot-1", paths: ["src/a.ts"] },
+      { workSlotId: "slot-verifier", paths: [] as string[] },
+    ],
+    eligiblePaths: ["src/a.ts"],
+    uncoveredPaths: [],
+    excludedPaths: [],
+    lifecyclePlan: {
+      version: 1,
+      capabilityHash: hash("a"),
+      descriptorDigest: `sha256:${hash("b")}`,
+      policyDigest: hash("c"),
+      inventoryHash: hash("d"),
+      inventoryCount: 1,
+      dispositionCounts: {
+        eligible: 1,
+        manual: 0,
+        unsupported: 0,
+        capped: 0,
+        unavailable: 0,
+        resolved: 0,
+      },
+      participantRoster: [{ providerVoteIdentityHash: hash("c") }],
+      targets: [
+        {
+          targetId: "target-1",
+          threadId: "thread-1",
+          fingerprint: "rrl_" + "f".repeat(32),
+          parentId: "parent-1",
+          parentCreatedAt: "2026-10-20T00:00:00.000Z",
+          parentUpdatedAt: "2026-10-20T00:00:00.000Z",
+          parentBodyHash: hash("a"),
+          claimHash: hash("b"),
+          commentStateHash: hash("c"),
+          ledgerWatermark: "0",
+          originalPath: "src/outside-diff.ts",
+          currentPath: "src/outside-diff.ts",
+          originalLine: 1,
+          currentLine: 1,
+          severity: "major",
+          resolutionHistory: {
+            historyCut: "2026-10-19T00:00:00.000Z",
+            guardVersion: "0",
+            state: "before_cut_unobserved",
+          },
+        },
+      ],
+      assignments: [
+        {
+          workSlotId: "slot-verifier",
+          packetHash: hash("e"),
+          targetIds: ["target-1"],
+          lifecycleTargetSetHash: hash("f"),
+          liveLifecycleStateHash: hash("a"),
+        },
+      ],
+    },
+  };
+}
+
+function lifecycleStartInput(
+  executionId: string,
+  fault?: "wrong_task" | "wrong_vote" | "unassigned",
+) {
+  const base = startInput(executionId);
+  const verifier = {
+    ...slotFixture("slot-verifier", false, 1),
+    taskKind:
+      fault === "wrong_task"
+        ? ReviewTaskKind.FindingDiscovery
+        : ReviewTaskKind.LifecycleRevalidation,
+    providerVoteIdentityHash: fault === "wrong_vote" ? hash("b") : hash("c"),
+  };
+  const workSlots = [
+    ...base.workSlots,
+    verifier,
+    ...(fault === "unassigned"
+      ? [
+          {
+            ...verifier,
+            workSlotId: "slot-unassigned",
+            shardKey: "unassigned-packet",
+          },
+        ]
+      : []),
+  ];
+  const canonical = canonicalReviewAssignmentManifestJson(
+    validateReviewAssignmentManifest(
+      lifecycleAssignmentFixture(),
+      workSlots.map((slot) => slot.workSlotId),
+    ),
+  );
+  const assignmentManifestHash = createHash("sha256")
+    .update(canonicalReviewAssignmentManifestHashPreimage(canonical))
+    .digest("hex");
+  const compatibilityKey = hash("b");
+  const planHash = createHash("sha256")
+    .update(
+      canonicalReviewExecutionPlanHashPreimage({
+        assignmentManifestHash,
+        compatibilityKey,
+        reviewRevisionHash: revision.reviewRevisionHash,
+        workSlots,
+      }),
+    )
+    .digest("hex");
+  return {
+    ...base,
+    workSlots,
+    compatibilityKey,
+    planHash,
+    assignmentManifestHash,
+    assignmentManifestCanonicalJson: canonical,
+  };
 }

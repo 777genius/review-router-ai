@@ -33,6 +33,7 @@ export type ReviewRequestEligibility =
       readonly headSha: string;
       readonly headRepositoryFullName: string;
       readonly authorType: string;
+      readonly pullRequestTitle?: string | null;
     }
   | {
       readonly status:
@@ -45,6 +46,7 @@ export interface ReviewRequestEligibilityPort {
     readonly githubInstallationId: string;
     readonly repositoryFullName: string;
     readonly pullRequestNumber: number;
+    readonly signal?: AbortSignal;
   }): Promise<ReviewRequestEligibility>;
 }
 
@@ -54,7 +56,7 @@ export type ReviewRequestIngressApplicationDependencies = Readonly<{
   eligibility: ReviewRequestEligibilityPort;
   digest: { digestUtf8(value: string): Promise<string> };
   clock: { now(): Date };
-  reviewDrafts: (repositoryFullName: string) => boolean;
+  reviewDrafts: (workspaceId: string) => Promise<boolean> | boolean;
 }>;
 
 export class ReviewRequestIngressApplicationService {
@@ -92,7 +94,7 @@ export class ReviewRequestIngressApplicationService {
       current.headRepositoryFullName.toLowerCase() !==
         payload.repositoryFullName.toLowerCase() ||
       (current.draft &&
-        !this.dependencies.reviewDrafts(payload.repositoryFullName))
+        !(await this.dependencies.reviewDrafts(payload.workspaceId)))
     ) {
       await this.dependencies.intents.cancelPreAdmission({
         ...payload,
@@ -155,6 +157,10 @@ export class ReviewRequestIngressApplicationService {
         scmRepositoryIdentityId: payload.scmRepositoryIdentityId,
         pullRequestNumber: payload.pullRequestNumber,
         requestId: payload.requestId,
+        historyMetadata: {
+          repositoryFullName: payload.repositoryFullName,
+          pullRequestTitle: current.pullRequestTitle ?? null,
+        },
         revision: normalizedRevision,
         triggerKind: payload.triggerKind,
         deliveryIdentityHash: payload.deliveryIdentityHash,

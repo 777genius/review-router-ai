@@ -38,6 +38,9 @@ REVIEW_ROUTER_ITEM11_RUN_ID="$(node -e 'process.stdout.write(require("node:crypt
 item11_database="item11_test_${REVIEW_ROUTER_ITEM11_RUN_ID}"
 item11_created=0
 item11_create_attempted=0
+item11_role_created=0
+item11_role_attempted=0
+item11_role_oid=''
 export REVIEW_ROUTER_ITEM11_CHILD_PROOF_DIR
 REVIEW_ROUTER_ITEM11_CHILD_PROOF_DIR="$(mktemp -d "${TMPDIR:-/tmp}/item11-child-proof.XXXXXXXX")"
 # Exact-name catalog lookup also identifies the database owner; never broad matching.
@@ -45,7 +48,7 @@ lookup_database() {
   psql -X -At -v ON_ERROR_STOP=1 -c "SELECT CASE WHEN datdba = (SELECT oid FROM pg_roles WHERE rolname = current_user) THEN 'owned' ELSE 'foreign' END FROM pg_database WHERE datname = '$item11_database'"
 }
 cleanup() {
-  local result=$? state
+  local result=$? state database_removed=0
   local -a pending_children
   shopt -s nullglob dotglob
   pending_children=("$REVIEW_ROUTER_ITEM11_CHILD_PROOF_DIR"/*)
@@ -63,6 +66,8 @@ cleanup() {
     elif ! dropdb "$item11_database"; then
       echo "item11_ci_cleanup_failed_retained database=$item11_database" >&2
       result=1
+    else
+      database_removed=1
     fi
   elif [[ "$item11_create_attempted" == 1 ]]; then
     # A failed client may have committed CREATE. Reconcile the exact name and
@@ -78,6 +83,19 @@ cleanup() {
     fi
     result=1
   fi
+  if [[ "$item11_role_created" == 1 ]]; then
+    if [[ "$database_removed" != 1 || ! "$item11_role_oid" =~ ^[1-9][0-9]*$ ]]; then
+      echo "item11_release_role_cleanup_unproven_retained database=$item11_database" >&2
+      result=1
+    elif ! node --input-type=module -e 'import { disposableReleaseMigrationRoleCleanupSql as sql } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs"; process.stdout.write(sql(process.argv[1]))' "$item11_role_oid" |
+      psql -XqAt -d postgres -v ON_ERROR_STOP=1; then
+      echo "item11_release_role_cleanup_failed_retained role=reviewrouter_release_migration" >&2
+      result=1
+    fi
+  elif [[ "$item11_role_attempted" == 1 ]]; then
+    echo "item11_release_role_create_outcome_uncertain_retained role=reviewrouter_release_migration" >&2
+    result=1
+  fi
   rmdir "$REVIEW_ROUTER_ITEM11_CHILD_PROOF_DIR" 2>/dev/null || true
   exit "$result"
 }
@@ -88,6 +106,23 @@ item11_existing="$(lookup_database)"
 item11_create_attempted=1
 createdb "$item11_database"
 item11_created=1
+# The earlier CI role pair was provisioned on port 5432. The application-test
+# cluster on port 5433 has only the owner created by its ordinary migrations.
+# Check the fresh target, then create this run's exact login on its own cluster.
+node --input-type=module -e 'import { disposableFreshDatabasePreflightSql as sql } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs"; process.stdout.write(sql)' |
+  psql -XqAt -d "$item11_database" -v ON_ERROR_STOP=1
+item11_role_attempted=1
+if ! node --input-type=module -e 'import { randomBytes } from "node:crypto"; import { disposableReleaseMigrationRoleSql as sql } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs"; process.stdout.write(sql(randomBytes(36).toString("base64url")))' |
+  psql -XqAt -d postgres -v ON_ERROR_STOP=1 >/dev/null 2>&1; then
+  echo 'item11_release_role_create_failed' >&2
+  exit 1
+fi
+item11_role_created=1
+item11_role_attempted=0
+item11_role_oid="$(psql -XAt -d postgres -v ON_ERROR_STOP=1 -c "SELECT oid FROM pg_catalog.pg_roles WHERE rolname='reviewrouter_release_migration'")"
+[[ "$item11_role_oid" =~ ^[1-9][0-9]*$ ]]
+node --input-type=module -e 'import { disposableReleasePairPreflightSql as sql } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs"; process.stdout.write(sql)' |
+  psql -XqAt -d "$item11_database" -v ON_ERROR_STOP=1
 export REVIEW_ROUTER_ITEM11_DATABASE_URL
 REVIEW_ROUTER_ITEM11_DATABASE_URL="$(node -e '
   const url = new URL(process.env.REVIEW_ROUTER_TEST_DATABASE_URL);
@@ -97,6 +132,13 @@ REVIEW_ROUTER_ITEM11_DATABASE_URL="$(node -e '
   url.search = "";
   process.stdout.write(url.href);
 ' "$item11_database")"
+# This CI cluster now has the release role pair. A fresh database must first
+# reach 000086 under its creator, then hand off the exact schema/table ownership
+# before 000087. The ordinary full-chain deploy fails closed on this boundary.
+before87_config="$(node scripts/self-hosted-e2e/disposable-release-role-fixture.mjs catalog "${RUNNER_TEMP:-${TMPDIR:-/tmp}}")"
+DATABASE_URL="$REVIEW_ROUTER_ITEM11_DATABASE_URL" pnpm --filter @reviewrouter/platform-db exec prisma migrate deploy --config "$before87_config"
+node --input-type=module -e 'import { disposableBefore87HandoffSql as sql } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs"; process.stdout.write(sql)' |
+  psql -XqAt -d "$item11_database" -v ON_ERROR_STOP=1
 DATABASE_URL="$REVIEW_ROUTER_ITEM11_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy
 psql -d "$item11_database" -v ON_ERROR_STOP=1 -v run_id="$REVIEW_ROUTER_ITEM11_RUN_ID" <<'SQL'
 CREATE TABLE item11_fixture_owner (

@@ -1,5 +1,5 @@
 import { generateKeyPairSync } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   CurrentMutationAuthorityStatus,
   CurrentPublicationLifecycleStatus,
@@ -24,6 +24,7 @@ import {
   productionReviewV2AdjudicationEvidence,
   productionReviewV2PublicationCapabilities,
   progressOutcome,
+  publicationWorkProvider,
   reviewV2CapabilityActiveKeyIdEnv,
   reviewV2CapabilityKeysEnv,
 } from "./review-v2-production-runtime";
@@ -44,9 +45,55 @@ import {
   ReviewV2PublicationExecutionStatus,
   ReviewV2PublicationFreshnessReadStatus,
   ReviewV2ScmProvider,
-} from "./review-v2-publication-ports";
+} from "@reviewrouter/features-review-publishing/v2";
+
+function enabledWorkerEnv(): Record<string, string> {
+  return {
+    [reviewV2WorkerEnabledEnv]: "1",
+    [reviewV2CapabilityActiveKeyIdEnv]: "review-v2-key-1",
+    [reviewV2CapabilityKeysEnv]: JSON.stringify([
+      {
+        keyId: "review-v2-key-1",
+        secretBase64: Buffer.alloc(32, 7).toString("base64"),
+        verifyUntil: null,
+      },
+    ]),
+    REVIEW_ROUTER_REVIEW_RUN_AUTHORIZATION_ACTIVE_KEY_ID: "review-run-key-1",
+    REVIEW_ROUTER_REVIEW_RUN_AUTHORIZATION_KEYS_JSON: JSON.stringify([
+      {
+        keyId: "review-run-key-1",
+        secretBase64: Buffer.alloc(32, 8).toString("base64"),
+        verifyUntil: null,
+      },
+    ]),
+    REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON: JSON.stringify([
+      {
+        producerReleaseId: "producer-release-1",
+        distributionKind: "public_reusable",
+        actionCommitSha: "a".repeat(40),
+        runtimeCommitSha: "b".repeat(40),
+        wrapperEntrypointDigest: null,
+        runtimeEntrypointDigest: "c".repeat(64),
+        schemaDigest: "d".repeat(64),
+        canonicalizerDigest: "e".repeat(64),
+        capabilityProfile: "exact_revision_v2",
+        protocolLimitsProfileId: "limits-1",
+        operationalSloProfileId: "slo-1",
+      },
+    ]),
+  };
+}
 
 describe("review v2 production worker composition", () => {
+  it.each([
+    ["github", ReviewV2ScmProvider.GitHub],
+    ["gitlab", ReviewV2ScmProvider.GitLab],
+  ] as const)(
+    "maps publication work provider %s at the worker boundary",
+    (provider, expected) => {
+      expect(publicationWorkProvider(provider)).toBe(expected);
+    },
+  );
   it("does not turn TerminalUnknown publication into failed progress", () => {
     expect(
       progressOutcome({
@@ -55,41 +102,7 @@ describe("review v2 production worker composition", () => {
     ).toBeNull();
   });
   it("boots the enabled factory with Prisma, GitHub App, publication, and schedulers", () => {
-    const env = {
-      [reviewV2WorkerEnabledEnv]: "1",
-      [reviewV2CapabilityActiveKeyIdEnv]: "review-v2-key-1",
-      [reviewV2CapabilityKeysEnv]: JSON.stringify([
-        {
-          keyId: "review-v2-key-1",
-          secretBase64: Buffer.alloc(32, 7).toString("base64"),
-          verifyUntil: null,
-        },
-      ]),
-      REVIEW_ROUTER_REVIEW_RUN_AUTHORIZATION_ACTIVE_KEY_ID: "review-run-key-1",
-      REVIEW_ROUTER_REVIEW_RUN_AUTHORIZATION_KEYS_JSON: JSON.stringify([
-        {
-          keyId: "review-run-key-1",
-          secretBase64: Buffer.alloc(32, 8).toString("base64"),
-          verifyUntil: null,
-        },
-      ]),
-      REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON:
-        JSON.stringify([
-          {
-            producerReleaseId: "producer-release-1",
-            distributionKind: "public_reusable",
-            actionCommitSha: "a".repeat(40),
-            runtimeCommitSha: "b".repeat(40),
-            wrapperEntrypointDigest: null,
-            runtimeEntrypointDigest: "c".repeat(64),
-            schemaDigest: "d".repeat(64),
-            canonicalizerDigest: "e".repeat(64),
-            capabilityProfile: "exact_revision_v2",
-            protocolLimitsProfileId: "limits-1",
-            operationalSloProfileId: "slo-1",
-          },
-        ]),
-    };
+    const env = enabledWorkerEnv();
     const prisma = {} as ReturnType<typeof createPrismaClient>;
     const privateKey = generateKeyPairSync("rsa", { modulusLength: 2048 })
       .privateKey.export({ type: "pkcs8", format: "pem" })
@@ -104,15 +117,78 @@ describe("review v2 production worker composition", () => {
           env,
           githubAppId: "1",
           githubPrivateKey: privateKey,
+          settlementHook: async () => {},
         }),
     });
 
     expect(feature.enabled).toBe(true);
     expect(feature.handlers.map((handler) => handler.type)).toEqual([
       "review.execution.finalized",
+      "review.requested_dispatch_cleanup",
+      "review.requested_start_notice",
       "github.pull_request.review_request_ingress",
       "review.request.ingress",
     ]);
+  });
+
+  it("runs the live progress comment by default and stops it with the kill switch", () => {
+    const privateKey = generateKeyPairSync("rsa", { modulusLength: 2048 })
+      .privateKey.export({ type: "pkcs8", format: "pem" })
+      .toString();
+    const build = (
+      overrides: Record<string, string>,
+      logger = { info: vi.fn(), warn: vi.fn() },
+    ) =>
+      createProductionReviewV2WorkerRuntime({
+        prisma: {} as ReturnType<typeof createPrismaClient>,
+        clock: new SystemClock(),
+        env: { ...enabledWorkerEnv(), ...overrides },
+        githubAppId: "1",
+        githubPrivateKey: privateKey,
+        settlementHook: async () => {},
+        logger,
+      });
+
+    expect(build({}).progress).toBeDefined();
+    expect(
+      build({ REVIEW_ROUTER_PROGRESS_REPOSITORIES: "acme/rocket" }).progress,
+    ).toBeDefined();
+    expect(
+      build({ REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES: "0" }).progress,
+    ).toBeUndefined();
+
+    const logger = { info: vi.fn(), warn: vi.fn() };
+    expect(
+      build({ REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES: "yes" }, logger)
+        .progress,
+    ).toBeUndefined();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining("Review progress settings are invalid"),
+      { invalidKeys: ["REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES"] },
+    );
+  });
+
+  it("sweeps for lost terminal promotions even without settlement hints", async () => {
+    const findMany = vi.fn(async () => []);
+    const progress = createProductionReviewV2WorkerRuntime({
+      prisma: {
+        reviewProgressPublicationV1: { findMany },
+      } as unknown as ReturnType<typeof createPrismaClient>,
+      clock: new SystemClock(),
+      env: enabledWorkerEnv(),
+      githubAppId: "1",
+      githubPrivateKey: generateKeyPairSync("rsa", { modulusLength: 2048 })
+        .privateKey.export({ type: "pkcs8", format: "pem" })
+        .toString(),
+      settlementHook: async () => {},
+    }).progress;
+
+    await expect(
+      progress?.promoteSettledExecutions({ settlements: [] }),
+    ).resolves.toBe(0);
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: 100 }),
+    );
   });
 
   it("reports the missing enabled-only key explicitly", () => {
@@ -123,9 +199,20 @@ describe("review v2 production worker composition", () => {
         env: {},
         githubAppId: "1",
         githubPrivateKey: "unused",
+        settlementHook: async () => {},
       }),
     ).toThrow(
       `review_v2_worker_config_missing:${reviewV2CapabilityActiveKeyIdEnv}`,
+    );
+  });
+
+  it("maps a persisted OCR provider kind to its real enum value", () => {
+    // Discriminating pair: before the explicit Ocr case the persisted "ocr"
+    // string collapsed to EvidenceProviderKind.Unknown, erasing the OCR
+    // identity that downstream safety mapping needs to answer fail-closed
+    // non-participation explicitly.
+    expect(mapPersistedContextReuseProviderKind("ocr")).toBe(
+      EvidenceProviderKind.Ocr,
     );
   });
 

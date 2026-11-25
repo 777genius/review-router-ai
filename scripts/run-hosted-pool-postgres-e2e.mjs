@@ -107,6 +107,25 @@ const sdkGrowthVerifierAssignmentMigrations = Object.freeze([
   "000108_sdk_growth_verifier_assignment",
   "000109_sdk_growth_verifier_assignment_lock",
 ]);
+const historicalUnknownScopeBarrierMigration =
+  "000110_historical_unknown_scope_barrier";
+const providerApiKeyWorkspaceMigration =
+  "000110_provider_api_key_workspace_management";
+const sdkGrowthSourceBindingMigration = "000111_sdk_growth_source_binding";
+const sdkGrowthOperatorCredentialMigration =
+  "000112_sdk_growth_operator_credential";
+const sdkGrowthApprovalLedgerMigration = "000113_sdk_growth_approval_ledger";
+const sdkGrowthV3ToolArtifactMigration = "000114_sdk_growth_v3_tool_artifact";
+const sdkGrowthV3ApprovedManifestMigration =
+  "000115_sdk_growth_v3_approved_manifest";
+// Provider profiles reference ProviderApiKeyConnection from 000110, which
+// this rehearsal stages late, so the provider registry migrations follow it.
+const providerRegistryMigrations = Object.freeze([
+  "000145_workspace_provider_profiles",
+  "000146_drop_review_configuration_projection",
+  "000149_api_key_repository_secret_profiles",
+  "000157_claude_code_api_key_secret",
+]);
 
 const codexOAuthV5Migrations = [
   "000087_codex_oauth_v4_v5_workflow_reattestation",
@@ -116,6 +135,7 @@ const codexOAuthV5Migrations = [
   "000090_workflow_provisioning_attempt_authority",
   "000091_workflow_provisioning_artifact_and_inventory",
 ];
+const skillsCatalogMigration = "000150_skills_catalog_security";
 
 let started = false;
 const rehearsalDirectories = [];
@@ -180,6 +200,17 @@ try {
       addMigration(rehearsalDirectory, migrationName);
       runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
     }
+    addMigration(rehearsalDirectory, historicalUnknownScopeBarrierMigration);
+    runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
+    addMigration(rehearsalDirectory, providerApiKeyWorkspaceMigration);
+    runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
+    addMigration(rehearsalDirectory, sdkGrowthSourceBindingMigration);
+    runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
+    for (const migrationName of providerRegistryMigrations) {
+      addMigration(rehearsalDirectory, migrationName);
+      runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
+    }
+    applySkillsCatalogMigration(rehearsalDirectory, migrationDatabaseUrl);
 
     const migrationCount = await countAppliedMigrations(migrationDatabaseUrl);
     runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
@@ -198,6 +229,7 @@ try {
     await prepareCodexOAuthV5ReleaseAuthority(databaseUrl);
     applyCodexOAuthV5Migrations(rehearsalDirectory, databaseUrl);
     await applyPublicEligibilityMigration(rehearsalDirectory, databaseUrl);
+    applySkillsCatalogMigration(rehearsalDirectory, databaseUrl);
     await applyProductionRuntimeAcl(databaseUrl, database);
     await prepareProviderScopeConcurrencyReleaseAuthority(databaseUrl);
     await proveProviderScopeConcurrencyRollout(
@@ -228,6 +260,7 @@ try {
       canaryDirectory,
       canaryPhaseDatabaseUrl,
     );
+    applySkillsCatalogMigration(canaryDirectory, canaryPhaseDatabaseUrl);
     if (
       (await countAppliedMigrations(canaryPhaseDatabaseUrl)) !==
       (await countAppliedMigrations(databaseUrl))
@@ -752,6 +785,7 @@ function prepareMigrationRehearsal({ excludeHostedPoolMigrations }) {
   );
   const excludedMigrations = new Set([
     publicEligibilityMigration,
+    skillsCatalogMigration,
     ...codexOAuthV5Migrations,
     ...(excludeHostedPoolMigrations
       ? [
@@ -759,6 +793,14 @@ function prepareMigrationRehearsal({ excludeHostedPoolMigrations }) {
           requestScopedFailoverMigration.name,
           v4RelayTurnMigration,
           ...sdkGrowthVerifierAssignmentMigrations,
+          historicalUnknownScopeBarrierMigration,
+          providerApiKeyWorkspaceMigration,
+          sdkGrowthSourceBindingMigration,
+          sdkGrowthOperatorCredentialMigration,
+          sdkGrowthApprovalLedgerMigration,
+          sdkGrowthV3ToolArtifactMigration,
+          sdkGrowthV3ApprovedManifestMigration,
+          ...providerRegistryMigrations,
         ]
       : []),
   ]);
@@ -775,6 +817,11 @@ function addMigration(directory, migrationName) {
     join(directory, "prisma/migrations", migrationName),
     { recursive: true },
   );
+}
+
+function applySkillsCatalogMigration(directory, url) {
+  addMigration(directory, skillsCatalogMigration);
+  runMigrationDeploy(directory, url);
 }
 
 function applyCodexOAuthV5Migrations(directory, url) {

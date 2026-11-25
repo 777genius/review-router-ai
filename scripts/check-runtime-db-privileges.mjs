@@ -1,0 +1,129 @@
+// Post-deploy check for a dedicated worker role or the default shared
+// self-hosted role. Run it with the worker's DATABASE_URL:
+//
+//   DATABASE_URL=... node scripts/check-runtime-db-privileges.mjs
+//
+// CI and local tests run as a superuser, so a missing grant only shows up in
+// production, as an event that fails again and again until it is dead lettered.
+// Two checks:
+//   1. privileges the runtime is known to need, per role name;
+//   2. outbox dead letters from the last 7 days with a stable DB grant error code
+//      (plus legacy free-text diagnostics from before the privacy migration).
+import pg from "pg";
+
+/** Known worker requirements also apply to the shared self-hosted user. */
+const workerPrivileges = [
+  // installation.sync_requested upserts repositories.
+  { table: "RepositoryConnection", privilege: "INSERT" },
+  { table: "RepositoryConnection", privilege: "UPDATE" },
+  // A first-time repository identity binding writes this guarded column.
+  {
+    table: "RepositoryConnection",
+    column: "scmRepositoryIdentityId",
+    privilege: "UPDATE",
+  },
+  { sequence: "RepositoryInventoryGeneration", privilege: "USAGE" },
+  // The outbox handlers claim, settle and dead-letter events.
+  { table: "OutboxEvent", privilege: "UPDATE" },
+  // Statistics and history projections.
+  { table: "ReviewStatisticsReviewFact", privilege: "INSERT" },
+  { table: "ReviewStatisticsIssueFact", privilege: "INSERT" },
+];
+
+export const requiredPrivileges = Object.freeze({
+  reviewrouter_worker: workerPrivileges,
+  reviewrouter: workerPrivileges,
+});
+
+// A fixed diagnostic code is written by safeOutboxErrorSummary. Keep the
+// legacy text predicates for dead letters recorded before that privacy fix.
+export const permissionDeadLetterQuery = `select type, count(*)::int as count, max("deadLetteredAt")::text as latest
+           from "OutboxEvent"
+          where status = 'dead_letter'
+            and "deadLetteredAt" > now() - interval '7 days'
+            and ("lastErrorCode" = 'db_permission_denied'
+              or "safeLastErrorSummary" ilike '%permission denied%'
+              or "safeLastErrorSummary" ilike '%42501%')
+          group by type
+          order by type`;
+
+/** Pure: turns probe results into the list of problems to print. */
+export function describeProblems({ role, missing, permissionDeadLetters }) {
+  const problems = [];
+  for (const item of missing)
+    problems.push(
+      `${role} lacks ${item.privilege} on ${item.table ?? item.sequence}${item.column ? `.${item.column}` : ""}`,
+    );
+  for (const row of permissionDeadLetters)
+    problems.push(
+      `${row.count} dead-lettered ${row.type} event(s) failed with a permission error, latest ${row.latest}`,
+    );
+  return problems;
+}
+
+async function main() {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    console.error("DATABASE_URL is required");
+    process.exit(2);
+  }
+  const client = new pg.Client({ connectionString });
+  await client.connect();
+  try {
+    const { rows } = await client.query("select current_user as role");
+    const role = rows[0].role;
+    const expectedRole = process.env.REVIEW_ROUTER_EXPECT_DB_ROLE;
+    if (expectedRole && role !== expectedRole) {
+      throw new Error(`expected database role ${expectedRole}, got ${role}`);
+    }
+    const required = requiredPrivileges[role];
+    if (!required)
+      throw new Error(`no privilege requirements for role ${role}`);
+    const missing = [];
+    for (const item of required) {
+      const result = item.column
+        ? await client.query(
+            "select has_column_privilege(current_user, $1, $2, $3) as ok",
+            [`public."${item.table}"`, item.column, item.privilege],
+          )
+        : item.table
+          ? await client.query(
+              // True for a table-level grant and for a column-level one, which is how the
+              // worker gets INSERT and UPDATE on RepositoryConnection.
+              "select has_any_column_privilege(current_user, $1, $2) as ok",
+              [`public."${item.table}"`, item.privilege],
+            )
+          : await client.query(
+              "select has_sequence_privilege(current_user, $1, $2) as ok",
+              [`public."${item.sequence}"`, item.privilege],
+            );
+      if (!result.rows[0].ok) missing.push(item);
+    }
+    const dead = await client
+      .query(permissionDeadLetterQuery)
+      .then((r) => r.rows);
+    const problems = describeProblems({
+      role,
+      missing,
+      permissionDeadLetters: dead,
+    });
+    console.log(
+      `role ${role}: checked ${required.length} known privilege(s)${
+        required.length === 0
+          ? " (no known requirements for this role name)"
+          : ""
+      }`,
+    );
+    for (const problem of problems) console.error(`PROBLEM: ${problem}`);
+    process.exitCode = problems.length === 0 ? 0 : 1;
+  } finally {
+    await client.end();
+  }
+}
+
+if (
+  process.argv[1] === "-" ||
+  import.meta.url === `file://${process.argv[1]}`
+) {
+  await main();
+}

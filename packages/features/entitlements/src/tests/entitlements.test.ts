@@ -7,6 +7,7 @@ import type { EntitlementRepositoryPort } from "../application/ports/entitlement
 import { assertWorkspaceFeatureEntitlement } from "../application/use-cases/assert-workspace-feature-entitlement";
 import {
   EntitlementDeniedError,
+  evaluateFeatureEntitlement,
   freeBetaEntitlement,
   freeBetaLimits,
   type WorkspaceEntitlement,
@@ -83,6 +84,9 @@ describe("entitlements", () => {
   it("denies future paid features with a clear error and audit", async () => {
     const entitlements = new InMemoryEntitlements();
     const auditLog = new InMemoryAuditLog();
+    expect(
+      freeBetaEntitlement("workspace_1").flags.provider_key_management,
+    ).toBe(true);
 
     await expect(
       assertWorkspaceFeatureEntitlement(
@@ -102,10 +106,62 @@ describe("entitlements", () => {
     );
   });
 
-  it("does not enable hosted credential custody for free beta implicitly", () => {
+  it("allows provider key management for an active workspace with an old false flag", async () => {
+    const entitlements = new InMemoryEntitlements();
+    entitlements.entitlement = {
+      ...freeBetaEntitlement("workspace_1"),
+      plan: "pro",
+      flags: {
+        ...freeBetaEntitlement("workspace_1").flags,
+        provider_key_management: false,
+      },
+    };
+
+    await expect(
+      assertWorkspaceFeatureEntitlement(
+        {
+          workspaceId: "workspace_1",
+          feature: "provider_key_management",
+          actor: "user:777genius",
+        },
+        { entitlements },
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("includes hosted account enrollment for free beta workspaces", () => {
     expect(freeBetaEntitlement("workspace_1").flags.hosted_codex_pool).toBe(
-      false,
+      true,
     );
+  });
+
+  it("grants hosted enrollment to existing active workspaces with the old false bit", async () => {
+    const entitlement = {
+      ...freeBetaEntitlement("workspace_1"),
+      flags: {
+        ...freeBetaEntitlement("workspace_1").flags,
+        hosted_codex_pool: false,
+      },
+    };
+    const entitlements = new InMemoryEntitlements();
+    entitlements.entitlement = entitlement;
+
+    await expect(
+      assertWorkspaceFeatureEntitlement(
+        {
+          workspaceId: "workspace_1",
+          feature: "hosted_codex_pool",
+          actor: "user:owner",
+        },
+        { entitlements },
+      ),
+    ).resolves.toBeUndefined();
+    expect(
+      evaluateFeatureEntitlement({
+        entitlement: { ...entitlement, status: "paused" },
+        feature: "hosted_codex_pool",
+      }),
+    ).toEqual({ allowed: false, reason: "workspace_entitlement_not_active" });
   });
 
   it("denies inactive workspace entitlements", async () => {

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { workflowProvisioningTransaction } from "@reviewrouter/features-workflow-provisioning";
+import { workflowProvisioningTransaction } from "@reviewrouter/features-workflow-provisioning/composition";
 import {
   acquireCurrentScopeGuards,
   rotateRemovedScmRepositoryIdentityEpoch,

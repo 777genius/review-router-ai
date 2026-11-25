@@ -31,13 +31,13 @@ const setupCommand = renderCodexRotatingInstallerCommand({
     repositoryFullName: "Padelapp-Club/monorepository",
     repositoryId: "1185393047",
     repositoryIdentityVersion: 1,
-    installerUrl: "https://reviewrouter.site/install/codex-rotating",
+    installerUrl: "https://reviewrouter.org/install/codex-rotating",
     installerVersion: "route-test",
     installerSha256: "a".repeat(64),
     now: new Date("2026-07-15T16:45:00.000Z"),
   }),
   setupManifestUrl:
-    "https://reviewrouter.site/api/codex-rotating/setup-manifest",
+    "https://reviewrouter.org/api/codex-rotating/setup-manifest",
   installerArguments: ["--force-reseed"],
 });
 
@@ -79,7 +79,7 @@ describe("Codex rotating CLI setup command route", () => {
     );
     expect(body.command).toBe(setupCommand);
     expect(body.command).toContain(
-      "REVIEW_ROUTER_CODEX_ROTATING_SETUP_URL=https://reviewrouter.site/api/codex-rotating/setup-manifest",
+      "REVIEW_ROUTER_CODEX_ROTATING_SETUP_URL=https://reviewrouter.org/api/codex-rotating/setup-manifest",
     );
     expect(JSON.stringify(body)).not.toContain("github-token-value");
     expect(JSON.stringify(body)).not.toContain("REVIEWROUTER_CODEX_AUTH_JSON");
@@ -100,7 +100,7 @@ describe("Codex rotating CLI setup command route", () => {
   it("rejects missing bearer auth before repository lookup", async () => {
     const response = await POST(
       new Request(
-        "https://reviewrouter.site/api/codex-rotating/cli/setup-command",
+        "https://reviewrouter.org/api/codex-rotating/cli/setup-command",
         {
           method: "POST",
           body: JSON.stringify({
@@ -170,7 +170,7 @@ describe("Codex rotating CLI setup command route", () => {
 
 function request(options: { readonly reuseCurrentAuth: boolean }): Request {
   return new Request(
-    "https://reviewrouter.site/api/codex-rotating/cli/setup-command",
+    "https://reviewrouter.org/api/codex-rotating/cli/setup-command",
     {
       method: "POST",
       headers: {

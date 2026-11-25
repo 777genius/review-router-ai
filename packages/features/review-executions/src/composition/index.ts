@@ -103,3 +103,5 @@ export * from "../infrastructure/prisma/prisma-review-requested-intent-store";
 
 export { PrismaReviewExecutionStore } from "../infrastructure/prisma/prisma-review-execution-store";
 export { PrismaReviewRequestedIntentStore } from "../infrastructure/prisma/prisma-review-requested-intent-store";
+
+export type { ReviewExecutionInputAdmissionPort } from "../infrastructure/prisma/review-execution-input-admission-port";

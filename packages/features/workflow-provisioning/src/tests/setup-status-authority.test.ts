@@ -50,7 +50,6 @@ describe("workflow provisioning setup-status authority", () => {
       "../../../repo-health/src/infrastructure/prisma/prisma-repository-health-repository.ts",
       "../../../support-diagnostics/src/infrastructure/prisma/prisma-support-diagnostics-repository.ts",
       "../../../../../apps/web/app/dashboard/dashboard-workspace-page.tsx",
-      "../../../../../apps/web/app/api/dashboard/repositories/search/route.ts",
     ].map((path) => readFileSync(new URL(path, import.meta.url), "utf8"));
 
     for (const source of sources) {

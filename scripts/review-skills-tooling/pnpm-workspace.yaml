@@ -1,0 +1,5 @@
+minimumReleaseAgeExclude:
+  - "@agent-teams/document-authoring@0.3.6"
+  - "@agent-teams/engineering-foundation@3.1.0"
+  - "@agent-teams/feature-module-standard@0.3.2"
+  - "@agent-teams/repository-mutation@0.4.2"

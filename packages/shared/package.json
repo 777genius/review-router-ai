@@ -9,14 +9,24 @@
       "production": "./dist/index.js",
       "default": "./src/index.ts"
     },
+    "./review-skills-contract": {
+      "types": "./src/review-skills-contract.ts",
+      "production": "./dist/review-skills-contract.js",
+      "default": "./src/review-skills-contract.ts"
+    },
     "./scm": {
       "types": "./src/scm/index.ts",
       "production": "./dist/scm/index.js",
       "default": "./src/scm/index.ts"
+    },
+    "./review-model-dispatch-default-agents": {
+      "types": "./src/review-model-dispatch-default-agents.ts",
+      "production": "./dist/review-model-dispatch-default-agents.js",
+      "default": "./src/review-model-dispatch-default-agents.ts"
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "build": "node ../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.build.json",
+    "typecheck": "node ../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json"
   }
 }

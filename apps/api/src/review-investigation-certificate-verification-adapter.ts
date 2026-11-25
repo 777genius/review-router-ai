@@ -193,6 +193,7 @@ function evidenceProvider(
     case EvidenceProviderKind.ClaudeCode:
       return InvestigationRolloutProvider.Claude;
     case EvidenceProviderKind.OpenRouter:
+    case EvidenceProviderKind.Ocr:
     case EvidenceProviderKind.Unknown:
       return InvestigationRolloutProvider.Unknown;
   }
@@ -207,6 +208,7 @@ function investigationTurnProvider(
     case EvidenceProviderKind.ClaudeCode:
       return InvestigationTurnProviderKind.ClaudeCode;
     case EvidenceProviderKind.OpenRouter:
+    case EvidenceProviderKind.Ocr:
     case EvidenceProviderKind.Unknown:
       return null;
   }

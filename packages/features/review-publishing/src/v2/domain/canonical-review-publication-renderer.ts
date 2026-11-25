@@ -1,3 +1,9 @@
+import { prDescriptionContract } from "@reviewrouter/shared";
+import {
+  renderReviewPrDescription,
+  reviewPrDescriptionStartMarker,
+  type ReviewPrDescriptionSource,
+} from "./review-pr-description";
 import {
   ReviewPublicationInlineReviewDelivery,
   ReviewPublicationLifecycleSemantic,
@@ -16,11 +22,40 @@ export const hiddenMarkerReviewProjectionPolicyVersion =
 export const currentReviewProjectionPolicyVersion =
   "review-projection-policy.v5-t0";
 
+export const comparisonReviewProjectionPolicyVersion =
+  "review-projection-policy.v6-comparison";
+
+export const lifecycleVerificationReviewProjectionPolicyVersion =
+  "review-projection-policy.v7-lifecycle-verification";
+
+export type ReviewPublicationLifecycleVerificationFact = {
+  readonly targetId: string;
+  readonly lineageId?: string;
+  readonly semanticVerdict: "resolved" | "still_valid" | "uncertain";
+  readonly confirmationState:
+    | "confirmed_open"
+    | "fix_confirmed_thread_open"
+    | "unverified"
+    | "native_resolved";
+  readonly severity: "critical" | "major" | "minor" | "unknown";
+  readonly observationIds: readonly string[];
+  readonly providerVoteKeys: readonly string[];
+  readonly reasonCodes: readonly string[];
+  readonly mutationStatus:
+    | "report_only"
+    | "pending"
+    | "blocked_partial_review"
+    | "not_eligible"
+    | "native_resolved";
+};
+
 export enum CanonicalReviewPublicationRenderPolicyVersion {
   LegacyV1 = 1,
   ClearPartialV2 = 2,
   HiddenMarkersV3 = 3,
   PreliminaryFindingsV4 = 4,
+  CompactComparisonV5 = 5,
+  LifecycleVerificationV6 = 6,
 }
 
 export const legacyPartialReviewPublicationSummary =
@@ -54,6 +89,7 @@ export enum ReviewPublicationOccurrenceState {
 }
 
 export type ReviewPublicationRenderingSource = {
+  readonly prDescription?: ReviewPrDescriptionSource;
   readonly summary: {
     readonly marker: string;
     readonly body: string;
@@ -83,6 +119,7 @@ export type ReviewPublicationRenderingSource = {
     readonly threadId: string;
     readonly verdict: string;
     readonly mutationEligible: boolean;
+    readonly verification?: ReviewPublicationLifecycleVerificationFact;
   }[];
 };
 
@@ -92,6 +129,7 @@ type RenderedPayloadIdentity = CanonicalReviewPublicationBodyFacts & {
 };
 
 export type CanonicalReviewPublicationRendering = {
+  readonly prDescription?: RenderedPayloadIdentity;
   readonly summary: RenderedPayloadIdentity & {
     readonly semantic: ReviewPublicationSummarySemantic;
   };
@@ -121,6 +159,7 @@ export type CanonicalReviewPublicationRendering = {
     readonly chunkIndex: number;
     readonly semantic: ReviewPublicationLifecycleSemantic;
     readonly threadId: string;
+    readonly targetId: string;
     readonly resolve: boolean;
   })[];
 };
@@ -142,11 +181,48 @@ export function resolveReviewPublicationRenderPolicyVersion(
       return CanonicalReviewPublicationRenderPolicyVersion.HiddenMarkersV3;
     case currentReviewProjectionPolicyVersion:
       return CanonicalReviewPublicationRenderPolicyVersion.PreliminaryFindingsV4;
+    case comparisonReviewProjectionPolicyVersion:
+      return CanonicalReviewPublicationRenderPolicyVersion.CompactComparisonV5;
+    case lifecycleVerificationReviewProjectionPolicyVersion:
+      return CanonicalReviewPublicationRenderPolicyVersion.LifecycleVerificationV6;
     default:
       throw new Error(
         `review_publication_projection_policy_unsupported:${projectionPolicyVersion}`,
       );
   }
+}
+
+const reviewSummaryStatusMarkerPrefix = "<!-- reviewrouter:review-status:";
+
+/** The Action's machine-readable verdict line in its own summary body. */
+export const reviewSummaryIncompleteStatusMarker = `${reviewSummaryStatusMarkerPrefix}incomplete -->`;
+
+/**
+ * Whether the published summary says "Review incomplete". It is the server's
+ * partial summary when server coverage is partial; otherwise the Action's own
+ * body is published, and the Action calls it incomplete whenever its
+ * projection does not claim complete coverage or its first status marker says
+ * so (for example unverified native spans with every required part finished,
+ * or unverified previous findings). Only the first status marker counts, so a
+ * marker quoted later in model output cannot flip the verdict.
+ */
+export function publishedSummaryIncomplete(input: {
+  readonly coverage: ReviewPublicationProjectionCoverage;
+  readonly producerCoverageComplete: boolean;
+  readonly sourceSummaryBody: string;
+}): boolean {
+  const status = input.sourceSummaryBody.indexOf(
+    reviewSummaryStatusMarkerPrefix,
+  );
+  return (
+    input.coverage === ReviewPublicationProjectionCoverage.Partial ||
+    !input.producerCoverageComplete ||
+    (status >= 0 &&
+      input.sourceSummaryBody.startsWith(
+        reviewSummaryIncompleteStatusMarker,
+        status,
+      ))
+  );
 }
 
 /**
@@ -157,15 +233,49 @@ export function renderCanonicalReviewPublication(
   input: {
     readonly coverage: ReviewPublicationProjectionCoverage;
     readonly renderPolicyVersion: CanonicalReviewPublicationRenderPolicyVersion;
+    /** Preserve the original plan for publication attempts created before replies existed. */
+    readonly includeVerifiedFixReplies?: boolean;
     readonly targetCommitId: string;
     readonly occurrenceStates: readonly ReviewPublicationOccurrenceState[];
     readonly source: ReviewPublicationRenderingSource;
   },
   primitives: CanonicalReviewPublicationRenderingPrimitives,
 ): CanonicalReviewPublicationRendering {
+  if (
+    input.renderPolicyVersion ===
+    CanonicalReviewPublicationRenderPolicyVersion.LifecycleVerificationV6
+  ) {
+    const targets = new Set<string>();
+    for (const entry of input.source.lifecycle) {
+      validateReviewPublicationLifecycleVerification(
+        entry.verification,
+        entry.targetId,
+      );
+      if (targets.has(entry.targetId))
+        throw new Error("publication_verification_duplicate_target");
+      targets.add(entry.targetId);
+      const fact = entry.verification!;
+      if (
+        (entry.verdict !== fact.semanticVerdict &&
+          !(
+            entry.verdict === "suppressed_by_human" &&
+            fact.confirmationState === "unverified"
+          )) ||
+        (entry.mutationEligible &&
+          (entry.verdict !== "resolved" ||
+            fact.confirmationState !== "fix_confirmed_thread_open" ||
+            fact.mutationStatus !== "pending"))
+      )
+        throw new Error("publication_verification_mutation_invalid");
+    }
+  }
   const verifiedOccurrenceCounts =
     input.renderPolicyVersion ===
-    CanonicalReviewPublicationRenderPolicyVersion.PreliminaryFindingsV4
+      CanonicalReviewPublicationRenderPolicyVersion.PreliminaryFindingsV4 ||
+    input.renderPolicyVersion ===
+      CanonicalReviewPublicationRenderPolicyVersion.CompactComparisonV5 ||
+    input.renderPolicyVersion ===
+      CanonicalReviewPublicationRenderPolicyVersion.LifecycleVerificationV6
       ? occurrenceCountsBoundToProjection(
           input.source.summary.occurrenceCounts,
           input.occurrenceStates,
@@ -201,6 +311,13 @@ export function renderCanonicalReviewPublication(
     };
   }
 
+  if (
+    input.source.prDescription !== undefined &&
+    primitives.utf8ByteLength(input.source.prDescription.generatedMarkdown) >
+      prDescriptionContract.maxGeneratedMarkdownBytes
+  ) {
+    throw new Error("publication_pr_description_markdown_invalid");
+  }
   const checkSummary = withMarker(
     input.source.check.summary,
     input.source.check.marker,
@@ -266,7 +383,10 @@ export function renderCanonicalReviewPublication(
     .filter(
       (entry) =>
         entry.mutationEligible &&
-        (entry.verdict === "resolved" || entry.verdict === "still_valid"),
+        (entry.verdict === "resolved" ||
+          (input.renderPolicyVersion !==
+            CanonicalReviewPublicationRenderPolicyVersion.LifecycleVerificationV6 &&
+            entry.verdict === "still_valid")),
     )
     .map((entry, chunkIndex) => {
       const resolve = entry.verdict === "resolved";
@@ -277,6 +397,7 @@ export function renderCanonicalReviewPublication(
           ? ReviewPublicationLifecycleSemantic.Resolve
           : ReviewPublicationLifecycleSemantic.Reopen,
         threadId: entry.threadId,
+        targetId: entry.targetId,
         resolve,
         ...payload(
           marker,
@@ -286,7 +407,46 @@ export function renderCanonicalReviewPublication(
       };
     });
 
+  // A verified finding deserves an in-thread acknowledgement even when the
+  // repository remains report-only. Do not turn that evidence into resolve permission.
+  const replies =
+    input.renderPolicyVersion ===
+      CanonicalReviewPublicationRenderPolicyVersion.LifecycleVerificationV6 &&
+    input.includeVerifiedFixReplies !== false
+      ? input.source.lifecycle
+          .filter(
+            (entry) =>
+              entry.verdict === "resolved" &&
+              entry.verification?.confirmationState ===
+                "fix_confirmed_thread_open" &&
+              (entry.verification.mutationStatus === "report_only" ||
+                entry.verification.mutationStatus === "pending"),
+          )
+          .map((entry, index) => {
+            const reply = verifiedFixThreadReply(entry.targetId);
+            return {
+              chunkIndex: lifecycle.length + index,
+              semantic: ReviewPublicationLifecycleSemantic.ConfirmReply,
+              threadId: entry.threadId,
+              targetId: entry.targetId,
+              resolve: false,
+              ...payload(reply.marker, reply.body, primitives),
+            };
+          })
+      : [];
+
   return {
+    ...(input.source.prDescription === undefined
+      ? {}
+      : {
+          prDescription: payload(
+            reviewPrDescriptionStartMarker,
+            renderReviewPrDescription(
+              input.source.prDescription.generatedMarkdown,
+            ),
+            primitives,
+          ),
+        }),
     summary: {
       ...summary,
       semantic: input.source.summary.allClear
@@ -301,7 +461,32 @@ export function renderCanonicalReviewPublication(
       conclusion: input.source.check.conclusion,
     },
     inlineReviews,
-    lifecycle,
+    // Send the confirmation first: a denied resolve must not prevent the
+    // separate, authorized reply from reaching the original thread.
+    lifecycle: [...replies, ...lifecycle].map((entry, chunkIndex) => ({
+      ...entry,
+      chunkIndex,
+    })),
+  };
+}
+
+/** Stable marker and body allow reconciliation across retries and new attempts. */
+export function verifiedFixThreadReply(targetId: string): Readonly<{
+  marker: string;
+  body: string;
+}> {
+  if (!/^[a-zA-Z0-9_-]{1,128}$/u.test(targetId)) {
+    throw new Error("publication_verified_reply_target_invalid");
+  }
+  const marker = `reviewrouter:fix-verified:v1:${targetId}`;
+  return {
+    marker,
+    body: [
+      "✅ **ReviewRouter verified this fix** against the reviewed revision.",
+      "This confirmation is separate from GitHub thread resolution; the thread may remain open.",
+      "",
+      `<!-- ${marker} -->`,
+    ].join("\n"),
   };
 }
 
@@ -316,6 +501,21 @@ function partialSummary(
     case CanonicalReviewPublicationRenderPolicyVersion.ClearPartialV2:
     case CanonicalReviewPublicationRenderPolicyVersion.HiddenMarkersV3:
       return partialReviewPublicationSummary;
+    case CanonicalReviewPublicationRenderPolicyVersion.CompactComparisonV5:
+    case CanonicalReviewPublicationRenderPolicyVersion.LifecycleVerificationV6:
+      if (verifiedOccurrenceCounts === null) {
+        throw new Error("publication_occurrence_counts_invalid");
+      }
+      return [
+        "**Review incomplete.** Required coverage did not finish; this is not an approval.",
+        "",
+        removePartialAllClearClaims(source.summary.body.trim())
+          .replace(/^##\s+Review incomplete\b[^\n]*$/gim, "")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim(),
+      ]
+        .join("\n")
+        .trim();
     case CanonicalReviewPublicationRenderPolicyVersion.PreliminaryFindingsV4:
       if (verifiedOccurrenceCounts === null) {
         throw new Error("publication_occurrence_counts_invalid");
@@ -441,7 +641,11 @@ function markerForBody(
     (version !==
       CanonicalReviewPublicationRenderPolicyVersion.HiddenMarkersV3 &&
       version !==
-        CanonicalReviewPublicationRenderPolicyVersion.PreliminaryFindingsV4) ||
+        CanonicalReviewPublicationRenderPolicyVersion.PreliminaryFindingsV4 &&
+      version !==
+        CanonicalReviewPublicationRenderPolicyVersion.CompactComparisonV5 &&
+      version !==
+        CanonicalReviewPublicationRenderPolicyVersion.LifecycleVerificationV6) ||
     marker.trim().startsWith("<!--")
   ) {
     return marker;
@@ -462,4 +666,96 @@ function assertBoundedString(
   ) {
     throw new Error(code);
   }
+}
+
+/** The optional extension is strict so unscoped or contradictory confirmations cannot drive effects. */
+export function validateReviewPublicationLifecycleVerification(
+  value: unknown,
+  targetId: string,
+): asserts value is ReviewPublicationLifecycleVerificationFact {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("publication_verification_invalid");
+  const fact = value as Record<string, unknown>;
+  const allowed = new Set([
+    "targetId",
+    "lineageId",
+    "semanticVerdict",
+    "confirmationState",
+    "severity",
+    "observationIds",
+    "providerVoteKeys",
+    "reasonCodes",
+    "mutationStatus",
+  ]);
+  const strings = (items: unknown): items is string[] =>
+    Array.isArray(items) &&
+    new Set(items).size === items.length &&
+    items.every(
+      (item) =>
+        typeof item === "string" && item.length > 0 && item.length <= 512,
+    );
+  if (
+    Object.keys(fact).some((key) => !allowed.has(key)) ||
+    typeof targetId !== "string" ||
+    !targetId ||
+    targetId.length > 512 ||
+    fact.targetId !== targetId ||
+    (fact.lineageId !== undefined &&
+      (typeof fact.lineageId !== "string" ||
+        !fact.lineageId ||
+        fact.lineageId.length > 512)) ||
+    typeof fact.semanticVerdict !== "string" ||
+    !["resolved", "still_valid", "uncertain"].includes(
+      String(fact.semanticVerdict),
+    ) ||
+    typeof fact.confirmationState !== "string" ||
+    ![
+      "confirmed_open",
+      "fix_confirmed_thread_open",
+      "unverified",
+      "native_resolved",
+    ].includes(String(fact.confirmationState)) ||
+    typeof fact.severity !== "string" ||
+    !["critical", "major", "minor", "unknown"].includes(
+      String(fact.severity),
+    ) ||
+    typeof fact.mutationStatus !== "string" ||
+    ![
+      "report_only",
+      "pending",
+      "blocked_partial_review",
+      "not_eligible",
+      "native_resolved",
+    ].includes(String(fact.mutationStatus)) ||
+    !strings(fact.observationIds) ||
+    !strings(fact.providerVoteKeys) ||
+    !strings(fact.reasonCodes)
+  )
+    throw new Error("publication_verification_invalid");
+  const positive =
+    fact.confirmationState === "confirmed_open" ||
+    fact.confirmationState === "fix_confirmed_thread_open";
+  if (
+    (positive &&
+      (!(fact.observationIds as string[]).length ||
+        !(fact.providerVoteKeys as string[]).length)) ||
+    (fact.confirmationState === "confirmed_open" &&
+      (fact.semanticVerdict !== "still_valid" ||
+        fact.mutationStatus !== "not_eligible")) ||
+    (fact.confirmationState === "fix_confirmed_thread_open" &&
+      (fact.semanticVerdict !== "resolved" ||
+        ![
+          "report_only",
+          "pending",
+          "blocked_partial_review",
+          "not_eligible",
+        ].includes(String(fact.mutationStatus)))) ||
+    (fact.confirmationState === "unverified" &&
+      (fact.semanticVerdict !== "uncertain" ||
+        fact.mutationStatus !== "not_eligible")) ||
+    (fact.confirmationState === "native_resolved" &&
+      (fact.semanticVerdict !== "resolved" ||
+        fact.mutationStatus !== "native_resolved"))
+  )
+    throw new Error("publication_verification_semantics_invalid");
 }

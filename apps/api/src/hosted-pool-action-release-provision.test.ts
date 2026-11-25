@@ -23,7 +23,7 @@ describe("hosted pool action channel provision", () => {
     );
     const workflow = renderCanonicalHostedPoolWorkflowV2({
       actionRef: release.actionRef,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "hosted-pool:repository:123456",
       bindingId: "hosted-binding-1",
       bindingRevision: 1,
@@ -40,7 +40,7 @@ describe("hosted pool action channel provision", () => {
     expect(() =>
       renderCanonicalHostedPoolWorkflowV2({
         actionRef: "777genius/review-router@main",
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl: "https://api.reviewrouter.org",
         providerInstanceId: "hosted-pool:repository:123456",
         bindingId: "hosted-binding-1",
         bindingRevision: 1,

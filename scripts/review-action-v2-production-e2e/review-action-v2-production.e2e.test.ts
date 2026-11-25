@@ -1,11 +1,37 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { createPrismaClient } from "../../packages/platform/db/src/index.js";
+import { PrismaProviderAccountRepository } from "../../packages/features/provider-accounts/src/index.js";
+import {
+  parseReviewConfigurationStrict,
+  saveReviewConfiguration,
+} from "../../packages/features/review-config/src/index.js";
+import { PrismaReviewConfigurationRepository } from "../../packages/features/review-config/src/composition/index.js";
+import {
+  systemPolicyWriteFixture,
+  workspacePolicyFixture,
+} from "../../packages/features/review-config/src/tests/current-policy-fixture.js";
 import {
   ReviewEvidenceCommitResultStatus,
   ReviewEvidenceLookupResultStatus,
   ReviewExecutionMutationResultStatus,
   ReviewInvocationLeaseResultStatus,
 } from "../../packages/protocol-review-action-v2/src/index.js";
+import { parseReviewRunRuntimeSnapshot } from "../../packages/features/review-run-control/src/index.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  reviewStatisticsSettledEventType,
+  reviewStatisticsSettledEventVersion,
+} from "../../packages/features/review-statistics/src/index.js";
+import { createReviewStatisticsFeature } from "../../packages/features/review-statistics/src/composition/index.js";
+import { createReviewHistoryFeature } from "../../packages/features/review-history/src/composition/index.js";
+import { createReviewStatisticsSettledHandler } from "../../apps/worker/src/review-statistics-worker-runtime.js";
+import { formatGithubProgressComment } from "../../packages/features/review-progress/src/index.js";
+import { parseSnapshot } from "../../apps/worker/src/review-progress-snapshot-policy.js";
+import { PrismaReviewProgressPublicationStore } from "../../apps/worker/src/review-progress-store.js";
+import {
+  reviewExecutionFinalizedEventType,
+  reviewExecutionFinalizedEventVersion,
+} from "../../apps/worker/src/review-v2-worker-runtime.js";
 import {
   createReviewActionV2E2EHarness,
   resetReviewActionV2E2EDatabase,
@@ -13,6 +39,8 @@ import {
 } from "./support/review-action-v2-e2e-harness.js";
 
 const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
+const discoveryGatewayProfile = "discovery-lifecycle-e2e";
+const discoveryGatewayModel = "gpt-5-codex";
 const enabled = process.env.REVIEW_ROUTER_REVIEW_V2_E2E === "1";
 if (enabled && !databaseUrl) {
   throw new Error(
@@ -36,6 +64,127 @@ describeWithDatabase.sequential(
       harness = null;
       await resetReviewActionV2E2EDatabase(databaseUrl!);
     });
+
+    it("publishes discovery with captured lifecycle capability before resolution history activation", async () => {
+      await harness?.close();
+      harness = null;
+      await resetReviewActionV2E2EDatabase(databaseUrl!);
+      harness = await createReviewActionV2E2EHarness(databaseUrl!, {
+        modelTransport: "account_gateway",
+        repositoryProviderSelection: "none",
+        lifecycleVerificationProfile: true,
+        environmentOverrides: {
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED: "1",
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN:
+            "https://gateway.reviewrouter.e2e",
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN:
+            "https://gateway.reviewrouter.e2e",
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER:
+            "discovery-lifecycle-e2e-control-token",
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: JSON.stringify({
+            profiles: [
+              {
+                profileRef: discoveryGatewayProfile,
+                limits: {
+                  requests: 9,
+                  concurrency: 1,
+                  requestBytes: 98304,
+                  outputBytes: 32768,
+                  tokens: 4096,
+                },
+              },
+            ],
+          }),
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY: JSON.stringify({
+            profiles: [
+              {
+                profile: {
+                  profileId: discoveryGatewayProfile,
+                  protocol: "openai-responses",
+                  modelIds: [discoveryGatewayModel],
+                  authKinds: ["api_key"],
+                },
+                outputTokens: 4096,
+              },
+            ],
+            ingressBytes: 98304,
+            requestTimeoutMs: 60000,
+            waitBudgetMs: 0,
+            maxWaits: 0,
+            maxSessions: 4,
+            maxInFlight: 4,
+          }),
+        },
+      });
+      const fixture = requiredHarness(harness);
+      await selectSavedDiscoveryGateway(fixture);
+      const flow = await fixture.createCommittedFlow();
+      const authorization =
+        await fixture.prisma.reviewRunAuthorization.findUniqueOrThrow({
+          where: { authorizationId: flow.authorizationId },
+          select: { runtimeSnapshotCanonicalJson: true },
+        });
+      expect(
+        parseReviewRunRuntimeSnapshot(
+          authorization.runtimeSnapshotCanonicalJson,
+        )?.lifecycleVerificationCapability,
+      ).toMatchObject({
+        modelTransport: "account_gateway",
+        model: discoveryGatewayModel,
+      });
+      await expect(
+        fixture.prisma.repositoryConnection.findUniqueOrThrow({
+          where: { id: fixture.repositoryConnectionId },
+          select: {
+            lifecycleResolutionMode: true,
+            lifecycleResolutionActivatedAt: true,
+            lifecycleResolutionActivationVersion: true,
+          },
+        }),
+      ).resolves.toEqual({
+        lifecycleResolutionMode: "legacy_open",
+        lifecycleResolutionActivatedAt: null,
+        lifecycleResolutionActivationVersion: 0,
+      });
+
+      const finalized = await fixture.finalize(flow);
+      expect(finalized.result.status).toBe(
+        ReviewExecutionMutationResultStatus.Applied,
+      );
+      await expect(fixture.processFinalizedOutbox()).resolves.toMatchObject({
+        processed: 1,
+        deadLettered: 0,
+      });
+      await fixture.runWorkerUntilSettled();
+
+      await expectTerminalSuccess(fixture, flow.executionId);
+      await expectSnapshot(fixture, flow.executionId, true);
+      expect(fixture.fakeGitHub.comments).toHaveLength(1);
+      expect(fixture.fakeGitHub.checkRuns).toHaveLength(1);
+      const publication =
+        await fixture.prisma.reviewPublicationAttemptV2.findFirstOrThrow({
+          where: { executionId: flow.executionId },
+          select: { publicationAttemptId: true },
+        });
+      await expect(
+        fixture.prisma.reviewPublicationOperationV2.findMany({
+          where: { publicationAttemptId: publication.publicationAttemptId },
+          select: { publicationKind: true, state: true },
+          orderBy: { publicationKind: "asc" },
+        }),
+      ).resolves.toEqual([
+        { publicationKind: "summary", state: "completed" },
+        { publicationKind: "managed_check", state: "completed" },
+      ]);
+      await expect(
+        fixture.prisma.reviewPublicationReceiptV2.count({
+          where: {
+            publicationAttemptId: publication.publicationAttemptId,
+            status: "succeeded",
+          },
+        }),
+      ).resolves.toBe(2);
+    }, 60_000);
 
     it("adopts a committed observation after provider restart without another semantic attempt", async () => {
       const fixture = requiredHarness(harness);
@@ -96,6 +245,77 @@ describeWithDatabase.sequential(
       await expectSnapshot(fixture, flow.executionId, true);
       expect(fixture.fakeGitHub.comments).toHaveLength(1);
       expect(fixture.fakeGitHub.checkRuns).toHaveLength(1);
+
+      // Drain the actual accepted settlement separately from finalized-only
+      // dispatch, using the genuine registered statistics projector.
+      const settlementEvent = await fixture.prisma.outboxEvent.findFirstOrThrow(
+        {
+          where: {
+            workspaceId: fixture.workspaceId,
+            aggregateId: flow.executionId,
+            type: reviewStatisticsSettledEventType,
+            version: reviewStatisticsSettledEventVersion,
+          },
+        },
+      );
+      expect(settlementEvent.status).toBe("pending");
+      expect(settlementEvent.payload).toMatchObject({
+        executionId: flow.executionId,
+        repositoryConnectionId: fixture.repositoryConnectionId,
+        issues: [], // The real finalized all-clear fixture has no occurrences.
+      });
+      const statistics = await createReviewStatisticsFeature({
+        prisma: fixture.prisma,
+      });
+      await expect(
+        fixture.processFinalizedOutbox({
+          handlers: [
+            createReviewStatisticsSettledHandler(statistics.projector),
+          ],
+        }),
+      ).resolves.toMatchObject({ processed: 1, deadLettered: 0 });
+      await expect(
+        fixture.prisma.outboxEvent.findUniqueOrThrow({
+          where: { id: settlementEvent.id },
+          select: { status: true },
+        }),
+      ).resolves.toEqual({ status: "processed" });
+      const actorId = `${fixture.prefix}-statistics-reader`;
+      await fixture.prisma.user.create({
+        data: {
+          id: actorId,
+          memberships: {
+            create: { workspaceId: fixture.workspaceId, role: "member" },
+          },
+        },
+      });
+      try {
+        const report = await statistics.reader.readReport({
+          actorId,
+          workspaceId: fixture.workspaceId,
+          filter: { days: 7, severity: "all" },
+        });
+        expect(report.totals).toEqual({
+          reviews: 1,
+          pullRequestsReviewed: 1,
+          issuesCaught: 0,
+          repositoriesWithIssues: 0,
+        });
+        await expect(
+          statistics.reader.readIssues({
+            actorId,
+            workspaceId: fixture.workspaceId,
+            from: report.period.from,
+            to: report.period.to,
+            severity: "all",
+          }),
+        ).resolves.toEqual({ items: [], nextCursor: null });
+      } finally {
+        await fixture.prisma.workspaceMember.deleteMany({
+          where: { workspaceId: fixture.workspaceId, userId: actorId },
+        });
+        await fixture.prisma.user.delete({ where: { id: actorId } });
+      }
     }, 60_000);
 
     it("takes over expired outbox and publication claims with monotonic fencing", async () => {
@@ -198,6 +418,8 @@ describeWithDatabase.sequential(
         where: {
           workspaceId: fixture.workspaceId,
           aggregateId: flow.executionId,
+          type: reviewExecutionFinalizedEventType,
+          version: reviewExecutionFinalizedEventVersion,
         },
       });
       expect(event.status).toBe("processed");
@@ -251,8 +473,10 @@ describeWithDatabase.sequential(
       await fixture.processFinalizedOutbox();
       await fixture.runWorkerUntilSettled();
 
+      // Two pages each for the marker inventory before and after the write,
+      // plus two for the sticky-summary lookup.
       expect(fixture.fakeGitHub.countCalls("GET", `/issues/42/comments`)).toBe(
-        4,
+        6,
       );
       expect(
         fixture.fakeGitHub.comments.filter(
@@ -260,6 +484,338 @@ describeWithDatabase.sequential(
         ),
       ).toHaveLength(1);
       await expectTerminalSuccess(fixture, flow.executionId);
+    }, 60_000);
+
+    it("rewrites the existing summary comment for a new revision instead of adding one", async () => {
+      const fixture = requiredHarness(harness);
+      const olderRun = fixture.fakeGitHub.seedAppComment(
+        `Older run\n\n<!-- reviewrouter:summary:v2:${hash("older-revision")} -->`,
+      );
+      const newerRun = fixture.fakeGitHub.seedAppComment(
+        `Newer run\n\n<!-- reviewrouter:summary:v2:${hash("newer-revision")} -->`,
+      );
+      const flow = await fixture.createCommittedFlow();
+      await fixture.finalize(flow);
+      await fixture.processFinalizedOutbox();
+      await fixture.runWorkerUntilSettled();
+
+      const appComments = fixture.fakeGitHub.comments.filter(
+        (comment) => comment.user.login === "reviewrouter-e2e[bot]",
+      );
+      expect(appComments.map((comment) => comment.id)).toEqual([
+        olderRun,
+        newerRun,
+      ]);
+      expect(appComments[0]?.body).toContain("Older run");
+      expect(appComments[1]?.body).toContain(
+        `reviewrouter:summary:v2:${flow.reviewRevisionHash}`,
+      );
+      expect(appComments[1]?.body).not.toContain("Newer run");
+      await expectTerminalSuccess(fixture, flow.executionId);
+    }, 60_000);
+
+    it("repairs an older PATCH after a newer progress publication settles", async () => {
+      const fixture = requiredHarness(harness);
+      const flow = await fixture.createCommittedFlow({
+        slotCount: 3,
+        attachSlotCount: 0,
+      });
+      // Publish an initial real comment before exercising two competing PATCHes.
+      await fixture.setProgressFixture({
+        executionId: flow.executionId,
+        completed: 1,
+      });
+      await fixture.makeProgressDue();
+      await expect(fixture.publishProgress()).resolves.toMatchObject({
+        published: 1,
+      });
+      expect(progressComments(fixture)[0]?.body).toContain(
+        "Progress: 1 of 3 parts reviewed (33%)",
+      );
+      const initial =
+        await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
+          where: { activeExecutionId: flow.executionId },
+        });
+      expect(initial.desiredVersion).toBe(initial.publishedVersion);
+      expect(initial.publishedVersion).toBeGreaterThan(0n);
+
+      // Capture a genuinely new pending version for the older PATCH.
+      // Do not synthesize eligibility by mutating a settled version.
+      await fixture.setProgressFixture({
+        executionId: flow.executionId,
+        completed: 2,
+      });
+      await fixture.makeProgressDue();
+      const duePublication =
+        await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
+          where: { activeExecutionId: flow.executionId },
+        });
+      const dueProgress =
+        await fixture.prisma.reviewExecutionProgressV1.findUniqueOrThrow({
+          where: { executionId: flow.executionId },
+        });
+      expect(duePublication.desiredVersion).toBeGreaterThan(
+        duePublication.publishedVersion,
+      );
+      expect(dueProgress.desiredVersion).toBe(duePublication.desiredVersion);
+      expect(duePublication.nextPublishAt?.getTime()).toBeLessThanOrEqual(
+        Date.now(),
+      );
+      expect(duePublication.claimUntil).toBeNull();
+      // Match the production publisher's repository cohort, not all pending rows.
+      const repository =
+        await fixture.prisma.repositoryConnection.findUniqueOrThrow({
+          where: { id: fixture.repositoryConnectionId },
+          select: { fullName: true },
+        });
+      const repositoryName = repository.fullName.toLowerCase();
+      const store = new PrismaReviewProgressPublicationStore(fixture.prisma, {
+        allowedRepositoryFullNames: new Set([repositoryName]),
+      });
+      const claimAt = new Date();
+      // Other due publications in this disposable fixture may take priority
+      // over the older PATCH. Park them only for the claim and restore their
+      // original deadlines immediately afterward.
+      const competing =
+        await fixture.prisma.reviewProgressPublicationV1.findMany({
+          where: {
+            repositoryConnectionId: fixture.repositoryConnectionId,
+            activeExecutionId: { not: flow.executionId },
+            nextPublishAt: { lte: claimAt },
+          },
+          select: {
+            workspaceId: true,
+            repositoryConnectionId: true,
+            scmRepositoryIdentityId: true,
+            pullRequestNumber: true,
+            nextPublishAt: true,
+            updatedAt: true,
+          },
+        });
+      const parkedUntil = new Date(claimAt.getTime() + 120_000);
+      await fixture.prisma.reviewProgressPublicationV1.updateMany({
+        where: {
+          repositoryConnectionId: fixture.repositoryConnectionId,
+          activeExecutionId: { not: flow.executionId },
+          nextPublishAt: { lte: claimAt },
+        },
+        data: { nextPublishAt: parkedUntil },
+      });
+      let stale: Awaited<ReturnType<typeof store.claimNext>>;
+      try {
+        stale = await store.claimNext({
+          ownerIdHash: "a".repeat(64),
+          now: claimAt,
+          claimDurationMs: 60_000,
+        });
+      } finally {
+        for (const row of competing) {
+          await fixture.prisma.reviewProgressPublicationV1.updateMany({
+            where: {
+              workspaceId: row.workspaceId,
+              repositoryConnectionId: row.repositoryConnectionId,
+              scmRepositoryIdentityId: row.scmRepositoryIdentityId,
+              pullRequestNumber: row.pullRequestNumber,
+              nextPublishAt: parkedUntil,
+            },
+            data: {
+              nextPublishAt: row.nextPublishAt,
+              updatedAt: row.updatedAt,
+            },
+          });
+        }
+      }
+      if (!stale || "deferred" in stale) {
+        const deferred =
+          await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
+            where: { activeExecutionId: flow.executionId },
+          });
+        const dueCandidates = await fixture.prisma.$queryRaw<
+          Array<{ activeExecutionId: string }>
+        >`
+          SELECT "activeExecutionId"
+          FROM "ReviewProgressPublicationV1"
+          WHERE "desiredVersion" > "publishedVersion"
+            AND "nextPublishAt" <= ${claimAt}
+            AND ("claimUntil" IS NULL OR "claimUntil" <= ${claimAt})
+          ORDER BY "nextPublishAt", "updatedAt"
+          LIMIT 3
+        `;
+        const expectedDue =
+          deferred.desiredVersion > deferred.publishedVersion &&
+          deferred.nextPublishAt !== null &&
+          deferred.nextPublishAt <= claimAt &&
+          (deferred.claimUntil === null || deferred.claimUntil <= claimAt);
+        const expectedIdentity =
+          dueProgress.generation === deferred.activeGeneration &&
+          dueProgress.headSha === deferred.activeHeadSha &&
+          dueProgress.planHash === deferred.activePlanHash &&
+          dueProgress.desiredVersion === deferred.desiredVersion;
+        throw new Error(
+          `review_progress_e2e_stale_claim_missing:${JSON.stringify({
+            lastErrorCode: deferred.lastErrorCode ?? "not_deferred",
+            expectedDue,
+            expectedIdentity,
+            dueCandidateIsTarget:
+              dueCandidates[0]?.activeExecutionId === flow.executionId,
+            dueCandidateCount: dueCandidates.length,
+          })}`,
+        );
+      }
+      expect(stale.executionId).toBe(flow.executionId);
+      expect(stale.commentId).not.toBeNull();
+      expect(stale.desiredVersion).toBeGreaterThan(initial.desiredVersion);
+      const staleBody = formatGithubProgressComment(
+        parseSnapshot(stale.snapshot),
+      );
+      expect(staleBody).toContain("Progress: 2 of 3 parts reviewed (66%)");
+      // Leave the expired claim fence present for real worker takeover.
+      await fixture.prisma.reviewProgressPublicationV1.updateMany({
+        where: stale.scope,
+        data: { claimUntil: new Date(Date.now() - 1_000) },
+      });
+
+      await fixture.setProgressFixture({
+        executionId: flow.executionId,
+        completed: 3,
+      });
+      const makeInstallationBudgetDue = async () => {
+        const due = new Date(Date.now() - 1_000);
+        await fixture.prisma.reviewProgressInstallationBudgetV1.updateMany({
+          where: {
+            githubInstallationId: stale.repository.githubInstallationId,
+          },
+          data: { nextMutationAt: due, cooldownUntil: null, updatedAt: due },
+        });
+      };
+      await fixture.prisma.reviewProgressPublicationV1.updateMany({
+        where: stale.scope,
+        data: { nextPublishAt: new Date(Date.now() - 1_000) },
+      });
+      await makeInstallationBudgetDue();
+      // The takeover must observe the expired old claim, not a fixture-cleared row.
+      const expiredClaim =
+        await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
+          where: { activeExecutionId: flow.executionId },
+          select: {
+            claimId: true,
+            claimOwnerIdHash: true,
+            claimUntil: true,
+          },
+        });
+      expect(expiredClaim.claimId).toBe(stale.claim.claimId);
+      expect(expiredClaim.claimOwnerIdHash).toBe(stale.claim.ownerIdHash);
+      expect(expiredClaim.claimUntil).not.toBeNull();
+      expect(expiredClaim.claimUntil!.getTime()).toBeLessThanOrEqual(
+        Date.now(),
+      );
+      await expect(fixture.publishProgress()).resolves.toMatchObject({
+        published: 1,
+      });
+      const comment = progressComments(fixture)[0]!;
+      const latestBody = comment.body;
+      expect(latestBody).toContain("Progress: 3 of 3 parts reviewed (100%)");
+      const settled =
+        await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
+          where: { activeExecutionId: flow.executionId },
+        });
+      expect(settled.desiredVersion).toBe(settled.publishedVersion);
+      expect(settled.desiredVersion).toBeGreaterThan(stale.desiredVersion);
+
+      // Another worker may hold an unexpired claim when the older PATCH lands.
+      // Model its live lease in the real PG row before the stale repair.
+      const successorClaimId = "review-progress-successor";
+      const successorOwnerHash = "b".repeat(64);
+      const successorClaimUntil = new Date(Date.now() + 120_000);
+      await fixture.prisma.reviewProgressPublicationV1.updateMany({
+        where: stale.scope,
+        data: {
+          claimId: successorClaimId,
+          claimOwnerIdHash: successorOwnerHash,
+          claimUntil: successorClaimUntil,
+        },
+      });
+
+      // Simulate the delayed old GitHub PATCH winning after the new write.
+      comment.body = staleBody;
+      await expect(
+        store.complete({
+          publication: stale,
+          commentId: BigInt(comment.id),
+          bodyHash: hash(staleBody),
+          now: new Date(),
+        }),
+      ).resolves.toBe(false);
+      const repair =
+        await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
+          where: { activeExecutionId: flow.executionId },
+        });
+      expect(repair.desiredVersion).toBe(settled.desiredVersion);
+      expect(repair.publishedVersion).toBe(settled.publishedVersion - 1n);
+      expect(repair.claimId).toBe(successorClaimId);
+      expect(repair.claimOwnerIdHash).toBe(successorOwnerHash);
+      expect(repair.claimUntil).toEqual(successorClaimUntil);
+      expect(repair.nextPublishAt).not.toBeNull();
+      expect(repair.nextPublishAt!.getTime()).toBeLessThanOrEqual(Date.now());
+
+      // A stale PATCH rotates the repair marker without releasing the live
+      // successor, so the successor must not settle a possibly stale body.
+      const successor = {
+        ...stale,
+        desiredVersion: settled.desiredVersion,
+        publishedVersion: settled.publishedVersion,
+        lastErrorCode: settled.lastErrorCode,
+        claim: {
+          claimId: successorClaimId,
+          ownerIdHash: successorOwnerHash,
+          claimUntil: successorClaimUntil,
+        },
+      };
+      expect(repair.lastErrorCode).toMatch(
+        /^review_progress_repair_[0-9a-f]{32}$/u,
+      );
+      expect(repair.lastErrorCode).not.toBe(successor.lastErrorCode);
+      await expect(
+        store.complete({
+          publication: successor,
+          commentId: BigInt(comment.id),
+          bodyHash: hash(latestBody),
+          now: new Date(),
+        }),
+      ).resolves.toBe(false);
+      const stillPending =
+        await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
+          where: { activeExecutionId: flow.executionId },
+        });
+      expect(stillPending.publishedVersion).toBeLessThan(
+        stillPending.desiredVersion,
+      );
+      expect(stillPending.claimId).toBe(successorClaimId);
+
+      // Release only this test's still-live successor to let another worker
+      // claim the repair. A stale repair must never release it implicitly.
+      const publication = fixture.prisma.reviewProgressPublicationV1;
+      const released = await publication.updateMany({
+        where: {
+          ...stale.scope,
+          claimId: successorClaimId,
+          claimOwnerIdHash: successorOwnerHash,
+        },
+        data: {
+          claimId: null,
+          claimOwnerIdHash: null,
+          claimUntil: null,
+        },
+      });
+      expect(released.count).toBe(1);
+      // Do not reset publication eligibility: only the stale completion may
+      // schedule its durable repair. Release the installation budget alone.
+      await makeInstallationBudgetDue();
+      await expect(fixture.publishProgress()).resolves.toMatchObject({
+        published: 1,
+      });
+      expect(progressComments(fixture)).toHaveLength(1);
+      expect(progressComments(fixture)[0]?.body).toBe(latestBody);
     }, 60_000);
 
     it("publishes durable 108-file progress, recovers six retried units, and reconciles duplicate comments", async () => {
@@ -286,12 +842,10 @@ describeWithDatabase.sequential(
       const comments = progressComments(fixture);
       expect(comments).toHaveLength(1);
       expect(comments[0]?.body).toContain(
-        "Review units: 42 of 72 complete (58%)",
+        "Progress: 42 of 72 parts reviewed (58%)",
       );
-      expect(comments[0]?.body).toContain(
-        "Files in completed units: 84 of 108",
-      );
-      expect(comments[0]?.body).toContain("Units currently retrying: 6");
+      expect(comments[0]?.body).toContain("Files fully reviewed: 84 of 108");
+      expect(comments[0]?.body).toContain("Parts being retried: 6");
 
       await fixture.setProgressFixture({
         executionId: flow.executionId,
@@ -304,18 +858,14 @@ describeWithDatabase.sequential(
       expect(recoveredPublication).toMatchObject({ published: 1 });
       expect(progressComments(fixture)).toHaveLength(1);
       expect(progressComments(fixture)[0]?.body).toContain(
-        "Review units: 72 of 72 complete (100%)",
+        "Progress: 72 of 72 parts reviewed (100%)",
       );
       expect(progressComments(fixture)[0]?.body).toContain(
-        "Units recovered by retry: 6",
+        "Parts finished after a retry: 6",
       );
 
-      fixture.fakeGitHub.seedProgressDuplicate(
-        progressComments(fixture)[0]!.body,
-      );
-      fixture.fakeGitHub.seedProgressDuplicate(
-        progressComments(fixture)[0]!.body,
-      );
+      fixture.fakeGitHub.seedAppComment(progressComments(fixture)[0]!.body);
+      fixture.fakeGitHub.seedAppComment(progressComments(fixture)[0]!.body);
       await fixture.prisma.reviewProgressPublicationV1.updateMany({
         where: { activeExecutionId: flow.executionId },
         data: { publishedVersion: { decrement: 1n } },
@@ -347,19 +897,106 @@ describeWithDatabase.sequential(
         completed: 3,
       });
       await fixture.terminalizeProgressSlot(flow.executionId, 3);
-      await fixture.setExecutionProgressState(flow.executionId, "partial");
+      // An individual settlement is insufficient without a durable terminal
+      // attempt. Exercise the actual finalized-outbox and publication path.
+      const terminalProgress = () =>
+        fixture.prisma.reviewExecutionProgressV1.findUniqueOrThrow({
+          where: { executionId: flow.executionId },
+          select: { terminalOutcome: true, desiredVersion: true },
+        });
+      await expect(fixture.promoteProgress(flow.executionId)).resolves.toBe(0);
+      await fixture.sweepProgressPromotion();
+      await expect(terminalProgress()).resolves.toMatchObject({
+        terminalOutcome: null,
+      });
+      const finalized = await fixture.finalize(flow, { allowPartial: true });
+      expect(finalized.result.status).toBe(
+        ReviewExecutionMutationResultStatus.Applied,
+      );
+      await fixture.processFinalizedOutbox();
+      await fixture.runWorkerUntilSettled();
+      // The normal worker harness does not enable progress publication, so
+      // the settlement hint is lost like a worker restart loses it. Without a
+      // posted comment nothing is stuck on GitHub, and the sweep must not post
+      // one for a finished review (the operator's backlog expiry relies on it).
+      await fixture.sweepProgressPromotion();
+      await expect(terminalProgress()).resolves.toMatchObject({
+        terminalOutcome: null,
+      });
+      await fixture.makeProgressDue();
+      await expect(fixture.publishProgress()).resolves.toMatchObject({
+        published: 1,
+      });
+      expect(progressComments(fixture)[0]?.body).toContain(
+        "Assembling results",
+      );
+      // The comment now waits at "Assembling results". The sweep alone must
+      // promote the durably settled attempt, exactly once.
+      await expect(fixture.sweepProgressPromotion()).resolves.toBeGreaterThan(
+        0,
+      );
+      const promoted = await terminalProgress();
+      expect(promoted.terminalOutcome).toBe("complete_with_gaps");
+      await expect(fixture.sweepProgressPromotion()).resolves.toBe(0);
+      await expect(fixture.promoteProgress(flow.executionId)).resolves.toBe(0);
+      await expect(terminalProgress()).resolves.toEqual(promoted);
+      await fixture.makeProgressDue();
+      await expect(fixture.publishProgress()).resolves.toMatchObject({
+        published: 1,
+      });
+      expect(progressComments(fixture)).toHaveLength(1);
+      const body = progressComments(fixture)[0]?.body ?? "";
+      expect(body).toContain("**Phase:** Review incomplete");
+      expect(body).toContain("Progress: 3 of 4 parts reviewed (75%)");
+      expect(body).toContain("Parts that could not be finished: 1");
+      expect(body).not.toContain("reviewed (100%)");
+    }, 60_000);
+
+    it("ends the progress comment incomplete when the published review is incomplete with every part finished", async () => {
+      // Production shape: native spans could not be verified, so the Action
+      // claims partial coverage and its summary says "Review incomplete",
+      // while every required part finished and the execution completed.
+      const fixture = requiredHarness(harness);
+      const flow = await fixture.createCommittedFlow({
+        slotCount: 2,
+        eligibleFileCount: 4,
+        attachSlotCount: 0,
+      });
+      await fixture.setProgressFixture({
+        executionId: flow.executionId,
+        completed: 2,
+      });
+      const finalized = await fixture.finalize(flow, { allowPartial: true });
+      expect(finalized.result.status).toBe(
+        ReviewExecutionMutationResultStatus.Applied,
+      );
+      await fixture.processFinalizedOutbox();
+      await fixture.runWorkerUntilSettled();
       await expect(
-        fixture.promoteProgress(flow.executionId, "succeeded"),
-      ).resolves.toBe(1);
+        fixture.prisma.reviewExecutionV2.findUniqueOrThrow({
+          where: { executionId: flow.executionId },
+          select: { state: true },
+        }),
+      ).resolves.toEqual({ state: "completed" });
+      await fixture.makeProgressDue();
+      await expect(fixture.publishProgress()).resolves.toMatchObject({
+        published: 1,
+      });
+      await fixture.sweepProgressPromotion();
+      await expect(
+        fixture.prisma.reviewExecutionProgressV1.findUniqueOrThrow({
+          where: { executionId: flow.executionId },
+          select: { terminalOutcome: true },
+        }),
+      ).resolves.toEqual({ terminalOutcome: "complete_with_gaps" });
       await fixture.makeProgressDue();
       await expect(fixture.publishProgress()).resolves.toMatchObject({
         published: 1,
       });
       const body = progressComments(fixture)[0]?.body ?? "";
-      expect(body).toContain("**Phase:** Complete with gaps");
-      expect(body).toContain("Review units: 3 of 4 complete (75%)");
-      expect(body).toContain("Units not completed after retries: 1");
-      expect(body).not.toContain("complete (100%)");
+      expect(body).toContain("**Phase:** Review incomplete");
+      expect(body).toContain("Progress: 2 of 2 parts reviewed (100%)");
+      expect(body).not.toContain("Parts that could not be finished");
     }, 60_000);
 
     it("finalizes exhausted work without regressing durable progress", async () => {
@@ -428,11 +1065,453 @@ describeWithDatabase.sequential(
   },
 );
 
+describeWithDatabase.sequential(
+  "Review History joined production owners",
+  () => {
+    it("cleans a failed borrowed History construction without changing its workspace or pre-existing activation", async () => {
+      const originalFetch = globalThis.fetch;
+      await resetReviewActionV2E2EDatabase(databaseUrl!);
+      const setup = createPrismaClient({
+        databaseUrl: databaseUrl!,
+        poolMax: 2,
+      });
+      const prefix = `review-v2-history-failure-${randomUUID()}`;
+      const workspaceId = `${prefix}-borrowed`,
+        foreignId = `${prefix}-foreign`,
+        actorId = `${prefix}-actor`;
+      const previousHistory = await setup.reviewHistoryCoverage.findUnique({
+        where: { id: "capture_v1" },
+      });
+      const previousStatistics =
+        await setup.reviewStatisticsCoverage.findUnique({
+          where: { id: "capture_v1" },
+        });
+      try {
+        await setup.workspace.createMany({
+          data: [workspaceId, foreignId].map((id) => ({
+            id,
+            slug: id,
+            name: id,
+          })),
+        });
+        await setup.user.create({
+          data: {
+            id: actorId,
+            memberships: { create: { workspaceId, role: "member" } },
+          },
+        });
+        await (
+          await createReviewHistoryFeature({ prisma: setup })
+        ).activateCapture();
+        await (
+          await createReviewStatisticsFeature({ prisma: setup })
+        ).activateCapture();
+        const before = {
+          control: await setup.reviewSafetyEmergencyControl.findUniqueOrThrow({
+            where: { emergencyControlId: "global-review-v2" },
+          }),
+          history: await setup.reviewHistoryCoverage.findUniqueOrThrow({
+            where: { id: "capture_v1" },
+          }),
+          statistics: await setup.reviewStatisticsCoverage.findUniqueOrThrow({
+            where: { id: "capture_v1" },
+          }),
+        };
+        // This existing worker option is parsed after the real source seed and
+        // API composition. It exercises a natural factory failure, without a hook.
+        await expect(
+          createReviewActionV2E2EHarness(databaseUrl!, {
+            historyProfile: true,
+            fixtureScope: { prefix, workspaceId },
+            environmentOverrides: {
+              REVIEW_ROUTER_REVIEW_V2_COMPLETION_CLAIM_MS: "0",
+            },
+          }),
+        ).rejects.toThrow("review_v2_completion_claim_ms_invalid");
+        expect(globalThis.fetch).toBe(originalFetch);
+        expect(
+          await setup.workspace.count({
+            where: { id: { in: [workspaceId, foreignId] } },
+          }),
+        ).toBe(2);
+        expect(
+          await setup.workspaceMember.count({
+            where: { workspaceId, userId: actorId },
+          }),
+        ).toBe(1);
+        expect(
+          await setup.repositoryConnection.count({
+            where: { id: `${prefix}-repository` },
+          }),
+        ).toBe(0);
+        expect(
+          await setup.scmRepositoryIdentity.count({
+            where: { scmRepositoryIdentityId: `${prefix}-scm` },
+          }),
+        ).toBe(0);
+        expect(
+          await setup.gitHubInstallation.count({
+            where: { id: `${prefix}-installation` },
+          }),
+        ).toBe(0);
+        expect(
+          await setup.reviewConfiguration.count({ where: { workspaceId } }),
+        ).toBe(0);
+        expect(
+          await setup.workspaceProviderProfile.count({
+            where: { workspaceId },
+          }),
+        ).toBe(0);
+        expect(
+          await setup.producerRelease.count({
+            where: { producerReleaseId: `${prefix}-release` },
+          }),
+        ).toBe(0);
+        expect(
+          await setup.reviewProtocolLimitsV2.count({
+            where: { protocolLimitsProfileId: `${prefix}-limits` },
+          }),
+        ).toBe(0);
+        expect(
+          await setup.reviewOperationalSloProfileV2.count({
+            where: { operationalSloProfileId: `${prefix}-slo` },
+          }),
+        ).toBe(0);
+        expect(
+          await setup.reviewSafetyPolicy.count({
+            where: { policyId: { startsWith: `${prefix}-policy-` } },
+          }),
+        ).toBe(0);
+        expect(
+          await setup.reviewSafetyEmergencyControl.findUniqueOrThrow({
+            where: { emergencyControlId: "global-review-v2" },
+          }),
+        ).toEqual(before.control);
+        expect(
+          await setup.reviewHistoryCoverage.findUniqueOrThrow({
+            where: { id: "capture_v1" },
+          }),
+        ).toEqual(before.history);
+        expect(
+          await setup.reviewStatisticsCoverage.findUniqueOrThrow({
+            where: { id: "capture_v1" },
+          }),
+        ).toEqual(before.statistics);
+        let remainingClients = 1n;
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          const sessions = await setup.$queryRaw<
+            Array<{ count: bigint }>
+          >`SELECT COUNT(*)::bigint AS count FROM pg_stat_activity WHERE datname = current_database() AND backend_type = 'client backend' AND pid <> pg_backend_pid()`;
+          remainingClients = sessions[0]!.count;
+          if (remainingClients === 0n) break;
+          if (attempt < 19)
+            await new Promise<void>((resolve) => setTimeout(resolve, 100));
+        }
+        expect(remainingClients).toBe(0n);
+      } finally {
+        if (!previousHistory)
+          await setup.reviewHistoryCoverage.deleteMany({
+            where: { id: "capture_v1" },
+          });
+        if (!previousStatistics)
+          await setup.reviewStatisticsCoverage.deleteMany({
+            where: { id: "capture_v1" },
+          });
+        await setup.user.deleteMany({ where: { id: actorId } });
+        await setup.$disconnect();
+        await resetReviewActionV2E2EDatabase(databaseUrl!);
+      }
+    }, 60_000);
+
+    it("captures two manual runs of one SHA through dispatch, publication, the registered queue and authorized reads", async () => {
+      const originalFetch = globalThis.fetch;
+      await resetReviewActionV2E2EDatabase(databaseUrl!);
+      const prefix = `review-v2-history-${randomUUID()}`;
+      const workspaceId = `${prefix}-borrowed`;
+      const foreignWorkspaceId = `${prefix}-unrelated`;
+      const setup = createPrismaClient({
+        databaseUrl: databaseUrl!,
+        poolMax: 2,
+      });
+      const originalControl =
+        await setup.reviewSafetyEmergencyControl.findUniqueOrThrow({
+          where: { emergencyControlId: "global-review-v2" },
+        });
+      const originalCoverage = await setup.reviewHistoryCoverage.findUnique({
+        where: { id: "capture_v1" },
+      });
+      const originalStatisticsCoverage =
+        await setup.reviewStatisticsCoverage.findUnique({
+          where: { id: "capture_v1" },
+        });
+      try {
+        await setup.workspace.createMany({
+          data: [workspaceId, foreignWorkspaceId].map((id) => ({
+            id,
+            slug: id,
+            name: id,
+          })),
+        });
+      } finally {
+        await setup.$disconnect();
+      }
+      const fixture = await createReviewActionV2E2EHarness(databaseUrl!, {
+        historyProfile: true,
+        fixtureScope: { prefix, workspaceId },
+      });
+      const actorId = `${fixture.prefix}-history-reader`;
+      try {
+        expect(globalThis.fetch).toBe(originalFetch);
+        await fixture.prisma.user.create({
+          data: {
+            id: actorId,
+            memberships: {
+              create: { workspaceId: fixture.workspaceId, role: "member" },
+            },
+          },
+        });
+        const history = fixture.history!;
+        const list = () =>
+          history.reader.listPullRequests({
+            actorId,
+            workspaceId: fixture.workspaceId,
+            filters: { q: "", repositoryId: null, status: "all", days: null },
+          });
+        const first = await fixture.createHistoryReview("first");
+        expect(globalThis.fetch).toBe(originalFetch);
+        expect(await list()).toMatchObject({
+          items: [
+            {
+              id: first.pullRequestId,
+              status: "queued",
+              pullRequestTitle: first.pullRequestTitle,
+            },
+          ],
+          coverage: { state: "available" },
+        });
+        await fixture.replayHistoryReview(first);
+        expect(fixture.fakeGitHub.dispatches).toHaveLength(1);
+        expect(
+          await fixture.prisma.reviewHistoryRun.count({
+            where: { workspaceId: fixture.workspaceId },
+          }),
+        ).toBe(1);
+        const firstFlow = await fixture.startHistoryReview(first);
+        expect((await list()).items).toMatchObject([{ status: "running" }]);
+        await expect(
+          fixture.prisma.reviewExecutionV2.findUniqueOrThrow({
+            where: { executionId: firstFlow.executionId },
+            select: {
+              historyRootRequestId: true,
+              historyDispatchAttempt: true,
+            },
+          }),
+        ).resolves.toEqual({
+          historyRootRequestId: first.rootRequestId,
+          historyDispatchAttempt: 1,
+        });
+        await fixture.publishHistoryReview(firstFlow);
+        expect((await list()).items).toMatchObject([{ status: "publishing" }]);
+        expect(fixture.fakeGitHub.comments).toHaveLength(0);
+        expect(fixture.fakeGitHub.checkRuns).toHaveLength(0);
+        await fixture.completeHistoryReview(firstFlow);
+        await expectTerminalSuccess(fixture, firstFlow.executionId);
+        expect((await list()).items).toMatchObject([{ status: "completed" }]);
+        expect(fixture.fakeGitHub.comments[0]?.user.login).toBe(
+          "reviewrouter-e2e[bot]",
+        );
+        expect(fixture.fakeGitHub.checkRuns).toHaveLength(1);
+        const second = await fixture.createHistoryReview("second");
+        expect(second.rootRequestId).not.toBe(first.rootRequestId);
+        expect(second.headSha).toBe(first.headSha);
+        expect(second.pullRequestId).toBe(first.pullRequestId);
+        expect((await list()).items).toMatchObject([{ status: "queued" }]);
+        const runs = () =>
+          history.reader.listRuns({
+            actorId,
+            workspaceId: fixture.workspaceId,
+            pullRequestId: first.pullRequestId,
+          });
+        expect((await runs()).items).toEqual([
+          expect.objectContaining({
+            id: second.rootRequestId,
+            status: "queued",
+          }),
+          expect.objectContaining({
+            id: first.rootRequestId,
+            status: "completed",
+          }),
+        ]);
+        await fixture.replayHistoryReview(first);
+        expect((await list()).items).toMatchObject([{ status: "queued" }]);
+        const secondFlow = await fixture.startHistoryReview(second);
+        expect((await list()).items).toMatchObject([{ status: "running" }]);
+        await fixture.publishHistoryReview(secondFlow);
+        expect((await list()).items).toMatchObject([{ status: "publishing" }]);
+        await fixture.completeHistoryReview(secondFlow);
+        expect((await list()).items).toMatchObject([{ status: "completed" }]);
+        expect((await runs()).items).toMatchObject([
+          { id: second.rootRequestId, status: "completed" },
+          { id: first.rootRequestId, status: "completed" },
+        ]);
+        expect(fixture.fakeGitHub.dispatches).toHaveLength(2);
+        expect(
+          await fixture.prisma.reviewHistoryRun.count({
+            where: { workspaceId: fixture.workspaceId },
+          }),
+        ).toBe(2);
+        expect(
+          await fixture.prisma.reviewHistoryPullRequest.count({
+            where: { workspaceId: fixture.workspaceId },
+          }),
+        ).toBe(1);
+        const facts = await fixture.prisma.outboxEvent.findMany({
+          where: {
+            repositoryId: fixture.repositoryConnectionId,
+            type: "review.history.changed",
+          },
+          select: { status: true, payload: true },
+        });
+        expect(facts.length).toBeGreaterThan(8);
+        expect(facts.every((event) => event.status === "processed")).toBe(true);
+        expect(globalThis.fetch).toBe(originalFetch);
+        await expect(
+          history.reader.listPullRequests({
+            actorId: `${actorId}-outsider`,
+            workspaceId: fixture.workspaceId,
+            filters: { q: "", repositoryId: null, status: "all", days: null },
+          }),
+        ).rejects.toMatchObject({ code: "history_access_denied" });
+        await fixture.cleanupHistoryFixtures();
+        expect(
+          await fixture.prisma.reviewHistoryRun.count({
+            where: { workspaceId: fixture.workspaceId },
+          }),
+        ).toBe(0);
+        expect(
+          await fixture.prisma.workspace.count({
+            where: { id: { in: [workspaceId, foreignWorkspaceId] } },
+          }),
+        ).toBe(2);
+        expect(
+          await fixture.prisma.workspaceMember.count({
+            where: { workspaceId, userId: actorId },
+          }),
+        ).toBe(1);
+        expect(
+          await fixture.prisma.repositoryConnection.count({
+            where: { id: fixture.repositoryConnectionId },
+          }),
+        ).toBe(0);
+        expect(
+          await fixture.prisma.reviewRunAuthorization.count({
+            where: { repositoryConnectionId: fixture.repositoryConnectionId },
+          }),
+        ).toBe(0);
+        expect(
+          await fixture.prisma.reviewExecutionV2.count({
+            where: { repositoryConnectionId: fixture.repositoryConnectionId },
+          }),
+        ).toBe(0);
+        expect(
+          await fixture.prisma.outboxEvent.count({
+            where: { repositoryId: fixture.repositoryConnectionId },
+          }),
+        ).toBe(0);
+        expect(
+          await fixture.prisma.producerRelease.count({
+            where: { producerReleaseId: fixture.producerReleaseId },
+          }),
+        ).toBe(0);
+        expect(
+          await fixture.prisma.reviewHistoryCoverage.findUnique({
+            where: { id: "capture_v1" },
+          }),
+        ).toEqual(originalCoverage);
+        expect(
+          await fixture.prisma.reviewStatisticsCoverage.findUnique({
+            where: { id: "capture_v1" },
+          }),
+        ).toEqual(originalStatisticsCoverage);
+        expect(
+          await fixture.prisma.reviewSafetyEmergencyControl.findUniqueOrThrow({
+            where: { emergencyControlId: "global-review-v2" },
+          }),
+        ).toEqual(originalControl);
+      } finally {
+        await fixture.prisma.user.deleteMany({ where: { id: actorId } });
+        await fixture.close();
+        await resetReviewActionV2E2EDatabase(databaseUrl!);
+      }
+    }, 120_000);
+  },
+);
+
 function progressComments(fixture: ReviewActionV2E2EHarness) {
   return fixture.fakeGitHub.comments.filter(
     (comment) =>
       comment.user.login === "reviewrouter-e2e[bot]" &&
       comment.body.includes("<!-- review-router-live-progress -->"),
+  );
+}
+
+/** Select a real saved route; authorization must capture the capability itself. */
+async function selectSavedDiscoveryGateway(
+  fixture: ReviewActionV2E2EHarness,
+): Promise<void> {
+  const connection = await fixture.prisma.providerAccountConnection.create({
+    data: {
+      ownerWorkspaceId: fixture.workspaceId,
+      gatewayAccountRef: `${fixture.prefix}-account`,
+      profileRef: discoveryGatewayProfile,
+      displayName: "Disposable discovery lifecycle",
+      state: "active",
+    },
+  });
+  const binding = await new PrismaProviderAccountRepository(
+    fixture.prisma,
+  ).compareAndSetBinding({
+    workspaceId: fixture.workspaceId,
+    connectionId: connection.id,
+    expectedRevision: 0,
+    state: "active",
+  });
+  const target = {
+    scope: "repository" as const,
+    workspaceId: fixture.workspaceId,
+    repositoryId: fixture.repositoryConnectionId,
+  };
+  await saveReviewConfiguration(
+    {
+      target,
+      expectedVersion: null,
+      ...systemPolicyWriteFixture(
+        parseReviewConfigurationStrict({
+          ...workspacePolicyFixture,
+          providers: [
+            {
+              kind: "codex",
+              authMode: "codex_account_gateway",
+              model: discoveryGatewayModel,
+              reasoningEffort: "high",
+              fastMode: false,
+              agenticContext: true,
+              gatewayBindingId: binding.id,
+              gatewayProfileRef: connection.profileRef,
+            },
+          ],
+        }),
+        target,
+      ),
+    },
+    {
+      configurations: new PrismaReviewConfigurationRepository(
+        fixture.prisma,
+        undefined,
+        false,
+        undefined,
+      ),
+    },
   );
 }
 

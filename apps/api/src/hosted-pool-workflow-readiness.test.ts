@@ -36,6 +36,31 @@ function fixture() {
 }
 
 describe("hosted setup readiness", () => {
+  it.each([
+    ["https://api.reviewrouter.site", true],
+    ["https://api.reviewrouter.site.attacker.test", false],
+  ] as const)(
+    "checks the exact retained public origin %s",
+    async (apiUrl, ready) => {
+      const { input, options, request } = fixture();
+      const source = renderCanonicalHostedPoolWorkflowV2({
+        ...options,
+        apiUrl,
+      });
+      request.mockResolvedValue({
+        data: {
+          encoding: "base64",
+          content: Buffer.from(source).toString("base64"),
+        },
+      });
+      await expect(
+        hasMatchingHostedPoolWorkflow({
+          ...input,
+          apiUrl: "https://api.reviewrouter.org",
+        }),
+      ).resolves.toBe(ready);
+    },
+  );
   it("recognizes the actual rendered workflow for the exact pool binding", async () => {
     const { input, request } = fixture();
     await expect(hasMatchingHostedPoolWorkflow(input)).resolves.toBe(true);

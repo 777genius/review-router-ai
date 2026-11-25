@@ -1,7 +1,4 @@
-import {
-  mapConfigToRuntimeEnv,
-  safeDefaultReviewConfiguration,
-} from "@reviewrouter/features-review-config";
+import { mapConfigToRuntimeEnv } from "@reviewrouter/features-review-config";
 import type {
   CodexRotatingGitHubSecretTokenIssuerPort,
   CodexRotatingOAuthRepositoryPort,
@@ -72,9 +69,8 @@ export async function finalizeCodexRotatingOAuthLease(
       workspaceId: result.repository.workspaceId,
       repositoryId: result.repository.repositoryId,
     });
-  const runtimeEnv = mapConfigToRuntimeEnv(
-    runtimeConfig?.config ?? safeDefaultReviewConfiguration,
-  );
+  if (!runtimeConfig) throw new Error("review_provider_selection_required");
+  const runtimeEnv = mapConfigToRuntimeEnv(runtimeConfig.config);
   const ledgerKey = dependencies.ledgerKeys?.deriveLedgerKey?.({
     workspaceId: result.repository.workspaceId,
     repositoryId: result.repository.repositoryId,

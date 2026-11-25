@@ -8,16 +8,17 @@ import type { ReviewConfiguration } from "@reviewrouter/features-review-config";
 export type RuntimeReviewConfigurationRecord = {
   readonly source: "repository" | "workspace";
   readonly version: number;
+  readonly workspaceVersion: number | null;
+  readonly repositoryVersion: number | null;
+  readonly effectivePolicyDigest: string;
   readonly config: ReviewConfiguration;
 };
 
 export function runtimeReviewConfigurationSnapshotId(
   record: RuntimeReviewConfigurationRecord | null,
 ): string {
-  if (!record) {
-    return "default:1";
-  }
-  return `${record.source}:${record.version}`;
+  if (!record) return "policy:unconfigured";
+  return `policy:${record.workspaceVersion ?? 0}:${record.repositoryVersion ?? 0}:${record.effectivePolicyDigest}`;
 }
 
 export interface ActionControlPlaneRepositoryPort {

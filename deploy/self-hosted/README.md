@@ -5,15 +5,102 @@ github.com. Customer code review still runs inside the customer's GitHub
 Actions workflow. The self-hosted server stores metadata, configuration,
 webhook state, sessions, outbox jobs, and health data in Postgres.
 
-For the sequential path from a clean host to the first real review, start with
-the
-[end-to-end self-hosting guide](../../docs/operations/review-router-self-hosted-end-to-end.md).
-This document is the detailed configuration and operations reference.
+## Agent-first installation (default)
+
+A coding agent with shell access to a Linux x64 host can run setup without
+interactive prompts. Prepare Docker Compose v2, Git, curl, Node.js 24.21+ or
+26.10+, and two public DNS names (web and `api.<web hostname>`) first:
+
+```bash
+bash -c 'installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/777genius/review-router-ai/main/scripts/install-self-hosted.sh -o "$installer" && bash "$installer" "$@"; result=$?; rm -f "$installer"; exit "$result"' -- \
+  --web-url https://review.example.com \
+  --repo OWNER/REPOSITORY
+```
+
+The API URL defaults to `https://api.review.example.com` for this example.
+The script returns a JSON state and safe next-step arguments on stdout.
+If an approval is needed, let the agent carry out the allowed preparation and
+request GitHub App/provider authorization or workflow PR approval from the
+authorized user. Resume from the saved checkout; private credentials and
+versions are preserved. Passing `--interactive` opts in to manual prompts.
+`--status` prints the saved status without touching services.
+
+Prepare two public DNS names, Docker Compose v2, Git and a supported Node.js
+release. The installer configures services, private credentials, default
+Memory and HTTPS. It does **not** claim a completed review until a genuine
+provider run and GitHub App-authored comments have been observed in a test PR.
+
+See the [guided installation steps](../../docs/operations/review-router-self-hosted-end-to-end.md#guided-installation)
+for exact prerequisites, the SSH callback tunnel, options and resume behavior.
+The sections below are the detailed manual configuration and operations reference.
 
 This guide does not cover GitHub Enterprise Server, air-gapped deployments, or
 cloud review execution.
 
+## How the pieces fit
+
+ReviewRouter is made of parts that run in different places. This guide covers
+the control plane, the GitHub App, and the direct T0 settings for the review
+runtime. The account gateway is a separate service that this guide does not set
+up.
+
+| Part            | Where it runs                                 | What it does                                                                              | Covered here                            |
+| --------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------- |
+| Control plane   | Your host, this Compose stack                 | Dashboard, GitHub webhooks, review state, configuration                                   | Yes, sections 1 and 4-7                 |
+| GitHub App      | GitHub, owned by you                          | Gives the control plane access to your repositories and webhooks                          | Yes, section 2                          |
+| Review runtime  | The customer's GitHub Actions workflow        | Runs the review on each pull request with the provider key                                | Partly: direct T0 settings in section 3 |
+| Account gateway | A separate service, not in this Compose stack | Signs in subscription accounts (for example Codex device login) and routes calls for them | No, see below                           |
+
+## Check database access after a deploy
+
+The default Compose stack connects as one database user, so every query is
+allowed. If you give the app, worker and web separate database roles, a missing
+grant does not show up in tests or at startup. It shows up later as events that
+fail with `permission denied` until they are dead lettered, for example
+repository sync or statistics. After each deploy run this with the worker DATABASE_URL
+(the supported policies are the dedicated `reviewrouter_worker` role and the
+default shared Compose role `reviewrouter`):
+
+```bash
+DATABASE_URL=... node scripts/check-runtime-db-privileges.mjs
+```
+
+It checks the privileges the worker is known to need and lists outbox dead
+letters from the last 7 days that failed with a permission error. It exits with
+1 if it finds a problem.
+
+## Account gateway (not in this stack)
+
+The account gateway holds credentials for subscription accounts and executes
+provider calls for them. The ReviewRouter API and dashboard use it for account
+sign-in, account limits, and gateway-routed execution.
+
+- Source: <https://github.com/agent-teams-ai/account-gateway> (public).
+- Integration: ReviewRouter consumes a pinned Account Gateway SDK archive; see
+  [SDK provenance](../../vendor/account-gateway/llm-sdk-provenance.json). The
+  gateway remains a separately provisioned service.
+- This Compose stack does not start or configure it. Gateway-routed execution
+  stays off unless `REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED=1` and
+  `REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY` are set. The web and API need
+  further `REVIEW_ROUTER_ACCOUNT_GATEWAY_*` settings that this guide does not
+  document; set any of them only if you run a gateway yourself.
+- Gateway account sign-in requires that separate service. The guided install
+  uses the repository's GitHub Secrets provider setup; its first live review
+  still needs to be verified as described in the end-to-end guide.
+
 ## Services
+
+### Complete memory provider
+
+The guided installer and standalone memory command below build and qualify the
+pinned private Hindsight backend, download pinned multilingual local models,
+start its database/API/worker and configure the shared env automatically. The native services run
+separately from Compose, preserving the existing physical-Forget cleanup profile.
+Ordinary approved memory uses local embeddings and reranking with no generative
+account. Normal setup also consumes a qualified conversation capability when the
+release includes the source-owned artifact described below. It never creates that
+qualification from installed models or configuration.
+See the [memory startup reference](../hindsight/BOOTSTRAP.md) for recovery.
 
 The Compose stack starts:
 
@@ -34,14 +121,15 @@ separate tool container.
 
 - Docker with Compose v2.
 - Public DNS for the web and API hosts.
-- Public HTTPS termination in front of the exposed web/API ports.
+- Inbound ports 80 and 443 for bundled Caddy, or existing HTTPS termination in
+  front of the exposed web/API ports.
 - A GitHub App owned by the operator of this self-hosted instance.
 - Outbound access from the host to `github.com`, `api.github.com`, and GitHub
   OIDC/JWKS endpoints.
 
 Recommended versions in this stack:
 
-- Node.js 24 LTS for the app image.
+- Node.js 26.11.1 for the app image.
 - PostgreSQL 18 for the bundled local database.
 
 The bundled PostgreSQL 18 service mounts the named volume at
@@ -129,10 +217,10 @@ provisioning   Dashboard setup PRs, workflow file updates, and GitHub Actions
 org-ruleset    provisioning plus organization ruleset administration.
 ```
 
-Use `review-only` for the client-triggered Direct V2 mode documented here. Use
-`managed-review` only for a separate server-dispatched mode, and use
-`provisioning` only when the dashboard must create setup PRs or repository
-secrets.
+The manual examples below use `review-only` with a manually installed workflow.
+The guided installer defaults to `provisioning` so the dashboard can create
+setup PRs. Both use client-triggered Direct V2. Use `managed-review` only for
+a separate server-dispatched mode.
 
 Create a manifest with the matching profile:
 
@@ -235,6 +323,12 @@ only `contents: read`, `pull-requests: read`, and `id-token: write`, and pins th
 reusable workflow to the full Action commit. Direct initialization rejects any
 other executable workflow inventory.
 
+For Codex through GitHub Secrets, keep the template's setup issuance and new-work
+admission controls closed until an exact repository is selected. The guided
+installer configures that selection before provider onboarding. For manual
+installation, follow [Connect a Repository](../../docs/operations/review-router-self-hosted-end-to-end.md#9-connect-a-repository)
+to set both controls, apply the configuration and complete the provider setup.
+
 Pin `REVIEW_ROUTER_ACTION_REF` to the exact 40-character Action commit. Populate
 the authorization, Review V2 capability, and investigation lease capability key
 rings, producer release attestations, provider vote lanes, context keys, and
@@ -325,6 +419,15 @@ Run the complete disposable local E2E gate before a self-hosted release:
 pnpm self-hosted:e2e
 ```
 
+The E2E first runs the real native Memory installer against its private fresh
+env, verifies completed-install reuse, and checks the installed provider settings
+in Web, API and worker. It then exercises real save, read, recall, permission
+denial and post-Forget exclusion. A pending physical cleanup remains pending;
+full sandbox teardown is not an individual signed physical-Forget receipt.
+The gate downloads the pinned native inputs and model weights, so allow the
+same Linux x64 Docker prerequisites and disk space as first installation below.
+Failed native state is retained for diagnosis and reconciliation.
+
 The E2E command generates an isolated complete T0 env, builds and boots a fresh
 Compose project on free localhost ports, verifies both migration layers and
 exact health responses, runs the Review v2 and action OIDC harnesses inside the
@@ -337,6 +440,51 @@ critic are enabled only inside this disposable run; production effects,
 verified clean, and cross-revision replay remain disabled.
 
 ## 5. Start
+
+On the Linux x64 Docker host, prepare default memory before the first Compose
+startup. The command requires Node 24 or later, Git, Python 3, tar and outbound
+HTTPS. Keep the real env file private:
+
+```bash
+chmod 600 deploy/self-hosted/.env
+node deploy/self-hosted/setup-memory.ts "$PWD/deploy/self-hosted/.env"
+```
+
+This builds and runs the real native qualification, then downloads about 1 GB
+of pinned multilingual model weights. Allow several minutes and space for the
+native Docker images, private logs and models. It generates independent service
+credentials, preserves a private env backup, and atomically adds the provider
+settings without printing secrets. An explicit
+`REVIEW_ROUTER_MEMORY_PROVIDER=disabled` is preserved and skips provisioning.
+To put durable native state elsewhere, supply an absolute directory as the
+second argument. An optional third argument separates heavy build/download
+scratch work from durable models, evidence and runtime state. Completed phases
+are reused; a partial native qualification or
+installation is preserved for reconciliation rather than repeated blindly.
+
+If a genuinely qualified release includes
+`deploy/self-hosted/conversation-capability.json`, the same setup command validates
+its strict v2 declaration against all four actual implementation/provenance files
+in this checkout and the installed source stamp. It atomically installs the existing
+qualification and matching immutable interaction-runtime pin together with the
+provider settings. The generated standalone verifier uses the authoritative parser
+and needs no host `node_modules`, extra package installation or provider credentials.
+Normal repository setup and live source/account authority still apply; eligible new
+repositories use their current selected primary review account and supported model,
+without a per-repository operator qualification.
+
+No genuine conversation capability artifact is supplied by this implementation.
+Missing, invalid or mismatched release evidence leaves approved/manual memory
+available and reports an explicit unqualified conversation status. Existing
+qualification/pin assignments, including v1, partial or empty operator input, are
+preserved for reconciliation. Provider opt-outs and service pauses suppress new
+capability installation. A preserved v2 declaration with stale source hashes cannot
+authorize automatic processing after an upgrade; the runtime checks its current
+source stamp without overwriting the operator's env or disabling manual storage.
+Do not create a placeholder artifact or infer qualification from a successful parser,
+source-stamp check, native installation or synthetic fixture.
+
+Then use the normal stack startup:
 
 From `deploy/self-hosted`:
 
@@ -403,6 +551,11 @@ rr_admin() {
 Run `rr_admin env-preflight` before a mutation.
 
 ## 7. Upgrade
+
+Guided installations use a saved private env, a named Compose project and an
+optional TLS overlay. Apply those same settings to the commands below, as
+described in [Manual installation and operations](../../docs/operations/review-router-self-hosted-end-to-end.md#manual-installation-and-operations).
+The installer resumes its recorded source revision and does not perform upgrades.
 
 ```bash
 git fetch --tags origin

@@ -121,7 +121,7 @@ describe("hosted pool account failover", () => {
   );
 
   it.each([401, 429] as const)(
-    "runs one real backup transport after a complete pre-effect %s relay response",
+    "does not request a second grant after a %s relay response of uncertain origin",
     async (status) => {
       let grantCalls = 0;
       let relayCalls = 0;
@@ -166,9 +166,9 @@ describe("hosted pool account failover", () => {
             return "complete";
           },
         }),
-      ).resolves.toBe("complete");
-      expect(attempts).toEqual([1, 2]);
-      expect(grantCalls).toBe(2);
+      ).rejects.toThrow("hosted_pool_effect_ambiguous");
+      expect(attempts).toEqual([1]);
+      expect(grantCalls).toBe(1);
       expect(relayCalls).toBe(1);
     },
   );
@@ -322,7 +322,7 @@ describe("hosted pool account failover", () => {
         if (call < 2) {
           await new Promise<void>((resolve) => releases.push(resolve));
         }
-        return successfulSse();
+        return successfulSse(`capacity-response-${call + 1}`);
       }) as unknown as typeof fetch,
     });
     const firstActive = fetch(`${proxy.baseUrl}/responses`, {
@@ -386,10 +386,10 @@ describe("hosted pool account failover", () => {
   });
 
   it.each([
-    [401, "authentication_failed"],
-    [429, "quota_exhausted"],
+    [401, "ambiguous"],
+    [429, "ambiguous"],
   ] as const)(
-    "classifies ordinal-one %s as %s even if another relay was already admitted",
+    "fences ordinal-one %s as %s even if another relay was already admitted",
     async (status, reason) => {
       const firstGate = deferred<void>();
       const secondGate = deferred<void>();
@@ -407,7 +407,7 @@ describe("hosted pool account failover", () => {
           }
           secondStarted.resolve();
           await secondGate.promise;
-          return successfulSse();
+          return successfulSse("after-fence-response");
         }) as unknown as typeof fetch,
       });
       try {
@@ -445,7 +445,7 @@ describe("hosted pool account failover", () => {
           new Headers(init?.headers).get("x-reviewrouter-request-ordinal") ??
             "",
         );
-        return successfulSse();
+        return successfulSse("body-budget-response");
       }) as unknown as typeof fetch,
     });
     try {
@@ -491,7 +491,9 @@ describe("hosted pool account failover", () => {
                 );
                 void finishFirst.promise.then(() => {
                   controller.enqueue(
-                    new TextEncoder().encode("data: [DONE]\n\n"),
+                    new TextEncoder().encode(
+                      completedSse("concurrent-response-1"),
+                    ),
                   );
                   controller.close();
                 });
@@ -501,7 +503,7 @@ describe("hosted pool account failover", () => {
           );
         }
         secondStarted.resolve();
-        return successfulSse();
+        return successfulSse("concurrent-response-2");
       }) as unknown as typeof fetch,
     });
     try {
@@ -579,8 +581,15 @@ function proxyInput(policy: {
   };
 }
 
-function successfulSse(): Response {
-  return new Response("data: [DONE]\n\n", {
+function completedSse(responseId: string): string {
+  return `data: ${JSON.stringify({
+    type: "response.completed",
+    response: { id: responseId, status: "completed" },
+  })}\n\ndata: [DONE]\n\n`;
+}
+
+function successfulSse(responseId: string): Response {
+  return new Response(completedSse(responseId), {
     headers: { "content-type": "text/event-stream" },
   });
 }

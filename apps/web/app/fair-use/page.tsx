@@ -49,7 +49,7 @@ export default function FairUsePage(): React.ReactElement {
         <div className="space-y-5">
           <Badge tone="accent">Fair use</Badge>
           <h1 className="max-w-3xl text-5xl font-semibold tracking-tight text-cyan-50 md:text-7xl">
-            Fair beta access with clear limits.
+            Fair beta access with clear limits
           </h1>
           <p className="max-w-2xl text-lg leading-8 text-slate-300">
             ReviewRouter does not run model workloads in the SaaS by default,
@@ -67,7 +67,7 @@ export default function FairUsePage(): React.ReactElement {
         <Card className="space-y-4">
           <Badge tone="success">Implemented cap</Badge>
           <h2 className="text-2xl font-semibold text-cyan-50">
-            Repository sync has a worker-level cap.
+            Repository sync has a worker-level cap
           </h2>
           <p className="text-sm leading-6 text-slate-300">
             The worker applies a deterministic repository sync limit before
@@ -84,8 +84,8 @@ export default function FairUsePage(): React.ReactElement {
         <h2 className="text-2xl font-semibold text-cyan-50">
           Current public-facing defaults
         </h2>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+        <div className="overflow-x-auto lg:overflow-clip">
+          <table className="rr-sticky-table w-full min-w-[640px] border-collapse text-left text-sm">
             <thead className="text-cyan-100">
               <tr>
                 <th className="border-b border-cyan-200/15 px-3 py-2">Limit</th>

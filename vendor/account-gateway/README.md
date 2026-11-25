@@ -1,0 +1,175 @@
+# Account Gateway SDK artifacts
+
+## Native account metadata SDK
+
+The web, API and provider-usage consumers now pin
+`agent-teams-account-gateway-0.1.0-native-imports-f2690a3c9cfd.tgz`, built from committed Gateway source
+`f2690a3c9cfd0cf61bfb7ca31b802d249105d751`. Exact bytes and build tools are recorded
+in `native-account-info-sdk-provenance.json`. The archive adds account info v1
+provider connection capabilities v2 and bounded credential imports through existing
+connect/reconnect while retaining the legacy browser/device operation contract.
+The native account-model contract also retains qualified function and custom tools.
+The reader enforces each operation's response ceiling and preserves uncertain
+mutation outcomes after an HTTP response.
+This is a source and consumer change; it has not been deployed to production.
+Historical qualifications below retain their original scope.
+
+## Native catalogue SDK (not production)
+
+The previous three-consumer pin was the source-built
+`agent-teams-account-gateway-0.1.0-nvidia-0c68a5d544ff.tgz` archive. It carries the
+`native_catalog` account model source of the GLM, MiniMax and Kimi coding plans
+and lets the `nvidia` and `native_catalog` snapshots hold up to 512 models, so
+NVIDIA Build can offer NVIDIA's filtered public model list
+(`ai-docs/architecture/68-nvidia-live-model-catalog.md`). It also exposes
+`providerConnectionIdentity`, the vendor and plan of each qualified profile that
+Usage attributes Gateway calls to, and the `unknown` usage completeness
+(`ai-docs/architecture/72-usage-statistics-audit.md`). It was packed from the
+merged Gateway main commit recorded in `nvidia-sandbox-sdk-provenance.json`.
+The conversation source stamp changed with it, so full-thread
+conversation qualification must be reissued before deploy. The provenance of the
+previous archive is kept in `nvidia-c32ef9ed3360-sdk-provenance.json`. Design and
+rollout order: `ai-docs/architecture/64-gateway-native-ownership-and-model-catalog.md`.
+
+## NVIDIA Build sandbox candidate (PR #854; not production)
+
+The previous archive was
+`agent-teams-account-gateway-0.1.0-nvidia-c32ef9ed3360.tgz`.
+The SHA-256 checksum, exact SDK source commit and successful packaging run are
+recorded in `nvidia-c32ef9ed3360-sdk-provenance.json`. Source comparison confirmed
+that later Gateway PR #105 commits changed CI/test fixture pins only, not SDK
+source; PR #105 is now merged. This artifact is **not an npm release**.
+
+NVIDIA Build has one independently qualified account profile, exposing the
+hosted-tested `nvidia/nemotron-3.5-super-vl-120b-a12b` model through the existing
+Gateway Responses-to-protected-Chat bridge. Its synthetic streaming tool call,
+second-turn tool-result replay and native PostgreSQL account lifecycle passed
+their bounded qualifications. DeepSeek and GLM are **not** in the profile:
+their earlier Chat requests timed out without a confirmed HTTP response.
+
+A passing provider canary is not a completed Review Router E2E. Only the
+disposable synthetic repository `777genius/rr-hosted-pool-e2e-20260927`
+is eligible for trial checkout. Customer source, production deployment and
+direct GitHub Secrets integration remain forbidden. Actual GitHub-App-authored
+review of synthetic PR #32 and exact-head RR consumer CI are separate gates.
+
+The previously production-qualified SDK provenance below is retained untouched
+as historical proof; it does not qualify the NVIDIA branch.
+
+The current private provider-connections SDK is
+`agent-teams-account-gateway-0.1.0-dynamic-models-d3c310431c0c.tgz`.
+`provider-connections-provenance.json` binds the archive to committed SDK source
+and records its qualification boundaries. API and web use the same archive.
+The hash-named runtime and RR qualification receipts separate the controlled
+SDK/Gateway/native execution proof from consumer checks and production rollout.
+The payload-comparison receipt records the final documentation-only repack;
+runtime, declaration, and package-manifest bytes match the qualified candidate.
+
+OpenRouter and Codex reuse account-scoped model discovery and admission. The SDK
+owns the qualified profile/protocol/authentication mapping. OpenRouter supports
+up to 2,048 text-model rows from the native public-catalog adapter; Codex retains
+its 128-row contract. Catalog clients explicitly opt into a bounded 2 MiB
+response. Other client defaults stay at 64 KiB. OpenRouter does not inherit
+Codex effort aliases or invented reasoning/fast capabilities. Explicit
+OpenRouter `supported_efforts` and `default_effort` metadata can qualify
+reasoning controls within the existing wire contract; a parameter name alone
+does not enumerate supported levels.
+
+The configured enrollment model stays immutable as account identity. It is not
+the list of selectable review models. Gateway and native validate the requested
+model against a current account snapshot and retain their owner, epoch,
+generation, credential, and dispatch fences. Unknown, malformed, expired, or
+unsupported observations cannot become an authorized static fallback. Only an
+explicit unavailable result can retain the previously qualified anchor under
+its conservative rules.
+
+Qualified account discovery is always active in API and web. Deploy the compatible
+Gateway/native source revisions recorded in provenance before ReviewRouter.
+Installing this archive alone does not establish production readiness.
+
+After enabling the compatible catalog during the coordinated upgrade, reopen
+existing OpenRouter selections only if a saved control is no longer qualified by
+the refreshed snapshot. Still-qualified values remain valid. Save unavailable
+controls with provider defaults before resuming their reviews. A null
+catalog capability means the control is not qualified by Gateway; it does not
+claim that the provider lacks that capability. The old fixed descriptors are
+not used to manufacture effort levels for the dynamic catalog, and explicit
+saved values are not silently dropped at execution time.
+
+The previous Codex SDK archive
+`agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz`, its hash-named
+provenance, and its consumer receipt retain their original evidence. Historical
+qualification does not prove the new OpenRouter runtime or a live provider call.
+
+`grok-code-130ca3f00dcc-provenance.json` and
+`grok-code-130ca3f00dcc-sdk-receipt.json` retain the previous archive's identity
+and installed qualification. Grok shows one plain authorization-code field;
+the saved original provider selects its SDK-owned code grammar. Legacy Grok callback
+URLs and Claude code#state completion remain supported.
+
+Historical EF888 SDK bytes, provenance, installed receipt and controlled runtime
+qualification retain their original hash-named identities. The historical
+`provider-connections-qualification.json` is also still EF888 evidence; it is not
+qualification of the new code-only SDK or a new native/Gateway runtime. New RR
+and code-only runtime qualification are recorded separately in current provenance.
+No archive is published to npm, and deployment/live account proof stays separate.
+
+The previous Codex/Claude Accounts SDK is
+`agent-teams-account-gateway-0.1.0-claude-limits-ef19e228.tgz`.
+`account-limits-provenance.json` binds it to committed Gateway and native source,
+including the Claude lifecycle migration. It carries `account-limits/v1` cached
+reads for qualified Codex and Claude observations, plus Claude's explicit browser
+code completion. Quota-only refresh remains unavailable.
+
+Claude uses a separate qualified account/organization principal and encrypted
+credential lifecycle. A legacy admin account or an API key cannot manufacture
+subscription quota. Closed canonical windows keep global and model limits apart;
+missing observations remain unknown. Ordinary Accounts reads never call a provider.
+
+See [Claude account limits](../../ai-docs/architecture/61-claude-account-limits.md)
+for profile configuration, source ownership and operational scope. Controlled
+provider/PG/browser qualification does not prove production activation or a live
+Claude login. This archive is private and is not an npm publication.
+
+## Historical lifecycle SDK checkpoint
+
+The historical local Accounts candidate used
+`agent-teams-account-gateway-0.1.0-lifecycle-f9e0d304.tgz`.
+`lifecycle-provenance.json` binds the archive to exact SDK source-file hashes
+on Gateway base `ae96a3218cdaffad87ec11fd340c890596af1cc7`.
+The Gateway worktree is uncommitted; this is a private checkpoint, not a release
+or npm publication. The v2 contract supports suspend/resume and compatible
+readback while writes are closed. Both SDK compatibility lanes and controlled
+actual Go/Gateway/PostgreSQL retained-custody qualification passed.
+
+Historical SDK provenance and archives below retain their original identities.
+
+## Previous private Account Gateway SDK artifact
+
+The earlier private SDK0.1.0 archive is
+`agent-teams-account-gateway-0.1.0-28d6da0.tgz` (17155 bytes), packed from normal
+Gateway main `28d6da0539fc7b879e3c2b9a955b7ef91ba4ecd1`, tree
+`fe29e0e880f46fbbbbf2abfeba5309ac2d0d0b46`. Reviewed source is
+`7c278c0087b03b34fca88882deb66bb76c34ac6f`. The normal pack reused the qualified
+build with Node26.11.1/pnpm11.28.2. It is not an npm publication or a release.
+`provenance.json` records exact source/archive hashes, integrity and qualification.
+Historical archives retain their original bytes and source identity.
+
+RR backend consumes `/contracts` and server-only `/http`. The archive retains
+protected OAuth Begin/callback completion and normal consumer-control clients,
+and adds authoritative account `retirement` and policy-cohort `policyClosure`
+readbacks. Upstream keys and private execution/run-control bearers are absent
+from the artifact and frontend API. Older SDK archives are not lifecycle fallbacks.
+
+The actual controlled Go/Node/PostgreSQL joined acceptance passed held transport
+closure, borrower deletion without owner disable, 102 scoped fences, one owner
+disable despite a lost caller ACK, normal credential erasure and two tombstones.
+No provider or production effects occurred. This does not apply RR migration127
+or prove production deletion.
+
+OAuth enrollment remains opt-in for `openai-codex-oauth-responses-v1`.
+The ordinary Accounts form submits the fixed `http://localhost:1455/auth/callback`
+URL once through the authenticated server adapter and scoped Gateway management
+path. The URL is secret input and is never fetched or retained in client caches.
+Rebuild only through the library's existing `node scripts/build.mjs` and normal
+`pnpm --dir packages/account-gateway pack` in an isolated workspace.

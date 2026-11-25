@@ -142,11 +142,6 @@ describe("getApiDemo", () => {
           },
           ApiIndex: {},
           ReadyResponse: {},
-          ActionMemoryBundle: {},
-          ActionMemoryCandidateRequest: {},
-          ActionMemoryCommandRequest: {},
-          ActionMemoryCommandResponse: {},
-          ActionMemoryMutationResponse: {},
         },
       },
     });
@@ -169,63 +164,26 @@ describe("getApiDemo", () => {
         },
       },
     });
-    expect(paths["/api/action/v1/memory"]).toMatchObject({
-      get: {
-        security: [{ reviewRouterActionSession: [] }],
-        parameters: expect.arrayContaining([
-          expect.objectContaining({
-            name: "safeRetrievalQuery",
-            in: "query",
-            required: false,
-            schema: { type: "string", maxLength: 500 },
-          }),
-          expect.objectContaining({
-            name: "q",
-            in: "query",
-            required: false,
-            schema: { type: "string", maxLength: 500 },
-          }),
-        ]),
-      },
-    });
-    expect(paths["/api/action/v1/memory-candidates"]).toMatchObject({
-      post: {
-        security: [{ reviewRouterActionSession: [] }],
-        requestBody: {
-          content: {
-            "application/json": {
-              schema: {
-                $ref: "#/components/schemas/ActionMemoryCandidateRequest",
-              },
-            },
-          },
-        },
-      },
-    });
-    expect(paths["/api/action/v1/memory-commands"]).toMatchObject({
-      post: {
-        security: [{ reviewRouterActionSession: [] }],
-        requestBody: {
-          content: {
-            "application/json": {
-              schema: {
-                $ref: "#/components/schemas/ActionMemoryCommandRequest",
-              },
-            },
-          },
-        },
-        responses: {
-          "200": {
-            content: {
-              "application/json": {
-                schema: {
-                  $ref: "#/components/schemas/ActionMemoryCommandResponse",
-                },
-              },
-            },
-          },
-        },
-      },
-    });
+    for (const [path, method] of [
+      ["/api/action/v1/memory", "get"],
+      ["/api/action/v1/memory-candidates", "post"],
+      ["/api/action/v1/memory-commands", "post"],
+    ] as const) {
+      expect(paths[path]).toMatchObject({
+        [method]: { deprecated: true, responses: { "410": {} } },
+      });
+      expect(paths[path]?.[method]).not.toHaveProperty("parameters");
+      expect(paths[path]?.[method]).not.toHaveProperty("responses.200");
+    }
+    for (const route of ["bundle", "admit", "candidates", "commands"]) {
+      expect(paths[`/api/action/v2/memory/${route}`]).toMatchObject({
+        post: { security: [{ reviewRouterActionSession: [] }] },
+      });
+    }
+    expect(paths["/api/action/v2/memory/bundle"]).not.toHaveProperty(
+      "post.parameters",
+    );
+    expect(JSON.stringify(openapi)).not.toContain("safeRetrievalQuery");
+    expect(JSON.stringify(openapi)).not.toContain("ActionMemoryBundle");
   });
 });

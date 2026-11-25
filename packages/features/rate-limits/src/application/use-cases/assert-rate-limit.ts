@@ -27,6 +27,7 @@ export async function assertRateLimit(
     windowStart: window.windowStart,
     windowEndsAt: window.windowEndsAt,
     now,
+    ...(normalized.amount === undefined ? {} : { amount: normalized.amount }),
   });
   if (!decision.allowed) {
     throw new RateLimitExceededError(decision);

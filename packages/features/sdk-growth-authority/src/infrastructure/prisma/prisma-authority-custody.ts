@@ -19,6 +19,11 @@ import { PrismaCurrentAuthoritySnapshot } from "./prisma-current-authority.js";
 import { PrismaReceiptRepository } from "./prisma-receipt-repository.js";
 import { buildPublicationSeed } from "../../application/publication.js";
 import type { PublicationSeed } from "../../application/publication-ports.js";
+import {
+  executionSourceBinding,
+  sameSourceBinding,
+  sourceBindingIdentity,
+} from "../../application/source-binding.js";
 
 interface CustodyTransaction {
   $queryRaw<T = unknown[]>(
@@ -55,6 +60,7 @@ interface CustodyRow {
   verifierRevision: string;
   sourceCommit: string;
   sourceTree: string;
+  sourceBinding: unknown | null;
   requestDigest: string;
   requestWire: Uint8Array;
   grantDigest: string;
@@ -155,7 +161,20 @@ function scopedKey(execution: AuthenticatedEfExecution): string {
 }
 
 function id(execution: AuthenticatedEfExecution): string {
-  return createHash("sha256").update(scopedKey(execution)).digest("hex");
+  const binding = sourceBindingIdentity(execution);
+  return createHash("sha256")
+    .update(
+      binding === null
+        ? scopedKey(execution)
+        : JSON.stringify([
+            "sdk-growth-authority-custody:v2",
+            scopedKey(execution),
+            execution.sourceCommit,
+            execution.sourceTree,
+            ...binding,
+          ]),
+    )
+    .digest("hex");
 }
 
 function assertScope(
@@ -212,7 +231,8 @@ function sameExecution(
     row.runAttempt === value.runAttempt &&
     row.verifierRevision === value.verifierRevision &&
     row.sourceCommit === value.sourceCommit &&
-    row.sourceTree === value.sourceTree
+    row.sourceTree === value.sourceTree &&
+    sameSourceBinding(row.sourceBinding, value)
   );
 }
 
@@ -294,11 +314,12 @@ export class PrismaAuthorityCustody implements AuthorityCustodyPort {
         return view(existing);
       }
       const e = value.execution;
+      const binding = executionSourceBinding(e);
       await tx.$executeRaw`
         INSERT INTO "SdkGrowthAuthorityCustody" (
           "custodyId", "tenantId", "repositoryId", "pullRequest", "githubRepositoryId",
           "installationId", "subject", "runId", "runAttempt", "verifierRevision",
-          "sourceCommit", "sourceTree", "requestDigest", "requestWire",
+          "sourceCommit", "sourceTree", "sourceBinding", "requestDigest", "requestWire",
           "grantDigest", "grantWire", "candidateArchive",
           "candidateArchiveSha256", "candidateArchiveSha512Sri",
           "releasedArchive", "releasedArchiveSha256", "releasedArchiveSha512Sri",
@@ -307,7 +328,7 @@ export class PrismaAuthorityCustody implements AuthorityCustodyPort {
         VALUES (
           ${custodyId}, ${e.tenantId}, ${e.repositoryId}, ${scope.pullRequest}, ${e.githubRepositoryId},
           ${e.installationId}, ${e.subject}, ${e.runId}, ${e.runAttempt},
-          ${e.verifierRevision}, ${e.sourceCommit}, ${e.sourceTree},
+          ${e.verifierRevision}, ${e.sourceCommit}, ${e.sourceTree}, ${binding === null ? null : JSON.stringify(binding)}::jsonb,
           ${value.requestDigest}, ${Buffer.from(value.requestWire)},
           ${value.grantDigest}, ${Buffer.from(value.grantWire)},
           ${Buffer.from(value.candidateArchive.bytes)}, ${value.candidateArchive.sha256},
@@ -417,7 +438,9 @@ export class PrismaAuthorityCustody implements AuthorityCustodyPort {
         AND c."runId" = ${execution.runId}
         AND c."runAttempt" = ${execution.runAttempt}
         AND c."verifierRevision" = ${execution.verifierRevision}`;
-    return value ? view(row(value)) : null;
+    if (!value) return null;
+    const stored = row(value);
+    return sameExecution(stored, execution) ? view(stored) : null;
   }
 
   async readAdmission(
@@ -443,7 +466,9 @@ export class PrismaAuthorityCustody implements AuthorityCustodyPort {
         AND c."sourceCommit" = ${execution.sourceCommit}
         AND c."sourceTree" = ${execution.sourceTree}
         AND c."requestDigest" = ${requestDigest}`;
-    return value ? view(row(value)) : null;
+    if (!value) return null;
+    const stored = row(value);
+    return sameExecution(stored, execution) ? view(stored) : null;
   }
 
   async readCompletion(

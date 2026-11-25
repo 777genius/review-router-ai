@@ -1,0 +1,7 @@
+{$REVIEW_ROUTER_TLS_WEB_HOST} {
+	reverse_proxy web:3000
+}
+
+{$REVIEW_ROUTER_TLS_API_HOST} {
+	reverse_proxy api:4000
+}

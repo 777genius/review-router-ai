@@ -255,8 +255,20 @@ function buildPublisherFromEnv(input: {
   readonly fetchImpl: FetchLike;
 }): ReviewPublisherPort {
   switch (input.provider) {
-    case "github":
+    case "github": {
+      const reviewState = readOptionalEnv(
+        input.env,
+        "REVIEWROUTER_REVIEW_STATE",
+      );
       return new GitHubSummaryReviewPublisher({
+        bannerBaseUrl: readOptionalEnv(
+          input.env,
+          "REVIEWROUTER_REVIEW_BANNER_BASE_URL",
+        ),
+        reviewState:
+          reviewState === "complete" || reviewState === "incomplete"
+            ? reviewState
+            : undefined,
         token:
           readOptionalEnv(input.env, "REVIEWROUTER_GITHUB_TOKEN") ??
           readRequiredEnv(input.env, "GITHUB_TOKEN"),
@@ -271,6 +283,7 @@ function buildPublisherFromEnv(input: {
           : {}),
         fetchImpl: input.fetchImpl,
       });
+    }
     case "gitlab":
       return new GitLabReviewPublisher({
         token: readRequiredEnv(input.env, "REVIEWROUTER_GITLAB_TOKEN"),
@@ -471,6 +484,7 @@ function helpText(): string {
     "",
     "Publishes a CI-local ReviewRouter findings artifact through the configured SCM provider.",
     "Required provider env is read from GitHub Actions or GitLab CI variables.",
+    "Optional GitHub banner: REVIEWROUTER_REVIEW_BANNER_BASE_URL (public HTTPS origin), REVIEWROUTER_REVIEW_STATE (complete|incomplete, from trusted review coverage).",
     "",
   ].join("\n");
 }

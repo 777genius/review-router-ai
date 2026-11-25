@@ -140,7 +140,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          node-version: 24
+          node-version: 26.11.1
 
       - name: Prepare private evidence and validate retention inputs
         id: evidence
@@ -234,7 +234,7 @@ jobs:
           );
           NODE
 
-      - run: corepack enable && corepack prepare pnpm@10.33.0 --activate && pnpm install --frozen-lockfile
+      - run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7 && pnpm install --frozen-lockfile
       - name: Check database host reachability (no credentials printed)
         env:
           REVIEW_ROUTER_RELEASE_MIGRATION_DATABASE_URL: ${{ secrets.REVIEW_ROUTER_RELEASE_MIGRATION_DATABASE_URL }}

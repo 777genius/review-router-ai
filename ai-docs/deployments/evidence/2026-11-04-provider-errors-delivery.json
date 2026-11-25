@@ -1,0 +1,216 @@
+{
+  "schema": "reviewrouter-provider-errors-delivery.2026-11-04.v1",
+  "evidenceSource": "Release-owner verified actuals; frozen preparation/compatibility receipts referenced by SHA256 below; no raw Docker inspection/environment or credential payloads",
+  "staging": {
+    "status": "pending",
+    "verified": false
+  },
+  "private228": {
+    "sourceCommit": "a3db73fd77eda829480f57ffe3f40ed7c9f9da06",
+    "imageDigest": "sha256:0ffbaadca4d257d8b9f49c4d9e6292c4683669fcf3477cfa202303442522a3c2",
+    "releaseWorkflowRun": "41761230654",
+    "workflowConclusion": "FAILURE",
+    "failurePhase": "final Git tag push; GitHub App token missing workflow permission",
+    "prepareImagePublishAttestation": "PASS",
+    "ownerAssistedPublication": {
+      "releaseId": 433459945,
+      "published": true,
+      "credential": "existing authorized owner GitHub CLI session; no secret value retained",
+      "refUpdate": "atomic expected previous OIDs; exact tag absent; v1 DBC -> a3 fast-forward; no force",
+      "unchangedAssetSha256": {
+        "imageIdentity": "69a4ff13378061d282ecf98a2b1a382e7fbf3713845102f8330a969f9f8404d6",
+        "installerDescriptor": "4e784ca3ff708e9bad5e40ffdc0d4eb5d7d3f5971cb3b4fcd941b70b20e8f4ec"
+      }
+    },
+    "installed": true,
+    "rolesVerified": 4,
+    "workerPrivilegeChecksPassed": 7,
+    "readinessHttpStatus": 200,
+    "laterMain87f340Included": false
+  },
+  "chronology": [
+    {
+      "phase": "Action228-only on unchanged private856/image1962",
+      "actionCommit": "80c63cdbc23e32d099ba1779f9d09ff220a0370c",
+      "registryRows": 56,
+      "priorRowsPreserved": 55,
+      "officialReleaseRun": "41750361002",
+      "channelPromotionRun": "41759562333",
+      "channelVerifiedAtPhase": "80c63cdbc23e32d099ba1779f9d09ff220a0370c"
+    },
+    {
+      "phase": "private228 activation",
+      "sourceCommit": "a3db73fd77eda829480f57ffe3f40ed7c9f9da06",
+      "registry56Preserved": true
+    },
+    {
+      "phase": "compatible Action229 adoption on unchanged a3/image0ff",
+      "actionCommit": "755a6443420b4e6eaa9dd953a9df157bafc73f74",
+      "registryRows": 57,
+      "priorRowsPreserved": 56
+    }
+  ],
+  "action229": {
+    "actionCommit": "755a6443420b4e6eaa9dd953a9df157bafc73f74",
+    "officialReleaseRun": "41762973918",
+    "releaseConclusion": "SUCCESS",
+    "exactTag": "v1.0.229",
+    "stableTag": "v1",
+    "bothTagsVerifiedAtActionCommit": true,
+    "draft": false,
+    "prerelease": false,
+    "registered": true,
+    "rolesPrimaryVerified": 4,
+    "registryRowsVerified": 57,
+    "priorRowsPreserved": 56,
+    "capacityMaxRequests": 128,
+    "installedTransports": ["account_gateway"],
+    "privateImageAndMetadataPreserved": true,
+    "readinessHttpStatus": 200,
+    "readOnlyCompatibility": {
+      "status": "compatible",
+      "missing": 0,
+      "unsupported": 0,
+      "receiptSha256": "05c1906e1b1281801b8a4b798340e130107ecb0628b9b25ccda2791f0df4ad5e"
+    },
+    "canonicalManifestSha256": "b588f3454b25b876543fb33e62f3b03a880c07ac046f1e27875ff8826e2ceaf8",
+    "verifiedManifestSha256": "4910c779d0c446fd8c1bae51967d0fdd2134b0dcac98ee39917f45ff1e03bf23",
+    "runtimeEntrypointDigest": "99c464fc2288bf7265006685ff805cbea2f0502b5542b540d0e8be186820e1e0",
+    "stage1SpecSha256": "2f7a03df430067e87e0c89220e7306cd72ac915d123fa1ac96da5392826b20c5",
+    "stage2SpecSha256": "d0933d20af2817ac5a4956d7e2d4aaf8102361e9605f5da72236b5186a0c16de"
+  },
+  "channel229": {
+    "run": "41766365156",
+    "status": "completed",
+    "workflowSource": "7025478",
+    "immutableTargetActionCommit": "755a6443420b4e6eaa9dd953a9df157bafc73f74",
+    "observedWorkflowV1Sha": "755a6443420b4e6eaa9dd953a9df157bafc73f74",
+    "verified": true,
+    "conclusion": "SUCCESS"
+  },
+  "historicalCanary228": {
+    "run": "41759772607",
+    "head": "09d7a2f07642f2ac824d652ed561ffa8a46ecbfa",
+    "runtimeCommit": "80c63cdbc23e32d099ba1779f9d09ff220a0370c",
+    "status": "PARTIAL",
+    "cause": "unverified_native_span",
+    "scope": {
+      "completed": 1,
+      "required": 1
+    },
+    "acceptedPartial": true,
+    "normalizationPartial": true,
+    "classificationPartial": false,
+    "publishedPreliminaryMajorSecurityFindings": 1,
+    "placement": "file_level",
+    "commentId": "6620833692",
+    "completedDispatches": 7,
+    "uniqueCompletedUsageCalls": 7,
+    "tokenMetadata": "actual native",
+    "statistics": {
+      "reviewFacts": 0,
+      "issues": 0,
+      "reason": "partial review"
+    },
+    "executionCompleted": true,
+    "authorizationRevoked": true,
+    "fullAcceptance": false
+  },
+  "finalPositiveCanary229": {
+    "status": "COMPLETE",
+    "plannedCommit": "8ddef95c20c0095e21c43dc69832884c0edd5033",
+    "fixture": "inverted buyer comparison present in HEAD",
+    "onBranchVerified": true,
+    "requiresVerifiedChannel755": true,
+    "run": "41766852161",
+    "actualHead": "8ddef95c20c0095e21c43dc69832884c0edd5033",
+    "runtimeCommit": "755a6443420b4e6eaa9dd953a9df157bafc73f74",
+    "reviewOutcome": {
+      "status": "complete",
+      "scopeCompleted": 1,
+      "scopeRequired": 1,
+      "unreviewed": 0,
+      "acceptedPartial": false,
+      "classificationPartial": false,
+      "normalizationPartial": false,
+      "partialReasons": [],
+      "normalizedFindingCount": 1
+    },
+    "findingAndBotCommentEvidence": {
+      "publishedFindings": 1,
+      "severity": "critical",
+      "kind": "ownership-check inversion",
+      "path": "packages/payments-core/src/features/payment-evidence/application/authority.ts",
+      "line": 20,
+      "verifiedHeadSpan": true,
+      "suggestedCorrectComparison": "===",
+      "appSummary": "https://github.com/agent-teams-ai/payments-sdk/pull/30#issuecomment-6621731904",
+      "summaryCompleteMarker": true
+    },
+    "statistics": {
+      "reviewFacts": 1,
+      "currentIssueFacts": 1,
+      "pr30TotalLineages": 1
+    },
+    "usage": {
+      "rows": 6,
+      "uniqueCalls": 6,
+      "completedModelDispatches": 6,
+      "nativeEffect": "completed for all six",
+      "allNativeTokenTotalsKnown": true,
+      "totalTokens": 23393,
+      "provider": "openrouter",
+      "requestedModelLabel": "FREE Nemotron",
+      "actualModel": null
+    },
+    "authorizationClosure": {
+      "state": "REVOKED",
+      "executionState": "completed",
+      "artifactId": "rr:artifact:b0428b7fd5e066bdc3f49f5bbd52198f2095be04590e0a3f368e9ea4a8603912"
+    },
+    "unknownEffects": {
+      "modelDispatchUnknownCount": 0,
+      "separateBlanketPhysicalCustodyProbePerformed": false
+    },
+    "producerCommit": "755a6443420b4e6eaa9dd953a9df157bafc73f74",
+    "workflowConclusion": "FAILURE",
+    "workflowFailureCode": "review_merge_gate_failed",
+    "workflowFailureMeaning": "expected critical-fixture merge block; required coverage completed and no infrastructure failure",
+    "scopedReadbackSha256": "bbe6217a2a43b9db2bbbfca4b29c2a4c418779657390b091f64fa9db05d97db2",
+    "scopeLimitation": "One grounded positive fixture; no model-quality generalization, response-model identity, separate physical-custody probe, dashboard live journey, Memory semantic capability, self-hosted or GitLab acceptance inferred."
+  },
+  "memory": {
+    "codeInstalled": true,
+    "semanticStatus": "UNAVAILABLE",
+    "semanticCapabilityQualified": false,
+    "officialScore": null,
+    "r2": {
+      "eventsObserved": 50,
+      "completedClosedCalls": 46,
+      "settledNoCall": 3,
+      "catalogUnavailableBeforeDispatch": 1,
+      "unknownEffects": 0,
+      "qualificationBlockers": [
+        "missing eligible endorsement",
+        "invalid model output"
+      ]
+    },
+    "standAndHoldoutPreserved": true
+  },
+  "ordinaryReviewBatch": {
+    "productionStatus": "deployed",
+    "acceptedChecks": [
+      "full required coverage",
+      "critical issue publication with verified HEAD span",
+      "Statistics facts",
+      "unique completed Usage with actual native token totals"
+    ],
+    "excludedTargets": [
+      "staging",
+      "dashboard authenticated journey",
+      "Memory semantic qualification",
+      "self-hosted capability",
+      "GitLab"
+    ]
+  }
+}

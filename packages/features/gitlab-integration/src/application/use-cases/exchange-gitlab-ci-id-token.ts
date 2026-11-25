@@ -1,4 +1,5 @@
 import type { Clock } from "@reviewrouter/shared";
+import { normalizeGitLabSourceBaseUrl } from "../../domain/gitlab-source-url";
 import {
   buildGitLabActionSessionClaims,
   gitLabActionSessionTtlSeconds,
@@ -47,9 +48,10 @@ export async function exchangeGitLabCiIdToken(
   });
   const projectId = claims.job_project_id ?? claims.project_id;
   const repository =
-    await dependencies.repositories.findSelectedRepositoryByGitLabProjectId(
-      projectId,
-    );
+    await dependencies.repositories.findRepositoryByGitLabProjectIdentity({
+      gitlabProjectId: projectId,
+      sourceBaseUrl: normalizeGitLabSourceBaseUrl(claims.iss),
+    });
   if (!repository) {
     throw new Error("repository_not_registered");
   }

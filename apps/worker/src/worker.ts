@@ -1,9 +1,24 @@
+import { createReviewHistoryFeature } from "@reviewrouter/features-review-history/composition";
+import {
+  createReviewHistoryChangedHandler,
+  reviewHistoryHandlerDefinition,
+} from "./review-history-worker-runtime";
+import { createReviewStatisticsFeature } from "@reviewrouter/features-review-statistics/composition";
+import { createReviewStatisticsSettlementCapture } from "./review-statistics-settlement-capture";
+import {
+  createReviewStatisticsSettledHandler,
+  reviewStatisticsHandlerDefinition,
+} from "./review-statistics-worker-runtime";
 import { createHash, randomUUID } from "node:crypto";
 import { config as loadDotenv } from "dotenv";
 import { App } from "@octokit/app";
 import {
   reviewRequestIngressEventType,
   reviewRequestIngressEventVersion,
+  reviewRequestedDispatchCleanupEventType,
+  reviewRequestedDispatchCleanupEventVersion,
+  reviewRequestedStartNoticeEventType,
+  reviewRequestedStartNoticeEventVersion,
 } from "@reviewrouter/features-review-executions";
 import { PrismaReviewExecutionStore } from "@reviewrouter/features-review-executions/composition";
 import {
@@ -19,13 +34,12 @@ import {
   PrismaConflictReviewRepository,
 } from "@reviewrouter/features-conflict-review";
 import { createConflictReviewDetectionRequestedHandler } from "@reviewrouter/features-conflict-review/outbox";
-import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log";
+import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log/composition";
 import {
   OctokitOrgRulesetSetupGateway,
   PrismaOrgRulesetProvisioningRepository,
 } from "@reviewrouter/features-org-ruleset-provisioning";
 import { createOrgRulesetProvisioningRequestedHandler } from "@reviewrouter/features-org-ruleset-provisioning/outbox";
-import { createMemoryOutboxHandlers } from "@reviewrouter/features-memory/outbox";
 import {
   PrismaOutboxEventRepository,
   processOutboxBatch,
@@ -33,13 +47,10 @@ import {
   type OutboxHandler,
   type OutboxHandlerDefinition,
 } from "@reviewrouter/features-outbox";
-import {
-  PrismaMemoryItemRepository,
-  PrismaMemorySuggestionRepository,
-  PrismaMemoryUsageEventRepository,
-  PrismaMemorySearchIndex,
-  PrismaMemoryTransaction,
-} from "@reviewrouter/features-memory";
+import { PrismaMemoryUsageEventRepository } from "@reviewrouter/features-memory/infrastructure";
+import { MemoryKnowledgeError } from "@reviewrouter/features-memory";
+import { createMemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
+import { PrismaWorkspaceMemorySettings } from "@reviewrouter/features-review-config/composition";
 import {
   PrismaRateLimitStore,
   pruneExpiredRateLimitBuckets,
@@ -75,17 +86,19 @@ import {
 import { ConsoleLogger } from "@reviewrouter/platform-logger";
 import { PostgresLeaseLock } from "@reviewrouter/platform-locks";
 import { SystemClock } from "@reviewrouter/shared";
+import { createMemoryUsageTelemetryMaintenance } from "./memory-maintenance";
 import {
-  createMemoryItemExpiryMaintenance,
-  createMemorySuggestionExpiryMaintenance,
-  createMemoryTerminalItemPruneMaintenance,
-  createMemoryUsageTelemetryMaintenance,
-} from "./memory-maintenance";
+  createMemoryKnowledgeWorker,
+  memoryKnowledgeCommandHandler,
+  legacyMemoryOutboxHandlers,
+} from "./memory-knowledge-worker";
 import {
   runOutboxWorkerLoop,
+  runOutboxWorkerOnce,
   safeWorkerErrorSummary,
   sleep,
 } from "./outbox-worker-loop";
+import { runWorkerBatch } from "./worker-batch";
 import { InvestigationPrunerMaintenanceAdapter } from "./review-investigation-maintenance-adapter";
 import { WorkerInvestigationExecutionAuthority } from "./review-investigation-execution-authority";
 import {
@@ -118,6 +131,61 @@ async function main(): Promise<void> {
   const prisma = createPrismaClient();
   try {
     const clock = new SystemClock();
+    const memoryRuntime = await createMemoryKnowledgeRuntime({
+      prisma,
+      env: process.env,
+      workspaceSettings: (workspaceId, transaction) =>
+        new PrismaWorkspaceMemorySettings(prisma).read(
+          workspaceId,
+          transaction,
+        ),
+    });
+    const memoryWorker = createMemoryKnowledgeWorker({
+      generation: memoryRuntime.generation,
+      enabled: memoryRuntime.enabled,
+      service: memoryRuntime.forAccess({
+        async authorize() {
+          throw new MemoryKnowledgeError("forbidden");
+        },
+        async verifySource() {
+          throw new MemoryKnowledgeError("forbidden");
+        },
+        async sourceApplicable() {
+          return false;
+        },
+      }),
+      now: () => clock.now(),
+      warn: (message, metadata) => logger.warn(message, metadata),
+      async quarantineLegacy(event, targetIdentityDigest) {
+        if (!event.workspaceId) return;
+        await prisma.auditEvent.createMany({
+          skipDuplicates: true,
+          data: [
+            {
+              id: `memory-cutover:${event.id}`,
+              workspaceId: event.workspaceId,
+              actor: "system:memory-cutover-worker",
+              action: "memory.legacy_event.quarantined",
+              targetType: "outbox_event",
+              targetId: event.id,
+              metadata: {
+                eventType: event.type,
+                eventVersion: event.version,
+                aggregateId: event.aggregateId,
+                targetIdentityDigest,
+                disposition: "operator_input_required",
+              },
+              createdAt: clock.now(),
+            },
+          ],
+        });
+      },
+    });
+    const history = await createReviewHistoryFeature({ prisma });
+    const statistics = await createReviewStatisticsFeature({ prisma });
+    const settlementHook = createReviewStatisticsSettlementCapture(
+      statistics.outboxWriter,
+    );
     const reviewV2Worker = createReviewV2WorkerFeature({
       env: process.env,
       createEnabledRuntime: () => {
@@ -132,9 +200,16 @@ async function main(): Promise<void> {
           env: process.env,
           githubAppId,
           githubPrivateKey,
+          settlementHook,
+          logger,
+          ...(process.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1"
+            ? { historyWriter: history.writer }
+            : {}),
         });
       },
     });
+    // Activation belongs to the validated completion owner, never report-only hosts.
+    if (reviewV2Worker.enabled) await statistics.activateCapture();
     const sdkGrowthPrivateKey = readGitHubAppPrivateKey();
     const sdkGrowthPublication = createSdkGrowthPublicationFeature({
       env: process.env,
@@ -145,6 +220,9 @@ async function main(): Promise<void> {
       ...(sdkGrowthPrivateKey ? { githubPrivateKey: sdkGrowthPrivateKey } : {}),
     });
     const handlers = [
+      ...memoryWorker.handlers,
+      createReviewStatisticsSettledHandler(statistics.projector),
+      createReviewHistoryChangedHandler(history.projector),
       ...createOutboxHandlers(prisma, clock),
       ...reviewV2Worker.handlers,
       ...sdkGrowthPublication.handlers,
@@ -165,15 +243,7 @@ async function main(): Promise<void> {
     const pruneReviewExecutionCheckpoints =
       createReviewExecutionCheckpointMaintenance(prisma, clock);
     const reviewInvestigationMaintenance =
-      createReviewInvestigationMaintenanceRunner(prisma, clock);
-    const expirePendingMemorySuggestions =
-      createMemorySuggestionExpiryMaintenanceRunner(prisma, clock);
-    const expireActiveMemoryItems = createMemoryItemExpiryMaintenanceRunner(
-      prisma,
-      clock,
-    );
-    const pruneTerminalMemoryItems =
-      createMemoryTerminalItemPruneMaintenanceRunner(prisma, clock);
+      createReviewInvestigationMaintenanceRunner(prisma, clock, history.writer);
     const pruneMemoryUsageTelemetry =
       createMemoryUsageTelemetryMaintenanceRunner(prisma, clock);
     const limit = readPositiveIntegerEnv("REVIEW_ROUTER_OUTBOX_BATCH_SIZE", 25);
@@ -190,42 +260,40 @@ async function main(): Promise<void> {
       .digest("hex");
     const takeoverEnabled =
       process.env.REVIEW_ROUTER_OUTBOX_FENCED_TAKEOVER_ENABLED === "1";
-    const processBatch = async () => {
-      await sdkGrowthPublication.runMaintenance();
-      const result =
-        handlers.length > 0
-          ? await processOutboxBatch(
-              {
-                limit,
-                handlers,
-                knownHandlers: knownOutboxHandlers,
-                claimOwnerHash,
-                processingLeaseMs: processingStaleAfterMs,
-                heartbeatIntervalMs,
-                takeoverEnabled,
-              },
-              {
-                outbox,
-                clock,
-              },
-            )
-          : emptyOutboxBatchResult();
-      await pruneRateLimits();
-      await pruneActionOidcReplayNonces();
-      await pruneReviewSnapshots();
-      await pruneReviewExecutionCheckpoints();
-      await reviewInvestigationMaintenance.runMaintenance();
-      await expirePendingMemorySuggestions();
-      await expireActiveMemoryItems();
-      await pruneTerminalMemoryItems();
-      await pruneMemoryUsageTelemetry();
-      await reviewV2Worker.runMaintenance();
-      return result;
-    };
+    const processBatch = () =>
+      runWorkerBatch({
+        sdkGrowthMaintenance: () => sdkGrowthPublication.runMaintenance(),
+        processOutbox: async () =>
+          handlers.length > 0
+            ? await processOutboxBatch(
+                {
+                  limit,
+                  handlers,
+                  knownHandlers: knownOutboxHandlers,
+                  claimOwnerHash,
+                  processingLeaseMs: processingStaleAfterMs,
+                  heartbeatIntervalMs,
+                  takeoverEnabled,
+                },
+                {
+                  outbox,
+                  clock,
+                },
+              )
+            : emptyOutboxBatchResult(),
+        pruneRateLimits,
+        pruneActionOidcReplayNonces,
+        pruneReviewSnapshots,
+        pruneReviewExecutionCheckpoints,
+        reviewInvestigationMaintenance: () =>
+          reviewInvestigationMaintenance.runMaintenance(),
+        memoryMaintenance: () => memoryWorker.runMaintenance(),
+        pruneMemoryUsageTelemetry,
+        reviewV2Maintenance: () => reviewV2Worker.runMaintenance(),
+      });
 
     if (process.env.REVIEW_ROUTER_WORKER_ONCE === "1") {
-      const result = await processBatch();
-      logger.info("ReviewRouter worker processed one outbox batch", result);
+      await runOutboxWorkerOnce({ processor: { processBatch }, logger });
       return;
     }
 
@@ -258,6 +326,16 @@ async function main(): Promise<void> {
 }
 
 const knownOutboxHandlers = [
+  reviewHistoryHandlerDefinition,
+  {
+    type: reviewRequestedDispatchCleanupEventType,
+    version: reviewRequestedDispatchCleanupEventVersion,
+  },
+  {
+    type: reviewRequestedStartNoticeEventType,
+    version: reviewRequestedStartNoticeEventVersion,
+  },
+  reviewStatisticsHandlerDefinition,
   {
     type: githubReviewRequestIngressEventType,
     version: githubReviewRequestIngressEventVersion,
@@ -273,16 +351,8 @@ const knownOutboxHandlers = [
   { type: "installation.sync_requested", version: 1 },
   { type: "org_ruleset.provision_requested", version: 1 },
   { type: "conflict_review.detection_requested", version: 1 },
-  { type: "memory.item.created", version: 1 },
-  { type: "memory.item.deleted", version: 1 },
-  { type: "memory.item.disabled", version: 1 },
-  { type: "memory.item.edited", version: 1 },
-  { type: "memory.item.expired", version: 1 },
-  { type: "memory.suggestion.created", version: 1 },
-  { type: "memory.suggestion.confirmed", version: 1 },
-  { type: "memory.suggestion.rejected", version: 1 },
-  { type: "memory.embedding.reindex.requested", version: 1 },
-  { type: "memory.embedding.delete.requested", version: 1 },
+  memoryKnowledgeCommandHandler,
+  ...legacyMemoryOutboxHandlers,
   SDK_GROWTH_PUBLICATION_HANDLER,
 ] as const satisfies readonly OutboxHandlerDefinition[];
 
@@ -290,19 +360,14 @@ function createOutboxHandlers(
   prisma: ReturnType<typeof createPrismaClient>,
   clock: SystemClock,
 ): readonly OutboxHandler[] {
-  const memoryHandlers = createMemoryOutboxHandlers({
-    memoryItems: new PrismaMemoryItemRepository(prisma),
-    searchIndex: new PrismaMemorySearchIndex(prisma),
-  });
   const appId = process.env.GITHUB_APP_ID;
   const privateKey = readGitHubAppPrivateKey();
   if (!appId || !privateKey) {
     logger.warn("GitHub App credentials missing; installation sync disabled");
-    return memoryHandlers;
+    return [];
   }
 
   const handlers: OutboxHandler[] = [
-    ...memoryHandlers,
     createInstallationSyncRequestedHandler({
       github: new OctokitGitHubRepositorySource({
         appId,
@@ -531,6 +596,7 @@ function createReviewExecutionCheckpointMaintenance(
 function createReviewInvestigationMaintenanceRunner(
   prisma: ReturnType<typeof createPrismaClient>,
   clock: SystemClock,
+  historyWriter: import("@reviewrouter/features-review-history/composition").HistoryCapture,
 ) {
   return createReviewInvestigationMaintenanceFeature({
     env: process.env,
@@ -539,7 +605,15 @@ function createReviewInvestigationMaintenanceRunner(
       const expiredTurns = new ReconcileExpiredActiveTurn(
         investigations,
         new WorkerInvestigationExecutionAuthority(
-          new PrismaReviewExecutionStore(prisma),
+          new PrismaReviewExecutionStore(
+            prisma,
+            process.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1"
+              ? {
+                  historyCapture: (tx, execution) =>
+                    historyWriter.captureExecution(tx, execution),
+                }
+              : {},
+          ),
           new PrismaReviewRunAuthorizationRepository(prisma),
         ),
         new NodeSha256InvestigationDigest(),
@@ -611,109 +685,6 @@ function createMemoryUsageTelemetryMaintenanceRunner(
     {
       clock,
       usageEvents: new PrismaMemoryUsageEventRepository(prisma),
-      lock: new PostgresLeaseLock(prisma),
-      logger,
-    },
-  );
-}
-
-function createMemorySuggestionExpiryMaintenanceRunner(
-  prisma: ReturnType<typeof createPrismaClient>,
-  clock: SystemClock,
-): () => Promise<void> {
-  return createMemorySuggestionExpiryMaintenance(
-    {
-      workspaceLimit: readPositiveIntegerEnv(
-        "REVIEW_ROUTER_MEMORY_SUGGESTION_EXPIRE_WORKSPACE_BATCH_SIZE",
-        50,
-      ),
-      perWorkspaceLimit: readPositiveIntegerEnv(
-        "REVIEW_ROUTER_MEMORY_SUGGESTION_EXPIRE_PER_WORKSPACE_BATCH_SIZE",
-        100,
-      ),
-      intervalMs: readPositiveIntegerEnv(
-        "REVIEW_ROUTER_MEMORY_SUGGESTION_EXPIRE_INTERVAL_MS",
-        15 * 60 * 1000,
-      ),
-      lockTtlMs: readPositiveIntegerEnv(
-        "REVIEW_ROUTER_MEMORY_SUGGESTION_EXPIRE_LOCK_TTL_MS",
-        5 * 60 * 1000,
-      ),
-    },
-    {
-      clock,
-      memorySuggestions: new PrismaMemorySuggestionRepository(prisma),
-      memoryTransaction: new PrismaMemoryTransaction(prisma),
-      lock: new PostgresLeaseLock(prisma),
-      logger,
-    },
-  );
-}
-
-function createMemoryItemExpiryMaintenanceRunner(
-  prisma: ReturnType<typeof createPrismaClient>,
-  clock: SystemClock,
-): () => Promise<void> {
-  return createMemoryItemExpiryMaintenance(
-    {
-      workspaceLimit: readPositiveIntegerEnv(
-        "REVIEW_ROUTER_MEMORY_ITEM_EXPIRE_WORKSPACE_BATCH_SIZE",
-        50,
-      ),
-      perWorkspaceLimit: readPositiveIntegerEnv(
-        "REVIEW_ROUTER_MEMORY_ITEM_EXPIRE_PER_WORKSPACE_BATCH_SIZE",
-        100,
-      ),
-      intervalMs: readPositiveIntegerEnv(
-        "REVIEW_ROUTER_MEMORY_ITEM_EXPIRE_INTERVAL_MS",
-        15 * 60 * 1000,
-      ),
-      lockTtlMs: readPositiveIntegerEnv(
-        "REVIEW_ROUTER_MEMORY_ITEM_EXPIRE_LOCK_TTL_MS",
-        5 * 60 * 1000,
-      ),
-    },
-    {
-      clock,
-      memoryItems: new PrismaMemoryItemRepository(prisma),
-      memoryTransaction: new PrismaMemoryTransaction(prisma),
-      lock: new PostgresLeaseLock(prisma),
-      logger,
-    },
-  );
-}
-
-function createMemoryTerminalItemPruneMaintenanceRunner(
-  prisma: ReturnType<typeof createPrismaClient>,
-  clock: SystemClock,
-): () => Promise<void> {
-  return createMemoryTerminalItemPruneMaintenance(
-    {
-      retentionDays: readPositiveIntegerEnv(
-        "REVIEW_ROUTER_MEMORY_TERMINAL_ITEM_PRUNE_RETENTION_DAYS",
-        30,
-      ),
-      workspaceLimit: readPositiveIntegerEnv(
-        "REVIEW_ROUTER_MEMORY_TERMINAL_ITEM_PRUNE_WORKSPACE_BATCH_SIZE",
-        50,
-      ),
-      perWorkspaceLimit: readPositiveIntegerEnv(
-        "REVIEW_ROUTER_MEMORY_TERMINAL_ITEM_PRUNE_PER_WORKSPACE_BATCH_SIZE",
-        100,
-      ),
-      intervalMs: readPositiveIntegerEnv(
-        "REVIEW_ROUTER_MEMORY_TERMINAL_ITEM_PRUNE_INTERVAL_MS",
-        60 * 60 * 1000,
-      ),
-      lockTtlMs: readPositiveIntegerEnv(
-        "REVIEW_ROUTER_MEMORY_TERMINAL_ITEM_PRUNE_LOCK_TTL_MS",
-        5 * 60 * 1000,
-      ),
-    },
-    {
-      clock,
-      memoryItems: new PrismaMemoryItemRepository(prisma),
-      memoryTransaction: new PrismaMemoryTransaction(prisma),
       lock: new PostgresLeaseLock(prisma),
       logger,
     },

@@ -1,6 +1,12 @@
 "use client";
 
-import { useMemo, useState, type HTMLAttributes } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type HTMLAttributes,
+} from "react";
 import { cn } from "../utils/cn";
 
 export type CodeBlockProps = HTMLAttributes<HTMLPreElement> & {
@@ -8,24 +14,64 @@ export type CodeBlockProps = HTMLAttributes<HTMLPreElement> & {
   readonly language?: "bash" | "shell" | "json" | "yaml" | "text";
 };
 
-export function CodeBlock({
+export function CodeBlock(props: CodeBlockProps): React.ReactElement {
+  // Clipboard feedback belongs to the exact command, including late results.
+  return <CodeBlockContent key={props.code} {...props} />;
+}
+
+function CodeBlockContent({
   code,
   language = "bash",
   className,
   ...props
 }: CodeBlockProps): React.ReactElement {
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const latestAttempt = useRef(0);
+  const feedbackTimer = useRef<number | null>(null);
   const highlightedCode = useMemo(
     () => highlightCode(code, language),
     [code, language],
   );
 
-  async function copyCode(): Promise<void> {
-    if (!navigator.clipboard) return;
+  useEffect(() => {
+    return () => {
+      latestAttempt.current += 1;
+      if (feedbackTimer.current !== null) {
+        window.clearTimeout(feedbackTimer.current);
+        feedbackTimer.current = null;
+      }
+    };
+  }, []);
 
-    await navigator.clipboard.writeText(code);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1400);
+  async function copyCode(): Promise<void> {
+    const attempt = ++latestAttempt.current;
+    if (feedbackTimer.current !== null) {
+      window.clearTimeout(feedbackTimer.current);
+      feedbackTimer.current = null;
+    }
+    setCopied(false);
+    setCopyFailed(false);
+    try {
+      if (!navigator.clipboard?.writeText) {
+        setCopied(false);
+        setCopyFailed(true);
+        return;
+      }
+      await navigator.clipboard.writeText(code);
+      if (attempt !== latestAttempt.current) return;
+      setCopyFailed(false);
+      setCopied(true);
+      feedbackTimer.current = window.setTimeout(() => {
+        if (attempt !== latestAttempt.current) return;
+        feedbackTimer.current = null;
+        setCopied(false);
+      }, 1400);
+    } catch {
+      if (attempt !== latestAttempt.current) return;
+      setCopied(false);
+      setCopyFailed(true);
+    }
   }
 
   return (
@@ -44,12 +90,17 @@ export function CodeBlock({
         className={cn(
           "overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-cyan-200/15 bg-[var(--rr-surface-panel)] p-4 font-mono text-sm leading-6 text-cyan-50",
           className,
-          "pr-28",
+          "min-h-[3.75rem] pr-28",
         )}
         {...props}
       >
         <code>{highlightedCode}</code>
       </pre>
+      {copyFailed ? (
+        <p role="status" className="mt-2 text-xs leading-5 text-amber-100">
+          Could not copy. Select the code and copy it manually.
+        </p>
+      ) : null}
     </div>
   );
 }

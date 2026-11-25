@@ -6,6 +6,7 @@ import {
   ProviderExecutionProfile,
   ReuseEligibility,
   ReviewObservationQualityFlag,
+  ReviewProviderKind,
   ReviewReuseDenialReason,
   ReviewReuseEffectMode,
   ReviewReuseTier,
@@ -84,6 +85,63 @@ describe("ReviewReuseEligibilityPolicy", () => {
       tier: ReviewReuseTier.T0ExactRevision,
       reason: ReviewReuseDenialReason.PlanMismatch,
       canAttach: false,
+    });
+  });
+
+  it("does not let a partial OCR observation close the next T0 discovery run", () => {
+    const ocrManifest = manifest({ providerKind: ReviewProviderKind.Ocr });
+    const decision = decideReviewReuseEligibility(
+      observation({
+        providerKind: ReviewProviderKind.Ocr,
+        qualityFlags: [
+          ReviewObservationQualityFlag.ContextInspectionIncomplete,
+          ReviewObservationQualityFlag.ProviderWarning,
+          ReviewObservationQualityFlag.UnverifiedNativeSpan,
+        ],
+      }),
+      target({ manifest: ocrManifest }),
+    );
+
+    expect(decision).toMatchObject({
+      eligibility: ReuseEligibility.DeniedIncompatible,
+      tier: ReviewReuseTier.T0ExactRevision,
+      reason: ReviewReuseDenialReason.ReuseDenyingQualityFlag,
+      canAttach: false,
+    });
+  });
+
+  it("keeps a fully compatible OCR observation reusable at T0 exact revision", () => {
+    const ocrManifest = manifest({ providerKind: ReviewProviderKind.Ocr });
+    const decision = decideReviewReuseEligibility(
+      observation({
+        providerKind: ReviewProviderKind.Ocr,
+        qualityFlags: [],
+      }),
+      target({ manifest: ocrManifest }),
+    );
+
+    expect(decision).toMatchObject({
+      eligibility: ReuseEligibility.ExactRevision,
+      tier: ReviewReuseTier.T0ExactRevision,
+      reason: ReviewReuseDenialReason.None,
+      canAttach: true,
+    });
+  });
+
+  it("leaves other engine T0 paths unaffected by the OCR incomplete guard", () => {
+    const decision = decideReviewReuseEligibility(
+      observation({
+        qualityFlags: [
+          ReviewObservationQualityFlag.ContextInspectionIncomplete,
+        ],
+      }),
+      target(),
+    );
+
+    expect(decision).toMatchObject({
+      eligibility: ReuseEligibility.ExactRevision,
+      tier: ReviewReuseTier.T0ExactRevision,
+      canAttach: true,
     });
   });
 
@@ -329,6 +387,13 @@ describe("ReviewReuseEligibilityPolicy", () => {
     const targetFacts = target();
     const candidates = [
       observation({
+        observationId: "observation-native-span",
+        attemptId: "attempt-native-span",
+        createdAtMs: nowMs + 4,
+        qualityFlags: [ReviewObservationQualityFlag.UnverifiedNativeSpan],
+        payloadHash: hash("4"),
+      }),
+      observation({
         observationId: "observation-warning",
         attemptId: "attempt-warning",
         createdAtMs: nowMs + 3,
@@ -346,7 +411,7 @@ describe("ReviewReuseEligibilityPolicy", () => {
         observationId: "observation-clean-new",
         attemptId: "attempt-clean-new",
         createdAtMs: nowMs + 2,
-        qualityFlags: [],
+        qualityFlags: [ReviewObservationQualityFlag.InvestigationVerifiedClean],
         payloadHash: hash("1"),
       }),
     ];

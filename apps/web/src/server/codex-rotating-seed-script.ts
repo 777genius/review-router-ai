@@ -1,3 +1,4 @@
+import type { CodexRotatingSeedScriptDescriptor } from "@reviewrouter/features-provider-setup";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -10,12 +11,6 @@ import { resolveCodexRotatingInstallerDescriptor } from "../../../../packages/sh
 
 const SCRIPT_PATH = "scripts/seed-codex-rotating-auth.sh";
 const RESEED_SCRIPT_PATH = "scripts/reseed-codex-rotating-auth.sh";
-
-export type CodexRotatingSeedScriptDescriptor = {
-  readonly url: string;
-  readonly version: string;
-  readonly sha256: string;
-};
 
 export function resolveCodexRotatingSeedScriptDescriptor(
   env: NodeJS.ProcessEnv = process.env,

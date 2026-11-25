@@ -127,7 +127,7 @@ async function rotateInstallationRepositoryIdentities(
   installationId: string,
 ): Promise<void> {
   const fencedAtRows = await tx.$queryRaw<readonly { fencedAt: Date }[]>`
-    SELECT transaction_timestamp() AS "fencedAt"
+    SELECT (transaction_timestamp() AT TIME ZONE 'UTC') AS "fencedAt"
   `;
   const fencedAt = fencedAtRows[0]?.fencedAt;
   if (!fencedAt) throw new Error("repository_identity_epoch_time_missing");

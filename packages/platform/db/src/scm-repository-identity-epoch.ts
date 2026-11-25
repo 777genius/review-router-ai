@@ -19,9 +19,9 @@ export async function rotateScmRepositoryIdentityEpoch(
       SET "version" = "version" + 1,
           "currentWorkspaceId" = ${input.currentWorkspaceId},
           "boundAt" = GREATEST(
-            COALESCE("boundAt", '-infinity'::timestamptz),
-            ${input.boundAt}::timestamptz,
-            transaction_timestamp()
+            COALESCE("boundAt", '-infinity'::timestamp),
+            ${input.boundAt}::timestamp,
+            (transaction_timestamp() AT TIME ZONE 'UTC')
           ) + interval '1 millisecond',
           "unboundAt" = NULL
       WHERE "scmRepositoryIdentityId" = ${input.scmRepositoryIdentityId}
@@ -49,9 +49,9 @@ export async function rotateRemovedScmRepositoryIdentityEpoch(
       UPDATE "ScmRepositoryIdentity"
       SET "version" = "version" + 1,
           "boundAt" = GREATEST(
-            COALESCE("boundAt", '-infinity'::timestamptz),
-            ${input.removedAt}::timestamptz,
-            transaction_timestamp()
+            COALESCE("boundAt", '-infinity'::timestamp),
+            ${input.removedAt}::timestamp,
+            (transaction_timestamp() AT TIME ZONE 'UTC')
           ) + interval '1 millisecond'
       WHERE "scmRepositoryIdentityId" = ${input.scmRepositoryIdentityId}
         AND "currentRepositoryConnectionId" = ${input.repositoryConnectionId}

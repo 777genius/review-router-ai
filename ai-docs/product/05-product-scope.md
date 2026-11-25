@@ -40,7 +40,7 @@
 ## Not v1
 
 - cloud review execution
-- SaaS-stored Codex OAuth
+- control plane-stored Codex OAuth
 - paid billing
 - SSO/SAML
 - full enterprise self-hosted version

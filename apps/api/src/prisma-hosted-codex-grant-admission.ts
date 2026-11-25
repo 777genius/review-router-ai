@@ -3,7 +3,7 @@ import type { PrismaClient } from "@reviewrouter/platform-db";
 import { PrismaActionControlPlaneRepository } from "@reviewrouter/features-action-control-plane";
 import {
   mapConfigToRuntimeEnv,
-  safeDefaultReviewConfiguration,
+  type ReviewProviderConfiguration,
 } from "@reviewrouter/features-review-config";
 import { canonicalJson } from "@reviewrouter/features-review-run-control";
 import {
@@ -308,7 +308,8 @@ export class PrismaHostedCodexGrantAdmission implements HostedCodexGrantAdmissio
         workspaceId: repository.workspaceId,
         repositoryId: repository.id,
       });
-    const config = runtime?.config ?? safeDefaultReviewConfiguration;
+    if (!runtime) throw new Error("workspace_review_policy_not_configured");
+    const config = runtime.config;
     const hostedProviders = config.providers.filter(
       (provider) =>
         provider.kind === "codex" &&
@@ -318,8 +319,8 @@ export class PrismaHostedCodexGrantAdmission implements HostedCodexGrantAdmissio
       throw new Error("hosted_provider_strategy_not_configured");
     }
     const provider = hostedProviders[0]!;
-    const runtimeConfigVersion = runtime?.version ?? 1;
-    const authorityFacts = {
+    const runtimeConfigVersion = runtime.version;
+    const authorityIdentity = hostedGrantAuthorityIdentity({
       workspaceId: repository.workspaceId,
       repositoryId: repository.id,
       reviewRequestId: reviewRequest.requestId,
@@ -333,7 +334,7 @@ export class PrismaHostedCodexGrantAdmission implements HostedCodexGrantAdmissio
       authzEpoch: binding.pool.authzEpoch.toString(),
       runtimeAuthzEpoch: runtimeGate.authzEpoch.toString(),
       workflowSourceSha256: attestation.workflowSourceSha256,
-    };
+    });
     const workflowSource = `${repository.fullName}/${attestation.workflowPath}@refs/pull/${reviewRequest.pullRequestNumber}/merge`;
     const workflowJob = canonicalHostedPoolReusableWorkflowIdentity(
       binding.workflowActionRef!,
@@ -375,14 +376,11 @@ export class PrismaHostedCodexGrantAdmission implements HostedCodexGrantAdmissio
       workflowSourceBlobSha: liveSource.blobSha,
       workflowContents: liveSource.contents,
       reviewRequestId: reviewRequest.requestId,
-      providerInvocationKey: digest(authorityFacts),
+      providerInvocationKey: authorityIdentity.providerInvocationKey,
       runtimeConfigVersion,
       runtimeEnv: mapConfigToRuntimeEnv(config),
       model: provider.model,
-      policyFingerprint: digest({
-        version: "hosted-codex-v1",
-        ...authorityFacts,
-      }),
+      policyFingerprint: authorityIdentity.policyFingerprint,
     } satisfies HostedCodexGrantAdmission;
   }
 
@@ -801,6 +799,46 @@ function digest(value: unknown): string {
   return createHash("sha256")
     .update(JSON.stringify(value), "utf8")
     .digest("hex");
+}
+
+/** Preserve the original grant's exact serialized fingerprint on capture and
+ * revalidation. This function does not admit, issue, or refresh a grant. */
+export function hostedGrantAuthorityIdentity(
+  input: Readonly<{
+    workspaceId: string;
+    repositoryId: string;
+    reviewRequestId: string;
+    pullRequestNumber: number;
+    reviewHeadSha: string;
+    reviewRevisionHash: string;
+    runtimeConfigVersion: number;
+    provider: ReviewProviderConfiguration;
+    bindingId: string;
+    bindingRevision: number;
+    authzEpoch: string;
+    runtimeAuthzEpoch: string;
+    workflowSourceSha256: string;
+  }>,
+): Readonly<{ providerInvocationKey: string; policyFingerprint: string }> {
+  const facts = {
+    workspaceId: input.workspaceId,
+    repositoryId: input.repositoryId,
+    reviewRequestId: input.reviewRequestId,
+    pullRequestNumber: input.pullRequestNumber,
+    reviewHeadSha: input.reviewHeadSha,
+    reviewRevisionHash: input.reviewRevisionHash,
+    runtimeConfigVersion: input.runtimeConfigVersion,
+    provider: input.provider,
+    bindingId: input.bindingId,
+    bindingRevision: input.bindingRevision,
+    authzEpoch: input.authzEpoch,
+    runtimeAuthzEpoch: input.runtimeAuthzEpoch,
+    workflowSourceSha256: input.workflowSourceSha256,
+  };
+  return {
+    providerInvocationKey: digest(facts),
+    policyFingerprint: digest({ version: "hosted-codex-v1", ...facts }),
+  };
 }
 
 function digestCanonical(value: unknown): string {

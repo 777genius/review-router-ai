@@ -1,5 +1,6 @@
 import { config as loadDotenv } from "dotenv";
 import { createApiApp } from "./app.js";
+import { registerApiGracefulShutdown } from "./api-graceful-shutdown.js";
 
 loadDotenv({ path: "../../.env.local", override: false });
 loadDotenv({ path: "../../.env", override: false });
@@ -27,5 +28,6 @@ const app = await createApiApp({
   reviewActionV2Env: process.env,
 });
 
+registerApiGracefulShutdown(app);
 await app.listen({ port, host });
 console.info(`ReviewRouter API listening on http://${host}:${port}`);

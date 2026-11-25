@@ -1371,7 +1371,7 @@ REVIEW_ROUTER_GITHUB_MEMORY_CHANGE_E2E=1 \
 
 1. **Action runtime ownership** - 🎯 7 🛡️ 7 🧠 7
 
-   The SaaS package clearly exposes endpoints, but the GitHub Action runtime
+   The control plane package clearly exposes endpoints, but the GitHub Action runtime
    must also be updated and built into `dist/index.js`. Before implementation,
    inspect the action runtime code path that currently parses memory responses
    and posts bot comments.

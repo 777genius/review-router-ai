@@ -1,0 +1,242 @@
+{
+  "kind": "selfhost-continuous-configured-https-acceptance/v1",
+  "status": "PASS",
+  "originalSession": 88861,
+  "originalPid": 3781519,
+  "attemptId": "dbf16c7aa4d37ac3de12916d",
+  "sourceCommit": "b3613bfc012dc88015d9a9bf19be9cb27d67bd67",
+  "sourceTree": "3aa1e0671c961201031f05fc5dfc9fd24a3d97f6",
+  "sourceOnlyCandidate": true,
+  "officialOCI": false,
+  "semanticCapability": false,
+  "approvedLaunchSha256": "d1e86a09cf62a0b607bb0fd8ed248908b429ae4f770943d39ef816acdd892267",
+  "durationSeconds": 666.523,
+  "sourceEvidenceSha256": "332eff10f985d26380042acf20c68c80af07ced9aa50835bc3b5feece13e6123",
+  "operatorReadyReceiptSha256": "bc34cfab8dd2cd661efe7f53e640ab2f32f71ba01286420cc46861d22f362ef0",
+  "configuredApiOrigin": "https://10.77.0.1:34943",
+  "networkSubnet": "10.254.253.0/24",
+  "installation": {
+    "status": "selfhost_native_install_passed",
+    "environmentDigest": "78f53c3cf841bf5acee17845d97af6cce304ab804bc9f1ae5e8aaa87326ec6b7",
+    "bootstrapDigest": "86a6e74d1b4161cb41fded059d4a8b6f3388b2d9cdc5f8f5bc0b9b2808cdd8c0",
+    "imageId": "sha256:5c9aef715ac97bbdf680bdc8c147107427ea1d6a3dc4206858b192f6f9962c90",
+    "modelPinsDigest": "611adb0650fd1b8dc4b0be818e215d367aa27b356a955cf1e0b47cc5a1b4bb1a",
+    "idempotent": true,
+    "localInferenceOnly": true,
+    "conversation": {
+      "status": "unqualified",
+      "reason": "release_artifact_absent"
+    }
+  },
+  "environmentAssertions": {
+    "beforeAndAfterResume": true,
+    "roles": ["api", "web", "worker"],
+    "sameInstalledProviderNamespaceGenerationUrlAndServiceKeyFingerprint": true
+  },
+  "resumePreflight": {
+    "status": "selfhost_memory_resume_preflight_passed",
+    "entries": 0,
+    "commands": 0,
+    "nativeBridgeReady": true
+  },
+  "resume": {
+    "status": "selfhost_native_explicit_resume_passed",
+    "operator": "setup-memory resume",
+    "setupResumeUrlDerivationExercised": true,
+    "sameContainerIds": true,
+    "sameSavedBindings": true,
+    "composeApiStayedRunning": true,
+    "beforeFirstSaveOrForget": true
+  },
+  "storage": {
+    "status": "selfhost_real_memory_storage_passed",
+    "saved": "published",
+    "nativeBridgeReady": true,
+    "readback": true,
+    "recalled": true,
+    "foreignUserDenied": true,
+    "forget": "cleanup_pending",
+    "nativeCurrentDocumentAbsent": false,
+    "pendingNativeContentFenced": true,
+    "recallExcludedAfterForget": true,
+    "productPhysicalForgetClaimed": false
+  },
+  "normalDecommission": {
+    "status": "owned_sandbox_removed",
+    "containerIds": [
+      "093c6d83093e63dd37b97a475bad1c980e11c3dd792fad05159756e8c9188c90",
+      "8b43d2632731294e911237a980dc11a46e1ba6cd768e94a0ab2bb4a1ba9b3d96",
+      "5bd4ae3844f406ef541bf4ab6c83f34516740dcad54e9a5c7d43b3401fe07bfd"
+    ],
+    "volumeNames": [
+      "rr-memory-b44764b2-pg17-data",
+      "rr-memory-b44764b2-model-cache"
+    ],
+    "productPhysicalForgetClaimed": false
+  },
+  "independentAbsenceAndFirewallReadbackSha256": "a9d66a0633f1792ebb66e0be561a6fe94770e6b484a1c1969fb86a0cf32ed042",
+  "runtimeReadback": {
+    "at": "2026-11-03T09:03:57.008257+00:00",
+    "status": "PASS",
+    "project": "reviewrouter-self-hosted-e2e-3781521-mw0g75v4",
+    "nativeContainers": {
+      "postgres": {
+        "id": "093c6d83093e63dd37b97a475bad1c980e11c3dd792fad05159756e8c9188c90",
+        "absent": true,
+        "unknown": false
+      },
+      "api": {
+        "id": "8b43d2632731294e911237a980dc11a46e1ba6cd768e94a0ab2bb4a1ba9b3d96",
+        "absent": true,
+        "unknown": false
+      },
+      "worker": {
+        "id": "5bd4ae3844f406ef541bf4ab6c83f34516740dcad54e9a5c7d43b3401fe07bfd",
+        "absent": true,
+        "unknown": false
+      }
+    },
+    "nativeVolumes": [
+      {
+        "id": "rr-memory-b44764b2-pg17-data",
+        "absent": true,
+        "unknown": false
+      },
+      {
+        "id": "rr-memory-b44764b2-model-cache",
+        "absent": true,
+        "unknown": false
+      }
+    ],
+    "composeNetwork": {
+      "status": "PASS",
+      "id": "aba843efe00d5673a48974ce20b201aad9587775696db769905b4acda2bc8da7",
+      "absent": true,
+      "inspectErrorCategory": "network_not_found",
+      "completeNetworkCount": 35,
+      "completeNetworkIdsSha256": "06793b907085a4da1a331ff67e40051cd2afb6824cb31149711630e65a3b0877",
+      "allIds64HexUnique": true,
+      "effects": 0
+    },
+    "composeVolume": {
+      "id": "reviewrouter-self-hosted-e2e-3781521-mw0g75v4_reviewrouter-postgres-data",
+      "absent": true,
+      "unknown": false
+    },
+    "composeResources": {
+      "containers": [],
+      "networks": [],
+      "volumes": []
+    },
+    "privateTlsPortAbsent": true,
+    "ownPersistentRuleCounts": [0, 0, 0],
+    "ownIPv4LiveRuleCounts": [0, 0, 0],
+    "ownIPv6LiveRuleCounts": [0, 0, 0],
+    "journals": {
+      "continuous-stock-result.json": {
+        "status": "passed",
+        "historical657StockFailureUnchanged": true,
+        "signedPhysicalForgetClaimed": false,
+        "paidModelClaimed": false
+      },
+      "wrapper-terminal.json": {
+        "status": "passed",
+        "rollbackKnown": true,
+        "proxyStopped": true
+      },
+      "proxy-stopped.json": {
+        "code": 0,
+        "signal": null,
+        "error": false
+      },
+      "apply-result.json": {
+        "status": "acknowledged",
+        "mode": "apply",
+        "ownedRules": 3,
+        "liveMatches": [true, true, true],
+        "foreignRulesPreserved": true,
+        "ipv6Preserved": true,
+        "reloadPerformed": false,
+        "specSha256": "925ee9f8087bb2c5ac6ec9b78c6f3a085d8bb1c5eb7a8745cb60bc3408841888"
+      },
+      "rollback-result.json": {
+        "status": "acknowledged",
+        "mode": "rollback",
+        "ownedRules": 0,
+        "liveMatches": [false, false, false],
+        "foreignRulesPreserved": true,
+        "ipv6Preserved": true,
+        "reloadPerformed": false,
+        "specSha256": "925ee9f8087bb2c5ac6ec9b78c6f3a085d8bb1c5eb7a8745cb60bc3408841888"
+      },
+      "wrapper-prepare-process.json": {
+        "status": 0,
+        "signal": null,
+        "unknown": false,
+        "failure": null
+      },
+      "wrapper-apply-process.json": {
+        "status": 0,
+        "signal": null,
+        "unknown": false,
+        "failure": null
+      },
+      "wrapper-rollback-process.json": {
+        "status": 0,
+        "signal": null,
+        "unknown": false,
+        "failure": null
+      }
+    },
+    "evidenceFiles": [
+      "apply-intent.json",
+      "apply-result.json",
+      "baseline-after.rules",
+      "baseline-after6.rules",
+      "baseline-before.rules",
+      "baseline-before6.rules",
+      "baseline-ip6tables-save",
+      "baseline-iptables-save",
+      "baseline-ufw-added",
+      "baseline-ufw.conf",
+      "baseline-user.rules",
+      "baseline-user6.rules",
+      "binding.json",
+      "configured-tls-health.json",
+      "continuous-stock-result.json",
+      "launch-intent.json",
+      "proxy-started.json",
+      "proxy-stopped.json",
+      "rollback-intent.json",
+      "rollback-result.json",
+      "spec.json",
+      "wrapper-apply-intent.json",
+      "wrapper-apply-process.json",
+      "wrapper-prepare-process.json",
+      "wrapper-rollback-process.json",
+      "wrapper-terminal.json"
+    ],
+    "scratchDirectoryAbsent": true,
+    "modelCalls": 0,
+    "productPhysicalForgetClaimed": false,
+    "supersedesCollectorClassificationOnly": "7e2d1065c2dc45f21fa91a471521879facc16669e55d54470cb506a1f28a3dcd",
+    "collectorCorrection": "Docker network not found is the actual closed absence error; first collector recognized only no-such wording"
+  },
+  "allProductReceiptsSha256": "8e57ce609ab83d0a2d862ef57042d5d735d0f1ce56e7014d889a08cbb4a6a1a0",
+  "privateOutputSha256": "52d2761059161d5bde44be0c25ad35fdc983f21820bc2fd47a4cfea54507b997",
+  "privateEvidenceArchiveSha256": "0d78b131c023e40057b7212ff0126c0d470155b259873c16edef08d3f019ef09",
+  "nodeBaselineCounts": {
+    "tests": 37,
+    "pass": 36,
+    "fail": 0,
+    "skipped": 1
+  },
+  "existingConditionalSkipPreserved": true,
+  "collectorCorrection": "First network absence parser recognized no-such wording only; superseding read recognized Docker network-not-found plus full35-ID census. No effect repeated.",
+  "historicalFailuresReclassified": false,
+  "automaticRetry": false,
+  "productPhysicalForgetClaimed": false,
+  "externalGenerativeModelCalls": 0,
+  "nativeLocalEmbeddingsAndRerankerExercised": true,
+  "productionChanges": 0
+}

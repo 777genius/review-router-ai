@@ -1,0 +1,37 @@
+import { spawnSync } from "node:child_process";
+import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, it } from "vitest";
+
+it("loads the actual trust-root JSON with Node's production ESM loader", async () => {
+  const source = await readFile(
+    new URL("./activation-catalog-policy-raw-promotion-trust-root.ts", import.meta.url),
+    "utf8",
+  );
+  const statement = source.match(
+    /^import activationCatalogRawPromotionTrustRootData from "\.\/activation-catalog-policy-raw-promotion-trust-root\.json" with \{ type: "json" \};$/mu,
+  )?.[0];
+  expect(statement).toBeDefined();
+
+  const dir = await mkdtemp(join(tmpdir(), "rr-runtime-json-"));
+  try {
+    await copyFile(
+      new URL("./activation-catalog-policy-raw-promotion-trust-root.json", import.meta.url),
+      join(dir, "activation-catalog-policy-raw-promotion-trust-root.json"),
+    );
+    await writeFile(
+      join(dir, "smoke.mjs"),
+      `${statement}\nif (activationCatalogRawPromotionTrustRootData.status !== "ready") throw new Error("unexpected trust-root status");\n`,
+    );
+    const result = spawnSync(process.execPath, [join(dir, "smoke.mjs")], {
+      encoding: "utf8",
+      timeout: 10_000,
+      env: { ...process.env, NODE_OPTIONS: "" },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

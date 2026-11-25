@@ -1,3 +1,7 @@
+import {
+  validateReviewLifecycleAssignmentPlan,
+  type ReviewLifecycleAssignmentPlan,
+} from "./review-lifecycle-assignment-plan";
 export const reviewExecutionAbsoluteMaxWorkSlots = 256;
 export const reviewExecutionAbsoluteMaxAttemptBudget = 32;
 export const reviewExecutionAbsoluteMaxProjectionBytes = 2 * 1024 * 1024;
@@ -10,11 +14,13 @@ export enum ReviewExecutionProviderKind {
   Codex = "codex",
   ClaudeCode = "claude_code",
   OpenRouter = "openrouter",
+  Ocr = "ocr",
 }
 
 export enum ReviewTaskKind {
   FindingDiscovery = "finding_discovery",
   LifecycleRevalidation = "lifecycle_revalidation",
+  PrDescription = "pr_description",
 }
 
 export enum ReviewExecutionState {
@@ -118,7 +124,8 @@ export type ReviewWorkSlot = ReviewWorkSlotPlan & {
 };
 
 export type ReviewAssignmentManifest = Readonly<{
-  manifestVersion: 1;
+  manifestVersion: 1 | 2;
+  lifecyclePlan?: ReviewLifecycleAssignmentPlan;
   assignments: readonly Readonly<{
     workSlotId: string;
     paths: readonly string[];
@@ -138,6 +145,8 @@ export type ReviewExecutionStream = ReviewExecutionScope & {
 };
 
 export type ReviewExecution = ReviewExecutionScope & {
+  readonly historyRootRequestId?: string | null;
+  readonly historyDispatchAttempt?: number | null;
   readonly executionId: string;
   readonly version: bigint;
   readonly generation: bigint;
@@ -151,7 +160,7 @@ export type ReviewExecution = ReviewExecutionScope & {
   readonly state: ReviewExecutionState;
   readonly compatibilityKey: string;
   readonly planHash: string;
-  readonly assignmentManifestVersion?: 1 | null;
+  readonly assignmentManifestVersion?: 1 | 2 | null;
   readonly assignmentManifestHash?: string | null;
   readonly assignmentManifestCanonicalJson?: string | null;
   readonly protocolLimitsProfileId: string;
@@ -390,7 +399,20 @@ export function canonicalObjectJson(value: unknown): string {
 export function canonicalReviewAssignmentManifestHashPreimage(
   canonicalJson: string,
 ): string {
-  return `rr.review-assignment-manifest.v1\0${canonicalJson}`;
+  let version = 1;
+  try {
+    const parsed: unknown = JSON.parse(canonicalJson);
+    if (
+      parsed !== null &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      (parsed as Record<string, unknown>).manifestVersion === 2
+    )
+      version = 2;
+  } catch {
+    /* Historical v1 preimages accepted arbitrary strings. */
+  }
+  return `rr.review-assignment-manifest.v${version}\0${canonicalJson}`;
 }
 
 export function validateReviewAssignmentManifest(
@@ -404,8 +426,12 @@ export function validateReviewAssignmentManifest(
     "eligiblePaths",
     "uncoveredPaths",
     "excludedPaths",
+    ...(root.manifestVersion === 2 ? ["lifecyclePlan"] : []),
   ]);
-  if (root.manifestVersion !== 1 || !Array.isArray(root.assignments)) {
+  if (
+    (root.manifestVersion !== 1 && root.manifestVersion !== 2) ||
+    !Array.isArray(root.assignments)
+  ) {
     throw new Error("review_assignment_manifest_shape_invalid");
   }
   if (root.assignments.length > knownWorkSlotIds.length) {
@@ -478,8 +504,29 @@ export function validateReviewAssignmentManifest(
   if (pathCount > reviewAssignmentManifestMaxPaths) {
     throw new Error("review_assignment_manifest_path_count_out_of_bounds");
   }
+  if (
+    root.manifestVersion === 2 &&
+    new TextEncoder().encode(canonicalObjectJson(root.lifecyclePlan))
+      .byteLength >
+      64 * 1024
+  )
+    throw new Error("review_lifecycle_assignment_bounds_invalid");
+  const lifecyclePlan =
+    root.manifestVersion === 2
+      ? validateReviewLifecycleAssignmentPlan(
+          root.lifecyclePlan,
+          assignments,
+          knownWorkSlotIds,
+        )
+      : undefined;
+  if (
+    new TextEncoder().encode(canonicalObjectJson(root)).byteLength >
+    reviewAssignmentManifestMaxBytes
+  )
+    throw new Error("review_assignment_manifest_bytes_out_of_bounds");
   return {
-    manifestVersion: 1,
+    manifestVersion: root.manifestVersion,
+    ...(lifecyclePlan ? { lifecyclePlan } : {}),
     assignments,
     eligiblePaths,
     uncoveredPaths,
@@ -617,14 +664,91 @@ export function reviewExecutionIsTerminal(
   );
 }
 
+/**
+ * Whether the Action's projection envelope claims complete coverage. This is
+ * the producer's coverage claim that can narrow the server's verdict; what the
+ * published summary says is `publishedSummaryIncomplete` in review publishing.
+ */
+export function projectionClaimsCompleteCoverage(envelope: unknown): boolean {
+  if (typeof envelope !== "object" || envelope === null) return false;
+  const coverage = (envelope as { readonly coverage?: unknown }).coverage;
+  return (
+    typeof coverage === "object" &&
+    coverage !== null &&
+    (coverage as { readonly state?: unknown }).state === "complete"
+  );
+}
+
+/** Server-verified facts that may excuse a required slot (plan 69). */
+export type ReviewCoverageExceptions = Readonly<{
+  /** Reviewer votes whose provider quota the relay itself saw exhausted. */
+  providerQuotaExhaustedVotes: ReadonlySet<string>;
+  /** Reviewer votes of an ordered fallback, from the captured snapshot (plan 67). */
+  orderedFallbackVotes?: ReadonlySet<string>;
+  /** The Action's projection claims complete coverage; it can only narrow. */
+  producerCoverageComplete: boolean;
+}>;
+
+/**
+ * Every required slot must be satisfied. One server-verified exception: an
+ * open slot is excused only when it is exhausted (not pending, leased or
+ * cancelled) and its reviewer's provider quota was recorded as exhausted by
+ * the relay, while another reviewer satisfied all of its required slots. In
+ * an ordered fallback, the reviewer that finished covers the review for the
+ * whole chain. The Action must also claim complete coverage; its claim never
+ * excuses a slot on its own.
+ */
 export function deriveCoverageState(
   slots: readonly ReviewWorkSlot[],
+  exceptions?: ReviewCoverageExceptions,
 ): ReviewCoverageState {
-  return slots.every(
-    (slot) => !slot.required || slot.state === ReviewWorkSlotState.Satisfied,
-  )
+  const required = slots.filter((slot) => slot.required);
+  const open = required.filter(
+    (slot) => slot.state !== ReviewWorkSlotState.Satisfied,
+  );
+  if (open.length === 0) return ReviewCoverageState.Completed;
+  const openVotes = new Set(open.map((slot) => slot.providerVoteIdentityHash));
+  return exceptions?.producerCoverageComplete === true &&
+    ((open.every(
+      (slot) =>
+        slot.state === ReviewWorkSlotState.Exhausted &&
+        exceptions.providerQuotaExhaustedVotes.has(
+          slot.providerVoteIdentityHash,
+        ),
+    ) &&
+      required.some((slot) => !openVotes.has(slot.providerVoteIdentityHash))) ||
+      orderedFallbackCovered(required, open, exceptions.orderedFallbackVotes))
     ? ReviewCoverageState.Completed
     : ReviewCoverageState.Partial;
+}
+
+/**
+ * Ordered fallback (plan 67): a reviewer of the captured chain satisfied all
+ * of its required slots, and every other open required slot belongs to the
+ * chain and holds no lease: that reviewer failed earlier or was not needed.
+ */
+function orderedFallbackCovered(
+  required: readonly ReviewWorkSlot[],
+  open: readonly ReviewWorkSlot[],
+  chain: ReadonlySet<string> | undefined,
+): boolean {
+  if (!chain?.size) return false;
+  return (
+    open.every(
+      (slot) =>
+        slot.state !== ReviewWorkSlotState.Leased &&
+        chain.has(slot.providerVoteIdentityHash),
+    ) &&
+    [...chain].some((vote) => {
+      const own = required.filter(
+        (slot) => slot.providerVoteIdentityHash === vote,
+      );
+      return (
+        own.length > 0 &&
+        own.every((slot) => slot.state === ReviewWorkSlotState.Satisfied)
+      );
+    })
+  );
 }
 
 export function validatePublicationPermit(input: {

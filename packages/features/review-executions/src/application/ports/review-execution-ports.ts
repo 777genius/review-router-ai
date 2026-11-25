@@ -1,5 +1,6 @@
 import type {
   FinalizedReviewProjectionArtifact,
+  ReviewCoverageExceptions,
   ReviewExecutionLimits,
   ReviewExecutionScope,
   ReviewExecutionSnapshot,
@@ -39,6 +40,7 @@ export enum ReviewExecutionAdmissionStatus {
 }
 
 export enum ReviewInvocationLeaseAcquireStatus {
+  InputStale = "input_stale",
   Acquired = "acquired",
   Restored = "restored",
   Busy = "busy",
@@ -86,6 +88,8 @@ export enum ReviewExecutionLifecycleTransitionStatus {
 }
 
 export type PrepareReviewExecutionCommand = {
+  readonly historyRootRequestId?: string | null;
+  readonly historyDispatchAttempt?: number | null;
   readonly scope: ReviewExecutionScope;
   readonly expectedStreamVersion: bigint;
   readonly executionId: string;
@@ -98,7 +102,7 @@ export type PrepareReviewExecutionCommand = {
   readonly admissionSafetyDecisionHash: string;
   readonly compatibilityKey: string;
   readonly planHash: string;
-  readonly assignmentManifestVersion?: 1 | null;
+  readonly assignmentManifestVersion?: 1 | 2 | null;
   readonly assignmentManifestHash?: string | null;
   readonly assignmentManifestCanonicalJson?: string | null;
   readonly workSlots: readonly ReviewWorkSlotPlan[];
@@ -144,6 +148,8 @@ export type AcquireReviewInvocationLeaseCommand = {
   readonly now: Date;
   readonly expiresAt: Date;
   readonly resultReportUntil: Date;
+  /** Absolute authority bound; adapters must not shift it with caller clock skew. */
+  readonly notAfter?: Date;
   readonly retainUntil: Date;
   readonly limits: ReviewExecutionLimits;
 };
@@ -250,6 +256,8 @@ export type FinalizeReviewExecutionCommand = {
   readonly publicationNotAfter: Date;
   readonly permitEpoch: bigint;
   readonly allowPartial: boolean;
+  /** Server-verified facts that may excuse a required slot (plan 69). */
+  readonly coverageExceptions?: ReviewCoverageExceptions;
   readonly limits: ReviewExecutionLimits;
   readonly now: Date;
   readonly retainUntil: Date;

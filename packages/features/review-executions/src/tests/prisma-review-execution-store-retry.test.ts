@@ -433,9 +433,12 @@ describe("Prisma review execution transaction retries", () => {
     ).toBe(false);
   });
 
-  it("maps the retired vote-lane index P2002 to busy during rolling migration", async () => {
+  it("maps the retired vote-lane index P2002 to busy while a live incumbent holds the lane", async () => {
     const prisma = {
-      $transaction: vi.fn().mockRejectedValue(legacyProviderLaneConflict()),
+      $transaction: vi
+        .fn()
+        .mockRejectedValueOnce(legacyProviderLaneConflict())
+        .mockResolvedValueOnce(false),
     };
     const store = new PrismaReviewExecutionStore(prisma as never);
 
@@ -444,7 +447,27 @@ describe("Prisma review execution transaction retries", () => {
         purpose: ReviewInvocationLeasePurpose.ProviderExecution,
       } as never),
     ).resolves.toEqual({ status: ReviewInvocationLeaseAcquireStatus.Busy });
-    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries after reclaiming a stale incumbent behind the retired vote-lane index P2002", async () => {
+    const prisma = {
+      $transaction: vi
+        .fn()
+        .mockRejectedValueOnce(legacyProviderLaneConflict())
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce({
+          status: ReviewInvocationLeaseAcquireStatus.Acquired,
+        }),
+    };
+    const store = new PrismaReviewExecutionStore(prisma as never);
+
+    await expect(
+      store.acquireLease({
+        purpose: ReviewInvocationLeasePurpose.ProviderExecution,
+      } as never),
+    ).resolves.toEqual({ status: ReviewInvocationLeaseAcquireStatus.Acquired });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(3);
   });
 
   it("does not map an unverified single-column P2002 directly to legacy busy", async () => {

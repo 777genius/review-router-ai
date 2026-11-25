@@ -45,6 +45,122 @@ describe("review publication operation planning", () => {
     ]);
   });
 
+  it("plans an optional generated description as a bounded mutable singleton and withholds it for partial coverage", async () => {
+    const prDescription = body("c", "d", 40);
+    const operations = await plan(envelope({ prDescription }));
+    expect(operations).toHaveLength(2);
+    expect(operations[1]).toMatchObject({
+      publicationKind: ReviewPublicationKind.PrDescription,
+      effectStrategy: ReviewPublicationEffectStrategy.MutableSingleton,
+      role: ReviewPublicationOperationRole.Standalone,
+      bodyHash: hash("d"),
+      chunkIndex: 0,
+      required: false,
+    });
+    await expect(
+      plan(
+        envelope({
+          prDescription,
+          coverage: ReviewPublicationProjectionCoverage.Partial,
+          summary: {
+            ...body("a", "b", 10),
+            semantic: ReviewPublicationSummarySemantic.PartialCoverage,
+          },
+        }),
+      ),
+    ).rejects.toEqual(
+      planningError(
+        ReviewPublicationPlanningErrorCode.PartialCoverageViolation,
+      ),
+    );
+  });
+
+  it.each<Partial<ReviewPublicationPlanningLimits>>([
+    { maxPublicationOperations: 2 },
+    { maxPublicationChunks: 2 },
+    { maxPublicationBodyBytes: 30 },
+  ])(
+    "omits optional prose when required publication fills its capacity: %o",
+    async (capacity) => {
+      const required = envelope({ managedCheck: body("c", "d", 20) });
+      const profile = limits(capacity);
+      const requiredPlan = await plan(required, profile);
+      expect(requiredPlan).toHaveLength(2);
+      await expect(
+        plan(
+          envelope({
+            managedCheck: required.managedCheck,
+            prDescription: body("e", "f", 40),
+          }),
+          profile,
+        ),
+      ).resolves.toEqual(requiredPlan);
+    },
+  );
+
+  it.each([
+    { capacity: { maxPublicationOperations: 4 }, expectedReplies: 1 },
+    { capacity: { maxPublicationChunks: 4 }, expectedReplies: 1 },
+    { capacity: { maxPublicationBodyBytes: 40 }, expectedReplies: 1 },
+    { capacity: { maxPublicationOperations: 3 }, expectedReplies: 0 },
+    { capacity: { maxPublicationBodyBytes: 30 }, expectedReplies: 0 },
+  ])(
+    "preserves required resolutions and summary when optional verified replies exceed $capacity",
+    async ({ capacity, expectedReplies }) => {
+      const projection = envelope({
+        lifecycle: [
+          {
+            chunkIndex: 0,
+            semantic: ReviewPublicationLifecycleSemantic.ConfirmReply,
+            ...body("c", "d", 10),
+          },
+          {
+            chunkIndex: 1,
+            semantic: ReviewPublicationLifecycleSemantic.Resolve,
+            ...body("e", "f", 10),
+          },
+          {
+            chunkIndex: 2,
+            semantic: ReviewPublicationLifecycleSemantic.ConfirmReply,
+            ...body("1", "2", 10),
+          },
+          {
+            chunkIndex: 3,
+            semantic: ReviewPublicationLifecycleSemantic.Resolve,
+            ...body("3", "4", 10),
+          },
+        ],
+      });
+      const planned = await plan(projection, limits(capacity));
+      expect(
+        planned.filter(
+          (operation) =>
+            operation.publicationKind === ReviewPublicationKind.Summary,
+        ),
+      ).toHaveLength(1);
+      expect(
+        planned.filter(
+          (operation) =>
+            operation.publicationKind === ReviewPublicationKind.ThreadLifecycle,
+        ),
+      ).toHaveLength(2);
+      expect(
+        planned.filter(
+          (operation) =>
+            operation.publicationKind === ReviewPublicationKind.ThreadReply,
+        ),
+      ).toHaveLength(expectedReplies);
+      expect(
+        planned
+          .filter(
+            (operation) =>
+              operation.publicationKind === ReviewPublicationKind.ThreadReply,
+          )
+          .every((operation) => operation.required),
+      ).toBe(true);
+    },
+  );
+
   it("accepts Git SHA-1 and SHA-256 object IDs but rejects digest-shaped impostors", async () => {
     await expect(
       plan(envelope({ targetCommitId: "2".repeat(40) })),

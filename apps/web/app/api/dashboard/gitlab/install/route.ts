@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { assertDashboardWorkspaceAdminAllowed } from "../../../../../src/server/dashboard-mutations";
+import { assertDashboardWorkspaceAdminMutationAllowed } from "../../../../../src/server/dashboard-mutations";
 import { installGitLabConnectProjects } from "../../../../../src/server/gitlab-connect";
 
 const bodySchema = z
@@ -15,7 +15,9 @@ const bodySchema = z
 export async function POST(request: Request): Promise<NextResponse> {
   try {
     const body = bodySchema.parse(await request.json());
-    const actor = await assertDashboardWorkspaceAdminAllowed(body.workspaceId);
+    const actor = await assertDashboardWorkspaceAdminMutationAllowed(
+      body.workspaceId,
+    );
     const result = await installGitLabConnectProjects({
       ...body,
       installedByUserId: actor.userId,
@@ -45,6 +47,12 @@ function safeGitLabConnectErrorCode(message: string): string {
 }
 
 function statusForError(message: string): number {
+  if (
+    message.includes("gitlab_repository_already_owned") ||
+    message.includes("gitlab_install_superseded") ||
+    message.includes("gitlab_connect_project_selection_stale")
+  )
+    return 409;
   if (message.includes("requires_sign_in")) return 401;
   if (message.includes("forbidden")) return 403;
   if (message.includes("gitlab_api_error_401")) return 401;

@@ -16,7 +16,7 @@ import {
 import {
   activateConfirmedHostedPoolBindingAfterWorkflowMerge,
   switchRepositoryConfigurationAuthMode,
-} from "@reviewrouter/features-workflow-provisioning";
+} from "@reviewrouter/features-workflow-provisioning/composition";
 import { createHostedPoolOperatorConnect } from "./hosted-pool-operator-connect.js";
 import type { HostedPoolOperatorConnect } from "./hosted-pool-operator-composition.js";
 import {

@@ -1,8 +1,9 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import {
   parseReviewConfiguration,
-  safeDefaultReviewConfiguration,
+  canonicalJson,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import type { Clock } from "@reviewrouter/shared";
@@ -50,6 +51,7 @@ import { recordActionHealthReport } from "../application/use-cases/record-action
 import { requestConflictReviewPostingSession } from "../application/use-cases/request-conflict-review-posting-session.js";
 import {
   actionHealthReportMaxBytes,
+  actionRuntimeConfigResponseSchema,
   assertSafeActionHealthReport,
   defaultActionOidcAudience,
   githubActionsOidcIssuer,
@@ -95,17 +97,51 @@ const sessionClaims: ActionSessionClaims = {
   protocolVersion: 1,
 };
 
-const defaultOpenRouterRuntimeConfig = parseReviewConfiguration({
-  ...safeDefaultReviewConfiguration,
-  provider: {
-    kind: "openrouter",
-    authMode: "openrouter_api_key",
-    model: "poolside/laguna-m.1:free",
-    reasoningEffort: "medium",
-    agenticContext: true,
-    fastMode: false,
-    requiredHealthy: true,
+const gatewayRuntimeProvider = {
+  kind: "codex",
+  authMode: "codex_account_gateway",
+  model: "mimo-v2-pro",
+  reasoningEffort: "high",
+  agenticContext: true,
+  fastMode: false,
+  gatewayBindingId: "binding-server-saved",
+  gatewayProfileRef: "profile-mimo",
+} as const;
+
+const workspacePolicyFixture: ReviewConfiguration = {
+  schemaVersion: 3,
+  providers: [
+    {
+      kind: "codex",
+      authMode: "codex_subscription_oauth_rotating",
+      model: "gpt-5.5",
+      reasoningEffort: "medium",
+      agenticContext: true,
+      fastMode: false,
+      requiredHealthy: true,
+    },
+  ],
+  execution: {
+    providerLimit: 1,
+    providerMaxParallel: 1,
+    inlineMinAgreement: 1,
   },
+  blockingPolicy: { failOnSeverity: "critical" },
+  limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
+  reviewLanguage: null,
+  investigationRollout: {
+    recordingEnabled: true,
+    shadowEnabled: true,
+    contextCriticEnabled: true,
+    verifiedCleanEnabled: true,
+    crossRevisionReplayEnabled: false,
+    productionEffectsEnabled: true,
+  },
+};
+
+const defaultOpenRouterRuntimeConfig = parseReviewConfiguration({
+  ...workspacePolicyFixture,
+
   providers: [
     {
       kind: "openrouter",
@@ -118,6 +154,15 @@ const defaultOpenRouterRuntimeConfig = parseReviewConfiguration({
     },
   ],
 });
+
+function fixturePolicySnapshotId(
+  config: ReviewConfiguration = defaultOpenRouterRuntimeConfig,
+): string {
+  return (
+    "policy:1:7:sha256:" +
+    createHash("sha256").update(canonicalJson(config)).digest("hex")
+  );
+}
 
 class InMemoryActionControlPlaneRepository implements ActionControlPlaneRepositoryPort {
   public healthReports: ActionHealthReport[] = [];
@@ -143,6 +188,19 @@ class InMemoryActionControlPlaneRepository implements ActionControlPlaneReposito
     return {
       source: this.runtimeConfigSource,
       version: this.runtimeConfigVersion,
+      workspaceVersion:
+        this.runtimeConfigSource === "workspace"
+          ? this.runtimeConfigVersion
+          : 1,
+      repositoryVersion:
+        this.runtimeConfigSource === "repository"
+          ? this.runtimeConfigVersion
+          : null,
+      effectivePolicyDigest:
+        "sha256:" +
+        createHash("sha256")
+          .update(canonicalJson(this.runtimeConfig))
+          .digest("hex"),
       config: this.runtimeConfig,
     };
   }
@@ -759,7 +817,7 @@ describe("action control plane", () => {
         oidcVerifier: new StaticOidcVerifier(
           githubOidcClaims({
             workflow_ref:
-              "777genius/example/.github/workflows/reviewrouter-codex.yml@refs/pull/1/merge",
+              "777genius/example/.github/workflows/reviewrouter-review.yml@refs/pull/1/merge",
           }),
         ),
         repositories: new InMemoryActionControlPlaneRepository(),
@@ -770,7 +828,7 @@ describe("action control plane", () => {
 
     expect(sessions.signedClaims).toMatchObject({
       repository: "777genius/example",
-      workflowPath: ".github/workflows/reviewrouter-codex.yml",
+      workflowPath: ".github/workflows/reviewrouter-review.yml",
     });
   });
 
@@ -831,7 +889,7 @@ describe("action control plane", () => {
     expect(
       isManagedV2SessionBootstrapSource({
         eventName: "workflow_dispatch",
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         githubRepositoryId: qualityRepository.githubRepositoryId,
         repositoryFullName: "attacker/renamed",
       }),
@@ -839,7 +897,7 @@ describe("action control plane", () => {
     expect(
       isManagedV2SessionBootstrapSource({
         eventName: "workflow_dispatch",
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         githubRepositoryId: qualityRepository.githubRepositoryId,
         repositoryFullName: qualityRepository.fullName,
       }),
@@ -849,7 +907,7 @@ describe("action control plane", () => {
         claims: {
           ...qualityClaims,
           workflow_ref:
-            "777genius/review-router-saas-e2e/.github/workflows/reviewrouter-codex.yml@refs/heads/main",
+            "777genius/review-router-saas-e2e/.github/workflows/reviewrouter-review.yml@refs/heads/main",
         },
         repository: qualityRepository,
       }),
@@ -901,7 +959,7 @@ describe("action control plane", () => {
     expect(
       isManagedV2SessionBootstrapSource({
         eventName: "pull_request_target",
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         githubRepositoryId: repositoryContext.githubRepositoryId,
         repositoryFullName: repositoryContext.fullName,
       }),
@@ -909,7 +967,7 @@ describe("action control plane", () => {
     expect(
       isManagedV2SessionBootstrapSource({
         eventName: "schedule",
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         githubRepositoryId: repositoryContext.githubRepositoryId,
         repositoryFullName: repositoryContext.fullName,
       }),
@@ -1187,6 +1245,45 @@ describe("action control plane", () => {
     });
   });
 
+  it.each([
+    ["a".repeat(40), true],
+    ["refs/tags/v1", false],
+    ["refs/heads/main", false],
+    ["main", false],
+    ["A".repeat(40), false],
+    ["a".repeat(39), false],
+    ["a".repeat(41), false],
+  ])(
+    "authenticates the secrets runtime only at an immutable lowercase commit: %s",
+    async (ref, accepted) => {
+      const sessions = new StaticSessionTokenService();
+      const exchange = exchangeGitHubOidcToken(
+        { oidcToken: "oidc", audience: defaultActionOidcAudience },
+        {
+          oidcVerifier: new StaticOidcVerifier(
+            githubOidcClaims({
+              workflow_ref:
+                "777genius/example/.github/workflows/reviewrouter.yml@refs/pull/1/merge",
+              job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-secrets-runtime.yml@${ref}`,
+            }),
+          ),
+          repositories: new InMemoryActionControlPlaneRepository(),
+          sessions,
+          clock,
+        },
+      );
+      if (accepted) {
+        await exchange;
+        expect(sessions.signedClaims).toMatchObject({
+          repository: "777genius/example",
+        });
+      } else {
+        await expect(exchange).rejects.toThrow("workflow_ref_not_allowed");
+        expect(sessions.signedClaims).toBeNull();
+      }
+    },
+  );
+
   it("rejects conflict reusable workflow refs outside repository_dispatch", async () => {
     await expect(
       exchangeGitHubOidcToken(
@@ -1460,7 +1557,7 @@ describe("action control plane", () => {
       headSha: "a".repeat(40),
       baseRef: "main",
       baseSha: "b".repeat(40),
-      configSnapshotId: "repository:7",
+      configSnapshotId: fixturePolicySnapshotId(),
     });
   });
 
@@ -1931,14 +2028,12 @@ describe("action control plane", () => {
   it("returns persisted ultra reasoning effort in OIDC runtime config", async () => {
     const repositories = new InMemoryActionControlPlaneRepository();
     repositories.runtimeConfig = parseReviewConfiguration({
-      ...defaultOpenRouterRuntimeConfig,
-      provider: {
-        ...defaultOpenRouterRuntimeConfig.provider,
-        reasoningEffort: "ultra",
-      },
+      ...workspacePolicyFixture,
+
       providers: [
         {
-          ...defaultOpenRouterRuntimeConfig.provider,
+          ...workspacePolicyFixture.providers[0]!,
+          model: "gpt-5.6-sol",
           reasoningEffort: "ultra",
         },
       ],
@@ -1948,7 +2043,10 @@ describe("action control plane", () => {
       { sessionToken: "session" },
       {
         repositories,
-        sessions: new StaticSessionTokenService(),
+        sessions: new StaticSessionTokenService({
+          ...sessionClaims,
+          workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        }),
         clock,
       },
     );
@@ -1957,66 +2055,33 @@ describe("action control plane", () => {
     expect(config.runtimeEnv.CODEX_REASONING_EFFORT).toBe("ultra");
   });
 
-  it("uses deployment defaults only when no persisted review config exists", async () => {
+  it("requires a persisted workspace policy before runtime config", async () => {
     const repositories = new InMemoryActionControlPlaneRepository();
     repositories.runtimeConfig = null;
-
-    const config = await getActionRuntimeConfig(
-      { sessionToken: "session" },
-      {
-        repositories,
-        sessions: new StaticSessionTokenService({
-          ...sessionClaims,
-          workflowPath: ".github/workflows/reviewrouter-codex.yml",
-        }),
-        defaultProvider: {
-          model: "gpt-5.6-sol",
-          reasoningEffort: "ultra",
+    await expect(
+      getActionRuntimeConfig(
+        { sessionToken: "session" },
+        {
+          repositories,
+          sessions: new StaticSessionTokenService(),
+          clock,
         },
-        clock,
-      },
-    );
-
-    expect(config).toMatchObject({
-      configVersion: 1,
-      provider: {
-        kind: "codex",
-        authMode: "codex_subscription_oauth_rotating",
-        model: "gpt-5.6-sol",
-        reasoningEffort: "ultra",
-      },
-      runtimeEnv: {
-        CODEX_MODEL: "gpt-5.6-sol",
-        CODEX_REASONING_EFFORT: "ultra",
-      },
-    });
+      ),
+    ).rejects.toThrow("review_provider_selection_required");
   });
 
-  it.each(["max", "ultra"] as const)(
-    "rejects unsupported %s deployment defaults before building runtime config",
-    async (reasoningEffort) => {
-      const repositories = new InMemoryActionControlPlaneRepository();
-      repositories.runtimeConfig = null;
-
-      await expect(
-        getActionRuntimeConfig(
-          { sessionToken: "session" },
-          {
-            repositories,
-            sessions: new StaticSessionTokenService({
-              ...sessionClaims,
-              workflowPath: ".github/workflows/reviewrouter-codex.yml",
-            }),
-            defaultProvider: {
-              model: "gpt-5.5",
-              reasoningEffort,
-            },
-            clock,
-          },
-        ),
-      ).rejects.toThrow("review_reasoning_effort_unsupported_for_model");
-    },
-  );
+  it("propagates opaque policy readiness instead of treating it as missing configuration", async () => {
+    const repositories = new InMemoryActionControlPlaneRepository();
+    repositories.findRuntimeReviewConfiguration = async () => {
+      throw new Error("review_policy_resave_required");
+    };
+    await expect(
+      getActionRuntimeConfig(
+        { sessionToken: "session" },
+        { repositories, sessions: new StaticSessionTokenService(), clock },
+      ),
+    ).rejects.toThrow("review_policy_resave_required");
+  });
 
   it("checks the conflict runtime gate before rejecting unsupported production providers", async () => {
     const conflictReviewRuntimeGate =
@@ -2036,7 +2101,7 @@ describe("action control plane", () => {
             headSha: "a".repeat(40),
             baseRef: "main",
             baseSha: "b".repeat(40),
-            configSnapshotId: "repository:7",
+            configSnapshotId: fixturePolicySnapshotId(),
           }),
           conflictReviewRuntimeGate,
           clock,
@@ -2069,7 +2134,7 @@ describe("action control plane", () => {
             headSha: "a".repeat(40),
             baseRef: "main",
             baseSha: "b".repeat(40),
-            configSnapshotId: "repository:7",
+            configSnapshotId: fixturePolicySnapshotId(),
           }),
           conflictReviewRuntimeGate:
             new ConfigurableConflictReviewRuntimeGate(),
@@ -2099,7 +2164,7 @@ describe("action control plane", () => {
             headSha: "a".repeat(40),
             baseRef: "main",
             baseSha: "b".repeat(40),
-            configSnapshotId: "repository:7",
+            configSnapshotId: fixturePolicySnapshotId(),
           }),
           conflictReviewRuntimeGate,
           clock,
@@ -2122,7 +2187,7 @@ describe("action control plane", () => {
       headSha: "a".repeat(40),
       baseRef: "main",
       baseSha: "b".repeat(40),
-      configSnapshotId: "repository:7",
+      configSnapshotId: fixturePolicySnapshotId(),
     });
 
     await expect(
@@ -2166,7 +2231,7 @@ describe("action control plane", () => {
             pullRequestNumber: 7,
             headSha: "a".repeat(40),
             baseRef: "main",
-            configSnapshotId: "repository:7",
+            configSnapshotId: fixturePolicySnapshotId(),
           }),
           clock,
         },
@@ -2192,7 +2257,7 @@ describe("action control plane", () => {
             headSha: "a".repeat(40),
             baseRef: "main",
             baseSha: "b".repeat(40),
-            configSnapshotId: "repository:7",
+            configSnapshotId: fixturePolicySnapshotId(),
           }),
           clock,
         },
@@ -2246,12 +2311,19 @@ describe("action control plane", () => {
     for (const providerSet of unsupportedProviderSets) {
       const repositories = new InMemoryActionControlPlaneRepository();
       repositories.runtimeConfig = parseReviewConfiguration({
-        ...safeDefaultReviewConfiguration,
+        ...workspacePolicyFixture,
         providers: providerSet.providers,
         execution:
           "execution" in providerSet
-            ? providerSet.execution
-            : safeDefaultReviewConfiguration.execution,
+            ? {
+                providerMaxParallel: 1,
+                inlineMinAgreement: 1,
+                providerLimit: providerSet.providers.length,
+              }
+            : {
+                ...workspacePolicyFixture.execution,
+                providerLimit: providerSet.providers.length,
+              },
       });
 
       await expect(
@@ -2268,7 +2340,9 @@ describe("action control plane", () => {
               headSha: "a".repeat(40),
               baseRef: "main",
               baseSha: "b".repeat(40),
-              configSnapshotId: "repository:7",
+              configSnapshotId: fixturePolicySnapshotId(
+                repositories.runtimeConfig!,
+              ),
             }),
             conflictReviewRuntimeGate:
               new ConfigurableConflictReviewRuntimeGate(),
@@ -2281,14 +2355,6 @@ describe("action control plane", () => {
 
   it.each([
     {
-      authMode: "codex_subscription_oauth" as const,
-      expectedCode: "codex_provider_requires_rotating_workflow",
-    },
-    {
-      authMode: "codex_openai_api_key" as const,
-      expectedCode: "codex_provider_requires_rotating_workflow",
-    },
-    {
       authMode: "codex_subscription_oauth_rotating" as const,
       expectedCode: "codex_provider_requires_rotating_workflow",
     },
@@ -2297,7 +2363,7 @@ describe("action control plane", () => {
     async ({ authMode, expectedCode }) => {
       const repositories = new InMemoryActionControlPlaneRepository();
       repositories.runtimeConfig = parseReviewConfiguration({
-        ...safeDefaultReviewConfiguration,
+        ...workspacePolicyFixture,
         providers: [
           {
             kind: "codex",
@@ -2323,10 +2389,106 @@ describe("action control plane", () => {
     },
   );
 
+  it.each(["high", "minimal"] as const)(
+    "returns saved gateway %s reasoning through an authenticated approved workflow",
+    async (reasoningEffort) => {
+      const repositories = new InMemoryActionControlPlaneRepository();
+      repositories.runtimeConfig = parseReviewConfiguration({
+        ...workspacePolicyFixture,
+        providers: [{ ...gatewayRuntimeProvider, reasoningEffort }],
+      });
+      const sessions = new JoseActionSessionTokenService(
+        "0123456789abcdef0123456789abcdef",
+      );
+      const signed = await sessions.sign({
+        claims: {
+          ...sessionClaims,
+          workflowPath: ".github/workflows/reviewrouter-review.yml",
+        },
+        expiresInSeconds: 60,
+        issuedAt: fixedNow,
+      });
+      const config = actionRuntimeConfigResponseSchema.parse(
+        await getActionRuntimeConfig(
+          { sessionToken: signed.token },
+          {
+            repositories,
+            sessions,
+            clock,
+          },
+        ),
+      );
+      expect(config.provider).toMatchObject({
+        authMode: "codex_account_gateway",
+        model: "mimo-v2-pro",
+        secretBackedProviderEnabled: false,
+      });
+      expect(config.configVersion).toBe(7);
+      expect(config.providers).toEqual([config.provider]);
+      expect(config.runtimeEnv).toMatchObject({
+        REVIEW_AUTH_MODE: "codex-account-gateway",
+        REVIEW_ROUTER_GATEWAY_BINDING_ID: "binding-server-saved",
+        REVIEW_ROUTER_GATEWAY_PROFILE_REF: "profile-mimo",
+        CODEX_MODEL: "mimo-v2-pro",
+        CODEX_REASONING_EFFORT: reasoningEffort,
+        CODEX_FAST_MODE: "false",
+        REVIEW_PROVIDERS: "codex/mimo-v2-pro",
+        SYNTHESIS_MODEL: "codex/mimo-v2-pro",
+      });
+      expect(JSON.stringify(config)).not.toMatch(
+        /SECRET|PRIVATE_KEY|AUTH_JSON|API_KEY|ACCESS_TOKEN|REFRESH_TOKEN/,
+      );
+    },
+  );
+
+  it.each(["missing", "legacy", "wrong", "mixed"] as const)(
+    "denies saved gateway config for %s selection",
+    async (scenario) => {
+      const repositories = new InMemoryActionControlPlaneRepository();
+      repositories.runtimeConfig = parseReviewConfiguration({
+        ...workspacePolicyFixture,
+        execution: {
+          ...workspacePolicyFixture.execution,
+          providerLimit: scenario === "mixed" ? 2 : 1,
+        },
+        providers:
+          scenario === "mixed"
+            ? [
+                defaultOpenRouterRuntimeConfig.providers[0]!,
+                gatewayRuntimeProvider,
+              ]
+            : [gatewayRuntimeProvider],
+      });
+      const workflowPath =
+        scenario === "legacy"
+          ? ".github/workflows/reviewrouter.yml"
+          : scenario === "wrong"
+            ? ".github/workflows/other.yml"
+            : ".github/workflows/reviewrouter-review.yml";
+      await expect(
+        getActionRuntimeConfig(
+          { sessionToken: "session" },
+          {
+            repositories,
+            sessions: new StaticSessionTokenService({
+              ...sessionClaims,
+              ...(scenario === "missing" ? {} : { workflowPath }),
+            }),
+            clock,
+          },
+        ),
+      ).rejects.toThrow(
+        scenario === "mixed"
+          ? "codex_gateway_single_provider_required"
+          : "codex_provider_requires_rotating_workflow",
+      );
+    },
+  );
+
   it("returns Codex rotating runtime config for the Codex rotating workflow", async () => {
     const repositories = new InMemoryActionControlPlaneRepository();
     repositories.runtimeConfig = parseReviewConfiguration({
-      ...safeDefaultReviewConfiguration,
+      ...workspacePolicyFixture,
       providers: [
         {
           kind: "codex",
@@ -2368,7 +2530,7 @@ describe("action control plane", () => {
   it("returns Codex rotating runtime config for interaction workflows", async () => {
     const repositories = new InMemoryActionControlPlaneRepository();
     repositories.runtimeConfig = parseReviewConfiguration({
-      ...safeDefaultReviewConfiguration,
+      ...workspacePolicyFixture,
       providers: [
         {
           kind: "codex",
@@ -2414,7 +2576,7 @@ describe("action control plane", () => {
       identityBindingEpoch: "4:2026-09-14T10:00:00.000Z",
     };
     repositories.runtimeConfig = parseReviewConfiguration({
-      ...safeDefaultReviewConfiguration,
+      ...workspacePolicyFixture,
       providers: [
         {
           kind: "codex",
@@ -2455,7 +2617,7 @@ describe("action control plane", () => {
           repositories,
           sessions: new StaticSessionTokenService({
             ...isolatedSession,
-            workflowPath: ".github/workflows/reviewrouter-codex.yml",
+            workflowPath: ".github/workflows/reviewrouter-review.yml",
           }),
           clock,
         },
@@ -2479,7 +2641,7 @@ describe("action control plane", () => {
   it("returns Claude runtime config without provider secrets", async () => {
     const repositories = new InMemoryActionControlPlaneRepository();
     repositories.runtimeConfig = parseReviewConfiguration({
-      ...safeDefaultReviewConfiguration,
+      ...workspacePolicyFixture,
       providers: [
         {
           kind: "claude",
@@ -2562,7 +2724,7 @@ describe("action control plane", () => {
   it("blocks Claude runtime config for action refs outside the provider allowlist", async () => {
     const repositories = new InMemoryActionControlPlaneRepository();
     repositories.runtimeConfig = parseReviewConfiguration({
-      ...safeDefaultReviewConfiguration,
+      ...workspacePolicyFixture,
       providers: [
         {
           kind: "claude",
@@ -2700,7 +2862,7 @@ describe("action control plane", () => {
             headSha: "a".repeat(40),
             baseRef: "main",
             baseSha: "b".repeat(40),
-            configSnapshotId: "repository:7",
+            configSnapshotId: fixturePolicySnapshotId(),
           }),
           commentTokens: new InMemoryCommentTokenIssuer(),
           clock,
@@ -2731,7 +2893,7 @@ describe("action control plane", () => {
             headSha: "a".repeat(40),
             baseRef: "main",
             baseSha: "b".repeat(40),
-            configSnapshotId: "repository:7",
+            configSnapshotId: fixturePolicySnapshotId(),
           }),
           conflictReviewRuntimeGate,
           clock,
@@ -2770,7 +2932,7 @@ describe("action control plane", () => {
           headSha: "a".repeat(40),
           baseRef: "main",
           baseSha: "b".repeat(40),
-          configSnapshotId: "repository:7",
+          configSnapshotId: fixturePolicySnapshotId(),
         }),
         conflictReviewRuntimeGate: new ConfigurableConflictReviewRuntimeGate(),
         conflictPrePostValidator,
@@ -2854,7 +3016,7 @@ describe("action control plane", () => {
             headSha: "a".repeat(40),
             baseRef: "main",
             baseSha: "b".repeat(40),
-            configSnapshotId: "repository:7",
+            configSnapshotId: fixturePolicySnapshotId(),
           }),
           conflictReviewRuntimeGate:
             new ConfigurableConflictReviewRuntimeGate(),
@@ -2888,7 +3050,7 @@ describe("action control plane", () => {
       headSha: "a".repeat(40),
       baseRef: "main",
       baseSha: "b".repeat(40),
-      configSnapshotId: "repository:7",
+      configSnapshotId: fixturePolicySnapshotId(),
     };
     const session = await requestConflictReviewPostingSession(
       {
@@ -2999,7 +3161,7 @@ describe("action control plane", () => {
       headSha: "a".repeat(40),
       baseRef: "main",
       baseSha: "b".repeat(40),
-      configSnapshotId: "repository:7",
+      configSnapshotId: fixturePolicySnapshotId(),
     };
     const session = await requestConflictReviewPostingSession(
       {
@@ -3077,7 +3239,7 @@ describe("action control plane", () => {
       headSha: "a".repeat(40),
       baseRef: "main",
       baseSha: "b".repeat(40),
-      configSnapshotId: "repository:7",
+      configSnapshotId: fixturePolicySnapshotId(),
     };
     const session = await requestConflictReviewPostingSession(
       {
@@ -3161,7 +3323,7 @@ describe("action control plane", () => {
         headSha: "a".repeat(40),
         baseRef: "main",
         baseSha: "b".repeat(40),
-        configSnapshotId: "repository:7",
+        configSnapshotId: fixturePolicySnapshotId(),
         manifestHash: "c".repeat(64),
         operationScopeHash: "d".repeat(64),
         protocolVersion: 1,
@@ -3212,7 +3374,7 @@ describe("action control plane", () => {
             headSha: "a".repeat(40),
             baseRef: "main",
             baseSha: "b".repeat(40),
-            configSnapshotId: "repository:7",
+            configSnapshotId: fixturePolicySnapshotId(),
           }),
           conflictReviewRuntimeGate,
           clock,
@@ -3597,7 +3759,7 @@ describe("action control plane", () => {
     );
     const claims: ActionSessionClaims = {
       ...sessionClaims,
-      workflowPath: ".github/workflows/reviewrouter-codex.yml",
+      workflowPath: ".github/workflows/reviewrouter-review.yml",
     };
     const signed = await sessions.sign({
       claims,
@@ -3667,7 +3829,7 @@ describe("action control plane", () => {
       headSha: "a".repeat(40),
       baseRef: "main",
       baseSha: "b".repeat(40),
-      configSnapshotId: "repository:7",
+      configSnapshotId: fixturePolicySnapshotId(),
     };
     const signed = await sessions.sign({
       claims,
@@ -3680,7 +3842,7 @@ describe("action control plane", () => {
     ).resolves.toMatchObject(claims);
 
     const { configSnapshotId, ...incompleteClaims } = claims;
-    expect(configSnapshotId).toBe("repository:7");
+    expect(configSnapshotId).toBe(fixturePolicySnapshotId());
     const incomplete = await sessions.sign({
       claims: incompleteClaims as unknown as ActionSessionClaims,
       expiresInSeconds: 60,
@@ -3791,3 +3953,68 @@ function stripUndefined<T extends Record<string, unknown>>(
     Object.entries(input).filter(([, value]) => value !== undefined),
   );
 }
+
+describe("optional report grants on existing ActionSession exchange", () => {
+  it("passes only the admitted principal and saved runtime configuration to telemetry", async () => {
+    const repositories = new InMemoryActionControlPlaneRepository();
+    let called = 0;
+    const result = await exchangeGitHubOidcToken(
+      {
+        oidcToken: "oidc",
+        audience: defaultActionOidcAudience,
+        usagePublicKey: "ephemeral-key",
+      },
+      {
+        oidcVerifier: new StaticOidcVerifier(githubOidcClaims()),
+        repositories,
+        sessions: new StaticSessionTokenService(),
+        clock,
+        actionSessionUsageGrants: {
+          issue: async (input) => {
+            called++;
+            expect(input.configuration.config).toEqual(
+              repositories.runtimeConfig,
+            );
+            expect(input.session.githubRunId).toBe("1001");
+            expect(input.publicKey).toBe("ephemeral-key");
+            return [
+              {
+                grantId: "usage",
+                grantToken: "report-only",
+                expiresAt: input.expiresAt.toISOString(),
+                scope: { purpose: "review" },
+              },
+            ];
+          },
+        },
+      },
+    );
+    expect(called).toBe(1);
+    expect(result).toHaveProperty(
+      "providerUsageGrants.0.grantToken",
+      "report-only",
+    );
+  });
+  it("keeps a valid session when report grant issuance is unavailable", async () => {
+    const result = await exchangeGitHubOidcToken(
+      {
+        oidcToken: "oidc",
+        audience: defaultActionOidcAudience,
+        usagePublicKey: "ephemeral-key",
+      },
+      {
+        oidcVerifier: new StaticOidcVerifier(githubOidcClaims()),
+        repositories: new InMemoryActionControlPlaneRepository(),
+        sessions: new StaticSessionTokenService(),
+        clock,
+        actionSessionUsageGrants: {
+          issue: async () => {
+            throw new Error("telemetry unavailable");
+          },
+        },
+      },
+    );
+    expect(result.sessionToken).toBe("signed-session-token");
+    expect(result).not.toHaveProperty("providerUsageGrants");
+  });
+});

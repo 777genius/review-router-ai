@@ -2,24 +2,56 @@
 
 [Back to README](../README.md)
 
-This describes the code on `main` reviewed on 2026-09-14. Merged implementation
-is not proof that a capability is enabled in every hosted deployment.
+This page distinguishes **implemented features** from **verified rollout**.
+Availability depends on the installed version, provider, configuration and
+recorded data coverage. See the [deployment registry](../ai-docs/deployments/README.md)
+for current environment-specific status.
 
 ## Review and configuration
 
 - GitHub App installation, repository sync, setup PRs, review publication,
   repository health and audit views are implemented.
-- The provider catalog offers Codex subscription auth, Claude Code OAuth and
-  OpenRouter API keys. OpenAI API-key contracts remain in the code, but are not
-  offered as a current Codex onboarding mode.
+- The provider catalog offers Codex subscription auth, Claude Code OAuth,
+  OpenRouter, Kimi Code and MiMo Token Plan. Supported authentication and model
+  options depend on the selected provider; OpenAI API-key contracts are not a
+  current Codex onboarding mode.
 - Reviews support multiple providers, configurable parallelism and an agreement
   threshold for inline comments. Model, effort, language, comment and severity
   settings can inherit workspace defaults or be overridden per repository.
 - Exact-revision authorization and publication checks guard against stale runs.
+- Organization-wide GitHub required workflows are supported for selected or all
+  repositories when organization rulesets, account plan and admin permissions
+  are available. GitHub Free organizations are not eligible.
+  See the [ruleset implementation](../packages/features/org-ruleset-provisioning/src/application/use-cases/request-org-ruleset-provisioning.ts).
 
 Sources: [provider catalog](../packages/features/review-providers/src/domain/provider-catalog.ts),
 [configuration schema](../packages/features/review-config/src/domain/review-configuration.ts),
 [Review v2 contract](./operations/review-action-v2-cutover.md).
+
+## Feature availability
+
+| Feature           | Availability and limits                                                                                                    | Rollout                 |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| Memory            | Approved scoped knowledge; enabled with a configured, qualified Hindsight backend unless explicitly disabled.              | [setup][memory]         |
+| PR conversations  | Full-thread replies and automatic learning require a separately qualified interaction runtime, Gateway, account and model. | [status][conversations] |
+| Skills            | Versioned text instructions, sharing, assignments and checked imports; production text-only E2E verified.                  | [status][skills]        |
+| MCP context tools | Approved remote HTTPS tools for compatible OCR/Gateway; two-reviewer canary verified.                                      | [status][mcp]           |
+| Statistics        | PRs, reviews, issues and trends; completeness requires verified capture and reconciliation.                                | [status][statistics]    |
+| Review history    | GitHub v2 review runs, filters and reruns; production capture since activation, no historical backfill.                    | [status][history]       |
+| Usage             | Provider/model/run attempts, known tokens and costs; coverage-aware, rollout verification ongoing.                         | [status][usage]         |
+
+[memory]: ../packages/features/memory/README.md#default-enablement
+[conversations]: ../ai-docs/deployments/2026-10-29-conversational-memory.md
+[skills]: ../ai-docs/deployments/2026-10-28-skills-catalog.md
+[mcp]: ../ai-docs/deployments/2026-11-01-reviewer-v4-mcp.md
+[statistics]: ../ai-docs/deployments/2026-10-29-statistics-history-followthrough.md
+[history]: ../ai-docs/deployments/2026-10-28-review-history.md
+[usage]: ../ai-docs/deployments/2026-10-29-statistics-history-followthrough.md
+
+Full PR comment command reference (including `/rr fixed` and
+`/rr suggest fix`): [ReviewRouter Action README](https://github.com/777genius/review-router#pr-comment-commands).
+
+Features in source are not necessarily active in every hosted workspace.
 
 ## Hosting and data
 
@@ -29,21 +61,12 @@ handles identities, revisions, findings, summaries, publication and operational
 metadata; it does not receive raw source files or provider credentials by default.
 See the [privacy boundary](./privacy-self-hosted.md).
 
-**Self-hosted:** Compose includes web, API, worker, PostgreSQL and migrations.
-Operators still configure the GitHub App, HTTPS, signing/release material and
-repository activation. It is not a one-click installer.
-See the [complete deployment guide](./operations/review-router-self-hosted-end-to-end.md).
-
-**Hosted Codex pool:** an opt-in, operator-managed mode centralizes accounts,
-encrypted credential generations and repository bindings. Entitled workspace
-admins enroll a ChatGPT session from the dashboard by signing in with device
-auth or by uploading a local `auth.json`. Checkout and tools stay
-in Actions, but model requests, tool outputs and responses pass through the SaaS
-relay. Relay bodies must not be retained. This is a different trust boundary,
-not the default mode where provider secrets stay in CI. The checked-in operator guide retains
-Production HOLD pending release and disposable provider-canary evidence.
-See the [pool decision](../ai-docs/decisions/029-opt-in-hosted-workspace-account-pool.md)
-and [operator guide](../ai-docs/operations/hosted-pool-operator.md).
+**Self-hosted:** The guided installer configures web, API, worker, PostgreSQL,
+migrations, HTTPS and release registration. Operators prepare DNS, complete
+GitHub App and provider onboarding, and merge the repository's workflow setup PR.
+The installer checks readiness and repository activation; verify the first live
+review with a test pull request.
+See the [installation guide](./operations/review-router-self-hosted-end-to-end.md#guided-installation).
 
 ## GitLab
 
@@ -58,16 +81,25 @@ not apply unchanged to GitLab.
 See the [setup implementation](../apps/web/app/setup/gitlab/gitlab-connect-wizard.tsx)
 and [GitLab runtime reference](../deploy/gitlab/README.md).
 
-## Gated and unfinished work
+## Deployment-specific and legacy capabilities
 
-Advanced investigations, independent critics and selective cross-revision replay
-are implemented behind rollout controls that default to off. Reuse requires
-compatible dependencies, configuration and fresh revision authority; it is not
-an unconditional skip for unchanged files. See the
-[investigation status](./architecture/review-investigation-implementation-status.md)
+GitHub live-progress comments are on by default for every repository.
+`REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES=0` turns them off and
+`REVIEW_ROUTER_PROGRESS_REPOSITORIES` can limit them to an allow-list. Failed
+progress publication must not block a final review. See the
+[progress rollout guide](./operations/live-review-progress-rollout.md).
+
+The default OpenCodeReview path runs separately from the earlier
+ReviewRouter/Codex investigation runtime. ReviewRouter's independent critics
+and dependency-attested cross-revision replay belong to that earlier runtime
+and retain its activation requirements. See the
+[runtime selection](https://github.com/777genius/review-router/blob/main/src/review-orchestration/infrastructure/production-t0-review-runner.ts),
+[earlier investigation status](./architecture/review-investigation-implementation-status.md)
 and [reuse contract](./architecture/dependency-attested-review-reuse.md).
-Historical deployment observations in those documents are dated evidence.
+Those historical rollout controls do not govern ordinary OpenCodeReview reviews
+or approved-memory retrieval. Dated deployment observations describe the
+environment recorded at that time.
 
-One-click self-hosting, payments, enterprise SSO and broader support/admin tooling
-remain product work. This repository documents a local development environment
-and an operator CLI, not a general local-code-review command.
+Payments, enterprise SSO and broader support/admin tooling remain product work.
+This repository documents a local development environment and an operator CLI,
+not a general local-code-review command.

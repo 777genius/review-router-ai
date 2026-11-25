@@ -26,6 +26,9 @@ export class PrismaRateLimitStore
   async consumeFixedWindow(
     input: ConsumeFixedWindowRateLimitInput,
   ): Promise<ReturnType<typeof createRateLimitDecision>> {
+    const amount = input.amount ?? 1;
+    if (!Number.isInteger(amount) || amount <= 0 || amount > 2_147_483_646)
+      throw new Error("rate_limit_amount_invalid");
     const rows = await this.prisma.$queryRaw<RateLimitRow[]>`
       INSERT INTO "RateLimitBucket" (
         "key",
@@ -38,7 +41,7 @@ export class PrismaRateLimitStore
       )
       VALUES (
         ${input.key},
-        1,
+        ${amount},
         ${input.limit},
         ${input.windowStart},
         ${input.windowEndsAt},
@@ -47,8 +50,8 @@ export class PrismaRateLimitStore
       )
       ON CONFLICT ("key") DO UPDATE SET
         "count" = CASE
-          WHEN "RateLimitBucket"."windowEndsAt" <= ${input.now} THEN 1
-          ELSE "RateLimitBucket"."count" + 1
+          WHEN "RateLimitBucket"."windowEndsAt" <= ${input.now} THEN ${amount}
+          ELSE LEAST(2147483647::bigint,"RateLimitBucket"."count"::bigint + ${amount})::integer
         END,
         "limit" = ${input.limit},
         "windowStart" = CASE

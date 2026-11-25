@@ -36,7 +36,7 @@ export const providerInvocationManifestV1CanonicalizerDescriptor = {
     {
       name: "providerKind",
       kind: "enum",
-      values: ["codex", "claude_code", "openrouter"],
+      values: ["codex", "claude_code", "openrouter", "ocr"],
       unknownValue: "unknown",
       unknownErrorCode: "provider_kind_unknown",
       invalidErrorCode: "provider_kind_invalid",
@@ -309,7 +309,7 @@ export type ProviderInvocationManifestV1 = Readonly<{
     | "finding_discovery"
     | "lifecycle_revalidation"
   )[];
-  readonly providerKind: "codex" | "claude_code" | "openrouter";
+  readonly providerKind: "codex" | "claude_code" | "openrouter" | "ocr";
   readonly providerCapabilityHash: string;
   readonly requestedModel: string;
   readonly providerPolicyVersion: string;

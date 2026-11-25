@@ -2,7 +2,7 @@
 
 ## Purpose
 
-ReviewRouter's privacy promise depends on knowing exactly which data classes can enter SaaS systems.
+ReviewRouter's privacy promise depends on knowing exactly which data classes can enter control plane systems.
 
 ## Data Classes
 
@@ -33,7 +33,7 @@ Examples:
 
 Handling:
 
-- allowed in SaaS v1
+- allowed in control plane v1
 - access controlled by workspace membership
 - included in audit/support views when needed
 - retained according to metadata retention policy
@@ -67,7 +67,7 @@ Examples:
 
 Handling:
 
-- must not be stored in SaaS v1
+- must not be stored in control plane v1
 - must not appear in health reports
 - must not appear in logs
 - support tools must not display it
@@ -86,16 +86,16 @@ Examples:
 Handling:
 
 - never log
-- never store customer provider credentials in SaaS v1 legacy mode
+- never store customer provider credentials in control plane v1 legacy mode
 - deployment secrets live only in secret manager
 - health reports must reject secret-looking payloads
 
 Hosted workspace account pool exception:
 
 - Codex session credentials are restricted secrets stored only as
-  envelope-encrypted session envelopes behind the SaaS KMS/keyring boundary;
+  envelope-encrypted session envelopes behind the control plane KMS/keyring boundary;
 - plaintext exists only in bounded process memory while validating, refreshing,
-  or invoking upstream and never leaves SaaS;
+  or invoking upstream and never leaves control plane;
 - relay prompts, tool outputs, and responses are transient restricted customer
   content: processing is allowed for the bound invocation, durable storage is not;
 - restored encrypted credentials remain quarantined until database-incarnation
@@ -149,4 +149,4 @@ normalized findings, safe usage counts, opaque IDs/hashes, model/runtime identit
 quality flags and retention timestamps. Authorization payloads and provider
 credentials are prohibited. Projection/snapshot prose remains tenant/PR scoped and
 must not appear in metrics, traces, migration ledgers or quarantine evidence.
-Any new field entering SaaS must be classified before implementation.
+Any new field entering control plane must be classified before implementation.

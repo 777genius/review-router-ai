@@ -1,3 +1,4 @@
+import { WorkflowProvisioningOutcomeError } from "@reviewrouter/features-workflow-provisioning";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { HostedPoolOperatorScope } from "./hosted-pool-operator-authorization.js";
@@ -71,7 +72,47 @@ export async function registerHostedPoolOperatorRoutes(
   dependencies: HostedPoolOperatorDependencies,
 ) {
   const base = "/api/operator/v1/hosted-pool";
-  const sendError = (error: unknown, connect = false) => {
+  const sendError = (
+    error: unknown,
+    connect = false,
+  ): {
+    status: number;
+    code: string;
+    recoveryCode?: "hosted_pool_github_app_permissions_required";
+    result?: {
+      status: "setup_pr_recorded";
+      pullRequestUrl: string;
+      pullRequestNumber: number;
+    };
+  } => {
+    if (connect && error instanceof WorkflowProvisioningOutcomeError) {
+      return {
+        status: error.code === "workflow_provisioning_superseded" ? 409 : 503,
+        code:
+          error.code === "workflow_provisioning_superseded"
+            ? "hosted_pool_conflict"
+            : error.code,
+        ...(error.code === "workflow_provisioning_external_uncertain" &&
+        typeof error.cause === "object" &&
+        error.cause !== null &&
+        "status" in error.cause &&
+        error.cause.status === 403
+          ? {
+              recoveryCode:
+                "hosted_pool_github_app_permissions_required" as const,
+            }
+          : {}),
+        ...(error.committedPullRequest
+          ? {
+              result: {
+                status: "setup_pr_recorded",
+                pullRequestUrl: error.committedPullRequest.url,
+                pullRequestNumber: error.committedPullRequest.number,
+              },
+            }
+          : {}),
+      };
+    }
     const message = error instanceof Error ? error.message : "";
     if (
       [
@@ -131,7 +172,13 @@ export async function registerHostedPoolOperatorRoutes(
       return { result: await dependencies.status(scope) };
     } catch (error) {
       const safe = sendError(error);
-      return reply.code(safe.status).send({ error: { code: safe.code } });
+      return reply.code(safe.status).send({
+        error: {
+          code: safe.code,
+          ...(safe.recoveryCode ? { recoveryCode: safe.recoveryCode } : {}),
+        },
+        ...(safe.result ? { result: safe.result } : {}),
+      });
     }
   });
   for (const action of Object.keys(schemas) as (keyof typeof schemas)[]) {
@@ -171,7 +218,13 @@ export async function registerHostedPoolOperatorRoutes(
           };
         } catch (error) {
           const safe = sendError(error, action === "connect");
-          return reply.code(safe.status).send({ error: { code: safe.code } });
+          return reply.code(safe.status).send({
+            error: {
+              code: safe.code,
+              ...(safe.recoveryCode ? { recoveryCode: safe.recoveryCode } : {}),
+            },
+            ...(safe.result ? { result: safe.result } : {}),
+          });
         } finally {
           bytes?.fill(0);
           if ("authBase64" in parsed.data) parsed.data.authBase64 = "";

@@ -5,7 +5,7 @@
 ### Security Critical
 
 - GitHub App private key leaked
-- SaaS accepts invalid webhook/OIDC token
+- control plane accepts invalid webhook/OIDC token
 - tenant isolation bypass
 - secret or code accidentally logged/stored
 - generated workflow exposes secrets to untrusted PR code
@@ -31,7 +31,7 @@ For security critical:
 
 For bad action release:
 
-1. mark version blocked in SaaS
+1. mark version blocked in control plane
 2. stop promoting stable channel
 3. publish fixed release
 4. create update PRs or show dashboard CTA

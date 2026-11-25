@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { workflowChecksOutReviewRouterRuntime } from "@reviewrouter/features-workflow-provisioning";
 import type {
   RepositoryWorkflowCheck,
   RepositoryWorkflowProbeInput,
@@ -122,6 +123,9 @@ function workflowUsesActionRef(
   yaml: string,
   expectedActionRef: string,
 ): boolean {
+  if (workflowChecksOutReviewRouterRuntime(yaml, expectedActionRef)) {
+    return true;
+  }
   const acceptedRefs = new Set([
     expectedActionRef,
     ...expectedReusableWorkflowRefs(expectedActionRef),

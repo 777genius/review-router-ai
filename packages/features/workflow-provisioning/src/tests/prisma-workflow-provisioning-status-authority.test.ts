@@ -304,3 +304,103 @@ describe("setup authority", () => {
     expect(state.workflowProvisioning.updateMany).not.toHaveBeenCalled();
   });
 });
+
+describe("verified installed Gateway binding adoption", () => {
+  const old = {
+    ...initialCandidate,
+    status: "configured" as const,
+    workflowPath: ".github/workflows/reviewrouter-codex.yml",
+    workflowStyle: "explicit" as const,
+    actionVersion: "v1",
+    installedWorkflowRequirement: "gateway",
+  };
+  const command = {
+    ...record,
+    workflowRequirement: "gateway",
+    actionVersion: "workflow-v1",
+    baseBranch: "main",
+    expectedAttempt: { attemptId: old.attemptId, revision: old.revision },
+    verifiedPreviousGatewayBinding: {
+      workflowPath: old.workflowPath,
+      workflowStyle: old.workflowStyle,
+      actionVersion: old.actionVersion,
+    },
+  };
+
+  it("adopts only the freshly verified caller and records a new revision", async () => {
+    const f = fixture("configured");
+    f.replace(old);
+    await f.authority.confirmInstalledWorkflow(command);
+    expect(f.current()).toMatchObject({
+      workflowPath: record.workflowPath,
+      workflowStyle: "reusable",
+      actionVersion: "workflow-v1",
+      status: "configured",
+      installedWorkflowRequirement: "gateway",
+      revision: 2,
+    });
+    expect(f.current()?.pullRequestUrl).toBe(old.pullRequestUrl);
+    await expect(f.authority.confirmInstalledWorkflow(command)).rejects.toThrow(
+      "workflow_provisioning_match_not_found",
+    );
+    await f.authority.confirmInstalledWorkflow({
+      ...command,
+      expectedAttempt: f.current()!,
+      verifiedPreviousGatewayBinding: undefined,
+    });
+    expect(f.workflowProvisioning.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { workspaceId: "other" },
+    { installationId: "other" },
+    { attemptId: "new-attempt" },
+    { revision: 2 },
+    { workflowPath: ".github/workflows/reviewrouter.yml" },
+    { workflowStyle: "reusable" as const },
+    { actionVersion: "v2" },
+    { status: "setup_pr_open" as const },
+  ])("rejects a changed captured binding: %j", async (change) => {
+    const f = fixture("configured");
+    f.replace({ ...old, ...change });
+    await expect(f.authority.confirmInstalledWorkflow(command)).rejects.toThrow(
+      "workflow_provisioning_match_not_found",
+    );
+    expect(f.workflowProvisioning.updateMany).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { workflowRequirement: "rotating" },
+    { workflowPath: ".github/workflows/custom.yml" },
+    { workflowStyle: "explicit" as const },
+    { actionVersion: "v1" },
+  ])("refuses an unqualified target tuple: %j", async (change) => {
+    const f = fixture("configured");
+    f.replace(old);
+    await expect(
+      f.authority.confirmInstalledWorkflow({ ...command, ...change }),
+    ).rejects.toThrow("workflow_provisioning_match_not_found");
+    expect(f.workflowProvisioning.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("does not relax ordinary installed confirmation", async () => {
+    const f = fixture("configured");
+    f.replace(old);
+    await expect(
+      f.authority.confirmInstalledWorkflow({
+        ...command,
+        verifiedPreviousGatewayBinding: undefined,
+      }),
+    ).rejects.toThrow("workflow_provisioning_match_not_found");
+    expect(f.workflowProvisioning.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses a write that loses the captured CAS", async () => {
+    const f = fixture("configured");
+    f.replace(old);
+    f.workflowProvisioning.updateMany.mockResolvedValueOnce({ count: 0 });
+    await expect(f.authority.confirmInstalledWorkflow(command)).rejects.toThrow(
+      "workflow_provisioning_concurrent_transition",
+    );
+  });
+});

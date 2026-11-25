@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   authorizeDispatch: vi.fn(),
+  effectAuthorityPrisma: vi.fn(() => ({})),
+  reattestWorkflow: vi.fn(),
+  createAttestation: vi.fn(),
   httpsRequest: vi.fn(),
   mintSecretWriteToken: vi.fn(),
 }));
@@ -14,7 +17,7 @@ vi.mock("@reviewrouter/features-provider-setup", () => ({
   authorizeCodexRotatingSetupDispatch: vi.fn(),
   getCodexRotatingSetupStatus: vi.fn(),
   prepareCodexRotatingSetup: vi.fn(),
-  reattestCodexRotatingWorkflow: vi.fn(),
+  reattestCodexRotatingWorkflow: mocks.reattestWorkflow,
   recordCodexRotatingSetupDispatchOutcome: vi.fn(),
 }));
 
@@ -23,11 +26,11 @@ vi.mock("@reviewrouter/platform-config", () => ({
 }));
 
 vi.mock("./prisma", () => ({
-  getCodexEffectAuthorityPrisma: () => ({}),
+  getCodexEffectAuthorityPrisma: mocks.effectAuthorityPrisma,
   getPrisma: () => ({}),
 }));
 
-vi.mock("./prisma-codex-rotating-setup-payload-claim", () => ({
+vi.mock("@reviewrouter/features-provider-setup/composition", () => ({
   CodexRotatingSetupPreDispatchError: class extends Error {
     override readonly name = "CodexRotatingSetupPreDispatchError";
     constructor(cause?: unknown) {
@@ -36,6 +39,11 @@ vi.mock("./prisma-codex-rotating-setup-payload-claim", () => ({
   },
   PrismaCodexRotatingSetupPayloadClaim: class {
     authorizeDispatch = mocks.authorizeDispatch;
+  },
+  PrismaCodexRotatingWorkflowAttestation: class {
+    constructor() {
+      mocks.createAttestation();
+    }
   },
 }));
 
@@ -173,4 +181,20 @@ describe("setup secret PUT composition", () => {
     ).rejects.toThrow("codex_rotating_setup_secret_put_failed");
     expect(mocks.httpsRequest).toHaveBeenCalledTimes(1);
   });
+});
+
+it("retains setup authority configuration admission before workflow reattestation", () => {
+  mocks.effectAuthorityPrisma.mockImplementationOnce(() => {
+    throw new Error("codex_oauth_database_effect_authority_unavailable");
+  });
+  mocks.reattestWorkflow.mockClear();
+  mocks.createAttestation.mockClear();
+  expect(() =>
+    codexRotatingSetupLedger.replaceActiveWorkflowSource(
+      {} as never,
+      {} as never,
+    ),
+  ).toThrow("codex_oauth_database_effect_authority_unavailable");
+  expect(mocks.createAttestation).not.toHaveBeenCalled();
+  expect(mocks.reattestWorkflow).not.toHaveBeenCalled();
 });

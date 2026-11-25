@@ -49,8 +49,20 @@ describe("dashboard rotating namespace activation contract", () => {
     expect(helper).toContain(
       'input.inspection.source === "confirmed_setup_candidate"',
     );
-    expect(helper).toContain(
-      "return resolveReviewRouterCodexRotatingActionRef()",
+    const candidate = sliceBetween(
+      helper,
+      'if (input.inspection.source === "confirmed_setup_candidate")',
+      "// An active namespace",
+    );
+    expect(candidate).toContain("readCodexRuntimeMigrationCandidateActionRef");
+    expect(candidate).toContain(
+      "namespaceId: input.inspection.namespace.namespaceId",
+    );
+    expect(candidate).toContain(
+      "trustedActionRefs: resolveReviewRouterCodexRotatingTrustedActionRefs()",
+    );
+    expect(candidate).toContain(
+      "?? resolveReviewRouterCodexRotatingActionRef()",
     );
     expect(helper).toContain("assertTrustedCanonicalVersionedWorkflow");
     expect(helper).toContain(
@@ -114,7 +126,7 @@ describe("dashboard rotating namespace activation contract", () => {
 
     expect(confirmation).toContain("workflowPath: true");
     expect(confirmation).toContain(
-      'provider.authMode === "codex_subscription_oauth_rotating"',
+      '!setupProvisioning?.workflowPath && transport === "rotating"',
     );
     expect(confirmation).toContain(
       "setupProvisioning?.workflowPath === isolatedQualityWorkflowPath",
@@ -186,7 +198,7 @@ describe("dashboard rotating namespace activation contract", () => {
         name: "dashboard provider activation",
         source: dashboard,
         start: "async function confirmProviderSecretSetupMutation",
-        end: "async function createMemoryItemMutation",
+        end: "async function refusePausedMemoryMutation",
         markers: [
           "writerSchemaPolicy",
           "activateConfirmedCodexNamespaceAfterWorkflowMerge",

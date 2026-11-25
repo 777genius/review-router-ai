@@ -1,44 +1,243 @@
+import { WorkflowProvisioningOutcomeError } from "../workflow-provisioning-outcome";
 import {
-  mapConfigToRuntimeEnv,
-  safeDefaultReviewConfiguration,
+  settleWorkflowProvisioningAttempt,
+  auditWorkflowProvisioningAttempt,
+} from "./workflow-provisioning-settlement";
+import type { WorkflowSetupPullRequest } from "../ports/workflow-setup-gateway-port";
+import {
+  resolveReviewConfiguration,
+  providerApiConfigurationMode,
+  type ReviewConfigurationRepositoryPort,
 } from "@reviewrouter/features-review-config";
 import {
   recordAuditEvent,
   type AuditLogRepositoryPort,
 } from "@reviewrouter/features-audit-log";
 import {
-  renderCanonicalCodexRotatingInteractionWorkflowV3,
+  renderCodexRotatingInteractionWorkflow,
   renderReviewRouterWorkflowFiles,
+  renderAccountGatewayWorkflow,
+  renderAccountGatewayInteractionWorkflow,
+  renderProviderApiWorkflow,
+  renderClaudeSubscriptionWorkflow,
+  defaultWorkflowPath,
+  defaultCodexRotatingWorkflowPath,
+  defaultInteractionWorkflowPath,
+  getObsoleteGatewayCallerDeletionMarkerGroups,
+  getLegacyReviewRouterWorkflowDeletionMarkerGroups,
+  getLegacyReviewRouterInteractionWorkflowDeletionMarkerGroups,
+  reviewRouterWorkflowContract,
 } from "../../domain/workflow-template";
 import {
   createProvisionWorkflowPlan,
   type ProvisionWorkflowInput,
 } from "../../domain/workflow-provisioning";
+import {
+  renderedWorkflowRequirement,
+  inspectRequiredWorkflowTransport,
+  isClaudeSubscriptionConfiguration,
+  workflowRequirement,
+  type WorkflowTransport,
+} from "../../domain/workflow-transport";
 import type { WorkflowProvisioningRepositoryPort } from "../ports/workflow-provisioning-repository-port";
 import type { WorkflowSetupGatewayPort } from "../ports/workflow-setup-gateway-port";
 
 export type ProvisionReviewRouterWorkflowDependencies = {
+  readonly gatewayInteractionRuntimeSha?: string;
+  readonly secretsRuntimeActionRef?: string;
+  /** Exact registered producer qualified for the saved native Claude route. */
+  readonly claudeSubscriptionActionRef?: string;
   readonly setupGateway: WorkflowSetupGatewayPort;
   readonly provisioning: WorkflowProvisioningRepositoryPort;
   readonly auditLog?: AuditLogRepositoryPort;
   readonly enabled?: boolean;
   readonly actor?: string;
   readonly auditMetadata?: Readonly<Record<string, unknown>>;
+  readonly configurations?: ReviewConfigurationRepositoryPort;
+  readonly trustedGithubRepositoryId?: string;
 };
 
 export async function provisionReviewRouterWorkflow(
   input: ProvisionWorkflowInput,
   dependencies: ProvisionReviewRouterWorkflowDependencies,
 ) {
-  const plan = createProvisionWorkflowPlan(input);
+  const saved = dependencies.configurations
+    ? await resolveReviewConfiguration(
+        {
+          scope: "repository",
+          workspaceId: input.workspaceId,
+          repositoryId: input.repositoryId,
+        },
+        { configurations: dependencies.configurations },
+      )
+    : undefined;
+  const transport = saved
+    ? inspectRequiredWorkflowTransport(saved.config)
+    : null;
+  if (transport !== null && typeof transport !== "string")
+    throw new Error(transport.reason);
+  const gatewaySelected = transport === "gateway";
+  const providerApiSelected = transport === "provider_api";
+  const claudeSubscriptionSelected = Boolean(
+    saved &&
+    isClaudeSubscriptionConfiguration(saved.config) &&
+    saved.config.providers[0]!.agenticContext !== false &&
+    dependencies.claudeSubscriptionActionRef,
+  );
+  if (dependencies.claudeSubscriptionActionRef && !claudeSubscriptionSelected)
+    throw new Error("claude_subscription_workflow_not_qualified");
+  const selectedProviderApiMode =
+    providerApiSelected && saved
+      ? providerApiConfigurationMode(saved.config)
+      : undefined;
+  if (
+    !gatewaySelected &&
+    input.mcpSecrets &&
+    Object.keys(input.mcpSecrets).length
+  )
+    throw new Error("mcp_secrets_gateway_workflow_required");
+  if (input.providerApiAuthMode && !providerApiSelected)
+    throw new Error("openrouter_direct_requires_single_provider");
+  if (input.subscriptionAuthMode && !claudeSubscriptionSelected)
+    throw new Error("claude_subscription_workflow_not_qualified");
+  if (
+    claudeSubscriptionSelected &&
+    (input.providerApiAuthMode !== undefined ||
+      input.codexSessionMode !== undefined ||
+      input.runtimeConfigMode !== "oidc" ||
+      input.staticRuntimeEnv !== undefined ||
+      (input.workflowStyle !== undefined &&
+        input.workflowStyle !== "reusable") ||
+      input.conflictReviewFallbackEnabled === true ||
+      input.forkAgenticSandboxEnabled === true ||
+      (input.discussionMode !== undefined && input.discussionMode !== "off") ||
+      input.codexRotatingProviderInstanceId !== undefined ||
+      input.codexRotatingWorkflowSecretNamespace !== undefined ||
+      input.codexRotatingReviewActionV2Mode !== undefined ||
+      input.codexRotatingWorkflowSchemaVersion !== undefined ||
+      (input.workflowPath !== undefined &&
+        input.workflowPath !== reviewRouterWorkflowContract.callerPath))
+  )
+    throw new Error("claude_subscription_workflow_options_not_supported");
+  if (
+    providerApiSelected &&
+    (input.providerApiAuthMode !== selectedProviderApiMode ||
+      input.codexSessionMode !== undefined ||
+      input.runtimeConfigMode !== "oidc" ||
+      input.staticRuntimeEnv !== undefined ||
+      (input.workflowStyle !== undefined &&
+        input.workflowStyle !== "reusable") ||
+      input.conflictReviewFallbackEnabled === true ||
+      input.forkAgenticSandboxEnabled === true ||
+      (input.discussionMode !== undefined && input.discussionMode !== "off") ||
+      input.codexRotatingProviderInstanceId !== undefined ||
+      input.codexRotatingWorkflowSecretNamespace !== undefined ||
+      input.codexRotatingReviewActionV2Mode !== undefined ||
+      input.codexRotatingWorkflowSchemaVersion !== undefined ||
+      (input.workflowPath !== undefined &&
+        input.workflowPath !== reviewRouterWorkflowContract.callerPath))
+  )
+    throw new Error("openrouter_direct_workflow_options_not_supported");
+  const gatewayHint =
+    input.codexSessionMode !== undefined ||
+    input.staticRuntimeEnv?.REVIEW_AUTH_MODE === "codex-account-gateway" ||
+    input.staticRuntimeEnv?.REVIEW_ROUTER_GATEWAY_BINDING_ID !== undefined ||
+    input.staticRuntimeEnv?.REVIEW_ROUTER_GATEWAY_PROFILE_REF !== undefined;
+  if (gatewayHint && !gatewaySelected) {
+    throw new Error("account_gateway_saved_config_required");
+  }
+  if (
+    (gatewaySelected || providerApiSelected || claudeSubscriptionSelected) &&
+    (!dependencies.trustedGithubRepositoryId ||
+      input.githubRepositoryId !== dependencies.trustedGithubRepositoryId)
+  ) {
+    throw new Error("account_gateway_repository_identity_required");
+  }
+  if (
+    gatewaySelected &&
+    (input.providerApiAuthMode !== undefined ||
+      input.codexSessionMode !== "account-gateway" ||
+      input.runtimeConfigMode !== "oidc" ||
+      input.staticRuntimeEnv !== undefined ||
+      (input.workflowStyle !== undefined &&
+        input.workflowStyle !== "reusable") ||
+      input.conflictReviewFallbackEnabled === true ||
+      input.forkAgenticSandboxEnabled === true ||
+      (input.discussionMode !== undefined &&
+        input.discussionMode !== "off" &&
+        !dependencies.gatewayInteractionRuntimeSha) ||
+      input.codexRotatingProviderInstanceId !== undefined ||
+      input.codexRotatingWorkflowSecretNamespace !== undefined ||
+      input.codexRotatingReviewActionV2Mode !== undefined ||
+      input.codexRotatingWorkflowSchemaVersion !== undefined ||
+      (input.workflowPath !== undefined &&
+        input.workflowPath !== reviewRouterWorkflowContract.callerPath))
+  ) {
+    throw new Error("account_gateway_workflow_options_not_supported");
+  }
+  const managedFile = gatewaySelected
+    ? renderAccountGatewayWorkflow({
+        actionRef: input.actionRef,
+        apiUrl: input.apiUrl,
+        githubRepositoryId: dependencies.trustedGithubRepositoryId!,
+        ...(input.mcpSecrets !== undefined
+          ? { mcpSecrets: input.mcpSecrets }
+          : {}),
+      })
+    : providerApiSelected
+      ? renderProviderApiWorkflow({
+          ...(selectedProviderApiMode
+            ? { providerApiAuthMode: selectedProviderApiMode }
+            : {}),
+          actionRef: input.actionRef,
+          apiUrl: input.apiUrl,
+        })
+      : claudeSubscriptionSelected
+        ? renderClaudeSubscriptionWorkflow({
+            actionRef: dependencies.claudeSubscriptionActionRef!,
+            apiUrl: input.apiUrl,
+          })
+        : undefined;
+  const plan = createProvisionWorkflowPlan(
+    managedFile
+      ? {
+          ...input,
+          workflowPath: managedFile.path,
+          ...(claudeSubscriptionSelected
+            ? { actionRef: dependencies.claudeSubscriptionActionRef! }
+            : {}),
+        }
+      : input,
+  );
+  const actionVersion = gatewaySelected
+    ? reviewRouterWorkflowContract.channel
+    : plan.actionRef;
   if (plan.codexRotatingProviderInstanceId) {
-    renderCanonicalCodexRotatingInteractionWorkflowV3({
+    renderCodexRotatingInteractionWorkflow({
       actionRef: plan.actionRef,
       apiUrl: plan.apiUrl,
       runtimeConfigMode: plan.runtimeConfigMode,
+      ...(plan.discussionMode !== undefined
+        ? { discussionMode: plan.discussionMode }
+        : {}),
     });
   }
 
+  // What the workflow this attempt renders requires, not what the policy does.
+  const attemptTransport: WorkflowTransport = gatewaySelected
+    ? "gateway"
+    : providerApiSelected
+      ? "provider_api"
+      : plan.codexRotatingProviderInstanceId
+        ? "rotating"
+        : "ci_secrets";
+  const attemptRequirement = claudeSubscriptionSelected
+    ? workflowRequirement("ci_secrets", ["claude"])
+    : renderedWorkflowRequirement(
+        attemptTransport,
+        plan.staticRuntimeEnv,
+        selectedProviderApiMode,
+      );
   const attempt = await dependencies.provisioning.beginAttempt({
     workspaceId: plan.workspaceId,
     repositoryId: plan.repositoryId,
@@ -47,166 +246,295 @@ export async function provisionReviewRouterWorkflow(
     branch: plan.setupBranch,
     workflowPath: plan.workflowPath,
     workflowStyle: plan.workflowStyle,
-    actionVersion: plan.actionRef,
+    actionVersion,
+    workflowRequirement: attemptRequirement,
   });
 
   if (dependencies.enabled === false) {
-    await dependencies.provisioning.markFailed({
-      ...attempt,
-      workspaceId: plan.workspaceId,
-      repositoryId: plan.repositoryId,
-      status: "failed",
-      branch: attempt.branch,
-      workflowPath: plan.workflowPath,
-      workflowStyle: plan.workflowStyle,
-      actionVersion: plan.actionRef,
-      pullRequestUrl: null,
-      errorMessage: "workflow_provisioning_disabled",
-    });
-    if (dependencies.auditLog) {
-      await recordAuditEvent(
-        {
+    await settleWorkflowProvisioningAttempt(
+      {
+        attempt,
+        stage: "failure",
+        mayHaveExternalEffects: false,
+        failureSummary: "workflow_provisioning_disabled",
+      },
+      () =>
+        dependencies.provisioning.markFailed({
+          ...attempt,
           workspaceId: plan.workspaceId,
-          actor: dependencies.actor ?? "system:workflow-provisioning",
-          action: "workflow.setup_pr_blocked",
-          targetType: "repository",
-          targetId: plan.repositoryId,
-          metadata: {
-            reason: "workflow_provisioning_disabled",
-            ...(dependencies.auditMetadata ?? {}),
-          },
+          repositoryId: plan.repositoryId,
+          status: "failed",
+          branch: attempt.branch,
+          workflowPath: plan.workflowPath,
+          workflowStyle: plan.workflowStyle,
+          actionVersion,
+          workflowRequirement: attemptRequirement,
+          pullRequestUrl: null,
+          errorMessage: "workflow_provisioning_disabled",
+        }),
+    );
+    if (dependencies.auditLog) {
+      await auditWorkflowProvisioningAttempt(
+        {
+          attempt,
+          stage: "failure_audit",
+          mayHaveExternalEffects: false,
+          failureSummary: "workflow_provisioning_disabled",
         },
-        { auditLog: dependencies.auditLog },
+        () =>
+          recordAuditEvent(
+            {
+              workspaceId: plan.workspaceId,
+              actor: dependencies.actor ?? "system:workflow-provisioning",
+              action: "workflow.setup_pr_blocked",
+              targetType: "repository",
+              targetId: plan.repositoryId,
+              metadata: {
+                reason: "workflow_provisioning_disabled",
+                ...(dependencies.auditMetadata ?? {}),
+              },
+            },
+            { auditLog: dependencies.auditLog! },
+          ),
       );
     }
     throw new Error("workflow_provisioning_disabled");
   }
 
+  let mayHaveExternalEffects = false;
+  let pullRequest: WorkflowSetupPullRequest;
   try {
-    const staticRuntimeEnv =
-      plan.staticRuntimeEnv ??
-      mapConfigToRuntimeEnv(safeDefaultReviewConfiguration);
-    assertProductionCodexWorkflowProvisioningAllowed({
-      codexRotatingProviderInstanceId: plan.codexRotatingProviderInstanceId,
-      staticRuntimeEnv,
-    });
+    if (
+      !managedFile &&
+      plan.runtimeConfigMode === "static" &&
+      plan.staticRuntimeEnv === undefined
+    ) {
+      throw new Error("workflow_static_policy_required");
+    }
+    const staticRuntimeEnv = managedFile ? {} : (plan.staticRuntimeEnv ?? {});
+    if (!managedFile) {
+      assertProductionCodexWorkflowProvisioningAllowed({
+        codexRotatingProviderInstanceId: plan.codexRotatingProviderInstanceId,
+        staticRuntimeEnv,
+      });
+    }
 
-    const workflowFiles = renderReviewRouterWorkflowFiles({
-      actionRef: plan.actionRef,
-      apiUrl: plan.apiUrl,
-      runtimeConfigMode: plan.runtimeConfigMode,
-      workflowStyle: plan.workflowStyle,
-      conflictReviewFallbackEnabled:
-        plan.conflictReviewFallbackEnabled === true,
-      forkAgenticSandboxEnabled: plan.forkAgenticSandboxEnabled === true,
-      ...(plan.codexRotatingProviderInstanceId
-        ? {
-            codexRotatingProviderInstanceId:
-              plan.codexRotatingProviderInstanceId,
-            codexRotatingWorkflowPath: plan.workflowPath,
-            ...(plan.codexRotatingWorkflowSecretNamespace
-              ? {
-                  codexRotatingActiveSecretNamespace:
-                    plan.codexRotatingWorkflowSecretNamespace,
-                }
-              : {}),
-          }
-        : {}),
-      ...(plan.codexRotatingReviewActionV2Mode
-        ? {
-            codexRotatingReviewActionV2Mode:
-              plan.codexRotatingReviewActionV2Mode,
-          }
-        : {}),
-      ...(plan.codexRotatingWorkflowSchemaVersion !== undefined
-        ? {
-            codexRotatingWorkflowSchemaVersion:
-              plan.codexRotatingWorkflowSchemaVersion,
-          }
-        : {}),
-      staticRuntimeEnv,
-    });
+    const workflowFiles = managedFile
+      ? [
+          {
+            path: defaultCodexRotatingWorkflowPath,
+            operation: "delete" as const,
+            markerGroups: getObsoleteGatewayCallerDeletionMarkerGroups(),
+          },
+          {
+            path: defaultWorkflowPath,
+            operation: "delete" as const,
+            markerGroups: getLegacyReviewRouterWorkflowDeletionMarkerGroups(),
+          },
+          ...(gatewaySelected && dependencies.gatewayInteractionRuntimeSha
+            ? [
+                renderAccountGatewayInteractionWorkflow({
+                  runtimeSha: dependencies.gatewayInteractionRuntimeSha,
+                  apiUrl: plan.apiUrl,
+                }),
+              ]
+            : [
+                {
+                  path: defaultInteractionWorkflowPath,
+                  operation: "delete" as const,
+                  markerGroups:
+                    getLegacyReviewRouterInteractionWorkflowDeletionMarkerGroups(),
+                },
+              ]),
+          managedFile,
+        ]
+      : renderReviewRouterWorkflowFiles({
+          ...(!plan.codexRotatingProviderInstanceId &&
+          !plan.conflictReviewFallbackEnabled &&
+          !plan.forkAgenticSandboxEnabled &&
+          plan.runtimeConfigMode === "oidc" &&
+          (plan.workflowStyle ?? "reusable") === "reusable" &&
+          dependencies.secretsRuntimeActionRef
+            ? { secretsRuntimeActionRef: dependencies.secretsRuntimeActionRef }
+            : {}),
+          actionRef: plan.actionRef,
+          apiUrl: plan.apiUrl,
+          runtimeConfigMode: plan.runtimeConfigMode,
+          workflowStyle: plan.workflowStyle,
+          ...(plan.discussionMode !== undefined
+            ? { discussionMode: plan.discussionMode }
+            : {}),
+          conflictReviewFallbackEnabled:
+            plan.conflictReviewFallbackEnabled === true,
+          forkAgenticSandboxEnabled: plan.forkAgenticSandboxEnabled === true,
+          ...(plan.codexRotatingProviderInstanceId
+            ? {
+                codexRotatingProviderInstanceId:
+                  plan.codexRotatingProviderInstanceId,
+                codexRotatingWorkflowPath: plan.workflowPath,
+                ...(plan.codexRotatingWorkflowSecretNamespace
+                  ? {
+                      codexRotatingActiveSecretNamespace:
+                        plan.codexRotatingWorkflowSecretNamespace,
+                    }
+                  : {}),
+              }
+            : {}),
+          ...(plan.codexRotatingReviewActionV2Mode
+            ? {
+                codexRotatingReviewActionV2Mode:
+                  plan.codexRotatingReviewActionV2Mode,
+              }
+            : {}),
+          ...(plan.codexRotatingWorkflowSchemaVersion !== undefined
+            ? {
+                codexRotatingWorkflowSchemaVersion:
+                  plan.codexRotatingWorkflowSchemaVersion,
+              }
+            : {}),
+          staticRuntimeEnv,
+        });
 
-    const pullRequest =
+    mayHaveExternalEffects = true;
+    pullRequest =
       await dependencies.setupGateway.createOrUpdateSetupPullRequest({
         owner: plan.owner,
         repo: plan.name,
         baseBranch: plan.defaultBranch,
         setupBranch: attempt.branch,
+        ...(managedFile
+          ? {
+              setupMode: gatewaySelected
+                ? ("gateway" as const)
+                : claudeSubscriptionSelected
+                  ? ("claude_subscription" as const)
+                  : ("provider_api" as const),
+            }
+          : {}),
         workflowFiles,
       });
-
-    await dependencies.provisioning.markSetupPullRequestOpen({
-      ...attempt,
-      workspaceId: plan.workspaceId,
-      repositoryId: plan.repositoryId,
-      status: "setup_pr_open",
-      branch: pullRequest.branch,
-      workflowPath: plan.workflowPath,
-      workflowStyle: plan.workflowStyle,
-      actionVersion: plan.actionRef,
-      pullRequestUrl: pullRequest.url,
-      pullRequestHeadSha: pullRequest.headSha,
-      errorMessage: null,
-    });
-    if (dependencies.auditLog) {
-      await recordAuditEvent(
-        {
-          workspaceId: plan.workspaceId,
-          actor: dependencies.actor ?? "system:workflow-provisioning",
-          action: "workflow.setup_pr_opened",
-          targetType: "repository",
-          targetId: plan.repositoryId,
-          metadata: {
-            branch: pullRequest.branch,
-            workflowPath: plan.workflowPath,
-            workflowStyle: plan.workflowStyle,
-            actionVersion: plan.actionRef,
-            pullRequestUrl: pullRequest.url,
-            ...(dependencies.auditMetadata ?? {}),
-          },
-        },
-        { auditLog: dependencies.auditLog },
-      );
-    }
-
-    return pullRequest;
   } catch (error: unknown) {
     const message = safeWorkflowProvisioningErrorSummary(error);
-    await dependencies.provisioning.markFailed({
-      ...attempt,
-      workspaceId: plan.workspaceId,
-      repositoryId: plan.repositoryId,
-      status: "failed",
-      branch: attempt.branch,
-      workflowPath: plan.workflowPath,
-      workflowStyle: plan.workflowStyle,
-      actionVersion: plan.actionRef,
-      pullRequestUrl: null,
-      errorMessage: message,
-    });
-    if (dependencies.auditLog) {
-      await recordAuditEvent(
-        {
+    await settleWorkflowProvisioningAttempt(
+      {
+        attempt,
+        stage: "failure",
+        mayHaveExternalEffects,
+        failureSummary: message,
+      },
+      () =>
+        dependencies.provisioning.markFailed({
+          ...attempt,
           workspaceId: plan.workspaceId,
-          actor: dependencies.actor ?? "system:workflow-provisioning",
-          action: "workflow.setup_pr_failed",
-          targetType: "repository",
-          targetId: plan.repositoryId,
-          metadata: {
-            branch: attempt.branch,
-            workflowPath: plan.workflowPath,
-            workflowStyle: plan.workflowStyle,
-            actionVersion: plan.actionRef,
-            errorSummary: message.slice(0, 500),
-            ...(dependencies.auditMetadata ?? {}),
-          },
+          repositoryId: plan.repositoryId,
+          status: "failed",
+          branch: attempt.branch,
+          workflowPath: plan.workflowPath,
+          workflowStyle: plan.workflowStyle,
+          actionVersion,
+          workflowRequirement: attemptRequirement,
+          pullRequestUrl: null,
+          errorMessage: message,
+        }),
+    );
+    if (dependencies.auditLog) {
+      await auditWorkflowProvisioningAttempt(
+        {
+          attempt,
+          stage: "failure_audit",
+          mayHaveExternalEffects,
+          failureSummary: message,
         },
-        { auditLog: dependencies.auditLog },
+        () =>
+          recordAuditEvent(
+            {
+              workspaceId: plan.workspaceId,
+              actor: dependencies.actor ?? "system:workflow-provisioning",
+              action: "workflow.setup_pr_failed",
+              targetType: "repository",
+              targetId: plan.repositoryId,
+              metadata: {
+                branch: attempt.branch,
+                workflowPath: plan.workflowPath,
+                workflowStyle: plan.workflowStyle,
+                actionVersion,
+                errorSummary: message.slice(0, 500),
+                mayHaveExternalEffects,
+                ...(dependencies.auditMetadata ?? {}),
+              },
+            },
+            { auditLog: dependencies.auditLog! },
+          ),
+      );
+    }
+    if (mayHaveExternalEffects) {
+      throw new WorkflowProvisioningOutcomeError(
+        "workflow_provisioning_external_uncertain",
+        {
+          attempt,
+          stage: "failure",
+          mayHaveExternalEffects: true,
+          failureSummary: message,
+        },
+        { cause: error },
       );
     }
     throw error;
   }
+  await settleWorkflowProvisioningAttempt(
+    {
+      attempt,
+      stage: "completion",
+      mayHaveExternalEffects: true,
+      observedPullRequest: pullRequest,
+    },
+    () =>
+      dependencies.provisioning.markSetupPullRequestOpen({
+        ...attempt,
+        workspaceId: plan.workspaceId,
+        repositoryId: plan.repositoryId,
+        status: "setup_pr_open",
+        branch: pullRequest.branch,
+        workflowPath: plan.workflowPath,
+        workflowStyle: plan.workflowStyle,
+        actionVersion,
+        workflowRequirement: attemptRequirement,
+        pullRequestUrl: pullRequest.url,
+        pullRequestHeadSha: pullRequest.headSha,
+        errorMessage: null,
+      }),
+  );
+  if (dependencies.auditLog) {
+    await auditWorkflowProvisioningAttempt(
+      {
+        attempt,
+        stage: "success_audit",
+        mayHaveExternalEffects: true,
+        observedPullRequest: pullRequest,
+      },
+      () =>
+        recordAuditEvent(
+          {
+            workspaceId: plan.workspaceId,
+            actor: dependencies.actor ?? "system:workflow-provisioning",
+            action: "workflow.setup_pr_opened",
+            targetType: "repository",
+            targetId: plan.repositoryId,
+            metadata: {
+              branch: pullRequest.branch,
+              workflowPath: plan.workflowPath,
+              workflowStyle: plan.workflowStyle,
+              actionVersion,
+              pullRequestUrl: pullRequest.url,
+              ...(dependencies.auditMetadata ?? {}),
+            },
+          },
+          { auditLog: dependencies.auditLog! },
+        ),
+    );
+  }
+
+  return pullRequest;
 }
 
 function assertProductionCodexWorkflowProvisioningAllowed(input: {
@@ -230,6 +558,9 @@ function assertProductionCodexWorkflowProvisioningAllowed(input: {
 
 function safeWorkflowProvisioningErrorSummary(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
+  if (message.startsWith("workflow_delete_untrusted:")) {
+    return "workflow_delete_untrusted";
+  }
   if (
     [
       "invalid_workflow_action_ref",

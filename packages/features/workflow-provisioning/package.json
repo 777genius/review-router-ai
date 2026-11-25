@@ -8,13 +8,25 @@
       "types": "./src/index.ts",
       "production": "./dist/index.js",
       "default": "./src/index.ts"
+    },
+    "./composition": {
+      "types": "./src/composition/index.ts",
+      "production": "./dist/composition/index.js",
+      "default": "./src/composition/index.ts"
     }
   },
   "dependencies": {
+    "@octokit/app": "^16.1.2",
+    "@octokit/request": "^10.0.9",
+    "@reviewrouter/features-review-run-control": "workspace:*",
+    "@reviewrouter/platform-db": "workspace:*",
+    "@reviewrouter/platform-config": "workspace:*",
+    "@reviewrouter/protocol-review-action-v2": "workspace:*",
     "@prisma/client": "^7.8.0",
     "@reviewrouter/features-audit-log": "workspace:*",
     "@reviewrouter/features-codex-oauth-rotating": "workspace:*",
     "@reviewrouter/features-review-config": "workspace:*",
+    "@reviewrouter/features-provider-accounts": "workspace:*",
     "@reviewrouter/features-review-providers": "workspace:*",
     "@reviewrouter/protocol-review-workflow": "workspace:*",
     "@reviewrouter/shared": "workspace:*"

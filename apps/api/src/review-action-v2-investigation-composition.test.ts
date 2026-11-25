@@ -463,6 +463,16 @@ describe("Review Action v2 investigation composition", () => {
       expectedErrorCode: ReviewActionV2ProtocolErrorCode.StalePrecondition,
       expectedIssue: "investigation_lease_fencing_stale",
     },
+    ...[
+      "investigation_finding_evidence_invalid",
+      "investigation_finding_evidence_path_invalid",
+      "investigation_finding_evidence_line_invalid",
+    ].map((code) => ({
+      failure: new ReviewInvestigationDomainError(code),
+      expectedStatusCode: 422,
+      expectedErrorCode: ReviewActionV2ProtocolErrorCode.InvariantViolation,
+      expectedIssue: code,
+    })),
     {
       failure: new ReviewInvestigationDomainError(
         "turn_obligation_claim_invalid",
@@ -1263,6 +1273,7 @@ const allowingRollout = {
 const now = new Date("2026-08-02T10:00:00.000Z");
 const revisionHash = sha("revision");
 const authorization = {
+  schemaDigest: reviewActionV2PublishedSchemaDigest,
   authorizationId: "authorization-1",
   mutationEpoch: 1n,
   state: ReviewRunAuthorizationState.Active,

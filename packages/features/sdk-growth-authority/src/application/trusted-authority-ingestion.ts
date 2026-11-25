@@ -39,8 +39,8 @@ function text(value: unknown): asserts value is string {
     invalid();
 }
 
-function validateRecord(
-  source: TrustedAuthorityRecord,
+export function validateTrustedAuthorityRecord(
+  source: unknown,
   scope: AuthorityScope,
 ): TrustedAuthorityRecord {
   const value = exactRecord(source, [
@@ -204,7 +204,10 @@ export class ServerSideTrustedAuthorityIngestion implements TrustedAuthorityInge
       change,
     });
     if (!loaded) invalid();
-    const record = validateRecord(structuredClone(loaded), scope);
+    const record = validateTrustedAuthorityRecord(
+      structuredClone(loaded),
+      scope,
+    );
     if (
       record.githubRepositoryId !== identity.githubRepositoryId ||
       record.installationId !== identity.installationId

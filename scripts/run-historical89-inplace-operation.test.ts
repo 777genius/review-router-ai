@@ -876,6 +876,8 @@ describe("historical89 callable preparation orchestration", () => {
     "scripts/lib/render-historical89-preparation-custody.mjs",
     "scripts/lib/historical89-preparation-coordinator.mjs",
     "scripts/lib/render-historical89-admission.mjs",
+    "scripts/review-skills-runtime-grants.ts",
+    "scripts/skill-catalog-runtime-grants.ts",
   ])(
     "rejects executing closure mismatch in %s before effects",
     async (path) => {

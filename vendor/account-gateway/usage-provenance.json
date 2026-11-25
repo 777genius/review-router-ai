@@ -1,0 +1,120 @@
+{
+  "kind": "private_sdk_committed_source_pack",
+  "sourceRepository": "https://github.com/agent-teams-ai/account-gateway",
+  "sourceBaseCommit": "9b4c7aba864d9dfa28915d92a8999114c10b4a14",
+  "uncommittedSource": false,
+  "sourceFiles": {
+    "packages/account-gateway/src/contracts/index.ts": "c7836875205a83b6f128b8464efac990fcf4ddd04edccbe83dfe3da0a152cd43",
+    "packages/account-gateway/src/features/facade-client/contracts/index.ts": "69c24ef6b6bc03ea0da2b91cfe33889d193e0da5cc2284b883cffe220c795678",
+    "packages/account-gateway/src/features/facade-client/http/index.ts": "e5b45016d47962ae3446ba4dc578c95b004a54846a1aac1b514bcfa539856c16",
+    "packages/account-gateway/src/features/facade-client/http/ingress.ts": "b8af9b59805f010c084a175b717ca2ca5c2dc64569ffb1b54196ed326034b757",
+    "packages/account-gateway/src/get-modular/index.ts": "e6ea38b7b03cab7ef80bfa19e8027c579908eaaf695f3e576e6189c1ee69c614",
+    "packages/account-gateway/src/http/index.ts": "490488b684d0fb7cd3a7bc16e85eed4c30aa066e68b9693ae1d307c3ae253959"
+  },
+  "vendoredArchive": "vendor/account-gateway/agent-teams-account-gateway-0.1.0-usage-78e6d53e.tgz",
+  "sha256": "78e6d53ebc64d550a1a41f5c1cd5fa6e27d4893f59ffda57ba2d0af49ab8f987",
+  "bytes": 20541,
+  "published": false,
+  "qualification": {
+    "node": "26.11.0",
+    "sdkBuild": "passed",
+    "serverTypecheck": "passed",
+    "sdkUsageClientTests": 25,
+    "usageCaptureAndSecurityTests": 8,
+    "realPostgresJournal": "Passed isolated local journal fixture on PostgreSQL15.13; joined native06 runtime additionally passed PostgreSQL17.10 (separate exact source proof below).",
+    "foundation": "passed",
+    "lifecycleSdkBehaviorTests": 4,
+    "gatewayDomainTests": 46,
+    "gatewayManagementTests": {
+      "passed": 15,
+      "conditionalSkipped": 1
+    },
+    "twoIndependentPackedConsumers": "passed runtime exports, inert imports, browser denial, strict TS closure, real authenticated v1/v2 owner scoping",
+    "joinedNativeGoGatewayPostgres": {
+      "status": "passed",
+      "attempt": "06",
+      "go": "1.27.2",
+      "node": "24.21.0",
+      "postgres": "17.10",
+      "hostMachineId": "d856d40da5ad4e23b4f67773e5942842",
+      "image": "sha256:540c3f8d5d1878581be715c133f8798320f0ca662339f2010b18d671011e14e9",
+      "contextSha256": "abb72829d2a6ab70578b886c38e6c715334e8d74535d79015d898bd39c0fc849",
+      "gatewaySourcePackSha256": "3fcf0d5a8bfc60ac409143c119c9aface5ae9b1e87540a4528498e5182d4cd48",
+      "testedGatewayOverlaySha256": "5629d38471f3290b98240cea0f36bc2560a011d403dedf15c66438d35de28099",
+      "nativeSourcePackSha256": "b7a82865ee8a5f539e52389de716a7b16a54242844ee2b8e3680558e9a5168a7",
+      "gatewayRuntimeFilesMatched": 17,
+      "compilerFixtureGuardAdaptation": "go1.27.1 -> go1.27.2 exact pin, custody unchanged",
+      "boundedFixtureUpstreamRequests": 3,
+      "successfulRequests": 2,
+      "abortedUnknownRequests": 1,
+      "receiptSha256": "055f5449d631474edafe3564506753949f0b40c7c0bf4068aebd0d0a9fb9fee5",
+      "nativeLogSha256": "a38b5587a68908ba0549e0a18fbab2e3e448305ced02b2ebbd93209133a2c490",
+      "scope": "Controlled actual Go HTTPS fixture, retained-custody/retirement, Gateway durable usage journal and consumer-control HTTP. Not real-provider, GitHub OIDC, installed immutable release, production activation, or deployment qualification.",
+      "sourceCommitParitySha256": "b7bebfc6aa9fe71617bd91a7d7693334d398c26394d384df6e73061579a532ea",
+      "qualifiedSourceCommit": "276e1df172853ac507f22ce2ce1b339950840d58"
+    }
+  },
+  "scope": "Private SDK archive with exact committed source and archive parity; no publication or deployment. Original lifecycle history and earlier archives/provenance are retained.",
+  "compatibilityBaseline": {
+    "qualifiedArchive": "agent-teams-account-gateway-0.1.0-lifecycle-f9e0d304.tgz",
+    "recoveredSourceCommit": "e0e088027f7e51b424ea234a94f11b60ca7f0101",
+    "originalLifecycleSourceHashesExactMatch": true,
+    "baselineRuntimeExportsMissing": [],
+    "currentRuntimeExports": {
+      "contracts": 48,
+      "http": 8,
+      "get-modular": 10
+    },
+    "actualRrStaticImportsQualified": 49
+  },
+  "sourceCommit": "a717f698fe85273be76ed64182fd42d00a656da9",
+  "sourceMainBaseCommit": "d268a0f24ed0d2a2c06d9aa3f607102ca7b4f2b3",
+  "sourceCommitComparison": {
+    "matchedSourceFiles": 6,
+    "differentSourceFiles": [],
+    "matchedBuiltArchiveFiles": 12,
+    "archiveBytesUnchanged": true,
+    "qualifiedGatewayRuntimeFiles": 15,
+    "qualificationFollowUp": {
+      "originalQualifiedCommit": "276e1df172853ac507f22ce2ce1b339950840d58",
+      "followUpCommit": "57fb33a96360c9e130faf1d8484e7adee30f2434",
+      "changedRuntimeFiles": [
+        "services/account-gateway/src/facade-ingress.ts",
+        "services/account-gateway/src/facade.ts"
+      ],
+      "scope": "Model attribution only: journal.model is validated requested selection; no observed response model authority. SDK sources and archive unchanged. Prior joined native06 remains proof of the preceding runtime; follow-up has focused tests and server typecheck, not a repeated joined qualification.",
+      "focusedGatewayTestsPassed": 26,
+      "rrAdapterTestsPassed": 4,
+      "serverTypecheck": "passed",
+      "testBoundaryFollowUp": {
+        "commit": "a717f698fe85273be76ed64182fd42d00a656da9",
+        "scope": "Test-only move of multi-model request selection regression to existing facade ingress tests; no production source or SDK archive change.",
+        "foundation": "passed installed 1.7.1 architecture check and 3 source-policy tests",
+        "sdkUsageTestsPassed": 2,
+        "facadeAndUsageTestsPassed": 26
+      }
+    }
+  },
+  "archiveFiles": {
+    "dist/contracts/index.js": "f24eb8ee9241a8eefab2c0670aaf70076afc18e0037c9801957a1013c1eb0f4e",
+    "dist/features/facade-client/contracts/index.js": "293137295accc2a9e7ce893d277f5a774b8158a6a59cab6b0b987a7f582a73f9",
+    "dist/features/facade-client/http/index.js": "77aa6523f07f8f77929e0c9334d3ff5e51c6e59c6525bf1383dc087205d3710d",
+    "dist/get-modular/index.js": "caa8d14e7dd8c0a3caf8867212a4e7217ca1e29a522d7cd13de1ee2638e1cc48",
+    "dist/http/index.js": "c8a9a6d528ac845d635883c33d07bf30017b71b28139ce39e250f4492cc339b5",
+    "dist/features/facade-client/http/ingress.js": "70ebf7675a7d16ea9df80b3129509ad63b57876829a5984fb5bac03d14a29d22",
+    "dist/contracts/index.d.ts": "7f2a6eb4c5ba45b035bdc099db6caa689939975bd970fe00cf155461d32273e9",
+    "dist/features/facade-client/contracts/index.d.ts": "b1b4f2af9c04a1088acc1475c34ba6d646800684800a9660e988b470ed7ac8d3",
+    "dist/features/facade-client/http/index.d.ts": "499592e023d8f27a3cb526b4df8368ddc6fde780ce89d555dc1bddf5726694b8",
+    "dist/get-modular/index.d.ts": "2ef278ddc53dc1b439e9eeae130b4b8c8046d60ed5ab16207d871d022d48a680",
+    "dist/http/index.d.ts": "4013718422831f98721d9182dc3ccc833bbbf67fdc460fc39129af7752f9ff2f",
+    "dist/features/facade-client/http/ingress.d.ts": "3c82c11f26d1986ba6bbbc300850f75804a53b2dd3d26b343ea2806ade4c7450"
+  },
+  "nativeSourceRepository": "https://github.com/agent-teams-ai/sub2api",
+  "nativeSourceCommit": "421c5360e9d87c0a84527cf1f43f0096733e45e0",
+  "nativeSourceBaseCommit": "31a7d20a031ec9fe9ea5505d74bd18623bc0ca48",
+  "nativeLifecycleBaselineCommit": "13deb6facb28a6cdf370af6a4523ed45dbd9aa25",
+  "nativeSourceCommitComparison": {
+    "matchedSourceAndTestFiles": 23,
+    "differentFiles": []
+  }
+}

@@ -1,3 +1,9 @@
+import {
+  reviewRequestedDispatchCleanupEvent,
+  reviewRequestedDispatchCleanupEventType,
+  bindReviewRequestedDispatchCleanupTarget,
+} from "../../domain/review-requested-dispatch-cleanup";
+import { reviewRequestedStartNoticeEvent } from "../../domain/review-requested-start-notice";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import {
   ReviewRequestedClaimStatus,
@@ -9,14 +15,18 @@ import {
   type CancelReviewRequestedPreAdmissionCommand,
   type DeferReviewRequestedResolutionCommand,
   type EnsureReviewRequestedRerunIntentCommand,
+  type ExtendReviewRequestedQueuedRunWaitCommand,
   type LinkReviewRequestedAdmissionCommand,
   type RecordReviewRequestedDispatchCommand,
   type RecordReviewRequestedAdmissionDecisionCommand,
+  type ResolveReviewRequestedPreparationCommand,
   type RecoverReviewRequestedDispatchCommand,
   type RegisterReviewRequestedIntentCommand,
   type ReviewRequestedIntentCommandPort,
   type ReviewRequestedIntentPrunerPort,
   type ReviewRequestedIntentQueryPort,
+  type ReviewRequestedDispatchCleanupTargetPort,
+  type ReviewRequestedNewerRequestQueryPort,
 } from "../../application/ports/review-requested-intent-ports";
 import {
   cancelReviewRequestedPreAdmissionIntent,
@@ -35,6 +45,9 @@ import {
   decideReviewRequestedDispatchRecovery,
   decideReviewRequestedRegistration,
   deferReviewRequestedResolution,
+  extendReviewRequestedQueuedRunWait,
+  expireReviewRequestedPreparation,
+  resolveReviewRequestedPreparation,
   type ReviewRequestedIntent,
 } from "../../domain/review-requested-intent";
 import {
@@ -57,6 +70,21 @@ import {
 type Transaction = Prisma.TransactionClient;
 type PrismaReviewRequestedIntentStoreHooks = Readonly<{
   beforeSupersedeCompareAndSet?: () => Promise<void>;
+  historyCapture?: Readonly<{
+    register(
+      transaction: Transaction,
+      intent: ReviewRequestedIntent,
+      metadata?: Readonly<{
+        repositoryFullName?: string | null;
+        pullRequestTitle?: string | null;
+      }>,
+    ): Promise<void>;
+    changed(
+      transaction: Transaction,
+      intent: ReviewRequestedIntent,
+      previous?: ReviewRequestedIntent,
+    ): Promise<void>;
+  }>;
 }>;
 
 const registrationTransactionMaxAttempts = 3;
@@ -65,7 +93,9 @@ export class PrismaReviewRequestedIntentStore
   implements
     ReviewRequestedIntentQueryPort,
     ReviewRequestedIntentCommandPort,
-    ReviewRequestedIntentPrunerPort
+    ReviewRequestedDispatchCleanupTargetPort,
+    ReviewRequestedIntentPrunerPort,
+    ReviewRequestedNewerRequestQueryPort
 {
   constructor(
     private readonly prisma: PrismaClient,
@@ -101,6 +131,24 @@ export class PrismaReviewRequestedIntentStore
       orderBy: [{ createdAt: "asc" }, { requestId: "asc" }],
     });
     return record === null ? null : intentToDomain(record);
+  }
+
+  async hasNewerRequestInScope(
+    intent: ReviewRequestedIntent,
+  ): Promise<boolean> {
+    const newer = await this.prisma.reviewRequestedIntent.findFirst({
+      where: {
+        ...scopeWhere(intent),
+        requestId: { not: intent.requestId },
+        createdAt: { gte: intent.createdAt },
+        OR: [
+          { supersededByRequestId: null },
+          { supersededByRequestId: { not: intent.requestId } },
+        ],
+      },
+      select: { requestId: true },
+    });
+    return newer !== null;
   }
 
   async findBySourceRunIdentity(input: {
@@ -156,22 +204,61 @@ export class PrismaReviewRequestedIntentStore
   async listDue(input: {
     readonly now: Date;
     readonly limit: number;
+    readonly excludeRequestIds?: readonly string[];
+    readonly excludeAlwaysRequestIds?: readonly string[];
   }): Promise<readonly ReviewRequestedIntent[]> {
     assertLimit(input.limit);
     void input.now;
+    // Mirror claimIntent's scope blocker before LIMIT, except expired no-effect
+    // preparations which claimIntent terminalizes first. Listing is advisory.
     const records = await this.prisma.$queryRaw<
       Awaited<ReturnType<PrismaClient["reviewRequestedIntent"]["findMany"]>>
     >(Prisma.sql`
       SELECT intent.*
       FROM "ReviewRequestedIntent" AS intent
-      WHERE (
+      WHERE ((
         intent."state" = 'pending_dispatch'::"ReviewRequestedIntentStateV2"
         AND intent."notBefore" <= (statement_timestamp() AT TIME ZONE 'UTC')
       ) OR (
         intent."state" = 'dispatching'::"ReviewRequestedIntentStateV2"
         AND intent."claimUntil" <= (statement_timestamp() AT TIME ZONE 'UTC')
+      ))
+      AND NOT EXISTS (
+        SELECT 1 FROM "ReviewRequestedIntent" AS blocker
+        WHERE blocker."workspaceId" = intent."workspaceId"
+          AND blocker."repositoryConnectionId" = intent."repositoryConnectionId"
+          AND blocker."scmRepositoryIdentityId" = intent."scmRepositoryIdentityId"
+          AND blocker."pullRequestNumber" = intent."pullRequestNumber"
+          AND blocker."requestId" <> intent."requestId"
+          AND NOT ((
+            intent."state" = 'dispatching'::"ReviewRequestedIntentStateV2"
+            AND intent."claimUntil" <= (statement_timestamp() AT TIME ZONE 'UTC')
+            AND intent."resolutionDeadlineAt" <= (statement_timestamp() AT TIME ZONE 'UTC')
+            AND intent."submissionStartedAt" IS NULL
+            AND intent."sourceRunId" IS NULL
+            AND intent."sourceRunAttempt" IS NULL
+            AND intent."authorizationId" IS NULL
+            AND intent."executionId" IS NULL
+          ) IS TRUE)
+          AND (
+            (
+              blocker."state" IN (
+                'reconciling_dispatch'::"ReviewRequestedIntentStateV2",
+                'awaiting_authorization'::"ReviewRequestedIntentStateV2"
+              )
+              AND blocker."resolutionDeadlineAt" > (statement_timestamp() AT TIME ZONE 'UTC')
+            ) OR (
+              blocker."state" = 'dispatching'::"ReviewRequestedIntentStateV2"
+              AND blocker."claimUntil" > (statement_timestamp() AT TIME ZONE 'UTC')
+            )
+          )
       )
-      ORDER BY intent."notBefore", intent."createdAt", intent."requestId"
+      ${input.excludeAlwaysRequestIds?.length ? Prisma.sql`AND intent."requestId" NOT IN (${Prisma.join(input.excludeAlwaysRequestIds)})` : Prisma.empty}
+      ${input.excludeRequestIds?.length ? Prisma.sql`AND (intent."requestId" NOT IN (${Prisma.join(input.excludeRequestIds)}) OR (intent."state" = 'dispatching'::"ReviewRequestedIntentStateV2" AND intent."resolutionDeadlineAt" <= (statement_timestamp() AT TIME ZONE 'UTC')))` : Prisma.empty}
+      ORDER BY ${input.excludeRequestIds?.length ? Prisma.sql`CASE WHEN intent."requestId" IN (${Prisma.join(input.excludeRequestIds)}) AND intent."state" = 'dispatching'::"ReviewRequestedIntentStateV2" AND intent."resolutionDeadlineAt" <= (statement_timestamp() AT TIME ZONE 'UTC') THEN 0 ELSE 1 END,` : Prisma.empty}
+        CASE WHEN intent."state" = 'dispatching'::"ReviewRequestedIntentStateV2"
+        THEN intent."claimUntil" ELSE intent."notBefore" END,
+        intent."createdAt", intent."requestId"
       LIMIT ${input.limit}
     `);
     return Object.freeze(records.map(intentToDomain));
@@ -286,6 +373,11 @@ export class PrismaReviewRequestedIntentStore
                 intent: decision.intent,
               };
             }
+            await this.hooks.historyCapture?.register(
+              transaction,
+              decision.intent,
+              command.candidate.historyMetadata,
+            );
             if (
               decision.status ===
               ReviewRequestedRegistrationDecisionStatus.RegisterAndSupersede
@@ -302,6 +394,14 @@ export class PrismaReviewRequestedIntentStore
               if (updated.count !== 1) {
                 throw new ConcurrentIntentMutationError();
               }
+              await enqueueDispatchCleanup(
+                transaction,
+                decision.supersededIntent,
+              );
+              await this.hooks.historyCapture?.changed(
+                transaction,
+                decision.supersededIntent,
+              );
             }
             const created = await transaction.reviewRequestedIntent.create({
               data: intentCreateData(decision.intent),
@@ -398,6 +498,10 @@ export class PrismaReviewRequestedIntentStore
                 intent: decision.intent,
               };
             }
+            await this.hooks.historyCapture?.register(
+              transaction,
+              decision.intent,
+            );
             const created = await transaction.reviewRequestedIntent.create({
               data: intentCreateData(decision.intent),
             });
@@ -438,6 +542,32 @@ export class PrismaReviewRequestedIntentStore
           }
           const intent = intentToDomain(record);
           const now = await databaseNow(transaction);
+          const claimUntil = databaseRelativeDate(
+            now,
+            command.now,
+            command.claimUntil,
+            "claim_deadline",
+          );
+          const decision = assessReviewRequestedClaim({
+            intent,
+            claimId: command.claimId,
+            ownerIdHash: command.ownerIdHash,
+            now,
+            claimUntil,
+          });
+          // An expired pre-submit intent has no external effect to fence and
+          // must not be kept alive by a different active intent in its lane.
+          const expired =
+            decision === ReviewRequestedClaimDecisionStatus.Takeover
+              ? expireReviewRequestedPreparation(intent, now)
+              : null;
+          if (expired !== null) {
+            await this.updateIntent(transaction, intent, expired);
+            return {
+              status: ReviewRequestedClaimStatus.PreparationExpired,
+              intent: expired,
+            };
+          }
           const laneBusy = await transaction.reviewRequestedIntent.findFirst({
             where: {
               ...scopeWhere(intent),
@@ -469,19 +599,6 @@ export class PrismaReviewRequestedIntentStore
           if (laneBusy !== null) {
             return { status: ReviewRequestedClaimStatus.Busy };
           }
-          const claimUntil = databaseRelativeDate(
-            now,
-            command.now,
-            command.claimUntil,
-            "claim_deadline",
-          );
-          const decision = assessReviewRequestedClaim({
-            intent,
-            claimId: command.claimId,
-            ownerIdHash: command.ownerIdHash,
-            now,
-            claimUntil,
-          });
           if (decision === ReviewRequestedClaimDecisionStatus.Restored) {
             return {
               status: ReviewRequestedClaimStatus.Restored,
@@ -500,7 +617,7 @@ export class PrismaReviewRequestedIntentStore
             now,
             claimUntil,
           });
-          await updateIntent(transaction, intent, claimed);
+          await this.updateIntent(transaction, intent, claimed);
           return {
             status: ReviewRequestedClaimStatus.Claimed,
             intent: claimed,
@@ -516,13 +633,12 @@ export class PrismaReviewRequestedIntentStore
     }
   }
 
-  async recordDispatch(command: RecordReviewRequestedDispatchCommand) {
+  async resolvePreparation(command: ResolveReviewRequestedPreparationCommand) {
     const observed = await this.prisma.reviewRequestedIntent.findUnique({
       where: { requestId: command.requestId },
     });
-    if (observed === null) {
+    if (observed === null)
       return { status: ReviewRequestedTransitionStatus.Missing };
-    }
     try {
       return await this.prisma.$transaction(
         async (transaction) => {
@@ -531,74 +647,31 @@ export class PrismaReviewRequestedIntentStore
           const record = await transaction.reviewRequestedIntent.findUnique({
             where: { requestId: command.requestId },
           });
-          if (record === null) {
+          if (record === null)
             return { status: ReviewRequestedTransitionStatus.Missing };
-          }
           const intent = intentToDomain(record);
-          const now = await databaseNow(transaction);
-          const competitor = await transaction.reviewRequestedIntent.findFirst({
-            where: {
-              ...scopeWhere(intent),
-              requestId: { not: intent.requestId },
-              state: {
-                in: [
-                  intentStateToPrisma(
-                    ReviewRequestedIntentState.PendingDispatch,
-                  ),
-                  intentStateToPrisma(ReviewRequestedIntentState.Dispatching),
-                  intentStateToPrisma(
-                    ReviewRequestedIntentState.ReconcilingDispatch,
-                  ),
-                  intentStateToPrisma(
-                    ReviewRequestedIntentState.AwaitingAuthorization,
-                  ),
-                ],
-              },
-            },
-            select: { requestId: true },
-          });
-          const decision = decideReviewRequestedDispatch({
+          const decision = resolveReviewRequestedPreparation({
+            ...command,
             intent,
-            competingPreAdmission: competitor !== null,
-            claimId: command.claimId,
-            ownerIdHash: command.ownerIdHash,
-            fencingToken: command.fencingToken,
-            sourceRunId: command.sourceRunId,
-            sourceRunAttempt: command.sourceRunAttempt,
-            now,
-            nextResolutionAt: databaseRelativeDate(
-              now,
-              command.now,
-              command.nextResolutionAt,
-              "authorization_resolution_deadline",
-            ),
-            resolutionDeadlineAt: databaseRelativeDate(
-              now,
-              command.now,
-              command.resolutionDeadlineAt,
-              "authorization_terminal_deadline",
-            ),
+            now: await databaseNow(transaction),
           });
           if (
+            decision.status ===
+            ReviewRequestedTransitionDecisionStatus.StaleClaim
+          )
+            return { status: ReviewRequestedTransitionStatus.StaleClaim };
+          if (
+            decision.status === ReviewRequestedTransitionDecisionStatus.Conflict
+          )
+            return { status: ReviewRequestedTransitionStatus.Conflict };
+          if (
             decision.status === ReviewRequestedTransitionDecisionStatus.Restored
-          ) {
+          )
             return {
               status: ReviewRequestedTransitionStatus.Restored,
               intent: decision.intent,
             };
-          }
-          if (
-            decision.status ===
-            ReviewRequestedTransitionDecisionStatus.StaleClaim
-          ) {
-            return { status: ReviewRequestedTransitionStatus.StaleClaim };
-          }
-          if (
-            decision.status === ReviewRequestedTransitionDecisionStatus.Conflict
-          ) {
-            return { status: ReviewRequestedTransitionStatus.Conflict };
-          }
-          await updateIntent(transaction, intent, decision.intent);
+          await this.updateIntent(transaction, intent, decision.intent);
           return {
             status: ReviewRequestedTransitionStatus.Applied,
             intent: decision.intent,
@@ -607,11 +680,124 @@ export class PrismaReviewRequestedIntentStore
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
     } catch (error) {
-      if (isConcurrencyError(error)) {
+      if (isConcurrencyError(error))
         return { status: ReviewRequestedTransitionStatus.StaleClaim };
-      }
       throw error;
     }
+  }
+
+  async recordDispatch(command: RecordReviewRequestedDispatchCommand) {
+    const observed = await this.prisma.reviewRequestedIntent.findUnique({
+      where: { requestId: command.requestId },
+    });
+    if (observed === null) {
+      return { status: ReviewRequestedTransitionStatus.Missing };
+    }
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(
+          async (transaction) => {
+            await lockScope(transaction, intentToDomain(observed));
+            await lockIntent(transaction, command.requestId);
+            const record = await transaction.reviewRequestedIntent.findUnique({
+              where: { requestId: command.requestId },
+            });
+            if (record === null) {
+              return { status: ReviewRequestedTransitionStatus.Missing };
+            }
+            const intent = intentToDomain(record);
+            const now = await databaseNow(transaction);
+            const decision = decideReviewRequestedDispatch({
+              intent,
+              competingPreAdmission: await hasCompetingPreAdmission(
+                transaction,
+                intent,
+              ),
+              claimId: command.claimId,
+              ownerIdHash: command.ownerIdHash,
+              fencingToken: command.fencingToken,
+              sourceRunId: command.sourceRunId,
+              sourceRunAttempt: command.sourceRunAttempt,
+              now,
+              nextResolutionAt: databaseRelativeDate(
+                now,
+                command.now,
+                command.nextResolutionAt,
+                "authorization_resolution_deadline",
+              ),
+              resolutionDeadlineAt: databaseRelativeDate(
+                now,
+                command.now,
+                command.resolutionDeadlineAt,
+                "authorization_terminal_deadline",
+              ),
+            });
+            if (
+              decision.status ===
+              ReviewRequestedTransitionDecisionStatus.Restored
+            ) {
+              return {
+                status: ReviewRequestedTransitionStatus.Restored,
+                intent: decision.intent,
+              };
+            }
+            if (
+              decision.status ===
+              ReviewRequestedTransitionDecisionStatus.StaleClaim
+            ) {
+              return { status: ReviewRequestedTransitionStatus.StaleClaim };
+            }
+            if (
+              decision.status ===
+              ReviewRequestedTransitionDecisionStatus.Conflict
+            ) {
+              return { status: ReviewRequestedTransitionStatus.Conflict };
+            }
+            await this.updateIntent(transaction, intent, decision.intent);
+            return {
+              status: ReviewRequestedTransitionStatus.Applied,
+              intent: decision.intent,
+            };
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        );
+      } catch (error) {
+        // Retry only a transaction known to have rolled back. The network POST
+        // is outside this loop; every attempt reacquires locks and rechecks the
+        // claim against current database state.
+        if (isRetryableRecordDispatchConflict(error)) {
+          if (attempt < 3) {
+            await pauseBeforeDispatchTransactionRetry();
+            continue;
+          }
+          throw error;
+        }
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === "P2002"
+        ) {
+          return { status: ReviewRequestedTransitionStatus.StaleClaim };
+        }
+        throw error;
+      }
+    }
+    throw new Error("review_requested_dispatch_retry_unreachable");
+  }
+
+  async bindCleanupRunTarget(
+    command: Parameters<
+      ReviewRequestedDispatchCleanupTargetPort["bindCleanupRunTarget"]
+    >[0],
+  ) {
+    return this.transitionIntent(
+      command.requestId,
+      async (transaction, intent) =>
+        bindReviewRequestedDispatchCleanupTarget({
+          ...command,
+          intent,
+          now: await databaseNow(transaction),
+        }),
+    );
   }
 
   async beginSubmission(command: BeginReviewRequestedSubmissionCommand) {
@@ -639,23 +825,35 @@ export class PrismaReviewRequestedIntentStore
           ),
         });
       },
+      { retryRolledBackDispatchTransaction: true },
     );
   }
 
   async linkAdmission(command: LinkReviewRequestedAdmissionCommand) {
-    return this.transitionIntent(
-      command.requestId,
-      async (transaction, intent) =>
-        decideReviewRequestedAdmissionLink({
-          intent,
-          sourceRunId: command.sourceRunId,
-          sourceRunAttempt: command.sourceRunAttempt,
-          authorizationId: command.authorizationId,
-          executionId: command.executionId,
-          revision: command.revision,
-          now: await databaseNow(transaction),
-        }),
-    );
+    // A capture gate may invalidate this Serializable snapshot. Retrying the local
+    // transaction is safe: the losing source update and outbox writes roll back.
+    for (
+      let attempt = 0;
+      attempt < registrationTransactionMaxAttempts;
+      attempt += 1
+    ) {
+      const result = await this.transitionIntent(
+        command.requestId,
+        async (transaction, intent) =>
+          decideReviewRequestedAdmissionLink({
+            intent,
+            sourceRunId: command.sourceRunId,
+            sourceRunAttempt: command.sourceRunAttempt,
+            authorizationId: command.authorizationId,
+            executionId: command.executionId,
+            revision: command.revision,
+            now: await databaseNow(transaction),
+          }),
+      );
+      if (result.status !== ReviewRequestedTransitionStatus.StaleClaim)
+        return result;
+    }
+    return { status: ReviewRequestedTransitionStatus.StaleClaim } as const;
   }
 
   async recordAdmissionDecision(
@@ -698,6 +896,71 @@ export class PrismaReviewRequestedIntentStore
     );
   }
 
+  /**
+   * Under the pull request lock, like every other dispatch transition, so a
+   * request registered for the same revision cannot interleave (plan 88).
+   * The first extension also queues the "waiting for a runner" status.
+   */
+  async extendQueuedRunWait(
+    command: ExtendReviewRequestedQueuedRunWaitCommand,
+  ) {
+    const observed = await this.prisma.reviewRequestedIntent.findUnique({
+      where: { requestId: command.requestId },
+    });
+    if (observed === null) {
+      return { status: ReviewRequestedTransitionStatus.Missing };
+    }
+    try {
+      return await this.prisma.$transaction(
+        async (transaction) => {
+          await lockScope(transaction, intentToDomain(observed));
+          await lockIntent(transaction, command.requestId);
+          const record = await transaction.reviewRequestedIntent.findUnique({
+            where: { requestId: command.requestId },
+          });
+          if (record === null) {
+            return { status: ReviewRequestedTransitionStatus.Missing };
+          }
+          const intent = intentToDomain(record);
+          const now = await databaseNow(transaction);
+          const decision = extendReviewRequestedQueuedRunWait({
+            intent,
+            expectedVersion: command.expectedVersion,
+            competingPreAdmission: await hasCompetingPreAdmission(
+              transaction,
+              intent,
+            ),
+            now,
+            windowMs: command.windowMs,
+            nextResolutionAt: databaseRelativeDate(
+              now,
+              command.now,
+              command.nextResolutionAt,
+              "next_resolution_deadline",
+            ),
+          });
+          if (
+            decision.status !== ReviewRequestedTransitionDecisionStatus.Applied
+          ) {
+            return { status: ReviewRequestedTransitionStatus.Conflict };
+          }
+          await this.updateIntent(transaction, intent, decision.intent);
+          await enqueueStartNotice(transaction, decision.intent);
+          return {
+            status: ReviewRequestedTransitionStatus.Applied,
+            intent: decision.intent,
+          };
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (error) {
+      if (isConcurrencyError(error)) {
+        return { status: ReviewRequestedTransitionStatus.StaleClaim };
+      }
+      throw error;
+    }
+  }
+
   async cancelPreAdmission(
     command: CancelReviewRequestedPreAdmissionCommand,
   ): Promise<{ readonly cancelled: number }> {
@@ -729,11 +992,12 @@ export class PrismaReviewRequestedIntentStore
               intent.admission.state !== ReviewRequestAdmissionState.Admitted,
           );
         for (const intent of cancellable) {
-          await updateIntent(
-            transaction,
+          const cancelled = cancelReviewRequestedPreAdmissionIntent(
             intent,
-            cancelReviewRequestedPreAdmissionIntent(intent, command.now),
+            command.now,
           );
+          await this.updateIntent(transaction, intent, cancelled);
+          await enqueueDispatchCleanup(transaction, cancelled);
         }
         return { cancelled: cancellable.length };
       },
@@ -748,99 +1012,123 @@ export class PrismaReviewRequestedIntentStore
     if (observed === null) {
       return { status: ReviewRequestedTransitionStatus.Missing };
     }
-    try {
-      return await this.prisma.$transaction(
-        async (transaction) => {
-          await lockScope(transaction, intentToDomain(observed));
-          await lockIntent(transaction, command.requestId);
-          const record = await transaction.reviewRequestedIntent.findUnique({
-            where: { requestId: command.requestId },
-          });
-          if (record === null) {
-            return { status: ReviewRequestedTransitionStatus.Missing };
-          }
-          const intent = intentToDomain(record);
-          const replacementRecord =
-            await transaction.reviewRequestedIntent.findFirst({
-              where: {
-                ...scopeWhere(intent),
-                requestId: { not: intent.requestId },
-                state: intentStateToPrisma(
-                  ReviewRequestedIntentState.PendingDispatch,
-                ),
-              },
-              orderBy: [{ createdAt: "asc" }, { requestId: "asc" }],
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(
+          async (transaction) => {
+            await lockScope(transaction, intentToDomain(observed));
+            await lockIntent(transaction, command.requestId);
+            const record = await transaction.reviewRequestedIntent.findUnique({
+              where: { requestId: command.requestId },
             });
-          const now = await databaseNow(transaction);
-          const decision = decideReviewRequestedDispatchRecovery({
-            intent,
-            expectedVersion: command.expectedVersion,
-            replacementPending:
-              replacementRecord === null
-                ? null
-                : intentToDomain(replacementRecord),
-            successorCandidate: command.successorCandidate,
-            sourceRunId: command.sourceRunId,
-            sourceRunAttempt: command.sourceRunAttempt,
-            terminalReason: command.terminalReason,
-            now,
-          });
-          if (
-            decision.status ===
-            ReviewRequestedDispatchRecoveryDecisionStatus.Conflict
-          ) {
-            return { status: ReviewRequestedTransitionStatus.Conflict };
-          }
-          if (
-            decision.status ===
-            ReviewRequestedDispatchRecoveryDecisionStatus.Restored
-          ) {
+            if (record === null) {
+              return { status: ReviewRequestedTransitionStatus.Missing };
+            }
+            const intent = intentToDomain(record);
+            const replacementRecord =
+              await transaction.reviewRequestedIntent.findFirst({
+                where: {
+                  ...scopeWhere(intent),
+                  requestId: { not: intent.requestId },
+                  state: intentStateToPrisma(
+                    ReviewRequestedIntentState.PendingDispatch,
+                  ),
+                },
+                orderBy: [{ createdAt: "asc" }, { requestId: "asc" }],
+              });
+            const now = await databaseNow(transaction);
+            const decision = decideReviewRequestedDispatchRecovery({
+              intent,
+              expectedVersion: command.expectedVersion,
+              replacementPending:
+                replacementRecord === null
+                  ? null
+                  : intentToDomain(replacementRecord),
+              successorCandidate: command.successorCandidate,
+              sourceRunId: command.sourceRunId,
+              sourceRunAttempt: command.sourceRunAttempt,
+              terminalReason: command.terminalReason,
+              now,
+            });
+            if (
+              decision.status ===
+              ReviewRequestedDispatchRecoveryDecisionStatus.Conflict
+            ) {
+              return { status: ReviewRequestedTransitionStatus.Conflict };
+            }
+            if (
+              decision.status ===
+              ReviewRequestedDispatchRecoveryDecisionStatus.Restored
+            ) {
+              return {
+                status: ReviewRequestedTransitionStatus.Restored,
+                intent: decision.intent,
+              };
+            }
+            if (decision.createSuccessor) {
+              if (
+                decision.successor === null ||
+                command.successorCandidate === null
+              ) {
+                throw new Error("review_requested_recovery_successor_missing");
+              }
+              const successor = await transaction.reviewRequestedIntent.create({
+                data: intentCreateData({
+                  ...decision.successor,
+                  createdAt: now,
+                  updatedAt: now,
+                  notBefore: databaseRelativeDate(
+                    now,
+                    command.successorCandidate.createdAt,
+                    command.successorCandidate.notBefore,
+                    "dispatch_recovery_deadline",
+                  ),
+                  retainUntil: databaseRelativeDate(
+                    now,
+                    command.successorCandidate.createdAt,
+                    command.successorCandidate.retainUntil,
+                    "dispatch_recovery_retention_deadline",
+                  ),
+                }),
+              });
+              await this.hooks.historyCapture?.changed(
+                transaction,
+                intentToDomain(successor),
+              );
+            }
+            await this.updateIntent(transaction, intent, decision.intent);
+            if (
+              decision.status ===
+              ReviewRequestedDispatchRecoveryDecisionStatus.Terminalized
+            ) {
+              await enqueueDispatchCleanup(transaction, decision.intent);
+              await enqueueStartNotice(transaction, decision.intent);
+            }
             return {
-              status: ReviewRequestedTransitionStatus.Restored,
+              status: ReviewRequestedTransitionStatus.Applied,
               intent: decision.intent,
             };
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        );
+      } catch (error) {
+        if (isRetryableRecordDispatchConflict(error)) {
+          if (attempt < 3) {
+            await pauseBeforeDispatchTransactionRetry();
+            continue;
           }
-          if (decision.createSuccessor) {
-            if (
-              decision.successor === null ||
-              command.successorCandidate === null
-            ) {
-              throw new Error("review_requested_recovery_successor_missing");
-            }
-            await transaction.reviewRequestedIntent.create({
-              data: intentCreateData({
-                ...decision.successor,
-                createdAt: now,
-                updatedAt: now,
-                notBefore: databaseRelativeDate(
-                  now,
-                  command.successorCandidate.createdAt,
-                  command.successorCandidate.notBefore,
-                  "dispatch_recovery_deadline",
-                ),
-                retainUntil: databaseRelativeDate(
-                  now,
-                  command.successorCandidate.createdAt,
-                  command.successorCandidate.retainUntil,
-                  "dispatch_recovery_retention_deadline",
-                ),
-              }),
-            });
-          }
-          await updateIntent(transaction, intent, decision.intent);
-          return {
-            status: ReviewRequestedTransitionStatus.Applied,
-            intent: decision.intent,
-          };
-        },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-      );
-    } catch (error) {
-      if (isConcurrencyError(error)) {
-        return { status: ReviewRequestedTransitionStatus.StaleClaim };
+          throw error;
+        }
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === "P2002"
+        ) {
+          return { status: ReviewRequestedTransitionStatus.StaleClaim };
+        }
+        throw error;
       }
-      throw error;
     }
+    throw new Error("review_requested_recovery_retry_unreachable");
   }
 
   async pruneRetainedIntents(input: {
@@ -854,6 +1142,12 @@ export class PrismaReviewRequestedIntentStore
           FROM "ReviewRequestedIntent" AS intent
           WHERE intent."retainUntil" < (clock_timestamp() AT TIME ZONE 'UTC')
             AND intent.state IN ('dispatched', 'terminal', 'superseded')
+            AND NOT EXISTS (
+              SELECT 1 FROM "OutboxEvent" AS cleanup
+              WHERE cleanup."type" = ${reviewRequestedDispatchCleanupEventType}
+                AND cleanup."aggregateId" = intent."requestId"
+                AND cleanup."status" <> 'processed'
+            )
             AND NOT EXISTS (
               SELECT 1
               FROM "ReviewRequestedIntent" AS dependent
@@ -879,52 +1173,74 @@ export class PrismaReviewRequestedIntentStore
       transaction: Transaction,
       intent: ReviewRequestedIntent,
     ) => Promise<ReturnType<typeof decideReviewRequestedDispatch>>,
+    options?: { readonly retryRolledBackDispatchTransaction: boolean },
   ) {
-    try {
-      return await this.prisma.$transaction(
-        async (transaction) => {
-          await lockIntent(transaction, requestId);
-          const record = await transaction.reviewRequestedIntent.findUnique({
-            where: { requestId },
-          });
-          if (record === null) {
-            return { status: ReviewRequestedTransitionStatus.Missing };
-          }
-          const intent = intentToDomain(record);
-          const decision = await decide(transaction, intent);
-          if (
-            decision.status === ReviewRequestedTransitionDecisionStatus.Restored
-          ) {
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(
+          async (transaction) => {
+            await lockIntent(transaction, requestId);
+            const record = await transaction.reviewRequestedIntent.findUnique({
+              where: { requestId },
+            });
+            if (record === null) {
+              return { status: ReviewRequestedTransitionStatus.Missing };
+            }
+            const intent = intentToDomain(record);
+            const decision = await decide(transaction, intent);
+            if (
+              decision.status ===
+              ReviewRequestedTransitionDecisionStatus.Restored
+            ) {
+              return {
+                status: ReviewRequestedTransitionStatus.Restored,
+                intent: decision.intent,
+              };
+            }
+            if (
+              decision.status ===
+              ReviewRequestedTransitionDecisionStatus.StaleClaim
+            ) {
+              return { status: ReviewRequestedTransitionStatus.StaleClaim };
+            }
+            if (
+              decision.status ===
+              ReviewRequestedTransitionDecisionStatus.Conflict
+            ) {
+              return { status: ReviewRequestedTransitionStatus.Conflict };
+            }
+            await this.updateIntent(transaction, intent, decision.intent);
             return {
-              status: ReviewRequestedTransitionStatus.Restored,
+              status: ReviewRequestedTransitionStatus.Applied,
               intent: decision.intent,
             };
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        );
+      } catch (error) {
+        if (options?.retryRolledBackDispatchTransaction) {
+          if (isRetryableRecordDispatchConflict(error) && attempt < 3) {
+            await pauseBeforeDispatchTransactionRetry();
+            continue;
           }
-          if (
-            decision.status ===
-            ReviewRequestedTransitionDecisionStatus.StaleClaim
-          ) {
-            return { status: ReviewRequestedTransitionStatus.StaleClaim };
-          }
-          if (
-            decision.status === ReviewRequestedTransitionDecisionStatus.Conflict
-          ) {
-            return { status: ReviewRequestedTransitionStatus.Conflict };
-          }
-          await updateIntent(transaction, intent, decision.intent);
-          return {
-            status: ReviewRequestedTransitionStatus.Applied,
-            intent: decision.intent,
-          };
-        },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-      );
-    } catch (error) {
-      if (isConcurrencyError(error)) {
-        return { status: ReviewRequestedTransitionStatus.StaleClaim };
+          throw error;
+        }
+        if (isConcurrencyError(error)) {
+          return { status: ReviewRequestedTransitionStatus.StaleClaim };
+        }
+        throw error;
       }
-      throw error;
     }
+    throw new Error("review_requested_transition_retry_unreachable");
+  }
+
+  private async updateIntent(
+    transaction: Transaction,
+    current: ReviewRequestedIntent,
+    next: ReviewRequestedIntent,
+  ): Promise<void> {
+    await updateIntent(transaction, current, next);
+    await this.hooks.historyCapture?.changed(transaction, next, current);
   }
 
   private async resolveRegistrationRace(
@@ -953,6 +1269,7 @@ export class PrismaReviewRequestedIntentStore
 function intentCreateData(intent: ReviewRequestedIntent) {
   return {
     requestId: intent.requestId,
+    historyRootRequestId: intent.historyRootRequestId ?? null,
     dispatchAttempt: intent.dispatchAttempt,
     version: intent.version,
     workspaceId: intent.workspaceId,
@@ -1112,4 +1429,95 @@ function isConcurrencyError(error: unknown): boolean {
   );
 }
 
+function isRetryableRecordDispatchConflict(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === "P2034") return true;
+    if (error.code !== "P2010") return false;
+    const meta = error.meta;
+    const adapterError = meta?.driverAdapterError;
+    const cause =
+      typeof adapterError === "object" &&
+      adapterError !== null &&
+      "cause" in adapterError
+        ? adapterError.cause
+        : undefined;
+    const originalCode =
+      typeof cause === "object" && cause !== null && "originalCode" in cause
+        ? cause.originalCode
+        : undefined;
+    const code = meta?.code === "N/A" ? undefined : meta?.code;
+    if (
+      code !== undefined &&
+      originalCode !== undefined &&
+      code !== originalCode
+    )
+      return false;
+    const sqlState = originalCode ?? code;
+    return sqlState === "40001" || sqlState === "40P01";
+  }
+  if (!(error instanceof Error) || error.name !== "DriverAdapterError")
+    return false;
+  const cause = (error as Error & { readonly cause?: unknown }).cause;
+  if (
+    typeof cause !== "object" ||
+    cause === null ||
+    !("kind" in cause) ||
+    cause.kind !== "TransactionWriteConflict"
+  )
+    return false;
+  if (!("originalCode" in cause) || cause.originalCode === undefined)
+    return true;
+  return cause.originalCode === "40001" || cause.originalCode === "40P01";
+}
+
+function pauseBeforeDispatchTransactionRetry(): Promise<void> {
+  return new Promise((resolve) =>
+    setTimeout(resolve, 10 + Math.floor(Math.random() * 20)),
+  );
+}
+
 class ConcurrentIntentMutationError extends Error {}
+
+/** Another request of the pull request that has not reached its own run yet. */
+async function hasCompetingPreAdmission(
+  transaction: Transaction,
+  intent: ReviewRequestedIntent,
+): Promise<boolean> {
+  const competitor = await transaction.reviewRequestedIntent.findFirst({
+    where: {
+      ...scopeWhere(intent),
+      requestId: { not: intent.requestId },
+      state: {
+        in: [
+          intentStateToPrisma(ReviewRequestedIntentState.PendingDispatch),
+          intentStateToPrisma(ReviewRequestedIntentState.Dispatching),
+          intentStateToPrisma(ReviewRequestedIntentState.ReconcilingDispatch),
+          intentStateToPrisma(ReviewRequestedIntentState.AwaitingAuthorization),
+        ],
+      },
+    },
+    select: { requestId: true },
+  });
+  return competitor !== null;
+}
+
+/** One status per request and kind; a later extension adds nothing new. */
+async function enqueueStartNotice(
+  transaction: Transaction,
+  intent: ReviewRequestedIntent,
+): Promise<void> {
+  const event = reviewRequestedStartNoticeEvent(intent);
+  if (event)
+    await transaction.outboxEvent.createMany({
+      data: [event],
+      skipDuplicates: true,
+    });
+}
+
+async function enqueueDispatchCleanup(
+  transaction: Transaction,
+  intent: ReviewRequestedIntent,
+): Promise<void> {
+  const event = reviewRequestedDispatchCleanupEvent(intent);
+  if (event) await transaction.outboxEvent.create({ data: event });
+}

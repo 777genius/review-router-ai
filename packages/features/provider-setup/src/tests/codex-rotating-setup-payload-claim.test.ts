@@ -1,3 +1,4 @@
+import { InMemoryCodexRotatingSetupPayloadClaim } from "../composition/index";
 import { describe, expect, it } from "vitest";
 import {
   assertCodexRotatingAccountIdentityTransition,
@@ -14,7 +15,6 @@ import {
   codexRotatingActivationSchema,
   authorizeCodexRotatingSetupDispatch,
   getCodexRotatingSetupStatus,
-  InMemoryCodexRotatingSetupPayloadClaim,
   prepareCodexRotatingSetup,
   recordCodexRotatingSetupDispatchOutcome,
 } from "../index";
@@ -541,6 +541,22 @@ describe("versioned rotating setup recovery ledger", () => {
       responseCode: 204,
     });
     time.advance(10 * 60_000);
+    const lateConfirmation = await ledger
+      .recordDispatchOutcome({
+        claimId: prepared.claimId,
+        attemptId: attempt.attemptId,
+        outcome: "definite_success",
+        responseCode: 204,
+      })
+      .catch((error: unknown) => error);
+    expect((await ledger.status(prepared.claimId)).attempt).toMatchObject({
+      attemptId: attempt.attemptId,
+      status: "confirmed",
+    });
+    expect(lateConfirmation).toBeInstanceOf(Error);
+    expect((lateConfirmation as Error).message).toBe(
+      "codex_rotating_setup_dispatch_expired",
+    );
     await expect(
       ledger.activate({
         claimId: prepared.claimId,
@@ -572,7 +588,7 @@ describe("versioned rotating setup recovery ledger", () => {
         outcome: "definite_success",
         responseCode: 204,
       }),
-    ).rejects.toThrow("codex_rotating_setup_authorization_expired");
+    ).rejects.toThrow("codex_rotating_setup_dispatch_expired");
   });
   it("requires an explicitly authorized account-switch epoch for changed identity", () => {
     expect(() =>
@@ -693,13 +709,21 @@ describe("versioned rotating setup recovery ledger", () => {
       ledger.recordDispatchOutcome({
         claimId: prepared.claimId,
         attemptId: attempt.attemptId,
+        outcome: "unknown",
+      }),
+    ).rejects.toThrow("codex_rotating_setup_attempt_already_confirmed");
+    await expect(
+      ledger.recordDispatchOutcome({
+        claimId: prepared.claimId,
+        attemptId: attempt.attemptId,
         outcome: "definite_success",
         responseCode: 204,
       }),
     ).resolves.toEqual({ status: "confirmed_candidate" });
-    expect((await ledger.status(prepared.claimId)).attempt?.attemptId).toBe(
-      attempt.attemptId,
-    );
+    expect((await ledger.status(prepared.claimId)).attempt).toMatchObject({
+      attemptId: attempt.attemptId,
+      status: "confirmed",
+    });
   });
 
   it("requires exact repository/workflow/namespace attestation and rejects old queued runs", async () => {

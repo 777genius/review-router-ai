@@ -30,7 +30,7 @@ describe("Codex rotating setup status capability transport", () => {
     expect("GET" in route).toBe(false);
     const response = await route.POST(
       new Request(
-        "https://reviewrouter.site/api/codex-rotating/setup-status?claimId=stp%3Apublic-nonce",
+        "https://reviewrouter.org/api/codex-rotating/setup-status?claimId=stp%3Apublic-nonce",
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -53,7 +53,7 @@ describe("Codex rotating setup status capability transport", () => {
 
   it("does not cache malformed capability requests", async () => {
     const response = await route.POST(
-      new Request("https://reviewrouter.site/api/codex-rotating/setup-status", {
+      new Request("https://reviewrouter.org/api/codex-rotating/setup-status", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: "not-json",

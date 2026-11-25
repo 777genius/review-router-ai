@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildCodexRotatingAction } from "./lib/codex-rotating-action-build.mjs";
+import { buildCodexRotatingAction } from "./lib/codex-rotating-action-build.ts";
 
 const root = process.cwd();
 const actionYmlPath = join(root, "action.yml");
@@ -116,6 +116,11 @@ assertIncludes(
   "review-timeout-minutes:\n    description:",
   "action.yml must expose review-timeout-minutes",
 );
+assertIncludes(
+  actionYml,
+  "mimo-token-plan-api-key:\n    description:",
+  "action.yml must expose mimo-token-plan-api-key",
+);
 
 for (const forbidden of [
   "runs.pre",
@@ -194,6 +199,21 @@ assertIncludes(
   bundle,
   "REVIEWROUTER_CONTROL_PLANE_URL",
   "action bundle must propagate the selected control plane URL to child runtimes",
+);
+assertIncludes(
+  bundle,
+  "mimo-token-plan-api-key",
+  "action bundle must read the MiMo Token Plan Action input",
+);
+assertIncludes(
+  bundle,
+  "MIMO_TOKEN_PLAN_API_KEY",
+  "action bundle must propagate the MiMo Token Plan key to the public engine",
+);
+assertIncludes(
+  bundle,
+  "missing_mimo_token_plan_api_key",
+  "action bundle must fail clearly when codex-mimo lacks its explicit key",
 );
 
 if (requireBinary) {

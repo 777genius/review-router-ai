@@ -22,6 +22,7 @@ import {
   codexRotatingCatalogIndexNames,
   codexRotatingCatalogTables,
   codexRotatingFunctionBodyDigests,
+  codexRotatingPostAclWorkerInsertGuard as workerInsertGuard,
   codexRotatingFunctionIdentityArguments,
   codexRotatingIndexDefinitions,
   codexRotatingPartialIndexPredicates,
@@ -683,6 +684,16 @@ function verifyDatabase(db, descriptor, need, options) {
       ),
     "database owned table catalog is not exact",
   );
+  // Capture intentionally includes every RepositoryConnection trigger/function.
+  // A pre-grant/historical database may not have the owner-operated guard yet,
+  // but even one observed part requires its complete pinned catalog contract.
+  const workerGuardObserved = isWorkerInsertGuardObserved(db?.catalog);
+  const catalogTriggers = workerGuardObserved
+    ? [...exactTriggers, workerInsertGuard.trigger]
+    : exactTriggers;
+  const catalogFunctions = workerGuardObserved
+    ? [...exactFunctions, workerInsertGuard.function]
+    : exactFunctions;
   need(
     hasExactKeys(db?.catalog?.inventory, [
       "checks",
@@ -708,8 +719,8 @@ function verifyDatabase(db, descriptor, need, options) {
         db?.catalog?.inventory?.foreignKeys,
         codexRotatingCatalogForeignKeyNames,
       ) &&
-      equalSorted(db?.catalog?.inventory?.triggers, exactTriggers) &&
-      equalSorted(db?.catalog?.inventory?.functions, exactFunctions),
+      equalSorted(db?.catalog?.inventory?.triggers, catalogTriggers) &&
+      equalSorted(db?.catalog?.inventory?.functions, catalogFunctions),
     "database rotating OAuth catalog inventory is not exact",
   );
   need(
@@ -719,7 +730,7 @@ function verifyDatabase(db, descriptor, need, options) {
   need(
     equalSorted(
       db?.catalog?.triggers?.map((entry) => entry.name),
-      exactTriggers,
+      catalogTriggers,
     ),
     "database trigger catalog is not exact",
   );
@@ -734,7 +745,7 @@ function verifyDatabase(db, descriptor, need, options) {
   need(
     equalSorted(
       db?.catalog?.functions?.map((entry) => entry.name),
-      exactFunctions,
+      catalogFunctions,
     ) && invalidFunctionDefinitions.length === 0,
     invalidFunctionDefinitions.length === 0
       ? "database trigger function definitions are not exact"
@@ -789,7 +800,10 @@ function verifyDatabase(db, descriptor, need, options) {
     "database evidence primary keys are not exact",
   );
   need(
-    exactFunctionCatalogAcl(db?.catalog?.privileges?.functions),
+    exactFunctionCatalogAcl(
+      db?.catalog?.privileges?.functions,
+      workerGuardObserved,
+    ),
     "database owned function privileges are not exact",
   );
   need(
@@ -811,6 +825,19 @@ function verifyDatabase(db, descriptor, need, options) {
     callerImageDigest: db?.callerIdentity?.imageDigest,
     callerRolloutId: db?.callerIdentity?.rolloutId,
   };
+}
+
+function isWorkerInsertGuardObserved(catalog) {
+  return Boolean(
+    catalog?.inventory?.triggers?.includes(workerInsertGuard.trigger) ||
+    catalog?.inventory?.functions?.includes(workerInsertGuard.function) ||
+    catalog?.triggers?.some(
+      (entry) => entry?.name === workerInsertGuard.trigger,
+    ) ||
+    catalog?.functions?.some(
+      (entry) => entry?.name === workerInsertGuard.function,
+    ),
+  );
 }
 
 function exactCatalogAcl(entries, objects, grantees, fixedPrivileges) {
@@ -916,7 +943,7 @@ function exactColumnCatalogAcl(entries) {
   return equalSorted(entries.map(key), expected.map(key));
 }
 
-function exactFunctionCatalogAcl(entries) {
+function exactFunctionCatalogAcl(entries, workerGuardObserved = false) {
   if (
     !Array.isArray(entries) ||
     entries.some(
@@ -962,6 +989,18 @@ function exactFunctionCatalogAcl(entries) {
       grantable: false,
     })),
   ]);
+  if (workerGuardObserved) {
+    // The guard is owned by the existing post-ACL operator, not the
+    // release-migration schema owner. No runtime/PUBLIC EXECUTE is allowed.
+    expected.push({
+      name: workerInsertGuard.function,
+      identityArguments: "",
+      grantee: workerInsertGuard.owner,
+      grantor: workerInsertGuard.owner,
+      privilege: "EXECUTE",
+      grantable: false,
+    });
+  }
   const key = (entry) =>
     JSON.stringify([
       entry.name,
@@ -1003,10 +1042,23 @@ export function verifyCodexRotatingDatabaseCatalog(
     { catalog },
     {},
     (condition, message) => {
-      if (catalogMessages.has(message) && !condition) failures.push(message);
+      if (!condition && catalogMessages.has(message)) failures.push(message);
     },
     {},
   );
+  // The standalone PG17 rehearsal accepts the established legacy routine
+  // inventory. Pin only the newly observed post-ACL guard here; the complete
+  // rollout verifier separately enforces all canonical function definitions.
+  const hasExactWorkerGuardFunction = catalog?.functions?.some(
+    (entry) =>
+      entry?.name === workerInsertGuard.function &&
+      exactFunctionDefinition(entry),
+  );
+  if (isWorkerInsertGuardObserved(catalog) && !hasExactWorkerGuardFunction) {
+    failures.push(
+      `database trigger function definitions are not exact: ${workerInsertGuard.function}`,
+    );
+  }
   if (!verifyPrivileges) {
     const structuralFailures = failures.filter(
       (failure) =>
@@ -1295,6 +1347,11 @@ function verifyDrainObservations(
 
 function exactTriggerBinding(entry) {
   const bindings = {
+    [workerInsertGuard.trigger]: [
+      "RepositoryConnection",
+      workerInsertGuard.function,
+      7, // BEFORE INSERT FOR EACH ROW
+    ],
     CodexOAuthChildIdentityQuarantine_cascade_guard: [
       "CodexOAuthChildIdentityQuarantine",
       "codex_oauth_runtime_referential_action_guard",
@@ -1483,7 +1540,10 @@ function exactTriggerBinding(entry) {
   );
 }
 function exactFunctionDefinition(entry) {
-  const bodySha256 = exactFunctionBodyDigestByName.get(entry?.name);
+  const bodySha256 =
+    entry?.name === workerInsertGuard.function
+      ? workerInsertGuard.bodySha256
+      : exactFunctionBodyDigestByName.get(entry?.name);
   const expectedArguments =
     {
       codex_oauth_authorize_runtime_completion:
@@ -1526,6 +1586,7 @@ function exactFunctionDefinition(entry) {
             ? "void"
             : "trigger";
   const securityDefinerFunction =
+    entry?.name === workerInsertGuard.function ||
     entry?.name === "hosted_codex_comment_token_authority_revoke_enqueue" ||
     entry?.name?.startsWith("codex_oauth_authorize_") ||
     entry?.name === "codex_oauth_consume_database_authority" ||
@@ -1575,7 +1636,10 @@ function exactFunctionDefinition(entry) {
     ]) &&
     entry?.securityDefiner === securityDefinerFunction &&
     entry.identityArguments === expectedFunctionIdentityArguments(entry.name) &&
-    entry.owner === releaseSchemaOwnerRole &&
+    entry.owner ===
+      (entry.name === workerInsertGuard.function
+        ? workerInsertGuard.owner
+        : releaseSchemaOwnerRole) &&
     entry.prokind === "f" &&
     entry.proretset === false &&
     entry.prosupport === null &&

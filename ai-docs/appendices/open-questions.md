@@ -2,7 +2,7 @@
 
 ## Product
 
-1. Should SaaS dashboard require GitHub OAuth org admin permission before showing install flow?
+1. Should control plane dashboard require GitHub OAuth org admin permission before showing install flow?
 2. Should setup PR include only workflow or also `.reviewrouter/config.yml`?
 3. Should AI discussion be included in public beta or delayed?
 4. Which free beta limits should be tuned after first tester feedback?

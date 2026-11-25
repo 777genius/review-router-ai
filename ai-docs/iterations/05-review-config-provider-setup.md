@@ -8,7 +8,7 @@ Add review configuration presets and provider setup guidance without storing sec
 
 - ReviewConfiguration aggregate
 - config versioning
-- static vs SaaS runtime config precedence
+- static vs control plane runtime config precedence
 - action/config schema compatibility rules
 - presets: safe default, strict security, minimal
 - provider setup state model

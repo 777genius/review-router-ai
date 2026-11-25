@@ -1,0 +1,123 @@
+{
+  "kind": "openrouter_nano_e_finite_acceptance",
+  "verdict": "PASS",
+  "runId": "38131140682",
+  "attempt": 1,
+  "head": "fc227ccbc9fd5092e27a1c582af8f22174f495a8",
+  "actionCommit": "4cb00b4598974bc8fb5feafc1b1699ca76ca32af",
+  "producerReleaseId": "rr-openrouter-published158-oct11",
+  "model": "openai/gpt-5.4-nano",
+  "scope": "disposable_PR2_current_source_tools_final_App_closure",
+  "workflowConclusion": "success",
+  "acceptedObservationCount": 1,
+  "acceptedObservationBytes": 2149,
+  "finalizedProjectionBytes": 8857,
+  "findingCount": 1,
+  "authenticatedSuccessfulToolOperations": 14,
+  "sameHeadAppReview": 5482899040,
+  "historyCount": 25,
+  "oldTwentyFourStatesPreserved": true,
+  "leaseReleased": true,
+  "kernelExecutionClosed": true,
+  "requestCount": 6,
+  "allRequestsCompleted": true,
+  "occupied": 0,
+  "additionalProviderCallsByCollectors": 0,
+  "historical381242Cause": "UNKNOWN",
+  "preissue78280FailedSubguard": "UNKNOWN; no issued effect; later all unchanged preflight guards PASS",
+  "productionClaim": false,
+  "evidenceSha256": {
+    "acceptance-main.actual.public.jsonl": "fd1d2b9abe94152ed2fdcee6c829a2df30d10ba144738bf0f40d25d7f567bf0c",
+    "context.actual.public.json": "fac389bef7905ef0d25a31e87e589cde81cd9186ea89d1da93b67639d795cb8b",
+    "app.actual.public.json": "8a7e7afea22d9fc6b3b160dfc1955c0b9fbb427cefd38b68828600e9e2f7f7c6",
+    "precanary-ready.public.json": "399178400339edcf5012f5f2b8e0578716aa6caa4a521d12e6e61ef0213e0ae2",
+    "producer-registration-qualified.actual.public.json": "c39a71f6b36360d8f8e80f268143588accadb7dcc171fbab4847367377f6238b"
+  },
+  "sourceTuple": {
+    "nativeCommit": "82a6c219414996c8780b20d057629a5cd97da7f4",
+    "nativeElfSha256": "866c342af8234676ad34b4e38ac24c016b011ab8b64833a5c93c380a6f874640",
+    "gatewayCommit": "c598146dfc63113635e4bfd6efd8df7cd10fe127",
+    "apiSource": "2986b337c0faee9eeb3832020e307f8c3db80385",
+    "apiDistSha256": "20ce079cc48c0e527e2e6f327714035139b67090daffaa0412a30a69be449470",
+    "actionCommit": "4cb00b4598974bc8fb5feafc1b1699ca76ca32af",
+    "actionEntrypointSha256": "166ab590292c76ea78b2015dfda71aacf91be963b0b94f7c04f9c7883c18a814",
+    "producerReleaseId": "rr-openrouter-published158-oct11"
+  },
+  "runtimeTuple": {
+    "origin": "https://rachel-acute-personal-prev.trycloudflare.com",
+    "native": {
+      "originRef": "rr-openrouter-f597ea82068ce7a412823dd853dcb85b",
+      "bootId": "f12bc43a-9252-42d4-919d-85b846a176a8",
+      "pid": 3457524,
+      "birthTicks": 179901638,
+      "incarnation": "7a1f9fbc-c1f7-4dac-9092-d6d68fbcf1b2",
+      "lockDevice": 2306,
+      "lockInode": 11595568,
+      "remainingSeconds": 5713
+    },
+    "gateway": {
+      "pid": 3457200,
+      "birthTicks": 179901604,
+      "remainingSeconds": 5713
+    },
+    "api": {
+      "pid": 3968783,
+      "birthTicks": 179949381,
+      "remainingSeconds": 6191
+    },
+    "completion": {
+      "pid": 3966021,
+      "birthTicks": 179949100,
+      "remainingSeconds": 6188
+    },
+    "vendor": {
+      "pid": 3960567,
+      "birthTicks": 179948542,
+      "remainingSeconds": 6182
+    },
+    "bindingId": "cmv3j056v0000462r7dwlhymk",
+    "account": {
+      "accountRef": "97850fd5-0632-4e01-817a-c9e662c3e2d1",
+      "profileId": "openrouter-openai-responses-apikey-v1",
+      "state": "active",
+      "metadataRevision": 2,
+      "authorizationEpoch": 1
+    },
+    "configurationVersion": 3,
+    "trustEntries": 12,
+    "retirements": 2,
+    "retainedWorkers": 2,
+    "accounting": {
+      "worker_slots": 2,
+      "workers": 2,
+      "open": 0,
+      "occupied": 0
+    }
+  },
+  "authorizationPolicy": {
+    "requestBudget": 32,
+    "maxInFlight": 2,
+    "serverAuthorizationLifetimeMs": 900000,
+    "callerTimeoutMinutes": 15,
+    "minimumServiceRemainingSeconds": 1800,
+    "proofTtlSeconds": 120
+  },
+  "authenticatedContext": {
+    "manifestVersion": 3,
+    "dependencyCount": 14,
+    "operationKindCounts": {
+      "canonical_inventory": 1,
+      "git_fact": 1,
+      "file_read": 12
+    },
+    "changedPathsWitnessCount": 0,
+    "successfulOperations": 14,
+    "manifestComplete": true,
+    "confinementUntainted": true,
+    "terminalFailureAbsent": true,
+    "sameHead": true,
+    "sameProducer": true,
+    "actualModelMatches": true
+  },
+  "readinessAt": "2026-10-11T10:11:47.506Z"
+}

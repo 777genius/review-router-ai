@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Seed Codex ChatGPT OAuth auth into GitHub Actions secrets without sending it to ReviewRouter SaaS.
+# Seed Codex ChatGPT OAuth auth into GitHub Actions secrets without sending it to ReviewRouter.
 # Usage examples:
-#   curl -fsSL https://reviewrouter.site/install/codex | bash -s -- --confirm-write --repo owner/repo
+#   curl -fsSL https://reviewrouter.org/install/codex | bash -s -- --confirm-write --repo owner/repo
 #   bash scripts/seed-codex-auth.sh --confirm-write --scope org --org my-org --visibility selected --repos repo-a,repo-b
 
 set -Eeuo pipefail
@@ -169,7 +169,7 @@ confirm_secret_write() {
   fi
 
   warn "This will create or overwrite GitHub Actions secrets for the target below."
-  warn "ReviewRouter SaaS will not receive the secret value; gh writes it directly to GitHub."
+  warn "ReviewRouter will not receive the secret value; gh writes it directly to GitHub."
 
   if [ ! -t 0 ]; then
     fatal "Refusing to write secrets in non-interactive mode without confirmation. Set REVIEW_ROUTER_CONFIRM_WRITE=1 after verifying the target."

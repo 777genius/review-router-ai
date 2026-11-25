@@ -12,9 +12,9 @@ The existing ReviewRouter action work includes or targets:
 - installer with curl flow
 - org selected-repo secret support
 - ReviewRouter branding
-- future SaaS runtime config fetch through GitHub Actions OIDC
+- future control plane runtime config fetch through GitHub Actions OIDC
 - action version modes: stable/release/main
-- SaaS beta default action ref: `777genius/review-router@main`
+- control plane beta default action ref: `777genius/review-router@main`
 - strict JSON findings from Codex
 - read-only agentic Codex context mode
 - deterministic diff seed
@@ -25,7 +25,7 @@ The existing ReviewRouter action work includes or targets:
 - `/rr skip` command with signed PR ledger
 - AI discussion direction for future explanation, not automatic skip
 
-## Action vs SaaS Boundary
+## Action vs control plane Boundary
 
 Action owns:
 
@@ -37,7 +37,7 @@ Action owns:
 - blocking status
 - skip ledger handling inside PR
 
-SaaS owns:
+control plane owns:
 
 - setup and configuration
 - workflow provisioning
@@ -64,7 +64,7 @@ during the May 8, 2026 cleanup. These entries are retained as historical
 evidence only. For a new validation, create a fresh disposable repository and
 record fresh PR/run links instead of reusing the deleted repos.
 
-On 2026-05-03, the SaaS provisioning path and separate action runtime were
+On 2026-05-03, the control plane provisioning path and separate action runtime were
 validated against a real public smoke repository:
 
 ```text
@@ -92,13 +92,13 @@ fixed in `777genius/review-router`:
 37a04a0 fix: keep privileged default user findings
 ```
 
-Keep SaaS-generated beta workflows on `@main` until a release tag is cut from a
+Keep control plane-generated beta workflows on `@main` until a release tag is cut from a
 runtime that includes those fixes.
 
-## Latest SaaS Setup Guard Validation
+## Latest control plane Setup Guard Validation
 
 On 2026-05-04, the smoke repository was re-synced through the real GitHub App
-installation and probed through the SaaS repo-health path:
+installation and probed through the control plane repo-health path:
 
 ```text
 Repo: 777genius/review-router-saas-e2e

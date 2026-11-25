@@ -50,12 +50,30 @@ const investigationLeaseSigningKeys = JSON.stringify([
 const producerReleaseAttestations = JSON.stringify([
   {
     producerReleaseId: "self-hosted-action-v2",
+    agentProfiles: [
+      {
+        profileRef: "codex-default",
+        agentKind: "codex",
+        binarySha256: "a".repeat(64),
+        packageVersion: "0.147.0",
+        modelTransports: ["account_gateway"],
+        contextGateway: true,
+        cancellation: true,
+      },
+    ],
+    reviewInvestigationCapability:
+      investigationReleaseFixture.reviewInvestigation.capability,
+    reviewInvestigationCoverageProfileHash:
+      investigationReleaseFixture.reviewInvestigation.coverageProfileHash,
+    reviewInvestigationPolicyHash:
+      investigationReleaseFixture.reviewInvestigation.policyHash,
     distributionKind: "public_reusable",
     actionCommitSha,
     runtimeCommitSha: "1".repeat(40),
     wrapperEntrypointDigest: null,
     runtimeEntrypointDigest: "2".repeat(64),
-    contextGatewayPolicyVersion: "review-context-gateway.v1",
+    contextGatewayPolicyVersion:
+      investigationReleaseFixture.contextGateway.policyVersion,
     contextGatewayEntrypointDigest: "3".repeat(64),
     schemaDigest: "4".repeat(64),
     canonicalizerDigest: "5".repeat(64),
@@ -336,6 +354,25 @@ const cases = [
     },
   },
   {
+    name: "T0 accepts and validates optional producer compatibility profiles",
+    expectSuccess: true,
+    env: {
+      REVIEW_ROUTER_GITHUB_APP_PERMISSION_PROFILE: "review-only",
+      REVIEW_ROUTER_ENABLE_WORKFLOW_PROVISIONING: "0",
+      REVIEW_ROUTER_DISABLE_WORKFLOW_PROVISIONING: "1",
+      REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON:
+        JSON.stringify([
+          {
+            ...JSON.parse(producerReleaseAttestations)[0],
+            contextToolsProfile: {
+              extensionId: "context-tools.v1",
+              descriptorDigest: `sha256:${"a".repeat(64)}`,
+            },
+          },
+        ]),
+    },
+  },
+  {
     name: "T0 rejects a partial investigation producer profile",
     expectSuccess: false,
     expectedError:
@@ -349,6 +386,26 @@ const cases = [
           {
             ...JSON.parse(investigationProducerReleaseAttestations)[0],
             reviewInvestigationPolicyHash: null,
+          },
+        ]),
+    },
+  },
+  {
+    name: "T0 rejects an agent without fenced cancellation",
+    expectSuccess: false,
+    expectedError:
+      "REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON must contain 1-100 valid",
+    env: {
+      REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON:
+        JSON.stringify([
+          {
+            ...JSON.parse(producerReleaseAttestations)[0],
+            agentProfiles: [
+              {
+                ...JSON.parse(producerReleaseAttestations)[0].agentProfiles[0],
+                cancellation: false,
+              },
+            ],
           },
         ]),
     },

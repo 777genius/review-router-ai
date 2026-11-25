@@ -88,6 +88,20 @@ function exactManifest(value, expected) {
   }
 }
 
+/** Bind a release artifact to the physical job execution, not the display attempt. */
+function artifactCreatedDuringJob(artifact, job) {
+  const createdAt = Date.parse(artifact.created_at);
+  const startedAt = Date.parse(job.started_at);
+  const completedAt = Date.parse(job.completed_at);
+  return (
+    Number.isFinite(createdAt) &&
+    Number.isFinite(startedAt) &&
+    Number.isFinite(completedAt) &&
+    startedAt <= createdAt &&
+    createdAt <= completedAt
+  );
+}
+
 async function downloadAndVerifyArtifact(
   fetchImpl,
   prefix,
@@ -143,11 +157,19 @@ async function downloadAndVerifyArtifact(
   } catch {
     throw new Error("release gate artifact manifest is not strict JSON");
   }
-  exactManifest(manifest, expected);
+  const artifactAttempt = manifest.runAttempt;
+  if (
+    !Number.isSafeInteger(artifactAttempt) ||
+    artifactAttempt <= 0 ||
+    artifactAttempt > expected.runAttempt
+  )
+    throw new Error("release gate artifact manifest runAttempt mismatch");
+  exactManifest(manifest, { ...expected, runAttempt: artifactAttempt });
   return Object.freeze({
     artifactId: String(artifact.id),
     artifactDigest: artifact.digest,
     artifactName: artifact.name,
+    runAttempt: artifactAttempt,
   });
 }
 
@@ -233,15 +255,21 @@ export async function verifyReleaseGateRun(
       );
     const artifactName = `${contract.artifactPrefix}${commit}`;
     const matchingArtifacts = artifacts.artifacts.filter(
-      (artifact) => artifact.name === artifactName,
+      (artifact) =>
+        artifact.name === artifactName &&
+        artifactCreatedDuringJob(artifact, job),
     );
     if (matchingArtifacts.length !== 1)
       throw new Error(
         `release gate exact artifact is missing: ${artifactName}`,
       );
     const artifact = matchingArtifacts[0];
-    receipts.push(
-      await downloadAndVerifyArtifact(fetchImpl, prefix, headers, artifact, {
+    const receipt = await downloadAndVerifyArtifact(
+      fetchImpl,
+      prefix,
+      headers,
+      artifact,
+      {
         schemaVersion: releaseGateContract.schemaVersion,
         gate: contract.gate,
         repository,
@@ -251,6 +279,53 @@ export async function verifyReleaseGateRun(
         jobName: contract.jobName,
         artifactName,
         artifactId: artifact.id,
+      },
+    );
+    // GitHub may carry successful jobs into a partial rerun with its latest
+    // attempt number. Only the same successful job in the artifact's actual
+    // originating attempt can authorize that immutable evidence.
+    const evidenceJobs =
+      receipt.runAttempt === runAttempt
+        ? jobs
+        : await githubJson(
+            fetchImpl,
+            githubApi +
+              prefix +
+              "/actions/runs/" +
+              runId +
+              "/attempts/" +
+              receipt.runAttempt +
+              "/jobs?per_page=100",
+            headers,
+          );
+    if (
+      !Array.isArray(evidenceJobs.jobs) ||
+      evidenceJobs.total_count !== evidenceJobs.jobs.length ||
+      evidenceJobs.total_count > 100
+    )
+      throw new Error("release gate attempt job inventory is incomplete");
+    const matchingEvidenceJobs = evidenceJobs.jobs.filter(
+      (candidate) => candidate.name === contract.jobName,
+    );
+    const evidenceJob = matchingEvidenceJobs[0];
+    if (
+      matchingEvidenceJobs.length !== 1 ||
+      String(evidenceJob.run_id) !== String(runId) ||
+      evidenceJob.run_attempt !== receipt.runAttempt ||
+      evidenceJob.head_sha !== commit ||
+      evidenceJob.status !== "completed" ||
+      evidenceJob.conclusion !== "success" ||
+      evidenceJob.started_at !== job.started_at ||
+      evidenceJob.completed_at !== job.completed_at
+    )
+      throw new Error(
+        "release gate evidence job attempt mismatch: " + contract.jobName,
+      );
+    receipts.push(
+      Object.freeze({
+        artifactId: receipt.artifactId,
+        artifactDigest: receipt.artifactDigest,
+        artifactName: receipt.artifactName,
       }),
     );
   }

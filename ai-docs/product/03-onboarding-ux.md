@@ -46,7 +46,7 @@ Show:
 
 - what file is needed
 - where it will be stored
-- why SaaS does not receive it
+- why control plane does not receive it
 - org selected-repo secrets recommended for teams
 - self-hosted runner persistent `CODEX_HOME` option
 
@@ -67,7 +67,7 @@ GitHub App bot - cleaner identity and audit
 GitHub Actions bot - simpler fallback, generic avatar/name
 ```
 
-In SaaS mode, prefer shared ReviewRouter GitHub App identity.
+In control plane mode, prefer shared ReviewRouter GitHub App identity.
 
 ## Health UX
 

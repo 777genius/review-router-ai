@@ -16,7 +16,8 @@ import { mintFreshGitHubAppRepositorySecretWriteToken } from "./dashboard-mutati
 import {
   CodexRotatingSetupPreDispatchError,
   PrismaCodexRotatingSetupPayloadClaim,
-} from "./prisma-codex-rotating-setup-payload-claim";
+  PrismaCodexRotatingWorkflowAttestation,
+} from "@reviewrouter/features-provider-setup/composition";
 
 const setupSecretDispatchSchema = z.object({
   claimId: z.string().min(1),
@@ -234,11 +235,19 @@ export const codexRotatingSetupLedger = {
     input: CodexRotatingWorkflowReattestationRequest,
     defaultWorkflowSource: CodexRotatingDefaultWorkflowSourcePort,
   ) => {
-    const claims = ledger().claims;
+    const prisma = getPrisma();
+    const recoveryWitness = requireReviewRouterDatabaseRecoveryWitness();
+    // Retain the existing setup bootstrap/configuration failure boundary. This
+    // does not grant effect authority to the workflow-attestation adapter.
+    getCodexEffectAuthorityPrisma();
+    const attestation = new PrismaCodexRotatingWorkflowAttestation(
+      prisma,
+      recoveryWitness,
+    );
     return reattestCodexRotatingWorkflow(input, {
-      currentWorkflowAttestation: claims,
+      currentWorkflowAttestation: attestation,
       defaultWorkflowSource,
-      workflowReattestation: claims,
+      workflowReattestation: attestation,
     });
   },
 };

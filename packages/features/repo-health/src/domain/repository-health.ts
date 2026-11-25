@@ -1,3 +1,5 @@
+import type { RepositoryWorkflowCheck } from "@reviewrouter/features-workflow-provisioning";
+export type { RepositoryWorkflowCheck } from "@reviewrouter/features-workflow-provisioning";
 export type RepositoryHealthStatus =
   | "healthy"
   | "setup_pr_open"
@@ -10,15 +12,6 @@ export type RepositoryHealthStatus =
   | "needs_attention";
 
 export const defaultActionHealthStaleAfterMs = 24 * 60 * 60 * 1000;
-
-export type RepositoryWorkflowCheck =
-  | {
-      readonly status: "present";
-      readonly expectedActionRefFound: boolean;
-      readonly expectedContentMarkersFound?: boolean;
-    }
-  | { readonly status: "missing" }
-  | { readonly status: "unavailable"; readonly reason: string };
 
 export type RepositoryActionHealthTelemetry = {
   readonly configSource: string | null;

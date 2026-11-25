@@ -1,0 +1,76 @@
+name: Setup PostgreSQL client
+description: Install PostgreSQL 17 client from the official signed PGDG repository after Setup Node
+runs:
+  using: composite
+  steps:
+    - name: Install PostgreSQL client
+      shell: bash
+      run: |
+        timeout --signal=TERM --kill-after=15s 5m bash <<'BASH'
+        set -euo pipefail
+        for source in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources /etc/apt/apt-mirrors.txt /etc/apt/apt-security-mirrors.txt; do
+          if [[ -f "$source" ]]; then
+            sudo sed -i -E 's#https?://azure[.]archive[.]ubuntu[.]com/ubuntu#https://archive.ubuntu.com/ubuntu#g' "$source"
+          fi
+        done
+        apt_options=(-o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o Acquire::Retries=2 -o DPkg::Lock::Timeout=30)
+        pgdg_temp=$(mktemp -d)
+        trap 'rm -rf "$pgdg_temp"' EXIT
+        # Refresh the signed source before apt update: an existing unusable PGDG
+        # key must not prevent installing the tools needed to repair that source.
+        # Both origins are operated by PostgreSQL. Accept only the pinned
+        # primary signing-key fingerprint, even when the first origin times out.
+        node --use-env-proxy --input-type=module - "$pgdg_temp/apt.postgresql.org.asc" <<'NODE'
+        import { writeFile } from 'node:fs/promises';
+        const origins = [
+          'https://apt.postgresql.org/pub/repos/apt/ACCC4CF8.asc',
+          'https://www.postgresql.org/media/keys/ACCC4CF8.asc',
+        ];
+        let key;
+        for (const origin of origins) {
+          try {
+            const response = await fetch(origin, {
+              signal: AbortSignal.timeout(30_000),
+            });
+            if (!response.ok) continue;
+            const value = await response.text();
+            if (
+              value.length <= 32768 &&
+              value.startsWith('-----BEGIN PGP PUBLIC KEY BLOCK-----')
+            ) {
+              key = value;
+              break;
+            }
+          } catch {
+            // A failed official origin is not permission to use an untrusted key.
+          }
+        }
+        if (!key) throw new Error('PGDG official signing key unavailable');
+        await writeFile(process.argv[2], key, { mode: 0o600 });
+        NODE
+        # No third-party key, extra primary key, or unverified key can enter apt.
+        gpg --batch --quiet --with-colons --show-keys "$pgdg_temp/apt.postgresql.org.asc" \
+          | awk -F: '
+              $1 == "pub" { pubs++ }
+              $1 == "fpr" && pubs == 1 && !fingerprint { fingerprint=$10 }
+              END {
+                if (pubs != 1 || fingerprint != "B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8")
+                  exit 1
+              }
+            ' || { echo 'PGDG signing key fingerprint mismatch' >&2; exit 1; }
+        sudo install -d -m 0755 /usr/share/postgresql-common/pgdg
+        sudo install -m 0644 "$pgdg_temp/apt.postgresql.org.asc" /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+        . /etc/os-release
+        printf 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt %s-pgdg main\n' "$VERSION_CODENAME" > "$pgdg_temp/pgdg.list"
+        sudo install -m 0644 "$pgdg_temp/pgdg.list" /etc/apt/sources.list.d/pgdg.list
+        sudo apt-get "${apt_options[@]}" update
+        sudo apt-get "${apt_options[@]}" install -y --no-install-recommends ca-certificates curl postgresql-client-17
+        for client in psql pg_dump pg_restore; do
+          client_version=$("/usr/lib/postgresql/17/bin/$client" --version)
+          case "$client_version" in
+            "$client (PostgreSQL) 17."*) printf '%s\n' "$client_version" ;;
+            *) echo "Expected PostgreSQL 17 $client, received $client_version" >&2; exit 1 ;;
+          esac
+        done
+        printf '%s\n' /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
+        BASH
