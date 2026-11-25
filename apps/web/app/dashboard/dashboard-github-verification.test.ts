@@ -33,11 +33,14 @@ function apiError(status: number): Error {
 
 describe("dashboard GitHub verification", () => {
   it("checks repository secrets without unnecessary organization reads", async () => {
-    const request = vi.fn(async (_route: string) => ({ data: {} }));
+    const request = vi.fn(async () => ({ data: {} }));
     const result = await checkProviderSecretAvailability(createInput(request));
     expect(result).toEqual({ status: "available_repository" });
     expect(request).toHaveBeenCalledTimes(1);
-    expect(request.mock.calls[0]?.[0]).toContain("/repos/{owner}/{repo}/actions/secrets/");
+    expect(request).toHaveBeenCalledWith(
+      expect.stringContaining("/repos/{owner}/{repo}/actions/secrets/"),
+      expect.any(Object),
+    );
   });
 
   it("falls back to an all-visible organization secret after a repository 404", async () => {
