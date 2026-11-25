@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AuditLogRepositoryPort } from "@reviewrouter/features-audit-log";
 import type { OutboxEventRepositoryPort } from "@reviewrouter/features-outbox";
 import {
@@ -173,7 +173,7 @@ describe("org ruleset provisioning", () => {
       safeErrorCode: "org_admin_permission_required",
       safeErrorSummary: "permission missing",
     });
-    const outbox = new InMemoryOutbox();
+    const outbox = provisioning.outbox;
     const auditLog = new InMemoryAuditLog();
 
     await expect(
@@ -186,7 +186,7 @@ describe("org ruleset provisioning", () => {
           actor: "777genius",
           requestedAt,
         },
-        { provisioning, setupGateway: gateway, outbox, auditLog },
+        { provisioning, setupGateway: gateway, auditLog },
       ),
     ).rejects.toThrow("org_admin_permission_required");
 
@@ -197,7 +197,7 @@ describe("org ruleset provisioning", () => {
 
   it("queues provisioning after a successful ruleset permission probe", async () => {
     const provisioning = new InMemoryOrgRulesetProvisioningRepository(target);
-    const outbox = new InMemoryOutbox();
+    const outbox = provisioning.outbox;
 
     const result = await requestOrgRulesetProvisioning(
       {
@@ -211,7 +211,6 @@ describe("org ruleset provisioning", () => {
       {
         provisioning,
         setupGateway: new StaticOrgRulesetSetupGateway({ ok: true }),
-        outbox,
       },
     );
 
@@ -224,7 +223,7 @@ describe("org ruleset provisioning", () => {
     expect(outbox.events).toEqual([
       expect.objectContaining({
         type: "org_ruleset.provision_requested",
-        payload: { provisioningId: result.provisioningId },
+        payload: { provisioningId: result.provisioningId, revision: 1 },
       }),
     ]);
   });
@@ -250,7 +249,6 @@ describe("org ruleset provisioning", () => {
         {
           provisioning,
           setupGateway: new StaticOrgRulesetSetupGateway({ ok: true }),
-          outbox: new InMemoryOutbox(),
         },
       ),
     ).rejects.toThrow("org_ruleset_source_repository_not_installed");
@@ -273,7 +271,6 @@ describe("org ruleset provisioning", () => {
         {
           provisioning,
           setupGateway: new StaticOrgRulesetSetupGateway({ ok: true }),
-          outbox: new InMemoryOutbox(),
         },
       ),
     ).rejects.toThrow("org_ruleset_all_repositories_requires_all_access");
@@ -285,7 +282,6 @@ describe("org ruleset provisioning", () => {
       ...target,
       repositorySelection: "all",
     });
-    const outbox = new InMemoryOutbox();
 
     await requestOrgRulesetProvisioning(
       {
@@ -299,7 +295,6 @@ describe("org ruleset provisioning", () => {
       {
         provisioning,
         setupGateway: new StaticOrgRulesetSetupGateway({ ok: true }),
-        outbox,
       },
     );
 
@@ -309,9 +304,49 @@ describe("org ruleset provisioning", () => {
     });
   });
 
+  it("bounds installation credential acquisition and ignores a late client", async () => {
+    vi.useFakeTimers();
+    try {
+      const provisioning = new InMemoryOrgRulesetProvisioningRepository(target);
+      const queued = await provisioning.requestAndEnqueue(
+        createRequest({ scope: "selected_repositories" }),
+      );
+      const gateway = new StaticOrgRulesetSetupGateway({ ok: true });
+      let resolveClient!: (gateway: OrgRulesetSetupGatewayPort) => void;
+      const client = new Promise<OrgRulesetSetupGatewayPort>((resolve) => {
+        resolveClient = resolve;
+      });
+      const attempted = provisionOrgRulesetRequiredWorkflow(
+        {
+          provisioningId: queued.id,
+          actionRef: "777genius/review-router@main",
+          apiUrl: "https://api.reviewrouter.org",
+          runtimeConfigMode: "oidc",
+          attemptedAt: requestedAt,
+        },
+        { provisioning, lock: immediateLock, createSetupGateway: () => client },
+      );
+      const result = expect(attempted).rejects.toThrow(
+        "org_ruleset_attempt_timeout",
+      );
+      await vi.advanceTimersByTimeAsync(30_001);
+      await result;
+      resolveClient(gateway);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(gateway.workflowWrites).toEqual([]);
+      expect(gateway.rulesetWrites).toEqual([]);
+      expect(provisioning.record).toMatchObject({
+        status: "failed",
+        pendingRemoteAttemptId: null,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("writes the central workflow and ruleset idempotently from the worker", async () => {
     const provisioning = new InMemoryOrgRulesetProvisioningRepository(target);
-    const queued = await provisioning.upsertRequested(
+    const queued = await provisioning.requestAndEnqueue(
       createRequest({ scope: "selected_repositories" }),
     );
     const gateway = new StaticOrgRulesetSetupGateway({ ok: true });
@@ -326,6 +361,7 @@ describe("org ruleset provisioning", () => {
       },
       {
         provisioning,
+        lock: immediateLock,
         createSetupGateway: async (githubInstallationId) => {
           expect(githubInstallationId).toBe(target.githubInstallationId);
           return gateway;
@@ -354,7 +390,7 @@ describe("org ruleset provisioning", () => {
 
   it("refuses a static workflow without explicit policy before writing source", async () => {
     const provisioning = new InMemoryOrgRulesetProvisioningRepository(target);
-    const queued = await provisioning.upsertRequested(
+    const queued = await provisioning.requestAndEnqueue(
       createRequest({ scope: "all_repositories" }),
     );
     const gateway = new StaticOrgRulesetSetupGateway({ ok: true });
@@ -367,7 +403,7 @@ describe("org ruleset provisioning", () => {
           runtimeConfigMode: "static",
           attemptedAt: requestedAt,
         },
-        { provisioning, setupGateway: gateway },
+        { provisioning, setupGateway: gateway, lock: immediateLock },
       ),
     ).rejects.toThrow("workflow_static_policy_required");
     expect(gateway.rulesetWrites).toEqual([]);
@@ -376,7 +412,7 @@ describe("org ruleset provisioning", () => {
 
   it("keeps all-repositories worker payload from targeting the source repository", async () => {
     const provisioning = new InMemoryOrgRulesetProvisioningRepository(target);
-    const queued = await provisioning.upsertRequested(
+    const queued = await provisioning.requestAndEnqueue(
       createRequest({ scope: "all_repositories" }),
     );
     const gateway = new StaticOrgRulesetSetupGateway({ ok: true });
@@ -389,7 +425,7 @@ describe("org ruleset provisioning", () => {
         runtimeConfigMode: "oidc",
         attemptedAt: requestedAt,
       },
-      { provisioning, setupGateway: gateway },
+      { provisioning, setupGateway: gateway, lock: immediateLock },
     );
 
     expect(gateway.rulesetWrites).toEqual([
@@ -429,6 +465,7 @@ function createRequest(input: {
 
 class InMemoryOrgRulesetProvisioningRepository implements OrgRulesetProvisioningRepositoryPort {
   public record: OrgRulesetProvisioningRecord | null = null;
+  public readonly outbox = new InMemoryOutbox();
 
   constructor(private readonly target: OrgRulesetProvisioningTarget) {}
 
@@ -457,11 +494,15 @@ class InMemoryOrgRulesetProvisioningRepository implements OrgRulesetProvisioning
     return [];
   }
 
-  async upsertRequested(
+  async requestAndEnqueue(
     request: OrgRulesetProvisioningRequest,
   ): Promise<OrgRulesetProvisioningRecord> {
     this.record = {
       id: this.record?.id ?? "ruleset_1",
+      revision: (this.record?.revision ?? 0) + 1,
+      pendingRulesetCreateOrganization:
+        this.record?.pendingRulesetCreateOrganization ?? null,
+      pendingRemoteAttemptId: this.record?.pendingRemoteAttemptId ?? null,
       workspaceId: request.workspaceId,
       installationId: request.installationId,
       githubInstallationId: request.githubInstallationId,
@@ -475,8 +516,8 @@ class InMemoryOrgRulesetProvisioningRepository implements OrgRulesetProvisioning
       sourceWorkflowPath: request.sourceWorkflowPath,
       sourceWorkflowRef: request.sourceWorkflowRef,
       sourceWorkflowSha: null,
-      rulesetId: null,
-      rulesetUrl: null,
+      rulesetId: this.record?.rulesetId ?? null,
+      rulesetUrl: this.record?.rulesetUrl ?? null,
       targetRepositoryIds: request.targetRepositoryIds,
       safeErrorCode: null,
       safeErrorSummary: null,
@@ -486,14 +527,27 @@ class InMemoryOrgRulesetProvisioningRepository implements OrgRulesetProvisioning
       configuredAt: null,
       updatedAt: request.requestedAt,
     };
+    await this.outbox.enqueue({
+      type: "org_ruleset.provision_requested",
+      payload: {
+        provisioningId: this.record.id,
+        revision: this.record.revision,
+      },
+    });
     return this.record;
   }
 
   async markProcessing(input: {
     readonly id: string;
+    readonly revision: number;
     readonly attemptedAt: Date;
-  }): Promise<void> {
-    if (!this.record || this.record.id !== input.id) return;
+  }): Promise<boolean> {
+    if (
+      !this.record ||
+      this.record.id !== input.id ||
+      this.record.revision !== input.revision
+    )
+      return false;
     this.record = {
       ...this.record,
       status: "processing",
@@ -501,16 +555,23 @@ class InMemoryOrgRulesetProvisioningRepository implements OrgRulesetProvisioning
       safeErrorCode: null,
       safeErrorSummary: null,
     };
+    return true;
   }
 
   async markConfigured(input: {
     readonly id: string;
+    readonly revision: number;
     readonly sourceWorkflowSha: string | null;
     readonly rulesetId: string;
     readonly rulesetUrl: string | null;
     readonly configuredAt: Date;
-  }): Promise<void> {
-    if (!this.record || this.record.id !== input.id) return;
+  }): Promise<boolean> {
+    if (
+      !this.record ||
+      this.record.id !== input.id ||
+      this.record.revision !== input.revision
+    )
+      return false;
     this.record = {
       ...this.record,
       status: "configured",
@@ -518,21 +579,103 @@ class InMemoryOrgRulesetProvisioningRepository implements OrgRulesetProvisioning
       rulesetId: input.rulesetId,
       rulesetUrl: input.rulesetUrl,
       configuredAt: input.configuredAt,
+      pendingRulesetCreateOrganization: null,
     };
+    return true;
   }
 
   async markFailed(input: {
     readonly id: string;
+    readonly revision: number;
     readonly safeErrorCode: string;
     readonly safeErrorSummary: string;
-  }): Promise<void> {
-    if (!this.record || this.record.id !== input.id) return;
+  }): Promise<boolean> {
+    if (
+      !this.record ||
+      this.record.id !== input.id ||
+      this.record.revision !== input.revision
+    )
+      return false;
     this.record = {
       ...this.record,
       status: "failed",
       safeErrorCode: input.safeErrorCode,
       safeErrorSummary: input.safeErrorSummary,
     };
+    return true;
+  }
+
+  async beginRulesetCreate(input: {
+    id: string;
+    revision: number;
+    organizationLogin: string;
+  }): Promise<boolean> {
+    if (
+      !this.record ||
+      this.record.id !== input.id ||
+      this.record.revision !== input.revision
+    )
+      return false;
+    if (this.record.pendingRulesetCreateOrganization)
+      throw new Error("org_ruleset_create_outcome_unknown");
+    this.record = {
+      ...this.record,
+      pendingRulesetCreateOrganization: input.organizationLogin.toLowerCase(),
+    };
+    return true;
+  }
+
+  async beginRemoteAttempt(input: {
+    id: string;
+    revision: number;
+    attemptId: string;
+  }): Promise<boolean> {
+    if (
+      !this.record ||
+      this.record.id !== input.id ||
+      this.record.revision !== input.revision ||
+      this.record.pendingRemoteAttemptId
+    )
+      return false;
+    this.record = { ...this.record, pendingRemoteAttemptId: input.attemptId };
+    return true;
+  }
+
+  async settleRemoteAttempt(input: {
+    id: string;
+    attemptId: string;
+    observedRevision: number;
+    reconcile: boolean;
+    clearRejectedCreateForOrganization?: string;
+  }): Promise<void> {
+    if (
+      !this.record ||
+      this.record.id !== input.id ||
+      this.record.pendingRemoteAttemptId !== input.attemptId
+    )
+      return;
+    this.record = {
+      ...this.record,
+      pendingRemoteAttemptId: null,
+      ...(input.clearRejectedCreateForOrganization ===
+      this.record.pendingRulesetCreateOrganization
+        ? { pendingRulesetCreateOrganization: null }
+        : {}),
+    };
+    if (input.reconcile || input.observedRevision !== this.record.revision) {
+      this.record = {
+        ...this.record,
+        status: "failed",
+        safeErrorCode: "org_ruleset_reconciliation_required",
+      };
+      await this.outbox.enqueue({
+        type: "org_ruleset.provision_requested",
+        payload: {
+          provisioningId: this.record.id,
+          revision: this.record.revision,
+        },
+      });
+    }
   }
 }
 
@@ -546,22 +689,24 @@ class StaticOrgRulesetSetupGateway implements OrgRulesetSetupGatewayPort {
     return this.probe;
   }
 
-  async writeSourceWorkflow(input: {
-    readonly owner: string;
-    readonly repo: string;
-    readonly branch: string;
-    readonly path: string;
-    readonly content: string;
-    readonly message: string;
-  }): Promise<SourceWorkflowWriteResult> {
+  async writeSourceWorkflow(
+    input: Parameters<OrgRulesetSetupGatewayPort["writeSourceWorkflow"]>[0],
+  ): Promise<SourceWorkflowWriteResult> {
+    await input.beforeMutation?.();
     this.workflowWrites.push(input);
+    await input.onMutationSettled?.({ createRejected: false });
     return { sha: "source-sha" };
   }
 
   async createOrUpdateOrganizationRuleset(
-    input: unknown,
+    input: Parameters<
+      OrgRulesetSetupGatewayPort["createOrUpdateOrganizationRuleset"]
+    >[0],
   ): Promise<OrgRulesetWriteResult> {
+    await input.beforeMutation?.();
+    if (!input.knownRulesetId) await input.beforeCreate?.();
     this.rulesetWrites.push(input);
+    await input.onMutationSettled?.({ createRejected: false });
     return {
       id: "321",
       url: "https://github.com/organizations/agent-teams-ai/settings/rules/321",
@@ -609,3 +754,13 @@ class InMemoryAuditLog implements AuditLogRepositoryPort {
     this.actions.push(input.action);
   }
 }
+
+const immediateLock = {
+  async withLease<T>(
+    _key: string,
+    _ttlMs: number,
+    run: (lease: { assertHeld(): Promise<void> }) => Promise<T>,
+  ) {
+    return run({ assertHeld: async () => undefined });
+  },
+};

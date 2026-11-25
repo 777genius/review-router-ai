@@ -388,6 +388,7 @@ function createOutboxHandlers(
     }),
     createOrgRulesetProvisioningRequestedHandler({
       provisioning: new PrismaOrgRulesetProvisioningRepository(prisma),
+      lock: new PostgresLeaseLock(prisma),
       createSetupGateway: createOrgRulesetSetupGatewayFactory({
         appId,
         privateKey,

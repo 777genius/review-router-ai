@@ -9,7 +9,7 @@ const webMaxLines = 600;
 const webMaxLinesCeilings = {
   "apps/web/app/dashboard/account-gateway-account-controls.tsx": 3135,
   "apps/web/app/dashboard/account-lifecycle-controls.tsx": 812,
-  "apps/web/app/dashboard/actions.ts": 3949,
+  "apps/web/app/dashboard/actions.ts": 3948,
   "apps/web/app/dashboard/dashboard-copy.ts": 825,
   "apps/web/app/dashboard/dashboard-workspace-page.tsx": 3463,
   "apps/web/app/dashboard/personal-account-controls.tsx": 1869,

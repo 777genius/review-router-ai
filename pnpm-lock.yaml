@@ -906,6 +906,14 @@ importers:
         specifier: ^4.4.2
         version: 4.4.2
 
+    devDependencies:
+      '@reviewrouter/platform-db':
+        specifier: workspace:*
+        version: link:../../platform/db
+      '@reviewrouter/platform-locks':
+        specifier: workspace:*
+        version: link:../../platform/locks
+
   packages/features/outbox:
     dependencies:
       '@prisma/client':

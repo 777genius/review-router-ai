@@ -27,5 +27,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@reviewrouter/platform-db": "workspace:*",
+    "@reviewrouter/platform-locks": "workspace:*"
   }
 }

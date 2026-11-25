@@ -9,6 +9,7 @@ import {
 } from "../../application/use-cases/provision-org-ruleset-required-workflow";
 import type { OrgRulesetProvisioningRepositoryPort } from "../../application/ports/org-ruleset-provisioning-repository-port";
 import type { OrgRulesetSetupGatewayPort } from "../../application/ports/org-ruleset-setup-gateway-port";
+import type { OrgRulesetProvisioningLockPort } from "../../application/ports/org-ruleset-provisioning-lock-port";
 import type { AuditLogRepositoryPort } from "@reviewrouter/features-audit-log";
 
 type Clock = { now(): Date };
@@ -17,6 +18,7 @@ const payloadSchema = z.object({ provisioningId: z.string().min(1) });
 
 export function createOrgRulesetProvisioningRequestedHandler(dependencies: {
   readonly provisioning: OrgRulesetProvisioningRepositoryPort;
+  readonly lock: OrgRulesetProvisioningLockPort;
   readonly createSetupGateway: (
     githubInstallationId: string,
   ) => Promise<OrgRulesetSetupGatewayPort>;
@@ -53,6 +55,7 @@ export function createOrgRulesetProvisioningRequestedHandler(dependencies: {
         },
         {
           provisioning: dependencies.provisioning,
+          lock: dependencies.lock,
           createSetupGateway: dependencies.createSetupGateway,
           ...(dependencies.auditLog ? { auditLog: dependencies.auditLog } : {}),
         },

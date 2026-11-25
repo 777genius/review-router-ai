@@ -3243,6 +3243,8 @@ model OrgRulesetProvisioning {
   sourceWorkflowSha        String?
   rulesetId                BigInt?
   rulesetUrl               String?
+  pendingRulesetCreateOrganization String?
+  pendingRemoteAttemptId String?
   targetRepositoryIds      Json
   safeErrorCode            String?
   safeErrorSummary         String?
