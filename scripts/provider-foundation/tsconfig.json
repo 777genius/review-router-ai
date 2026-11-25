@@ -9,7 +9,7 @@
     "noEmit": true
   },
   "include": [
-    "consumer.ts",
+    "current-consumer.ts",
     "../check-toolchain.ts",
     "qualify-packed.ts",
     "qualify-boundaries.ts",

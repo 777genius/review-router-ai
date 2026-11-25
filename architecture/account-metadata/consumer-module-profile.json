@@ -28,9 +28,9 @@
     }
   },
   "packages": {
-    "@get-modular/core": "0.7.0",
-    "@get-modular/assembly": "0.7.0",
-    "@get-modular/conformance": "0.5.0"
+    "@get-modular/core": "0.8.0",
+    "@get-modular/assembly": "0.8.0",
+    "@get-modular/conformance": "0.5.2"
   },
   "sourceRoot": "packages/features/provider-accounts/src/account-metadata",
   "layoutMapping": {

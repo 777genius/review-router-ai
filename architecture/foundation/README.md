@@ -1,13 +1,13 @@
 # Provider and memory boundary tooling
 
 The root `foundation.config.yaml` adopts bounded provider catalog, provider usage
-and memory source boundaries. Foundation 2.1.0 is a development dependency; Get Modular
-Core and Assembly are currently pinned to 0.7.0. The recorded isolated packed
-consumer qualification below covers the historical 0.2.0 generation only.
+and memory source boundaries. Foundation 3.1.0 is a development dependency; Get Modular
+Core and Assembly are currently pinned to 0.8.0. The active isolated packed
+consumer qualification covers the same 0.8.0 generation.
 The existing WEB Host CMS / Foundation 1.6 qualification is independent and
 retains its previous pins and meaning.
 
-Foundation 2.1's public source-dependencies v2 requires a closed complete pnpm
+The maintained public source-dependencies v2 requires a closed complete pnpm
 workspace. A profile selecting this feature fails with
 `WORKSPACE_PACKAGE_OUTSIDE_PACKAGE_ROOTS: apps/api/package.json`; selecting all
 packages then requires their entire source coverage. This conflicts with the
@@ -17,14 +17,18 @@ package dependencies and public exports, entrypoints, development source
 ownership and unknown files within the three explicit governed roots. It does not claim
 v2 portable topology or repository-wide adoption. The historical 0.2.0 consumer's registry exports
 and SRI are retained in `scripts/provider-foundation/registry-artifacts.json`.
-That artifact does not qualify the currently installed 0.7.0 packages.
+Its original `consumer.ts` and receipt remain historical evidence, unchanged;
+they are not checked against the currently installed 0.8.0 API. Current exports
+and SRI are recorded separately in `current-registry-artifacts.json`, with
+`current-consumer.ts` using the published `implement` / `prepare({ modules })` API.
 
 Run `pnpm foundation:check`, `pnpm foundation:assert-dev-only`, and
 `pnpm foundation:assert-registry`; all are included in `architecture:check`.
 `pnpm foundation:qualify` also downloads and verifies the recorded Core/Assembly
-0.2.0 packed artifacts, builds an isolated ESM consumer with TypeScript 6.0.3 and
+0.8.0 packed artifacts, builds an isolated ESM consumer with TypeScript 7.0.2 and
 `skipLibCheck: false`, and verifies construction, rejection before I/O and host
-cleanup of created resources. Assembly 0.2 performs no automatic disposal.
+cleanup of created resources. Assembly 0.8 performs no automatic disposal. The historical 0.2.0 fixture and
+TypeScript 6.0.3 receipt are retained without relabeling them as current evidence.
 
 Boundary qualification uses exclusively created temporary files in the real
 governed source roots and removes them in `finally`. Run it with no simultaneous

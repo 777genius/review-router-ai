@@ -5,6 +5,7 @@
     "allowImportingTsExtensions": true
   },
   "include": [
+    "scripts/manage-review-provider-scope-concurrency.test.ts",
     "scripts/check-provider-setup-postgres-results.ts",
     "scripts/check-provider-setup-postgres-results.test.ts",
     "scripts/review-action-v2-production-e2e/**/*.ts",
@@ -13,6 +14,8 @@
     "scripts/context-tools-e2e/**/*.ts",
     "scripts/update-mcp-catalog.ts",
     "scripts/lib/module-import-specifiers.ts",
+    "scripts/lib/module-import-specifiers.test.ts",
+    "scripts/lib/collect-feature-layout.test.ts",
     "scripts/lib/server-rendered-heading.ts",
     "scripts/lib/server-rendered-heading.test.ts",
     "scripts/lib/review-model-dispatch-release-profile.ts",

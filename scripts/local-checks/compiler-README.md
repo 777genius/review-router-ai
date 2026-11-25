@@ -1,7 +1,8 @@
 # Native compiler pilot
 
-The default compiler remains the ordinary TypeScript 6.0.3 package, including
-its compiler API. Native TypeScript 7.0.2 is an explicit development CLI pilot.
+The ordinary TypeScript 6.0.3 package remains installed for classic compiler
+APIs and legacy routes. Qualified CLI routes explicitly select native TypeScript
+7.0.2 through the isolated helper.
 Both packages publish a bin named `tsc`; installing their aliases together can
 change the existing PATH command. The native alias therefore belongs in the
 separate private `scripts/local-checks/native` installation, outside the pnpm
@@ -28,7 +29,7 @@ dependencies. Version mismatches fail before compilation.
 
 `tsconfig.tooling.json` extends the existing strict base and covers the heading
 helper/test, compiler harness, and the agreed N1 `lint-format-*.ts/.mts` inputs.
-The authoritative typecheck script includes its explicit legacy invocation;
+The authoritative typecheck script includes its explicit native invocation;
 the existing root tsconfig alone does not establish coverage. One-shot
 NodeNext, spikes and hosted-pool operations retain their separate projects.
 
@@ -54,6 +55,13 @@ generated Next types, production exports, offline Prisma preparation and all
 workflow routes remain independent integration obligations. Native noEmit
 success does not qualify a Next production build.
 
+The root noEmit projects for spikes, one-shot handoff, tooling and lint/format
+select native explicitly, keeping their existing configs and shared-build
+prerequisite. `packages/platform/logger` also selects native for its normal
+build and typecheck. Dedicated legacy compatibility commands remain available;
+the helper's default selector is unchanged. Retained classic API integrations
+prevent a TypeScript 7-only toolchain claim.
+
 ## Required Get Modular consumer path
 
 The five feature packages using Get Modular 0.7.0 explicitly invoke this helper
@@ -67,3 +75,11 @@ also invoke native explicitly. Web normal typecheck and build preflight check
 the actual web tsconfig with native before Next uses its separate TS6 compiler
 API; existing web declaration-check settings remain unchanged.
 The root compiler API and explicit legacy tooling check remain TypeScript 6.0.3.
+
+## Shared package compiler
+
+`packages/shared` explicitly uses the same isolated native TypeScript 7.0.2
+helper for its normal build and typecheck. Its tsconfigs, exports and Turbo
+dependency ordering are unchanged. This advances the shared package's compiler
+route; Next, ESLint and source-analysis tools retain their separate classic API
+dependency. It does not establish a TypeScript 7-only toolchain.
