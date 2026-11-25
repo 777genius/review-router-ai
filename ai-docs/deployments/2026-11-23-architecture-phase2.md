@@ -8,6 +8,44 @@
 - Dependencies: reconcile prior [#810](https://github.com/777genius/review-router-ai/pull/810) and [#914](https://github.com/777genius/review-router-ai/pull/914) (already merged), active Native/Gateway provider [#959](https://github.com/777genius/review-router-ai/pull/959), compiler stack #967–#975 and qualified modular consumer #976; preserve their actual owners. No unrelated upstream merge is authorized.
 - Last updated: 2026-11-25.
 
+## Published native lint adoption checkpoint — 2026-11-25
+
+Statistics heap protection `6378ee3f` and exact published Stack 0.3.1 adoption
+`29e8386e` are available in PR #977. No application rollout is performed by
+this checkpoint. Existing Foundation 3.1.0, FMS 0.3.2, Get Modular and native
+TypeScript 7.0.2 pins are preserved.
+
+The existing producer owner completed Release `45516866453`, attempt 2, and
+verified publication/signature/provenance. Consumer inspection separately bound
+the actual tarball SRI, full 339-file manifest and attestation subject to producer
+source `fac03920`. Normal frozen installation and lifecycle pass after an exact
+optional Bun build denial; the earlier rejection is retained.
+
+Statistics regressions pass 9/9, original full tooling and lint-format strict
+pass, complete lint qualification passes 47/47 plus 90/90 with the unchanged
+20-rule oracle and 624-row ledger, and full guarded `pnpm lint` passes. The
+first missing-island strict attempt and two child-completion qualification
+failures remain failed records. Successful retries preserve original projects,
+fixtures, assertions and timeouts. Six legacy-load blocks are expected negative
+fixtures rejected before initialization. Independent review matches all 4,862
+present source hashes to publication and records six unchanged sparse absences.
+
+CI preparation now installs the existing locked Accounts harness in the three
+jobs that compile or execute it. The original check commands, job conditions
+and triggers are unchanged; semantic YAML comparison and formatting pass.
+
+The full architecture command on `29e8386e` fails at its final metadata native
+compiler with SIGKILL after the preceding boundary/Foundation/feature checks
+pass. No signal cause or aggregate architecture PASS is asserted. The earlier
+metadata-only recovery retains its separate `1357cdfc` source and scope.
+Ordinary Ready CI, complete current browser/paired acceptance, merge and main
+verification remain pending. Staging and production retain their existing
+pending status; historical E2E reports and source-identity mapping are preserved.
+
+See [the current evidence](evidence/2026-11-25-pr977-native-adoption.json) for
+source bindings, complete receipts, retained failures and signature-verification
+limits.
+
 ## E2E follow-through checkpoint — 2026-11-25
 
 The source fix `5dee232a` preserves inherited Statistics qualification preloads

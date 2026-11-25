@@ -6,6 +6,62 @@ Working branch: refactor/architecture-boundaries-phase2-20261123
 Status: further scoped refactoring and independent review in progress; final qualification and merge authorized
 Authority: AGENTS.md, Engineering Quality Standard, Feature Module Standard adopted profiles, current security/runtime protocols.
 
+## Published native lint adoption and remaining acceptance — 2026-11-25
+
+The consumer continuation is published as Statistics heap protection `6378ee3f`
+and native lint adoption `29e8386e` (tree `b6ff9ca3`). The Statistics helper now
+rejects percentage heap options that override the scenario's fixed cap, including
+quoted and underscore forms, while preserving inherited qualification preloads.
+All nine maintained regression cases and the original full tooling strict
+project pass. Scenario assertions, timeouts and the environment allowlist stay
+unchanged.
+
+The producer's existing owner completed Foundation #472 and Release
+`45516866453`, attempt 2. Stack `0.3.1` is actually published and installed from
+its verified tarball. The producer reports successful cryptographic signature
+and provenance verification; this consumer independently checked SRI, all 339
+package files, the complete manifest and exports and the attestation's payload/source binding. Local
+DSSE parsing is not an independent signature verification. Foundation 3.1.0,
+FMS 0.3.2, the existing Get Modular cohort and TypeScript 7.0.2 remain pinned.
+The real lock preserves the other 56 importers and every surviving existing
+package entry. Normal
+frozen installation passes with the exact optional `bun@1.4.3: false` policy;
+its initial build-policy rejection remains recorded.
+
+Original lint-format strict, complete `lint:qualify` (47 formatter/proof tests
+and 90 safety/qualification tests), and whole-repository guarded `pnpm lint`
+pass. The independent 20-rule oracle and 624-row rule ledger are unchanged.
+Six deliberate ESM/CJS negative-fixture loads are rejected before legacy
+initialization. The first qualification attempt remains failed for two child
+completion failures; one full unchanged retry passes within the original
+budgets. The earlier missing-Accounts-island strict failure is retained, followed
+by its ordinary frozen prerequisite install and successful original full retry.
+
+Final CI review also found that the separate Accounts harness dependencies
+were missing from three jobs that consume its tooling or runtime imports. Add
+the existing ordinary frozen island installation to Static Checks, Quality
+Checks and Source and Certification Checks. All existing commands, conditions
+and triggers remain unchanged; parsed workflow comparison and native YAML
+formatting pass. Ordinary remote execution remains pending.
+
+Independent review binds 4,862 present source hashes to published `29e8386e`.
+All 4,868 tracked path records stayed unchanged; six sparse asset paths were
+absent in both snapshots and are not byte-qualified. The executed candidate
+was based on `6b6f1d00`; its receipts retain that source state. Source-identity
+mapping and the original recovery branch remain intact.
+
+The full architecture command on clean `29e8386e` still fails: boundary, WEB,
+Foundation, Memory23, Statistics6, History and metadata layout pass, then the
+final native metadata compiler receives SIGKILL without a diagnostic. Its cause
+is unproved. The separately successful metadata-only recovery at `1357cdfc`
+does not change this failed full-gate outcome. Continue through unchanged
+ordinary Ready CI, current UI/paired/Statistics E2E, final exact-head review and
+merge verification. Deployment remains outside this request. Earlier E2E and
+failed reports keep their original revisions and limits.
+
+See the [native adoption checkpoint](../deployments/evidence/2026-11-25-pr977-native-adoption.json)
+for exact commits, hashes, retained failures and remaining acceptance.
+
 ## E2E continuation checkpoint — 2026-11-25
 
 The latest repeated owner request remains completion of the affected E2E, with
