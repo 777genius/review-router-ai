@@ -4,7 +4,7 @@
 - Goal: retain dashboard setup and review-worker behavior while moving the changed responsibilities into focused modules and enforcing the accepted new-feature composition policy.
 - Affected services/targets: Web and worker; provider catalog composition and repository verification tooling.
 - Implementation PR: [#998](https://github.com/777genius/review-router-ai/pull/998), consolidating #999, #1000, #1001, #1004, and the agent-workflow/suppression portion of #1002. The new global Markdown capability remains a separate candidate in existing Draft [#1002](https://github.com/777genius/review-router-ai/pull/1002).
-- Implementation reference: consolidation `284c4a8b9ba76020d1e507ec49f4f29713e7fd3b`; correction checkpoint `5f4e6db90cd3072489d8c2ffb49ce7a2e397a6fc`. Later qualification commits remain in #998. Neither checkpoint is evidence of merge or installation.
+- Implementation reference: consolidation `284c4a8b9ba76020d1e507ec49f4f29713e7fd3b`; locally qualified implementation checkpoint `ff30c3813a6cd4fb4fe6242c5b385fa2aef81e5c`. These references do not establish merge, browser acceptance, or installation.
 - Dependencies: the normal authorized application release and its required checks. Parallel provider work #959 and observation recovery #1003 are outside this implementation batch.
 - Last updated: `2026-11-25`.
 
@@ -55,23 +55,41 @@ The targeted browser acceptance must include the organization ruleset card at
 onboarding flows. GitHub/provider boundaries in that harness are controlled
 fixtures; they do not establish a live GitHub App or provider canary.
 
-Bounded local checks before the runtime became unavailable:
+Completed local processes on implementation checkpoint
+`ff30c3813a6cd4fb4fe6242c5b385fa2aef81e5c` all exited 0:
 
-- Config plus signed-capabilities tests: 13 passed with process exit 0; published
-  in `4255d857ce0a0ce0420a213fd73f74559b4d3cd6`.
-- Catalog composition: three tests passed with exit 0 on that checkpoint,
-  including real loopback HTTP and independent Host instances. The subsequent
-  clock refinement printed three passing assertions but exited 137; its complete
-  current-source rerun remains required.
-- Provider package native TypeScript 7.0.2 and scoped worker/catalog ESLint passed
-  before the later test-only clock refinement.
-- Dashboard and broader catalog attempts exited 137 and are unqualified.
-  The execution environment then reported unavailable. PostgreSQL 17.12 binaries
-  were prepared, but no local PostgreSQL E2E was executed in this continuation.
+| Check                       | Observed result                                                                                                                                            |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Native TypeScript 7.0.2     | Tooling, Web, worker, and provider-catalog configurations passed after the standard shared build.                                                          |
+| Scoped regressions          | 257/257 tests across 10 files, including real-HTTP catalog isolation.                                                                                      |
+| Formatting and ESLint       | All 33 changed files formatted; changed code passed ESLint.                                                                                                |
+| Architecture and Foundation | 695 domain/application files; all three active Foundation capabilities passed with zero diagnostics.                                                       |
+| Production PostgreSQL E2E   | 17/17 cases after all 160 ordinary migrations and catalog ownership checks; no failed, pending, or todo cases. Database shutdown and source checks passed. |
 
-These are bounded observations, not complete E2E or exact-final-head acceptance.
-CI and browser receipts must bind to the final reviewed source. Queued, skipped,
-cancelled, neutral, and rate-limited checks are not successful qualification.
+The database qualification used PostgreSQL 17.12, Node 24.22.3, pnpm 11.28.7,
+and one Vitest thread. GitHub/provider transports were synthetic fixtures,
+not live upstream canaries. These results are bound to the stated implementation
+checkpoint; later documentation changes do not extend their scope.
+
+Authenticated browser qualification remains incomplete. Its required receipt is
+40 screenshots and both repository-secret flows, with semantic checks, clean
+network observations, and unchanged source. Playwright startup, page assertions,
+and shutdown passed with the official Debian Chromium Headless Shell. Full
+harness attempts have not produced the required complete manifest.
+
+A bounded child-process diagnostic on 2026-11-25 recorded the Next worker exiting
+with SIGKILL before the dashboard fetch failed and before harness cleanup began.
+The source of SIGKILL is unknown; no definite OOM or product-code cause is claimed.
+The temporary Webpack concurrency experiment reduced observed memory but did not
+resolve the failure and was fully reverted. An unchanged-main comparison also
+received SIGKILL during migrations, before Next started; it does not rule out a
+browser regression in this PR.
+
+Required GitHub CI and browser jobs remain queued at this checkpoint. Earlier
+interrupted attempts remain failures, not acceptance. Final CI and browser
+receipts must bind to the actual reviewed source; queued, skipped, cancelled,
+neutral, and rate-limited checks are not successful qualification. Current run
+links and results remain in [PR #998](https://github.com/777genius/review-router-ai/pull/998).
 
 ## Retry, partial completion, and rollback
 

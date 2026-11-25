@@ -4,7 +4,7 @@
 
 ## Current ordinary-code reconciliation (2026-11-15)
 
-The historical installed tuples below are superseded for ordinary application delivery by [signed 238/source 75b](README.md#current-coordinated-rollout-reconciliation-2026-11-14), which retains #804/#805/#807 and #806 code ancestry already present in d2f. No semantic capability, official score or new activation follows from ancestry. The latest retained semantic state remains UNAVAILABLE/unqualified; stand/holdout and old unknown facts remain preserved without replay. No repeat ordinary deployment is required to close those qualification gaps.
+The historical installed tuples below are superseded for ordinary application delivery by [signed 238/source 75b](README.md#current-coordinated-rollout-reconciliation-2026-11-15), which retains #804/#805/#807 and #806 code ancestry already present in d2f. No semantic capability, official score or new activation follows from ancestry. The latest retained semantic state remains UNAVAILABLE/unqualified; stand/holdout and old unknown facts remain preserved without replay. No repeat ordinary deployment is required to close those qualification gaps.
 
 - Task ID: `2026-11-03-memory-one-turn-learning`.
 - Goal: qualify one normal selected-account Gateway parent request that emits an
