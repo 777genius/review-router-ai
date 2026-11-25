@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, sep } from "node:path";
+import { parse as parseYaml } from "yaml";
 import { collectAllSourceFiles, extractImportSpecifiers } from "./sources.ts";
 import type { ArchitectureViolation } from "./types.ts";
 
@@ -52,6 +53,13 @@ export async function checkNewFeaturePackageCompositions(
 
   const legacy = legacyFeatureNames(root);
   const rootPackage = readJson<PackageManifest>(join(root, "package.json"));
+  const foundationPolicy = parseYaml(
+    readFileSync(join(root, "architecture/foundation/provider-seams.yaml"), "utf8"),
+  ) as { readonly governedRoots?: readonly string[] };
+  if (!Array.isArray(foundationPolicy?.governedRoots)) {
+    throw new Error("foundation_feature_coverage_missing");
+  }
+  const governed = new Set(foundationPolicy.governedRoots);
   const expectedCore = rootPackage.devDependencies?.["@get-modular/core"];
   const expectedAssembly = rootPackage.devDependencies?.["@get-modular/assembly"];
   const expectedConformance = rootPackage.devDependencies?.["@get-modular/conformance"];
@@ -76,6 +84,9 @@ export async function checkNewFeaturePackageCompositions(
       continue;
     }
     const manifest = readJson<PackageManifest>(manifestPath);
+    if (!governed.has(`packages/features/${name}/src`)) {
+      reject("New feature packages must be covered by Engineering Foundation source dependencies");
+    }
     const deps = manifest.dependencies ?? {};
     const dev = manifest.devDependencies ?? {};
     if (
