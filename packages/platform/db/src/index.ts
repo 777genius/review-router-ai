@@ -21,9 +21,23 @@ export function createDatabaseHealth(
   return { connected, checkedAt };
 }
 
+/** Qualified against Prisma 7 + adapter-pg; execution timeouts are not overload. */
+export function isDatabaseAcquisitionTimeout(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return (
+    error.message === "timeout exceeded when trying to connect" ||
+    ("code" in error &&
+      error.code === "P2028" &&
+      error.message ===
+        "Transaction API error: Unable to start a transaction in the given time.")
+  );
+}
+
 export type CreatePrismaClientOptions = {
   readonly databaseUrl?: string;
   readonly poolMax?: number;
+  /** Finite wait for pool acquisition and establishing a new connection. */
+  readonly poolConnectionTimeoutMs?: number;
   /** Retire authenticated backends even while periodically active. */
   readonly poolMaxLifetimeSeconds?: number;
   readonly transactionMaxWaitMs?: number;
@@ -40,6 +54,17 @@ export function createPrismaClient(
   const poolMax =
     options.poolMax ??
     parseOptionalPositiveInteger("REVIEW_ROUTER_DB_POOL_MAX");
+  const connectionTimeoutMillis =
+    options.poolConnectionTimeoutMs ??
+    parseOptionalPositiveInteger(
+      "REVIEW_ROUTER_DB_POOL_CONNECTION_TIMEOUT_MS",
+    ) ??
+    5000;
+  if (
+    !Number.isSafeInteger(connectionTimeoutMillis) ||
+    connectionTimeoutMillis < 1
+  )
+    throw new Error("poolConnectionTimeoutMs must be a positive integer");
   // adapter-pg normalizes timestamptz text assuming UTC. Enforce that session
   // contract even when a caller supplies PostgreSQL startup options in the URL.
   const connectionUrl = new URL(databaseUrl);
@@ -47,6 +72,7 @@ export function createPrismaClient(
   connectionUrl.searchParams.delete("options");
   const adapterConfig = {
     connectionString: connectionUrl.toString(),
+    connectionTimeoutMillis,
     options: `${startupOptions} -c timezone=UTC`,
     ...(typeof poolMax === "number" ? { max: poolMax } : {}),
     ...(typeof options.poolMaxLifetimeSeconds === "number"

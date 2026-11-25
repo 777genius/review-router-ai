@@ -122,6 +122,7 @@ import {
 } from "@reviewrouter/features-hosted-account-pool";
 import {
   createPrismaClient,
+  isDatabaseAcquisitionTimeout,
   resolveCommentTokenCustodyDatabaseAuthorityUrl,
   resolveCodexOAuthDatabaseEffectAuthorityUrl,
   type PrismaClient,
@@ -272,6 +273,14 @@ export async function createApiApp(
 ): Promise<FastifyInstance> {
   const logger = new ConsoleLogger();
   const app = Fastify({ logger: false });
+  const defaultErrorHandler = app.errorHandler;
+  app.setErrorHandler(function (error, request, reply) {
+    if (isDatabaseAcquisitionTimeout(error))
+      return reply.header("Retry-After", "1").code(503).send({
+        error: "database_unavailable",
+      });
+    return defaultErrorHandler.call(this, error, request, reply);
+  });
   const reviewActionV2Env = options.reviewActionV2Env ?? process.env;
   const publicApiUrl = resolveReviewRouterPublicApiUrl(reviewActionV2Env);
   const operatorCredentialSha256 =
