@@ -40,9 +40,11 @@ function fixture(legacyFeaturePackages: readonly string[] = ["legacy"]): string 
   const root = mkdtempSync(join(tmpdir(), "reviewrouter-modular-default-"));
   roots.push(root);
   put(root, "package.json", JSON.stringify({
-    devDependencies: {
+    dependencies: {
       "@get-modular/core": core,
       "@get-modular/assembly": core,
+    },
+    devDependencies: {
       "@get-modular/conformance": conformance,
     },
   }));
