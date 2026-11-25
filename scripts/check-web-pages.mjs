@@ -90,6 +90,8 @@ const child = spawn(
     "exec",
     "next",
     "start",
+    "--hostname",
+    "127.0.0.1",
     "-p",
     String(port),
   ],
@@ -120,7 +122,11 @@ const waitForServer = async () => {
     }
 
     try {
-      const response = await fetch(baseUrl);
+      const response = await fetch(baseUrl, {
+        signal: globalThis.AbortSignal.timeout(
+          Math.max(1, deadline - Date.now()),
+        ),
+      });
       if (response.ok) return;
     } catch {
       // Server is still starting.

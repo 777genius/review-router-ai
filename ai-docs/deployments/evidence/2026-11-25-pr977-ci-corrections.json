@@ -1,0 +1,349 @@
+{
+  "schemaVersion": 1,
+  "kind": "pr977-ci-correction-and-source-bound-followthrough",
+  "observedDate": "2026-11-25",
+  "reviewedSource": "03aef06cdfe9cf115899ad2558dd0df2fe9999b3",
+  "reviewedTree": "b26a827e7f7154cc58a8f58fe47dddce698439d0",
+  "candidateCommit": "not yet published when this source-bound candidate receipt was recorded",
+  "mergeState": "pending required corrected-head checks and review",
+  "deployment": "not requested",
+  "scope": [
+    "Exact private-installer data policy compatibility with already adopted workspace pins",
+    "Held Skills response completion in the existing browser helper; product implementation unchanged",
+    "Native parser/transformer qualification of the extracted checker and its CLI delegation"
+  ],
+  "retainedFailures": {
+    "quality": {
+      "run": 45555796208,
+      "job": 139020122568,
+      "url": "https://github.com/777genius/review-router-ai/actions/runs/45555796208/job/139020122568",
+      "result": "FAIL",
+      "passedTests": 15682,
+      "failedTests": 2,
+      "skippedTests": 890,
+      "failedFile": "scripts/install-private-dependencies.test.ts",
+      "causes": [
+        "Reviewed Stack0.3.1 age exclusion absent from installer allowlist",
+        "Existing allowBuilds parser could not admit the already-reviewed exact bun1.4.3=false decision"
+      ],
+      "logSha256": "ef087466a94a60d5354923401dd827d68d1bdd87e3d80e95b9b4ee56d16b7383",
+      "reviewReceiptSha256": "2a2fb7c132fdd121880be3097e74a6b71ce82ab8bab88c849fb7350c389aadf2"
+    },
+    "skills": {
+      "run": 45555796422,
+      "job": 139007405426,
+      "url": "https://github.com/777genius/review-router-ai/actions/runs/45555796422/job/139007405426",
+      "result": "FAIL",
+      "passed": 23,
+      "failed": 1,
+      "skipped": 0,
+      "retries": 0,
+      "case": "Skills acknowledged Add shows refreshing until its genuine assigned readback arrives",
+      "failure": "Original90000ms timeout at request.response().finished() after genuine successful fetch/fulfill and rendered assigned state",
+      "transportCause": "Not proved; trace has no explicit cancellation/failure event",
+      "diagnosisSha256": "73c144287862d31e9485198047cd8a763568038fb08381b8a475b285af05f430"
+    },
+    "paired45FirstAttempt": {
+      "result": "FAIL",
+      "passed": 44,
+      "failed": 1,
+      "skipped": 0,
+      "receiptSha256": "e010a05e7e7180e22300256beccd49af3f94eaf1eb018b20f4d767594051ed1f",
+      "cause": "Locally restored immutable Action checkout was shallow, so original release ancestry fence rejected the production-runner case. Maintained CI already fetches full history.",
+      "recovery": "Ordinary origin fetch --unshallow restored genuine history, preserved all915 tracked files/head/tree and changed original ancestor command exit1 to0. No release check was weakened.",
+      "recoveryReceiptSha256": "f68aed05983710bf2573acddf2a3c9353eeeb09cd219a08eee8299f56ee6bc1f"
+    },
+    "sourceCertification": {
+      "run": 45555796208,
+      "job": 139020122622,
+      "url": "https://github.com/777genius/review-router-ai/actions/runs/45555796208/job/139020122622",
+      "result": "FAIL",
+      "originalToolingStrict": "PASS",
+      "compilerPilotPassed": 18,
+      "compilerPilotFailed": 1,
+      "failure": "Old monolith-size assertion required >10 top-level nodes from the extracted CLI wrapper, which correctly has7.",
+      "logSha256": "b0a668fbb2316df1634c4c1fdb3190218db21458b163bffb19593073b27983d3",
+      "downstreamEvidence": "Later evidence steps lacked snapshots/artifacts after the earlier qualification failure; no evidence is fabricated."
+    }
+  },
+  "correction": {
+    "installer": {
+      "ageExclusionAdded": "stack-toolchain@0.3.1",
+      "buildDecisionAdded": {
+        "package": "bun@1.4.3",
+        "allowed": false
+      },
+      "previousTrueDecisionsPreserved": 4,
+      "negativeRegressionsAdded": 9,
+      "credentialLifecycle": "Entire install/teardown/rebuild tail unchanged; lifecycle execution remains after credential teardown",
+      "independentReviewSha256": "1ac7f11959ea6d276cc51fcc18b0b26b40c928fb19a82c80b6417c8bd6ee63b8"
+    },
+    "skills": {
+      "completion": "Observe the exact browser response and require response.ok(); caller UI and SQL assertions verify application consumption",
+      "unchanged": [
+        "All24 scenarios",
+        "Real upstream fetch and exact genuine response bytes",
+        "Held release gate",
+        "All existing SQL, Refreshing, File scope, Include paths and close assertions",
+        "Original90000ms timeout and retry settings",
+        "Product UI/actions/state implementation"
+      ],
+      "sourceReviewSha256": "baf018a5a54393c710ea90cebc8db1dfe8b60114159ead1f70e38218be0917c7",
+      "runtimeResult": "Pending new hosted full browser run; local pinned Chromium installer still returns403"
+    },
+    "compilerPilot": {
+      "wrapper": "scripts/check-architecture-boundaries.mjs",
+      "wrapperQualification": "Actual named value import from ./architecture-boundaries/check.ts and top-level awaited non-optional call with exactly root",
+      "additionalGovernedSubjects": [
+        "scripts/architecture-boundaries/check.ts",
+        "scripts/architecture-boundaries/transaction-serialization.ts"
+      ],
+      "preserved": [
+        "Both prior governed test sources",
+        "Original >10 top-level-node assertion on real implementations",
+        "Every native parse-error, transform-warning and nonempty-output assertion",
+        "Malformed-syntax parser and transform rejection cases",
+        "Original complete tooling project and all19 pilot cases with unchanged timeouts"
+      ],
+      "runtimeResult": "PASS: original full tooling strict project and all19 maintained pilot cases"
+    }
+  },
+  "candidateValidation": {
+    "receiptSha256": "12e2ab26d7f316b6700e56bd13b9e4188005c03f555de05542f7ac7b40274b72",
+    "sourceHashes": {
+      "scripts/install-private-dependencies.mjs": "80f52deeb250819bb3c521ebd30fc71932c83586b34db172cf12bd30bd383305",
+      "scripts/install-private-dependencies.test.ts": "0e73678e36ea72d87911c5a13e5fc0761c4bed00c9c379f0cdfcf4bf0923c280",
+      "scripts/accounts-reference-e2e/src/tests/skills-ux.spec.ts": "af2dc4aeb791c3c6018c9b3e0a14a78ba4cc3212b972fd3672dccd334c23eb46"
+    },
+    "checks": [
+      {
+        "name": "format",
+        "command": [
+          "pnpm",
+          "exec",
+          "prettier",
+          "--check",
+          "scripts/install-private-dependencies.mjs",
+          "scripts/install-private-dependencies.test.ts",
+          "scripts/accounts-reference-e2e/src/tests/skills-ux.spec.ts"
+        ],
+        "exitCode": 0,
+        "durationSeconds": 1.287,
+        "logSha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20"
+      },
+      {
+        "name": "lint",
+        "command": [
+          "pnpm",
+          "exec",
+          "eslint",
+          "scripts/install-private-dependencies.mjs",
+          "scripts/install-private-dependencies.test.ts",
+          "scripts/accounts-reference-e2e/src/tests/skills-ux.spec.ts"
+        ],
+        "exitCode": 0,
+        "durationSeconds": 1.214,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "installer-regressions",
+        "command": [
+          "pnpm",
+          "exec",
+          "vitest",
+          "run",
+          "scripts/install-private-dependencies.test.ts",
+          "--maxWorkers=1",
+          "--no-file-parallelism"
+        ],
+        "exitCode": 0,
+        "durationSeconds": 4.607,
+        "logSha256": "86eaf2dcd475b4943dd25b37ff292c7a6656689b799330546f302e0f94f42d26"
+      },
+      {
+        "name": "full-tooling-strict",
+        "command": [
+          "node",
+          "scripts/local-checks/compiler-cli.ts",
+          "--native",
+          "--noEmit",
+          "-p",
+          "tsconfig.tooling.json"
+        ],
+        "exitCode": 0,
+        "durationSeconds": 31.212,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "diff-check",
+        "command": ["git", "diff", "--check"],
+        "exitCode": 0,
+        "durationSeconds": 0.023,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "completeInstallerCases": 35,
+    "guardInstalls": 47,
+    "typeScriptVersions": ["7.0.2"],
+    "blockedLoads": [],
+    "sourceUnchangedDuringValidation": true,
+    "fullToolingScope": "Original complete tsconfig.tooling.json, no narrowing"
+  },
+  "completedOnReviewedSource": {
+    "actionNative": {
+      "result": "PASS",
+      "producer": "1112a0f1de568f9fa927316ab68cef54fbcd4653",
+      "fullOriginalNativeProject": true,
+      "actualBabelJestSemanticQualification": true,
+      "completeFiles": 5,
+      "tests": 72,
+      "failures": 0,
+      "skips": 0,
+      "durationSeconds": 16.707,
+      "receiptSha256": "380a545c0ba13da7140fdaac4e95bab43757913c982257b0f4e05407746d84d8",
+      "jestReportSha256": "603fe872b172aaa991bb3cfad043c98fecb0434bb2f4f484c796674fc909c680",
+      "independentReviewSha256": "35207bca9b3e37c93227ff097cc6a7107020763fea4f55f88b1386d16d4a6430",
+      "guardBoundary": "Three guarded parent/compiler/Jest processes; immutable artifact fixture children keep their original separately sanitized environment. Their three artifact cases passed; no parent-audit coverage extension is claimed."
+    },
+    "ocr": {
+      "result": "PASS",
+      "go": "1.26.10",
+      "originalPatches": 12,
+      "manifestByteEqual": true,
+      "binarySha256": "9dd5f115747d24100f0767133a3288d268f3bc399675f5b826e7a867d101ee5c",
+      "manifestSha256": "f32798a4f52a2edb36702571ad27330080e1ed4ba646d0973892cc8cc5921da7",
+      "sourceFilesUnchanged": 915
+    },
+    "paired45": {
+      "result": "PASS",
+      "receiptSha256": "05a4b2ea0b6e52612d6cb2ae8b6e043fa86663af0cb8cbed56a5d25fe3cbe2ac",
+      "counts": {
+        "numFailedTests": 0,
+        "numPassedTests": 45,
+        "numPendingTests": 0,
+        "numTodoTests": 0,
+        "numTotalTests": 45
+      },
+      "fullFileCounts": {
+        "apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts": 4,
+        "scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts": 25,
+        "scripts/review-investigation-paired-e2e/openrouter-direct-paired.e2e.test.ts": 6,
+        "scripts/review-investigation-paired-e2e/pr-description-paired.e2e.test.ts": 2,
+        "scripts/review-investigation-paired-e2e/review-banner-comparison-paired.e2e.test.ts": 1,
+        "scripts/review-investigation-paired-e2e/review-investigation-paired.e2e.test.ts": 7
+      },
+      "exactRoster": true,
+      "command": "REVIEW_ROUTER_REVIEW_INVESTIGATION_PAIRED_E2E=1 vitest run --no-file-parallelism scripts/review-investigation-paired-e2e/review-investigation-paired.e2e.test.ts scripts/review-investigation-paired-e2e/openrouter-direct-paired.e2e.test.ts scripts/review-investigation-paired-e2e/pr-description-paired.e2e.test.ts scripts/review-investigation-paired-e2e/review-banner-comparison-paired.e2e.test.ts scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts",
+      "invocations": 1,
+      "durationSeconds": 325.389,
+      "postgres": "17.12",
+      "canonicalMigrations": 165,
+      "sourceUnchanged": true,
+      "actionSourceUnchanged": true,
+      "installedGraphMetadataUnchanged": true,
+      "graphScope": "Installed package manifests, .modules.yaml, .pnpm/lock.yaml and symlink target/resolution records in consumer root, native compiler, Accounts and immutable Action node_modules; not every dependency payload byte.",
+      "cleanup": {
+        "clusterStopped": true,
+        "connectionFileRemoved": true,
+        "errors": [],
+        "ownedDataRemoved": true,
+        "passwordRemoved": true,
+        "stopExitCode": 0,
+        "tcpPortClosed": true
+      },
+      "nativeTypeScriptVersions": [],
+      "blockedEvents": [],
+      "wholeConsumerCompiledArtifactQualificationClaimed": false,
+      "independentReviewSha256": "93cae26bc36a45dc1ce80caf9f8092c1271102f8c9ed4c47e3c0d4283cb3edb5"
+    },
+    "nativeAccounts": {
+      "result": "PASS",
+      "run": 45555796200,
+      "job": 139007404680,
+      "artifact": 14997646652,
+      "cases": 34,
+      "strictUnchangedWorkflowAssertionReplayed": true,
+      "blockedRequests": 0,
+      "pageErrors": 0,
+      "githubUnhandled": 0,
+      "sourceBeforeAfter": "03aef06cdfe9cf115899ad2558dd0df2fe9999b3",
+      "node": "24.21.0",
+      "independentReviewSha256": "6cde920c130a989e59c4ea37ce0a06e6d050a4a7cb73d89c40a49abaa5888338"
+    },
+    "secondaryCi": {
+      "result": "PASS",
+      "workflowCount": 6,
+      "applicableJobs": 7,
+      "actualCheckout": "c78a64d6ce8d678bd4d9edaa4115711ae9afca77",
+      "checkoutTreeEqualsReviewedSource": true,
+      "receiptSha256": "fcd7f908dc1ff2235804e556d249a2efea1f84f1fac35d0d7c9e9592aec2847f",
+      "qualifiedScope": "Hindsight deterministic contracts, Memory contracts/PG/UI, Provider C1 and Gateway P115/operator; separate H config-write and manual live-memory cases remain inapplicable, not passing evidence"
+    }
+  },
+  "remaining": [
+    "Publish bounded corrections, then require actual corrected-head main and Skills browser results",
+    "Finish affected browser artifact/asset acceptance and all required checks",
+    "Fresh actor/head/base/source identities and blocking-review readback, authorized expected-head squash merge, actual final commit and main CI verification"
+  ],
+  "compilerPilotValidation": {
+    "baseHead": "03aef06cdfe9cf115899ad2558dd0df2fe9999b3",
+    "startedAt": "2026-11-25T06:58:55.226177+00:00",
+    "sourceBefore": {
+      "scripts/install-private-dependencies.mjs": "80f52deeb250819bb3c521ebd30fc71932c83586b34db172cf12bd30bd383305",
+      "scripts/install-private-dependencies.test.ts": "0e73678e36ea72d87911c5a13e5fc0761c4bed00c9c379f0cdfcf4bf0923c280",
+      "scripts/accounts-reference-e2e/src/tests/skills-ux.spec.ts": "af2dc4aeb791c3c6018c9b3e0a14a78ba4cc3212b972fd3672dccd334c23eb46",
+      "scripts/local-checks/compiler-cli.pilot.ts": "e29fb1c61098994b8e0b84ac52f0e37d8343ef71ab39993fc715f87fcb2cbf7c"
+    },
+    "command": [
+      "pnpm",
+      "compiler:pilot",
+      "--maxWorkers=1",
+      "--reporter=default",
+      "--reporter=json",
+      "--outputFile=/workspace/scratch/0f054634e853/review-router-977-final/tmp/round52-ci-corrections/pilot-results.json"
+    ],
+    "scope": "Original full tooling strict command and complete maintained compiler pilot, no selected test filter, timeout or retry override. Same CI Go process/memory caps; parent Node cap2048MiB.",
+    "invocations": 1,
+    "exitCode": 0,
+    "durationSeconds": 52.681,
+    "sourceAfter": {
+      "scripts/install-private-dependencies.mjs": "80f52deeb250819bb3c521ebd30fc71932c83586b34db172cf12bd30bd383305",
+      "scripts/install-private-dependencies.test.ts": "0e73678e36ea72d87911c5a13e5fc0761c4bed00c9c379f0cdfcf4bf0923c280",
+      "scripts/accounts-reference-e2e/src/tests/skills-ux.spec.ts": "af2dc4aeb791c3c6018c9b3e0a14a78ba4cc3212b972fd3672dccd334c23eb46",
+      "scripts/local-checks/compiler-cli.pilot.ts": "e29fb1c61098994b8e0b84ac52f0e37d8343ef71ab39993fc715f87fcb2cbf7c"
+    },
+    "logSha256": "d3211b1dae733d5f1b1757f99d001fe62ff546afb0d5bb98e25d068159972d7d",
+    "endedAt": "2026-11-25T06:59:47.908887+00:00",
+    "sourceUnchanged": true,
+    "vitest": {
+      "success": true,
+      "numTotalTests": 19,
+      "numPassedTests": 19,
+      "numFailedTests": 0,
+      "numPendingTests": 0,
+      "numTodoTests": 0
+    },
+    "reportSha256": "d91e941e34c74e60d0f2e7f02237d041e405a34b64cf66d6e0ed2cb3383c1dd2",
+    "suiteResults": [
+      {
+        "name": "/workspace/scratch/0f054634e853/review-router-977-final/scripts/lib/server-rendered-heading.test.ts",
+        "status": "passed",
+        "cases": 3
+      },
+      {
+        "name": "/workspace/scratch/0f054634e853/review-router-977-final/scripts/local-checks/compiler-cli.pilot.ts",
+        "status": "passed",
+        "cases": 8
+      },
+      {
+        "name": "/workspace/scratch/0f054634e853/review-router-977-final/scripts/local-checks/compiler-public-surface.test.ts",
+        "status": "passed",
+        "cases": 8
+      }
+    ],
+    "guardInstalls": 51,
+    "typeScriptVersions": ["7.0.2"],
+    "blocked": [],
+    "receiptSha256": "f4b76fd333151f3603c226cfa176781ce89672c26a4681077a22233c2156f9e5"
+  }
+}

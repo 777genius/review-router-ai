@@ -28,22 +28,22 @@
   "dependencies": {
     "@prisma/client": "7.8.0",
     "@reviewrouter/shared": "workspace:*",
-    "@get-modular/core": "0.7.0",
-    "@get-modular/assembly": "0.7.0",
+    "@get-modular/core": "0.8.0",
+    "@get-modular/assembly": "0.8.0",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@reviewrouter/features-outbox": "workspace:*",
     "@reviewrouter/features-rate-limits": "workspace:*",
-    "@get-modular/conformance": "0.5.0",
-    "@get-modular/resources": "0.2.1",
+    "@get-modular/conformance": "0.5.2",
+    "@get-modular/resources": "0.2.2",
     "@prisma/adapter-pg": "7.8.0",
     "pg": "8.23.0",
     "@types/pg": "8.23.1"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "node ../../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.build.json",
+    "typecheck": "node ../../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json",
     "typecheck:native": "node ../../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json",
     "test": "vitest run --root ../../.. packages/features/review-skills/src/tests"
   }

@@ -1991,6 +1991,58 @@ if (databaseUrl) {
       ).toBe(90_000);
     });
 
+    it.each(["execution", "authority"] as const)(
+      "keeps the absolute %s deadline when rebasing a lagging acquisition clock",
+      async (owner) => {
+        const harness = await createHarness();
+        const running = await prepareAndAdmit(harness, `lease-cap-${owner}`);
+        const actualNow = await databaseClock();
+        const notAfter = new Date(actualNow.getTime() + 20_000);
+        if (owner === "execution") {
+          await prisma.reviewExecutionV2.update({
+            where: { executionId: running.snapshot.execution.executionId },
+            data: { executionDeadlineAt: notAfter },
+          });
+        }
+        const command = {
+          ...leaseCommand(harness, running.snapshot, `lease-cap-${owner}`),
+          now: new Date(actualNow.getTime() - 5_000),
+          expiresAt: notAfter,
+          resultReportUntil: notAfter,
+          ...(owner === "authority" ? { notAfter } : {}),
+        };
+        const result = await harness.executions.acquireLease(command);
+        expect(result.status).toBe(ReviewInvocationLeaseAcquireStatus.Acquired);
+        expect(result.lease?.acquiredAt.getTime()).toBeGreaterThanOrEqual(
+          actualNow.getTime(),
+        );
+        expect(result.lease?.expiresAt).toEqual(notAfter);
+        expect(result.lease?.resultReportUntil).toEqual(notAfter);
+        const persisted = await harness.executions.findLease(command.leaseId);
+        expect(persisted?.expiresAt).toEqual(notAfter);
+        expect(persisted?.resultReportUntil).toEqual(notAfter);
+      },
+    );
+
+    it("does not persist a lease or charge an attempt once its absolute authority deadline has passed", async () => {
+      const harness = await createHarness();
+      const running = await prepareAndAdmit(harness, "lease-expired-authority");
+      const command = {
+        ...leaseCommand(harness, running.snapshot, "lease-expired-authority"),
+        notAfter: await databaseClock(),
+      };
+      const result = await harness.executions.acquireLease(command);
+      expect(result).toEqual({
+        status: ReviewInvocationLeaseAcquireStatus.NotRunnable,
+      });
+      expect(await harness.executions.findLease(command.leaseId)).toBeNull();
+      const persisted = await harness.executions.findExecution(
+        command.executionId,
+      );
+      expect(persisted?.execution.workSlots[0]?.nextAttemptOrdinal).toBe(1);
+      expect(persisted?.execution.workSlots[0]?.activeLeaseId).toBeNull();
+    });
+
     it("preserves absolute renewal deadlines across caller clock skew", async () => {
       const harness = await createHarness();
       const running = await prepareAndAdmit(harness, "renew-db-time");

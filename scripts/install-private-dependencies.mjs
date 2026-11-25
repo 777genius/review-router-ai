@@ -30,13 +30,25 @@ const forbiddenPnpmConfigBasename =
   /^(?:\.npmrc|\.pnpmfile(?:\..*)?|pnpmfile\.(?:c?js|mjs|ts))$/iu;
 
 const reviewedMinimumReleaseAgeExclusions = new Set([
-  "@agent-teams/document-authoring@0.3.4",
-  "@agent-teams/engineering-foundation@2.1.0",
-  "@agent-teams/repository-mutation@0.4.0",
-  "@get-modular/assembly@0.7.0",
-  "@get-modular/conformance@0.5.0",
-  "@get-modular/core@0.7.0",
-  "@get-modular/resources@0.2.1",
+  "@agent-teams/document-authoring@0.3.6",
+  "@agent-teams/engineering-foundation@3.1.0",
+  "@agent-teams/repository-mutation@0.4.2",
+  "@get-modular/assembly@0.8.0",
+  "@get-modular/conformance@0.5.2",
+  "@get-modular/core@0.8.0",
+  "@get-modular/resources@0.2.2",
+  "stack-toolchain@0.3.1",
+]);
+
+const reviewedBuildDecisions = new Map([
+  ["@prisma/engines@7.8.0", true],
+  ["bun@1.4.3", false],
+  ["esbuild@0.28.1", true],
+  ["prisma@7.8.0", true],
+  [
+    "@vioxen/subscription-runtime@https://codeload.github.com/777genius/ar/tar.gz/c7543bc716411a5f899a790a735d09ed2530f779",
+    true,
+  ],
 ]);
 
 function validateDeployKeyInstallConfiguration() {
@@ -86,14 +98,11 @@ function validateDeployKeyInstallConfiguration() {
       continue;
     }
     if (section === "allowBuilds") {
-      const match = /^ {2}"([^"]+)": true\s*$/u.exec(line);
-      const reviewedBuilds = new Set([
-        "@prisma/engines@7.8.0",
-        "esbuild@0.28.1",
-        "prisma@7.8.0",
-        "@vioxen/subscription-runtime@https://codeload.github.com/777genius/ar/tar.gz/c7543bc716411a5f899a790a735d09ed2530f779",
-      ]);
-      if (!match || !reviewedBuilds.has(match[1]))
+      const match = /^ {2}"([^"]+)": (true|false)\s*$/u.exec(line);
+      if (
+        !match ||
+        reviewedBuildDecisions.get(match[1]) !== (match[2] === "true")
+      )
         throw new Error("pnpm-workspace executable configuration denied");
       continue;
     }

@@ -1,5 +1,5 @@
 import js from "@eslint/js";
-import tseslint from "typescript-eslint";
+import { configs as syntaxConfigs } from "stack-toolchain/eslint-syntax";
 
 // Web source files have at most `webMaxLines` lines. Files that were already
 // longer keep their size as a ceiling: lower it in the PR that shrinks the
@@ -9,7 +9,7 @@ const webMaxLines = 600;
 const webMaxLinesCeilings = {
   "apps/web/app/dashboard/account-gateway-account-controls.tsx": 3135,
   "apps/web/app/dashboard/account-lifecycle-controls.tsx": 812,
-  "apps/web/app/dashboard/actions.ts": 3979,
+  "apps/web/app/dashboard/actions.ts": 3949,
   "apps/web/app/dashboard/dashboard-copy.ts": 921,
   "apps/web/app/dashboard/dashboard-workspace-page.tsx": 3509,
   "apps/web/app/dashboard/personal-account-controls.tsx": 1869,
@@ -64,7 +64,7 @@ export default [
     ],
   },
   js.configs.recommended,
-  ...tseslint.configs.recommended,
+  ...syntaxConfigs.recommended,
   {
     languageOptions: {
       globals: {

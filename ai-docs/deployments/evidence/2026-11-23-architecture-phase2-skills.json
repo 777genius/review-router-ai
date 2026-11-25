@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "scope": "Complete local Skills module and PostgreSQL qualification, including pinned paired Action HTTP transport; no browser or complete Action build claim.",
+  "source": {
+    "head": "a8925fe78beb53e13e4821ebf660980b11a715c7",
+    "tree": "9123a83b50f61e4d68845790d58387c087274489",
+    "aggregateSha256": "ccd1d920f27bc9938abaf9abff586b1d57722b783223e76a46f52abc705f9265",
+    "unchanged": true
+  },
+  "toolchain": {
+    "node": "26.11.1",
+    "pnpm": "11.28.7",
+    "skillsPnpm": "11.25.0",
+    "typescript": "7.0.2",
+    "foundation": "3.1.0",
+    "fms": "0.3.2",
+    "postgres": "17.12"
+  },
+  "ordinaryCommands": [
+    "pnpm skills:tooling:prepare",
+    "pnpm skills:architecture",
+    "pnpm --dir scripts/local-checks/native install --ignore-workspace --frozen-lockfile",
+    "pnpm --dir packages/features/review-skills typecheck:native",
+    "pnpm --dir packages/platform/db db:migrate:deploy",
+    "pnpm skills:test",
+    "pnpm exec vitest run apps/api/src/review-run-skills.postgres.test.ts"
+  ],
+  "sharedFmsCases": 82,
+  "rejectingArchitectureMutation": true,
+  "successfulMigrationLedgerEntries": 165,
+  "testGroups": [
+    {
+      "name": "skills-module-and-pg",
+      "files": 11,
+      "passed": 139,
+      "failed": 0,
+      "skipped": 0,
+      "todo": 0
+    },
+    {
+      "name": "skills-api-and-paired-http",
+      "files": 1,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "todo": 0
+    }
+  ],
+  "pairedAction": {
+    "head": "1112a0f1de568f9fa927316ab68cef54fbcd4653",
+    "tree": "5f851800304e7725085b40a2d0a1da5fe87c3ce6",
+    "runtimeDependencies": {
+      "node_modules/minimatch": "10.2.6",
+      "node_modules/brace-expansion": "5.0.9",
+      "node_modules/brace-expansion/node_modules/balanced-match": "4.0.4"
+    },
+    "sourceUnchanged": true,
+    "dependenciesUnchanged": true,
+    "scope": "Real Skills HTTP transport, materialization, path scope and cache identity; not full Action build or lifecycle"
+  },
+  "guardedNodeProcesses": 32,
+  "nativeVersions": ["7.0.2"],
+  "blockedLegacyLoads": [],
+  "ownedClusterRemoved": true,
+  "receiptSha256": "55453e04995e25149a6d91c6ddb8f577fdd36288c1e6d15d915dee6a0fea6401",
+  "functionalReview": {
+    "base": "014d708d27b5c8de46496c45349d59bf3d685960",
+    "head": "a8925fe78beb53e13e4821ebf660980b11a715c7",
+    "blockingFindings": 0,
+    "receiptSha256": "fa602c176aba6443513f160fe62451f5cd44952829d076b0ec02692f73ab663c"
+  },
+  "wholeWorkspaceBuildQualified": false,
+  "browserInteractionQualified": false
+}

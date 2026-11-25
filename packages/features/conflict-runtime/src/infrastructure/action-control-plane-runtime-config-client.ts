@@ -2,9 +2,9 @@ import { z } from "zod";
 import {
   actionConflictReviewDispatchPayloadSchema,
   actionRuntimeConfigResponseSchema,
-  type ActionConflictReviewRuntimeConfig,
   type ActionRuntimeConfigResponse,
 } from "@reviewrouter/features-action-control-plane";
+import type { ActionConflictReviewRuntimeConfig } from "@reviewrouter/features-action-control-plane/conflict-runtime-contract";
 
 type FetchLike = (
   input: string,

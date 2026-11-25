@@ -2525,6 +2525,8 @@ lifecycleCase.each([
         }
       }
     } finally {
+      // Global restore keeps spy histories and fixture-capturing implementations.
+      vi.resetAllMocks();
       vi.restoreAllMocks();
       syncBuiltinESMExports();
       vi.unstubAllEnvs();

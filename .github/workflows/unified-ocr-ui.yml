@@ -36,6 +36,10 @@ on:
       - packages/platform/db/**
       - packages/shared/**
       - scripts/accounts-reference-e2e/**
+      - scripts/lib/next-browser-test-compiler.ts
+      - scripts/lib/next-browser-test-compiler.test.ts
+      - scripts/check-unified-ocr-results.ts
+      - scripts/check-unified-ocr-results.test.ts
       - scripts/rewrite-dist-esm-imports.mjs
       - scripts/review-investigation-paired-e2e/**
       - scripts/review-action-v2-production-e2e/**
@@ -53,7 +57,7 @@ jobs:
   actual-next-readiness:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Actual Next UI and OCR lifecycle
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:github-hosted') && 'ubuntu-latest' || 'ubuntu-24.04' }}
     timeout-minutes: 25
     services:
       postgres:
@@ -69,6 +73,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
+      EXPECTED_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
       # Disposable service credentials only. No repository secrets or live identities.
       DATABASE_URL: postgresql://fixture_owner:synthetic-fixture-password@127.0.0.1:5432/review_router_accounts_reference_e2e_test?schema=public
       ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL: postgresql://fixture_owner:synthetic-fixture-password@127.0.0.1:5432/review_router_accounts_reference_e2e_test?schema=public
@@ -79,6 +84,8 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          # CI separately checks the PR merge; bind this UI receipt to the candidate.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           # Exact release checking reads the historical canonical S2 handoff.
           fetch-depth: 0
           persist-credentials: false
@@ -92,6 +99,8 @@ jobs:
           pnpm --dir scripts/accounts-reference-e2e install --frozen-lockfile
           pnpm --filter @reviewrouter/platform-db db:generate
           pnpm --dir scripts/accounts-reference-e2e run check
+      - name: Verify complete-receipt validation contracts
+        run: pnpm exec vitest run scripts/check-unified-ocr-results.test.ts --maxWorkers=1 --no-file-parallelism
       - name: Build shared release-contract helpers
         run: |
           pnpm --filter @reviewrouter/shared build
@@ -104,9 +113,11 @@ jobs:
             scripts/accounts-reference-e2e/src/run.ts \
             --repo-root "$PWD" \
             --database-url "$ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL" \
-            --expected-revision "$GITHUB_SHA" \
+            --expected-revision "$EXPECTED_REVISION" \
             --work-dir "$PWD/tmp/accounts-reference-e2e/runs/unified-ocr-ui" \
             --review-runtime-fixture --catalog-fixture --limits-fixture
+      - name: Verify complete actual Next acceptance receipt
+        run: node scripts/check-unified-ocr-results.ts ui tmp/accounts-reference-e2e/runs/unified-ocr-ui
       - name: Read the canonical paired Action pin
         id: paired-action
         run: |
@@ -168,6 +179,8 @@ jobs:
           pnpm exec vitest run scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts \
             --maxWorkers=1 --no-file-parallelism --reporter=default --reporter=json \
             --outputFile.json=tmp/accounts-reference-e2e/runs/unified-ocr-ui/paired-lifecycle-result.json
+      - name: Verify every paired lifecycle case executed
+        run: node scripts/check-unified-ocr-results.ts paired tmp/accounts-reference-e2e/runs/unified-ocr-ui
       - name: Preserve screenshots, traces and bounded fixture diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

@@ -18,8 +18,8 @@
   "dependencies": {
     "@reviewrouter/shared": "workspace:*",
     "zod": "^4.4.2",
-    "@get-modular/core": "0.7.0",
-    "@get-modular/assembly": "0.7.0"
+    "@get-modular/core": "0.8.0",
+    "@get-modular/assembly": "0.8.0"
   },
   "scripts": {
     "build": "node ../../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.build.json",

@@ -11,13 +11,13 @@
     "@electric-sql/pglite": "0.5.10",
     "@electric-sql/pglite-socket": "0.2.13",
     "@playwright/test": "1.64.1",
-    "next": "16.2.11",
+    "next": "16.4.6",
     "next-auth": "4.24.15",
     "pg": "8.23.0",
     "react": "19.2.5",
     "react-dom": "19.2.5",
     "tsx": "4.23.1",
-    "typescript": "6.0.3"
+    "typescript": "7.0.2"
   },
   "devDependencies": {
     "@types/node": "22.19.17",
