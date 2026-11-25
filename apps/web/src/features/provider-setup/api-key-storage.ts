@@ -106,7 +106,7 @@ export function readApiKeySetupIntent(
 }
 
 export function apiKeySetupHref(
-  destination: "accounts" | "providers" | "repositories",
+  destination: "providers" | "repositories",
   intent: ApiKeySetupIntent,
 ): string {
   const query = new URLSearchParams({
@@ -114,12 +114,12 @@ export function apiKeySetupHref(
     keyProvider: intent.provider,
     keyStorage: intent.storage,
     keyWorkspace: intent.workspaceId,
+    section: destination,
   });
-  if (destination !== "accounts") query.set("section", destination);
   if (intent.provider === "claude-code" && intent.claudeMethod)
     query.set("keyClaudeMethod", intent.claudeMethod);
   for (const id of intent.repositoryIds) query.append("keyRepository", id);
-  return `${destination === "accounts" ? "/dashboard/setup" : "/dashboard"}?${query}`;
+  return `/dashboard?${query}`;
 }
 
 export function consumeApiKeySetupIntent(): void {

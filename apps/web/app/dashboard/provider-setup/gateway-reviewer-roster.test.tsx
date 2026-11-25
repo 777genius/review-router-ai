@@ -50,7 +50,6 @@ const accounts: AccountsResult<AccountsPage> = {
           planLabel: "API",
           regionLabel: "Global",
           completionInputKind: "none",
-          personalOnly: false,
           limitsContract: "none",
           modelSettings: ["model-one", "model-two"].map((modelId) => ({
             modelId,
@@ -123,6 +122,23 @@ function view(): ProviderSetupView {
     viewerIsAdmin: true,
   };
 }
+const repositoryTarget = {
+  kind: "repository" as const,
+  repository: {
+    id: "r",
+    fullName: "org/repo",
+    visibility: "private" as const,
+    canManageCredentials: true,
+    effective: {
+      authMode: "codex_account_gateway" as const,
+      credentialKind: "gateway_binding" as const,
+    },
+    secretGuidance: null,
+    organizationLogin: null,
+    organizationSecretPolicy: null,
+    rotatingEnabled: false,
+  },
+};
 const base = () => ({
   workspaceId: "w",
   target: { kind: "workspace" as const },
@@ -203,12 +219,15 @@ describe("Gateway reviewer roster", () => {
       expect(save).toHaveProperty("disabled", false);
       fireEvent.click(refresh);
       await waitFor(() => expect(save).toHaveProperty("disabled", true));
-      const retry = screen.getByRole("button", { name: /^Refresh models$/ });
+      // A failed read offers Try again; an empty list keeps its small refresh.
+      const retry = screen.getByRole("button", {
+        name: outcome === "unavailable" ? "Try again" : /^Refresh models$/,
+      });
       await waitFor(() => expect(retry).toHaveProperty("disabled", false));
       expect(screen.getByText(/1\. model-one/)).toBeTruthy();
       expect(screen.getByText(/2\. model-two/)).toBeTruthy();
       const unknownWarning =
-        "Model availability could not be checked. Edit this reviewer to refresh account models. Your saved selection is unchanged.";
+        "Model availability could not be checked. Edit this reviewer to try again. Your saved selection is unchanged.";
       const unavailableWarning =
         "This model is unavailable for this account. Edit this reviewer to choose another model.";
       expect(
@@ -259,6 +278,114 @@ describe("Gateway reviewer roster", () => {
     expect(screen.queryByText("Optional")).toBeNull();
   });
 
+  it("reorders parallel reviewers to change the primary", async () => {
+    render(<GatewayReviewerRoster {...base()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Move reviewer 2 up" }));
+    expect(screen.getByText(/1\. model-two/)).toBeTruthy();
+    expect(screen.queryByText("Fallback")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save reviewers" }));
+    await waitFor(() =>
+      expect(saveProviderRoster).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerMode: "parallel",
+          reviewers: [
+            expect.objectContaining({
+              provider: { kind: "profile", profileId: "two" },
+            }),
+            expect.objectContaining({
+              provider: { kind: "profile", profileId: "one" },
+            }),
+          ],
+        }),
+      ),
+    );
+  });
+
+  it("orders fallback reviewers and saves the mode with the roster", async () => {
+    render(<GatewayReviewerRoster {...base()} />);
+    await choose(/^How reviewers work together/, /^Fallback in order/);
+    expect(
+      screen.queryByRole("combobox", { name: /^Max parallel providers/ }),
+    ).toBeNull();
+    expect(screen.getByText(/^Reviewers run one at a time/)).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Move reviewer 1 up" }),
+    ).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("button", { name: "Move reviewer 2 up" }));
+    expect(screen.getByText(/1\. model-two/)).toBeTruthy();
+    expect(screen.getByText("Fallback")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save reviewers" }));
+    await waitFor(() =>
+      expect(saveProviderRoster).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerMode: "fallback",
+          reviewers: [
+            expect.objectContaining({
+              provider: { kind: "profile", profileId: "two" },
+            }),
+            expect.objectContaining({
+              provider: { kind: "profile", profileId: "one" },
+            }),
+          ],
+        }),
+      ),
+    );
+  });
+
+  it("explains an inheriting repository and copies the workspace roster with its mode", async () => {
+    const props = base();
+    const inherited = view();
+    render(
+      <GatewayReviewerRoster
+        {...props}
+        view={{
+          ...inherited,
+          providerMode: "fallback",
+          repositories: inherited.repositories.map((row) => ({
+            ...row,
+            source: "workspace" as const,
+            selection: null,
+            selections: [],
+            execution: {},
+          })),
+        }}
+        target={repositoryTarget}
+      />,
+    );
+    expect(
+      screen.getByText(/^This repository uses the workspace default reviewers/),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("combobox", { name: /^How reviewers work together/ })
+        .textContent,
+    ).toContain("Fallback in order");
+    expect(
+      screen.getByRole("button", { name: "Move reviewer 2 up" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Use workspace reviewers" }),
+    ).toBeNull();
+    // Saving unchanged reviewers is allowed: it pins the current list here.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save for this repository" }),
+    );
+    await waitFor(() =>
+      expect(saveProviderRoster).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerMode: "fallback",
+          reviewers: [
+            expect.objectContaining({
+              provider: { kind: "profile", profileId: "one" },
+            }),
+            expect.objectContaining({
+              provider: { kind: "profile", profileId: "two" },
+            }),
+          ],
+        }),
+      ),
+    );
+  });
+
   it("removes only the chosen row and keeps the last reviewer", async () => {
     render(<GatewayReviewerRoster {...base()} />);
     fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]!);
@@ -281,6 +408,48 @@ describe("Gateway reviewer roster", () => {
         }),
       ),
     );
+  });
+
+  it("shows the parallel controls only while there are several reviewers", async () => {
+    render(<GatewayReviewerRoster {...base()} />);
+    const controls = () =>
+      ["How reviewers work together", "Max parallel providers"].map((name) =>
+        screen.queryByRole("combobox", { name: new RegExp(`^${name}`) }),
+      );
+    expect(controls().every(Boolean)).toBe(true);
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]!);
+    expect(controls().some(Boolean)).toBe(false);
+    expect(screen.queryByRole("button", { name: /Move reviewer/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Add reviewer" }));
+    expect(controls().every(Boolean)).toBe(true);
+  });
+
+  it("hides the controls for several reviewers while one is left and keeps its saved mode", async () => {
+    const props = base();
+    props.view = {
+      ...props.view,
+      providerMode: "fallback",
+      defaultSelections: [selection("one")],
+    };
+    render(<GatewayReviewerRoster {...props} />);
+    expect(
+      screen.queryByRole("combobox", { name: /^How reviewers work together/ }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("combobox", { name: /^Max parallel providers/ }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /Move reviewer/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save reviewers" }));
+    await waitFor(() =>
+      expect(saveProviderRoster).toHaveBeenCalledWith(
+        expect.objectContaining({ providerMode: "fallback" }),
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add reviewer" }));
+    expect(
+      screen.getByRole("combobox", { name: /^How reviewers work together/ })
+        .textContent,
+    ).toContain("Fallback in order");
   });
 
   it("retains a stale edited draft through background refetch and only reloads on request", async () => {
@@ -315,28 +484,21 @@ describe("Gateway reviewer roster", () => {
 
   it("restores the complete workspace roster with both observed versions", async () => {
     const props = base();
-    render(
-      <GatewayReviewerRoster
-        {...props}
-        target={{
-          kind: "repository",
-          repository: {
-            id: "r",
-            fullName: "org/repo",
-            visibility: "private",
-            canManageCredentials: true,
-            effective: {
-              authMode: "codex_account_gateway",
-              credentialKind: "gateway_binding",
-            },
-            secretGuidance: null,
-            organizationLogin: null,
-            organizationSecretPolicy: null,
-            rotatingEnabled: false,
-          },
-        }}
-      />,
+    props.view = {
+      ...props.view,
+      defaultSelections: [selection("one"), selection("missing")],
+    };
+    render(<GatewayReviewerRoster {...props} target={repositoryTarget} />);
+    expect(
+      screen
+        .getByRole("button", { name: "Use workspace reviewers" })
+        .getAttribute("aria-describedby"),
+    ).toBe(
+      screen.getByText(
+        "Workspace default: Profile one · model-one; Reviewer unavailable.",
+      ).id,
     );
+    expect(screen.getByRole("button", { name: "Save reviewers" })).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", { name: "Use workspace reviewers" }),
     );
@@ -351,6 +513,24 @@ describe("Gateway reviewer roster", () => {
         reviewers: null,
       }),
     );
+  });
+
+  it("warns that going back stops reviews while the workspace has no default", () => {
+    const props = base();
+    props.view = {
+      ...props.view,
+      defaultSelection: null,
+      defaultSelections: [],
+    };
+    render(<GatewayReviewerRoster {...props} target={repositoryTarget} />);
+    expect(
+      screen.getByText(
+        "Choosing Use workspace reviewers stops reviews here: the workspace has no default reviewers.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Use workspace reviewers" }),
+    ).toHaveProperty("disabled", false);
   });
 
   it("adds a new independently configured reviewer without raising parallelism", async () => {
@@ -391,6 +571,205 @@ describe("Gateway reviewer roster", () => {
     );
     expect(vi.mocked(saveProviderRoster).mock.calls[0]![0]).not.toHaveProperty(
       "executionPatch",
+    );
+  });
+
+  it("does not save a new reviewer whose typed model the picker marks unusable", async () => {
+    if (accounts.status !== "ok") throw new Error("fixture_unavailable");
+    const profile = accounts.value.profiles[0]!;
+    const props = base();
+    props.view = { ...props.view, defaultSelections: [selection("one")] };
+    // An NVIDIA account without its own fresh catalogue: every model is listed
+    // but unusable and the list says why once, so typing its exact name must
+    // not make it savable.
+    props.gatewayAccounts = {
+      status: "ok",
+      value: {
+        ...accounts.value,
+        profiles: [
+          {
+            ...profile,
+            connection: { ...profile.connection!, provider: "nvidia" },
+          },
+        ],
+      },
+    };
+    render(<GatewayReviewerRoster {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Add reviewer" }));
+    await choose(/^Account for reviewer 2/, /^Team account/);
+    fireEvent.change(screen.getByRole("combobox", { name: "Model" }), {
+      target: { value: "model-two" },
+    });
+    expect(
+      screen.getByText("Could not update the model list for this account."),
+    ).toBeTruthy();
+    const save = screen.getByRole("button", { name: "Save reviewers" });
+    expect(save).toHaveProperty("disabled", true);
+    fireEvent.click(save);
+    expect(saveProviderRoster).not.toHaveBeenCalled();
+  });
+
+  it("names an unavailable account with Try again and has no Refresh accounts button", async () => {
+    if (accounts.status !== "ok") throw new Error("fixture_unavailable");
+    const get = vi
+      .fn<GatewayModelAccountsApi["get"]>()
+      .mockResolvedValue({ status: "denied" });
+    const list = vi.fn<GatewayModelAccountsApi["list"]>();
+    render(
+      <GatewayModelAccountsProvider
+        scope="viewer:workspace:w"
+        api={{ get, list }}
+      >
+        <GatewayReviewerRoster {...base()} />
+      </GatewayModelAccountsProvider>,
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]!);
+    expect(
+      await screen.findByText(
+        "This account is unavailable. Choose another account.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Refresh accounts" }),
+    ).toBeNull();
+    const reads = get.mock.calls.length;
+    fireEvent.click(screen.getAllByRole("button", { name: "Try again" })[0]!);
+    await waitFor(() => expect(get.mock.calls.length).toBe(reads + 1));
+    // An ordinary read of that one binding, not a forced model refresh.
+    expect(get).toHaveBeenLastCalledWith("binding");
+  });
+
+  it("says once that the account list failed instead of calling every account unavailable", () => {
+    render(
+      <GatewayReviewerRoster
+        {...base()}
+        gatewayAccounts={{ status: "unavailable" }}
+      />,
+    );
+    expect(screen.getByText("Could not load the account list.")).toBeTruthy();
+    expect(screen.queryByText(/This account is unavailable/)).toBeNull();
+    // Without an accounts adapter there is nothing to retry.
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+});
+
+describe("daily request limit notice", () => {
+  const free = "openai/gpt-oss-120b:free";
+  const paid = "openai/gpt-5.3-codex";
+  const notice = /This model has a daily request limit/;
+  const rowHint = /Free OpenRouter models have a daily request limit/;
+  function openRouterProps(models: readonly string[], fallback = false) {
+    if (accounts.status !== "ok") throw new Error("fixture_unavailable");
+    const page = accounts.value;
+    const connection = page.profiles[0]!.connection!;
+    const props = base();
+    const ids = models.map((_, index) => `p${index}`);
+    return {
+      ...props,
+      gatewayAccounts: {
+        status: "ok" as const,
+        value: {
+          ...page,
+          profiles: [
+            {
+              ...page.profiles[0]!,
+              models: [free, paid],
+              connection: {
+                ...connection,
+                provider: "openrouter" as const,
+                modelSettings: [free, paid].map((modelId) => ({
+                  ...connection.modelSettings[0]!,
+                  modelId,
+                })),
+              },
+            },
+          ],
+        },
+      },
+      modelOptions: [free, paid].map((value) => ({
+        value,
+        label: value,
+        provider: "openrouter" as const,
+      })),
+      view: {
+        ...props.view,
+        ...(fallback ? { providerMode: "fallback" as const } : {}),
+        defaultSelection: selection(ids[0]!),
+        defaultSelections: ids.map((id) => selection(id)),
+        profiles: models.map((model, index) => ({
+          ...props.view.profiles[0]!,
+          id: ids[index]!,
+          model,
+          label: `Profile ${index}`,
+        })),
+      },
+    };
+  }
+
+  it("advises a second reviewer when the only reviewer is a free model, without blocking save", async () => {
+    render(<GatewayReviewerRoster {...openRouterProps([free])} />);
+    expect(screen.getByRole("note").textContent).toMatch(notice);
+    // One message only: the row repeats nothing.
+    expect(screen.queryByText(rowHint)).toBeNull();
+    const save = screen.getByRole("button", { name: "Save reviewers" });
+    expect(save).toHaveProperty("disabled", false);
+    fireEvent.click(save);
+    await waitFor(() => expect(saveProviderRoster).toHaveBeenCalledTimes(1));
+  });
+
+  it("opens a new reviewer from the notice, keeps the keyboard there and hides the notice", async () => {
+    render(<GatewayReviewerRoster {...openRouterProps([free])} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add a second reviewer" }),
+    );
+    expect(screen.getByText(/2\. Choose a model/)).toBeTruthy();
+    const account = screen.getByRole("combobox", {
+      name: "Account for reviewer 2",
+    });
+    await waitFor(() => expect(document.activeElement).toBe(account));
+    expect(screen.queryByRole("note")).toBeNull();
+    expect(
+      screen.getByRole("combobox", { name: /How reviewers work together/ }),
+    ).toBeTruthy();
+  });
+
+  it("shows for a repository inheriting a sole free default before its account loads", () => {
+    const props = openRouterProps([free]);
+    render(
+      <GatewayReviewerRoster
+        {...props}
+        target={repositoryTarget}
+        gatewayAccounts={{ status: "unavailable" }}
+        view={{
+          ...props.view,
+          profiles: props.view.profiles.map((profile) => ({
+            ...profile,
+            providerId: "openrouter" as const,
+          })),
+          repositories: [
+            {
+              ...props.view.repositories[0]!,
+              source: "workspace",
+              selection: null,
+              selections: [],
+            },
+          ],
+        }}
+      />,
+    );
+    expect(screen.getByRole("note").textContent).toMatch(notice);
+  });
+
+  it.each([
+    ["the only reviewer is a paid model", [paid], false],
+    ["a paid reviewer follows the free one in parallel", [free, paid], false],
+    ["a paid reviewer backs the free one up in fallback", [free, paid], true],
+  ] as const)("stays hidden when %s", (_case, models, fallback) => {
+    render(<GatewayReviewerRoster {...openRouterProps(models, fallback)} />);
+    expect(screen.queryByRole("note")).toBeNull();
+    // With several reviewers the free row keeps its own short hint.
+    expect(screen.queryAllByText(rowHint)).toHaveLength(
+      models.length > 1 ? 1 : 0,
     );
   });
 });

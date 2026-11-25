@@ -63,6 +63,7 @@ import {
   archiveProviderProfile,
   clearWorkspaceDefaultProvider,
   updateProviderProfile,
+  useProviderListView,
   useProviderSetupCompletion,
 } from "./provider-setup-api";
 import { ProviderSetupDialog } from "./provider-setup-dialog";
@@ -109,7 +110,8 @@ function shown(
  * visible, disabled, with its reason.
  */
 export function ProviderList(props: ProviderListProps): React.ReactElement {
-  const { view, mutationsEnabled } = props;
+  const { mutationsEnabled } = props;
+  const view = useProviderListView(props.view);
   const dialog = {
     workspaceId: view.workspaceId,
     mutationsEnabled,
@@ -371,7 +373,7 @@ function ProviderListItem({
 function credentialKeptText(row: ProviderListRow): string {
   switch (row.credentialKind) {
     case "gateway_binding":
-      return "The account stays in Accounts.";
+      return "The account stays in Connections.";
     case "managed_api_key":
       return "The saved key stays for any other provider that uses it.";
     case "user_ci_secret":
@@ -379,7 +381,7 @@ function credentialKeptText(row: ProviderListRow): string {
     case "repository_rotating":
       return "The Codex connection of the repository stays as it is.";
     case "hosted_pool":
-      return "The hosted Codex pool stays in Accounts.";
+      return "The hosted Codex pool stays in Connections.";
   }
 }
 
@@ -525,6 +527,7 @@ function ProviderProfileEditForm({
   const catalogProvider = replacementProvider
     ? getSetupProvider(replacementProvider).publicCatalogProvider
     : providerKindForAuthMode(row.authMode);
+  const listStatus = catalogProvider ? catalogs.status(catalogProvider) : null;
   const publicModelOptions = catalogProvider
     ? catalogs.optionsFor(catalogProvider, true, {
         allowRoutingModels: gateway,
@@ -607,36 +610,20 @@ function ProviderProfileEditForm({
         allowCustomModel={!gateway}
         emptyListPlaceholder="The account lists no models right now"
         disabled={pending}
+        status={
+          gateway ? (
+            <GatewayModelCatalogStatus
+              account={gatewayAccount}
+              profile={gatewayProfile}
+              accounts={gatewayOptions}
+              bindingId={row.gatewayBindingId ?? ""}
+              publicCatalog={listStatus}
+            />
+          ) : (
+            <ProviderModelCatalogStatus status={listStatus} />
+          )
+        }
       />
-      {gateway ? (
-        <GatewayModelCatalogStatus
-          account={gatewayAccount}
-          loading={gatewayOptions.loading}
-          canRefresh={gatewayOptions.canRefresh}
-          onRefresh={async () => {
-            await Promise.all([
-              gatewayOptions.refreshModels(row.gatewayBindingId ?? ""),
-              catalogProvider
-                ? catalogs.status(catalogProvider)?.refresh()
-                : undefined,
-            ]);
-          }}
-        />
-      ) : null}
-      {gateway &&
-      catalogProvider &&
-      (catalogs.status(catalogProvider)?.failed ||
-        catalogs.status(catalogProvider)?.snapshot?.refresh === "failed") ? (
-        <p role="status" className="text-xs text-slate-400">
-          Could not update public model metadata. Showing saved model choices.
-        </p>
-      ) : null}
-      {!gateway && catalogProvider ? (
-        <ProviderModelCatalogStatus
-          status={catalogs.status(catalogProvider)}
-          publicSelection={!gateway}
-        />
-      ) : null}
       {gateway && row.gatewayBindingId ? (
         <GatewayConnectionTest
           bindingId={row.gatewayBindingId}

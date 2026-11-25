@@ -9,6 +9,7 @@ import { createContext, useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, type QueryClient } from "@tanstack/react-query";
 import { Button } from "@reviewrouter/ui";
 import { RefreshCw } from "lucide-react";
+import { ACCOUNT_LIMITS_OBSERVATION_TTL_MS } from "@reviewrouter/features-provider-accounts/account-limits";
 import type {
   AccountLimitsView,
   AccountsResult,
@@ -17,6 +18,7 @@ import {
   accountLimitsOptions,
   accountLimitsKey,
   accountLimitsRefreshOptions,
+  claimAccountLimitsAutoRefresh,
   releaseAccountLimits,
   removeAccountLimits,
 } from "./account-limits-query";
@@ -69,19 +71,77 @@ const statusText = {
   restricted: "Limits visible to the owner only",
 };
 
-function resetText(reset: number, now: number) {
-  if (!Number.isFinite(reset)) return "Reset unknown";
-  if (now >= reset) return "Reset pending";
-  const minutes = Math.ceil((reset - now) / 60_000);
+type LimitsWindow = Extract<
+  AccountLimitsView,
+  { status: "snapshot" }
+>["windows"][number];
+
+/** The compact summary: at most two known plan windows, rate limits last. */
+function summaryWindows(windows: readonly LimitsWindow[]) {
+  return windows
+    .filter(
+      (window) =>
+        window.dimension === undefined ||
+        window.remainingPercent !== null ||
+        (window.dimension === "plan_quota" && window.resetAt !== null),
+    )
+    .sort(
+      (left, right) =>
+        Number(left.dimension === "rate_limit") -
+        Number(right.dimension === "rate_limit"),
+    )
+    .slice(0, 2);
+}
+
+/**
+ * The clock ages on screen are counted from (78, rule 2): it starts at
+ * `anchor`, the server time of the read, or at mount, and ticks every second.
+ * Null until mounted, so the server and the first client render agree.
+ */
+export function useAgeClock(anchor?: string): number | null {
+  const [clock, setClock] = useState<number | null>(null);
+  useEffect(() => {
+    const started = Date.now();
+    const base = anchor ? Date.parse(anchor) : started;
+    setClock(base);
+    const timer = window.setInterval(
+      () => setClock(base + Date.now() - started),
+      1_000,
+    );
+    return () => window.clearInterval(timer);
+  }, [anchor]);
+  return clock;
+}
+
+export function durationText(minutes: number) {
   const days = Math.floor(minutes / 1_440);
   const hours = Math.floor((minutes % 1_440) / 60);
   const remaining = minutes % 60;
-  const duration = days
+  return days
     ? `${days}d${hours ? ` ${hours}h` : ""}`
     : hours
       ? `${hours}h${remaining ? ` ${remaining}m` : ""}`
       : `${remaining}m`;
-  return `Resets in ${duration}`;
+}
+
+function resetText(reset: number, now: number) {
+  if (!Number.isFinite(reset)) return "Reset unknown";
+  if (now >= reset) return "Reset pending";
+  return `Resets in ${durationText(Math.ceil((reset - now) / 60_000))}`;
+}
+
+/**
+ * The age of an observation that is no longer current, instead of an alarming
+ * badge: last known values are normal, not an error. A passed reset alone is
+ * already said by "Reset pending".
+ */
+function observationAge(window: LimitsWindow, now: number) {
+  const observed = window.observedAt ? Date.parse(window.observedAt) : NaN;
+  if (!Number.isFinite(observed)) return "as of unknown time";
+  const age = now - observed;
+  return age >= ACCOUNT_LIMITS_OBSERVATION_TTL_MS
+    ? `as of ${durationText(Math.floor(age / 60_000))} ago`
+    : null;
 }
 
 export function AccountLimitsLine({
@@ -105,8 +165,6 @@ export function AccountLimitsLine({
   expectedFetchedAt?: string | undefined;
 }) {
   const reading = useRef(false);
-  const [local, setLocal] = useState(false);
-  const [clock, setClock] = useState<number | null>(null);
   const initialRefresh = useRef<string | null>(null);
   const refresh = useMutation(
     accountLimitsRefreshOptions(
@@ -164,34 +222,43 @@ export function AccountLimitsLine({
       cachedView.fetchedAt <= expectedFetchedAt);
   const view = changed ? null : cachedView;
   const fetchedAt = view?.fetchedAt;
-  const refreshMissing =
-    view?.status === "unknown" &&
-    view.reason === "missing_snapshot" &&
-    view.refreshAvailable;
+  // A source with quota-only refresh (today Codex, which has no background
+  // collector) refreshes once when the card opens showing missing or old
+  // limits. Sources without it stay cached-only. Judged as the card opens,
+  // by the domain's stale flag computed at that read (one owner of the rule).
+  const outdatedWhenRead =
+    view?.status === "snapshot" &&
+    summaryWindows(view.windows).some((window) => window.stale);
+  const refreshOnOpen =
+    view?.refreshAvailable === true &&
+    ((view.status === "unknown" && view.reason === "missing_snapshot") ||
+      outdatedWhenRead);
   const displayToken = view?.displayToken;
   useEffect(() => {
     if (
       !context ||
       blocked ||
-      !refreshMissing ||
+      !refreshOnOpen ||
       !displayToken ||
       initialRefresh.current === displayToken
     )
       return;
     initialRefresh.current = displayToken;
+    if (!claimAccountLimitsAutoRefresh(scope, connectionId, displayToken))
+      return;
     refreshCurrent();
-  }, [context, blocked, refreshMissing, displayToken, refreshCurrent]);
-  useEffect(() => {
-    setLocal(true);
-    const started = Date.now();
-    const serverNow = fetchedAt ? Date.parse(fetchedAt) : started;
-    setClock(serverNow);
-    const timer = window.setInterval(
-      () => setClock(serverNow + Date.now() - started),
-      1_000,
-    );
-    return () => window.clearInterval(timer);
-  }, [fetchedAt]);
+  }, [
+    context,
+    blocked,
+    refreshOnOpen,
+    displayToken,
+    scope,
+    connectionId,
+    refreshCurrent,
+  ]);
+  const clock = useAgeClock(fetchedAt);
+  // Local times only after mount, so the server and first client render agree.
+  const local = clock !== null;
   useEffect(() => {
     if (blocked) void removeAccountLimits(client, scope, connectionId);
   }, [blocked, client, scope, connectionId]);
@@ -230,80 +297,55 @@ export function AccountLimitsLine({
       <div className="min-w-0 flex-1 space-y-2">
         {view?.status === "snapshot" ? (
           <>
-            {view.windows
-              .filter(
-                (window) =>
-                  window.dimension === undefined ||
-                  window.remainingPercent !== null ||
-                  (window.dimension === "plan_quota" &&
-                    window.resetAt !== null),
-              )
-              .sort(
-                (left, right) =>
-                  Number(left.dimension === "rate_limit") -
-                  Number(right.dimension === "rate_limit"),
-              )
-              .slice(0, 2)
-              .map((window, index) => {
-                const reset = window.resetAt ? Date.parse(window.resetAt) : NaN;
-                const observed = window.observedAt
-                  ? Date.parse(window.observedAt)
-                  : NaN;
-                const elapsed = Number.isFinite(reset) && now >= reset;
-                const stale =
-                  window.stale ||
-                  !Number.isFinite(observed) ||
-                  now - observed >= 300_000 ||
-                  elapsed;
-                return (
-                  <div
-                    key={`${window.label}:${index}`}
-                    className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5"
-                  >
-                    <span className="min-w-4 shrink-0">{window.label}</span>
-                    <span className="min-w-20 font-semibold tabular-nums text-slate-100">
-                      {window.remainingPercent === null
-                        ? window.dimension === "plan_quota"
-                          ? "Remaining not reported"
-                          : "Remaining unknown"
-                        : `${window.remainingPercent}% left`}
-                    </span>
-                    {window.remainingPercent !== null ? (
+            {summaryWindows(view.windows).map((window, index) => {
+              const reset = window.resetAt ? Date.parse(window.resetAt) : NaN;
+              const age = observationAge(window, now);
+              return (
+                <div
+                  key={`${window.label}:${index}`}
+                  className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5"
+                >
+                  <span className="min-w-4 shrink-0">{window.label}</span>
+                  <span className="min-w-20 font-semibold tabular-nums text-slate-100">
+                    {window.remainingPercent === null
+                      ? window.dimension === "plan_quota"
+                        ? "Remaining not reported"
+                        : "Remaining unknown"
+                      : `${window.remainingPercent}% left`}
+                  </span>
+                  {window.remainingPercent !== null ? (
+                    <div
+                      role="progressbar"
+                      aria-label={`${window.label} remaining`}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={window.remainingPercent}
+                      aria-valuetext={`${window.remainingPercent}% remaining${window.usedPercent === null ? "" : `; ${window.usedPercent}% used`}`}
+                      className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-slate-700 sm:w-20"
+                    >
                       <div
-                        role="progressbar"
-                        aria-label={`${window.label} remaining`}
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-valuenow={window.remainingPercent}
-                        aria-valuetext={`${window.remainingPercent}% remaining${window.usedPercent === null ? "" : `; ${window.usedPercent}% used`}`}
-                        className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-slate-700 sm:w-20"
-                      >
-                        <div
-                          className={
-                            window.remainingPercent <= 5
-                              ? "h-full bg-rose-400"
-                              : window.remainingPercent <= 20
-                                ? "h-full bg-amber-400"
-                                : "h-full bg-cyan-400"
-                          }
-                          style={{ width: `${window.remainingPercent}%` }}
-                        />
-                      </div>
-                    ) : null}
+                        className={
+                          window.remainingPercent <= 5
+                            ? "h-full bg-rose-400"
+                            : window.remainingPercent <= 20
+                              ? "h-full bg-amber-400"
+                              : "h-full bg-cyan-400"
+                        }
+                        style={{ width: `${window.remainingPercent}%` }}
+                      />
+                    </div>
+                  ) : null}
+                  <span className="whitespace-nowrap tabular-nums">
+                    {resetText(reset, now)}
+                  </span>
+                  {age ? (
                     <span className="whitespace-nowrap tabular-nums">
-                      {resetText(reset, now)}
+                      {age}
                     </span>
-                    {stale ? (
-                      <span
-                        className="rounded bg-amber-300/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-200"
-                        title="These saved limits may have changed. Reload checks the latest saved snapshot; Ready describes the connection, not its remaining quota."
-                      >
-                        Outdated
-                      </span>
-                    ) : null}
-                  </div>
-                );
-              })}
+                  ) : null}
+                </div>
+              );
+            })}
             <details>
               <summary className="w-fit cursor-pointer rounded text-slate-500 hover:text-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300/70">
                 Details
@@ -314,6 +356,7 @@ export function AccountLimitsLine({
                   limits
                   {" · "}shared across all activity
                 </p>
+                <p>Ready describes the connection, not its remaining quota.</p>
                 {view.windows.map((window, index) => (
                   <div key={`${window.label}:${index}`} className="space-y-1">
                     <p>
@@ -355,6 +398,18 @@ export function AccountLimitsLine({
         )}
         {query.isError || query.data?.status === "unavailable" ? (
           <p role="status">Could not reload saved limits.</p>
+        ) : null}
+        {refresh.data?.newer === false &&
+        // Only beside the snapshot that refresh installed, not a later one.
+        refresh.data.displayToken === view?.displayToken &&
+        refresh.data.fetchedAt === view.fetchedAt &&
+        outdatedWhenRead ? (
+          // A refresh whose newest observation is no newer than before must
+          // say so instead of leaving only an old "as of" age.
+          <p role="status">
+            Refresh returned no newer limits. Try again later, or reconnect the
+            account if this keeps happening.
+          </p>
         ) : null}
         {refresh.isError ? (
           <p role="status">

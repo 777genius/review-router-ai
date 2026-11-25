@@ -12,7 +12,10 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const receipt = JSON.parse(
-  readFileSync(new URL("./registry-artifacts.json", import.meta.url), "utf8"),
+  readFileSync(
+    new URL("./current-registry-artifacts.json", import.meta.url),
+    "utf8",
+  ),
 ) as {
   artifacts: {
     name: string;
@@ -53,7 +56,7 @@ writeFileSync(
   JSON.stringify({ private: true, type: "module" }),
 );
 copyFileSync(
-  new URL("./consumer.ts", import.meta.url),
+  new URL("./current-consumer.ts", import.meta.url),
   join(consumer, "consumer.ts"),
 );
 writeFileSync(
@@ -80,7 +83,7 @@ execFileSync(
     "--no-fund",
     "--package-lock=false",
     ...archives,
-    "typescript@6.0.3",
+    "typescript@7.0.2",
     "@types/node@22.19.17",
   ],
   { cwd: consumer, stdio: "inherit" },

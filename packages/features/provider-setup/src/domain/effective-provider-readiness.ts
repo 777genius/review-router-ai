@@ -59,9 +59,17 @@ export type EffectiveProviderReadinessFacts = Readonly<{
   providerSetup: readonly ProviderSetupEvidence[];
   hostedSessionReady: boolean;
   gatewayAccountReady: boolean;
-  gatewayAuthorizationReady: boolean;
+  /** The hosted review authorization (lane) of the repository. */
+  gatewayAuthorization: GatewayAuthorizationState;
   providerSecretCheckFailed: boolean;
 }>;
+
+/**
+ * Hosted review authorization of a Gateway repository: granted, not granted
+ * yet (the merged setup still needs its verification), or held by an
+ * operator state such as a pause, a drain or a safety block.
+ */
+export type GatewayAuthorizationState = "ready" | "not_established" | "blocked";
 
 export type EffectiveProviderReadiness = Readonly<{
   /** The health report with provider evidence applied. */
@@ -70,6 +78,10 @@ export type EffectiveProviderReadiness = Readonly<{
   workflowUpdateRequired: boolean;
   runtimeCompatibility: ReviewRuntimeCompatibility;
   step: RepositorySetupStepId;
+  /** The installed workflow is configured but its runtime is not verified. */
+  verificationNeeded: boolean;
+  /** The hosted review authorization; "none" without a Gateway provider. */
+  gatewayAuthorization: GatewayAuthorizationState | "none";
 }>;
 
 const workflowCurrentHealthStatuses: ReadonlySet<
@@ -116,11 +128,17 @@ export function resolveEffectiveProviderReadiness(
         (!facts.latestActionHealthReceivedAt ||
           providerSetupConfirmedAt >= facts.latestActionHealthReceivedAt));
 
+  const verificationNeeded =
+    facts.runtimeCompatibility === "unknown" &&
+    facts.setupStatus === "configured";
+
   return {
     healthStatus,
     workflowCurrent,
     workflowUpdateRequired,
     runtimeCompatibility: facts.runtimeCompatibility,
+    verificationNeeded,
+    gatewayAuthorization: gatewayProvider ? facts.gatewayAuthorization : "none",
     step: setupStep({
       setupStatus: facts.setupStatus,
       setupNeedsAttention: facts.setupNeedsAttention,
@@ -130,7 +148,12 @@ export function resolveEffectiveProviderReadiness(
       runtimeCompatible: facts.runtimeCompatibility === "compatible",
       providerReady,
       gatewayAuthorizationPending:
-        gatewayProvider && !facts.gatewayAuthorizationReady,
+        gatewayProvider && facts.gatewayAuthorization !== "ready",
+      // After a merge only the verification grants the hosted authorization.
+      awaitingGatewayVerification:
+        gatewayProvider &&
+        verificationNeeded &&
+        facts.gatewayAuthorization === "not_established",
     }),
   };
 }
@@ -199,6 +222,7 @@ function setupStep(input: {
   readonly runtimeCompatible: boolean;
   readonly providerReady: boolean;
   readonly gatewayAuthorizationPending: boolean;
+  readonly awaitingGatewayVerification: boolean;
 }): RepositorySetupStepId {
   if (input.setupNeedsAttention) return "setup_pr";
   // A report from the previous workflow says nothing about the required one.
@@ -212,6 +236,9 @@ function setupStep(input: {
     return input.gatewayAuthorizationPending ? "provider" : "ready";
   }
   if (input.workflowCurrent) return "provider";
+  // The merged workflow waits for its verification, not for another PR.
+  if (input.awaitingGatewayVerification && !input.workflowUpdateRequired)
+    return "merge_setup_pr";
   return input.setupStatus === "setup_pr_open" ||
     input.healthStatus === "setup_pr_open"
     ? "merge_setup_pr"

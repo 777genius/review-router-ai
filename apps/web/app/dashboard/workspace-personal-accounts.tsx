@@ -28,17 +28,25 @@ import {
   AccountActionsMenu,
   AccountMenuItem,
   accountMenuItemClass,
+  useAccountMenuReturnFocus,
 } from "./account-actions-menu";
-import { GitHubAccountAvatar } from "../github-account-avatar";
 import { AccountIdentity } from "./account-identity";
+import { AccountOwner, connectionOwnerKind } from "./account-owner";
 import { AccountUsageLine } from "./account-usage-line";
 import { readAccountResult } from "./account-read-result";
-import { useOwnAccountsView } from "./accounts-workspace-tabs";
 import { accountsGridColumns } from "./accounts-grid";
 import {
+  accountsOverviewKey,
+  bindingWorkspaceUse,
+  OwnConnectionIdsContext,
+  WorkspaceUseLine,
+} from "./account-workspace-use";
+import {
   accountsCopy,
-  accountStatusInfo,
-  pendingStatusCopy,
+  connectionRowStatus,
+  removedFromWorkspaceText,
+  removeFromWorkspaceCopy,
+  type ConnectionOwnerKind,
 } from "./accounts-copy";
 import { AccountStatusLine } from "./account-status-icon";
 
@@ -47,7 +55,7 @@ import type {
   AccountsPage,
   AccountsResult,
 } from "../../src/server/account-gateway-accounts";
-import { dashboardSectionHref } from "./dashboard-section";
+import { ChooseForReviewsLink } from "./choose-for-reviews-link";
 import { refreshPersonalAccountViews } from "./personal-account-controls";
 import {
   useGatewayModelAccountsQueryClient,
@@ -55,6 +63,12 @@ import {
 } from "./gateway-model-account-options";
 
 type DetachRequest = { bindingId: string; expectedBindingRevision: number };
+type DetachSelection = {
+  label: string;
+  ownerKind: ConnectionOwnerKind;
+  request: DetachRequest;
+  returnFocus: HTMLElement | null;
+};
 type DetachResult = AccountsResult<{
   bindingId: string;
   workspaceId: string;
@@ -76,49 +90,6 @@ type Props = {
   managementActions?: ((account: AccountView) => React.ReactNode) | undefined;
 };
 
-function AccountOwner({ account }: { account: AccountView }) {
-  const owner = account.owner;
-  const avatarUrl =
-    owner?.kind === "personal" || owner?.kind === "organization"
-      ? owner.avatarUrl
-      : null;
-  const avatarLabel =
-    owner?.kind === "personal"
-      ? (owner.handle ?? "Owner")
-      : owner?.kind === "organization"
-        ? owner.label
-        : "Owner";
-  const text =
-    owner?.kind === "personal"
-      ? owner.isViewer
-        ? "You"
-        : owner.handle
-          ? `@${owner.handle}`
-          : accountsCopy.ownerUnavailable
-      : owner?.kind === "organization"
-        ? owner.label
-        : owner?.kind === "operator"
-          ? owner.label
-          : account.origin === "organization"
-            ? "This workspace"
-            : account.origin === "operator"
-              ? "ReviewRouter"
-              : accountsCopy.ownerUnavailable;
-  return (
-    <p className="mt-2 flex min-w-0 items-center gap-2 text-xs text-slate-400">
-      {avatarUrl ? (
-        <GitHubAccountAvatar
-          avatarUrl={avatarUrl}
-          login={avatarLabel}
-          altText=""
-          size="sm"
-        />
-      ) : null}
-      <span className="truncate">{text}</span>
-    </p>
-  );
-}
-
 function AccountRowMenu({
   account,
   managementRows,
@@ -136,30 +107,14 @@ function AccountRowMenu({
   managementRows: readonly AccountView[];
   managementActions?: ((account: AccountView) => React.ReactNode) | undefined;
   canDetach: boolean;
-  selectDetach(): void;
+  selectDetach(request: DetachSelection): void;
 }) {
-  const showOwn = useOwnAccountsView();
   const managed = managementRows.find(
     (row) => row.connectionId === account.connectionId,
   );
-  const canDetachRow =
-    canDetach &&
-    account.binding?.state === "active" &&
-    account.allowedActions?.includes("detach");
+  const binding = account.binding;
   return (
     <AccountActionsMenu label={account.label}>
-      {account.isOwnedByViewer && showOwn ? (
-        <AccountMenuItem>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={accountMenuItemClass}
-            onClick={showOwn}
-          >
-            {accountsCopy.own}
-          </Button>
-        </AccountMenuItem>
-      ) : null}
       {managed && managementActions ? managementActions(managed) : null}
       <AccountLifecycleControls
         account={account}
@@ -168,19 +123,45 @@ function AccountRowMenu({
         client={client}
         usage={account.usage}
       />
-      {canDetachRow ? (
-        <AccountMenuItem>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={accountMenuItemClass}
-            onClick={selectDetach}
-          >
-            {accountsCopy.detach}
-          </Button>
-        </AccountMenuItem>
+      {canDetach &&
+      binding?.state === "active" &&
+      account.allowedActions?.includes("detach") ? (
+        <DetachMenuItem
+          select={(returnFocus) =>
+            selectDetach({
+              label: account.label,
+              ownerKind: connectionOwnerKind(account),
+              request: {
+                bindingId: binding.id,
+                expectedBindingRevision: binding.revision,
+              },
+              returnFocus,
+            })
+          }
+        />
       ) : null}
     </AccountActionsMenu>
+  );
+}
+
+// Inside the menu so the confirmation can return focus to its trigger.
+function DetachMenuItem({
+  select,
+}: {
+  select(returnFocus: HTMLElement | null): void;
+}) {
+  const trigger = useAccountMenuReturnFocus();
+  return (
+    <AccountMenuItem>
+      <Button
+        variant="ghost"
+        size="sm"
+        className={accountMenuItemClass}
+        onClick={() => select(trigger?.current ?? null)}
+      >
+        {accountsCopy.detach}
+      </Button>
+    </AccountMenuItem>
   );
 }
 
@@ -214,6 +195,9 @@ function WorkspacePersonalRows({
 }: Props & { api: GatewayModelAccountsApi; client: QueryClient }) {
   const lifecycleActivities = useAccountLifecycleActivities(client);
   const inheritedLimits = useContext(AccountLimitsReadContext);
+  // Inside the combined Connections list the viewer's own connections are
+  // already listed above; only rows not shown there stay here.
+  const ownConnectionIds = useContext(OwnConnectionIdsContext);
   const limitsContext = inheritedLimits?.context ?? personalScope ?? "";
   const limitsScope =
     inheritedLimits?.scope ?? accountLimitsScope(limitsContext, workspaceId);
@@ -241,7 +225,7 @@ function WorkspacePersonalRows({
     let current = true;
     void (async () => {
       await client.cancelQueries({
-        queryKey: ["accounts-overview", scope],
+        queryKey: accountsOverviewKey(scope),
         exact: true,
       });
       await removeAccountLimits(client, limitsScope);
@@ -250,17 +234,17 @@ function WorkspacePersonalRows({
       hydratedBootstrap.current = initialPage;
       client.setQueryData<
         InfiniteData<AccountsResult<AccountsPage>, string | null>
-      >(["accounts-overview", scope], { pages: [first], pageParams: [null] });
+      >(accountsOverviewKey(scope), { pages: [first], pageParams: [null] });
     })();
     return () => {
       current = false;
     };
   }, [client, limitsScope, initialPage, scope]);
-  const pageKey = ["accounts-overview", scope] as const;
-  const [selection, setSelection] = useState<{
-    label: string;
-    request: DetachRequest | null;
-  } | null>(null);
+  const pageKey = accountsOverviewKey(scope);
+  // The last chosen removal keeps its text while the dialog closes and returns
+  // focus to its row menu afterwards.
+  const [selection, setSelection] = useState<DetachSelection | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const [last, setLast] = useState<{
     request: DetachRequest;
     result: DetachResult;
@@ -320,6 +304,9 @@ function WorkspacePersonalRows({
   const accounts = [
     ...new Map(rows.map((row) => [row.connectionId, row])).values(),
   ];
+  const listed = accounts.filter(
+    (row) => !(row.sourceId && ownConnectionIds?.has(row.sourceId)),
+  );
 
   async function submit(request: DetachRequest, readOnly = false) {
     if (!canDetach || busy.current) return;
@@ -359,7 +346,7 @@ function WorkspacePersonalRows({
           ? prior
           : { request: original, result: next },
       );
-      setSelection(null);
+      setConfirming(false);
       const detailKey = ["account-option", scope, original.bindingId] as const;
       const modelPageKey = ["account-options", scope] as const;
       // A delayed pre-detach fetch must not restore the retired binding to Models.
@@ -386,8 +373,17 @@ function WorkspacePersonalRows({
                           ...page,
                           value: {
                             ...page.value,
-                            accounts: page.value.accounts.filter(
-                              (row) => row.binding?.id !== original.bindingId,
+                            accounts: page.value.accounts.flatMap((row) =>
+                              row.binding?.id !== original.bindingId
+                                ? [row]
+                                : // Like the server list: the workspace's own
+                                  // connection stays for its admins, now not
+                                  // added; other rows leave the list. Models
+                                  // never keeps the retired binding.
+                                  listKey === pageKey &&
+                                    row.origin === "organization"
+                                  ? [{ ...row, binding: null }]
+                                  : [],
                             ),
                           },
                         }
@@ -413,39 +409,42 @@ function WorkspacePersonalRows({
   const result = last?.result;
   const message =
     result?.status === "ok"
-      ? result.value.remoteFenceDelivery === "remote_pending"
-        ? "Access revoked locally in this organization; gateway confirmation pending."
-        : "Access revoked in this organization; gateway confirmation received."
+      ? removedFromWorkspaceText(result.value.remoteFenceDelivery)
       : result?.status === "conflict"
-        ? "This binding changed. Refresh and confirm the current selection."
+        ? "This connection changed. Refresh connections and try again."
         : result?.status === "denied"
-          ? "Your access changed. Refresh to see the available actions."
+          ? "Your access changed. Refresh connections to see the available actions."
           : result
-            ? "Detachment could not be confirmed. Check the original request."
+            ? removeFromWorkspaceCopy.unconfirmed
             : null;
   return (
-    <section aria-label="Available connections">
+    <section aria-label="Workspace connections">
       {pages.isPending ? <p role="status">Loading connections...</p> : null}
       {failed ? (
         <p role="status">Connections could not be refreshed. Try again.</p>
       ) : null}
-      {!pages.isPending && !failed && !accounts.length ? (
-        <p>
+      {!pages.isPending &&
+      !failed &&
+      !listed.length &&
+      !ownConnectionIds?.size ? (
+        <p className="py-4 text-sm text-slate-400">
           {pages.hasNextPage
-            ? "No available connections on the loaded pages."
-            : "No available connections."}
+            ? "No connections on the loaded pages."
+            : accountsCopy.noConnections}
         </p>
       ) : null}
-      <div
-        className={`hidden gap-3 border-b border-cyan-200/15 py-2 text-xs uppercase tracking-wider text-slate-400 lg:grid ${accountsGridColumns}`}
-        aria-hidden="true"
-      >
-        <span>Account</span>
-        <span>Owner</span>
-        <span>Status</span>
-        <span />
-      </div>
-      {(denied ? [] : accounts).map((row) => (
+      {ownConnectionIds ? null : (
+        <div
+          className={`hidden gap-3 border-b border-cyan-200/15 py-2 text-xs uppercase tracking-wider text-slate-400 lg:grid ${accountsGridColumns}`}
+          aria-hidden="true"
+        >
+          <span>Account</span>
+          <span>Owner</span>
+          <span>Status</span>
+          <span />
+        </div>
+      )}
+      {(denied ? [] : listed).map((row) => (
         <article
           key={row.connectionId}
           aria-label={row.label}
@@ -458,6 +457,11 @@ function WorkspacePersonalRows({
               provider={row.provider}
               authKind={row.authKind}
               connection={row.connection}
+              metadata={
+                lifecycleActivities.has(row.connectionId)
+                  ? { status: "unknown", displayToken: "restricted" }
+                  : row.metadata
+              }
             />
             <AccountUsageLine usage={row.usage} />
             <AccountLimitsLine
@@ -503,53 +507,26 @@ function WorkspacePersonalRows({
             />
           </div>
           <AccountOwner account={row} />
-          <p className="text-sm text-slate-300">
+          <div className="text-sm text-slate-300">
             <AccountStatusLine
-              {...(failed
-                ? { kind: "unknown", text: "Details could not be refreshed" }
-                : lifecycleActivities.get(row.connectionId) === "delete"
-                  ? { kind: "removing", text: pendingStatusCopy.removing }
-                  : lifecycleActivities.has(row.connectionId)
-                    ? { kind: "confirming", text: pendingStatusCopy.confirming }
-                    : !row.binding && row.canManage
-                      ? { kind: "unknown", text: "Not added here" }
-                      : accountStatusInfo(row))}
+              {...connectionRowStatus({
+                account: row,
+                refreshFailed: failed,
+                localAction: lifecycleActivities.get(row.connectionId),
+              })}
             />
-          </p>
+            {failed ? null : (
+              <WorkspaceUseLine use={bindingWorkspaceUse(row.binding)} />
+            )}
+          </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             {!failed &&
             !lifecycleActivities.has(row.connectionId) &&
             row.readiness === "ready" &&
             row.binding?.state === "active" &&
             !row.binding.fencePending ? (
-              <a
-                className="text-sm text-cyan-200 underline"
-                href={dashboardSectionHref("policy", workspaceId)}
-              >
-                Choose in Models
-              </a>
+              <ChooseForReviewsLink workspaceId={workspaceId} />
             ) : null}
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={failed}
-              onClick={() =>
-                setSelection({
-                  label: row.label,
-                  request:
-                    canDetach &&
-                    row.binding?.state === "active" &&
-                    row.allowedActions?.includes("detach")
-                      ? {
-                          bindingId: row.binding.id,
-                          expectedBindingRevision: row.binding.revision,
-                        }
-                      : null,
-                })
-              }
-            >
-              {accountsCopy.access}
-            </Button>
             {!failed &&
             (managementActions ||
               canDetach ||
@@ -563,43 +540,41 @@ function WorkspacePersonalRows({
                 managementRows={managementRows}
                 managementActions={managementActions}
                 canDetach={canDetach}
-                selectDetach={() =>
-                  setSelection({
-                    label: row.label,
-                    request:
-                      row.binding?.state === "active"
-                        ? {
-                            bindingId: row.binding.id,
-                            expectedBindingRevision: row.binding.revision,
-                          }
-                        : null,
-                  })
-                }
+                selectDetach={(next) => {
+                  setSelection(next);
+                  setConfirming(true);
+                }}
               />
             ) : null}
           </div>
         </article>
       ))}
-      <div className="mt-3 flex flex-wrap gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={pages.isFetching || submitting}
-          onClick={() => void pages.refetch()}
-        >
-          Refresh connections
-        </Button>
-        {pages.hasNextPage ? (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={pages.isFetching || submitting}
-            onClick={() => void pages.fetchNextPage()}
-          >
-            Load more
-          </Button>
-        ) : null}
-      </div>
+      {/* In the combined list its toolbar refresh already rereads these rows;
+          a separate button stays only to recover from a failed read. */}
+      {!ownConnectionIds || failed || pages.hasNextPage ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {!ownConnectionIds || failed ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={pages.isFetching || submitting}
+              onClick={() => void pages.refetch()}
+            >
+              Refresh connections
+            </Button>
+          ) : null}
+          {pages.hasNextPage ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={pages.isFetching || submitting}
+              onClick={() => void pages.fetchNextPage()}
+            >
+              Load more
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       {message ? (
         <p className="mt-3 text-sm" role="status">
           {message}
@@ -620,37 +595,43 @@ function WorkspacePersonalRows({
         </Button>
       ) : null}
       <Dialog.Root
-        open={Boolean(selection)}
+        open={confirming}
         onOpenChange={(open) => {
-          if (!open && !submitting) setSelection(null);
+          if (!open && !submitting) setConfirming(false);
         }}
       >
         <Dialog.Portal>
           <Dialog.Backdrop />
-          <Dialog.Popup>
+          <Dialog.Popup
+            finalFocus={() =>
+              selection?.returnFocus?.isConnected ? selection.returnFocus : true
+            }
+          >
             <Dialog.Title>
-              {accountsCopy.access} · {selection?.label}
+              {accountsCopy.detach} · {selection?.label}
             </Dialog.Title>
             <Dialog.Description>
-              Access only covers reviews in this organization. Your personal
-              account and other organizations stay unchanged. Ownership,
-              credentials, and control are not transferred.
+              {
+                removeFromWorkspaceCopy.description[
+                  selection?.ownerKind ?? "unknown"
+                ]
+              }
             </Dialog.Description>
             <div className="mt-4 flex gap-2">
               <Button
                 variant="outline"
                 disabled={submitting}
-                onClick={() => setSelection(null)}
+                onClick={() => setConfirming(false)}
               >
-                Close
+                Cancel
               </Button>
               <Button
-                disabled={!canDetach || submitting || !selection?.request}
+                disabled={!canDetach || submitting || !confirming || !selection}
                 onClick={() => {
-                  if (selection?.request) void submit(selection.request);
+                  if (selection) void submit(selection.request);
                 }}
               >
-                Revoke access
+                {removeFromWorkspaceCopy.confirm}
               </Button>
             </div>
           </Dialog.Popup>

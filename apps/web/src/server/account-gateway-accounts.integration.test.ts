@@ -43,19 +43,37 @@ function ok<T>(result: AccountsResult<T>): T {
 // This uses the real SDK wire contract and starts no provider or database.
 test("Accounts connect binds dedicated URL to the configured profile and freezes a blank label", async () => {
   const profileId = "fixture-mimo-responses";
+  const nvidiaProfileId = "nvidia-build-chat-apikey-v1";
   const baseURL = "https://token-plan-sgp.xiaomimimo.com/v1";
   const submitted: ReturnType<typeof secretSubmission.connect.parse>[] = [];
   let receipt: c.Operation | undefined;
   const server = createServer(async (request, response) => {
     response.setHeader("content-type", "application/json");
-    if (request.url === "/v1/provider-connection-capabilities") {
-      response.statusCode = 404;
+    if (request.url === "/v2/provider-connection-capabilities") {
       response.end(
         JSON.stringify({
-          code: "not_found",
-          traceRef: "fixture-missing-capabilities",
-          effect: "not_dispatched",
-          retry: { kind: "never" },
+          contract: "provider-connections/v2",
+          capabilities: [
+            {
+              profileId,
+              provider: { id: "mimo", label: "MiMo" },
+              product: { id: "pay_as_you_go", label: "API" },
+              region: { id: "global", label: "Global" },
+              protocol: "openai-responses",
+              models: [
+                {
+                  modelId: "fixture-mimo",
+                  reasoning: null,
+                  fast: null,
+                  tools: { allowed: ["function"], default: "function" },
+                },
+              ],
+              methods: [{ kind: "api_key", create: true, reconnect: true }],
+              accountInfo: false,
+              limitsContract: "none",
+              availability: "enabled",
+            },
+          ],
         }),
       );
       return;
@@ -71,6 +89,12 @@ test("Accounts connect binds dedicated URL to the configured profile and freezes
                     protocol: "openai-responses",
                     authKinds: ["api_key"],
                     modelIds: ["fixture-mimo"],
+                  },
+                  {
+                    profileId: nvidiaProfileId,
+                    protocol: "openai-chat",
+                    authKinds: ["api_key"],
+                    modelIds: ["nvidia/nemotron-3.5-super-vl-120b-a12b"],
                   },
                 ],
               }
@@ -123,7 +147,10 @@ test("Accounts connect binds dedicated URL to the configured profile and freezes
     accounts: unused as Input["accounts"],
     synchronization: unused as Input["synchronization"],
     bindingDependencies: unused as Input["bindingDependencies"],
-    apiKeyProfiles: new Map([[profileId, "MiMo"]]),
+    apiKeyProfiles: new Map<string, "MiMo" | "NVIDIA Build">([
+      [profileId, "MiMo"],
+      [nvidiaProfileId, "NVIDIA Build"],
+    ]),
     apiKeyProfileBaseURLs: new Map([[profileId, baseURL]]),
   });
   const intent = {
@@ -150,6 +177,23 @@ test("Accounts connect binds dedicated URL to the configured profile and freezes
         "denied",
       );
     }
+    assert.equal(submitted.length, 0);
+    // A configured but unqualified NVIDIA profile cannot reach SDK secret ingress.
+    assert.equal(
+      (
+        await adapter.mutate(
+          "context",
+          {
+            kind: "connect",
+            nonce: randomUUID(),
+            profileId: nvidiaProfileId,
+            label: "Synthetic NVIDIA",
+          },
+          "synthetic-nvidia-key",
+        )
+      ).status,
+      "denied",
+    );
     assert.equal(submitted.length, 0);
     const result = ok(
       await adapter.mutate(
@@ -268,6 +312,57 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
         const url = new URL(request.url ?? "/", "http://127.0.0.1");
         if (request.method === "GET") {
           httpReads++;
+          if (url.pathname === "/v2/provider-connection-capabilities")
+            return json(response, 200, {
+              contract: "provider-connections/v2",
+              capabilities: [
+                [profileId, "mimo", "MiMo", "openai-responses", "fixture-mimo"],
+                [
+                  foreignProfileId,
+                  "openrouter",
+                  "OpenRouter",
+                  "openai-chat",
+                  "fixture-openrouter",
+                ],
+                [
+                  oauthProfileId,
+                  "openai",
+                  "Codex",
+                  "openai-responses",
+                  "fixture-codex",
+                ],
+              ].map(([id, provider, title, protocol, model]) => ({
+                profileId: id,
+                provider: { id: provider, label: title },
+                product: { id: "unknown", label: "TEST" },
+                region: { id: "global", label: "Global" },
+                protocol,
+                models: [
+                  {
+                    modelId: model,
+                    reasoning: null,
+                    fast: null,
+                    tools: { allowed: ["function"], default: "function" },
+                  },
+                ],
+                methods:
+                  id === oauthProfileId
+                    ? [
+                        {
+                          kind: "browser",
+                          completionInputKind: "callback_url",
+                          callbackMode: "manual_callback_url",
+                          create: true,
+                          reconnect: true,
+                        },
+                        { kind: "device_code", create: true, reconnect: true },
+                      ]
+                    : [{ kind: "api_key", create: true, reconnect: true }],
+                accountInfo: false,
+                limitsContract: "none",
+                availability: "enabled",
+              })),
+            });
           if (url.pathname === "/v1/profiles")
             return json(response, 200, {
               profiles: [
@@ -1090,6 +1185,7 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
         expectedRevision: prior.metadataRevision,
         profileRef: profileId,
         displayName: "Newer CAS wins",
+        authorizationEpoch: account.authorizationEpoch,
         state: "active",
         gatewayOperationRef: prior.gatewayOperationRef,
       });
@@ -1183,6 +1279,7 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
       observe(fresh.operation); // one-off capability is deliberately outside the safe-data set
       assert.equal(fresh.operation.state, "pending");
       assert.deepEqual(fresh.operation.completion, {
+        providerId: "openai",
         providerLabel: "Codex",
         inputKind: "callback_url",
       });
@@ -1601,10 +1698,11 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
             row.ownerUserId === null && row.ownerWorkspaceId === workspaceId,
         ),
       );
-      assert.equal(
-        JSON.stringify({ observed, rows }).includes(sentinel),
-        false,
+      const serializedSafeState = JSON.stringify(
+        { observed, rows, operations: [...operations.values()] },
+        (_key, value) => (typeof value === "bigint" ? value.toString() : value),
       );
+      assert.equal(serializedSafeState.includes(sentinel), false);
       for (const secret of [
         authorizationURL,
         oauthState,
@@ -1616,14 +1714,7 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
         "refresh_token",
         "access_token",
       ]) {
-        assert.equal(
-          JSON.stringify({
-            observed,
-            rows,
-            operations: [...operations.values()],
-          }).includes(secret),
-          false,
-        );
+        assert.equal(serializedSafeState.includes(secret), false);
       }
       // Controlled personal source recovery uses the real store and public C1
       // consumer-control factory. These retained inert rows do not enable H.

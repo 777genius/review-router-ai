@@ -44,6 +44,33 @@ model/mission/source-fidelity quality and product admission profile have their
 own qualification receipts. The portable adapter requires that deployment binding;
 a source fixture or a configuration flag alone never qualifies it.
 
+## Scoped operation-pagination correction
+
+The same pinned native source creates each asynchronous retain parent and its
+children in one database transaction. Their default `created_at` values tie.
+Ordering public operation pages by `created_at DESC` alone does not define which
+tied row belongs to an offset; a complete page walk can repeat one identity and
+omit another even while the executor and database inventory are drained.
+
+The derivative adds `operation_id DESC` as the secondary ordering key in the
+single public `list_operations` query. Most-recent-first behavior, filtering,
+page limits, operation contents and all cancellation/deletion semantics remain
+unchanged. This is a separately reviewed pagination correctness correction,
+not a change to a memory-processing algorithm or diagnostic relaxation. The
+native revision, upstream image selection and dependency-lock pin remain fixed;
+the resulting derivative bytes and image identity change and require fresh
+native runtime qualification and receipts.
+
+The regression executes the exact upstream list method and emitted SQL against
+tied parent/child fixtures under two legal SQLite query plans. The original
+query repeats one row and omits a parent; the corrected query returns every
+identity exactly once. This is a SQL-ordering counterexample, not PostgreSQL or
+native-container qualification. The real harness retains `limit=1`, rejects
+overlap and changing totals through the production pagination guard, reconciles
+the complete public list with a bounded independent database census, verifies
+each full-read identity and every original retain UUID, and checks the complete
+original/discovered/late union for strict absence before and after restart.
+
 ## Sinks covered
 
 | Sink                                                   | Qualified profile treatment                                                                                                                      |

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { AccountIdentity, AccountProviderLogo } from "./account-identity";
@@ -42,7 +43,6 @@ describe("provider display identity", () => {
       planLabel: "Token Plan",
       regionLabel: "Singapore",
       completionInputKind: "none",
-      personalOnly: false,
       limitsContract: "none",
       modelSettings: [],
     };
@@ -62,6 +62,61 @@ describe("provider display identity", () => {
       ),
     ).toContain('data-provider-logo="unknown"');
   });
+
+  it("preserves independent NVIDIA identity throughout shared account controls", () => {
+    const connection: AccountConnectionView = {
+      provider: "nvidia",
+      planLabel: "NVIDIA Build evaluation",
+      regionLabel: "Global",
+      completionInputKind: "none",
+      limitsContract: "none",
+      modelSettings: [],
+    };
+    const html = renderToStaticMarkup(
+      <AccountIdentity
+        label="Synthetic sandbox"
+        profileLabel="NVIDIA Build"
+        provider="nvidia"
+        connection={connection}
+      />,
+    );
+    expect(html).toContain('data-provider-logo="nvidia"');
+    expect(html).not.toContain('data-provider-logo="openrouter"');
+    expect(
+      renderToStaticMarkup(<AccountProviderLogo provider="nvidia" />),
+    ).toContain('data-provider-logo="nvidia"');
+  });
+
+  it.each([
+    ["minimax", "MiniMax"],
+    ["glm", "Z.ai / GLM"],
+    ["nvidia", "NVIDIA"],
+  ] as const)(
+    "renders the official local %s asset instead of a placeholder",
+    (providerId, title) => {
+      const html = renderToStaticMarkup(
+        <ProviderLogo providerId={providerId} />,
+      );
+      expect(html).toContain(`src="/provider-logos/${providerId}.svg"`);
+      expect(html).toContain(`title="${title}"`);
+      expect(html).toContain('width="20"');
+      expect(html).toContain('height="16"');
+      expect(html).toContain('alt=""'); // Adjacent provider text owns the accessible name.
+      const svg = readFileSync(
+        new URL(
+          `../../public/provider-logos/${providerId}.svg`,
+          import.meta.url,
+        ),
+        "utf8",
+      );
+      expect(svg).toContain(`<title>${title}</title>`);
+      expect(svg).toContain("<path ");
+      expect(svg).not.toMatch(
+        /<(?:script|style|foreignObject|image|animate|set)\b|(?:on\w+|href)\s*=/i,
+      );
+      expect(svg).not.toMatch(/url\(https?:|data:/i);
+    },
+  );
 
   it("uses local path-only MiMo geometry and a distinct neutral fallback", () => {
     const mimo = renderToStaticMarkup(<ProviderLogo providerId="mimo" />);

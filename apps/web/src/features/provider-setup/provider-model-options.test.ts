@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { gatewayProviderModelOptions } from "./provider-model-options";
+import {
+  gatewayProviderModelOptions,
+  suggestedModel,
+} from "./provider-model-options";
 
 describe("Gateway model catalog presentation", () => {
   it("keeps public recommendation and pricing metadata while exact account admission disables unavailable models", () => {
@@ -17,6 +20,8 @@ describe("Gateway model catalog presentation", () => {
       description: "200K context",
     };
     const options = gatewayProviderModelOptions([available, unavailable], {
+      id: "openrouter-openai-responses-apikey-v1",
+      protocol: "openai-responses",
       models: ["openai/available", "runtime/private-model"],
     });
     expect(options[0]).toEqual(available);
@@ -52,13 +57,15 @@ describe("Gateway model catalog presentation", () => {
   });
 
   const nativeProfile = (tools: "function" | "none" = "function") => ({
+    id: "openrouter-openai-responses-apikey-v1",
+    protocol: "openai-responses" as const,
+    authKind: "api_key" as const,
     models: ["vendor/model"],
     connection: {
       provider: "openrouter" as const,
       planLabel: "API",
       regionLabel: "Global",
       completionInputKind: "none" as const,
-      personalOnly: false,
       limitsContract: "none" as const,
       modelSettings: [
         {
@@ -99,6 +106,139 @@ describe("Gateway model catalog presentation", () => {
     expect(option?.label).toBe("Cached model name");
     expect(option?.description).toBe("$1/$2 per 1M tokens. 128K context.");
     expect(option?.description).not.toContain("not confirmed");
+  });
+
+  it("admits only the live-qualified NVIDIA Nemotron tool model with its own fresh account proof", () => {
+    const modelId = "nvidia/nemotron-3.5-super-vl-120b-a12b";
+    const profile = {
+      id: "nvidia-build-chat-apikey-v1",
+      protocol: "openai-responses" as const,
+      authKind: "api_key" as const,
+      models: [modelId],
+      connection: {
+        provider: "nvidia" as const,
+        planLabel: "Trial",
+        regionLabel: "Global",
+        completionInputKind: "none" as const,
+        limitsContract: "none" as const,
+        modelSettings: [
+          {
+            modelId,
+            reasoning: null,
+            fast: null,
+            tools: {
+              allowed: ["function"] as const,
+              default: "function" as const,
+            },
+          },
+        ],
+      },
+    };
+    const catalog = {
+      status: "snapshot" as const,
+      source: "nvidia" as const,
+      fetchedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      models: [modelId],
+    };
+    const [approved] = gatewayProviderModelOptions([], profile, {
+      catalog,
+      requiresTools: true,
+    });
+    expect(approved?.provider).toBe("nvidia");
+    expect(approved?.disabled).toBe(false);
+
+    // Native publishes NVIDIA's live list beside the anchor; every listed model
+    // of this account is selectable, well past the former 8-model limit.
+    const live = Array.from(
+      { length: 20 },
+      (_, index) => `vendor/live-model-${index}`,
+    );
+    const listed = [modelId, ...live];
+    const long = gatewayProviderModelOptions(
+      [],
+      {
+        ...profile,
+        models: listed,
+        connection: {
+          ...profile.connection,
+          modelSettings: listed.map((id) => ({
+            ...profile.connection.modelSettings[0]!,
+            modelId: id,
+          })),
+        },
+      },
+      { catalog: { ...catalog, models: listed }, requiresTools: true },
+    );
+    expect(long.map((option) => option.value)).toEqual(listed);
+    expect(long.every((option) => !option.disabled)).toBe(true);
+
+    // A list that is not this account's fresh proof blocks every choice. The
+    // catalogue status explains it once above the list, so no option carries
+    // a misleading reason of its own; models other than NVIDIA's are unaffected.
+    const publicNemotron = {
+      value: modelId,
+      label: "Nemotron",
+      provider: "nvidia" as const,
+      description: "Public metadata",
+    };
+    for (const stale of [
+      { ...catalog, source: "openrouter" as const },
+      { ...catalog, expiresAt: new Date(Date.now() - 60_000).toISOString() },
+      {
+        status: "unknown" as const,
+        source: "legacy_profile" as const,
+        models: [],
+      },
+      undefined,
+    ]) {
+      const [blocked] = gatewayProviderModelOptions([publicNemotron], profile, {
+        catalog: stale,
+        requiresTools: true,
+      });
+      expect(blocked).toEqual({
+        value: modelId,
+        label: "Nemotron",
+        provider: "nvidia",
+        disabled: true,
+        awaitsAccountList: true,
+      });
+    }
+    // A fresh list that does not include the model keeps a per-option reason.
+    const [missing] = gatewayProviderModelOptions(
+      [],
+      { ...profile, models: [modelId, "nvidia/other"] },
+      { catalog, requiresTools: true },
+    ).filter((option) => option.value === "nvidia/other");
+    expect(missing).toMatchObject({
+      disabled: true,
+      description: "This account's model list does not include it.",
+    });
+
+    const noTools = {
+      ...profile,
+      connection: {
+        ...profile.connection,
+        modelSettings: [
+          {
+            modelId,
+            reasoning: null,
+            fast: null,
+            tools: { allowed: ["none"] as const, default: "none" as const },
+          },
+        ],
+      },
+    };
+    const [notToolQualified] = gatewayProviderModelOptions([], noTools, {
+      catalog,
+      requiresTools: true,
+    });
+    expect(notToolQualified?.disabled).toBe(true);
+    const [textOnly] = gatewayProviderModelOptions([], noTools, {
+      catalog,
+      requiresTools: false,
+    });
+    expect(textOnly?.disabled).toBe(false);
   });
 
   it("keeps true native tools:none unavailable for a tool-using review", () => {
@@ -165,8 +305,90 @@ describe("Gateway model catalog presentation", () => {
             disabled: true,
           },
         ],
-        { models: ["text/only"] },
+        {
+          id: "openrouter-openai-responses-apikey-v1",
+          protocol: "openai-responses",
+          models: ["text/only"],
+        },
       )[0]?.disabled,
     ).toBe(true);
+  });
+  it("offers the GLM catalogue models with the capabilities of a fresh native_catalog snapshot", () => {
+    const setting = (modelId: string) => ({
+      modelId,
+      reasoning: null,
+      fast: null,
+      tools: { allowed: ["function" as const], default: "function" as const },
+    });
+    const profile = {
+      id: "glm-coding-global-responses-apikey-v1",
+      protocol: "openai-responses" as const,
+      authKind: "api_key" as const,
+      models: ["glm-5.3-flash", "glm-5.3"],
+      connection: {
+        provider: "glm" as const,
+        planLabel: "GLM Coding Plan",
+        regionLabel: "Global",
+        completionInputKind: "none" as const,
+        limitsContract: "account-limits/v2" as const,
+        modelSettings: [setting("glm-5.3-flash"), setting("glm-5.3")],
+      },
+    };
+    const catalog = {
+      status: "snapshot" as const,
+      source: "native_catalog" as const,
+      fetchedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      models: ["glm-5.3-flash", "glm-5.3"],
+    };
+    const options = gatewayProviderModelOptions([], profile, {
+      catalog,
+      requiresTools: true,
+    });
+    expect(options.map((option) => option.value)).toEqual([
+      "glm-5.3-flash",
+      "glm-5.3",
+    ]);
+    expect(options.every((option) => option.disabled === false)).toBe(true);
+  });
+});
+
+describe("the model a new provider starts with", () => {
+  const option = (value: string, disabled = false) => ({
+    value,
+    label: value,
+    provider: "openrouter" as const,
+    disabled,
+  });
+
+  it("prefers the provider's catalogue default when this account offers it", () => {
+    expect(
+      suggestedModel(
+        [option("openai/other"), option("openai/gpt-5.3-codex")],
+        "openrouter",
+      ),
+    ).toBe("openai/gpt-5.3-codex");
+  });
+
+  it("never suggests a default the account cannot use", () => {
+    expect(
+      suggestedModel(
+        [option("openai/gpt-5.3-codex", true), option("openai/only")],
+        "openrouter",
+      ),
+    ).toBe("openai/only");
+  });
+
+  it("takes the only usable model, otherwise leaves the choice to the user", () => {
+    expect(
+      suggestedModel(
+        [option("nvidia/one"), option("nvidia/off", true)],
+        "nvidia",
+      ),
+    ).toBe("nvidia/one");
+    expect(
+      suggestedModel([option("nvidia/one"), option("nvidia/two")], "nvidia"),
+    ).toBe("");
+    expect(suggestedModel([], "openrouter")).toBe("");
   });
 });

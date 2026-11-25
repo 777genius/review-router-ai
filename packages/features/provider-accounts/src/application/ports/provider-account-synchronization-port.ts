@@ -12,6 +12,7 @@ export interface ProviderAccountSynchronizationPort {
       readonly id: string;
       readonly workspaceId: string;
       readonly gatewayAccountRef: string;
+      readonly authorizationEpoch: number;
     },
   ): Promise<ProviderAccountConnection>;
   synchronizeMetadata(
@@ -19,6 +20,7 @@ export interface ProviderAccountSynchronizationPort {
       readonly workspaceId: string;
       readonly connectionId: string;
       readonly expectedRevision: number;
+      readonly authorizationEpoch: number;
     },
   ): Promise<ProviderAccountConnection>;
 }

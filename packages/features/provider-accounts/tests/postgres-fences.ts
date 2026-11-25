@@ -97,6 +97,7 @@ export async function runPersonalWorkspaceIdentityPostgresTests(
         },
       });
       await mirror.recordWorkspaceConnection({
+        authorizationEpoch: 1,
         id: connectionId,
         workspaceId: legacyId,
         gatewayAccountRef: `legacy-account-${suffix}`,
@@ -1626,6 +1627,7 @@ export async function runBindingFencePostgresTests(
     });
     for (const scope of [x, y]) {
       await mirror.recordWorkspaceConnection({
+        authorizationEpoch: 1,
         id: scope.connectionId,
         workspaceId,
         gatewayAccountRef: `gateway-${scope.connectionId}`,

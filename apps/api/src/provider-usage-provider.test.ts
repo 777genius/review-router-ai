@@ -5,6 +5,14 @@ describe("configured Usage provider identity", () => {
   it.each([
     ["openrouter-openai-responses-apikey-v1", "openrouter"],
     ["openai-codex-oauth-responses-v1", "codex"],
+    ["nvidia-build-chat-apikey-v1", "nvidia"],
+    // The SDK names the vendor; the native_catalog source only owns the list.
+    ["glm-coding-global-responses-apikey-v1", "glm"],
+    ["minimax-mplan-global-responses-apikey-v1", "minimax"],
+    ["kimi-code-global-responses-apikey-v1", "kimi"],
+    ["grok-subscription-responses-oauth-v1", "grok"],
+    ["anthropic-claude-oauth-messages-v1", "claude"],
+    ["openai-responses-apikey-v1", "mimo"],
     ["unqualified-profile", "unknown"],
     [undefined, "unknown"],
   ])(

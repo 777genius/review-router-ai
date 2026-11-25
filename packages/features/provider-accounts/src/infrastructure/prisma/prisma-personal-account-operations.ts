@@ -22,7 +22,6 @@ import {
   assertExpectedRevision,
   assertOpaqueReference,
   assertExecutable,
-  assertProfileShareAllowed,
   isPersistedRevision,
   type ConnectionState,
 } from "../../domain/provider-account";
@@ -52,6 +51,7 @@ function toIntent(row: OperationRow): PersonalAccountIntent {
   // non-intent column. Gateway counters alone need bigint->safe-number mapping.
   return snapshotPersonalIntent({
     ...row,
+    credentialImportMethod: row.credentialImportMethod ?? undefined,
     ...(row.oauthMethod !== null ? { method: row.oauthMethod } : {}),
     expectedGatewayRevision: Number(row.expectedGatewayRevision),
     expectedAuthorizationEpoch: Number(row.expectedAuthorizationEpoch),
@@ -428,7 +428,6 @@ export class PrismaPersonalAccountOperations implements PersonalAccountOperation
         const source = await this.lockSource(tx, intent, actorUserId);
         const existing = await this.existing(tx, intent);
         if (existing) return this.result(tx, existing);
-        assertProfileShareAllowed(source.profileRef);
         assertExecutable(mapConnection(source));
         if (
           source.metadataRevision !== intent.expectedSourceMetadataRevision ||

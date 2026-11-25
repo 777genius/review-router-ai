@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { UsageObservation } from "@agent-teams/account-gateway/contracts";
 import { estimateUsageCost } from "@reviewrouter/features-provider-usage";
 import type {
   UsageAttributionReader,
@@ -26,7 +27,8 @@ export interface GatewayUsageObservation {
     | "completed"
     | "effect_unknown"
     | "rejected_before_dispatch";
-  completeness: "partial" | "complete";
+  /** unknown: no counter observed (newer Gateways); older ones send partial. */
+  completeness: UsageObservation["completeness"];
   inputTokens: number | null;
   outputTokens: number | null;
   cachedInputTokens: number | null;
@@ -65,10 +67,19 @@ export function createGatewayUsageSource(input: {
         ...(query.highWaterMark
           ? { highWaterCursor: query.highWaterMark }
           : {}),
-        limit: query.limit,
+        // Reconciliation atomically accepts at most 100 facts; a terminal
+        // diagnostic contributes its native snapshot and one lifecycle fact.
+        limit: Math.min(query.limit, 50),
       });
       const facts: UsageFact[] = [];
       for (const observation of page.observations) {
+        // Native revision + 1 must fit the existing PostgreSQL usage-fact int.
+        if (
+          !Number.isSafeInteger(observation.revision) ||
+          observation.revision < 0 ||
+          observation.revision > 2147483646
+        )
+          throw new Error("gateway_usage_revision_invalid");
         const identity = await input.attribution.findIdentity({
           workspaceId: input.workspaceId,
           callId: gatewayUsageCallId(
@@ -80,6 +91,12 @@ export function createGatewayUsageSource(input: {
         // Late reports reuse the original immutable server identity and instant.
         if (
           !identity ||
+          identity.workspaceId !== input.workspaceId ||
+          identity.callId !==
+            gatewayUsageCallId(
+              observation.executionRef,
+              observation.requestRef,
+            ) ||
           identity.route !== "gateway" ||
           identity.invocationId !== observation.invocationRef ||
           identity.attemptId !== observation.attemptRef
@@ -174,6 +191,40 @@ export function createGatewayUsageSource(input: {
           occurredAt: identity.occurredAt,
         });
         facts.push(fact);
+        // Probe access durably captured this owner/nonce before returning its
+        // capability. Unlike reviews, diagnostics have no ReviewRunAuthorization
+        // terminal hook. Only the correlated authenticated native effect settles
+        // their lifecycle; counters and completeness never authorize completion.
+        if (
+          identity.purpose === "diagnostic" &&
+          identity.runtimeType === "diagnostic" &&
+          identity.authorizationId === identity.invocationId &&
+          identity.actorId !== null &&
+          identity.bindingId !== null &&
+          identity.runId === null &&
+          identity.runAttempt === null &&
+          ["completed", "failed", "unknown"].includes(fact.state)
+        ) {
+          facts.push({
+            ...fact,
+            sourceInstance: input.sourceInstance,
+            eventId: `diagnostic-terminal:${identity.callId}`,
+            authority: "lifecycle",
+            tokens: {
+              inputTotal: null,
+              outputTotal: null,
+              total: null,
+              cacheRead: null,
+              cacheWrite: null,
+              reasoning: null,
+            },
+            cost: null,
+            completeness: "unknown",
+            serviceTier: null,
+            priceSnapshot: null,
+            correctionReason: "native_terminal_observation",
+          });
+        }
       }
       return {
         facts,

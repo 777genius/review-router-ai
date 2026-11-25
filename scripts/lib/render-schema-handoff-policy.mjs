@@ -321,6 +321,62 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // The account credential-import method only changes the later personal journal.
+  // Require its exact SQL and complete checkout165 before reducing to the frozen
+  // reviewer-plan checkout164. The managed92 validator remains unchanged.
+  const credentialImportMigration = catalog.find(
+    (row) => row.migrationName === "000160_personal_credential_import_method",
+  );
+  if (credentialImportMigration) {
+    if (
+      catalog.length !== 165 ||
+      catalog.at(-1) !== credentialImportMigration ||
+      credentialImportMigration.checksum !==
+        "81317004692eb7e6b2691e1c06b151b8a920bfb02e0caeb1a9e724356f1b5cbe"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== credentialImportMigration),
+    );
+  }
+  // Reviewer plan version 2 (plan 67) only widens the producer profile CHECK
+  // to admit planVersion 2. Require its exact SQL and the full 164-row
+  // inventory before reducing to the provider-quota checkout163; managed92 is
+  // never expanded.
+  const reviewerPlanV2Migration = catalog.find(
+    (row) => row.migrationName === "000159_producer_reviewer_plan_v2",
+  );
+  if (reviewerPlanV2Migration) {
+    if (
+      catalog.length !== 164 ||
+      catalog.at(-1) !== reviewerPlanV2Migration ||
+      reviewerPlanV2Migration.checksum !==
+        "190dbed29df726398a750d0555fb20113607730ac4b5e753cdd26d7aa180ad58"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== reviewerPlanV2Migration),
+    );
+  }
+  // The provider-quota fact (plan 69) is an additive nullable column on the
+  // checkout-only allocation table. Require its exact SQL and the full 163-row
+  // inventory before reducing to checkout162; managed92 is never expanded.
+  const providerQuotaMigration = catalog.find(
+    (row) =>
+      row.migrationName === "000158_review_run_allocation_provider_quota",
+  );
+  if (providerQuotaMigration) {
+    if (
+      catalog.length !== 163 ||
+      catalog.at(-1) !== providerQuotaMigration ||
+      providerQuotaMigration.checksum !==
+        "e7ca2b8ac7be046093607f22323f97f874f4c3648e609f10c6e5ebfa4d855730"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== providerQuotaMigration),
+    );
+  }
   // Additive Claude auth-mode CHECK is an application-only checkout tail.
   // The exact new SQL and full 162-row inventory are required before reducing
   // to the previously signed checkout160; managed92 is never expanded.

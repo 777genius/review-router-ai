@@ -4,6 +4,8 @@ Decision records capture important product and architecture choices.
 
 ## Index
 
+- [ADR-035: Native account information and scoped composition](./035-native-account-metadata.md)
+
 - [ADR-034: Selected-account memory inference and reproducible startup](./034-selected-account-memory-inference.md)
 
 - [ADR-001: SaaS as Control Plane Only in v1](./001-saas-control-plane-only.md)

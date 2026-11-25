@@ -16,16 +16,15 @@ import { qualifyProductionCleanup } from "./production-cleanup-story.ts";
 import { qualifyNativeProvenance } from "./provenance-qualification.ts";
 import { installNativeProvenance } from "./native-provenance.ts";
 import { nativeSqlArguments } from "./operator-host.ts";
-import { terminalizeDrainedCleanupOperations } from "./cleanup-inventory.ts";
+import {
+  collectCleanupOperations,
+  terminalizeDrainedCleanupOperations,
+  type CleanupOperation,
+} from "./cleanup-inventory.ts";
 import { assertNativeOperationAbsent } from "./native-http.ts";
 
-type Operation = {
-  operation_id: string;
-  status: string;
-  task_payload?: unknown;
+type Operation = CleanupOperation & {
   error_message?: string | null;
-  child_operations?: Operation[];
-  result_metadata?: unknown;
 };
 type Fact = {
   id: string;
@@ -852,30 +851,39 @@ export async function qualifyNative() {
       undefined,
       404,
     );
-    const discovered = new Map<string, Operation>();
-    let offset = 0;
-    let total = Infinity;
-    while (offset < total) {
-      const page = await request<{ operations: Operation[]; total: number }>(
-        path(`/operations?limit=1&offset=${offset}`),
-      );
-      total = page.total;
-      for (const operation of page.operations) {
-        const full = await request<Operation>(
-          path(`/operations/${operation.operation_id}?include_payload=true`),
-        );
-        discovered.set(full.operation_id, full);
-      }
-      offset += page.operations.length;
-      assert(
-        page.operations.length || offset >= total,
-        "Native operation pagination stopped early",
-      );
-    }
-    assert(
-      discovered.size >= retainedIds.length,
-      "Historical/queued operation discovery incomplete",
+    const discovered = await collectCleanupOperations(
+      (offset) =>
+        request<{ operations: Operation[]; total: number }>(
+          path(`/operations?limit=1&offset=${offset}`),
+        ),
+      (operationId) =>
+        request<Operation>(
+          path(`/operations/${operationId}?include_payload=true`),
+        ),
+      async () =>
+        JSON.parse(
+          await sql(
+            `SELECT COALESCE(jsonb_agg(operation_id ORDER BY operation_id),'[]'::jsonb)::text FROM
+            (SELECT operation_id FROM public.async_operations WHERE bank_id='${bank}' ORDER BY operation_id LIMIT 10001) inventory`,
+          ),
+        ) as unknown,
+      retainedIds,
     );
+    const absenceIds = new Set([...retainedIds, ...discovered.keys(), late]);
+    const assertOperationsAbsent = async (phase: "before" | "after") => {
+      for (const operationId of absenceIds) {
+        const state = await request(
+          path(`/operations/${operationId}?include_payload=true`),
+        );
+        try {
+          assertNativeOperationAbsent(state, operationId);
+        } catch {
+          throw new Error(
+            `Native operation absence or payload removal could not be verified ${phase} restart`,
+          );
+        }
+      }
+    };
     await terminalizeDrainedCleanupOperations(
       [...discovered.keys()],
       async (operationId) =>
@@ -897,13 +905,7 @@ export async function qualifyNative() {
         path(`/operations/${operation.operation_id}/delete`),
         "DELETE",
       );
-    for (const operation of discovered.values())
-      assertNativeOperationAbsent(
-        await request(
-          path(`/operations/${operation.operation_id}?include_payload=true`),
-        ),
-        operation.operation_id,
-      );
+    await assertOperationsAbsent("before");
     await request(path(`/documents/${document}`), "GET", undefined, 404);
     assert.equal(
       (
@@ -929,10 +931,7 @@ export async function qualifyNative() {
     await ready(workerPort);
     await pause(1500);
     await request(path(`/documents/${document}`), "GET", undefined, 404);
-    assertNativeOperationAbsent(
-      await request(path(`/operations/${late}?include_payload=true`)),
-      late,
-    );
+    await assertOperationsAbsent("after");
     assert.equal(
       (
         await request<NativeList<Fact>>(

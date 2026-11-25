@@ -106,7 +106,9 @@ and lifecycle tasks. This reuses today's ordering rule; no new primary selector,
 weights, drag-and-drop or per-reviewer billing UI is added.
 If an optional primary becomes unavailable, auxiliary work reports the existing
 unavailable/incomplete result; required review coverage may still complete.
-Do not silently promote a sibling or select a fallback model.
+Do not silently promote a sibling or select a fallback model. The explicit,
+user-chosen "Fallback in order" roster mode is the only exception; see
+[architecture 67](../architecture/67-provider-interaction-mode.md).
 
 Reuse the existing Max parallel providers and Inline agreement controls in the
 roster editing flow. Preserve saved values. Adding a reviewer does not silently
@@ -335,6 +337,10 @@ A required reviewer failure/timeout produces incomplete coverage, not an empty
 successful review or a lower agreement denominator. Preserve existing partial
 publication: incomplete advisory, no approval or inline/lifecycle publication.
 Repeated finalization/publication restores the same artifact and effect record.
+Amended 2026-11-17: a reviewer stopped by Gateway-confirmed provider quota is
+skipped while another reviewer completed all of its required work; the agreement
+denominator is unchanged. See
+[architecture 69](../architecture/69-provider-quota-nonfatal.md).
 
 Skills/context capture stays shared and immutable, while eligibility and access
 resolve the exact requesting reviewer. Existing engine capability requirements

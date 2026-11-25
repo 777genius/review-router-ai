@@ -16,6 +16,8 @@ import {
 import {
   PrismaProducerReleaseRepository,
   readConfiguredProducerReleaseAttestations,
+  reviewRunProducerReleaseAttestationsEnv,
+  reviewRunProducerReleaseAttestationsFileEnv,
 } from "@reviewrouter/features-review-run-control/composition";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -76,7 +78,6 @@ const requiredRuntimeEnv = Object.freeze([
   "REVIEW_ROUTER_REVIEW_RUN_AUTHORIZATION_KEYS_JSON",
   "REVIEW_ROUTER_REVIEW_V2_CAPABILITY_ACTIVE_KEY_ID",
   "REVIEW_ROUTER_REVIEW_V2_CAPABILITY_KEYS_JSON",
-  "REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON",
   "REVIEW_ROUTER_REVIEW_V2_PROVIDER_VOTE_LANES_JSON",
   "REVIEW_ROUTER_REVIEW_V2_PROJECTION_POLICY_VERSION",
   "REVIEW_ROUTER_REVIEW_V2_OPERATOR_CREDENTIAL_SHA256",
@@ -1215,10 +1216,24 @@ export function inspectEnvironment(
   const missing = requiredRuntimeEnv.filter((name) => !env[name]?.trim());
   if (!readPrivateKey(env)) missing.push("GITHUB_APP_PRIVATE_KEY");
   const invalid: string[] = [];
+  const registry = env[reviewRunProducerReleaseAttestationsEnv];
+  const registryFile = env[reviewRunProducerReleaseAttestationsFileEnv];
+  if (!registry?.trim() && !registryFile?.trim()) {
+    missing.push(reviewRunProducerReleaseAttestationsEnv);
+  } else {
+    try {
+      readConfiguredProducerReleaseAttestations(env);
+    } catch {
+      invalid.push(
+        registryFile === undefined
+          ? reviewRunProducerReleaseAttestationsEnv
+          : reviewRunProducerReleaseAttestationsFileEnv,
+      );
+    }
+  }
   for (const name of [
     "REVIEW_ROUTER_REVIEW_RUN_AUTHORIZATION_KEYS_JSON",
     "REVIEW_ROUTER_REVIEW_V2_CAPABILITY_KEYS_JSON",
-    "REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON",
     "REVIEW_ROUTER_REVIEW_V2_PROVIDER_VOTE_LANES_JSON",
   ]) {
     const value = env[name];

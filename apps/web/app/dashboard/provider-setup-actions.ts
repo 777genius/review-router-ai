@@ -22,6 +22,7 @@ import {
   parseStoredReviewPolicy,
   ProviderProfileError,
   renameWorkspaceProviderProfile,
+  reviewProviderModeSchema,
   reviewProviderSelectionSchema,
   setWorkspaceDefaultProvider,
   type ProviderManagementDenialReason,
@@ -339,6 +340,7 @@ const rosterSaveSchema = z
         .strict(),
     ]),
     reviewers: z.array(rosterRowSchema).min(1).max(16).nullable(),
+    providerMode: reviewProviderModeSchema.optional(),
     executionPatch: repositoryReviewerExecutionPatchSchema.optional(),
   })
   .strict();
@@ -398,6 +400,7 @@ export async function saveProviderRosterAction(
           actor: dashboardProviderActor(actor),
           selections,
           drafts,
+          ...(input.providerMode ? { providerMode: input.providerMode } : {}),
           expectedVersion: input.expectedWorkspaceVersion,
           executionPatch: reviewerExecutionPatchSchema.parse(
             input.executionPatch ?? {},
@@ -493,6 +496,7 @@ export async function saveProviderRosterAction(
           actor: dashboardProviderActor(first.actor),
           selections,
           drafts,
+          ...(input.providerMode ? { providerMode: input.providerMode } : {}),
           expectedWorkspaceVersion: input.expectedWorkspaceVersion,
           repositories,
           ...(input.executionPatch

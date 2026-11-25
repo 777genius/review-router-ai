@@ -1,4 +1,3 @@
-import type { RepositorySetupStepId } from "@reviewrouter/features-provider-setup";
 import type { RepositoryHealthStatus } from "@reviewrouter/features-repo-health";
 import { describeRepositoryHealth } from "./repository-health-view";
 
@@ -6,18 +5,6 @@ export type RepositorySetupStatus =
   | "not_configured"
   | "setup_pr_open"
   | "configured"
-  | "needs_attention";
-
-export type RepositorySearchFilter =
-  | "all"
-  | "private"
-  | "public"
-  | "needs_setup"
-  | "needs_attention"
-  | "ready";
-export type RepositorySearchReadiness =
-  | "ready"
-  | "needs_setup"
   | "needs_attention";
 
 export function buildRepositorySearchText({
@@ -66,46 +53,6 @@ export function buildRepositorySearchText({
   ]
     .join(" ")
     .toLowerCase();
-}
-
-export function repositoryMatchesSearchFilter(
-  row: {
-    readonly repository: { readonly visibility: string };
-    readonly readiness: RepositorySearchReadiness;
-  },
-  filter: RepositorySearchFilter,
-): boolean {
-  switch (filter) {
-    case "private":
-      return row.repository.visibility === "private";
-    case "public":
-      return row.repository.visibility === "public";
-    case "needs_setup":
-      return row.readiness === "needs_setup";
-    case "needs_attention":
-      return row.readiness === "needs_attention";
-    case "ready":
-      return row.readiness === "ready";
-    case "all":
-      return true;
-  }
-}
-
-export function tokenizeRepositorySearch(query: string): string[] {
-  return query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-}
-
-export function repositorySearchReadiness({
-  setupProgressStep,
-  healthStatus,
-}: {
-  readonly setupProgressStep: RepositorySetupStepId;
-  readonly healthStatus: RepositoryHealthStatus | undefined;
-}): RepositorySearchReadiness {
-  const healthView = describeRepositoryHealth(healthStatus);
-  if (healthView.tone === "danger") return "needs_attention";
-  if (healthView.blocksReview) return "needs_setup";
-  return setupProgressStep === "ready" ? "ready" : "needs_setup";
 }
 
 export function describeRepositorySetup(

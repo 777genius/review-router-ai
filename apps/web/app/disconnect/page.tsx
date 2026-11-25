@@ -54,7 +54,7 @@ export default function DisconnectPage(): React.ReactElement {
         <div className="space-y-5">
           <Badge tone="accent">Disconnect</Badge>
           <h1 className="max-w-3xl text-5xl font-semibold tracking-tight text-cyan-50 md:text-7xl">
-            Leave cleanly without guessing where secrets live.
+            Leave cleanly without guessing where secrets live
           </h1>
           <p className="max-w-2xl text-lg leading-8 text-slate-300">
             Disconnecting ReviewRouter has two parts: revoke the GitHub App and
@@ -78,7 +78,7 @@ export default function DisconnectPage(): React.ReactElement {
         <Card className="space-y-4">
           <Badge tone="warning">Uninstall path</Badge>
           <h2 className="text-2xl font-semibold text-cyan-50">
-            GitHub owns App uninstallation.
+            GitHub owns App uninstallation
           </h2>
           <p className="text-sm leading-6 text-slate-300">
             Use this path for local beta until the dashboard exposes a direct

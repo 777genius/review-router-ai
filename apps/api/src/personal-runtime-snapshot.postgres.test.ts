@@ -302,8 +302,18 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         expect(await live(pin)).toBe(true);
         // Exercise the real production factory, not just the injected foundation.
         // Only the exact trusted server value enables consumption; no truthy coercion.
+        // The approved profile is present so the closed sharing gate is what refuses.
+        const sharingUnset = composeReviewActionV2ProductionRunControl({
+          prisma: db,
+          env: {
+            ...harness.env,
+            REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: JSON.stringify({
+              profiles: [{ profileRef: profile, limits }],
+            }),
+          },
+        });
         expect(
-          await production.runtimeSnapshots.capture({
+          await sharingUnset.runtimeSnapshots.capture({
             modelTransport: "account_gateway",
             identity: run,
             deadline: run.maxExpiresAt,

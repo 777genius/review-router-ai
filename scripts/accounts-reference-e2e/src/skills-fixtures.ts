@@ -14,8 +14,11 @@ export async function seedSkillsFixtures(databaseUrl: string) {
     await db.query(
       `GRANT SELECT, UPDATE(id) ON TABLE public."RepositoryConnection" TO reviewrouter_release_schema_owner`,
     );
+    // These populated installations already exist before the Skills scenarios.
+    // Keep them outside the new-installation scan grace, whose expiry would
+    // otherwise refresh the dashboard while a stale Paths draft is held open.
     await db.query(
-      `UPDATE "GitHubInstallation" SET status='active' WHERE id IN ('rr-e2e-install-personal-viewer','rr-e2e-install-alpha-suspended')`,
+      `UPDATE "GitHubInstallation" SET status='active', "createdAt"=CURRENT_TIMESTAMP - INTERVAL '1 day' WHERE id IN ('rr-e2e-install-personal-viewer','rr-e2e-install-alpha-suspended')`,
     );
     await db.query(
       `UPDATE "UserExternalIdentity" SET "externalUserId"=$1 WHERE "userId"=$2 AND provider='github'`,

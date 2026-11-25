@@ -5,7 +5,7 @@ import { PrismaWorkspaceReviewSettings } from "@reviewrouter/features-review-con
 import { assertUnreservedCheckIdentity } from "@reviewrouter/features-sdk-growth-authority";
 import { createHash, randomUUID } from "node:crypto";
 import { hostname } from "node:os";
-import { App } from "@octokit/app";
+import { createProgressInstallationRequester } from "./review-progress-installation-requester";
 import {
   HmacActionLedgerKey,
   PrismaActionControlPlaneRepository,
@@ -27,6 +27,7 @@ import {
 import { PrismaReviewObservationStore } from "@reviewrouter/features-review-evidence/composition";
 import { PrismaInvestigationStore } from "@reviewrouter/features-review-investigations/composition";
 import { ResolveInvestigationRollout } from "@reviewrouter/features-review-investigation-operations";
+import type { Logger } from "@reviewrouter/platform-logger";
 import {
   EnvironmentInvestigationRolloutPolicyQuery,
   RunControlInvestigationEmergencyStopQuery,
@@ -36,7 +37,11 @@ import {
   PrismaReviewExecutionStore,
   PrismaReviewRequestedIntentStore,
 } from "@reviewrouter/features-review-executions/composition";
-import { createPrismaReviewProgressCapture } from "@reviewrouter/features-review-progress/composition";
+import {
+  createConfiguredReviewProgressCapture,
+  readReviewProgressSettings,
+  type ReviewProgressSettings,
+} from "@reviewrouter/features-review-progress/composition";
 import {
   ReviewCompletionSchedulerMode,
   PrismaReviewCompletionProcessRepository,
@@ -157,10 +162,13 @@ import {
   type ReviewV2ProgressMaintenanceRuntime,
 } from "./review-v2-worker-runtime";
 import {
-  hostedProgressCommentWritesEnv,
   ReviewProgressPublisher,
+  type ReviewProgressInstallationRequesterFactory,
 } from "./review-progress-publisher";
+import { createReviewRequestedStartNoticeHandler } from "./review-v2-start-notice-handler";
+import { GitHubReviewRequestedStartNoticePublisher } from "./review-v2-start-notice-publisher";
 import { PrismaReviewProgressPublicationStore } from "./review-progress-store";
+import { ReviewProgressTerminalPromotion } from "./review-progress-terminal-promotion";
 import { GitHubActionsReviewRequestedDispatchGateway } from "./review-v2-intent-dispatcher";
 import { ReviewV2TerminalRunRecovery } from "./review-v2-terminal-run-recovery";
 import { GitHubReviewRequestEligibilityGateway } from "./review-v2-request-eligibility-gateway";
@@ -218,8 +226,12 @@ export function createProductionReviewV2WorkerRuntime(input: {
   readonly githubAppId: string;
   readonly githubPrivateKey: string;
   readonly settlementHook: ReviewCompletionSettlementHook;
+  readonly logger?: Pick<Logger, "info" | "warn">;
 }): ProductionReviewV2WorkerRuntime {
   const capabilityKeyRing = readCapabilityKeyRing(input.env);
+  const progressSettings = readReviewProgressSettings(input.env, input.logger);
+  const progressCapture =
+    createConfiguredReviewProgressCapture(progressSettings);
   const historyWriter =
     input.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1"
       ? input.historyWriter
@@ -233,14 +245,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
             historyWriter.captureExecution(tx, execution),
         }
       : {}),
-    ...(input.env.REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE === "1"
-      ? {
-          progressCapture: createPrismaReviewProgressCapture({
-            fileCoverageEnabled:
-              input.env.REVIEW_ROUTER_PROGRESS_FILE_COVERAGE === "1",
-          }),
-        }
-      : {}),
+    ...(progressCapture ? { progressCapture } : {}),
   });
   const expiredExecutionRecovery = new RecoverExpiredReviewExecutions(
     executions,
@@ -504,14 +509,40 @@ export function createProductionReviewV2WorkerRuntime(input: {
       };
     },
   };
+  const progressInstallations = createProgressInstallationRequester({
+    githubAppId: input.githubAppId,
+    githubPrivateKey: input.githubPrivateKey,
+  });
+  const progressCommentWrites = progressSettings.hostedCommentWrites;
   const ingressHandlers = [
     createReviewRequestedDispatchCleanupHandler({
       intents: requestedIntents,
       gateway: intentGateway,
     }),
+    createReviewRequestedStartNoticeHandler({
+      intents: requestedIntents,
+      gateway: intentGateway,
+      publisher: progressCommentWrites
+        ? new GitHubReviewRequestedStartNoticePublisher(
+            input.prisma,
+            progressInstallations,
+            input.clock,
+            {
+              allowedRepositoryFullNames:
+                progressCommentWrites.allowedRepositoryFullNames,
+              maxCommentPages: progressMaxCommentPages(input.env),
+              minimumMutationIntervalMs: progressMinimumMutationIntervalMs(
+                input.env,
+              ),
+            },
+          )
+        : null,
+    }),
     createGitHubReviewRequestIngressHandler({
       repositories: new PrismaActionControlPlaneRepository(input.prisma),
       identities: new PrismaScmRepositoryIdentityRepository(input.prisma),
+      authorities,
+      ...(input.logger ? { logger: input.logger } : {}),
       application: ingressApplication,
       readyQuietPeriodMs: positiveInteger(
         input.env.REVIEW_ROUTER_REVIEW_V2_READY_QUIET_PERIOD_MS,
@@ -617,6 +648,8 @@ export function createProductionReviewV2WorkerRuntime(input: {
     { ids: intentIds, digest: intentDigest },
     intentDispatchPolicy,
   );
+  let preparationWasSaturated = false;
+  let submissionWasSaturated = false;
   const publicationExecutor = new ExecuteReviewV2PublicationOperation(
     {
       digestUtf8: sha256,
@@ -698,9 +731,10 @@ export function createProductionReviewV2WorkerRuntime(input: {
     prisma: input.prisma,
     clock: input.clock,
     env: input.env,
-    githubAppId: input.githubAppId,
-    githubPrivateKey: input.githubPrivateKey,
+    settings: progressSettings,
+    requestForInstallation: progressInstallations,
     ownerIdHash,
+    ...(input.logger ? { logger: input.logger } : {}),
   });
   const runtime: ReviewV2CompletionRuntime = {
     wake: completion.wake,
@@ -732,6 +766,22 @@ export function createProductionReviewV2WorkerRuntime(input: {
           ownerIdHash,
           limit,
         });
+        if (dispatch.preparationSaturated && !preparationWasSaturated) {
+          input.logger?.warn("Review request preparation capacity exhausted", {
+            inFlight: dispatch.preparationsInFlight,
+          });
+        } else if (!dispatch.preparationSaturated && preparationWasSaturated) {
+          input.logger?.info("Review request preparation capacity recovered");
+        }
+        preparationWasSaturated = dispatch.preparationSaturated;
+        if (dispatch.submissionSaturated && !submissionWasSaturated) {
+          input.logger?.warn("Review request submission capacity exhausted", {
+            inFlight: dispatch.submissionsInFlight,
+          });
+        } else if (!dispatch.submissionSaturated && submissionWasSaturated) {
+          input.logger?.info("Review request submission capacity recovered");
+        }
+        submissionWasSaturated = dispatch.submissionSaturated;
         return {
           scanned: recovery.scanned + dispatch.scanned,
           dispatched: dispatch.dispatched,
@@ -747,70 +797,45 @@ export function createProductionReviewV2WorkerRuntime(input: {
   };
 }
 
+function progressMinimumMutationIntervalMs(
+  env: Readonly<Record<string, string | undefined>>,
+): number {
+  return positiveInteger(
+    env.REVIEW_ROUTER_PROGRESS_MIN_MUTATION_INTERVAL_MS,
+    1_000,
+    "review_progress_mutation_interval_ms_invalid",
+  );
+}
+
+function progressMaxCommentPages(
+  env: Readonly<Record<string, string | undefined>>,
+): number {
+  return positiveInteger(
+    env.REVIEW_ROUTER_PROGRESS_MAX_COMMENT_PAGES,
+    5,
+    "review_progress_max_comment_pages_invalid",
+  );
+}
+
 function createHostedReviewProgressRuntime(input: {
   readonly prisma: PrismaClient;
   readonly clock: SystemClock;
   readonly env: Readonly<Record<string, string | undefined>>;
-  readonly githubAppId: string;
-  readonly githubPrivateKey: string;
+  readonly settings: ReviewProgressSettings;
+  readonly requestForInstallation: ReviewProgressInstallationRequesterFactory;
   readonly ownerIdHash: string;
+  readonly logger?: Pick<Logger, "warn">;
 }): ReviewV2ProgressMaintenanceRuntime | undefined {
-  if (input.env[hostedProgressCommentWritesEnv] !== "1") return undefined;
-  const repositorySelectors = new Set(
-    (input.env.REVIEW_ROUTER_PROGRESS_REPOSITORIES ?? "")
-      .split(",")
-      .map((value) => value.trim().toLowerCase())
-      .filter(Boolean),
-  );
-  // Hosted writes are deliberately fail-closed until a canary cohort is
-  // named. "*" is the explicit default-on cutover after rollout proves safe.
-  if (repositorySelectors.size === 0) return undefined;
+  // On by default for every repository; the writes kill switch or a malformed
+  // setting leaves the publisher out of the worker loop entirely.
+  const writes = input.settings.hostedCommentWrites;
+  if (!writes) return undefined;
   const store = new PrismaReviewProgressPublicationStore(input.prisma, {
-    allowedRepositoryFullNames: repositorySelectors.has("*")
-      ? null
-      : repositorySelectors,
+    allowedRepositoryFullNames: writes.allowedRepositoryFullNames,
   });
-  const app = new App({
-    appId: input.githubAppId,
-    privateKey: input.githubPrivateKey,
-  });
-  let botLogin: Promise<string> | null = null;
-  const resolveBotLogin = () => {
-    botLogin ??= app.octokit
-      .request("GET /app")
-      .then((response) => {
-        const slug = response.data?.slug;
-        if (!slug) throw new Error("review_progress_github_app_slug_missing");
-        return `${slug}[bot]`;
-      })
-      .catch((error: unknown) => {
-        botLogin = null;
-        throw error;
-      });
-    return botLogin;
-  };
   const publisher = new ReviewProgressPublisher(
     store,
-    async (installationId) => {
-      const numericInstallationId = Number(installationId);
-      if (
-        !Number.isSafeInteger(numericInstallationId) ||
-        numericInstallationId < 1
-      ) {
-        throw new Error("review_progress_github_installation_id_invalid");
-      }
-      const octokit = await app.getInstallationOctokit(numericInstallationId);
-      return {
-        request: async (route, parameters) => {
-          const response = await octokit.request(
-            route as "GET /rate_limit",
-            parameters as never,
-          );
-          return { data: response.data, headers: response.headers };
-        },
-        botLogin: await resolveBotLogin(),
-      };
-    },
+    input.requestForInstallation,
     input.clock,
     input.ownerIdHash,
     {
@@ -824,21 +849,13 @@ function createHostedReviewProgressRuntime(input: {
         25_000,
         "review_progress_publish_claim_ms_invalid",
       ),
-      minimumMutationIntervalMs: positiveInteger(
-        input.env.REVIEW_ROUTER_PROGRESS_MIN_MUTATION_INTERVAL_MS,
-        1_000,
-        "review_progress_mutation_interval_ms_invalid",
-      ),
+      minimumMutationIntervalMs: progressMinimumMutationIntervalMs(input.env),
       retryDelayMs: positiveInteger(
         input.env.REVIEW_ROUTER_PROGRESS_PUBLISH_RETRY_MS,
         5_000,
         "review_progress_publish_retry_ms_invalid",
       ),
-      maxCommentPages: positiveInteger(
-        input.env.REVIEW_ROUTER_PROGRESS_MAX_COMMENT_PAGES,
-        5,
-        "review_progress_max_comment_pages_invalid",
-      ),
+      maxCommentPages: progressMaxCommentPages(input.env),
       maxFailures: positiveInteger(
         input.env.REVIEW_ROUTER_PROGRESS_MAX_FAILURES,
         10,
@@ -846,12 +863,12 @@ function createHostedReviewProgressRuntime(input: {
       ),
     },
   );
+  const promotion = new ReviewProgressTerminalPromotion(store, input.clock, {
+    ...(input.logger ? { logger: input.logger } : {}),
+  });
   return {
     promoteSettledExecutions: ({ settlements }) =>
-      store.promoteSettledExecutions({
-        settlements,
-        now: input.clock.now(),
-      }),
+      promotion.promote(settlements),
     runMaintenance: () => publisher.runMaintenance(),
   };
 }

@@ -16,7 +16,7 @@ export function WorkspaceAccountsPanel({
     return <WorkspacePersonalAccounts {...props} />;
   return (
     <AccountGatewayControls
-      hideConnect
+      hideToolbar
       bootstrap={bootstrap}
       {...(props.workspaceId ? { workspaceId: props.workspaceId } : {})}
       renderAccounts={(accounts, actions) => (

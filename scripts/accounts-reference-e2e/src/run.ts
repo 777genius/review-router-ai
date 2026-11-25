@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { cpus, freemem, totalmem } from "node:os";
 import { statfs, writeFile } from "node:fs/promises";
@@ -7,6 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { parseCliOptions } from "./cli.ts";
 import { readSourceRevision } from "./source-revision.ts";
+import { warmAccountsRoutes } from "./warm-accounts-routes.ts";
 import { warmNextClientScripts } from "./warm-next-client-scripts.ts";
 import {
   BASELINE_REVISION,
@@ -52,6 +54,8 @@ async function main(): Promise<void> {
                   ? PROBE_FIXTURE_BOUNDARY
                   : "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof";
   const options = parseCliOptions(process.argv);
+  const compilerProfile: RuntimeDescriptor["compilerProfile"] =
+    options.lowMemoryWebpack ? "low-memory-webpack" : "default";
   const revision = await readSourceRevision(
     options.repoRoot,
     options.expectedRevision,
@@ -92,6 +96,7 @@ async function main(): Promise<void> {
       "packages/features/provider-usage",
       "packages/platform/db",
       "scripts/accounts-reference-e2e/src",
+      "scripts/lib/next-browser-test-compiler.ts",
       ...(process.argv.includes("--skill-catalog-fixture")
         ? [
             "packages/features/review-skills",
@@ -165,6 +170,7 @@ async function main(): Promise<void> {
       gatewayUrl: gateway.url,
       secrets,
       browserExecutable: options.browserExecutable,
+      lowMemoryWebpack: options.lowMemoryWebpack,
       ...(skillsGitHub ? { skillsGitHub } : {}),
       ...(skillCatalog ? { skillCatalog } : {}),
     });
@@ -196,6 +202,7 @@ async function main(): Promise<void> {
       repoRoot: options.repoRoot,
       revision,
       baselineExpected: options.expectedRevision,
+      compilerProfile,
       secretsGenerated: true,
       externalNetworkAllowed: false,
       fixtureBoundary,
@@ -247,6 +254,7 @@ async function main(): Promise<void> {
     outcome: failure ? "failed" : summary.failed ? "partial" : "done",
     baselineRevision: BASELINE_REVISION,
     actualRevision: revision,
+    compilerProfile,
     sourceDeltaSha256: sourceDelta,
     databaseBaseline:
       process.argv.includes("--restored-empty-baseline") ||
@@ -270,6 +278,7 @@ async function main(): Promise<void> {
       outcome: final.outcome,
       workDir: options.workDir,
       actualRevision: revision,
+      compilerProfile,
       databaseMode: final.databaseMode,
       tests: summary,
       fixtureBoundary: final.fixtureBoundary,
@@ -333,13 +342,21 @@ async function verifyBoot(
   )
     throw new Error("accounts_reference_e2e_generated_session_not_authorized");
   checks.push("generated-session-ok");
+  if (process.argv.includes("--subscription-fixture")) {
+    // The initial Connections render requests both routes. Compile them within
+    // the existing setup budget so a cold limits route cannot stall summaries.
+    // Missing query fields return before account access; browser assertions
+    // still require the actual authenticated responses within their own budget.
+    checks.push(...(await warmAccountsRoutes(appUrl)));
+  }
   if (process.argv.includes("--review-runtime-fixture")) {
+    const signal = AbortSignal.timeout(120_000);
     const repositories = await fetch(
       `${appUrl}/dashboard?section=repositories&workspace=${FIXTURES.workspaces.personalViewer}`,
       {
         headers: { cookie: viewerCookie },
         redirect: "manual",
-        signal: AbortSignal.timeout(120_000),
+        signal,
       },
     );
     const html = await repositories.text();
@@ -350,6 +367,37 @@ async function verifyBoot(
     )
       throw new Error("accounts_reference_e2e_runtime_readiness_warmup_failed");
     checks.push("runtime-readiness-authenticated-render-warmed");
+    // The usage API is a separate development route from its server-rendered
+    // page. Prove the fixture owner's real response during the same boot budget;
+    // the browser's API request timeout and all report assertions stay intact.
+    const usage = await fetch(
+      `${appUrl}/api/dashboard/provider-usage?workspace=${FIXTURES.workspaces.personalViewer}&purpose=review`,
+      {
+        headers: { cookie: viewerCookie },
+        redirect: "error",
+        signal,
+      },
+    );
+    const result: unknown = await usage.json();
+    assert.equal(usage.status, 200);
+    assert.equal(usage.headers.get("cache-control"), "private, no-store");
+    assert(
+      result !== null &&
+        typeof result === "object" &&
+        "scope" in result &&
+        "report" in result,
+    );
+    assert.deepEqual(result.scope, {
+      actorId: FIXTURES.users.viewer,
+      workspaceId: FIXTURES.workspaces.personalViewer,
+      effectiveAccess: "admin",
+    });
+    assert(
+      result.report !== null &&
+        typeof result.report === "object" &&
+        !Array.isArray(result.report),
+    );
+    checks.push("provider-usage-authenticated-route-warmed");
   }
   if (process.argv.includes("--skills-fixture")) {
     // Warm both authenticated Skills entry points during bounded fixture setup;

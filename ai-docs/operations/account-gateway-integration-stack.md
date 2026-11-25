@@ -37,6 +37,11 @@ GitHub PR bases are repository-local. The reusable service and pinned native
 fork keep their own component PRs linked from the root PR rather than copied
 into RR. The root candidate selects only accepted service/SDK/engine source.
 
+Since 2026-11-21 the native source lives in `agent-teams-ai/sub2api-standalone`
+(same `main` history, not a GitHub fork). The old fork is retired and archived
+after the move; archived repos stay readable, so the native links below still
+resolve.
+
 - Native `agent-teams-ai/sub2api` PR33 merged normally as
   `135fd7dee9ab1d93552709a05805d01867ce3c0b`; reviewed source
   `3d3ea7a40a2bff649a241025a935f8136fa9fe5e`, tree

@@ -24,6 +24,7 @@ function usageReportFixture(): UsagePeriodReport {
     nextCursor: "call100",
     partialChildCount: 0,
     unboundedSummaryCount: 0,
+    latestPendingAt: null,
     totals: {
       tokens: {
         inputTotal: 200,

@@ -1,3 +1,5 @@
+import { canCreateConnection } from "../account-gateway/connection-capabilities";
+import { nativeAPIProvider } from "../account-gateway/native-api-profiles";
 import {
   apiKeyProviders,
   apiKeyProviderForAuthMode,
@@ -18,8 +20,11 @@ export type SetupProviderId =
   | "codex"
   | "claude-code"
   | "glm"
+  | "nvidia"
   | "minimax"
-  | "grok";
+  | "grok"
+  | "anthropic"
+  | "gemini";
 
 export type SetupProvider = Readonly<{
   id: SetupProviderId;
@@ -61,6 +66,27 @@ export const setupProviders: readonly SetupProvider[] = Object.freeze([
       publicCatalogProvider: provider.directProviderKind,
     }),
   ),
+  ...(["anthropic", "gemini"] as const).map(
+    (id): SetupProvider => ({
+      id,
+      label: id === "anthropic" ? "Anthropic API" : "Gemini API",
+      identity: id,
+      credentialLabel: "API key",
+      credentialKind: "api_key",
+      githubSource: null,
+      publicCatalogProvider: null,
+    }),
+  ),
+  {
+    id: "nvidia",
+    label: "NVIDIA Build",
+    identity: "nvidia",
+    credentialLabel: "NVIDIA Build API key",
+    credentialKind: "api_key",
+    // This is a Gateway-owned connection; never create a direct GitHub Secret.
+    githubSource: null,
+    publicCatalogProvider: null,
+  },
   {
     id: "glm",
     label: "GLM Coding Plan",
@@ -143,6 +169,19 @@ export function setupProviderForGatewayProfile(
   profile: GatewayProfileIdentity | undefined,
 ): SetupProviderId | undefined {
   if (!profile || profile.protocol !== "openai-responses") return undefined;
+  const nativeProvider = nativeAPIProvider(profile.id);
+  if (nativeProvider)
+    return profile.authKind === "api_key" &&
+      profile.connection?.provider === nativeProvider &&
+      (!profile.provider || profile.provider === "codex")
+      ? nativeProvider
+      : undefined;
+  if (profile.id === "nvidia-build-chat-apikey-v1")
+    return profile.authKind === "api_key" &&
+      profile.connection?.provider === "nvidia" &&
+      (!profile.provider || profile.provider === "nvidia")
+      ? "nvidia"
+      : undefined;
   const subscription = subscriptionProfileDefinition(profile.id);
   if (
     subscription &&
@@ -165,17 +204,34 @@ export function setupProviderForGatewayProfile(
   return undefined;
 }
 
+type EnrollableProfile = GatewayProfileIdentity &
+  Pick<AccountProfileView, "availability">;
+
+/** The provider a new connection of this profile sets up, if it may be made. */
+function enrollableSetupProvider(
+  profile: EnrollableProfile,
+): SetupProviderId | undefined {
+  return canCreateConnection(profile)
+    ? setupProviderForGatewayProfile(profile)
+    : undefined;
+}
+
+/** A profile the provider dialog may connect in place (79). */
+export function connectsInProviderDialog(
+  profile: EnrollableProfile,
+  provider: SetupProviderId,
+): boolean {
+  return enrollableSetupProvider(profile) === provider;
+}
+
 /** Enrollment is advertised independently of an existing account inventory. */
 export function gatewaySetupProvidersForProfiles(
-  profiles: readonly (GatewayProfileIdentity &
-    Pick<AccountProfileView, "availability">)[],
+  profiles: readonly EnrollableProfile[],
 ): SetupProviderId[] {
   return [
     ...new Set(
       profiles.flatMap((profile) => {
-        if (profile.availability === "deployment_configuration_required")
-          return [];
-        const provider = setupProviderForGatewayProfile(profile);
+        const provider = enrollableSetupProvider(profile);
         return provider ? [provider] : [];
       }),
     ),

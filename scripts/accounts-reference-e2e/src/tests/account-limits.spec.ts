@@ -10,6 +10,7 @@ import {
   browserRequestsFor,
   expectNetworkViolations,
   installLoopbackOnlyNetworkGuard,
+  connectionsListRegion,
   openAccounts,
   sourceRow,
   useOtherSession,
@@ -90,7 +91,9 @@ test("account limits are present in the first server paint with UTC observation 
     const claudeRow = page
       .locator("article")
       .filter({ hasText: FIXTURES.sourceLabels.viewerClaude });
-    await expect(claudeRow).toContainText(/Claude\s*·\s*OAuth/);
+    await expect(claudeRow).toContainText(
+      /Claude\s*·\s*Claude subscription\s*·\s*OAuth/,
+    );
     await expect(
       limitsFor(claudeRow).getByRole("progressbar", {
         name: "5h remaining",
@@ -142,7 +145,10 @@ test("account limits preserve observations across reset without automatic reads 
   // waiting, including the timer that renders the elapsed reset state.
   await page.clock.runFor(90_000);
   await expect(limits).toContainText("Reset pending");
-  await expect(limits).toContainText("Outdated");
+  // A passed reset is said once; the 2.5 minute old observation is still
+  // current, so no age and never an alarming badge. This relies on the read
+  // happening within 150 s of configure (the harness warms Next first).
+  await expect(limits).not.toContainText(/Outdated|as of /);
   await limits.screenshot({
     path: info.outputPath("account-limits-stale.png"),
   });
@@ -339,9 +345,9 @@ test("account limits restrict shared rows before native reads and fence a delaye
     await expect(
       page.getByRole("tab", { name: /RR E2E Org Bravo/ }),
     ).toHaveAttribute("aria-selected", "true");
-    await expect(
-      page.getByRole("region", { name: "Available connections" }),
-    ).toBeVisible();
+    // Bravo's list holds only the viewer's own connection, drawn above the
+    // workspace rows, so the combined list region is the visible anchor.
+    await expect(connectionsListRegion(page)).toBeVisible();
   } finally {
     releaseResponse();
     if (deliveryStarted) await delivery;
@@ -452,7 +458,9 @@ test("Claude account limits distinguish all-model and model windows on desktop a
   await page.setViewportSize({ width: 1280, height: 900 });
   await openAccounts(page, "rr-e2e-personal-viewer");
   const row = sourceRow(page, FIXTURES.sourceLabels.viewerClaude);
-  await expect(row).toContainText(/Claude\s*·\s*OAuth/);
+  await expect(row).toContainText(
+    /Claude\s*·\s*Claude subscription\s*·\s*OAuth/,
+  );
   const limits = limitsFor(row);
   // The compact line intentionally renders only the first two windows.
   // Per-model windows are present in the keyboard-accessible Details view.
@@ -556,7 +564,9 @@ test("Claude account limits preserve unknown and stale observations on mobile wi
     if (mode === "stale") await page.goto("about:blank");
     await openAccounts(page, "rr-e2e-personal-viewer");
     const row = sourceRow(page, FIXTURES.sourceLabels.viewerClaude);
-    await expect(row).toContainText(/Claude\s*·\s*OAuth/);
+    await expect(row).toContainText(
+      /Claude\s*·\s*Claude subscription\s*·\s*OAuth/,
+    );
     const limits = limitsFor(row);
     if (mode === "unknown") {
       await expect(limits).toContainText("No limits saved yet");
@@ -564,7 +574,8 @@ test("Claude account limits preserve unknown and stale observations on mobile wi
       await expect(limits).not.toContainText(/100% left|unlimited/);
     } else {
       await expect(limits).toContainText("62.5% left");
-      await expect(limits).toContainText("Outdated");
+      await expect(limits).toContainText(/as of \d+m ago/);
+      await expect(limits).not.toContainText("Outdated");
       await expect(limits).toContainText("Reset pending");
       const summary = limits.getByText("Details", { exact: true });
       await summary.focus();
@@ -623,7 +634,9 @@ test("Claude account limits follow the personal owner across workspace sharing",
   await configure(request, "claude-models");
   await openAccounts(page, "rr-e2e-org-alpha");
   const row = sourceRow(page, FIXTURES.sourceLabels.viewerClaude);
-  await expect(row).toContainText(/Claude\s*·\s*OAuth/);
+  await expect(row).toContainText(
+    /Claude\s*·\s*Claude subscription\s*·\s*OAuth/,
+  );
   const limits = limitsFor(row);
   await expect(limits).toContainText("Limits visible to the owner only");
   await expect(limits.getByRole("progressbar")).toHaveCount(0);

@@ -3,47 +3,37 @@
 import { useRef, useState, type ReactNode } from "react";
 import { Button, Dialog, SelectField } from "@reviewrouter/ui";
 import { accountsCopy } from "./accounts-copy";
-import {
-  OwnAccountsViewContext,
-  useOwnAccountsView,
-} from "./accounts-workspace-tabs";
 
 export function AccountsAddDialog({
   personalConnect,
   organizationConnect,
   workspaceName,
-  initiallyOpen = false,
-  initialOwnership = "personal",
 }: {
   personalConnect: ReactNode;
   organizationConnect: ReactNode;
   workspaceName: string;
-  initiallyOpen?: boolean;
-  initialOwnership?: "personal" | "organization";
 }) {
-  const [open, setOpen] = useState(initiallyOpen);
-  const [path, setPath] = useState(initialOwnership);
+  const [open, setOpen] = useState(false);
+  const [path, setPath] = useState<"personal" | "organization">("personal");
   const cancel = useRef<HTMLButtonElement>(null);
   const popup = useRef<HTMLDivElement>(null);
-  const showOwnConnections = useOwnAccountsView();
   function clearUnsubmittedCredentials() {
     popup.current
-      ?.querySelectorAll<HTMLInputElement>(
-        'input[type="password"], input[name="callbackURL"], input[name="authorizationCode"]',
-      )
+      ?.querySelectorAll<
+        HTMLInputElement | HTMLTextAreaElement
+      >('input[type="password"], input[name="callbackURL"], input[name="authorizationCode"], textarea[name="credential"], input[name="credentialFile"]')
       .forEach((field) => {
         field.value = "";
+        field.dispatchEvent(new Event("input", { bubbles: true }));
       });
   }
-  function showOwnConnectionsFromDialog() {
+  // Closes the dialog to reveal the Connections list right under it.
+  function showConnectionsList() {
     clearUnsubmittedCredentials();
     setOpen(false);
-    showOwnConnections?.();
   }
   return (
-    <OwnAccountsViewContext.Provider
-      value={showOwnConnections ? showOwnConnectionsFromDialog : null}
-    >
+    <>
       <Dialog.Root
         open={open}
         onOpenChange={(next) => {
@@ -65,15 +55,13 @@ export function AccountsAddDialog({
             <Dialog.Description>
               Choose your provider and connect securely.
             </Dialog.Description>
-            {showOwnConnections ? (
-              <Button
-                variant="ghost"
-                className="mt-3"
-                onClick={showOwnConnectionsFromDialog}
-              >
-                Use an existing connection
-              </Button>
-            ) : null}
+            <Button
+              variant="ghost"
+              className="mt-3"
+              onClick={showConnectionsList}
+            >
+              Use an existing connection
+            </Button>
             <div className="my-4 max-w-sm">
               <SelectField
                 name="connectionOwnership"
@@ -103,13 +91,7 @@ export function AccountsAddDialog({
               </p>
               {organizationConnect}
             </div>
-            <div hidden={path !== "personal"}>
-              <p className="mb-4 text-sm text-slate-400">
-                You own this connection. After connecting, choose Access to
-                enable it for {workspaceName}.
-              </p>
-              {personalConnect}
-            </div>
+            <div hidden={path !== "personal"}>{personalConnect}</div>
             <Dialog.Footer>
               <Dialog.Close render={<Button ref={cancel} variant="outline" />}>
                 Close
@@ -118,6 +100,6 @@ export function AccountsAddDialog({
           </Dialog.Popup>
         </Dialog.Portal>
       </Dialog.Root>
-    </OwnAccountsViewContext.Provider>
+    </>
   );
 }

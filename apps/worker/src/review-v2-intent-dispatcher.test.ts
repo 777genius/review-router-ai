@@ -221,6 +221,45 @@ describe("GitHubActionsReviewRequestedDispatchGateway", () => {
     expect(request).toHaveBeenCalledTimes(1);
   });
 
+  it("passes the preparation abort signal to the GitHub pull request read", async () => {
+    const controller = new AbortController();
+    const request = vi.fn(
+      async (
+        _route: string,
+        parameters?: Readonly<Record<string, unknown>>,
+      ) => {
+        expect(parameters).toMatchObject({
+          request: { signal: controller.signal },
+        });
+        return { data: pullRequestFixture() };
+      },
+    );
+    await gatewayWith(request).prepare({
+      intent: intentFixture(),
+      signal: controller.signal,
+    });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes the submission abort signal to the workflow dispatch POST", async () => {
+    const controller = new AbortController();
+    const request = vi.fn(
+      async (route: string, parameters?: Readonly<Record<string, unknown>>) => {
+        if (route.startsWith("GET")) return { data: pullRequestFixture() };
+        expect(parameters).toMatchObject({
+          request: { signal: controller.signal },
+        });
+        return { data: { workflow_run_id: 702 } };
+      },
+    );
+    const prepared = await gatewayWith(request).prepare({
+      intent: intentFixture(),
+    });
+    await expect(prepared.submit(controller.signal)).resolves.toMatchObject({
+      status: ReviewRequestedDispatchSubmissionStatus.Accepted,
+    });
+  });
+
   it.each([
     ".github/workflows/reviewrouter-review.yml",
     ".github/workflows/reviewrouter-review.yml@main",
@@ -245,6 +284,7 @@ describe("GitHubActionsReviewRequestedDispatchGateway", () => {
         }
         return {
           data: {
+            state: "open",
             head: { sha: "c".repeat(40) },
             base: { sha: "a".repeat(40) },
           },
@@ -304,6 +344,46 @@ describe("GitHubActionsReviewRequestedDispatchGateway", () => {
       expect(request).toHaveBeenCalledTimes(2);
     },
   );
+
+  it("does not retry a completed run after its pull request closes", async () => {
+    const request = vi.fn(async (route: string) => {
+      if (!route.includes("/actions/runs/"))
+        return { data: { ...pullRequestFixture(), state: "closed" } };
+      return {
+        data: {
+          id: 701,
+          run_attempt: 1,
+          event: "workflow_dispatch",
+          display_title: "ReviewRouter review request-1",
+          status: "completed",
+          conclusion: "failure",
+          path: ".github/workflows/reviewrouter-review.yml",
+        },
+      };
+    });
+    await expect(
+      gatewayWith(request).inspectKnownRun({
+        intent: {
+          ...intentFixture(),
+          state: ReviewRequestedIntentState.AwaitingAuthorization,
+          claim: null,
+          sourceRunId: "701",
+          sourceRunAttempt: "1",
+        },
+      }),
+    ).resolves.toEqual({
+      status: ReviewRequestedDispatchRunStatus.TerminalStaleRevision,
+    });
+  });
+
+  it("does not classify a malformed PR response as a known stale revision", async () => {
+    const gateway = gatewayWith(async () => ({
+      data: { state: "open", head: {} },
+    }));
+    await expect(gateway.prepare({ intent: intentFixture() })).rejects.toThrow(
+      "review_requested_dispatch_pull_request_invalid",
+    );
+  });
 
   it.each([undefined, null])(
     "keeps waiting for a completed run without a conclusion (%s)",
@@ -561,6 +641,117 @@ describe("GitHubActionsReviewRequestedDispatchGateway", () => {
       }),
     ).rejects.toThrow();
     expect(request).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("GitHubActionsReviewRequestedDispatchGateway.inspectRunnerWait", () => {
+  const queuedJob = {
+    run_id: 701,
+    run_attempt: 1,
+    status: "queued",
+    runner_id: 0,
+    runner_name: "",
+    steps: [],
+  };
+  const inspect = (jobs: unknown, options: { pullRequest?: object } = {}) =>
+    gatewayWith(async (route: string) => {
+      if (route.endsWith("/jobs")) return { data: jobs };
+      if (route.includes("/pulls/")) {
+        return { data: options.pullRequest ?? pullRequestFixture() };
+      }
+      throw new Error("unexpected_route");
+    }).inspectRunnerWait({
+      intent: {
+        ...intentFixture(),
+        state: ReviewRequestedIntentState.AwaitingAuthorization,
+        claim: null,
+        sourceRunId: "701",
+        sourceRunAttempt: "1",
+      },
+    });
+
+  it("reports a run whose only job is queued without a runner", async () => {
+    await expect(
+      inspect({ total_count: 1, jobs: [queuedJob] }),
+    ).resolves.toEqual({
+      waitingForRunner: true,
+      neverStarted: true,
+      revisionCurrent: true,
+    });
+    // GitHub also reports a queued job's runner as null.
+    await expect(
+      inspect({
+        total_count: 1,
+        jobs: [{ ...queuedJob, runner_id: null, runner_name: null }],
+      }),
+    ).resolves.toMatchObject({ waitingForRunner: true });
+  });
+
+  it.each([
+    ["has a runner id", { runner_id: 1000409855 }],
+    ["has a runner name", { runner_name: "GitHub Actions 1000409855" }],
+    ["started a step", { steps: [{ started_at: "2026-11-21T07:11:59Z" }] }],
+  ])("does not wait for a job that %s", async (_name, change) => {
+    await expect(
+      inspect({ total_count: 1, jobs: [{ ...queuedJob, ...change }] }),
+    ).resolves.toMatchObject({ waitingForRunner: false, neverStarted: false });
+  });
+
+  it("does not treat a job waiting for an environment approval as queued", async () => {
+    await expect(
+      inspect({ total_count: 1, jobs: [{ ...queuedJob, status: "waiting" }] }),
+    ).resolves.toMatchObject({ waitingForRunner: false, neverStarted: true });
+  });
+
+  it("keeps a cancelled run without a runner as never started", async () => {
+    await expect(
+      inspect({
+        total_count: 1,
+        jobs: [{ ...queuedJob, status: "completed" }],
+      }),
+    ).resolves.toEqual({
+      waitingForRunner: false,
+      neverStarted: true,
+      revisionCurrent: true,
+    });
+  });
+
+  it("reports a closed or moved pull request as not current", async () => {
+    await expect(
+      inspect(
+        { total_count: 1, jobs: [queuedJob] },
+        { pullRequest: { ...pullRequestFixture(), state: "closed" } },
+      ),
+    ).resolves.toMatchObject({ revisionCurrent: false });
+    await expect(
+      inspect(
+        { total_count: 1, jobs: [queuedJob] },
+        {
+          pullRequest: {
+            ...pullRequestFixture(),
+            head: { ...pullRequestFixture().head, sha: "e".repeat(40) },
+          },
+        },
+      ),
+    ).resolves.toMatchObject({ revisionCurrent: false });
+  });
+
+  it.each([
+    ["no jobs", { total_count: 0, jobs: [] }],
+    ["a partial page", { total_count: 2, jobs: [queuedJob] }],
+    ["another run", { total_count: 1, jobs: [{ ...queuedJob, run_id: 9 }] }],
+    [
+      "another attempt",
+      { total_count: 1, jobs: [{ ...queuedJob, run_attempt: 2 }] },
+    ],
+    [
+      "a job without steps",
+      { total_count: 1, jobs: [{ ...queuedJob, steps: null }] },
+    ],
+  ])("refuses to prove anything from %s", async (_name, jobs) => {
+    await expect(inspect(jobs)).rejects.toThrow(
+      "review_requested_runner_inspection_invalid",
+    );
   });
 });
 

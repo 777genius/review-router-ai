@@ -1,4 +1,6 @@
-# ReviewRouter landing redesign — approved positioning / unselected composition
+# ReviewRouter landing redesign — historical positioning / unselected composition
+
+**Archived research (reconciled 2026-11-25):** These are 2026-11-13 design explorations, not an approved current homepage implementation or an installation contract. The proposed Impeccable scripts below are **not installed by this documentation-only change**. Verify current product claims, provider capabilities and the actual main-branch scripts before applying any proposal. Do not treat the A/B/C variants as approved production designs.
 
 Updated 2026-11-13: **template-first research supersedes custom-image comps.** Read ai-docs/design/landing-template-research.md before implementation. Prior A/B/C are historical explorations, not approved code designs.
 
@@ -35,7 +37,7 @@ These are non-negotiable positions:
 
 All use the existing graphite/cyan/lime/magenta design system, typography and UI conventions, not three new color themes.
 
-## Repeatable Impeccable setup
+## Historical proposed Impeccable setup (not installed)
 The prior repository integration is documentation-only. This Draft PR adds opt-in scripts for published `impeccable@4.8.2`:
 
 ```bash

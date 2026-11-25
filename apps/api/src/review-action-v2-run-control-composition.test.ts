@@ -20,7 +20,9 @@ import {
   ProducerReleaseAttestationStatus,
   ReviewCapabilityProfile,
   ReviewProviderKind,
+  ReviewRunAuthorizationDenialReason,
   ReviewRunAuthorizationState,
+  ReviewRunAuthorizationUseCaseStatus,
   ReviewSafetyCapability,
   ReviewSafetyPolicyScope,
   ReviewSafetyRolloutMode,
@@ -2082,6 +2084,32 @@ describe("Review Action v2 run-control composition", () => {
     ).rejects.toMatchObject({
       statusCode: 412,
       errorCode: ReviewActionV2ProtocolErrorCode.StalePrecondition,
+    });
+  });
+
+  it("reports an unapproved Gateway reviewer profile as an actionable configuration error", async () => {
+    const persisted = dependencies.authorizations;
+    const handlers = createReviewActionV2RunControlHandlers({
+      ...dependencies,
+      authorizations: {
+        authorizeReviewRun: async () => ({
+          status: ReviewRunAuthorizationUseCaseStatus.Denied,
+          reason: ReviewRunAuthorizationDenialReason.GatewayProfileUnapproved,
+        }),
+        renewReviewRunAuthorization: (input) =>
+          persisted.renewReviewRunAuthorization(input),
+        resolveReviewRunAuthorizationToken: (input) =>
+          persisted.resolveReviewRunAuthorizationToken(input),
+      },
+    });
+
+    // Contract-legal for authorize, so it is never replaced by a retried 500.
+    await expect(
+      handlers.authorize!.execute(authorizeRequest()),
+    ).rejects.toMatchObject({
+      statusCode: 422,
+      errorCode: ReviewActionV2ProtocolErrorCode.InvariantViolation,
+      issues: ["review_run_authorize:gateway_profile_unapproved"],
     });
   });
 

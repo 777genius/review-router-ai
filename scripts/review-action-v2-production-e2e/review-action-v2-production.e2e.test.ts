@@ -25,6 +25,9 @@ import {
 import { createReviewStatisticsFeature } from "../../packages/features/review-statistics/src/composition/index.js";
 import { createReviewHistoryFeature } from "../../packages/features/review-history/src/composition/index.js";
 import { createReviewStatisticsSettledHandler } from "../../apps/worker/src/review-statistics-worker-runtime.js";
+import { formatGithubProgressComment } from "../../packages/features/review-progress/src/index.js";
+import { parseSnapshot } from "../../apps/worker/src/review-progress-snapshot-policy.js";
+import { PrismaReviewProgressPublicationStore } from "../../apps/worker/src/review-progress-store.js";
 import {
   reviewExecutionFinalizedEventType,
   reviewExecutionFinalizedEventVersion,
@@ -470,8 +473,10 @@ describeWithDatabase.sequential(
       await fixture.processFinalizedOutbox();
       await fixture.runWorkerUntilSettled();
 
+      // Two pages each for the marker inventory before and after the write,
+      // plus two for the sticky-summary lookup.
       expect(fixture.fakeGitHub.countCalls("GET", `/issues/42/comments`)).toBe(
-        4,
+        6,
       );
       expect(
         fixture.fakeGitHub.comments.filter(
@@ -479,6 +484,338 @@ describeWithDatabase.sequential(
         ),
       ).toHaveLength(1);
       await expectTerminalSuccess(fixture, flow.executionId);
+    }, 60_000);
+
+    it("rewrites the existing summary comment for a new revision instead of adding one", async () => {
+      const fixture = requiredHarness(harness);
+      const olderRun = fixture.fakeGitHub.seedAppComment(
+        `Older run\n\n<!-- reviewrouter:summary:v2:${hash("older-revision")} -->`,
+      );
+      const newerRun = fixture.fakeGitHub.seedAppComment(
+        `Newer run\n\n<!-- reviewrouter:summary:v2:${hash("newer-revision")} -->`,
+      );
+      const flow = await fixture.createCommittedFlow();
+      await fixture.finalize(flow);
+      await fixture.processFinalizedOutbox();
+      await fixture.runWorkerUntilSettled();
+
+      const appComments = fixture.fakeGitHub.comments.filter(
+        (comment) => comment.user.login === "reviewrouter-e2e[bot]",
+      );
+      expect(appComments.map((comment) => comment.id)).toEqual([
+        olderRun,
+        newerRun,
+      ]);
+      expect(appComments[0]?.body).toContain("Older run");
+      expect(appComments[1]?.body).toContain(
+        `reviewrouter:summary:v2:${flow.reviewRevisionHash}`,
+      );
+      expect(appComments[1]?.body).not.toContain("Newer run");
+      await expectTerminalSuccess(fixture, flow.executionId);
+    }, 60_000);
+
+    it("repairs an older PATCH after a newer progress publication settles", async () => {
+      const fixture = requiredHarness(harness);
+      const flow = await fixture.createCommittedFlow({
+        slotCount: 3,
+        attachSlotCount: 0,
+      });
+      // Publish an initial real comment before exercising two competing PATCHes.
+      await fixture.setProgressFixture({
+        executionId: flow.executionId,
+        completed: 1,
+      });
+      await fixture.makeProgressDue();
+      await expect(fixture.publishProgress()).resolves.toMatchObject({
+        published: 1,
+      });
+      expect(progressComments(fixture)[0]?.body).toContain(
+        "Progress: 1 of 3 parts reviewed (33%)",
+      );
+      const initial =
+        await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
+          where: { activeExecutionId: flow.executionId },
+        });
+      expect(initial.desiredVersion).toBe(initial.publishedVersion);
+      expect(initial.publishedVersion).toBeGreaterThan(0n);
+
+      // Capture a genuinely new pending version for the older PATCH.
+      // Do not synthesize eligibility by mutating a settled version.
+      await fixture.setProgressFixture({
+        executionId: flow.executionId,
+        completed: 2,
+      });
+      await fixture.makeProgressDue();
+      const duePublication =
+        await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
+          where: { activeExecutionId: flow.executionId },
+        });
+      const dueProgress =
+        await fixture.prisma.reviewExecutionProgressV1.findUniqueOrThrow({
+          where: { executionId: flow.executionId },
+        });
+      expect(duePublication.desiredVersion).toBeGreaterThan(
+        duePublication.publishedVersion,
+      );
+      expect(dueProgress.desiredVersion).toBe(duePublication.desiredVersion);
+      expect(duePublication.nextPublishAt?.getTime()).toBeLessThanOrEqual(
+        Date.now(),
+      );
+      expect(duePublication.claimUntil).toBeNull();
+      // Match the production publisher's repository cohort, not all pending rows.
+      const repository =
+        await fixture.prisma.repositoryConnection.findUniqueOrThrow({
+          where: { id: fixture.repositoryConnectionId },
+          select: { fullName: true },
+        });
+      const repositoryName = repository.fullName.toLowerCase();
+      const store = new PrismaReviewProgressPublicationStore(fixture.prisma, {
+        allowedRepositoryFullNames: new Set([repositoryName]),
+      });
+      const claimAt = new Date();
+      // Other due publications in this disposable fixture may take priority
+      // over the older PATCH. Park them only for the claim and restore their
+      // original deadlines immediately afterward.
+      const competing =
+        await fixture.prisma.reviewProgressPublicationV1.findMany({
+          where: {
+            repositoryConnectionId: fixture.repositoryConnectionId,
+            activeExecutionId: { not: flow.executionId },
+            nextPublishAt: { lte: claimAt },
+          },
+          select: {
+            workspaceId: true,
+            repositoryConnectionId: true,
+            scmRepositoryIdentityId: true,
+            pullRequestNumber: true,
+            nextPublishAt: true,
+            updatedAt: true,
+          },
+        });
+      const parkedUntil = new Date(claimAt.getTime() + 120_000);
+      await fixture.prisma.reviewProgressPublicationV1.updateMany({
+        where: {
+          repositoryConnectionId: fixture.repositoryConnectionId,
+          activeExecutionId: { not: flow.executionId },
+          nextPublishAt: { lte: claimAt },
+        },
+        data: { nextPublishAt: parkedUntil },
+      });
+      let stale: Awaited<ReturnType<typeof store.claimNext>>;
+      try {
+        stale = await store.claimNext({
+          ownerIdHash: "a".repeat(64),
+          now: claimAt,
+          claimDurationMs: 60_000,
+        });
+      } finally {
+        for (const row of competing) {
+          await fixture.prisma.reviewProgressPublicationV1.updateMany({
+            where: {
+              workspaceId: row.workspaceId,
+              repositoryConnectionId: row.repositoryConnectionId,
+              scmRepositoryIdentityId: row.scmRepositoryIdentityId,
+              pullRequestNumber: row.pullRequestNumber,
+              nextPublishAt: parkedUntil,
+            },
+            data: {
+              nextPublishAt: row.nextPublishAt,
+              updatedAt: row.updatedAt,
+            },
+          });
+        }
+      }
+      if (!stale || "deferred" in stale) {
+        const deferred =
+          await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
+            where: { activeExecutionId: flow.executionId },
+          });
+        const dueCandidates = await fixture.prisma.$queryRaw<
+          Array<{ activeExecutionId: string }>
+        >`
+          SELECT "activeExecutionId"
+          FROM "ReviewProgressPublicationV1"
+          WHERE "desiredVersion" > "publishedVersion"
+            AND "nextPublishAt" <= ${claimAt}
+            AND ("claimUntil" IS NULL OR "claimUntil" <= ${claimAt})
+          ORDER BY "nextPublishAt", "updatedAt"
+          LIMIT 3
+        `;
+        const expectedDue =
+          deferred.desiredVersion > deferred.publishedVersion &&
+          deferred.nextPublishAt !== null &&
+          deferred.nextPublishAt <= claimAt &&
+          (deferred.claimUntil === null || deferred.claimUntil <= claimAt);
+        const expectedIdentity =
+          dueProgress.generation === deferred.activeGeneration &&
+          dueProgress.headSha === deferred.activeHeadSha &&
+          dueProgress.planHash === deferred.activePlanHash &&
+          dueProgress.desiredVersion === deferred.desiredVersion;
+        throw new Error(
+          `review_progress_e2e_stale_claim_missing:${JSON.stringify({
+            lastErrorCode: deferred.lastErrorCode ?? "not_deferred",
+            expectedDue,
+            expectedIdentity,
+            dueCandidateIsTarget:
+              dueCandidates[0]?.activeExecutionId === flow.executionId,
+            dueCandidateCount: dueCandidates.length,
+          })}`,
+        );
+      }
+      expect(stale.executionId).toBe(flow.executionId);
+      expect(stale.commentId).not.toBeNull();
+      expect(stale.desiredVersion).toBeGreaterThan(initial.desiredVersion);
+      const staleBody = formatGithubProgressComment(
+        parseSnapshot(stale.snapshot),
+      );
+      expect(staleBody).toContain("Progress: 2 of 3 parts reviewed (66%)");
+      // Leave the expired claim fence present for real worker takeover.
+      await fixture.prisma.reviewProgressPublicationV1.updateMany({
+        where: stale.scope,
+        data: { claimUntil: new Date(Date.now() - 1_000) },
+      });
+
+      await fixture.setProgressFixture({
+        executionId: flow.executionId,
+        completed: 3,
+      });
+      const makeInstallationBudgetDue = async () => {
+        const due = new Date(Date.now() - 1_000);
+        await fixture.prisma.reviewProgressInstallationBudgetV1.updateMany({
+          where: {
+            githubInstallationId: stale.repository.githubInstallationId,
+          },
+          data: { nextMutationAt: due, cooldownUntil: null, updatedAt: due },
+        });
+      };
+      await fixture.prisma.reviewProgressPublicationV1.updateMany({
+        where: stale.scope,
+        data: { nextPublishAt: new Date(Date.now() - 1_000) },
+      });
+      await makeInstallationBudgetDue();
+      // The takeover must observe the expired old claim, not a fixture-cleared row.
+      const expiredClaim =
+        await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
+          where: { activeExecutionId: flow.executionId },
+          select: {
+            claimId: true,
+            claimOwnerIdHash: true,
+            claimUntil: true,
+          },
+        });
+      expect(expiredClaim.claimId).toBe(stale.claim.claimId);
+      expect(expiredClaim.claimOwnerIdHash).toBe(stale.claim.ownerIdHash);
+      expect(expiredClaim.claimUntil).not.toBeNull();
+      expect(expiredClaim.claimUntil!.getTime()).toBeLessThanOrEqual(
+        Date.now(),
+      );
+      await expect(fixture.publishProgress()).resolves.toMatchObject({
+        published: 1,
+      });
+      const comment = progressComments(fixture)[0]!;
+      const latestBody = comment.body;
+      expect(latestBody).toContain("Progress: 3 of 3 parts reviewed (100%)");
+      const settled =
+        await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
+          where: { activeExecutionId: flow.executionId },
+        });
+      expect(settled.desiredVersion).toBe(settled.publishedVersion);
+      expect(settled.desiredVersion).toBeGreaterThan(stale.desiredVersion);
+
+      // Another worker may hold an unexpired claim when the older PATCH lands.
+      // Model its live lease in the real PG row before the stale repair.
+      const successorClaimId = "review-progress-successor";
+      const successorOwnerHash = "b".repeat(64);
+      const successorClaimUntil = new Date(Date.now() + 120_000);
+      await fixture.prisma.reviewProgressPublicationV1.updateMany({
+        where: stale.scope,
+        data: {
+          claimId: successorClaimId,
+          claimOwnerIdHash: successorOwnerHash,
+          claimUntil: successorClaimUntil,
+        },
+      });
+
+      // Simulate the delayed old GitHub PATCH winning after the new write.
+      comment.body = staleBody;
+      await expect(
+        store.complete({
+          publication: stale,
+          commentId: BigInt(comment.id),
+          bodyHash: hash(staleBody),
+          now: new Date(),
+        }),
+      ).resolves.toBe(false);
+      const repair =
+        await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
+          where: { activeExecutionId: flow.executionId },
+        });
+      expect(repair.desiredVersion).toBe(settled.desiredVersion);
+      expect(repair.publishedVersion).toBe(settled.publishedVersion - 1n);
+      expect(repair.claimId).toBe(successorClaimId);
+      expect(repair.claimOwnerIdHash).toBe(successorOwnerHash);
+      expect(repair.claimUntil).toEqual(successorClaimUntil);
+      expect(repair.nextPublishAt).not.toBeNull();
+      expect(repair.nextPublishAt!.getTime()).toBeLessThanOrEqual(Date.now());
+
+      // A stale PATCH rotates the repair marker without releasing the live
+      // successor, so the successor must not settle a possibly stale body.
+      const successor = {
+        ...stale,
+        desiredVersion: settled.desiredVersion,
+        publishedVersion: settled.publishedVersion,
+        lastErrorCode: settled.lastErrorCode,
+        claim: {
+          claimId: successorClaimId,
+          ownerIdHash: successorOwnerHash,
+          claimUntil: successorClaimUntil,
+        },
+      };
+      expect(repair.lastErrorCode).toMatch(
+        /^review_progress_repair_[0-9a-f]{32}$/u,
+      );
+      expect(repair.lastErrorCode).not.toBe(successor.lastErrorCode);
+      await expect(
+        store.complete({
+          publication: successor,
+          commentId: BigInt(comment.id),
+          bodyHash: hash(latestBody),
+          now: new Date(),
+        }),
+      ).resolves.toBe(false);
+      const stillPending =
+        await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
+          where: { activeExecutionId: flow.executionId },
+        });
+      expect(stillPending.publishedVersion).toBeLessThan(
+        stillPending.desiredVersion,
+      );
+      expect(stillPending.claimId).toBe(successorClaimId);
+
+      // Release only this test's still-live successor to let another worker
+      // claim the repair. A stale repair must never release it implicitly.
+      const publication = fixture.prisma.reviewProgressPublicationV1;
+      const released = await publication.updateMany({
+        where: {
+          ...stale.scope,
+          claimId: successorClaimId,
+          claimOwnerIdHash: successorOwnerHash,
+        },
+        data: {
+          claimId: null,
+          claimOwnerIdHash: null,
+          claimUntil: null,
+        },
+      });
+      expect(released.count).toBe(1);
+      // Do not reset publication eligibility: only the stale completion may
+      // schedule its durable repair. Release the installation budget alone.
+      await makeInstallationBudgetDue();
+      await expect(fixture.publishProgress()).resolves.toMatchObject({
+        published: 1,
+      });
+      expect(progressComments(fixture)).toHaveLength(1);
+      expect(progressComments(fixture)[0]?.body).toBe(latestBody);
     }, 60_000);
 
     it("publishes durable 108-file progress, recovers six retried units, and reconciles duplicate comments", async () => {
@@ -505,12 +842,10 @@ describeWithDatabase.sequential(
       const comments = progressComments(fixture);
       expect(comments).toHaveLength(1);
       expect(comments[0]?.body).toContain(
-        "Review units: 42 of 72 complete (58%)",
+        "Progress: 42 of 72 parts reviewed (58%)",
       );
-      expect(comments[0]?.body).toContain(
-        "Files in completed units: 84 of 108",
-      );
-      expect(comments[0]?.body).toContain("Units currently retrying: 6");
+      expect(comments[0]?.body).toContain("Files fully reviewed: 84 of 108");
+      expect(comments[0]?.body).toContain("Parts being retried: 6");
 
       await fixture.setProgressFixture({
         executionId: flow.executionId,
@@ -523,18 +858,14 @@ describeWithDatabase.sequential(
       expect(recoveredPublication).toMatchObject({ published: 1 });
       expect(progressComments(fixture)).toHaveLength(1);
       expect(progressComments(fixture)[0]?.body).toContain(
-        "Review units: 72 of 72 complete (100%)",
+        "Progress: 72 of 72 parts reviewed (100%)",
       );
       expect(progressComments(fixture)[0]?.body).toContain(
-        "Units recovered by retry: 6",
+        "Parts finished after a retry: 6",
       );
 
-      fixture.fakeGitHub.seedProgressDuplicate(
-        progressComments(fixture)[0]!.body,
-      );
-      fixture.fakeGitHub.seedProgressDuplicate(
-        progressComments(fixture)[0]!.body,
-      );
+      fixture.fakeGitHub.seedAppComment(progressComments(fixture)[0]!.body);
+      fixture.fakeGitHub.seedAppComment(progressComments(fixture)[0]!.body);
       await fixture.prisma.reviewProgressPublicationV1.updateMany({
         where: { activeExecutionId: flow.executionId },
         data: { publishedVersion: { decrement: 1n } },
@@ -566,19 +897,106 @@ describeWithDatabase.sequential(
         completed: 3,
       });
       await fixture.terminalizeProgressSlot(flow.executionId, 3);
-      await fixture.setExecutionProgressState(flow.executionId, "partial");
+      // An individual settlement is insufficient without a durable terminal
+      // attempt. Exercise the actual finalized-outbox and publication path.
+      const terminalProgress = () =>
+        fixture.prisma.reviewExecutionProgressV1.findUniqueOrThrow({
+          where: { executionId: flow.executionId },
+          select: { terminalOutcome: true, desiredVersion: true },
+        });
+      await expect(fixture.promoteProgress(flow.executionId)).resolves.toBe(0);
+      await fixture.sweepProgressPromotion();
+      await expect(terminalProgress()).resolves.toMatchObject({
+        terminalOutcome: null,
+      });
+      const finalized = await fixture.finalize(flow, { allowPartial: true });
+      expect(finalized.result.status).toBe(
+        ReviewExecutionMutationResultStatus.Applied,
+      );
+      await fixture.processFinalizedOutbox();
+      await fixture.runWorkerUntilSettled();
+      // The normal worker harness does not enable progress publication, so
+      // the settlement hint is lost like a worker restart loses it. Without a
+      // posted comment nothing is stuck on GitHub, and the sweep must not post
+      // one for a finished review (the operator's backlog expiry relies on it).
+      await fixture.sweepProgressPromotion();
+      await expect(terminalProgress()).resolves.toMatchObject({
+        terminalOutcome: null,
+      });
+      await fixture.makeProgressDue();
+      await expect(fixture.publishProgress()).resolves.toMatchObject({
+        published: 1,
+      });
+      expect(progressComments(fixture)[0]?.body).toContain(
+        "Assembling results",
+      );
+      // The comment now waits at "Assembling results". The sweep alone must
+      // promote the durably settled attempt, exactly once.
+      await expect(fixture.sweepProgressPromotion()).resolves.toBeGreaterThan(
+        0,
+      );
+      const promoted = await terminalProgress();
+      expect(promoted.terminalOutcome).toBe("complete_with_gaps");
+      await expect(fixture.sweepProgressPromotion()).resolves.toBe(0);
+      await expect(fixture.promoteProgress(flow.executionId)).resolves.toBe(0);
+      await expect(terminalProgress()).resolves.toEqual(promoted);
+      await fixture.makeProgressDue();
+      await expect(fixture.publishProgress()).resolves.toMatchObject({
+        published: 1,
+      });
+      expect(progressComments(fixture)).toHaveLength(1);
+      const body = progressComments(fixture)[0]?.body ?? "";
+      expect(body).toContain("**Phase:** Review incomplete");
+      expect(body).toContain("Progress: 3 of 4 parts reviewed (75%)");
+      expect(body).toContain("Parts that could not be finished: 1");
+      expect(body).not.toContain("reviewed (100%)");
+    }, 60_000);
+
+    it("ends the progress comment incomplete when the published review is incomplete with every part finished", async () => {
+      // Production shape: native spans could not be verified, so the Action
+      // claims partial coverage and its summary says "Review incomplete",
+      // while every required part finished and the execution completed.
+      const fixture = requiredHarness(harness);
+      const flow = await fixture.createCommittedFlow({
+        slotCount: 2,
+        eligibleFileCount: 4,
+        attachSlotCount: 0,
+      });
+      await fixture.setProgressFixture({
+        executionId: flow.executionId,
+        completed: 2,
+      });
+      const finalized = await fixture.finalize(flow, { allowPartial: true });
+      expect(finalized.result.status).toBe(
+        ReviewExecutionMutationResultStatus.Applied,
+      );
+      await fixture.processFinalizedOutbox();
+      await fixture.runWorkerUntilSettled();
       await expect(
-        fixture.promoteProgress(flow.executionId, "succeeded"),
-      ).resolves.toBe(1);
+        fixture.prisma.reviewExecutionV2.findUniqueOrThrow({
+          where: { executionId: flow.executionId },
+          select: { state: true },
+        }),
+      ).resolves.toEqual({ state: "completed" });
+      await fixture.makeProgressDue();
+      await expect(fixture.publishProgress()).resolves.toMatchObject({
+        published: 1,
+      });
+      await fixture.sweepProgressPromotion();
+      await expect(
+        fixture.prisma.reviewExecutionProgressV1.findUniqueOrThrow({
+          where: { executionId: flow.executionId },
+          select: { terminalOutcome: true },
+        }),
+      ).resolves.toEqual({ terminalOutcome: "complete_with_gaps" });
       await fixture.makeProgressDue();
       await expect(fixture.publishProgress()).resolves.toMatchObject({
         published: 1,
       });
       const body = progressComments(fixture)[0]?.body ?? "";
-      expect(body).toContain("**Phase:** Complete with gaps");
-      expect(body).toContain("Review units: 3 of 4 complete (75%)");
-      expect(body).toContain("Units not completed after retries: 1");
-      expect(body).not.toContain("complete (100%)");
+      expect(body).toContain("**Phase:** Review incomplete");
+      expect(body).toContain("Progress: 2 of 2 parts reviewed (100%)");
+      expect(body).not.toContain("Parts that could not be finished");
     }, 60_000);
 
     it("finalizes exhausted work without regressing durable progress", async () => {

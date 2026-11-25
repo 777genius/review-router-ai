@@ -89,6 +89,7 @@ describe("hosted pool current policy", () => {
         providers: [selection],
       },
       selections: [selection],
+      providerMode: "parallel",
     });
     await expect(switchRepositoryConfigurationAuthMode(input)).resolves.toBe(
       true,

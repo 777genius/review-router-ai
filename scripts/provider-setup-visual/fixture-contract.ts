@@ -574,6 +574,8 @@ export function visualRepositorySecretKey(
 }
 
 export type VisualRunFlags = Readonly<{
+  /** Harness-only optional NVIDIA evaluation screen; no live provider traffic. */
+  nvidiaEvaluation?: boolean;
   /** Deployment flag of rotating Codex; hosted deployments keep it off. */
   rotating: boolean;
   /**

@@ -5,28 +5,33 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // Resolve from this repository, never from cwd or the colliding tsc PATH bins.
-export function compilerInvocation(legacy = true) {
-  // Keep the alias in a separate opt-in install: both packages expose "tsc".
+export function compilerInvocation() {
+  // Keep the alias in its existing isolated install: both packages expose "tsc".
   const require = createRequire(
-    legacy
-      ? import.meta.url
-      : new URL("./native/package.json", import.meta.url),
+    new URL("./native/package.json", import.meta.url),
   );
-  const alias = legacy ? "typescript" : "typescript-native";
-  const expected = legacy ? "6.0.3" : "7.0.2";
-  const manifestPath = require.resolve(`${alias}/package.json`);
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
-    name: string;
-    version: string;
-    bin: { tsc: string };
-  };
-  if (manifest.name !== "typescript" || manifest.version !== expected) {
-    throw new Error(`${alias} must resolve to typescript@${expected}`);
+  const manifestPath = require.resolve("typescript-native/package.json");
+  const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
+  if (
+    !isRecord(manifest) ||
+    manifest.name !== "typescript" ||
+    manifest.version !== "7.0.2" ||
+    !isRecord(manifest.bin) ||
+    typeof manifest.bin.tsc !== "string" ||
+    manifest.bin.tsc.length === 0
+  ) {
+    throw new Error(
+      "typescript-native must resolve to typescript@7.0.2 with a tsc entry",
+    );
   }
   return {
     command: process.execPath,
     args: [resolve(dirname(manifestPath), manifest.bin.tsc)],
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 if (
@@ -35,10 +40,11 @@ if (
 ) {
   try {
     const args = process.argv.slice(2);
-    // Native is opt-in; omitting the selector always retains the API compiler.
-    const legacy = args[0] !== "--native";
-    if (args[0] === "--native" || args[0] === "--legacy") args.shift();
-    const invocation = compilerInvocation(legacy);
+    if (args.includes("--legacy")) {
+      throw new Error("legacy_compiler_disabled: use native TypeScript 7.0.2");
+    }
+    if (args[0] === "--native") args.shift();
+    const invocation = compilerInvocation();
     const result = spawnSync(
       invocation.command,
       [...invocation.args, ...args],

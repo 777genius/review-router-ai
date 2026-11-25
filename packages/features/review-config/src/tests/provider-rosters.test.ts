@@ -11,8 +11,11 @@ import {
   type ReviewConfigurationRepositoryPort,
   type SavedReviewPolicy,
 } from "../application/ports/review-configuration-repository-port";
+import { saveWorkspaceReviewSettings } from "../application/use-cases/manage-provider-selections";
+import { mapConfigToRuntimeEnv } from "../application/use-cases/map-config-to-runtime-env";
 import {
   defaultWorkspaceReviewPolicy,
+  parseRepositoryReviewPolicy,
   parseWorkspaceReviewPolicy,
 } from "../domain/review-policy-document";
 import { InMemoryReviewConfigurationRepository } from "./in-memory-review-configuration";
@@ -338,5 +341,223 @@ describe("whole reviewer roster writes", () => {
         (row) => row.profileId,
       ),
     ).toEqual(["one", "two"]);
+  });
+});
+
+describe("reviewer roster mode", () => {
+  const repository = {
+    repositoryId: "r",
+    capability: "direct_config" as const,
+    expectedVersion: null,
+  };
+  // Ordered fallback runs only Gateway reviewers through the reviewer plan.
+  const gateway = ["g1", "g2", "g3"].map((id, index) =>
+    providerProfileFixture({
+      id,
+      model: `model-${index + 1}`,
+      credential: {
+        kind: "gateway_binding",
+        authMode: "codex_account_gateway",
+        bindingId: `binding-${index + 1}`,
+        gatewayProfileRef: "gateway-profile",
+      },
+    }),
+  );
+  const reviewer = (profileId: string) => ({
+    profileId,
+    agenticContext: true,
+    fastMode: false,
+    requiredHealthy: true,
+  });
+  async function gatewayFixture() {
+    const setup = await fixture();
+    gateway.forEach((profile) => setup.store.addProfile(profile));
+    return setup;
+  }
+
+  it("carries the whole ordered roster and runs one reviewer at a time", async () => {
+    const { dependencies } = await gatewayFixture();
+    const saved = await setWorkspaceDefaultProviders(
+      {
+        workspaceId: "w",
+        actor,
+        selections: [reviewer("g2"), reviewer("g1"), reviewer("g3")],
+        providerMode: "fallback",
+        executionPatch: { providerMaxParallel: 2, inlineMinAgreement: 2 },
+        expectedVersion: 1,
+      },
+      dependencies,
+    );
+    expect(saved.configuration?.policy).toMatchObject({
+      providerMode: "fallback",
+      // The parallel limits stay saved for a switch back.
+      execution: { providerMaxParallel: 2, inlineMinAgreement: 2 },
+    });
+    const { config, providerMode, selections } = saved.configuration!;
+    expect(providerMode).toBe("fallback");
+    expect(config.providerMode).toBe("fallback");
+    expect(config.providers.map((row) => row.model)).toEqual([
+      "model-2",
+      "model-1",
+      "model-3",
+    ]);
+    expect(selections.map((row) => row.profileId)).toEqual(["g2", "g1", "g3"]);
+    expect(config.execution).toEqual({
+      providerLimit: 3,
+      providerMaxParallel: 1,
+      inlineMinAgreement: 1,
+    });
+    // The mode reaches the runtime only through the reviewer plan.
+    expect(Object.keys(mapConfigToRuntimeEnv(config))).not.toContain(
+      "REVIEW_PROVIDER_MODE",
+    );
+
+    const parallel = await setWorkspaceDefaultProviders(
+      {
+        workspaceId: "w",
+        actor,
+        selections: [reviewer("g2"), reviewer("g1")],
+        providerMode: "parallel",
+        expectedVersion: saved.version,
+      },
+      dependencies,
+    );
+    expect(parallel.configuration?.policy).not.toHaveProperty("providerMode");
+    expect(parallel.configuration?.config).not.toHaveProperty("providerMode");
+    expect(parallel.configuration?.config.execution).toMatchObject({
+      providerLimit: 2,
+      providerMaxParallel: 2,
+      inlineMinAgreement: 2,
+    });
+  });
+
+  it("refuses an ordered fallback through a transport that cannot run it", async () => {
+    const { save, dependencies } = await fixture();
+    await expect(
+      setWorkspaceDefaultProviders(
+        {
+          workspaceId: "w",
+          actor,
+          selections: [selection("one"), selection("two")],
+          providerMode: "fallback",
+          expectedVersion: 1,
+        },
+        dependencies,
+      ),
+    ).rejects.toThrow();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("keeps a single fallback reviewer identical to a parallel one", async () => {
+    const { dependencies } = await gatewayFixture();
+    const saved = await setWorkspaceDefaultProviders(
+      {
+        workspaceId: "w",
+        actor,
+        selections: [reviewer("g1")],
+        providerMode: "fallback",
+        expectedVersion: 1,
+      },
+      dependencies,
+    );
+    expect(saved.configuration?.policy).toMatchObject({
+      providerMode: "fallback",
+    });
+    expect(saved.configuration?.config).not.toHaveProperty("providerMode");
+  });
+
+  it("takes the mode from the document whose roster is effective", async () => {
+    const { store, dependencies } = await gatewayFixture();
+    const workspace = await setWorkspaceDefaultProviders(
+      {
+        workspaceId: "w",
+        actor,
+        selections: [reviewer("g1"), reviewer("g2")],
+        providerMode: "fallback",
+        expectedVersion: 1,
+      },
+      dependencies,
+    );
+    // An own repository roster replaces the workspace roster and its mode.
+    const [assigned] = await assignProviderSelectionsToRepositories(
+      {
+        workspaceId: "w",
+        actor,
+        selections: [reviewer("g2"), reviewer("g3")],
+        expectedWorkspaceVersion: workspace.version,
+        repositories: [repository],
+      },
+      dependencies,
+    );
+    expect(assigned?.status).toBe("applied");
+    const target = { scope: "repository", workspaceId: "w", repositoryId: "r" };
+    const own = await store.findLatest(target as never);
+    expect(own?.policy).not.toHaveProperty("providerMode");
+    expect(own?.providerMode).toBe("parallel");
+    expect(own?.config).not.toHaveProperty("providerMode");
+
+    // Removing it restores the workspace roster together with its mode.
+    const cleared = await clearRepositoryProviderSelections(
+      {
+        workspaceId: "w",
+        actor,
+        expectedWorkspaceVersion: workspace.version,
+        repository: { ...repository, expectedVersion: own!.version },
+      },
+      dependencies,
+    );
+    expect(cleared.configuration?.providerMode).toBe("fallback");
+    expect(cleared.configuration?.config.providerMode).toBe("fallback");
+    expect(cleared.configuration?.config.providers).toHaveLength(2);
+  });
+
+  it("keeps the mode when other workspace settings are saved", async () => {
+    const { store, dependencies } = await gatewayFixture();
+    const saved = await setWorkspaceDefaultProviders(
+      {
+        workspaceId: "w",
+        actor,
+        selections: [reviewer("g1"), reviewer("g2")],
+        providerMode: "fallback",
+        expectedVersion: 1,
+      },
+      dependencies,
+    );
+    const { schemaVersion: _version, ...settings } =
+      defaultWorkspaceReviewPolicy();
+    void _version;
+    await saveWorkspaceReviewSettings(
+      {
+        workspaceId: "w",
+        actor,
+        settings: { ...settings, reviewLanguage: "German" },
+        expectedVersion: saved.version,
+      },
+      dependencies,
+    );
+    const current = await store.findLatest({
+      scope: "workspace",
+      workspaceId: "w",
+    });
+    expect(current?.policy).toMatchObject({
+      providerMode: "fallback",
+      reviewLanguage: "German",
+    });
+  });
+
+  it("rejects a stored mode without a roster", () => {
+    expect(() =>
+      parseRepositoryReviewPolicy({
+        schemaVersion: 4,
+        providerMode: "fallback",
+      }),
+    ).toThrow();
+    expect(() =>
+      parseRepositoryReviewPolicy({
+        schemaVersion: 4,
+        providers: [selection("one")],
+        providerMode: "parallel",
+      }),
+    ).toThrow();
   });
 });

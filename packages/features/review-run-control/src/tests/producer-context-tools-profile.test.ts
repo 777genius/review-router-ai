@@ -4,7 +4,8 @@ import {
   createProducerRelease,
   parseProducerContextToolsProfile,
   parseProducerReviewerPlanProfile,
-  supportsProducerReviewerPlanV1,
+  supportsProducerReviewerFallback,
+  supportsProducerReviewerPlans,
   producerReleaseImmutableKey,
 } from "../domain/producer-release";
 import { ProducerReleaseAttestationStatus } from "../application/ports/producer-release-attestation-ports";
@@ -17,7 +18,10 @@ import { createTrustedProducerReleaseMaterializer } from "../infrastructure/trus
 import { producerReleaseToDomain } from "../infrastructure/prisma/prisma-review-run-control-mappers";
 import { createReviewRunControlTestKit } from "../testing/review-run-control-test-kit";
 import { hashB, hashC, releaseCandidate } from "./fixtures";
-import { reviewerPlanDescriptorDigest } from "@reviewrouter/shared";
+import {
+  reviewerPlanDescriptorDigest,
+  reviewerPlanV1DescriptorDigest,
+} from "@reviewrouter/shared";
 
 const profile = {
   extensionId: "context-tools.v1" as const,
@@ -41,7 +45,7 @@ describe("producer context tools extension identity", () => {
   it("pins reviewer-plan support at the immutable producer level without changing historical agent profiles", async () => {
     const reviewerPlanProfile = {
       planVersion: 1 as const,
-      descriptorDigest: reviewerPlanDescriptorDigest,
+      descriptorDigest: reviewerPlanV1DescriptorDigest,
     };
     const legacy = createProducerRelease(releaseCandidate, now);
     const release = createProducerRelease(
@@ -53,20 +57,34 @@ describe("producer context tools extension identity", () => {
     expect(producerReleaseImmutableKey(release)).not.toBe(
       producerReleaseImmutableKey(legacy),
     );
-    expect(supportsProducerReviewerPlanV1(release.reviewerPlanProfile)).toBe(
+    expect(supportsProducerReviewerPlans(release.reviewerPlanProfile)).toBe(
       true,
     );
-    expect(supportsProducerReviewerPlanV1(undefined)).toBe(false);
+    expect(supportsProducerReviewerPlans(undefined)).toBe(false);
     expect(
-      supportsProducerReviewerPlanV1({
+      supportsProducerReviewerPlans({
         ...reviewerPlanProfile,
         descriptorDigest: `sha256:${"0".repeat(64)}`,
+      }),
+    ).toBe(false);
+    // A version 1 producer reads parallel plans only; version 2 also fallback.
+    const fallbackProfile = parseProducerReviewerPlanProfile({
+      planVersion: 2,
+      descriptorDigest: reviewerPlanDescriptorDigest,
+    });
+    expect(supportsProducerReviewerFallback(reviewerPlanProfile)).toBe(false);
+    expect(supportsProducerReviewerPlans(fallbackProfile)).toBe(true);
+    expect(supportsProducerReviewerFallback(fallbackProfile)).toBe(true);
+    expect(
+      supportsProducerReviewerFallback({
+        planVersion: 2,
+        descriptorDigest: reviewerPlanV1DescriptorDigest,
       }),
     ).toBe(false);
     for (const invalid of [
       null,
       { ...reviewerPlanProfile, enabled: true },
-      { ...reviewerPlanProfile, planVersion: 2 },
+      { ...reviewerPlanProfile, planVersion: 3 },
     ])
       expect(() => parseProducerReviewerPlanProfile(invalid)).toThrow(
         "producer_reviewer_plan_profile_invalid",

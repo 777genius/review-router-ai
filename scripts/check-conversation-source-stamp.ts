@@ -3,6 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { conversationSourceFiles } from "../packages/platform/config/src/conversation-source-files.ts";
+import { assertInstalledConversationSdk } from "../packages/platform/config/src/conversation-sdk-identity.ts";
 
 export const conversationSourceStampPath =
   "packages/platform/config/src/conversation-source-stamp.json";
@@ -10,6 +11,10 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** Source coherence metadata only. No model result, proof, scope or permission. */
 export async function currentConversationSourceStamp(sourceRoot: string) {
+  await assertInstalledConversationSdk(
+    sourceRoot,
+    conversationSourceFiles.gatewaySdkProvenanceDigest,
+  );
   const sourceProfile = {} as Record<
     keyof typeof conversationSourceFiles,
     string

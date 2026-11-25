@@ -2,6 +2,7 @@ import type {
   UsagePeriodReport,
   UsageTotals,
 } from "@reviewrouter/features-provider-usage";
+import { gatewaySubscriptionUsageProviders } from "@reviewrouter/features-provider-usage";
 export interface UsageFilters {
   from?: string | undefined;
   to?: string | undefined;
@@ -53,8 +54,12 @@ export interface ProviderUsageReport {
   logicalRuns: number;
   unknown: number;
   partial: number;
+  /** Newest call whose usage is still unknown or partial; drives polling. */
+  latestPendingAt: string | null;
   unboundedSummaries: number;
   hasMore: boolean;
+  /** Usage providers whose Gateway profile is a flat subscription or coding plan. */
+  subscriptionProviders: readonly string[];
 }
 /** Browser DTO deliberately excludes authorization IDs, source credentials and account labels. */
 export function buildUsageReport(
@@ -125,7 +130,9 @@ export function buildUsageReport(
     logicalRuns: report.totals.logicalRuns,
     unknown: report.totals.unknownCount,
     partial: report.totals.partialCount,
+    latestPendingAt: report.latestPendingAt,
     unboundedSummaries: report.unboundedSummaryCount,
     hasMore: report.nextCursor !== null,
+    subscriptionProviders: gatewaySubscriptionUsageProviders,
   };
 }

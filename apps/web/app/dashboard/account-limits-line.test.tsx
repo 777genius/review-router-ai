@@ -95,6 +95,146 @@ test("loads a new connection's supported quota once without running a model", as
   expect(fetch).not.toHaveBeenCalled();
 });
 
+function outdatedSnapshot(refreshAvailable: boolean): AccountLimitsView {
+  const value = snapshot();
+  if (value.status !== "snapshot") throw new Error();
+  return {
+    ...value,
+    refreshAvailable,
+    windows: [
+      {
+        ...value.windows[0]!,
+        usedPercent: 100,
+        remainingPercent: 0,
+        progressPercent: 100,
+        observedAt: "2026-10-22T09:40:00.000Z",
+        resetAt: "2026-10-22T09:50:00.000Z",
+        stale: true,
+        reason: "reset_elapsed",
+      },
+    ],
+  };
+}
+
+test("opening outdated refreshable limits fetches them once without running a model", async () => {
+  const fetch = vi.fn();
+  vi.stubGlobal("fetch", fetch);
+  vi.mocked(refreshAccountLimitsAction).mockResolvedValue({
+    status: "ok",
+    value: {
+      ...snapshot(),
+      fetchedAt: "2026-10-22T10:00:05.000Z",
+      refreshAvailable: true,
+    },
+  });
+  const { props } = fixture(outdatedSnapshot(true));
+  const opened = { ...props, connectionId: "outdated-success" };
+  const { unmount } = render(<AccountLimitsLine {...opened} />);
+  await waitFor(() =>
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe(
+      "62.5",
+    ),
+  );
+  expect(screen.queryByText(/^as of /)).toBeNull();
+  expect(refreshAccountLimitsAction).toHaveBeenCalledExactlyOnceWith({
+    context: props.context,
+    connectionId: opened.connectionId,
+  });
+  expect(fetch).not.toHaveBeenCalled();
+  // Reopening keeps the refreshed limits and does not probe again.
+  unmount();
+  render(<AccountLimitsLine {...opened} />);
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(screen.queryByText(/^as of /)).toBeNull();
+  expect(refreshAccountLimitsAction).toHaveBeenCalledTimes(1);
+});
+
+test("a failed refresh on open keeps the saved limits and is not retried on reopen", async () => {
+  vi.mocked(refreshAccountLimitsAction).mockRejectedValue(
+    new Error("private provider details"),
+  );
+  const { props } = fixture(outdatedSnapshot(true));
+  const opened = { ...props, connectionId: "outdated-failure" };
+  const { unmount } = render(<AccountLimitsLine {...opened} />);
+  expect(
+    await screen.findByText(/service is temporarily unavailable/),
+  ).toBeTruthy();
+  expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe(
+    "0",
+  );
+  expect(screen.getByText("as of 20m ago")).toBeTruthy();
+  expect(screen.queryByText(/private provider details/)).toBeNull();
+  unmount();
+  render(<AccountLimitsLine {...opened} />);
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(screen.getByText("as of 20m ago")).toBeTruthy();
+  expect(refreshAccountLimitsAction).toHaveBeenCalledTimes(1);
+});
+
+test("a refresh that returns no newer limits says so beside the old observation age", async () => {
+  // The source answered, but with the same past-reset observation.
+  vi.mocked(refreshAccountLimitsAction).mockResolvedValue({
+    status: "ok",
+    value: { ...outdatedSnapshot(true), fetchedAt: "2026-10-22T10:00:05.000Z" },
+  });
+  const { props } = fixture(outdatedSnapshot(true));
+  render(<AccountLimitsLine {...props} connectionId="outdated-unchanged" />);
+  expect(
+    await screen.findByText(/Refresh returned no newer limits/),
+  ).toBeTruthy();
+  expect(screen.getByText("as of 20m ago")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Refresh limits" })).toBeTruthy();
+  expect(refreshAccountLimitsAction).toHaveBeenCalledTimes(1);
+});
+
+test("a refresh with a newer observation never claims nothing changed, even if a reset already passed", async () => {
+  const stillPastReset = outdatedSnapshot(true);
+  if (stillPastReset.status !== "snapshot") throw new Error("fixture");
+  vi.mocked(refreshAccountLimitsAction).mockResolvedValue({
+    status: "ok",
+    value: {
+      ...stillPastReset,
+      fetchedAt: "2026-10-22T10:00:05.000Z",
+      windows: [
+        {
+          ...stillPastReset.windows[0]!,
+          observedAt: "2026-10-22T10:00:04.000Z",
+        },
+      ],
+    },
+  });
+  const { props } = fixture(outdatedSnapshot(true));
+  render(<AccountLimitsLine {...props} connectionId="outdated-newer" />);
+  await waitFor(() =>
+    expect(refreshAccountLimitsAction).toHaveBeenCalledTimes(1),
+  );
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(screen.queryByText(/Refresh returned no newer limits/)).toBeNull();
+});
+
+test("outdated limits without refresh capability stay cached-only on open", async () => {
+  const fetch = vi.fn();
+  vi.stubGlobal("fetch", fetch);
+  const { props } = fixture(outdatedSnapshot(false));
+  render(<AccountLimitsLine {...props} connectionId="outdated-cached" />);
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(screen.getByText("Reset pending")).toBeTruthy();
+  expect(screen.getByText("as of 20m ago")).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: "Reload saved limits" }),
+  ).toBeTruthy();
+  expect(refreshAccountLimitsAction).not.toHaveBeenCalled();
+  expect(fetch).not.toHaveBeenCalled();
+});
+
 test("a failed explicit refresh keeps the old observation and does not retry", async () => {
   vi.mocked(refreshAccountLimitsAction).mockRejectedValue(
     new Error("private provider details"),
@@ -169,6 +309,12 @@ test("SSR includes observed usage and UTC timestamps without reading the network
   expect(html).toContain('aria-label="5h remaining"');
   expect(html).toContain('aria-valuenow="62.5"');
   expect(fetch).not.toHaveBeenCalled();
+  // The age is computed from the read time, so SSR and hydration agree.
+  const old = renderToString(
+    <AccountLimitsLine {...fixture(outdatedSnapshot(false)).props} />,
+  );
+  expect(old).toContain("as of 20m ago");
+  expect(old).not.toContain("Outdated");
 });
 
 test("summarizes at most two known plan windows and keeps monthly/rate observations in Details", () => {
@@ -266,6 +412,11 @@ test("remaining and reset stay in the compact summary, with saved observations i
   expect(screen.getByText(/37.5% used/)).toBeTruthy();
   expect(screen.getByText(/^As of:/)).toBeTruthy();
   expect(screen.getByText(/shared across all activity/)).toBeTruthy();
+  expect(
+    screen.getByText(
+      "Ready describes the connection, not its remaining quota.",
+    ),
+  ).toBeTruthy();
 });
 
 test("over-limit observations keep reported usage while showing no remaining quota", () => {
@@ -293,28 +444,34 @@ test("over-limit observations keep reported usage while showing no remaining quo
   expect(screen.getByText(/127.5% used/)).toBeTruthy();
 });
 
-test("reset and age become stale locally, without zeroing usage or fetching on mount/focus", async () => {
-  vi.useFakeTimers();
-  vi.setSystemTime(new Date("2040-01-01T00:00:00Z"));
-  const fetch = vi.fn();
-  vi.stubGlobal("fetch", fetch);
-  const { props } = fixture();
-  render(<AccountLimitsLine {...props} />);
-  expect(screen.queryByText("Outdated")).toBeNull();
-  await act(async () => {
-    vi.advanceTimersByTime(60_000);
-  });
-  fireEvent.focus(window);
-  expect(screen.getByText("Reset pending")).toBeTruthy();
-  expect(screen.getByText("Outdated")).toBeTruthy();
-  expect(screen.getByText("62.5% left")).toBeTruthy();
-  expect(screen.getByRole("progressbar").getAttribute("aria-valuetext")).toBe(
-    "62.5% remaining; 37.5% used",
-  );
-  expect(fetch).not.toHaveBeenCalled();
-});
+test.each([false, true])(
+  "a passed reset says Reset pending without an age, zeroing usage or fetching on mount/focus (refresh available: %s)",
+  async (refreshAvailable) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2040-01-01T00:00:00Z"));
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const { props } = fixture({ ...snapshot(), refreshAvailable });
+    render(<AccountLimitsLine {...props} />);
+    expect(screen.queryByText(/^as of /)).toBeNull();
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+    fireEvent.focus(window);
+    expect(screen.getByText("Reset pending")).toBeTruthy();
+    // A passed reset alone is said by "Reset pending", not by an age.
+    expect(screen.queryByText(/^as of /)).toBeNull();
+    expect(screen.getByText("62.5% left")).toBeTruthy();
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuetext")).toBe(
+      "62.5% remaining; 37.5% used",
+    );
+    expect(fetch).not.toHaveBeenCalled();
+    // Limits that age while the card stays open are never polled.
+    expect(refreshAccountLimitsAction).not.toHaveBeenCalled();
+  },
+);
 
-test("observation age becomes stale at five minutes without a reset", async () => {
+test("observation age shows from five minutes, as quiet text rather than a badge", async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date(now));
   const value = snapshot();
@@ -325,9 +482,14 @@ test("observation age becomes stale at five minutes without a reset", async () =
   });
   render(<AccountLimitsLine {...props} />);
   await act(async () => {
-    vi.advanceTimersByTime(300_000);
+    vi.advanceTimersByTime(299_000);
   });
-  expect(screen.getByText("Outdated")).toBeTruthy();
+  expect(screen.queryByText(/^as of /)).toBeNull();
+  await act(async () => {
+    vi.advanceTimersByTime(1_000);
+  });
+  expect(screen.getByText("as of 5m ago")).toBeTruthy();
+  expect(screen.queryByText("Outdated")).toBeNull();
 });
 
 test("unknown, unsupported, restricted and partial windows never imply free quota", () => {
@@ -411,6 +573,7 @@ test("unknown, unsupported, restricted and partial windows never imply free quot
   expect(screen.getByText("Remaining unknown")).toBeTruthy();
   expect(screen.getByText(/Used unknown/)).toBeTruthy();
   expect(screen.getByText("As of: unknown")).toBeTruthy();
+  expect(screen.getByText("as of unknown time")).toBeTruthy();
   expect(screen.queryByRole("progressbar")).toBeNull();
 });
 

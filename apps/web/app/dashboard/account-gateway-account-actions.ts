@@ -39,6 +39,7 @@ export async function mutateGatewayAccount(
     return { status: "unavailable" };
   }
 }
+// Compatible action name: the declared method selects API-key or bounded import ingress.
 export async function submitGatewayApiKey(
   context: string,
   intent: AccountIntent,

@@ -57,11 +57,16 @@ function parseOptions(...args: string[]) {
       "--isolated-pglite",
       ...args,
     ],
-    {},
+    { NODE_ENV: "test" },
   );
 }
 
 describe("Accounts browser source revision", () => {
+  it("keeps the low-memory compiler profile opt-in", () => {
+    expect(parseOptions().lowMemoryWebpack).toBe(false);
+    expect(parseOptions("--low-memory-webpack").lowMemoryWebpack).toBe(true);
+  });
+
   it("keeps a missing expected revision optional for local runs", () => {
     expect(parseOptions().expectedRevision).toBeNull();
   });
@@ -186,6 +191,7 @@ describe("Accounts browser source revision", () => {
       "cli.ts",
       "contracts.ts",
       "source-revision.ts",
+      "warm-accounts-routes.ts",
       "warm-next-client-scripts.ts",
     ]) {
       copyFileSync(

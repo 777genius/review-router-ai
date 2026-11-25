@@ -7,6 +7,23 @@ on:
     paths:
       - .github/workflows/skills-browser.yml
       - apps/web/**
+      # Public marketing-only paths do not execute dashboard, memory or OCR.
+      - "!apps/web/app/home-*"
+      - "!apps/web/app/page.tsx"
+      - "!apps/web/app/opengraph-image.tsx"
+      - "!apps/web/app/robots.ts"
+      - "!apps/web/app/sitemap.ts"
+      - "!apps/web/app/favicon.ico"
+      - "!apps/web/app/pricing/**"
+      - "!apps/web/app/privacy/**"
+      - "!apps/web/app/terms/**"
+      - "!apps/web/app/refund-policy/**"
+      - "!apps/web/app/security/**"
+      # Statistics-only UI routes are qualified by statistics-followthrough-browser.
+      - "!apps/web/app/dashboard/provider-usage-*"
+      - "!apps/web/app/dashboard/review-statistics-*"
+      - "!apps/web/app/api/dashboard/provider-usage/**"
+      - "!apps/web/app/api/dashboard/review-statistics/**"
       - apps/worker/**
       - apps/api/src/review-action-v2-production-composition.ts
       - apps/api/src/review-run-runtime-snapshot*
@@ -27,6 +44,10 @@ on:
       - packages/ui/**
       - vendor/**
       - scripts/accounts-reference-e2e/**
+      - scripts/lib/next-generated-env.ts
+      - scripts/lib/next-generated-env.test.ts
+      - scripts/lib/next-browser-test-compiler.ts
+      - scripts/lib/next-browser-test-compiler.test.ts
       - scripts/install-private-dependencies.mjs
       - scripts/generate-prisma-offline.mjs
       - scripts/prepare-pinned-subscription-runtime.ts
@@ -48,7 +69,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Skills real Next and PostgreSQL browser acceptance
     # The real Next dev server needs the maintained build pool's memory headroom.
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LINUX_BUILD_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:github-hosted') && 'ubuntu-latest' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LINUX_BUILD_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 40
     services:
       postgres:
@@ -107,8 +128,10 @@ jobs:
           REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
         run: node scripts/generate-prisma-offline.mjs
 
-      - name: Typecheck browser harness
-        run: pnpm --dir scripts/accounts-reference-e2e run check
+      - name: Typecheck browser harness with isolated TypeScript 7.0.2
+        run: |
+          pnpm --dir scripts/local-checks/native install --ignore-workspace --ignore-scripts --frozen-lockfile
+          node scripts/local-checks/compiler-cli.ts --native --noEmit -p scripts/accounts-reference-e2e/tsconfig.json
 
       - name: Install locked Chromium
         run: pnpm --dir scripts/accounts-reference-e2e exec playwright install --with-deps chromium
@@ -178,7 +201,7 @@ jobs:
   catalog-browser:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Catalog real static and AI browser acceptance
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:github-hosted') && 'ubuntu-latest' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 40
     services:
       postgres:
@@ -243,10 +266,15 @@ jobs:
           REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
         run: node scripts/generate-prisma-offline.mjs
 
+      - name: Setup pinned SkillSpector Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12.16"
+          architecture: x64
+
       - name: Install actual pinned SkillSpector and locked Chromium
         run: |
-          sudo apt-get update
-          sudo apt-get install -y python3.12-venv
+          python3.12 -c 'import sys; assert sys.version_info[:3] == (3, 12, 16), sys.version; print(sys.executable); print(sys.version)'
           python3.12 -m venv "$GITHUB_WORKSPACE/tmp/skill-scanner/venv"
           "$REVIEW_ROUTER_SKILL_SCANNER_TEST_PYTHON" -m pip install \
             --require-hashes -r services/skill-scanner/build-requirements.lock
@@ -256,8 +284,13 @@ jobs:
             "$REVIEW_ROUTER_SKILL_SCANNER_TEST_PYTHON" -c 'import tiktoken; tiktoken.get_encoding("cl100k_base"); tiktoken.get_encoding("o200k_base")'
           pnpm --dir scripts/accounts-reference-e2e exec playwright install --with-deps chromium
 
-      - name: Typecheck browser harness
-        run: pnpm --dir scripts/accounts-reference-e2e run check
+      - name: Typecheck browser harness with isolated TypeScript 7.0.2
+        run: |
+          pnpm --dir scripts/local-checks/native install --ignore-workspace --ignore-scripts --frozen-lockfile
+          node scripts/local-checks/compiler-cli.ts --native --noEmit -p scripts/accounts-reference-e2e/tsconfig.json
+
+      - name: Verify HTTP response inspection across navigation
+        run: node --test scripts/accounts-reference-e2e/src/secret-leak-capture.spec.ts
 
       - name: Run all catalog browser scenarios
         run: |
@@ -296,7 +329,7 @@ jobs:
           assert.equal(scanner.scannerAlive, true);
           assert.equal(scanner.workerAlive, true);
           const executed = scanner.requests.filter(request => request.path === '/v1/scans' && request.native);
-          assert.equal(executed.filter(request => request.mode === 'static').length, 8);
+          assert.equal(executed.filter(request => request.mode === 'static').length, 9);
           assert.equal(executed.filter(request => request.mode === 'ai').length, 1);
           assert.deepEqual([...new Set(scanner.profiles.profiles.map(profile => profile.mode))].sort(), ['ai', 'static']);
           NODE
@@ -307,25 +340,23 @@ jobs:
           import assert from 'node:assert/strict';
           import { execFileSync } from 'node:child_process';
           import { readFileSync, writeFileSync } from 'node:fs';
+          import { restoreOwnedNextEnv } from '../../scripts/lib/next-generated-env.ts';
           const path = 'apps/web/next-env.d.ts';
           const original = execFileSync('git', ['show', `HEAD:${path}`], { encoding: 'utf8' });
-          const generated = original.replace('import "./.next/types/routes.d.ts";', 'import "./.next/dev/types/routes.d.ts";');
-          assert.notEqual(generated, original);
           writeFileSync(`${process.argv[2]}/next-env-generated.diff.log`, execFileSync('git', ['diff', '--binary', 'HEAD', '--', path]));
           const changed = execFileSync('git', ['diff', '--name-only', '-z', 'HEAD'], { encoding: 'utf8' }).split('\0').filter(Boolean);
           assert.deepEqual(changed.filter(file => file !== path), [], 'Unexpected tracked source changes');
           const current = readFileSync(path, 'utf8');
-          assert.ok(current === original || current === generated, 'Unexpected next-env.d.ts changes');
-          writeFileSync(path, original);
+          writeFileSync(path, restoreOwnedNextEnv(original, current, './.next/dev/types'));
           execFileSync('git', ['diff', '--exit-code', 'HEAD'], { stdio: 'inherit' });
           NODE
           node tmp/accounts-reference-e2e/verify-generated-next-env.mjs \
             tmp/accounts-reference-e2e/runs/catalog-ci
 
-      - name: Run account and public model browser scenarios
+      - name: Run provider connection and model browser scenarios
         id: account_models
         env:
-          ACCOUNTS_REFERENCE_E2E_GREP: dynamic Codex account models|public catalogs refresh
+          ACCOUNTS_REFERENCE_E2E_GREP: dynamic Codex account models|public catalogs refresh|Add provider|subscription connections|model list updates itself|Codex import
           DATABASE_URL: postgresql://fixture_owner@127.0.0.1:5433/review_router_accounts_reference_e2e_test?schema=public
           TMPDIR: ${{ github.workspace }}/tmp/accounts-reference-e2e/tmp
         run: |
@@ -338,9 +369,10 @@ jobs:
             --database-url "$DATABASE_URL" \
             --work-dir "$GITHUB_WORKSPACE/tmp/accounts-reference-e2e/runs/account-models-ci" \
             --expected-revision "$EXPECTED_REVISION" \
-            --account-models-fixture --catalog-fixture
+            --account-models-fixture --catalog-fixture \
+            --api-key-storage-fixture --subscription-fixture
 
-      - name: Verify account and public model acceptance receipt
+      - name: Verify provider connection and model acceptance receipt
         if: ${{ always() && steps.account_models.outcome != 'skipped' }}
         run: |
           node tmp/accounts-reference-e2e/verify-generated-next-env.mjs \
@@ -349,7 +381,7 @@ jobs:
           import assert from 'node:assert/strict';
           import { createHash } from 'node:crypto';
           import { readFileSync } from 'node:fs';
-          import { ACCOUNT_MODELS_FIXTURE_BOUNDARY } from './scripts/accounts-reference-e2e/src/contracts.ts';
+          import { API_KEY_STORAGE_FIXTURE_BOUNDARY } from './scripts/accounts-reference-e2e/src/contracts.ts';
           const directory = 'tmp/accounts-reference-e2e/runs/account-models-ci';
           const result = JSON.parse(readFileSync(`${directory}/result.json`, 'utf8'));
           const runtime = JSON.parse(readFileSync(`${directory}/runtime.json`, 'utf8'));
@@ -364,9 +396,9 @@ jobs:
           assert.equal(runtime.databaseName, 'review_router_accounts_reference_e2e_test');
           assert.equal(result.externalNetworkAllowed, false);
           assert.equal(runtime.externalNetworkAllowed, false);
-          assert.equal(result.fixtureBoundary, ACCOUNT_MODELS_FIXTURE_BOUNDARY);
-          assert.equal(runtime.fixtureBoundary, ACCOUNT_MODELS_FIXTURE_BOUNDARY);
-          assert.equal(result.tests.passed, 2);
+          assert.equal(result.fixtureBoundary, API_KEY_STORAGE_FIXTURE_BOUNDARY);
+          assert.equal(runtime.fixtureBoundary, API_KEY_STORAGE_FIXTURE_BOUNDARY);
+          assert.equal(result.tests.passed, 9);
           assert.equal(result.tests.failed, 0);
           assert.equal(result.tests.skipped, 0);
           assert.deepEqual(result.tests.failures, []);
@@ -380,8 +412,15 @@ jobs:
           };
           collect(report.suites);
           assert.deepEqual(specs.map(spec => spec.title).sort(), [
+            'Add provider connects an API-key account in place and saves it with its model',
+            'Add provider signs in to Grok in place and selects the new account',
+            'Add provider resets unsubmitted credentials when switching providers and preserves existing Codex without enrollment',
+            'Codex import refresh_token submits and reconnects through real server actions',
+            'Codex import oauth_auth_json submits through real server actions',
+            'an NVIDIA account\'s model list updates itself when it lapses, with Try again only after a failure',
             'dynamic Codex account models work in provider edit and add with exact binding refresh and save validation',
             'public catalogs refresh direct providers, preserve the selected ID, and never test a connection automatically',
+            'subscription connections use real server actions for all four providers and remain compact on mobile',
           ].sort());
           for (const spec of specs) {
             assert.equal(spec.tests.length, 1);

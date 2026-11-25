@@ -28,6 +28,7 @@ STUB
 done
 
 GOOD_SHA="0123456789abcdef0123456789abcdef01234567"
+unset RR_SWAP_EXTRA_UPDATES # the caller's environment must not leak into the cases below
 FAILS=0
 
 # run <args...>: runs release.sh with stubs first in PATH; sets RC and OUT, resets the call log.
@@ -60,6 +61,20 @@ check "swap without --apply passes APPLY=0" "$(grep -q 'APPLY=0' "$CALLS" && ! g
 
 run swap "$GOOD_SHA" --apply
 check "swap with --apply passes APPLY=1" "$(grep -q 'APPLY=1' "$CALLS" && echo 0 || echo 1)"
+check "swap without extra updates: same remote call and uploads as before" \
+  "$(grep -qx "ssh -o BatchMode=yes -o StrictHostKeyChecking=yes test@example.invalid sudo -n env SRC=$GOOD_SHA APPLY=1 bash -s" "$CALLS" && [ "$(calls scp)" = 1 ] && ! grep -q EXTRA "$CALLS" && echo 0 || echo 1)"
+
+RR_SWAP_EXTRA_UPDATES="$WORK/missing.json" run swap "$GOOD_SHA"
+check "swap with a missing extra updates file fails before any call" "$([ "$RC" -ne 0 ] && [ ! -s "$CALLS" ] && echo 0 || echo 1)"
+RR_SWAP_EXTRA_UPDATES="$WORK/missing.json" run all "$GOOD_SHA"
+check "all with a missing extra updates file fails before build" "$([ "$RC" -ne 0 ] && [ ! -s "$CALLS" ] && echo 0 || echo 1)"
+echo '{"key":"AB","op":"unset"}' > "$WORK/not-a-list.json"
+RR_SWAP_EXTRA_UPDATES="$WORK/not-a-list.json" run all "$GOOD_SHA"
+check "all with a malformed extra updates file fails before build" "$([ "$RC" -ne 0 ] && [ ! -s "$CALLS" ] && echo 0 || echo 1)"
+echo '[{"key":"REVIEW_ROUTER_PROGRESS_REPOSITORIES","op":"unset"}]' > "$WORK/extra.json"
+RR_SWAP_EXTRA_UPDATES="$WORK/extra.json" run swap "$GOOD_SHA"
+check "swap with extra updates uploads the file and passes EXTRA=1" \
+  "$([ "$RC" -eq 0 ] && grep -q "^scp .*$WORK/extra.json test@example.invalid:/home/iliya/rr-swap-extra-updates.json" "$CALLS" && grep -q 'APPLY=0 EXTRA=1 bash -s' "$CALLS" && echo 0 || echo 1)"
 
 run all "$GOOD_SHA"
 check "all without --apply exits 0" "$([ "$RC" -eq 0 ] && echo 0 || echo 1)"
@@ -154,7 +169,7 @@ from unittest.mock import patch
 
 script, work, target = sys.argv[1:]
 source = pathlib.Path(script).read_text()
-body = source.split('python3 - "$I" "$SRC" "$NEW" <<\'PY\'\n', 1)[1].split('\nPY\n', 1)[0]
+body = source.split('python3 - "$I" "$SRC" "$NEW" "$X" <<\'PY\'\n', 1)[1].split('\nPY\n', 1)[0]
 generator = compile(body, script + ':swap-spec', 'exec')
 api = 'rr-api-credential-rotation-20261011-v1-api-1'
 roles = {'api': api, 'web': 'rr-test-web-1', 'worker': 'rr-test-worker-1',
@@ -164,9 +179,16 @@ image = 'sha256:' + 'a' * 64
 revision = 'b' * 40
 real_open = open
 
-def run_case(name, *, missing=None, duplicate=None, networks=None, refusal=None):
+identity = ['REVIEW_ROUTER_RUNTIME_RELEASE_COMMIT_SHA', 'REVIEW_ROUTER_RUNTIME_DEPLOYMENT_PROVENANCE',
+            'REVIEW_ROUTER_RUNTIME_ROLLOUT_ID']
+
+def run_case(name, *, missing=None, duplicate=None, networks=None, refusal=None, extra=None):
     output = pathlib.Path(work) / ('swap-spec-' + name)
     output.mkdir()
+    extra_path = ''
+    if extra is not None:
+        extra_path = str(output / 'extra-updates.json')
+        pathlib.Path(extra_path).write_text(json.dumps(extra))
     names = [container for role, container in roles.items() if role != missing]
     if duplicate:
         names.append(roles[duplicate] + '-duplicate')
@@ -193,7 +215,7 @@ def run_case(name, *, missing=None, duplicate=None, networks=None, refusal=None)
             return io.StringIO('fixture-machine-id\n')
         return real_open(path, *args, **kwargs)
 
-    with patch('sys.argv', ['swap-spec', str(output), target, image]), \
+    with patch('sys.argv', ['swap-spec', str(output), target, image, extra_path]), \
          patch('subprocess.check_output', side_effect=docker), \
          patch('builtins.open', side_effect=fixture_open):
         try:
@@ -210,6 +232,8 @@ def run_case(name, *, missing=None, duplicate=None, networks=None, refusal=None)
             assert spec['machineId'] == 'fixture-machine-id'
             assert spec['expectedImage'] == image and spec['expectedRevision'] == revision
             assert spec['targetImage'] == image and spec['targetRevision'] == target
+            assert [u['key'] for u in spec['updates']] == identity + [u['key'] for u in (extra or [])]
+            assert spec['updates'][3:] == (extra or [])
     print('ok   - swap spec ' + name)
 
 run_case('normal topology selects scan private network and distinct main worker')
@@ -221,6 +245,18 @@ for role in roles:
              refusal=f'swap: expected one running {role} container, found 0')
     run_case('rejects duplicate ' + role, duplicate=role,
              refusal=f'swap: expected one running {role} container, found 2')
+unset_progress = [{'key': key, 'op': 'unset', 'roles': ['api', 'worker', 'scan']} for key in
+                  ['REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE', 'REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES']]
+run_case('extra updates are appended after the release identity keys', extra=unset_progress)
+for label, bad in [('empty list', []), ('object', {'key': 'AB', 'op': 'unset'}), ('non-object row', ['AB']),
+                   ('unknown field', [{'key': 'AB', 'op': 'unset', 'role': ['worker']}]),
+                   ('empty roles', [{'key': 'AB', 'op': 'unset', 'roles': []}]),
+                   ('roles not a list', [{'key': 'AB', 'op': 'unset', 'roles': 'api'}])]:
+    run_case('rejects extra updates: ' + label, extra=bad,
+             refusal='swap: RR_SWAP_EXTRA_UPDATES must be a non-empty JSON array of update objects')
+run_case('rejects extra updates that touch a release identity key',
+         extra=[{'key': 'REVIEW_ROUTER_RUNTIME_ROLLOUT_ID', 'op': 'set', 'value': 'x'}],
+         refusal='swap: RR_SWAP_EXTRA_UPDATES must not touch the release identity keys')
 PYSWAPTEST
 check "embedded swap-spec topology regression cases" "$?"
 

@@ -188,7 +188,9 @@ async function holdAction(
       committed = true;
       await released;
       await route.fulfill({ response });
-      await (await request.response())?.finished();
+      // Observe this browser response; caller assertions verify UI consumption.
+      const browserResponse = await request.response();
+      expect(browserResponse?.ok()).toBe(true);
       delivered();
     } else await route.fallback();
   });
@@ -685,26 +687,44 @@ test.describe("Skills real Next UX resilience", () => {
     page,
     context,
   }) => {
-    const first = await ensurePaths(page, "122", "Fixture skill 057");
-    const original = (await binding("122", "rr-e2e-skill-057"))!;
-    await first.row
-      .getByRole("textbox", { name: "Include paths", exact: true })
-      .fill("stale-incarnation/**");
-    await first.dialog
-      .getByRole("button", { name: "Add skills", exact: true })
-      .click();
-    await first.dialog
-      .getByRole("button", { name: "Back to assigned skills", exact: true })
-      .click();
-    await first.row.getByText("File scope", { exact: true }).click();
-    await expect(
-      first.row.getByRole("textbox", { name: "Include paths", exact: true }),
-    ).toHaveValue("stale-incarnation/**");
+    await ensurePaths(page, "122", "Fixture skill 057");
     const second = await context.newPage();
     const network: string[] = [];
     await installLoopbackOnlyNetworkGuard(second, network);
     try {
+      await openOperation(second, "122", "Fixture skill 057");
+      // Next dev broadcasts a compilation sync when another tab connects.
+      // Establish both tabs before creating the draft whose document must
+      // survive the remove/re-add conflict; do not reload the first tab afterward.
+      const first = await ensurePaths(page, "122", "Fixture skill 057");
+      const originalDocumentTimeOrigin = await page.evaluate(
+        () => performance.timeOrigin,
+      );
+      const expectOriginalDocument = async () => {
+        expect(
+          await page.evaluate(() => performance.timeOrigin),
+          "The stale Paths draft must remain in its original document",
+        ).toBe(originalDocumentTimeOrigin);
+      };
+      const original = (await binding("122", "rr-e2e-skill-057"))!;
+      await first.row
+        .getByRole("textbox", { name: "Include paths", exact: true })
+        .fill("stale-incarnation/**");
+      await first.dialog
+        .getByRole("button", { name: "Add skills", exact: true })
+        .click();
+      await first.dialog
+        .getByRole("button", { name: "Back to assigned skills", exact: true })
+        .click();
+      await first.row.getByText("File scope", { exact: true }).click();
+      await expect(
+        first.row.getByRole("textbox", { name: "Include paths", exact: true }),
+      ).toHaveValue("stale-incarnation/**");
+      await expectOriginalDocument();
+      // Reacquire the mutation actor after the first tab's navigation. Next dev
+      // can refresh that second document independently of the retained draft.
       const current = await openOperation(second, "122", "Fixture skill 057");
+      await expectOriginalDocument();
       await current.row
         .getByRole("button", {
           name: "Remove skill Fixture skill 057",
@@ -728,6 +748,7 @@ test.describe("Skills real Next UX resilience", () => {
       const recreated = (await binding("122", "rr-e2e-skill-057"))!;
       expect(recreated.version).toBe(original.version);
       expect(recreated.generation).not.toBe(original.generation);
+      await expectOriginalDocument();
       await first.row
         .getByRole("button", { name: "Save paths", exact: true })
         .click();
@@ -737,6 +758,7 @@ test.describe("Skills real Next UX resilience", () => {
       await expect(
         first.row.getByRole("textbox", { name: "Include paths", exact: true }),
       ).toHaveValue("stale-incarnation/**");
+      await expectOriginalDocument();
       expect(await binding("122", "rr-e2e-skill-057")).toEqual(recreated);
       await first.row
         .getByRole("button", {
@@ -750,6 +772,7 @@ test.describe("Skills real Next UX resilience", () => {
       await expect(
         first.row.getByRole("textbox", { name: "Include paths", exact: true }),
       ).toHaveValue("**");
+      await expectOriginalDocument();
       let unexpectedPrompt = false;
       page.once("dialog", (value) => {
         unexpectedPrompt = true;
@@ -1331,7 +1354,7 @@ test.describe("Skills real Next UX resilience", () => {
     ).toHaveValue("");
   });
 
-  test("Skills rejects unsupported imports without losing text and labels companion exports as drafts", async ({
+  test("Skills lists what an import leaves out, refuses unreadable files without losing text, and labels companion exports as drafts", async ({
     page,
   }) => {
     await openLibrary(page);
@@ -1357,17 +1380,35 @@ test.describe("Skills real Next UX resilience", () => {
     });
     await editor
       .getByLabel("Import SKILL.md", { exact: false })
-      .setInputFiles(file("allowed-tools: Bash\n", "Review."));
-    await expect(editor.getByRole("alert")).toContainText(
-      "Unsupported frontmatter",
-    );
+      .setInputFiles(
+        file(
+          "allowed-tools: Bash\n",
+          "Review.\n[Reference\nguide](references/guide.md)",
+        ),
+      );
+    await expect(editor.getByText(/^Not used: allowed-tools\./u)).toBeVisible();
+    await expect(
+      editor.getByText(
+        /Linked files are not included: references\/guide\.md\./u,
+      ),
+    ).toBeVisible();
+    await editor.screenshot({
+      path: test.info().outputPath("skills-import-linked-files-desktop.png"),
+    });
+    await editor
+      .getByRole("button", { name: "Cancel import", exact: true })
+      .click();
     await expect(editor.getByLabel("Name", { exact: false })).toHaveValue(
       "Preserved original",
     );
-    await editor
-      .getByLabel("Import SKILL.md", { exact: false })
-      .setInputFiles(file("", "[Reference\nguide](references/guide.md)"));
-    await expect(editor.getByRole("alert")).toContainText("companion files");
+    await editor.getByLabel("Import SKILL.md", { exact: false }).setInputFiles({
+      name: "SKILL.md",
+      mimeType: "text/markdown",
+      buffer: Buffer.from("# Notes without a header\nReview."),
+    });
+    await expect(editor.getByRole("alert")).toContainText(
+      "Use SKILL.md with YAML name and description",
+    );
     await expect(editor.getByRole("alert")).toContainText(
       "Import not applied. Your current draft is unchanged.",
     );

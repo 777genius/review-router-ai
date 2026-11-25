@@ -5,6 +5,7 @@ import { Children, useEffect, useMemo, useState } from "react";
 import {
   Check,
   CheckCircle2,
+  Circle,
   CircleAlert,
   Globe2,
   ListFilter,
@@ -29,18 +30,18 @@ import {
 } from "../repository-row-display";
 import { RepositoryVisibilityBadge } from "../repository-visibility-badge";
 import {
+  readRepositorySetupFilter,
+  repositoryMatchesSetupFilter,
+  tokenizeRepositorySearch,
+  writeRepositorySetupFilter,
+  type RepositorySetupFilter,
+  type RepositorySetupState,
+} from "../../src/features/repository-setup/repository-setup-state";
+import {
   SourceProviderLogo,
   sourceProviderName,
   type SourceProvider,
 } from "../source-provider-logo";
-
-export type RepositorySearchFilter =
-  | "all"
-  | "private"
-  | "public"
-  | "needs_setup"
-  | "needs_attention"
-  | "ready";
 
 export type RepositorySearchIndexItem = {
   readonly id: string;
@@ -49,7 +50,7 @@ export type RepositorySearchIndexItem = {
   readonly searchText: string;
   readonly provider: SourceProvider;
   readonly visibility: string;
-  readonly readiness: "ready" | "needs_setup" | "needs_attention";
+  readonly state: RepositorySetupState;
   readonly setupProgressStep: SetupStep;
   readonly stargazersCount: number;
   readonly archived: boolean;
@@ -59,10 +60,15 @@ const repositoryFilterOptions = [
   { value: "all", label: "All", icon: ListFilter },
   { value: "private", label: "Private", icon: LockKeyhole },
   { value: "public", label: "Public", icon: Globe2 },
-  { value: "needs_setup", label: "Needs setup", icon: Wrench },
-  { value: "needs_attention", label: "Needs attention", icon: CircleAlert },
+  { value: "attention", label: "Needs attention", icon: CircleAlert },
+  { value: "setting_up", label: "Setting up", icon: Wrench },
   { value: "ready", label: "Ready", icon: CheckCircle2 },
-] as const;
+  { value: "not_set_up", label: "Not set up", icon: Circle },
+] as const satisfies readonly {
+  readonly value: RepositorySetupFilter;
+  readonly label: string;
+  readonly icon: unknown;
+}[];
 
 export function RepositoryLiveSearch({
   workspaceKey,
@@ -83,7 +89,7 @@ export function RepositoryLiveSearch({
   readonly selectedRepositoryFullName: string | null;
   readonly selectedRepositoryId: string | null;
   readonly initialQuery: string;
-  readonly initialFilter: RepositorySearchFilter;
+  readonly initialFilter: RepositorySetupFilter;
   readonly searchIndex: readonly RepositorySearchIndexItem[];
   readonly totalRepositoryCount: number;
   readonly rowLimit: number;
@@ -95,7 +101,7 @@ export function RepositoryLiveSearch({
   const router = useRouter();
   const [query, setQuery] = useState(initialQuery);
   const [activeFilter, setActiveFilter] =
-    useState<RepositorySearchFilter>(initialFilter);
+    useState<RepositorySetupFilter>(initialFilter);
   const [pendingRepositoryId, setPendingRepositoryId] = useState<string | null>(
     null,
   );
@@ -154,7 +160,9 @@ export function RepositoryLiveSearch({
         return;
       const params = new URLSearchParams(window.location.search);
       const restoredQuery = params.get("q") ?? "";
-      const restoredFilter = readRepositorySearchFilter(params);
+      const restoredFilter = readRepositorySetupFilter((name) =>
+        params.get(name),
+      );
       setQuery(restoredQuery);
       setActiveFilter(restoredFilter);
       setPendingRepositoryId(null);
@@ -250,7 +258,7 @@ export function RepositoryLiveSearch({
         </div>
 
         <div
-          className="grid items-stretch gap-1 rounded-xl border border-slate-700/70 bg-slate-950/55 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] sm:grid-cols-3 2xl:h-11 2xl:grid-cols-6"
+          className="grid items-stretch gap-1 rounded-xl border border-slate-700/70 bg-slate-950/55 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] grid-cols-2 sm:grid-cols-4 2xl:h-11 2xl:grid-cols-7"
           role="group"
           aria-label="Repository filters"
         >
@@ -402,7 +410,7 @@ function useRepositorySearchHelperText({
   totalRepositoryCount,
 }: {
   readonly hasActiveQuery: boolean;
-  readonly activeFilter: RepositorySearchFilter;
+  readonly activeFilter: RepositorySetupFilter;
   readonly matchingCount: number;
   readonly renderedCountLabel: number;
   readonly renderedRepositoryCount: number;
@@ -440,7 +448,7 @@ export function buildRepositorySearchHelperText({
   totalRepositoryCount,
 }: {
   readonly hasActiveQuery: boolean;
-  readonly activeFilter: RepositorySearchFilter;
+  readonly activeFilter: RepositorySetupFilter;
   readonly matchingCount: number;
   readonly renderedCountLabel: number;
   readonly renderedRepositoryCount: number;
@@ -460,18 +468,20 @@ export function buildRepositorySearchHelperText({
   return "";
 }
 
-function repositoryFilterResultLabel(filter: RepositorySearchFilter): string {
+function repositoryFilterResultLabel(filter: RepositorySetupFilter): string {
   switch (filter) {
     case "private":
       return "private repositories";
     case "public":
       return "public repositories";
-    case "needs_setup":
-      return "repositories need setup";
-    case "needs_attention":
+    case "attention":
       return "repositories need attention";
+    case "setting_up":
+      return "repositories setting up";
     case "ready":
       return "ready repositories";
+    case "not_set_up":
+      return "repositories not set up";
     case "all":
       return "matching repositories";
   }
@@ -480,40 +490,16 @@ function repositoryFilterResultLabel(filter: RepositorySearchFilter): string {
 function filterLocalSearch(
   searchIndex: readonly RepositorySearchIndexItem[],
   query: string,
-  filter: RepositorySearchFilter,
+  filter: RepositorySetupFilter,
 ): string[] {
-  const tokens = tokenize(query);
+  const tokens = tokenizeRepositorySearch(query);
   return searchIndex
     .filter(
       (item) =>
-        repositoryMatchesFilter(item, filter) &&
+        repositoryMatchesSetupFilter(item, filter) &&
         tokens.every((token) => item.searchText.includes(token)),
     )
     .map((item) => item.id);
-}
-
-function repositoryMatchesFilter(
-  item: RepositorySearchIndexItem,
-  filter: RepositorySearchFilter,
-): boolean {
-  switch (filter) {
-    case "private":
-      return item.visibility === "private";
-    case "public":
-      return item.visibility === "public";
-    case "needs_setup":
-      return item.readiness === "needs_setup";
-    case "needs_attention":
-      return item.readiness === "needs_attention";
-    case "ready":
-      return item.readiness === "ready";
-    case "all":
-      return true;
-  }
-}
-
-function tokenize(query: string): string[] {
-  return query.trim().toLowerCase().split(/\s+/).filter(Boolean);
 }
 
 export function selectVisibleRepositoryIds(
@@ -650,7 +636,7 @@ function buildSearchUrl({
 }: {
   readonly workspaceKey: string;
   readonly query: string;
-  readonly filter: RepositorySearchFilter;
+  readonly filter: RepositorySetupFilter;
 }): string {
   const params = new URLSearchParams(window.location.search);
   params.set("workspace", workspaceKey);
@@ -660,30 +646,9 @@ function buildSearchUrl({
   } else {
     params.delete("q");
   }
-  appendFilterParams(params, filter);
+  writeRepositorySetupFilter(params, filter);
 
   return `${window.location.pathname}?${params.toString()}`;
-}
-
-function appendFilterParams(
-  params: URLSearchParams,
-  filter: RepositorySearchFilter,
-): void {
-  params.delete("visibility");
-  params.delete("setup");
-
-  if (filter === "private" || filter === "public") {
-    params.set("visibility", filter);
-  }
-  if (filter === "needs_setup") {
-    params.set("setup", "needed");
-  }
-  if (filter === "needs_attention") {
-    params.set("setup", "attention");
-  }
-  if (filter === "ready") {
-    params.set("setup", "ready");
-  }
 }
 
 function searchUrlMatchesCurrentPage(nextUrl: string): boolean {
@@ -703,21 +668,4 @@ function searchUrlMatchesCurrentPage(nextUrl: string): boolean {
       (current.searchParams.get(key) ?? "") ===
       (next.searchParams.get(key) ?? ""),
   );
-}
-
-function readRepositorySearchFilter(
-  params: URLSearchParams,
-): RepositorySearchFilter {
-  switch (params.get("setup")) {
-    case "needed":
-      return "needs_setup";
-    case "attention":
-      return "needs_attention";
-    case "ready":
-      return "ready";
-  }
-  const visibility = params.get("visibility");
-  return visibility === "private" || visibility === "public"
-    ? visibility
-    : "all";
 }

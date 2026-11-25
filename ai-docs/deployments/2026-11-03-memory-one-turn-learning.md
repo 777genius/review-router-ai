@@ -1,5 +1,11 @@
 # One-turn source-fenced conversational Memory: deployment and qualification
 
+<a id="current-ordinary-code-reconciliation-2026-11-14"></a>
+
+## Current ordinary-code reconciliation (2026-11-15)
+
+The historical installed tuples below are superseded for ordinary application delivery by [signed 238/source 75b](README.md#current-coordinated-rollout-reconciliation-2026-11-14), which retains #804/#805/#807 and #806 code ancestry already present in d2f. No semantic capability, official score or new activation follows from ancestry. The latest retained semantic state remains UNAVAILABLE/unqualified; stand/holdout and old unknown facts remain preserved without replay. No repeat ordinary deployment is required to close those qualification gaps.
+
 - Task ID: `2026-11-03-memory-one-turn-learning`.
 - Goal: qualify one normal selected-account Gateway parent request that emits an
   independently validated decision and optional observations, preserving the
@@ -9,7 +15,7 @@
 - Implementation: [#804](https://github.com/777genius/review-router-ai/pull/804),
   [#805](https://github.com/777genius/review-router-ai/pull/805) and
   [#807](https://github.com/777genius/review-router-ai/pull/807). Their code is
-  included in earlier installed856 and current private228/a3; installation does not qualify
+  included in earlier installed 856 and historical private 228/a3; installation does not qualify
   the semantic capability.
 - Implementation reference: earlier verified installed application
   `8561576c61abcead21419520e9bc350446017fc5`; initial tuning source `849f319a2`
@@ -18,16 +24,16 @@
   actual selected-model semantic qualification and the existing release process.
   Ordinary [provider/Action delivery](2026-11-04-provider-errors-and-findings.md)
   proceeds independently of this unqualified capability.
-- Last updated: `2026-11-08`.
+- Last updated: 2026-11-15.
 
 ## Environment status
 
-| Environment / target               | Status      | Actual deployed version / image                   | Last verified (UTC) | Evidence / next step / blocker                                                                                                   |
-| ---------------------------------- | ----------- | ------------------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| staging                            | `pending`   | Not verified                                      | Not verified        | No staging installation or semantic/App acceptance is credited.                                                                  |
-| production / ordinary code         | `installed` | Private228 a3db73fd / image0ff; exact tuple below | 2026-11-04          | #804/#805/#807 code is installed. Existing settings/native state preserved; no repeat deploy is required to close qualification. |
-| production / semantic capability   | `blocked`   | Unqualified; no semantic activation               | 2026-11-04          | Latest isolated r2 is UNAVAILABLE, with a missing eligible endorsement and invalid output; no official score.                    |
-| self-hosted / qualified capability | `pending`   | No genuine qualified capability issued            | Not verified        | Qualified artifact/distribution and first-install/update acceptance remain separate.                                             |
+| Environment / target               | Status      | Actual deployed version / image                     | Last verified (UTC) | Evidence / next step / blocker                                                                                                   |
+| ---------------------------------- | ----------- | --------------------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| staging                            | `pending`   | Not verified                                        | Not verified        | No staging installation or semantic/App acceptance is credited.                                                                  |
+| production / ordinary code         | `installed` | Private 228 a3db73fd / image 0ff; exact tuple below | 2026-11-04          | #804/#805/#807 code is installed. Existing settings/native state preserved; no repeat deploy is required to close qualification. |
+| production / semantic capability   | `blocked`   | Unqualified; no semantic activation                 | 2026-11-04          | Latest isolated r2 is UNAVAILABLE, with a missing eligible endorsement and invalid output; no official score.                    |
+| self-hosted / qualified capability | `pending`   | No genuine qualified capability issued              | Not verified        | Qualified artifact/distribution and first-install/update acceptance remain separate.                                             |
 
 The actual production application is
 `a3db73fd77eda829480f57ffe3f40ed7c9f9da06`, image
@@ -132,12 +138,12 @@ is authorized by this record.
 
 ## Ordered rollout
 
-1. The earlier #804/#805/#807 ordinary code is installed on a3/image0ff.
+1. The earlier #804/#805/#807 ordinary code is installed on a3/image 0ff.
    Preserve actual source/image evidence and settings; there is no reason to
    redeploy it solely to close semantic qualification.
-2. PR #806 remains a **pending source candidate**, not an installation.
-   After exact-head CI and code merge, arrange ordinary rollout only with
-   separate release-owner authorization and an installed-image inventory.
+2. PR #806 ordinary code ancestry is included in installed d2f and retained
+   signed 238/source 75b. No repeat ordinary deployment is needed merely to
+   close a semantic qualification gap.
    Staging and self-hosted require their own acceptance records.
 3. Reconcile the missing endorsement and invalid-output evidence against the
    actual current source before any newly authorized qualification. Retain all
@@ -160,22 +166,23 @@ cannot substitute for those results.
 **Pending release-owner updates:** link the final retained r2 evidence/identity and
 any later explicitly authorized qualification result. Until then keep the
 semantic target blocked/UNAVAILABLE and self-hosted capability delivery pending.
-The separate Action228/229 and private228 rollout must not be described as a Memory
+The separate Action 228/229 and private 228 rollout must not be described as a Memory
 semantic qualification.
 
 ## Historical human-evidence source correction (PR #806)
 
-[PR #806](https://github.com/777genius/review-router-ai/pull/806) is a **pending
-ordinary-code candidate**, not an installation. Its original source commit was
+[PR #806](https://github.com/777genius/review-router-ai/pull/806) ordinary code is
+included in installed d2f and retained signed 238/source 75b. This does not prove
+semantic activation or live qualification. The following source identities are historical. Its original source commit was
 `f650bd229f4fdf3e23276d46b1bbafb266d4f5c9`; the current combined candidate
 and exact-head CI are tracked by that PR. The confirmed #804/#805/#807
 production tuple above remains historical installed evidence.
 
-| Environment / target          | PR #806 status | Actual candidate installation |
-| ----------------------------- | -------------- | ----------------------------- |
-| staging                       | `pending`      | None verified                 |
-| production / ordinary code    | `pending`      | Not installed                 |
-| self-hosted / qualified input | `pending`      | No qualified artifact issued  |
+| Environment / target          | PR #806 status | Actual candidate installation                                                   |
+| ----------------------------- | -------------- | ------------------------------------------------------------------------------- |
+| staging                       | `pending`      | None verified                                                                   |
+| production / ordinary code    | `installed`    | d2f ancestry retained in signed 238/source 75b; semantic capability unqualified |
+| self-hosted / qualified input | `pending`      | No qualified artifact issued                                                    |
 
 No rollout, account/model switch, schema migration or capability activation is
 authorized by source merge. A future release owner must check current images,
@@ -225,8 +232,8 @@ provider/model switch or cleanup authority.
 | 2026-11-04   | isolated candidate r1      | Release owner             | Candidate 809                           | 13 complete responses then provider 502 at 14/50; UNAVAILABLE, request closed/ACKed, cleanup DONE.                           | Preserved run evidence                     | Do not replay the settled request.                               |
 | 2026-11-04   | isolated candidate r2      | Release owner             | Candidate 809, fresh request identities | All 50 observed:46 complete, three no-call, one `catalogUnavailable`; missing endorsement/invalid output, no official score. | Retained stand/holdout; final link pending | Keep UNAVAILABLE; require new authorized qualification evidence. |
 
-Current private228 activation and compatible Action229 adoption are recorded in
+Historical private 228 activation and compatible Action 229 adoption are recorded in
 [provider errors and findings](2026-11-04-provider-errors-and-findings.md). All four
-roles, seven worker privilege checks and readiness200 passed on selected a3/image0ff.
+roles, seven worker privilege checks and readiness200 passed on selected a3/image 0ff.
 Later main87f340 (#810) is outside that image. This installation does not close the
 named live verification or semantic qualification gaps above.

@@ -17,6 +17,8 @@ import {
   reviewRequestIngressEventVersion,
   reviewRequestedDispatchCleanupEventType,
   reviewRequestedDispatchCleanupEventVersion,
+  reviewRequestedStartNoticeEventType,
+  reviewRequestedStartNoticeEventVersion,
 } from "@reviewrouter/features-review-executions";
 import { PrismaReviewExecutionStore } from "@reviewrouter/features-review-executions/composition";
 import {
@@ -199,6 +201,7 @@ async function main(): Promise<void> {
           githubAppId,
           githubPrivateKey,
           settlementHook,
+          logger,
           ...(process.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1"
             ? { historyWriter: history.writer }
             : {}),
@@ -327,6 +330,10 @@ const knownOutboxHandlers = [
   {
     type: reviewRequestedDispatchCleanupEventType,
     version: reviewRequestedDispatchCleanupEventVersion,
+  },
+  {
+    type: reviewRequestedStartNoticeEventType,
+    version: reviewRequestedStartNoticeEventVersion,
   },
   reviewStatisticsHandlerDefinition,
   {

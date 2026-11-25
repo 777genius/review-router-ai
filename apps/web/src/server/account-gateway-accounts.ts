@@ -1,3 +1,7 @@
+import {
+  connectionMethodAllowed,
+  type CredentialImportMethod,
+} from "../features/account-gateway/connection-capabilities";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import * as c from "@agent-teams/account-gateway/contracts";
 import {
@@ -44,7 +48,16 @@ import {
   canonicalMimoBaseURL,
   suggestedAccountLabel,
 } from "../features/account-gateway/connection-options";
+import {
+  gatewayAPIKeyProviderKinds,
+  type GatewayAPIKeyProfileName,
+} from "../features/provider-setup/provider-identity";
 import type { AccountUsageView } from "./account-usage";
+import {
+  createAccountMetadataService,
+  type AccountMetadataService,
+} from "./account-metadata-service";
+import { accountMetadataReader } from "./account-metadata-sdk-reader";
 import type { AccountLimitsView } from "@reviewrouter/features-provider-accounts";
 export type { AccountLimitsView } from "@reviewrouter/features-provider-accounts";
 import {
@@ -79,7 +92,9 @@ export type AccountProfileView = {
     | import("../features/account-gateway/connection-capabilities").AccountConnectionView
     | undefined;
   // Trusted configured vendor; never derived from an editable account label.
-  provider?: import("@reviewrouter/features-review-providers").ProviderKind;
+  provider?:
+    | import("@reviewrouter/features-review-providers").ProviderKind
+    | "nvidia";
   // Additive display fields; older safe bootstrap consumers may omit them.
   // The authorized adapter always supplies both from its configured catalog.
   authKind?: c.Profile["authKinds"][number];
@@ -115,6 +130,8 @@ export type AccountView = {
   origin?: "organization" | "personal" | "operator";
   // Display-only identity fact; never permission to manage a shared source.
   isOwnedByViewer?: boolean;
+  /** Workspace overview only: the viewer's own personal connection id. */
+  sourceId?: string;
   canManage?: boolean;
   owner?: AccountOwnerView;
   allowedActions?: readonly AccountAllowedAction[];
@@ -142,6 +159,7 @@ export type AccountView = {
   // Optional display projection; older safe bootstrap consumers may omit it.
   usage?: AccountUsageView;
   limits?: AccountLimitsView;
+  metadata?: import("@reviewrouter/features-provider-accounts").AccountMetadataView;
 };
 export type AccountsPage = {
   canGrantOperatorUse?: boolean;
@@ -159,7 +177,6 @@ export type AccountOperationView = {
       | import("../features/provider-setup/provider-identity").ProviderIdentity
       | undefined;
     inputKind: "none" | "callback_url" | "authorization_code";
-    personalOnly?: boolean;
   };
   account?: AccountView;
   // Original safe reconnect fields, present only after durable fences are ready.
@@ -170,6 +187,7 @@ export type AccountOperationView = {
     profileId: string;
     gatewayRevision: number;
     mirrorRevision: number;
+    credentialImportMethod?: CredentialImportMethod;
   };
   // Management disable is logical denial. This SDK supplies no erasure/transport cleanup proof.
   cleanup: "unresolved";
@@ -199,6 +217,7 @@ export type AccountIntent = {
   profileId?: string;
   label?: string;
   baseURL?: string;
+  credentialImportMethod?: CredentialImportMethod;
   gatewayRevision?: number;
   mirrorRevision?: number;
 };
@@ -233,19 +252,47 @@ const existing = {
 const codexOAuthProfileId = "openai-codex-oauth-responses-v1";
 const claudeOAuthProfileId = "anthropic-claude-oauth-messages-v1";
 function oauthMethodFor(
-  profile: Pick<AccountProfileView, "oauthMethods">,
+  profile: Pick<
+    AccountProfileView,
+    | "id"
+    | "oauthMethods"
+    | "authKind"
+    | "canReconnect"
+    | "connection"
+    | "availability"
+  >,
   requested?: "device_code" | "browser",
+  action: "create" | "reconnect" = "create",
 ) {
   const allowed = profile.oauthMethods ?? ["device_code", "browser"];
   const method = requested ?? allowed[0];
-  if (!method || !allowed.includes(method)) throw new Denied();
+  if (
+    !method ||
+    !allowed.includes(method) ||
+    !connectionMethodAllowed(profile, action, method)
+  )
+    throw new Denied();
   return method;
+}
+const credentialImportMethod = z.enum(["refresh_token", "oauth_auth_json"]);
+export function snapshotAccountCredential(
+  method: CredentialImportMethod | undefined,
+  value: string,
+) {
+  return secretSubmission.credential.parse(
+    method
+      ? { kind: "credential_import", method, value }
+      : { kind: "api_key", value },
+  );
 }
 const oauthIntentSchema = z.strictObject({
   nonce: uuid,
   profileId: c.reference,
   label,
   method: z.enum(["device_code", "browser"]).optional(),
+});
+const personalConnectIntentSchema = oauthIntentSchema.extend({
+  credentialImportMethod: credentialImportMethod.optional(),
 });
 const oauthBeginIntentSchema = z.union([
   oauthIntentSchema.extend({
@@ -302,9 +349,9 @@ export function oauthCompletionMatchesProfile(
   profile: Pick<AccountProfileView, "id" | "label" | "connection">,
   completion: NormalizedOAuthCompletion | { nonce: string },
 ): boolean {
-  const kind = operationCompletion(profile).inputKind;
+  const { inputKind: kind, providerId } = operationCompletion(profile);
   if (kind === "none") return false;
-  if (profile.connection?.provider === "grok") {
+  if (providerId === "grok") {
     return "authorizationCode" in completion
       ? secretSubmission.grokOAuthAuthorizationCode.safeParse(
           completion.authorizationCode,
@@ -348,6 +395,7 @@ const intentSchema = z.discriminatedUnion("kind", [
     profileId: c.reference,
     label: label.or(z.string().trim().length(0)).optional(),
     baseURL: z.string().max(2048).optional(),
+    credentialImportMethod: credentialImportMethod.optional(),
   }),
   z.strictObject({
     kind: z.literal("rename"),
@@ -355,7 +403,12 @@ const intentSchema = z.discriminatedUnion("kind", [
     ...existing,
     label,
   }),
-  z.strictObject({ kind: z.literal("reconnect"), nonce: uuid, ...existing }),
+  z.strictObject({
+    kind: z.literal("reconnect"),
+    nonce: uuid,
+    ...existing,
+    credentialImportMethod: credentialImportMethod.optional(),
+  }),
   z.strictObject({ kind: z.literal("disable"), nonce: uuid, ...existing }),
 ]);
 const hash = (v: string) => createHash("sha256").update(v).digest("hex");
@@ -394,13 +447,14 @@ function safeFailure(error: unknown): AccountsResult<never> {
  */
 export function createAccountsAdapter(input: {
   limits?(context: string): Promise<AccountLimitsService>;
+  metadata?(context: string): Promise<AccountMetadataService>;
   authorize(context: string): Promise<Authority>;
   gateway: ManagementClient;
   accounts: ProviderAccountAccountsQueryPort;
   synchronization: ProviderAccountSynchronizationPort;
   bindingDependencies: ProviderAccountDependencies;
   fences?: WorkspaceBindingFenceRepositoryPort;
-  apiKeyProfiles: ReadonlyMap<string, "MiMo" | "OpenRouter">;
+  apiKeyProfiles: ReadonlyMap<string, GatewayAPIKeyProfileName>;
   apiKeyProfileBaseURLs?: ReadonlyMap<string, string>;
   codexOAuthProfileId?: typeof codexOAuthProfileId;
   claudeOAuthProfileId?: typeof claudeOAuthProfileId;
@@ -420,7 +474,7 @@ export function createAccountsAdapter(input: {
       id,
       {
         label: name,
-        provider: name === "MiMo" ? "codex-mimo" : "openrouter",
+        provider: gatewayAPIKeyProviderKinds[name],
         authKind: "api_key",
         canReconnect: true,
       },
@@ -558,6 +612,12 @@ export function createAccountsAdapter(input: {
     }
     return {
       profiles: () => checked(() => gateway.profiles()),
+      ...(gateway.getProviderConnectionCapabilitiesV2
+        ? {
+            getProviderConnectionCapabilitiesV2: () =>
+              checked(() => gateway.getProviderConnectionCapabilitiesV2()),
+          }
+        : {}),
       ...(gateway.getProviderConnectionCapabilities
         ? {
             getProviderConnectionCapabilities: () =>
@@ -598,7 +658,12 @@ export function createAccountsAdapter(input: {
   async function profiles(
     client: Pick<ScopedClient, "profiles"> &
       Partial<
-        Pick<ScopedClient, "getProviderConnectionCapabilities" | "reauthorize">
+        Pick<
+          ScopedClient,
+          | "getProviderConnectionCapabilities"
+          | "getProviderConnectionCapabilitiesV2"
+          | "reauthorize"
+        >
       >,
   ): Promise<AccountProfileView[]> {
     const catalogue = await client.profiles();
@@ -620,6 +685,9 @@ export function createAccountsAdapter(input: {
       }));
     const result = await connectionProfiles({
       legacy,
+      ...(client.getProviderConnectionCapabilitiesV2
+        ? { capabilitiesV2: client.getProviderConnectionCapabilitiesV2 }
+        : {}),
       ...(client.getProviderConnectionCapabilities
         ? { capabilities: client.getProviderConnectionCapabilities }
         : {}),
@@ -648,6 +716,7 @@ export function createAccountsAdapter(input: {
     op: string | null,
   ) {
     const metadata = {
+      authorizationEpoch: account.authorizationEpoch,
       gatewayOperationRef: op ?? prior?.gatewayOperationRef ?? null,
       profileRef: account.profileId,
       displayName: account.displayName,
@@ -677,7 +746,8 @@ export function createAccountsAdapter(input: {
       prior.displayName === metadata.displayName &&
       prior.profileRef === metadata.profileRef &&
       prior.state === metadata.state &&
-      prior.gatewayOperationRef === metadata.gatewayOperationRef
+      prior.gatewayOperationRef === metadata.gatewayOperationRef &&
+      prior.authorizationEpochMirror === metadata.authorizationEpoch
     )
       return prior;
     // Capture prior BEFORE gateway GET. A delayed response cannot overwrite a newer mirror CAS.
@@ -764,7 +834,11 @@ export function createAccountsAdapter(input: {
     operation: c.Operation,
     catalogue: AccountProfileView[],
     client: ScopedClient,
-    expected?: { accountRef?: string; profileId: string },
+    expected?: {
+      accountRef?: string;
+      profileId: string;
+      credentialImportMethod?: CredentialImportMethod;
+    },
   ) {
     if (operation.operationRef !== operationRef(authority.owner, nonce))
       throw new Denied();
@@ -779,6 +853,7 @@ export function createAccountsAdapter(input: {
       : undefined;
     if (
       profile?.authKind === "oauth" &&
+      expected?.credentialImportMethod === undefined &&
       operation.oauthMethod !== "device_code"
     )
       result.completion = operationCompletion(profile);
@@ -976,11 +1051,14 @@ export function createAccountsAdapter(input: {
         currentRows.push(row);
       }
       await client.reauthorize();
+      const displayed = input.metadata
+        ? await (await input.metadata(context)).page(currentRows)
+        : currentRows;
       return {
         status: "ok",
         value: {
           canGrantOperatorUse,
-          accounts: currentRows,
+          accounts: displayed,
           profiles: catalogue,
           nextCursor,
         },
@@ -998,11 +1076,15 @@ export function createAccountsAdapter(input: {
     let savedNonce: string | undefined;
     try {
       const intent = intentSchema.parse(raw); // primitive snapshot before ANY await
-      const key =
+      const submitted =
         intent.kind === "connect" || intent.kind === "reconnect"
-          ? z.string().min(1).max(16384).parse(credential)
+          ? snapshotAccountCredential(
+              intent.credentialImportMethod,
+              credential!,
+            )
           : undefined;
-      if (key === undefined && credential !== undefined) throw new Denied();
+      if (submitted === undefined && credential !== undefined)
+        throw new Denied();
       const authority = await authorize(context);
       const id = operationRef(authority.owner, intent.nonce);
       let effectConnection: ProviderAccountConnection | undefined;
@@ -1014,25 +1096,49 @@ export function createAccountsAdapter(input: {
       });
       const catalogue = await profiles(client);
       let operation: c.Operation;
-      let expected: { accountRef?: string; profileId: string } | undefined;
+      let expected:
+        | {
+            accountRef?: string;
+            profileId: string;
+            credentialImportMethod?: CredentialImportMethod;
+          }
+        | undefined;
       if (intent.kind === "connect") {
-        const profile = catalogue.find(
-          (p) => p.id === intent.profileId && p.authKind === "api_key",
-        );
-        if (!profile) throw new Denied();
+        const profile = catalogue.find((p) => p.id === intent.profileId);
+        if (
+          !profile ||
+          !connectionMethodAllowed(
+            profile,
+            "create",
+            intent.credentialImportMethod ? "credential_import" : "api_key",
+            intent.credentialImportMethod,
+          ) ||
+          // Fresh NVIDIA enrollment requires qualified upstream capabilities.
+          // Reconnect remains on the separate existing-account path.
+          (profile.id === "nvidia-build-chat-apikey-v1" &&
+            (profile.provider !== "nvidia" ||
+              profile.availability !== "enabled" ||
+              profile.connection?.provider !== "nvidia"))
+        )
+          throw new Denied();
         if (
           intent.baseURL !== undefined &&
           (!profile.dedicatedBaseURL ||
             canonicalMimoBaseURL(intent.baseURL) !== profile.dedicatedBaseURL)
         )
           throw new Denied();
-        expected = { profileId: intent.profileId };
+        expected = {
+          profileId: intent.profileId,
+          ...(intent.credentialImportMethod
+            ? { credentialImportMethod: intent.credentialImportMethod }
+            : {}),
+        };
         operation = await client.connect({
           operationId: id,
           ownerRef: authority.owner,
           profileId: intent.profileId,
           displayName: intent.label || suggestedAccountLabel(profile.label),
-          credential: { kind: "api_key", value: key! },
+          credential: submitted!,
         });
       } else {
         const { prior, account } = await current(
@@ -1051,13 +1157,19 @@ export function createAccountsAdapter(input: {
         expected = {
           accountRef: account.accountRef,
           profileId: account.profileId,
+          ...(intent.kind === "reconnect" && intent.credentialImportMethod
+            ? { credentialImportMethod: intent.credentialImportMethod }
+            : {}),
         };
         if (account.state === "tombstoned") throw new Denied();
         if (
           intent.kind === "reconnect" &&
-          (!catalogue.find((p) => p.id === account.profileId)?.canReconnect ||
-            catalogue.find((p) => p.id === account.profileId)?.authKind !==
-              "api_key")
+          !connectionMethodAllowed(
+            catalogue.find((p) => p.id === account.profileId)!,
+            "reconnect",
+            intent.credentialImportMethod ? "credential_import" : "api_key",
+            intent.credentialImportMethod,
+          )
         )
           throw new Denied();
         if (intent.kind === "disable") {
@@ -1080,7 +1192,7 @@ export function createAccountsAdapter(input: {
             : intent.kind === "reconnect"
               ? await client.reconnect(account.accountRef, {
                   ...revision,
-                  credential: { kind: "api_key", value: key! },
+                  credential: submitted!,
                 })
               : await client.disable(account.accountRef, revision);
       }
@@ -1163,7 +1275,7 @@ export function createAccountsAdapter(input: {
         fresh = await client.beginOAuthReconnect(account.accountRef, {
           operationId: operationRef(authority.owner, intent.nonce),
           expectedMetadataRevision: account.metadataRevision,
-          method: oauthMethodFor(profile, intent.method),
+          method: oauthMethodFor(profile, intent.method, "reconnect"),
         });
       } else {
         // Subscription reviews use the customer's GitHub Secret and official
@@ -1614,6 +1726,22 @@ export function createAccountsAdapter(input: {
       return safeFailure(error);
     }
   }
+  async function withMetadata(
+    context: string,
+    work: Promise<AccountsResult<AccountOperationView>>,
+  ) {
+    const result = await work;
+    if (result.status !== "ok" || !result.value.account || !input.metadata)
+      return result;
+    try {
+      const [account] = await (
+        await input.metadata(context)
+      ).page([result.value.account]);
+      return { ...result, value: { ...result.value, account: account! } };
+    } catch {
+      return result;
+    }
+  }
   return {
     async limits(
       context: string,
@@ -1648,6 +1776,12 @@ export function createAccountsAdapter(input: {
     reviewCatalog: () =>
       profiles({
         profiles: () => gateway.profiles(),
+        ...(gateway.getProviderConnectionCapabilitiesV2
+          ? {
+              getProviderConnectionCapabilitiesV2: () =>
+                gateway.getProviderConnectionCapabilitiesV2(),
+            }
+          : {}),
         ...(gateway.getProviderConnectionCapabilities
           ? {
               getProviderConnectionCapabilities: () =>
@@ -1655,11 +1789,15 @@ export function createAccountsAdapter(input: {
             }
           : {}),
       }),
-    mutate,
+    mutate: (...args: Parameters<typeof mutate>) =>
+      withMetadata(args[0], mutate(...args)),
     beginOAuth,
-    completeOAuth,
-    pollOAuth,
-    operation,
+    completeOAuth: (...args: Parameters<typeof completeOAuth>) =>
+      withMetadata(args[0], completeOAuth(...args)),
+    pollOAuth: (...args: Parameters<typeof pollOAuth>) =>
+      withMetadata(args[0], pollOAuth(...args)),
+    operation: (...args: Parameters<typeof operation>) =>
+      withMetadata(args[0], operation(...args)),
     bind,
     changeGrant,
     detach,
@@ -1675,7 +1813,13 @@ export function createDisabledPersonalAccountsAdapter(input: {
   profiles: ReadonlyMap<string, "api-key-create" | "oauth-begin">;
   connectionProfiles?: readonly Pick<
     AccountProfileView,
-    "id" | "label" | "connection" | "oauthMethods"
+    | "id"
+    | "label"
+    | "connection"
+    | "oauthMethods"
+    | "authKind"
+    | "availability"
+    | "canReconnect"
   >[];
 }) {
   const client = createConsumerControlClient(input.control);
@@ -1726,7 +1870,11 @@ export function createDisabledPersonalAccountsAdapter(input: {
     },
   });
   const completionFor = (result: PersonalOperationResult) => {
-    if (result.intent.action !== "connect" || !input.connectionProfiles)
+    if (
+      result.intent.action !== "connect" ||
+      result.intent.ingress !== "oauth-begin" ||
+      !input.connectionProfiles
+    )
       return {};
     const profileId = result.intent.profileId;
     const profile = input.connectionProfiles.find(
@@ -1926,24 +2074,55 @@ export function createDisabledPersonalAccountsAdapter(input: {
         profileId: string;
         label: string;
         method?: "device_code" | "browser";
+        credentialImportMethod?: CredentialImportMethod;
       },
       credential?: string,
     ) {
-      const safe = oauthIntentSchema.parse(raw);
+      const safe = personalConnectIntentSchema.parse(raw);
+      if (safe.credentialImportMethod && safe.method)
+        throw new ProviderAccountError("invalid_input");
+      const submitted =
+        credential !== undefined
+          ? snapshotAccountCredential(safe.credentialImportMethod, credential)
+          : undefined;
       // Personal enrollment is a separate entry point from workspace OAuth.
       if (safe.profileId === claudeOAuthProfileId)
         throw new ProviderAccountError("invalid_input");
-      const key = credential;
       const actorUserId = await input.authorizeUser();
-      const ingress = profiles.get(safe.profileId);
-      if (!ingress) throw new ProviderAccountError("invalid_input");
-      // Capture the one-off key before awaits; never retain it in SQL or safe intent.
-      if (
-        ingress === "api-key-create" &&
-        (typeof key !== "string" || key.length < 1 || key.length > 16384)
-      )
+      const configuredIngress = profiles.get(safe.profileId);
+      const ingress = safe.credentialImportMethod
+        ? "credential-import"
+        : configuredIngress;
+      if (!ingress || !configuredIngress)
         throw new ProviderAccountError("invalid_input");
-      if (ingress === "oauth-begin" && key !== undefined)
+      const selectedProfile: Pick<
+        AccountProfileView,
+        | "id"
+        | "authKind"
+        | "connection"
+        | "oauthMethods"
+        | "availability"
+        | "canReconnect"
+      > = {
+        id: safe.profileId,
+        authKind: configuredIngress === "api-key-create" ? "api_key" : "oauth",
+        ...input.connectionProfiles?.find(
+          (profile) => profile.id === safe.profileId,
+        ),
+      };
+      if (
+        (ingress === "oauth-begin") !== (submitted === undefined) ||
+        !connectionMethodAllowed(
+          selectedProfile,
+          "create",
+          safe.credentialImportMethod
+            ? "credential_import"
+            : ingress === "api-key-create"
+              ? "api_key"
+              : (safe.method ?? selectedProfile.oauthMethods?.[0] ?? "browser"),
+          safe.credentialImportMethod,
+        )
+      )
         throw new ProviderAccountError("invalid_input");
       const completionKind = operationCompletion(
         input.connectionProfiles?.find((p) => p.id === safe.profileId) ?? {
@@ -1977,6 +2156,9 @@ export function createDisabledPersonalAccountsAdapter(input: {
         profileId: safe.profileId,
         displayName: safe.label,
         ingress,
+        ...(safe.credentialImportMethod
+          ? { credentialImportMethod: safe.credentialImportMethod }
+          : {}),
         ...(ingress === "oauth-begin" && safe.profileId === claudeOAuthProfileId
           ? { method: "browser" as const }
           : safe.method
@@ -1996,10 +2178,10 @@ export function createDisabledPersonalAccountsAdapter(input: {
             profileId: intent.profileId,
             displayName: intent.displayName,
           };
-          if (intent.ingress === "api-key-create")
+          if (intent.ingress !== "oauth-begin")
             await client.connect({
               ...original,
-              credential: { kind: "api_key", value: key! },
+              credential: submitted!,
             });
           else {
             const fresh = await client.beginOAuth({
@@ -2072,16 +2254,23 @@ export function accountGatewayProfilesConfiguration() {
   const contextKey =
     process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ACCOUNTS_CONTEXT_SECRET ?? "";
   if (contextKey.length < 32) throw new Error("accounts_unavailable");
-  const apiKeyProfiles = new Map<string, "MiMo" | "OpenRouter">();
+  const apiKeyProfiles = new Map<string, GatewayAPIKeyProfileName>();
   for (const [value, name] of [
     [process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MIMO_PROFILE_ID, "MiMo"],
     [
       process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_OPENROUTER_PROFILE_ID,
       "OpenRouter",
     ],
+    [
+      process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_NVIDIA_PROFILE_ID,
+      "NVIDIA Build",
+    ],
   ] as const)
     if (value) {
       c.reference.parse(value);
+      // A deployment setting may select only the source-qualified profile.
+      if (name === "NVIDIA Build")
+        z.literal("nvidia-build-chat-apikey-v1").parse(value);
       if (apiKeyProfiles.has(value)) throw new Error("accounts_unavailable");
       apiKeyProfiles.set(value, name);
     }
@@ -2104,7 +2293,11 @@ export function accountGatewayProfilesConfiguration() {
     !apiKeyProfiles.size &&
     !oauthProfile &&
     !claudeProfile &&
-    !subscriptionProfileIds.length
+    !subscriptionProfileIds.length &&
+    !(
+      process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN &&
+      process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN
+    )
   )
     throw new Error("accounts_unavailable");
   // Operator pairs this public URL with the exact fixed Gateway service profile.
@@ -2163,7 +2356,13 @@ async function production() {
     readPersonalAccountSharingEnabled(process.env),
   );
   const access = new PrismaWorkspaceAccessRepository(prisma);
-  async function authorizeContext(context: string) {
+  async function authorizeContext(
+    context: string,
+    authorizationDb?: Pick<
+      typeof prisma,
+      "workspace" | "workspaceMember" | "userExternalIdentity"
+    >,
+  ) {
     const [body, signature, extra] = context.split(".");
     if (!body || !signature || extra || !/^[A-Za-z0-9_-]+$/.test(body))
       throw new Denied();
@@ -2174,16 +2373,21 @@ async function production() {
     const saved = z
       .strictObject({ workspaceId: c.reference, userId: c.reference })
       .parse(JSON.parse(Buffer.from(body, "base64url").toString("utf8")));
-    const currentActor = await getDashboardSignedInActor();
+    const currentActor = await getDashboardSignedInActor(
+      authorizationDb ? { prisma: authorizationDb } : undefined,
+    );
     if (!currentActor || currentActor.userId !== saved.userId)
       throw new Denied();
-    const workspace = await prisma.workspace.findUnique({
+    const workspace = await (authorizationDb ?? prisma).workspace.findUnique({
       where: { id: saved.workspaceId },
       select: { id: true, personalOwnerUserId: true },
     });
     if (!workspace || workspace.personalOwnerUserId !== null)
       throw new Denied();
-    const actor = await assertDashboardWorkspaceAdminAllowed(workspace.id);
+    const actor = await assertDashboardWorkspaceAdminAllowed(
+      workspace.id,
+      authorizationDb,
+    );
     if (actor.userId !== saved.userId) throw new Denied();
     return {
       workspaceId: workspace.id,
@@ -2214,6 +2418,33 @@ async function production() {
         .filter(Boolean),
     },
     authorize: authorizeContext,
+    async metadata(context) {
+      return createAccountMetadataService({
+        prisma,
+        secret: settings.contextKey,
+        reader: accountMetadataReader({
+          role: "management",
+          origin:
+            process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "",
+          token:
+            process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN ?? "",
+        }),
+        ...(settings.operatorWorkspaceId
+          ? { operatorWorkspaceId: settings.operatorWorkspaceId }
+          : {}),
+        ownerRef: (owner) =>
+          owner.kind === "user"
+            ? accountGatewayUserOwnerRef(owner.userId)
+            : accountGatewayWorkspaceOwnerRef(owner.workspaceId),
+        authorize: async (authorizationDb) => {
+          const current = await authorizeContext(context, authorizationDb);
+          return {
+            userId: current.actor.userId,
+            workspaceId: current.workspaceId,
+          };
+        },
+      });
+    },
     async limits(context) {
       const limitsSettings = {
         role: "management" as const,

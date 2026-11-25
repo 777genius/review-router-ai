@@ -20,6 +20,12 @@ activation receipt, evidence, rehearsal, and rollback boundary. Release tags
 and git flow remain governed by
 [07-environments-and-release-management.md](./07-environments-and-release-management.md).
 
+## Hosted progress comments and old repository scan dead letters
+
+Before turning on hosted progress comments or retrying old
+`installation.sync_requested` dead letters, read
+[the enablement runbook](./15-progress-comments-enablement-runbook.md).
+
 ## App-First Repository E2E
 
 Run this gate before every control plane organization rollout and after changes to the

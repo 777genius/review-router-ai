@@ -942,6 +942,7 @@ export async function createApiApp(
           readonly internalFailureCode?: string;
           readonly internalFailureCauseCode?: string;
           readonly internalFailureStage?: string;
+          readonly internalFailureIssues?: readonly string[];
         }) => logger.warn("Review Action v2 request rejected", diagnostic),
       }
     : undefined;
@@ -1025,6 +1026,7 @@ export async function createApiApp(
             logger.warn("Review investigation operations diagnostic", {
               code,
             }),
+          logger,
         })
       : undefined;
   const standaloneUsagePrivateKey =

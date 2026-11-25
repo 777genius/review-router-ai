@@ -49,7 +49,7 @@ function facts(
     providerSetup: [],
     hostedSessionReady: false,
     gatewayAccountReady: false,
-    gatewayAuthorizationReady: false,
+    gatewayAuthorization: "not_established",
     providerSecretCheckFailed: false,
     ...overrides,
   };
@@ -61,14 +61,16 @@ const ready = {
   workflowCurrent: true,
   workflowUpdateRequired: false,
   step: "ready",
-} as const satisfies EffectiveProviderReadiness;
+  verificationNeeded: false,
+} as const satisfies Omit<EffectiveProviderReadiness, "gatewayAuthorization">;
 const providerMissing = {
   runtimeCompatibility: "compatible",
   healthStatus: "provider_needs_setup",
   workflowCurrent: true,
   workflowUpdateRequired: false,
   step: "provider",
-} as const satisfies EffectiveProviderReadiness;
+  verificationNeeded: false,
+} as const satisfies Omit<EffectiveProviderReadiness, "gatewayAuthorization">;
 
 describe("resolveEffectiveProviderReadiness", () => {
   it.each(["unknown", "update_required"] as const)(
@@ -205,7 +207,7 @@ describe("resolveEffectiveProviderReadiness", () => {
       {
         providers: gateway,
         gatewayAccountReady: true,
-        gatewayAuthorizationReady: true,
+        gatewayAuthorization: "ready",
       },
       ready,
     ],
@@ -218,7 +220,7 @@ describe("resolveEffectiveProviderReadiness", () => {
       "a Gateway provider without a usable account needs setup",
       {
         providers: gateway,
-        gatewayAuthorizationReady: true,
+        gatewayAuthorization: "ready",
         providerSetup: [row("codex", "codex_account_gateway")],
         hostedSessionReady: true,
       },
@@ -230,7 +232,7 @@ describe("resolveEffectiveProviderReadiness", () => {
         providers: gateway,
         healthStatus: "missing_workflow",
         gatewayAccountReady: true,
-        gatewayAuthorizationReady: true,
+        gatewayAuthorization: "ready",
       },
       {
         healthStatus: "missing_workflow",
@@ -285,12 +287,57 @@ describe("resolveEffectiveProviderReadiness", () => {
         installedWorkflowRequirement: "ci_secrets",
         providers: gateway,
         gatewayAccountReady: true,
-        gatewayAuthorizationReady: true,
+        gatewayAuthorization: "ready",
       },
       {
         healthStatus: "healthy",
         workflowCurrent: false,
         workflowUpdateRequired: true,
+        step: "setup_pr",
+      },
+    ],
+    [
+      "a merged Gateway setup waits for its verification, not another PR",
+      {
+        providers: gateway,
+        runtimeCompatibility: "unknown",
+        gatewayAccountReady: true,
+      },
+      {
+        verificationNeeded: true,
+        gatewayAuthorization: "not_established",
+        step: "merge_setup_pr",
+      },
+    ],
+    [
+      "a blocked Gateway authorization is not a verification step",
+      {
+        providers: gateway,
+        runtimeCompatibility: "unknown",
+        gatewayAccountReady: true,
+        gatewayAuthorization: "blocked",
+      },
+      {
+        verificationNeeded: true,
+        gatewayAuthorization: "blocked",
+        step: "setup_pr",
+      },
+    ],
+    [
+      "a Gateway workflow that needs an update stays on the first step",
+      {
+        providers: gateway,
+        runtimeCompatibility: "update_required",
+        gatewayAccountReady: true,
+      },
+      { verificationNeeded: false, step: "setup_pr" },
+    ],
+    [
+      "other unverified workflows keep verification on the first step",
+      { providers: openRouter, runtimeCompatibility: "unknown" },
+      {
+        verificationNeeded: true,
+        gatewayAuthorization: "none",
         step: "setup_pr",
       },
     ],

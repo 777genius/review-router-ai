@@ -3,6 +3,7 @@ import {
   findReviewConfiguration,
   parseRepositoryReviewPolicy,
   STORED_REVIEW_POLICY_SCHEMA_VERSION,
+  withProviderSelections,
   type ProviderProfileDraft,
 } from "@reviewrouter/features-review-config";
 import {
@@ -78,7 +79,12 @@ export async function switchRepositoryConfigurationAuthMode(input: {
     writes: [
       {
         target: repositoryTarget,
-        policy: { ...repositoryPolicy, providers: selections },
+        // The repository keeps the roster's mode, also an inherited one.
+        policy: withProviderSelections(
+          repositoryPolicy,
+          selections,
+          current.providerMode,
+        ),
         expectedVersion: current.repositoryVersion,
       },
     ],

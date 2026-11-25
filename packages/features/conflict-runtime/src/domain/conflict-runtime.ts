@@ -4,7 +4,7 @@ import {
   conflictReviewAdvisoryStatusContext,
   conflictReviewSummaryMaxBytes,
   type ActionConflictReviewRuntimeConfig,
-} from "@reviewrouter/features-action-control-plane";
+} from "@reviewrouter/features-action-control-plane/conflict-runtime-contract";
 import { z } from "zod";
 
 export const conflictRuntimeProviderEnvAllowlist = [
@@ -22,6 +22,7 @@ export const conflictRuntimeProviderEnvAllowlist = [
   "CODEX_CONFIG_TOML",
   "OPENAI_API_KEY",
   "MIMO_TOKEN_PLAN_API_KEY",
+  "REVIEW_OUTPUT_LANGUAGE",
 ] as const;
 
 export const conflictRuntimeForbiddenProviderEnvPatterns = [

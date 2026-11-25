@@ -7,7 +7,6 @@ export enum ReviewSkillsErrorCode {
   LimitExceeded = "limit_exceeded",
   DependencyExists = "dependency_exists",
   StaleGrant = "stale_grant",
-  Unsupported = "unsupported",
   Incomplete = "incomplete",
   RateLimited = "rate_limited",
 }

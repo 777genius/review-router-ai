@@ -52,9 +52,17 @@ import {
   getSetupProvider,
   setupProviderForSource,
   setupProviderForGatewayProfile,
+  connectsInProviderDialog,
   type SetupProviderId,
 } from "../../../src/features/provider-setup/setup-provider";
-import { gatewayProviderModelOptions } from "../../../src/features/provider-setup/provider-model-options";
+import {
+  gatewayProviderModelOptions,
+  suggestedModel,
+} from "../../../src/features/provider-setup/provider-model-options";
+import {
+  InlineGatewayConnect,
+  useInlineGatewayConnect,
+} from "./gateway-credential-section";
 import { ManagedKeyResults } from "./managed-key-results";
 import { GatewayAccountLoadMore } from "./gateway-account-load-more";
 import {
@@ -83,6 +91,10 @@ import { dashboardPath, dashboardSectionHref } from "../dashboard-section";
 import { GatewayConnectionTest } from "../gateway-connection-test";
 import { useGatewayModelAccounts } from "../gateway-model-account-options";
 import { GatewayModelCatalogStatus } from "../gateway-model-catalog-status";
+import {
+  GatewayAccountListStatus,
+  GatewayReviewSettingsStatus,
+} from "./gateway-account-status";
 import { AccountProviderLogo } from "../account-identity";
 import { ProviderAuthLogoFrame } from "../provider-auth-logo";
 import { ProviderLogo } from "../provider-logo";
@@ -305,6 +317,14 @@ function ProviderSetupDialogBody({
   const [chooseOther, setChooseOther] = useState(false);
   const [chooseRoster, setChooseRoster] = useState(false);
   const [choiceVersion, setChoiceVersion] = useState(0);
+  // An open connect request (79) keeps the provider form mounted; the ref
+  // also stops a reload that was already reading when the request started.
+  const [connecting, setConnecting] = useState(false);
+  const connectingNow = useRef(false);
+  const handleConnecting = useCallback((value: boolean) => {
+    connectingNow.current = value;
+    setConnecting(value);
+  }, []);
   const openedRoster = useRef<boolean | null>(null);
   const [savedWorkspaceDefault, setSavedWorkspaceDefault] = useState(false);
   const handleCredentialBusy = useCallback(
@@ -404,7 +424,7 @@ function ProviderSetupDialogBody({
               <li>
                 <StepButton
                   current={step === "provider"}
-                  disabled={locked}
+                  disabled={locked || connecting}
                   onSelect={() => setStep("provider")}
                 >
                   1. Provider
@@ -413,7 +433,7 @@ function ProviderSetupDialogBody({
               <li>
                 <StepButton
                   current={step === "credentials"}
-                  disabled={locked}
+                  disabled={locked || connecting}
                   onSelect={() => setStep("credentials")}
                 >
                   2. {credentialStepLabel(credentialStep)}
@@ -540,7 +560,7 @@ function ProviderSetupDialogBody({
                     variant="outline"
                     size="sm"
                     className="w-fit"
-                    disabled={locked}
+                    disabled={locked || connecting}
                     onClick={() => {
                       setChooseOther(false);
                       setChooseRoster(true);
@@ -553,7 +573,7 @@ function ProviderSetupDialogBody({
                   key={choiceVersion}
                   onReload={async () => {
                     const latest = await view.refetch();
-                    if (latest.isSuccess)
+                    if (latest.isSuccess && !connectingNow.current)
                       setChoiceVersion((value) => value + 1);
                   }}
                   workspaceId={workspaceId}
@@ -567,6 +587,7 @@ function ProviderSetupDialogBody({
                   gatewayAccounts={gatewayAccounts}
                   agentProfileOptions={agentProfileOptions}
                   onLockedChange={onLockedChange}
+                  onConnectingChange={handleConnecting}
                   initialIntent={initialIntent}
                   onSaved={async (outcome) => {
                     await completion.complete();
@@ -730,6 +751,7 @@ function ProviderChoiceStep({
   gatewayAccounts,
   agentProfileOptions,
   onLockedChange,
+  onConnectingChange,
   onSaved,
   initialIntent,
 }: {
@@ -746,6 +768,7 @@ function ProviderChoiceStep({
   readonly gatewayAccounts: AccountsResult<AccountsPage> | undefined;
   readonly agentProfileOptions: readonly GatewayAgentProfileOption[];
   readonly onLockedChange: (locked: boolean) => void;
+  readonly onConnectingChange: (connecting: boolean) => void;
   readonly onSaved: (outcome: SaveOutcome) => Promise<void>;
   readonly initialIntent?: ApiKeySetupIntent | undefined;
 }): React.ReactElement {
@@ -897,6 +920,8 @@ function ProviderChoiceStep({
   const [error, setError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // A model the user picked is never replaced by a suggestion.
+  const [modelTouched, setModelTouched] = useState(false);
 
   const source =
     choice?.kind === "new"
@@ -917,9 +942,8 @@ function ProviderChoiceStep({
     gatewayOptions.accounts?.status === "ok"
       ? gatewayOptions.accounts.value
       : null;
-  const gatewayAccountList = getGatewaySetupAccounts(
-    gatewayOptions.accounts,
-  ).filter((account) =>
+  const gatewaySetupAccounts = getGatewaySetupAccounts(gatewayOptions.accounts);
+  const gatewayAccountList = gatewaySetupAccounts.filter((account) =>
     gatewayPage?.profiles.some(
       (profile) =>
         profile.id === account.profileId &&
@@ -983,6 +1007,22 @@ function ProviderChoiceStep({
           requiresTools: settings?.agenticContext ?? true,
         })
       : publicModelOptions;
+  const modelStatus =
+    authMode === "codex_account_gateway" && gatewayBindingId ? (
+      <GatewayModelCatalogStatus
+        account={resolvedGatewayAccount}
+        profile={gatewayProfile}
+        accounts={gatewayOptions}
+        bindingId={gatewayBindingId}
+        publicCatalog={
+          source?.key === "gateway_binding" && catalogProvider
+            ? catalogs.status(catalogProvider)
+            : null
+        }
+      />
+    ) : source && source.key !== "gateway_binding" && catalogProvider ? (
+      <ProviderModelCatalogStatus status={catalogs.status(catalogProvider)} />
+    ) : null;
   const gatewayReadFailed =
     gatewayOptions.accounts?.status !== "ok" ||
     ("pageError" in gatewayOptions && gatewayOptions.pageError);
@@ -1033,6 +1073,10 @@ function ProviderChoiceStep({
     provider: SetupProviderId | null = null,
     storage: ApiKeyStorage = "reviewrouter",
   ): void {
+    // An open connect request (79) holds the provider choice in place.
+    if (inline.locked) return;
+    inline.reset();
+    setModelTouched(false);
     setChoice(next);
     setSettingsEdited(false);
     setError(null);
@@ -1125,16 +1169,26 @@ function ProviderChoiceStep({
     const githubSource = view.sources.find(
       (option) => option.key === githubSourceFor(provider, claudeMethod),
     );
-    const gatewayAllowed = view.sources.some(
-      (option) => option.key === "gateway_binding" && option.decision.allowed,
+    const gatewaySource = view.sources.find(
+      (option) => option.key === "gateway_binding",
     );
-    const gatewaySupported = view.gatewaySetupProviders
-      ? view.gatewaySetupProviders.includes(provider)
-      : gatewayPage?.profiles.some(
-          (profile) =>
-            profile.availability !== "deployment_configuration_required" &&
-            setupProviderForGatewayProfile(profile) === provider,
-        );
+    const gatewayAllowed = gatewaySource?.decision.allowed;
+    // Enrollment availability does not withdraw an existing authorized binding.
+    const gatewaySupported =
+      gatewaySetupAccounts.some(
+        (account) =>
+          setupProviderForGatewayProfile(gatewayOptions.profileFor(account)) ===
+            provider &&
+          (account.origin !== "personal" ||
+            gatewaySource?.personalAccountDecision?.allowed !== false),
+      ) ||
+      (view.gatewaySetupProviders
+        ? view.gatewaySetupProviders.includes(provider)
+        : gatewayPage?.profiles.some(
+            (profile) =>
+              profile.availability !== "deployment_configuration_required" &&
+              setupProviderForGatewayProfile(profile) === provider,
+          ));
     return {
       githubUnavailable:
         githubSource?.decision.allowed ||
@@ -1178,13 +1232,10 @@ function ProviderChoiceStep({
     );
     if (eligible.length !== 1) return;
     const account = eligible[0]!;
-    const accountProfile = gatewayOptions.profileFor(account);
-    const nextModel =
-      accountProfile?.models.length === 1 ? accountProfile.models[0]! : "";
     setDraft((current) => ({
       ...current,
       bindingId: account.binding!.id,
-      model: nextModel,
+      model: "",
     }));
   }, [
     source,
@@ -1208,6 +1259,25 @@ function ProviderChoiceStep({
         }),
       );
   }
+  function chooseModel(next: string): void {
+    setModelTouched(true);
+    changeModel(next);
+  }
+  // A new account starts with a suggested model once its catalogue is known;
+  // a model the user picked or cleared is never replaced.
+  const modelSuggestion =
+    source?.key === "gateway_binding" &&
+    gatewayAccount &&
+    !draft.model &&
+    !modelTouched
+      ? suggestedModel(sourceModelOptions, setupProvider)
+      : "";
+  useEffect(() => {
+    if (!modelSuggestion) return;
+    setDraft((current) =>
+      current.model ? current : { ...current, model: modelSuggestion },
+    );
+  }, [modelSuggestion]);
 
   const unchanged =
     target.kind === "repository" &&
@@ -1228,12 +1298,41 @@ function ProviderChoiceStep({
     keyStorage === "github_secrets"
       ? storageAvailability?.githubUnavailable
       : storageAvailability?.reviewRouterUnavailable;
+  const inline = useInlineGatewayConnect({
+    available:
+      setupProvider !== null &&
+      keyStorage === "reviewrouter" &&
+      source?.key === "gateway_binding" &&
+      !storageAvailability?.reviewRouterUnavailable &&
+      gatewayPage?.profiles.some((candidate) =>
+        connectsInProviderDialog(candidate, setupProvider),
+      ) === true,
+    empty: gatewayInventoryEmpty,
+    readFailed: gatewayReadFailed,
+    onConnected: (bindingId) => {
+      setModelTouched(false);
+      setSettingsEdited(false);
+      setDraft((current) => ({ ...current, bindingId, model: "" }));
+    },
+  });
+  const connectLocked = inline.locked;
+  useEffect(() => {
+    onConnectingChange(connectLocked);
+    return () => onConnectingChange(false);
+  }, [connectLocked, onConnectingChange]);
+  const finishingConnection =
+    inline.connectedBinding !== null &&
+    draft.bindingId === inline.connectedBinding &&
+    !gatewayAccount &&
+    !gatewayReadFailed;
   const selectedDefaultUnavailable =
     choice?.kind === "default" && (!view.defaultSelection || !defaultProfile);
   const canSave =
     mutationsEnabled &&
     !readUnavailable &&
     !pending &&
+    // A sign-in in progress decides which account this provider uses.
+    !connectLocked &&
     choice !== null &&
     (!adding || choice.kind === "new") &&
     decision?.allowed === true &&
@@ -1543,7 +1642,7 @@ function ProviderChoiceStep({
           <RadioCardGroup
             label="Provider"
             value={groupValue}
-            disabled={pending}
+            disabled={pending || connectLocked}
             onValueChange={(value) => {
               if (value === defaultChoice) choose({ kind: "default" });
               else if (value === newProviderChoice)
@@ -1616,19 +1715,19 @@ function ProviderChoiceStep({
                 availability.githubUnavailable &&
                 availability.reviewRouterUnavailable,
               );
+              const description =
+                provider.githubSource === null
+                  ? availability.reviewRouterUnavailable
+                  : `${availability.reviewRouterUnavailable} ${availability.githubUnavailable}`;
               return {
                 value: provider.id,
                 label: provider.label,
                 icon: <ProviderLogo providerId={provider.identity} />,
                 disabled: unavailable,
-                ...(unavailable
-                  ? {
-                      description: `${availability.reviewRouterUnavailable} ${availability.githubUnavailable}`,
-                    }
-                  : {}),
+                ...(unavailable && description ? { description } : {}),
               };
             })}
-            disabled={pending}
+            disabled={pending || connectLocked}
             onValueChange={(value) =>
               chooseSetupProvider(value as SetupProviderId, "reviewrouter")
             }
@@ -1637,7 +1736,7 @@ function ProviderChoiceStep({
             <RadioCardGroup
               label="Claude authentication"
               value={claudeMethod}
-              disabled={pending}
+              disabled={pending || connectLocked}
               className="sm:grid-cols-2"
               onValueChange={(next) =>
                 chooseSetupProvider(
@@ -1666,7 +1765,7 @@ function ProviderChoiceStep({
               onValueChange={(storage) =>
                 chooseSetupProvider(setupProvider, storage)
               }
-              disabled={pending}
+              disabled={pending || connectLocked}
               credentialKind={
                 setupProvider === "codex"
                   ? "codex_session"
@@ -1680,6 +1779,9 @@ function ProviderChoiceStep({
                       : "api_key"
               }
               {...storageAvailability}
+              githubSupported={
+                getSetupProvider(setupProvider).githubSource !== null
+              }
             />
           ) : null}
           {setupProvider &&
@@ -1700,7 +1802,7 @@ function ProviderChoiceStep({
                       ? "automatic"
                       : "manual"
                   }
-                  disabled={pending}
+                  disabled={pending || connectLocked}
                   className="sm:grid-cols-2"
                   onValueChange={(delivery) =>
                     chooseSetupProvider(
@@ -1806,22 +1908,16 @@ function ProviderChoiceStep({
           keyStorage === "reviewrouter" &&
           source?.key === "gateway_binding" &&
           !storageAvailability?.reviewRouterUnavailable &&
+          !inline.supported &&
           gatewayInventoryEmpty ? (
             <div className="grid gap-2 text-sm text-slate-300">
               <p>
-                {getSetupProvider(setupProvider).credentialKind === "api_key"
-                  ? `Enter the ${getSetupProvider(setupProvider).label} API key in the connection form. It opens with this provider selected.`
-                  : `Sign in to ${getSetupProvider(setupProvider).label} in the connection form.`}{" "}
-                After connecting, return here to choose its model.
+                Connect a {getSetupProvider(setupProvider).label} account in
+                Connections, then choose it here.
               </p>
               <a
                 className="w-fit font-semibold text-cyan-200 underline"
-                href={apiKeySetupHref("accounts", {
-                  provider: setupProvider,
-                  storage: "reviewrouter",
-                  workspaceId,
-                  repositoryIds: repositoryIds(target),
-                })}
+                href={dashboardSectionHref("setup", workspaceId)}
               >
                 Connect account
               </a>
@@ -1832,12 +1928,8 @@ function ProviderChoiceStep({
             <SelectField
               label="Account"
               value={gatewayAccount?.binding?.id ?? ""}
-              placeholder={
-                gatewayAccountList.length === 0
-                  ? "No active accounts"
-                  : "Choose an account"
-              }
-              disabled={pending || gatewayAccountList.length === 0}
+              placeholder="Choose an account"
+              disabled={pending || connectLocked}
               options={gatewayAccountList.map((account) => {
                 const personalDenied =
                   account.origin === "personal" &&
@@ -1864,13 +1956,14 @@ function ProviderChoiceStep({
                   (candidate) => candidate.binding?.id === bindingId,
                 );
                 const nextProfile = gatewayOptions.profileFor(account);
-                const models = nextProfile?.models ?? [];
-                const nextModel = models.length === 1 ? models[0]! : "";
+                // The model follows from the account's catalogue (suggestedModel).
                 setSettingsEdited(false);
+                setModelTouched(false);
+                inline.reset();
                 setSettings(
                   defaultProviderSelectionSettings({
                     authMode: source.authMode,
-                    model: nextModel,
+                    model: "",
                     connection: nextProfile?.connection,
                     gatewayProfileRef: nextProfile?.id,
                   }),
@@ -1878,40 +1971,44 @@ function ProviderChoiceStep({
                 setDraft((current) => ({
                   ...current,
                   bindingId,
-                  model: nextModel,
+                  model: "",
                 }));
               }}
-              hint={
-                gatewayAccountList.length === 0
-                  ? "Connect and activate an account in Accounts first."
-                  : "This connected account is reused. Credentials stay on the ReviewRouter server."
+              hint="This connected account is reused. Credentials stay on the ReviewRouter server."
+            />
+          ) : null}
+          {setupProvider ? (
+            <InlineGatewayConnect
+              inline={inline}
+              provider={setupProvider}
+              empty={gatewayInventoryEmpty}
+              hasAccounts={
+                gatewayAccountList.length > 0 || gatewayInventoryIncomplete
               }
+              selectedBinding={gatewayAccount?.binding?.id}
+              finishing={finishingConnection}
+              onRecheck={gatewayOptions.recheck}
+              deniedReason={
+                source?.personalAccountDecision?.allowed === false
+                  ? deniedText(source.personalAccountDecision)
+                  : undefined
+              }
+              disabled={pending}
             />
           ) : null}
           {source?.key === "gateway_binding" ? (
             <>
-              {gatewayOptions.loading && !gatewayAccount ? (
+              {gatewayOptions.loading &&
+              !gatewayAccount &&
+              !finishingConnection ? (
                 <p role="status" className="text-sm text-slate-400">
                   Loading available accounts…
                 </p>
               ) : gatewayReadFailed ? (
-                <div className="grid gap-2 text-sm text-slate-400">
-                  <p role="status">
-                    {gatewayOptions.accounts?.status === "denied"
-                      ? "Account access is unavailable. Check this workspace's access before continuing."
-                      : "Accounts could not be loaded. Try again before choosing a connection."}
-                  </p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="w-fit"
-                    disabled={gatewayOptions.loading}
-                    onClick={() => gatewayOptions.refresh()}
-                  >
-                    Retry accounts
-                  </Button>
-                </div>
+                <GatewayAccountListStatus
+                  accounts={gatewayOptions}
+                  busy={pending}
+                />
               ) : gatewayAccountList.length === 0 &&
                 gatewayInventoryIncomplete ? (
                 <p role="status" className="text-sm text-slate-400">
@@ -1991,8 +2088,9 @@ function ProviderChoiceStep({
           )}
           {modelOnly ? (
             <ProviderModelPicker
+              status={modelStatus}
               model={model}
-              onModelChange={changeModel}
+              onModelChange={chooseModel}
               modelOptions={sourceModelOptions}
               modelChoice="catalog"
               allowCustomModel={source?.key !== "gateway_binding"}
@@ -2003,9 +2101,10 @@ function ProviderChoiceStep({
             <ProviderModelFields
               authMode={authMode}
               model={model}
+              modelStatus={modelStatus}
               settingsReady={settingsReady}
               emptyListPlaceholder="No models available for this account"
-              onModelChange={source ? changeModel : null}
+              onModelChange={source ? chooseModel : null}
               modelOptions={sourceModelOptions}
               modelChoice="catalog"
               allowCustomModel={source?.key !== "gateway_binding"}
@@ -2028,38 +2127,11 @@ function ProviderChoiceStep({
           authMode === "codex_account_gateway" &&
           model.trim() &&
           !settingsReady ? (
-            <div className="grid gap-2 text-sm text-slate-400">
-              <p role="status">
-                {gatewayOptions.loading
-                  ? "Loading review settings for this model…"
-                  : "Review settings are unavailable for this model. Refresh accounts or choose a different provider."}
-              </p>
-              {gatewayOptions.canRefresh ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="w-fit"
-                  disabled={gatewayOptions.loading}
-                  onClick={() => gatewayOptions.refresh()}
-                >
-                  Refresh accounts
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-          {authMode === "codex_account_gateway" && gatewayBindingId ? (
-            <GatewayModelCatalogStatus
+            <GatewayReviewSettingsStatus
+              accounts={gatewayOptions}
               account={resolvedGatewayAccount}
-              loading={gatewayOptions.loading}
-              canRefresh={gatewayOptions.canRefresh}
-              onRefresh={() => gatewayOptions.refreshModels(gatewayBindingId)}
-            />
-          ) : null}
-          {source && catalogProvider ? (
-            <ProviderModelCatalogStatus
-              status={catalogs.status(catalogProvider)}
-              publicSelection={source.key !== "gateway_binding"}
+              profile={gatewayProfile}
+              bindingId={gatewayBindingId}
             />
           ) : null}
           {modelOnly ? (
@@ -2121,7 +2193,7 @@ function ProviderChoiceStep({
             variant="outline"
             size="sm"
             className="w-fit"
-            disabled={pending}
+            disabled={pending || connectLocked}
             onClick={() => void onReload()}
           >
             Reload saved choices
@@ -2386,7 +2458,7 @@ function AssignmentResults({
 function sourceDescription(option: ProviderSourceOption): string {
   switch (option.credentialKind) {
     case "gateway_binding":
-      return "An account connected in Accounts. The credential stays on the server; nothing is added to GitHub.";
+      return "An account connected in Connections. The credential stays on the server; nothing is added to GitHub.";
     case "managed_api_key":
       return option.managedKey?.uploaded
         ? "ReviewRouter installs the saved key in each repository."

@@ -104,11 +104,10 @@ describe.skipIf(!enabled)(
         const names = (await readdir(migrations))
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
-        // Replay all current migrations, including the additive Claude API-key profile.
-        expect(names).toHaveLength(162);
-        expect(names.slice(-25)).toEqual([
-          "000136_review_skills",
-          "000137_review_skills_capture",
+        // Replay all current migrations, including the additive Claude API-key
+        // profile, provider-quota allocation and immutable credential-import method.
+        expect(names).toHaveLength(165);
+        expect(names.slice(-26)).toEqual([
           "000138_pr_description",
           "000139_review_context_tools",
           "000140_personal_oauth_method",
@@ -132,6 +131,9 @@ describe.skipIf(!enabled)(
           "000155_usage_member_report_index",
           "000156_verified_thread_reply",
           "000157_claude_code_api_key_secret",
+          "000158_review_run_allocation_provider_quota",
+          "000159_producer_reviewer_plan_v2",
+          "000160_personal_credential_import_method",
         ]);
         let legacyBefore: unknown;
         let legacyBefore146: unknown;

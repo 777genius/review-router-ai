@@ -16,20 +16,32 @@ import { workspacePolicyFixture } from "../../../packages/features/review-config
 import { createReviewRunGatewayCheckout } from "./review-run-gateway-checkout";
 import type { ReadSelectedGatewayModelSettings } from "./review-run-gateway-model-settings";
 
-function fixture(count = 2, sharedAllocation = false) {
-  const profileRef = "openrouter-openai-responses-apikey-v1";
+function fixture(
+  count = 2,
+  sharedAllocation = false,
+  profileRef:
+    | string
+    | readonly string[] = "openrouter-openai-responses-apikey-v1",
+  repositoryFullName = "owner/repo",
+  githubRepositoryId = "456",
+) {
   const configuration = parseReviewConfigurationStrict({
     ...workspacePolicyFixture,
     providers: Array.from({ length: count }, (_, index) => ({
       kind: "codex",
       authMode: "codex_account_gateway",
-      model: `openai/qualified-model-${index}`,
+      model:
+        (typeof profileRef === "string" ? profileRef : profileRef[index]) ===
+        "nvidia-build-chat-apikey-v1"
+          ? "nvidia/nemotron-3.5-super-vl-120b-a12b"
+          : `openai/qualified-model-${index}`,
       reasoningEffort: index % 2 === 0 ? "high" : "medium",
       agenticContext: true,
       fastMode: false,
       requiredHealthy: true,
       gatewayBindingId: `binding-${sharedAllocation ? 0 : index}`,
-      gatewayProfileRef: profileRef,
+      gatewayProfileRef:
+        typeof profileRef === "string" ? profileRef : profileRef[index]!,
     })),
     execution: {
       providerLimit: count,
@@ -94,7 +106,8 @@ function fixture(count = 2, sharedAllocation = false) {
         policySubject: `binding-${index}`,
         policyRevision: 1,
         permittedAccountRef: `private-account-${index}`,
-        profileRef,
+        profileRef:
+          typeof profileRef === "string" ? profileRef : profileRef[index]!,
         invocationId: `invocation-${index}`,
         attemptId: `attempt-${index}`,
         operationId: `operation-${index}`,
@@ -152,6 +165,18 @@ function fixture(count = 2, sharedAllocation = false) {
     permissions: { contents: "read" as const, pullRequests: "read" as const },
   }));
   let parentLive = true;
+  const repository = vi.fn(
+    async () =>
+      ({
+        githubInstallationId: "123",
+        githubRepositoryId,
+        repositoryFullName,
+      }) as {
+        githubInstallationId: string;
+        githubRepositoryId: string;
+        repositoryFullName: string;
+      } | null,
+  );
   const checkout = createReviewRunGatewayCheckout({
     authorizations: {
       resolveReviewRunAuthorizationToken: async () => ({
@@ -167,11 +192,7 @@ function fixture(count = 2, sharedAllocation = false) {
       attach: async () => ({ status: "denied" }),
     },
     confirmAuthority: async () => parentLive,
-    resolveRepository: async () => ({
-      githubInstallationId: "123",
-      githubRepositoryId: "456",
-      repositoryFullName: "owner/repo",
-    }),
+    resolveRepository: repository,
     issuer: { issueContentsReadToken: issuer },
     readSelectedModelSettings: settings,
     maxInFlight: 4,
@@ -179,8 +200,10 @@ function fixture(count = 2, sharedAllocation = false) {
   });
   return {
     snapshot,
+    configuration,
     authorization,
     deniedAllocations,
+    repository,
     settings,
     issuer,
     revokeParent: () => {
@@ -188,13 +211,103 @@ function fixture(count = 2, sharedAllocation = false) {
     },
     issue: () =>
       checkout.issue("verified-parent-token", new AbortController().signal, {
-        providerInstanceId: "codex-rotating:456",
+        providerInstanceId: `codex-rotating:${githubRepositoryId}`,
         workflowSchemaVersion: 2,
       }),
   };
 }
 
 describe("multi-reviewer checkout projection", () => {
+  it("exports each authorized profile by exact reviewer despite later config and environment changes", async () => {
+    const profiles = [
+      "openrouter-openai-responses-apikey-v1",
+      "openai-codex-oauth-responses-v1",
+    ];
+    const f = fixture(2, false, profiles);
+    // Saved configuration can change after authorization; checkout uses its snapshot.
+    f.configuration.providers.reverse();
+    vi.stubEnv(
+      "REVIEW_ROUTER_GATEWAY_PROFILE_REF",
+      "unrelated-current-profile",
+    );
+    vi.stubEnv(
+      "REVIEW_ROUTER_GATEWAY_REVIEWER_PROFILES_JSON",
+      '{"reviewer-0":"unrelated-current-profile"}',
+    );
+    try {
+      const result = await f.issue();
+      const env = result.runtimeConfig.runtimeEnv;
+      expect(
+        JSON.parse(env.REVIEW_ROUTER_GATEWAY_REVIEWER_PROFILES_JSON!),
+      ).toEqual({
+        "reviewer-0": profiles[0],
+        "reviewer-1": profiles[1],
+      });
+      expect(env).not.toHaveProperty("REVIEW_ROUTER_GATEWAY_PROFILE_REF");
+      // Existing clients still receive strings and the unchanged strict reviewer plan.
+      expect(
+        Object.values(env).every((value) => typeof value === "string"),
+      ).toBe(true);
+      const plan = parseReviewReviewerPlan(
+        JSON.parse(env[reviewerPlanContract.runtimeEnvKey]!),
+      );
+      expect(plan.reviewers.map((reviewer) => reviewer.reviewerId)).toEqual([
+        "reviewer-0",
+        "reviewer-1",
+      ]);
+      expect(
+        plan.reviewers.every((reviewer) => !("gatewayProfileRef" in reviewer)),
+      ).toBe(true);
+      expect(JSON.stringify(result)).not.toContain("private-account");
+      expect(JSON.stringify(result)).not.toContain("private-connection");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("exports the captured legacy profile without inventing a reviewer map", async () => {
+    const f = fixture(1);
+    const {
+      primaryReviewerId: _primary,
+      maxParallelReviewers: _parallel,
+      inlineMinAgreement: _agreement,
+      reviewers,
+      allocations,
+      ...common
+    } = f.snapshot;
+    const { allocationId: _allocation, ...gateway } = allocations[0]!;
+    void _primary;
+    void _parallel;
+    void _agreement;
+    void _allocation;
+    const legacy = {
+      ...common,
+      snapshotVersion: 3,
+      agent: reviewers[0]!.agentProfile,
+      agentProfileDigest: reviewers[0]!.agentProfileDigest,
+      gateway: { ...gateway, providerIndex: 0 },
+    };
+    Object.assign(f.authorization, {
+      runtimeSnapshotCanonicalJson: canonicalJson(legacy),
+    });
+    f.settings.mockResolvedValue({
+      authorizationEpoch: 7,
+      settings: undefined,
+    });
+    f.configuration.providers[0]!.gatewayProfileRef =
+      "unrelated-current-profile";
+    const result = await f.issue();
+    expect(
+      result.runtimeConfig.runtimeEnv.REVIEW_ROUTER_GATEWAY_PROFILE_REF,
+    ).toBe("openrouter-openai-responses-apikey-v1");
+    expect(result.runtimeConfig.runtimeEnv).not.toHaveProperty(
+      "REVIEW_ROUTER_GATEWAY_REVIEWER_PROFILES_JSON",
+    );
+    expect(result.runtimeConfig.runtimeEnv).not.toHaveProperty(
+      reviewerPlanContract.runtimeEnvKey,
+    );
+  });
+
   it("reads each captured model by exact reviewer and shares one SCM checkout", async () => {
     const f = fixture();
     const result = await f.issue();
@@ -224,6 +337,58 @@ describe("multi-reviewer checkout projection", () => {
       "REVIEW_ROUTER_GATEWAY_MODEL_SETTINGS_JSON",
     );
   });
+
+  it.each([0, 1])(
+    "allows an authorized customer repository with NVIDIA reviewer %i",
+    async (nvidiaIndex) => {
+      const profiles = [
+        "openrouter-openai-responses-apikey-v1",
+        "openrouter-openai-responses-apikey-v1",
+      ];
+      profiles[nvidiaIndex] = "nvidia-build-chat-apikey-v1";
+      const f = fixture(2, false, profiles, "customer/private-source");
+      const result = await f.issue();
+      expect(result.repository).toBe("customer/private-source");
+      expect(f.issuer).toHaveBeenCalledExactlyOnceWith({
+        githubInstallationId: "123",
+        githubRepositoryId: "456",
+        repositoryFullName: "customer/private-source",
+      });
+      expect(
+        JSON.parse(
+          result.runtimeConfig.runtimeEnv
+            .REVIEW_ROUTER_GATEWAY_REVIEWER_PROFILES_JSON!,
+        ),
+      ).toEqual({ "reviewer-0": profiles[0], "reviewer-1": profiles[1] });
+      expect(JSON.stringify(result)).not.toContain("private-account");
+    },
+  );
+
+  it.each(["missing repository", "foreign authority", "stale allocation"])(
+    "refuses NVIDIA checkout with %s before issuing an SCM token",
+    async (failure) => {
+      const f = fixture(
+        1,
+        false,
+        "nvidia-build-chat-apikey-v1",
+        "customer/private-source",
+      );
+      if (failure === "missing repository")
+        f.repository.mockResolvedValue(null);
+      if (failure === "foreign authority") f.revokeParent();
+      if (failure === "stale allocation") {
+        const snapshot = JSON.parse(
+          f.authorization.runtimeSnapshotCanonicalJson!,
+        );
+        snapshot.allocations[0].bindingId = "foreign-binding";
+        Object.assign(f.authorization, {
+          runtimeSnapshotCanonicalJson: canonicalJson(snapshot),
+        });
+      }
+      await expect(f.issue()).rejects.toThrow();
+      expect(f.issuer).not.toHaveBeenCalled();
+    },
+  );
 
   it("retains failed allocation coverage and exports a healthy sibling", async () => {
     const f = fixture();

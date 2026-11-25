@@ -1,7 +1,7 @@
 /*! ReviewRouter Action third-party notices
 Bundled dependency identity:
 @vioxen/subscription-runtime 0.1.0-main.28
-777genius/ar@83a7329f4383b05ac5c39356b79f82f029182d42
+777genius/ar@c7543bc716411a5f899a790a735d09ed2530f779
 
                                  Apache License
                            Version 2.0, January 2004
@@ -133008,14 +133008,15 @@ var lifecycleVerificationContractV2 = Object.freeze({
 
 // packages/shared/src/review-reviewer-plan.ts
 var reviewerPlanContract = Object.freeze({
-  planVersion: 1,
+  planVersion: 2,
   maxReviewers: 16,
   maxPlanBytes: 65536,
   runtimeEnvKey: "REVIEW_ROUTER_REVIEWER_PLAN_JSON",
   reviewerIdHeader: "x-reviewrouter-reviewer-id",
   transport: "account_gateway",
   investigationDescriptorVersion: 3,
-  reviewerAvailability: 1
+  reviewerAvailability: 1,
+  providerModes: Object.freeze(["parallel", "fallback"])
 });
 
 // packages/features/codex-oauth-rotating/src/domain/runtime-migration.ts
@@ -138420,14 +138421,15 @@ function canonicalJson(value) {
 
 // packages/protocol-review-action-v2/src/generated/review-reviewer-plan.ts
 var reviewerPlanContract2 = Object.freeze({
-  planVersion: 1,
+  planVersion: 2,
   maxReviewers: 16,
   maxPlanBytes: 65536,
   runtimeEnvKey: "REVIEW_ROUTER_REVIEWER_PLAN_JSON",
   reviewerIdHeader: "x-reviewrouter-reviewer-id",
   transport: "account_gateway",
   investigationDescriptorVersion: 3,
-  reviewerAvailability: 1
+  reviewerAvailability: 1,
+  providerModes: Object.freeze(["parallel", "fallback"])
 });
 
 // packages/features/codex-oauth-rotating/src/action/provider-usage-delivery.ts

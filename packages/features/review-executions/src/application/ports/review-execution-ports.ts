@@ -1,5 +1,6 @@
 import type {
   FinalizedReviewProjectionArtifact,
+  ReviewCoverageExceptions,
   ReviewExecutionLimits,
   ReviewExecutionScope,
   ReviewExecutionSnapshot,
@@ -147,6 +148,8 @@ export type AcquireReviewInvocationLeaseCommand = {
   readonly now: Date;
   readonly expiresAt: Date;
   readonly resultReportUntil: Date;
+  /** Absolute authority bound; adapters must not shift it with caller clock skew. */
+  readonly notAfter?: Date;
   readonly retainUntil: Date;
   readonly limits: ReviewExecutionLimits;
 };
@@ -253,6 +256,8 @@ export type FinalizeReviewExecutionCommand = {
   readonly publicationNotAfter: Date;
   readonly permitEpoch: bigint;
   readonly allowPartial: boolean;
+  /** Server-verified facts that may excuse a required slot (plan 69). */
+  readonly coverageExceptions?: ReviewCoverageExceptions;
   readonly limits: ReviewExecutionLimits;
   readonly now: Date;
   readonly retainUntil: Date;

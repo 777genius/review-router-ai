@@ -10,6 +10,7 @@ import type {
 import {
   parseRepositoryReviewPolicy,
   STORED_REVIEW_POLICY_SCHEMA_VERSION,
+  withProviderSelections,
   type RepositoryReviewPolicy,
   type ReviewPolicyDocument,
   type ReviewProviderSelection,
@@ -197,15 +198,16 @@ export async function setOperatorReviewReasoningEffort(
       : await dependencies.mutations.commit({
           target,
           expectedRevisionToken: previous.revisionToken,
-          // The same profiles as before, now explicit with the new effort.
-          policy: {
-            ...repositoryPolicy,
-            providers: withSelectionReasoningEffort(
+          // The same roster as before, now explicit with the new effort.
+          policy: withProviderSelections(
+            repositoryPolicy,
+            withSelectionReasoningEffort(
               previous.selections,
               providerIndex,
               input.effort,
             ),
-          },
+            previous.providerMode,
+          ),
           auditEvent,
         });
   } catch (error) {
@@ -472,7 +474,11 @@ function codexBackedProviderIndex(
   return providerIndex;
 }
 
-/** Selections follow the order of the materialized runtime providers. */
+/**
+ * Selections follow the roster order, and the runtime providers are its
+ * leading part (a fallback roster runs only the first), so a runtime index
+ * names the same selection.
+ */
 function withSelectionReasoningEffort(
   selections: readonly ReviewProviderSelection[],
   providerIndex: number,

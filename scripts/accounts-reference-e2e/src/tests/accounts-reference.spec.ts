@@ -9,7 +9,7 @@ import {
   expectNetworkViolations,
   installLoopbackOnlyNetworkGuard,
   openAccounts,
-  organizationAccountsRegion,
+  connectionsListRegion,
   sourceRow,
   useOtherSession,
   useViewerSession,
@@ -35,7 +35,7 @@ test.describe("Accounts UX reference browser contract", () => {
     await useViewerSession(context);
     await openAccounts(page, "rr-e2e-personal-viewer");
     await expect(
-      page.getByRole("heading", { name: "My connections" }),
+      page.getByRole("heading", { name: "Connections", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByText("RR E2E Viewer Primary", { exact: true }),
@@ -90,7 +90,7 @@ test.describe("Accounts UX reference browser contract", () => {
     await installLoopbackOnlyNetworkGuard(page, violations);
     await useViewerSession(context);
     await openAccounts(page, "rr-e2e-org-alpha");
-    const region = organizationAccountsRegion(page);
+    const region = connectionsListRegion(page);
     await expect(region).toHaveCount(1);
     for (const label of [
       "RR E2E Viewer Primary",
@@ -101,6 +101,11 @@ test.describe("Accounts UX reference browser contract", () => {
     }
     const viewerRow = sourceRow(page, "RR E2E Viewer Primary", region);
     await expect(viewerRow.getByText(/^You$/)).toBeVisible();
+    // One list: no scope tabs, and the viewer's row says it is used here.
+    await expect(
+      page.getByRole("tab", { name: /^For this workspace$|connections$/ }),
+    ).toHaveCount(0);
+    await expect(viewerRow.getByText("Used in this workspace")).toBeVisible();
     await expect(viewerRow.locator('img[alt=""]')).toHaveCount(1);
     await expect(viewerRow.getByText(/rr-e2e-other-person/i)).toHaveCount(0);
     await expect(
@@ -129,6 +134,15 @@ test.describe("Accounts UX reference browser contract", () => {
     expect(
       ownerAccessibility.filter((value) => /github|gitlab/i.test(value)),
     ).toEqual([]);
+    // A usable connection is picked in Review providers, not Review settings.
+    await expect(
+      region
+        .getByRole("link", { name: "Choose for reviews", exact: true })
+        .first(),
+    ).toHaveAttribute(
+      "href",
+      /^\/dashboard\?section=providers&workspace=[^&#]+#dashboard-section-content$/,
+    );
     const fixtureDatabase =
       process.env.ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL!;
     try {
@@ -154,6 +168,52 @@ test.describe("Accounts UX reference browser contract", () => {
           "admin",
           "rr-e2e-member-other-alpha",
         ]),
+      );
+    }
+    await expectNetworkViolations(violations);
+  });
+
+  test("an organization connection is removed from the workspace once, with confirmation, and can be added back", async ({
+    page,
+    context,
+  }) => {
+    const violations: string[] = [];
+    await installLoopbackOnlyNetworkGuard(page, violations);
+    await useViewerSession(context);
+    await openAccounts(page, "rr-e2e-org-alpha");
+    const region = connectionsListRegion(page);
+    const label = FIXTURES.sourceLabels.orgAlpha;
+    const row = sourceRow(page, label, region);
+    await expect(row).toHaveCount(1);
+    // One entry for removal: no row Access button, one menu item.
+    await expect(row.getByRole("button", { name: "Access" })).toHaveCount(0);
+    const fixtureDatabase =
+      process.env.ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL!;
+    try {
+      await row.getByRole("button", { name: `Actions for ${label}` }).click();
+      await expect(
+        page.getByRole("menuitem", { name: "Remove from this workspace" }),
+      ).toHaveCount(1);
+      await page
+        .getByRole("menuitem", { name: "Remove from this workspace" })
+        .click();
+      const dialog = dialogFor(page);
+      await expect(dialog.getByText(/stays in this list/)).toBeVisible();
+      await dialog.getByRole("button", { name: "Remove", exact: true }).click();
+      await expect(row.getByText("Not added to this workspace")).toBeVisible();
+      // The row's own menu offers adding it back once the gateway confirms.
+      await row.getByRole("button", { name: `Actions for ${label}` }).click();
+      const add = page.getByRole("menuitem", { name: "Add to this workspace" });
+      await expect(add).toBeEnabled();
+      await add.click();
+      await expect(row.getByText("Used in this workspace")).toBeVisible();
+    } finally {
+      // Later specs use this binding; restore it if the UI path stopped early.
+      await withDatabase(fixtureDatabase, (db) =>
+        db.query(
+          `UPDATE "WorkspaceAccountBinding" SET state='active', "pendingFenceOperationId"=NULL, "pendingFencePolicySubject"=NULL, "pendingFencePolicyRevision"=NULL WHERE id=$1 AND state<>'active'`,
+          [FIXTURES.bindings.orgAlpha],
+        ),
       );
     }
     await expectNetworkViolations(violations);
@@ -244,9 +304,11 @@ test.describe("Accounts UX reference browser contract", () => {
     await trigger.click();
     const dialog = dialogFor(page);
     await expect(dialog).toBeVisible();
+    // The grant row is the closest block that also holds its Remove action;
+    // the workspace name sits inside a nested identity block.
     const alphaGrant = dialog
       .getByText("RR E2E Org Alpha", { exact: true })
-      .locator("xpath=../..");
+      .locator("xpath=ancestor::div[.//button][1]");
     await alphaGrant.getByRole("button", { name: /^Remove access$/ }).click();
     await expect
       .poll(async () =>
@@ -472,7 +534,7 @@ test.describe("Accounts UX reference browser contract", () => {
           selected: true,
         }),
       ).toBeVisible();
-      const region = organizationAccountsRegion(page);
+      const region = connectionsListRegion(page);
       await expect(
         sourceRow(page, FIXTURES.sourceLabels.viewerPrimary, region),
       ).toHaveCount(1);

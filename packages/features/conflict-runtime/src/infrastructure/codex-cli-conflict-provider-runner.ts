@@ -8,7 +8,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ActionConflictReviewRuntimeConfig } from "@reviewrouter/features-action-control-plane";
+import type { ActionConflictReviewRuntimeConfig } from "@reviewrouter/features-action-control-plane/conflict-runtime-contract";
 import type { ConflictRuntimeProviderRunnerPort } from "../application/conflict-runtime-runner.js";
 import {
   parseConflictRuntimeModelOutput,
@@ -216,7 +216,7 @@ function conflictReviewLanguageDirective(
   }
   return [
     "",
-    `Write "summaryMarkdown" and every finding "message" in ${language}. Keep the JSON structure, field names, severity values, file paths, and code identifiers unchanged; never translate code or JSON keys.`,
+    `Write "summaryMarkdown" and every finding "title" and "body" in ${language}. Keep the JSON structure, field names, severity values, file paths, and code identifiers unchanged; never translate code or JSON keys.`,
   ];
 }
 

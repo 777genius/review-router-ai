@@ -18,6 +18,7 @@ import { LoadingLinkButton } from "../loading-link-button";
 import { LogoMark } from "../logo-mark";
 import { safeGitHubDashboardLink } from "../../src/server/safe-dashboard-link";
 import { createNoIndexPageMetadata } from "../seo";
+import { SetupInstallRefresher } from "./setup-install-refresher";
 
 export const dynamic = "force-dynamic";
 
@@ -137,7 +138,10 @@ export default async function SetupPage({
       </section>
 
       {setupNotice && mutationStatus.signedIn ? (
-        <GitHubAppInstallHandoffCard notice={setupNotice} />
+        <>
+          <GitHubAppInstallHandoffCard notice={setupNotice} />
+          <SetupInstallRefresher />
+        </>
       ) : null}
 
       {resultNotice ? (
@@ -336,12 +340,13 @@ function GitHubAppInstallHandoffCard({
             </span>
           </div>
           <h2 className="mt-4 min-w-0 text-2xl font-semibold text-cyan-50">
-            Waiting for GitHub metadata.
+            Waiting for GitHub metadata
           </h2>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
             GitHub confirmed the App installation. ReviewRouter is waiting for
-            the signed webhook, which normally arrives within a few seconds.
-            Refresh this page or open the dashboard after metadata catches up.
+            the signed webhook, which normally arrives within a few seconds. For
+            the next few minutes this page checks again by itself and opens the
+            dashboard when the installation is linked.
           </p>
         </div>
         <div className="grid gap-3 sm:flex sm:flex-wrap lg:justify-end">
@@ -387,8 +392,8 @@ function SetupStartCard({
           </Badge>
           <h2 className="mt-4 text-2xl font-semibold text-cyan-50">
             {hasConnectedApp
-              ? "Open your dashboard."
-              : "Start by selecting repositories."}
+              ? "Open your dashboard"
+              : "Start by selecting repositories"}
           </h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
             {hasConnectedApp

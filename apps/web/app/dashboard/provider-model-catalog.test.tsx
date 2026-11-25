@@ -49,10 +49,7 @@ function Consumer({ kind }: { kind: PublicCatalogProvider }) {
   const catalogs = useProviderModelCatalogs([]);
   return (
     <>
-      <ProviderModelCatalogStatus
-        status={catalogs.status(kind)}
-        publicSelection
-      />
+      <ProviderModelCatalogStatus status={catalogs.status(kind)} />
       <div data-testid="options">
         {catalogs.options.map((option) => option.value).join(",")}
       </div>
@@ -135,7 +132,9 @@ describe("public model catalog query", () => {
       expect(
         screen.getByText("Access to these models has not been checked."),
       ).toBeTruthy();
-      expect(screen.getByRole("status").textContent).toContain("up to date");
+      expect(screen.getByRole("status").textContent).toContain(
+        "Model list updated",
+      );
       fireEvent.click(screen.getByRole("button", { name: "Refresh models" }));
       await waitFor(() => expect(api).toHaveBeenCalledTimes(1));
       expect(api.mock.calls[0]?.[0]).toMatchObject({
@@ -147,14 +146,23 @@ describe("public model catalog query", () => {
         "providerKind",
         "signal",
       ]);
+      // A cooldown answer for a healthy source is no failure: the line keeps
+      // reporting the list and its small refresh.
       await waitFor(() =>
-        expect(screen.getByRole("status").textContent).toContain(
-          "Please wait before refreshing again",
-        ),
+        expect(
+          (
+            screen.getByRole("button", {
+              name: "Refresh models",
+            }) as HTMLButtonElement
+          ).disabled,
+        ).toBe(false),
+      );
+      expect(screen.getByRole("status").textContent).toContain(
+        "Model list updated",
       );
     },
   );
-  it("shows upstream failure even when the last successful snapshot is still fresh", () => {
+  it("shows upstream failure even when the last successful snapshot is still fresh", async () => {
     const api = vi.fn();
     render(
       <ProviderModelCatalogProvider
@@ -172,9 +180,16 @@ describe("public model catalog query", () => {
       "Could not update the model list",
     );
     expect(screen.getByRole("status").textContent).toContain(
-      "Showing the last available model list",
+      "Showing the last available one",
     );
+    // A fresh list is not read again by itself; the failure offers Try again.
     expect(api).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith(
+        expect.objectContaining({ providerKind: "codex", forceRefresh: true }),
+      ),
+    );
   });
   it("revalidates stale initial data using its successful fetch time", async () => {
     const api = vi.fn(

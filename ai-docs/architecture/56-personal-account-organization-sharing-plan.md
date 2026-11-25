@@ -122,6 +122,8 @@ Canonical name владелец выбирает с предупреждение
 | Данные Y/usage/prompts/repos            | Только при отдельном Y access                                        | Нет из X                                     | Нет из X                                             | Нет                                       |
 | Список org, где расшарен A              | U: собственные binding refs, permitted label                         | Только X relation; нет other count           | Только X relation                                    | Нет                                       |
 
+Решение владельца 2026-11-17: подключение личного A, начатое в X, считается явным выбором X; при праве owner/admin A сразу добавляется в X тем же attach ([66](66-connect-attaches-to-current-workspace.md)). Профилей, запрещённых для организаций, нет: все провайдеры доступны во всех workspace ([70](70-all-providers-in-all-workspaces.md)).
+
 U после removal из X может видеть свои own binding handles и факт retirement/revoke, но не X name, repository list, membership, usage, current default. Own source revoke принимает opaque owner grant handle; X label после потери X access заменяется «Организация недоступна». Source owner не получает право просматривать outputs чужих runs. Другая org не получает global cap usage breakdown; safe `busy` без названия соседа.
 
 Текущий local admin GitHub login override не используется H ownership/attach/reauth/consume. Stable authenticated `User.id`, actual DB membership и server-authorized repo scope обязательны; operator S bypass не распространяется на personal catalog. GitHub membership/App install сами по себе не выдают H права.

@@ -98,6 +98,7 @@ export function parseCliOptions(
     runBrowserTests: !hasFlag(args, "--bootstrap-only"),
     expectedRevision: expectedRevision ?? null,
     browserExecutable: argumentValue(args, "--browser-executable") ?? null,
+    lowMemoryWebpack: hasFlag(args, "--low-memory-webpack"),
   };
 }
 

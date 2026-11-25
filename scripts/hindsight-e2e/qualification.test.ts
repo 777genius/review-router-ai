@@ -399,3 +399,39 @@ asyncio.run(main())
     assert.equal(result.stdout.trim(), "native_worker_config_restart_verified");
   },
 );
+
+test(
+  "pinned native operation pagination preserves every tied parent and child under different legal SQL plans",
+  { skip: !process.env.HINDSIGHT_SOURCE_CHECKOUT },
+  async () => {
+    const { files } = await prepare(process.env.HINDSIGHT_SOURCE_CHECKOUT!);
+    const engine = files["engine/memory_engine.py"]!;
+    const result = spawnSync(
+      "python3",
+      [
+        fileURLToPath(
+          new URL("./operation-pagination.test.py", import.meta.url),
+        ),
+      ],
+      {
+        input: JSON.stringify(engine),
+        encoding: "utf8",
+        timeout: 10_000,
+        maxBuffer: 256 * 1024,
+      },
+    );
+    assert.equal(
+      result.status,
+      0,
+      `Pinned native pagination regression did not complete: exit=${result.status ?? "null"} signal=${result.signal ?? "none"} spawnError=${(result.error as NodeJS.ErrnoException | undefined)?.code ?? "none"}`,
+    );
+    const report = JSON.parse(result.stdout) as {
+      before: { duplicate_page_ids: number; late_uuid_present: boolean };
+      after: { duplicate_page_ids: number; all_rows_discovered: boolean };
+    };
+    assert.equal(report.before.duplicate_page_ids, 1);
+    assert.equal(report.before.late_uuid_present, false);
+    assert.equal(report.after.duplicate_page_ids, 0);
+    assert.equal(report.after.all_rows_discovered, true);
+  },
+);

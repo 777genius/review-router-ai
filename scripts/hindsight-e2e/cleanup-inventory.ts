@@ -205,6 +205,54 @@ export function appendCleanupOperationPage(
   all.push(...page.operations);
   return page.total;
 }
+
+/** Complete public pagination must match the independent, drained database census. */
+export async function collectCleanupOperations(
+  readPage: (
+    offset: number,
+  ) => Promise<{ operations: CleanupOperation[]; total: number }>,
+  readOperation: (operationId: string) => Promise<CleanupOperation>,
+  readDatabaseOperationIds: () => Promise<unknown>,
+  requiredOperationIds: readonly string[],
+): Promise<Map<string, CleanupOperation>> {
+  const operations: CleanupOperation[] = [];
+  let total: number | undefined;
+  do {
+    total = appendCleanupOperationPage(
+      operations,
+      await readPage(operations.length),
+      total,
+    );
+  } while (operations.length < total);
+  const persistedIds = await readDatabaseOperationIds();
+  assert(
+    validIds(persistedIds, 10_000),
+    "Native operation database census is invalid or exceeds its bound",
+  );
+  const persisted = new Set(persistedIds);
+  assert(
+    operations.length === persisted.size &&
+      operations.every((operation) => persisted.has(operation.operation_id)),
+    "Public native operation pagination omitted persisted operation identities",
+  );
+  const discovered = new Map<string, CleanupOperation>();
+  for (const operation of operations) {
+    const full = await readOperation(operation.operation_id);
+    assert(
+      full &&
+        full.operation_id === operation.operation_id &&
+        full.status !== "not_found",
+      "Native full operation read did not match its listed identity",
+    );
+    discovered.set(full.operation_id, full);
+  }
+  assert(
+    discovered.size === total &&
+      requiredOperationIds.every((operationId) => discovered.has(operationId)),
+    "Historical/queued operation discovery incomplete",
+  );
+  return discovered;
+}
 const object = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
 function documentIds(value: unknown): string[] {

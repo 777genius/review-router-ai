@@ -159,7 +159,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
           ...(mixed ? [{ ...approvedOcr, binarySha256: ocrDigest }] : []),
         ],
         reviewerPlanProfile: {
-          planVersion: 1,
+          planVersion: 2,
           descriptorDigest: reviewerPlanDescriptorDigest,
         },
         ...(mixed ? { modelDispatchProfile } : {}),
@@ -519,7 +519,9 @@ const profileId = "openrouter-openai-responses-apikey-v1";
           env: {
             PATH: `${bin}:/usr/bin:/bin`,
             HOME: home,
-            NODE_OPTIONS: `--require=${preload}`,
+            NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${preload}`]
+              .filter(Boolean)
+              .join(" "),
             ...(mixed ? { REVIEWROUTER_OCR_BINARY: ocr } : {}),
             CI: "true",
             GITHUB_ACTIONS: "true",
@@ -572,10 +574,14 @@ const profileId = "openrouter-openai-responses-apikey-v1";
         if (
           scenario === "unavailable-primary" &&
           processError.code === 1 &&
-          processError.stdout?.includes("::error::required_admission_limited")
+          // Runtime 1.0.240 and older name a stopped reviewer's work
+          // admission_limited; later releases name the provider failure.
+          /::error::required_(?:admission_limited|work_exhausted)\b/.test(
+            processError.stdout ?? "",
+          )
         ) {
           output = {
-            stdout: redact(processError.stdout),
+            stdout: redact(processError.stdout ?? ""),
             stderr: redact(processError.stderr ?? ""),
           };
         } else {

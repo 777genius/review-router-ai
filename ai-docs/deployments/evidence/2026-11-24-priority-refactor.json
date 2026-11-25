@@ -1,0 +1,226 @@
+{
+  "scope": "PR #977 priority refactoring expansion; local qualification, not release or deployment",
+  "date": "2026-11-24",
+  "source": {
+    "head": "a5ed3e93072002efc04b1581a991d0b798065b46",
+    "tree": "345350b107abdb3c84d4aa8e199d6db82593cc32",
+    "integrationBase": "54d728ae25226ef4df3e00c481198d7f48c205f6",
+    "main": "18c57630b69334c9bfc071dc2500a952edc66f7a",
+    "sha256": {
+      "apps/api/src/review-action-v2-context-attestation-admission.ts": "68db94e4afe46e6af0fba485b3793c67c8be696437b479b0eac01f51030ff29f",
+      "apps/api/src/review-action-v2-context-attestation-composition.ts": "a8dbf395bbe1e108e0863466dacc15ec42f25a90d4454c5644e253cde72598bb",
+      "apps/api/src/review-action-v2-context-attestation-crypto.ts": "777b25a1dd131d8cf9efe8e9d840a68ff1863761856950769a98908a53192735",
+      "apps/api/src/review-action-v2-context-attestation-gateway.ts": "867618c1e466caf1d67e77753a083e32324aaba88d75c8c91446524d2f4ef214",
+      "apps/api/src/review-action-v2-context-attestation-replay-authority.ts": "73c945f2e365f26f1659f5c9fc8d7561cf66ab1534aa2126aea265f836a4bd5b",
+      "apps/api/src/review-action-v2-context-attestation-replay-material.ts": "4cc64bcfcb0ed280c52f6f1fd222d931dd2bb5a2573ecc8937e0ca1022df9d2f",
+      "apps/api/src/review-action-v2-context-attestation-replay.ts": "4ad7658391a4dd6468bc85295c928d40180ea1d845c36a7ec4b49e00b73f90fb",
+      "apps/api/src/review-action-v2-context-attestation-types.ts": "1ec4026ed6a6566770ee633397745139fe7de68ad6d43ecf61be93036ae4895d",
+      "apps/api/src/review-action-v2-context-attestation-validation.ts": "ec49e040f193950f117579d4dc2626a5e48cc86a058d1c3adb6b9dd496b20016",
+      "packages/features/review-executions/src/domain/review-execution-finalization-transitions.ts": "34ea0cbd23822a4e1cf62beffea7265dea9d56d51431df2ef961e38d9a753fd6",
+      "packages/features/review-executions/src/domain/review-execution-lease-transitions.ts": "f875c95cd4e87beaff3d0016f0cf14571d6a251e2fd7bc9b7ab48d6944e5f402",
+      "packages/features/review-executions/src/domain/review-execution-lifecycle-transitions.ts": "b7cda7d6b6edc9b1925a04c9eb069f8a3a6ba24611b7293dd6ad6dd3dded4bc9",
+      "packages/features/review-executions/src/domain/review-execution-observation-transitions.ts": "e25f94d1e7158b68c8427905f0e139dbd7d5471088e5081bafd36b595464c9bc",
+      "packages/features/review-executions/src/domain/review-execution-preparation-transitions.ts": "95de3cdadbf43418a079e6d3e8de2cb8f3dcff84a92bae3f8a470553369f4321",
+      "packages/features/review-executions/src/domain/review-execution-transition-invariants.ts": "b70cc9c1788d74777a09cab0d92cb267f7d3f2fd5b9f4ece41b4c83b797554b3",
+      "packages/features/review-executions/src/domain/review-execution-transitions.ts": "475741cadcef941ed6a5fbe8091dadbaf3985041161ee3d10e4069128078cd8b",
+      "scripts/architecture-boundaries/action-protocol.ts": "df115352cc30b84bf74234a62d227339eb5d260790c0e8c06665eae69713aef6",
+      "scripts/architecture-boundaries/check.ts": "6671bf166dfbd17fca4e6183fefa254aa0534c19d741ff27628f0439f9f35e68",
+      "scripts/architecture-boundaries/feature-seams.ts": "e73519ef5ae9708f310a4c984f40a0103464d6d9134e8bee329b7beaa7646aec",
+      "scripts/architecture-boundaries/sources.ts": "6350d8491ca59155639ef19ff858b622f547d87da92ded71d471dbb379dd8f89",
+      "scripts/architecture-boundaries/strict-review-contexts.ts": "4c563c88c0c7ab18de4a1166a32e716c6eaa5dcbc8203197c67993168cf5c7f5",
+      "scripts/architecture-boundaries/transaction-serialization.ts": "e4e293b0fbd424fc1ebdac49bc65e35cfe36b2ff2b6b9f5d4c616317610657d6",
+      "scripts/architecture-boundaries/types.ts": "cb807736492df77f99db046da1bafd4524b6bcea6e39cd3ea47c056d093ce4ea",
+      "scripts/check-architecture-boundaries.mjs": "75a644788c7e76e4280d3efcc6aed95d56f423d069a745ceae758ad42bd20f05",
+      "tsconfig.tooling.json": "5c47402aaafc8f09ae5bbf1bdb4436a8f259063fefb0eed7605e5364a195ab43"
+    }
+  },
+  "toolchain": {
+    "node": "24.22.3",
+    "pnpm": "11.28.7",
+    "typescript": "7.0.2",
+    "oxcParser": "0.159.0"
+  },
+  "metrics": {
+    "sourceBatchFiles": 25,
+    "sourceBatchAdditions": 7461,
+    "sourceBatchDeletions": 6827,
+    "sourceBatchChangedLines": 14288,
+    "sourceBatchNetGrowth": 634,
+    "originalOwnedSourceLines": 6969,
+    "wholePrAtCodeHead": {
+      "files": 204,
+      "additions": 20018,
+      "deletions": 8335,
+      "changedLines": 28353,
+      "renameDetection": true
+    },
+    "counting": "Git additions plus deletions are distinct from relocated source and newly implemented behavior."
+  },
+  "tests": {
+    "total": 450,
+    "passed": 450,
+    "failed": 0,
+    "skipped": 0,
+    "todo": 0,
+    "suites": [
+      {
+        "scope": "execution-behavior",
+        "passed": 134,
+        "failed": 0,
+        "skipped": 0,
+        "todo": 0,
+        "logSha256": "ce8b81403289d43aa800791b82d49b2a3ef331c31ae5ec60d1f838e9f1f96048"
+      },
+      {
+        "scope": "context-behavior",
+        "passed": 101,
+        "failed": 0,
+        "skipped": 0,
+        "todo": 0,
+        "logSha256": "1d23a89fd713c4d1de5aad6657f29b63fb0df6abecdb122e78819fb85a5ab91d"
+      },
+      {
+        "scope": "architecture-regressions",
+        "passed": 102,
+        "failed": 0,
+        "skipped": 0,
+        "todo": 0,
+        "logSha256": "27c6bcad11589f08e5f05c4a6c8545a8a990c271dad84a5436d3d71c799820f1"
+      },
+      {
+        "scope": "ci-routing",
+        "passed": 40,
+        "failed": 0,
+        "skipped": 0,
+        "todo": 0,
+        "logSha256": "e024fa6dfa6e3a7fa2f31ef5e4b7d72f3ffb11b911290a7bfd067241448c3dfb"
+      },
+      {
+        "scope": "fastify-transport",
+        "passed": 28,
+        "failed": 0,
+        "skipped": 0,
+        "todo": 0,
+        "logSha256": "7c6a1548aefcc3d37d8ba11bc316139829d4dc1c723748f2f90ce65253d7f079"
+      },
+      {
+        "scope": "postgres-execution-recovery",
+        "passed": 45,
+        "failed": 0,
+        "skipped": 0,
+        "todo": 0,
+        "logSha256": "aba9ce3557cfb3100f5a9c5b2599509580001c040b4f3b889e2dd55575ed8a55"
+      }
+    ]
+  },
+  "strictProjects": [
+    {
+      "project": "packages/features/review-executions/tsconfig.json",
+      "result": "PASS",
+      "logSha256": "ad0cf459f85135aee9c94eb972acfdb70e831f24d3b391ab525496e31547800c"
+    },
+    {
+      "project": "apps/api/tsconfig.json",
+      "result": "PASS",
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "project": "tsconfig.tooling.json",
+      "result": "PASS",
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "architecture": {
+    "command": "pnpm architecture:check",
+    "result": "PASS",
+    "exitCode": 0,
+    "domainApplicationFiles": 694,
+    "foundationDiagnostics": 0,
+    "memoryWorkspaceCases": 23,
+    "statisticsWorkspaceCases": 6,
+    "historyAndAccountMetadata": "PASS",
+    "logSha256": "3b1f35934fd1fec60d8e6249873f47e5d20313123abf37d5de37708cec16c890",
+    "baselineCheckerOutput": "Exit status, stdout and stderr byte-identical on the same source."
+  },
+  "postgres": {
+    "result": "PASS",
+    "headAtStart": "a5ed3e93072002efc04b1581a991d0b798065b46",
+    "headAtFinish": "a5ed3e93072002efc04b1581a991d0b798065b46",
+    "postgres": {
+      "version": "PostgreSQL 17.12 on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 7.5.0-3ubuntu1~18.04) 7.5.0, 64-bit",
+      "server_version_num": "170012",
+      "listen_addresses": "127.0.0.1"
+    },
+    "tests": {
+      "total": 45,
+      "passed": 45,
+      "failed": 0,
+      "pending": 0,
+      "todo": 0
+    },
+    "sourceFiles": 261,
+    "sourceUnchanged": true,
+    "ledgerChecksumsMatchSource": true,
+    "cleanup": {
+      "clusterStopped": true,
+      "stopStatus": 0,
+      "stopSignal": null,
+      "clusterDataRemoved": true,
+      "passwordRemoved": true
+    },
+    "fullMigrations": 165,
+    "providerMigrations": 82,
+    "receiptSha256": "e4b787fe6ef3e73eedd251e75933177da7b01cc708c5c6602a91411081069b54"
+  },
+  "compiledApi": {
+    "dependencyBuildTasks": 46,
+    "cachedTasks": 0,
+    "result": "PASS",
+    "dependencyBuildLogSha256": "ac9dd75ed03ebcdd73819cb48f4875ff4b6f30be380633d8272b95762b3dbc61",
+    "directGuardedNativeApiBuild": "PASS",
+    "directBuildLogSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "productionImport": "PASS",
+    "emittedContextModules": 9,
+    "declarationOutputs": 9,
+    "runtimeExports": [
+      "composeReviewActionV2ContextAttestationRoutes",
+      "createInvestigationReceiptReplayPreparationPort",
+      "createReviewActionV2ContextReplayCoordinator",
+      "readReviewActionV2ContextCrypto",
+      "reviewActionV2ContextReplayActiveKeyIdEnv",
+      "reviewActionV2ContextReplayKeysEnv",
+      "reviewActionV2ContextSessionSecretEnv"
+    ],
+    "firstPartyDistModulesLoaded": 234,
+    "sourceFallbacks": 0,
+    "runtimeLogSha256": "af3a5d19e0aaf259aefaba612912a3ef4f833cedc36d8820f99ebf7f2ccaece7",
+    "qualificationLimit": "Initial filtered Turbo build did not forward the preload; its 46 tasks prove successful build. The direct original API build separately proves guarded native emission. CI already configures loose environment forwarding."
+  },
+  "review": {
+    "independentReviewRounds": 2,
+    "confirmedNewDefects": 0,
+    "executionDeclarationsPreserved": 69,
+    "executionPublicExportsPreserved": 44,
+    "contextDeclarationsPreserved": 107,
+    "contextPublicExportsPreserved": 18,
+    "cycles": 0,
+    "changedPublicPackageExportMaps": 0,
+    "changedDependencies": 0,
+    "changedProtocolOrSchema": 0,
+    "notes": "Declaration bodies, validation order, authority, signed preimages and error contracts preserved. Two newly unused extraction imports were removed before publication."
+  },
+  "delivery": {
+    "pullRequest": 977,
+    "draft": true,
+    "commitsImmediatelyPublished": true,
+    "ciWaitedFor": false,
+    "merged": false,
+    "deployed": false
+  },
+  "remainingLimits": [
+    "Ordinary whole-root lint still depends on verified published Stack 0.3 adoption; registry latest observed 0.2.0.",
+    "Whole-Web/browser/Action artifact and hosted final-HEAD CI acceptance are not established by this batch.",
+    "SCM/provider fixtures are controlled; no new live external review or production deployment is claimed.",
+    "Raw execution logs are session-local; this committed summary retains source and log hashes. Historical evidence remains bound to its original revisions."
+  ]
+}

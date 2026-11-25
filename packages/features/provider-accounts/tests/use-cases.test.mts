@@ -647,17 +647,22 @@ test("personal OAuth intent snapshots method and preserves legacy browser identi
   );
 });
 
-test("GLM rejects forged workspace-owned attachment before writing a binding", async () => {
-  const f = fixture();
-  f.setConnection({
+test("a workspace-owned GLM connection binds and resolves like any profile, for admins only", async () => {
+  const glm = {
     ...connection,
     profileRef: "glm-coding-global-responses-apikey-v1",
-  });
-  await assert.rejects(() => bind(f), denied("workspace_forbidden"));
-  await assert.rejects(() => resolve(f), denied("binding_unavailable"));
+  };
+  const member = fixture();
+  member.setConnection(glm);
+  member.setRole("member");
+  await assert.rejects(() => bind(member), denied("workspace_forbidden"));
+  const f = fixture();
+  f.setConnection(glm);
+  assert.equal((await bind(f)).state, "active");
+  assert.equal((await resolve(f)).profileRef, glm.profileRef);
 });
 
-test("GLM selection requires the actual personal owner, without login overrides", async () => {
+test("personal selection requires the actual personal owner, without login overrides", async () => {
   const f = fixture();
   await bind(f);
   const source: ProviderAccountConnection = {
@@ -720,92 +725,193 @@ test("GLM selection requires the actual personal owner, without login overrides"
   );
 });
 
-test("GLM operator grant is denied before the grant writer", async () => {
+test("a GLM operator grant reaches the grant writer like any profile", async () => {
   const f = fixture();
   f.setConnection({
     ...connection,
     profileRef: "glm-coding-global-responses-apikey-v1",
   });
   let writes = 0;
-  await assert.rejects(
-    () =>
-      changeOperatorWorkspaceAccountGrant(
-        { ...scope, actor, expectedRevision: 0, state: "active" },
-        {
-          ...f.dependencies,
-          operatorWorkspaceId: scope.workspaceId,
-          operatorGrants: {
-            async compareAndSetOperatorBinding() {
-              writes++;
-              throw new Error("unexpected write");
-            },
-          },
+  const granted = await changeOperatorWorkspaceAccountGrant(
+    { ...scope, actor, expectedRevision: 0, state: "active" },
+    {
+      ...f.dependencies,
+      operatorWorkspaceId: scope.workspaceId,
+      operatorGrants: {
+        async compareAndSetOperatorBinding(input) {
+          writes++;
+          return f.dependencies.accounts.compareAndSetBinding(input);
         },
-      ),
-    denied("workspace_forbidden"),
+      },
+    },
   );
-  assert.equal(writes, 0);
+  assert.equal(granted.state, "active");
+  assert.equal(writes, 1);
 });
 
-test("GLM personal attach refuses organization grants before Gateway reads or store mutation", async () => {
+test("a GLM personal attach to an organization reaches Gateway and the store", async () => {
   const { attachPersonalAccount } =
     await import("../src/application/use-cases/personal-account-operations");
   const unexpected = async (): Promise<never> => {
     throw new Error("unexpected effect");
   };
-  let gatewayReads = 0;
-  let writes = 0;
-  await assert.rejects(
-    () =>
-      attachPersonalAccount(
-        {
-          action: "attach",
-          actorUserId: actor.userId,
-          clientOperationId: "glm-attach-operation",
-          personalWorkspaceId: "personal-workspace",
-          sourceId: connection.id,
-          targetWorkspaceId: "organization",
-          expectedSourceMetadataRevision: 1,
-          expectedGatewayRevision: 1,
-          predecessorBindingId: null,
-          expectedPredecessorRevision: null,
+  const glm = "glm-coding-global-responses-apikey-v1";
+  const receipt = { id: "glm-attach-receipt" } as unknown as Awaited<
+    ReturnType<typeof attachPersonalAccount>
+  >;
+  const gatewayReads: string[] = [];
+  const targets: string[] = [];
+  const result = await attachPersonalAccount(
+    {
+      action: "attach",
+      actorUserId: actor.userId,
+      clientOperationId: "glm-attach-operation",
+      personalWorkspaceId: "personal-workspace",
+      sourceId: connection.id,
+      targetWorkspaceId: "organization",
+      expectedSourceMetadataRevision: 1,
+      expectedGatewayRevision: 1,
+      predecessorBindingId: null,
+      expectedPredecessorRevision: null,
+    },
+    {
+      store: {
+        listOwnedSources: unexpected,
+        resolvePersonalWorkspace: unexpected,
+        async findOwnedSource() {
+          return {
+            ...connection,
+            profileRef: glm,
+            owner: { kind: "user", userId: actor.userId },
+            authorizationEpochMirror: 3,
+          };
         },
-        {
-          store: {
-            listOwnedSources: unexpected,
-            resolvePersonalWorkspace: unexpected,
-            async findOwnedSource() {
-              return {
-                ...connection,
-                profileRef: "glm-coding-global-responses-apikey-v1",
-                owner: { kind: "user", userId: actor.userId },
-              };
-            },
-            reserveConnect: unexpected,
-            claimConnect: unexpected,
-            async readOperation() {
-              throw new ProviderAccountError("not_found");
-            },
-            noteConnectPhase: unexpected,
-            finalizeConnect: unexpected,
-            async attach() {
-              writes++;
-              return unexpected();
-            },
-            revoke: unexpected,
-            changeEligibility: unexpected,
-          },
-          gateway: {
-            async get() {
-              gatewayReads++;
-              return unexpected();
-            },
-            operation: unexpected,
-          },
+        reserveConnect: unexpected,
+        claimConnect: unexpected,
+        async readOperation() {
+          throw new ProviderAccountError("not_found");
         },
-      ),
-    denied("workspace_forbidden"),
+        noteConnectPhase: unexpected,
+        finalizeConnect: unexpected,
+        async attach(intent) {
+          targets.push(intent.targetWorkspaceId);
+          return receipt;
+        },
+        revoke: unexpected,
+        changeEligibility: unexpected,
+      },
+      gateway: {
+        async get(_actorUserId, accountRef, profileId) {
+          gatewayReads.push(profileId);
+          return {
+            accountRef,
+            profileId,
+            displayName: "GLM",
+            state: "active",
+            metadataRevision: 1,
+            authorizationEpoch: 3,
+          };
+        },
+        operation: unexpected,
+      },
+    },
   );
-  assert.equal(gatewayReads, 0);
-  assert.equal(writes, 0);
+  assert.equal(result, receipt);
+  assert.deepEqual(gatewayReads, [glm]);
+  assert.deepEqual(targets, ["organization"]);
+});
+
+test("credential imports keep legacy hashes byte-stable and bind the method without retaining credentials", async () => {
+  const { createHash } = await import("node:crypto");
+  const { snapshotPersonalIntent, personalIntentDigest } =
+    await import("../src/application/use-cases/personal-account-operations");
+  const { canonicalIntentHash, snapshotCanonicalIntent } =
+    await import("../src/domain/personal-canonical-operation");
+  const legacy = {
+    actorUserId: "actor-import",
+    clientOperationId: "nonce-import",
+    personalWorkspaceId: "personal-import",
+    action: "connect" as const,
+    proposedSourceId: "source-import",
+    profileId: "codex-import",
+    displayName: "Codex",
+    ingress: "oauth-begin" as const,
+  };
+  const hash = (value: unknown) =>
+    createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  {
+    assert.equal(personalIntentDigest(legacy), hash(legacy));
+    assert.equal(
+      personalIntentDigest({ ...legacy, method: "browser" }),
+      hash(legacy),
+    );
+    assert.equal(
+      personalIntentDigest({ ...legacy, method: "device_code" }),
+      hash({ ...legacy, method: "device_code" }),
+    );
+    assert.equal(
+      personalIntentDigest({ ...legacy, ingress: "api-key-create" }),
+      hash({ ...legacy, ingress: "api-key-create" }),
+    );
+  }
+  const imported = {
+    ...legacy,
+    ingress: "credential-import" as const,
+    credentialImportMethod: "refresh_token" as const,
+    value: "must-not-be-snapshotted",
+    fingerprint: "must-not-be-persisted",
+  };
+  const safe = snapshotPersonalIntent(imported);
+  assert.equal(JSON.stringify(safe).includes("must-not"), false);
+  assert.notEqual(
+    personalIntentDigest(imported),
+    personalIntentDigest({
+      ...imported,
+      credentialImportMethod: "oauth_auth_json",
+    }),
+  );
+  assert.throws(
+    () => snapshotPersonalIntent({ ...imported, method: "browser" }),
+    denied("invalid_input"),
+  );
+  assert.throws(
+    () =>
+      snapshotPersonalIntent({
+        ...legacy,
+        credentialImportMethod: "refresh_token",
+      }),
+    denied("invalid_input"),
+  );
+  const reconnect = {
+    actorUserId: "actor-import",
+    clientOperationId: "nonce-import",
+    personalWorkspaceId: "personal-import",
+    sourceId: "source-import",
+    expectedSourceMetadataRevision: 2,
+    expectedGatewayRevision: 3,
+    expectedAuthorizationEpoch: 4,
+    action: "reconnect" as const,
+  };
+  assert.equal(canonicalIntentHash(reconnect), hash(reconnect));
+  assert.equal(
+    canonicalIntentHash({ ...reconnect, action: "retire" }),
+    hash({ ...reconnect, action: "retire" }),
+  );
+  assert.notEqual(
+    canonicalIntentHash(reconnect),
+    canonicalIntentHash({
+      ...reconnect,
+      credentialImportMethod: "refresh_token",
+    }),
+  );
+  assert.equal(
+    JSON.stringify(
+      snapshotCanonicalIntent({
+        ...reconnect,
+        credentialImportMethod: "oauth_auth_json",
+        value: "ignored",
+      } as typeof reconnect),
+    ).includes("ignored"),
+    false,
+  );
 });

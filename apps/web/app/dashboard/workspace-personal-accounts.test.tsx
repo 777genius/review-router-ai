@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { QueryClient, type InfiniteData } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -16,6 +17,7 @@ import type {
 } from "../../src/server/account-gateway-accounts";
 import type { GatewayModelAccountsApi } from "./gateway-model-account-options";
 import { WorkspacePersonalAccounts } from "./workspace-personal-accounts";
+import { OwnConnectionIdsContext } from "./account-workspace-use";
 
 const context = vi.hoisted(() => ({ client: null as QueryClient | null }));
 vi.mock("./gateway-model-account-options", () => ({
@@ -83,14 +85,22 @@ function fixture() {
     .mockResolvedValue({ status: "unavailable" });
   return { api, detach, readDetach };
 }
+async function openRemove(label = "Canonical old-BX") {
+  fireEvent.keyDown(screen.getByLabelText(`Actions for ${label}`), {
+    key: "ArrowDown",
+  });
+  fireEvent.click(
+    await screen.findByRole("menuitem", { name: "Remove from this workspace" }),
+  );
+  return screen.findByRole("dialog");
+}
 async function confirm() {
-  fireEvent.click(screen.getByRole("button", { name: "Access" }));
+  const dialog = await openRemove();
+  // The fixture row is another member's personal connection without an owner fact.
   expect(
-    await screen.findByText(
-      /Your personal account and other organizations stay unchanged/,
-    ),
+    within(dialog).getByText(/Only its owner can add it back/),
   ).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Revoke access" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
 }
 test("is inert without an explicit authorized API", () => {
   const f = fixture();
@@ -150,6 +160,90 @@ test.each([false, true])(
     expect(f.detach).not.toHaveBeenCalled();
   },
 );
+test.each([
+  { listedAbove: ["source-mine"], ownRowShown: false },
+  // The viewer's own list failed to show it: keep it here rather than lose it.
+  { listedAbove: [], ownRowShown: true },
+])(
+  "in the combined list, hides only own rows already listed above ($listedAbove)",
+  async ({ listedAbove, ownRowShown }) => {
+    const f = fixture();
+    f.api.list.mockResolvedValue(
+      page([
+        { ...account("mine"), sourceId: "source-mine", isOwnedByViewer: true },
+        account("theirs"),
+        {
+          ...account("org-unbound", "organization"),
+          canManage: true,
+          binding: null,
+        },
+      ]),
+    );
+    render(
+      <OwnConnectionIdsContext.Provider value={new Set(listedAbove)}>
+        <WorkspacePersonalAccounts
+          scope="org-x"
+          api={f.api}
+          canDetach={false}
+          detach={f.detach}
+          readDetach={f.readDetach}
+        />
+      </OwnConnectionIdsContext.Provider>,
+    );
+    const theirs = await screen.findByRole("article", {
+      name: "Canonical theirs",
+    });
+    expect(within(theirs).getByText("Used in this workspace")).toBeTruthy();
+    expect(
+      within(
+        screen.getByRole("article", { name: "Canonical org-unbound" }),
+      ).getByText("Not added to this workspace"),
+    ).toBeTruthy();
+    expect(
+      screen.queryAllByRole("article", { name: "Canonical mine" }),
+    ).toHaveLength(ownRowShown ? 1 : 0);
+    // One header for the whole list is drawn above the viewer's own rows.
+    expect(screen.queryByText("Owner")).toBeNull();
+  },
+);
+
+test.each([
+  { listedAbove: ["source-mine"], empty: false },
+  { listedAbove: [], empty: true },
+])(
+  "shows the empty state only when the whole list is empty ($listedAbove)",
+  async ({ listedAbove, empty }) => {
+    const f = fixture();
+    f.api.list.mockResolvedValue(
+      page([
+        { ...account("mine"), sourceId: "source-mine", isOwnedByViewer: true },
+      ]),
+    );
+    render(
+      <OwnConnectionIdsContext.Provider
+        value={new Set(empty ? [] : listedAbove)}
+      >
+        <WorkspacePersonalAccounts
+          scope="org-x"
+          api={
+            empty
+              ? { ...f.api, list: vi.fn().mockResolvedValue(page([])) }
+              : f.api
+          }
+          canDetach={false}
+          detach={f.detach}
+          readDetach={f.readDetach}
+        />
+      </OwnConnectionIdsContext.Provider>,
+    );
+    await waitFor(() =>
+      expect(screen.queryByText("Loading connections...")).toBeNull(),
+    );
+    expect(Boolean(screen.queryByText(/^No connections yet/))).toBe(empty);
+    expect(screen.queryByRole("article")).toBeNull();
+  },
+);
+
 test("an empty filtered page keeps the next page reachable", async () => {
   const f = fixture();
   f.api.list
@@ -165,9 +259,9 @@ test("an empty filtered page keeps the next page reachable", async () => {
     />,
   );
   expect(
-    await screen.findByText("No available connections on the loaded pages."),
+    await screen.findByText("No connections on the loaded pages."),
   ).toBeTruthy();
-  expect(screen.queryByText("No available connections.")).toBeNull();
+  expect(screen.queryByText(/^No connections yet/)).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Load more" }));
   expect(await screen.findByText("Canonical offpage")).toBeTruthy();
   expect(f.api.list).toHaveBeenNthCalledWith(2, {
@@ -187,7 +281,7 @@ test("captures the exact old binding and preserves local deny while checking its
     />,
   );
   await screen.findByText("Canonical old-BX");
-  fireEvent.click(screen.getByRole("button", { name: "Access" }));
+  const dialog = await openRemove();
   // A fresh lifetime arriving after opening confirmation cannot retarget the action.
   act(() =>
     context.client!.setQueryData(["accounts-overview", "org-x"], {
@@ -196,10 +290,10 @@ test("captures the exact old binding and preserves local deny while checking its
     }),
   );
   f.api.list.mockResolvedValue(page([account("new-BX")]));
-  fireEvent.click(screen.getByRole("button", { name: "Revoke access" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
   expect(
     await screen.findByText(
-      "Access revoked locally in this organization; gateway confirmation pending.",
+      "Removed from this workspace. Waiting for the gateway to confirm.",
     ),
   ).toBeTruthy();
   expect(f.detach).toHaveBeenCalledWith({
@@ -215,7 +309,7 @@ test("captures the exact old binding and preserves local deny while checking its
   expect(f.detach).toHaveBeenCalledTimes(1);
   expect(
     screen.getByText(
-      "Access revoked locally in this organization; gateway confirmation pending.",
+      "Removed from this workspace. Waiting for the gateway to confirm.",
     ),
   ).toBeTruthy();
   f.readDetach.mockResolvedValueOnce({
@@ -241,11 +335,7 @@ test("captures the exact old binding and preserves local deny while checking its
   fireEvent.click(
     screen.getByRole("button", { name: "Check original request" }),
   );
-  expect(
-    await screen.findByText(
-      "Access revoked in this organization; gateway confirmation received.",
-    ),
-  ).toBeTruthy();
+  expect(await screen.findByText("Removed from this workspace.")).toBeTruthy();
   expect(
     [...f.detach.mock.calls, ...f.readDetach.mock.calls].every(
       ([request]) =>
@@ -280,7 +370,7 @@ test("cancels exact shared option caches before removing the retired binding, wi
   f.api.list.mockResolvedValue(page([]));
   await confirm();
   await screen.findByText(
-    "Access revoked locally in this organization; gateway confirmation pending.",
+    "Removed from this workspace. Waiting for the gateway to confirm.",
   );
   await waitFor(() =>
     expect(client.getQueryData(["account-option", "org-x", "old-BX"])).toEqual({
@@ -325,15 +415,15 @@ test("does not automatically retry or claim a local deny without a matching safe
   await confirm();
   expect(
     await screen.findByText(
-      "Detachment could not be confirmed. Check the original request.",
+      "Removal could not be confirmed. Check the original request.",
     ),
   ).toBeTruthy();
   expect(f.detach).toHaveBeenCalledTimes(1);
-  expect(screen.queryByText(/Access revoked locally/)).toBeNull();
+  expect(screen.queryByText(/Removed from this workspace/)).toBeNull();
   expect(screen.queryByText("private diagnostic")).toBeNull();
 });
 
-test("opening and cancelling Access never submits or reads a detachment operation", async () => {
+test("opening and cancelling removal never submits or reads a detachment operation", async () => {
   const f = fixture();
   render(
     <WorkspacePersonalAccounts
@@ -345,14 +435,73 @@ test("opening and cancelling Access never submits or reads a detachment operatio
     />,
   );
   await screen.findByText("Canonical old-BX");
-  fireEvent.click(screen.getByRole("button", { name: "Access" }));
-  await screen.findByRole("dialog");
+  // One entry per row: the menu item, no separate Access button.
+  expect(screen.queryByRole("button", { name: "Access" })).toBeNull();
+  const dialog = await openRemove();
   expect(f.detach).not.toHaveBeenCalled();
   expect(f.readDetach).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  // Focus returns to the row menu it came from.
+  await waitFor(() =>
+    expect(document.activeElement).toBe(
+      screen.getByLabelText("Actions for Canonical old-BX"),
+    ),
+  );
   expect(f.detach).not.toHaveBeenCalled();
   expect(f.readDetach).not.toHaveBeenCalled();
+});
+
+test("members see other connections without Access or removal entries", async () => {
+  const f = fixture();
+  render(
+    <WorkspacePersonalAccounts
+      scope="org-x"
+      api={f.api}
+      canDetach={false}
+      detach={f.detach}
+      readDetach={f.readDetach}
+    />,
+  );
+  await screen.findByText("Canonical old-BX");
+  expect(screen.queryByRole("button", { name: "Access" })).toBeNull();
+  expect(screen.queryByLabelText("Actions for Canonical old-BX")).toBeNull();
+});
+
+test.each([
+  ["organization", { origin: "organization" as const }, /stays in this list/],
+  [
+    "viewer",
+    {
+      owner: {
+        kind: "personal" as const,
+        isViewer: true,
+        handle: null,
+        avatarUrl: null,
+      },
+    },
+    /add it back from your connections/,
+  ],
+  [
+    "operator",
+    { origin: "operator" as const },
+    /Only ReviewRouter can add it back/,
+  ],
+])("removal copy names who can undo it (%s)", async (_kind, fact, text) => {
+  const f = fixture();
+  f.api.list.mockResolvedValue(page([{ ...account("old-BX"), ...fact }]));
+  render(
+    <WorkspacePersonalAccounts
+      scope="org-x"
+      api={f.api}
+      canDetach
+      detach={f.detach}
+      readDetach={f.readDetach}
+    />,
+  );
+  await screen.findByText("Canonical old-BX");
+  const dialog = await openRemove();
+  expect(within(dialog).getByText(text)).toBeTruthy();
 });
 
 vi.mock("./account-lifecycle-actions", () => ({
@@ -383,11 +532,8 @@ test("retains stale rows without actions on unavailable, then clears them on den
   expect(
     screen.getByRole("article", { name: "Canonical old-BX" }),
   ).toBeTruthy();
-  expect(
-    (screen.getByRole("button", { name: "Access" }) as HTMLButtonElement)
-      .disabled,
-  ).toBe(true);
-  expect(screen.queryByRole("link", { name: "Choose in Models" })).toBeNull();
+  expect(screen.queryByLabelText("Actions for Canonical old-BX")).toBeNull();
+  expect(screen.queryByRole("link", { name: "Choose for reviews" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Canonical old-BX" })).toBeNull();
   f.api.list.mockResolvedValue({ status: "denied" });
   fireEvent.click(screen.getByRole("button", { name: "Refresh connections" }));

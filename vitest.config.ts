@@ -14,7 +14,7 @@ export default defineConfig({
     exclude: [
       ...configDefaults.exclude,
       // Qualified separately through the disposable node:test entrypoint.
-      "scripts/local-checks/lint-format-safety.test.mts",
+      "scripts/local-checks/lint-format-safety.test.ts",
       "scripts/hindsight-e2e/**/*.test.ts",
       // Executed by node:test after Vitest in the root test command.
       "scripts/conversation-evals/eval-risk.test.ts",

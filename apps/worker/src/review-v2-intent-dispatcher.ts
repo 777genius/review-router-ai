@@ -7,11 +7,13 @@ import type {
   ReviewRequestedDispatchGatewayPort,
   ReviewRequestedIntent,
   ReviewRequestedPreparedDispatchPort,
+  ReviewRequestedRunnerWaitInspection,
 } from "@reviewrouter/features-review-executions";
 import {
   ReviewRequestedDispatchLookupStatus,
   ReviewRequestedDispatchRunStatus,
   ReviewRequestedDispatchSubmissionStatus,
+  ReviewRequestedStaleRevisionError,
   reviewRequestedDispatchCleanupEvent,
 } from "@reviewrouter/features-review-executions";
 import type { createPrismaClient } from "@reviewrouter/platform-db";
@@ -52,14 +54,22 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
 
   async prepare(input: {
     readonly intent: ReviewRequestedIntent;
+    readonly signal?: AbortSignal;
   }): Promise<ReviewRequestedPreparedDispatchPort> {
     const target = await this.resolveTarget(input.intent);
+    input.signal?.throwIfAborted();
     const octokit = await this.installations.forInstallation(
       installationId(target.githubInstallationId),
     );
-    const dispatchRef = await resolveDispatchRef(octokit, target, input.intent);
+    input.signal?.throwIfAborted();
+    const dispatchRef = await resolveDispatchRef(
+      octokit,
+      target,
+      input.intent,
+      input.signal,
+    );
     return Object.freeze({
-      submit: async () => {
+      submit: async (signal?: AbortSignal) => {
         try {
           const response = await octokit.request(
             "POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
@@ -74,6 +84,7 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
                 review_head_sha: input.intent.revision.headSha,
               },
               headers: { "X-GitHub-Api-Version": "2026-03-10" },
+              ...(signal ? { request: { signal } } : {}),
             },
           );
           return {
@@ -150,6 +161,56 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
       },
     );
     return parseRevisionInspection(pullRequest.data, input.intent);
+  }
+
+  /**
+   * Whether any job of the exact run attempt was ever given a runner, and
+   * whether the pull request still shows the requested revision: two reads,
+   * the attempt's jobs and the pull request. Anything GitHub does not state
+   * plainly throws, so callers treat it as "a runner may have started".
+   */
+  async inspectRunnerWait(input: {
+    readonly intent: ReviewRequestedIntent;
+  }): Promise<ReviewRequestedRunnerWaitInspection> {
+    const target = await this.resolveTarget(input.intent);
+    const octokit = await this.installations.forInstallation(
+      installationId(target.githubInstallationId),
+    );
+    const runId = requiredRunIdentity(
+      input.intent.sourceRunId,
+      "review_requested_inspection_run_missing",
+    );
+    const attempt = requiredRunIdentity(
+      input.intent.sourceRunAttempt,
+      "review_requested_inspection_attempt_missing",
+    );
+    const jobs = await octokit.request(
+      "GET /repos/{owner}/{repo}/actions/runs/{run_id}/attempts/{attempt_number}/jobs",
+      {
+        owner: target.owner,
+        repo: target.repo,
+        run_id: runId,
+        attempt_number: attempt,
+        per_page: 100,
+        headers: { "X-GitHub-Api-Version": "2026-03-10" },
+      },
+    );
+    const jobFacts = parseRunnerJobs(jobs.data, runId, attempt);
+    const pullRequest = await octokit.request(
+      "GET /repos/{owner}/{repo}/pulls/{pull_number}",
+      {
+        owner: target.owner,
+        repo: target.repo,
+        pull_number: input.intent.pullRequestNumber,
+        headers: { "X-GitHub-Api-Version": "2026-03-10" },
+      },
+    );
+    return {
+      // Every job still queued means the attempt has not completed either.
+      waitingForRunner: jobFacts.neverStarted && jobFacts.allQueued,
+      neverStarted: jobFacts.neverStarted,
+      revisionCurrent: pullRequestShowsRevision(pullRequest.data, input.intent),
+    };
   }
 
   /** Read only the exact attempt; success, missing or mismatched evidence fails closed. */
@@ -359,6 +420,7 @@ async function resolveDispatchRef(
   octokit: OctokitRequester,
   target: DispatchTarget,
   intent: ReviewRequestedIntent,
+  signal?: AbortSignal,
 ): Promise<string> {
   const response = await octokit.request(
     "GET /repos/{owner}/{repo}/pulls/{pull_number}",
@@ -367,12 +429,16 @@ async function resolveDispatchRef(
       repo: target.repo,
       pull_number: intent.pullRequestNumber,
       headers: { "X-GitHub-Api-Version": "2026-03-10" },
+      ...(signal ? { request: { signal } } : {}),
     },
   );
   if (!isRecord(response.data)) {
     throw new Error("review_requested_dispatch_pull_request_invalid");
   }
   const pullRequest = response.data;
+  if (pullRequest.state === "closed") {
+    throw new ReviewRequestedStaleRevisionError();
+  }
   const head = pullRequest.head;
   const base = pullRequest.base;
   const expectedRepository = `${target.owner}/${target.repo}`.toLowerCase();
@@ -380,12 +446,22 @@ async function resolveDispatchRef(
     pullRequest.state !== "open" ||
     !isRecord(head) ||
     !isRecord(base) ||
-    head.sha !== intent.revision.headSha ||
-    base.sha !== intent.revision.baseSha ||
+    typeof head.sha !== "string" ||
+    typeof base.sha !== "string" ||
+    !/^[a-f0-9]{40}$/i.test(head.sha) ||
+    !/^[a-f0-9]{40}$/i.test(base.sha) ||
+    repositoryFullName(head.repo) === null ||
+    repositoryFullName(base.repo) === null
+  ) {
+    throw new Error("review_requested_dispatch_pull_request_invalid");
+  }
+  if (
+    head.sha.toLowerCase() !== intent.revision.headSha.toLowerCase() ||
+    base.sha.toLowerCase() !== intent.revision.baseSha.toLowerCase() ||
     repositoryFullName(head.repo) !== expectedRepository ||
     repositoryFullName(base.repo) !== expectedRepository
   ) {
-    throw new Error("review_requested_dispatch_revision_changed");
+    throw new ReviewRequestedStaleRevisionError();
   }
   const baseRef = base.ref;
   if (
@@ -531,6 +607,20 @@ function parseRevisionInspection(
   data: unknown,
   intent: ReviewRequestedIntent,
 ): { readonly status: ReviewRequestedDispatchRunStatus } {
+  if (!isRecord(data) || (data.state !== "open" && data.state !== "closed")) {
+    throw new Error("review_requested_revision_inspection_invalid");
+  }
+  return {
+    status: pullRequestShowsRevision(data, intent)
+      ? ReviewRequestedDispatchRunStatus.TerminalCurrentRevision
+      : ReviewRequestedDispatchRunStatus.TerminalStaleRevision,
+  };
+}
+
+function pullRequestRevisionMatches(
+  data: unknown,
+  intent: ReviewRequestedIntent,
+): boolean {
   if (
     !isRecord(data) ||
     !isRecord(data.head) ||
@@ -542,13 +632,62 @@ function parseRevisionInspection(
   ) {
     throw new Error("review_requested_revision_inspection_invalid");
   }
-  return {
-    status:
-      data.head.sha.toLowerCase() === intent.revision.headSha.toLowerCase() &&
-      data.base.sha.toLowerCase() === intent.revision.baseSha.toLowerCase()
-        ? ReviewRequestedDispatchRunStatus.TerminalCurrentRevision
-        : ReviewRequestedDispatchRunStatus.TerminalStaleRevision,
-  };
+  return (
+    data.head.sha.toLowerCase() === intent.revision.headSha.toLowerCase() &&
+    data.base.sha.toLowerCase() === intent.revision.baseSha.toLowerCase()
+  );
+}
+
+/** An open pull request whose head and base still equal the request. */
+function pullRequestShowsRevision(
+  data: unknown,
+  intent: ReviewRequestedIntent,
+): boolean {
+  return (
+    pullRequestRevisionMatches(data, intent) &&
+    isRecord(data) &&
+    data.state === "open"
+  );
+}
+
+/**
+ * Runner facts of every job of the exact attempt. A job list that is empty,
+ * paged, or names another run or attempt is not proof and throws. A job that
+ * waits for an environment approval is not queued for a runner.
+ */
+function parseRunnerJobs(
+  data: unknown,
+  runId: string,
+  attempt: string,
+): { readonly neverStarted: boolean; readonly allQueued: boolean } {
+  if (
+    !isRecord(data) ||
+    !Array.isArray(data.jobs) ||
+    data.jobs.length === 0 ||
+    data.total_count !== data.jobs.length
+  ) {
+    throw new Error("review_requested_runner_inspection_invalid");
+  }
+  let neverStarted = true;
+  let allQueued = true;
+  for (const job of data.jobs) {
+    if (
+      !isRecord(job) ||
+      String(job.run_id) !== runId ||
+      String(job.run_attempt) !== attempt ||
+      typeof job.status !== "string" ||
+      !Array.isArray(job.steps)
+    ) {
+      throw new Error("review_requested_runner_inspection_invalid");
+    }
+    const runnerAssigned =
+      (job.runner_id !== null && job.runner_id !== 0) ||
+      (job.runner_name !== null && job.runner_name !== "") ||
+      job.steps.some((step) => !isRecord(step) || step.started_at != null);
+    if (runnerAssigned) neverStarted = false;
+    if (job.status !== "queued") allQueued = false;
+  }
+  return { neverStarted, allQueued };
 }
 
 function installationId(value: string): number {

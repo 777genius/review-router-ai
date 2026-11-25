@@ -1,4 +1,7 @@
-import type { ReviewConfiguration } from "../../domain/review-configuration";
+import type {
+  ReviewConfiguration,
+  ReviewProviderMode,
+} from "../../domain/review-configuration";
 import type {
   ReviewPolicyDocument,
   ReviewProviderSelection,
@@ -27,6 +30,8 @@ export type PersistedReviewConfiguration = {
   readonly revisionToken?: string;
   /** Effective provider selections, in the order of `config.providers`. */
   readonly selections: readonly ReviewProviderSelection[];
+  /** How the effective reviewers interact. */
+  readonly providerMode: ReviewProviderMode;
 };
 
 /** A profile a changed selection uses, with the facts its decision needs. */

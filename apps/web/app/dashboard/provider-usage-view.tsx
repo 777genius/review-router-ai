@@ -33,16 +33,27 @@ import {
   count,
   customInterval,
   intervalLabel,
+  NOT_REPORTED,
   rollingInterval,
+  tokenCoverage,
+  unreportedUsageNote,
   type UsageMetric,
 } from "./provider-usage-format";
 
-function hasUnknownUsage(report: ProviderUsageReport): boolean {
+/**
+ * A call without a full report after this long keeps that state: one Gateway
+ * request is capped at an hour (relay `requestTimeoutMs`) and native
+ * reconciliation follows within minutes. Older ones stop the polling.
+ */
+const USAGE_PENDING_POLL_WINDOW_MS = 60 * 60 * 1000;
+/** Poll only while a recent call may still receive or revise its report. */
+function hasFreshPendingUsage(
+  report: Pick<ProviderUsageReport, "latestPendingAt">,
+  now = Date.now(),
+): boolean {
   return (
-    report.unknown > 0 ||
-    report.partial > 0 ||
-    report.totals.unknownCostCount > 0 ||
-    report.totals.unknownTotalTokenCount > 0
+    report.latestPendingAt !== null &&
+    now - Date.parse(report.latestPendingAt) < USAGE_PENDING_POLL_WINDOW_MS
   );
 }
 
@@ -121,9 +132,12 @@ function ProviderUsageContext({
     staleTime: scope.seedTrusted ? 30_000 : 0,
     retry: (failureCount, error) =>
       !isProviderUsageAccessFailure(error) && failureCount < 2,
+    // Gateway never reports cost, so a missing cost alone is final, not pending.
     refetchInterval: (query) => {
       const data = query.state.data;
-      return !scope.denied && data && hasUnknownUsage(data) ? 30_000 : false;
+      return !scope.denied && data && hasFreshPendingUsage(data)
+        ? 30_000
+        : false;
     },
     refetchIntervalInBackground: false,
   });
@@ -197,11 +211,11 @@ function ProviderUsageContext({
     else applyFilters(rollingInterval(Number(period) as 7 | 30 | 90));
   };
   const custom = customInterval(draftFrom, draftTo);
-  const hasUnknown = data && hasUnknownUsage(data);
+  const unreported = data ? unreportedUsageNote(data) : null;
   const latestSourceUpdate = data?.latestSourceAsOf ?? data?.asOf;
   return (
     <section aria-label="Provider usage" className="min-w-0 space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-5">
+      <header className="@container flex flex-wrap items-start justify-between gap-5">
         <div className="shrink-0">
           <h2 className="text-2xl font-semibold tracking-tight text-slate-100">
             Usage
@@ -210,7 +224,24 @@ function ProviderUsageContext({
             Provider activity and token usage.
           </p>
         </div>
-        <div className="grid w-full min-w-0 basis-full grid-cols-[repeat(auto-fit,minmax(min(100%,10rem),1fr))] items-end gap-3">
+        <Button
+          variant="outline"
+          size="sm"
+          className="rounded-xl"
+          disabled={!unavailable && query.isFetching}
+          aria-busy={query.isFetching}
+          onClick={refresh}
+        >
+          <RefreshCw
+            className={`h-4 w-4${query.isFetching ? " animate-spin" : ""}`}
+            aria-hidden="true"
+          />
+          <span aria-live="polite">
+            {query.isFetching ? "Refreshing…" : "Refresh"}
+          </span>
+        </Button>
+        {/* Four equal filters: one column, then 2 x 2, then a single row. */}
+        <div className="grid w-full min-w-0 basis-full grid-cols-1 gap-3 @min-[32rem]:grid-cols-2 @min-[56rem]:grid-cols-4">
           <SelectField
             name="usage-period"
             label="Period"
@@ -292,22 +323,6 @@ function ProviderUsageContext({
               })
             }
           />
-          <Button
-            variant="outline"
-            size="sm"
-            className="rounded-xl"
-            disabled={!unavailable && query.isFetching}
-            aria-busy={query.isFetching}
-            onClick={refresh}
-          >
-            <RefreshCw
-              className={`h-4 w-4${query.isFetching ? " animate-spin" : ""}`}
-              aria-hidden="true"
-            />
-            <span aria-live="polite">
-              {query.isFetching ? "Refreshing…" : "Refresh"}
-            </span>
-          </Button>
         </div>
       </header>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -316,7 +331,7 @@ function ProviderUsageContext({
           title={`UTC interval [${filters.from}, ${filters.to})`}
         >
           {intervalLabel(filters.from, filters.to)}
-          {period !== "custom" ? " · Current UTC day is partial" : ""}
+          {period !== "custom" ? " · The last day counts usage so far" : ""}
         </p>
         <div className="w-36">
           <SelectField
@@ -351,7 +366,12 @@ function ProviderUsageContext({
         ) : data && currency ? (
           <p className="text-xs text-slate-400">Cost currency: {currency}</p>
         ) : null}
-        {filters.provider || filters.model || filters.route ? (
+        {/* Binding and run are typed in Details but filter the whole page. */}
+        {filters.provider ||
+        filters.model ||
+        filters.route ||
+        filters.bindingId ||
+        filters.runId ? (
           <Button
             variant="ghost"
             size="sm"
@@ -361,6 +381,8 @@ function ProviderUsageContext({
                 provider: undefined,
                 model: undefined,
                 route: undefined,
+                bindingId: undefined,
+                runId: undefined,
               })
             }
           >
@@ -450,9 +472,8 @@ function ProviderUsageContext({
               description={
                 data.totals.tokens.total === null
                   ? "No total token measurements"
-                  : data.totals.unknownTotalTokenCount > 0
-                    ? "Known part; some total tokens unknown"
-                    : "Known token subtotal"
+                  : (tokenCoverage(data.totals).totalHint ??
+                    "Known token subtotal")
               }
             />
             <Kpi
@@ -485,13 +506,12 @@ function ProviderUsageContext({
                         </span>
                       </div>
                     ))
-                  : "Unknown"}
+                  : NOT_REPORTED}
               </dd>
               <p className="mt-1 text-xs text-slate-500">
                 {currency
-                  ? `${currency} only · no currency conversion`
-                  : "No known cost amounts"}
-                {data.totals.unknownCostCount ? " · Excludes unknown cost" : ""}
+                  ? `${currency} only · no currency conversion${data.totals.unknownCostCount ? " · excludes calls without cost" : ""}`
+                  : "Missing cost does not mean zero cost"}
               </p>
             </div>
           </dl>
@@ -625,11 +645,10 @@ function ProviderUsageContext({
               className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300"
             >
               <span
-                className={hasUnknown ? "text-amber-300" : "text-slate-400"}
+                className={unreported ? "text-slate-300" : "text-slate-400"}
               >
-                {hasUnknown
-                  ? "△ Some usage is unknown or partial"
-                  : "Reported observations; coverage is not guaranteed"}
+                {unreported ??
+                  "Reported observations; coverage is not guaranteed"}
               </span>
               <span className="ml-auto text-slate-400">
                 {latestSourceUpdate

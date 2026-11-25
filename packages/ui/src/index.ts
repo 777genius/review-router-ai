@@ -1,3 +1,4 @@
+export * from "./accordion/index";
 export * from "./badge/index";
 export * from "./button/index";
 export * from "./card/index";
@@ -8,4 +9,5 @@ export * from "./link-button/index";
 export * from "./radio-card/index";
 export * from "./select-field/index";
 export * from "./search-select-field/index";
+export * from "./tabs/index";
 export * from "./text-field/index";

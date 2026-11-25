@@ -32,6 +32,7 @@ import {
   ReviewRequestedTransitionDecisionStatus,
   ReviewRequestedTransitionStatus,
   ReviewRequestedTriggerKind,
+  reviewRequestedPreparationTimeoutMs,
   ReviewTaskKind,
   ReviewWorkSlotState,
   ReviewWorkSlotTerminalReason,
@@ -591,6 +592,79 @@ describe("review execution domain", () => {
     );
   });
 
+  // Production 2026-11-17, PR 821: synchronize was dispatched, then
+  // ready_for_review for the same head started a second run that took over
+  // the first run's execution after 19 minutes of reviewer work.
+  it("joins a lifecycle event to the dispatched request for the same revision", () => {
+    const awaiting = {
+      ...createReviewRequestedIntent(
+        intentCandidate("request-dispatched", "93", scope, revision),
+      ),
+      version: 4n,
+      state: ReviewRequestedIntentState.AwaitingAuthorization,
+      nextResolutionAt: new Date(baseTime.getTime() + 1_000),
+      resolutionDeadlineAt: new Date(baseTime.getTime() + 60_000),
+      sourceRunId: "source-run-dispatched",
+      sourceRunAttempt: "1",
+    };
+    const decide = (
+      candidateRevision: typeof revision,
+      triggerKind = ReviewRequestedTriggerKind.PullRequestReadyForReview,
+      createdAt = baseTime,
+    ) =>
+      decideReviewRequestedRegistration({
+        candidate: {
+          ...intentCandidate(
+            "request-lifecycle",
+            "94",
+            scope,
+            candidateRevision,
+          ),
+          triggerKind,
+          notBefore: createdAt,
+          createdAt,
+        },
+        existingByDelivery: null,
+        existingByRequestId: null,
+        preAdmissionInScope: awaiting,
+      });
+
+    const same = decide(revision);
+    expect(same.status).toBe(
+      ReviewRequestedRegistrationDecisionStatus.RegisterSuperseded,
+    );
+    expect(same.intent).toMatchObject({
+      requestId: "request-lifecycle",
+      state: ReviewRequestedIntentState.Superseded,
+      supersededByRequestId: awaiting.requestId,
+    });
+    if (
+      same.status !==
+      ReviewRequestedRegistrationDecisionStatus.RegisterSuperseded
+    ) {
+      throw new Error("expected_joined_request");
+    }
+    expect(same.supersededIntent).toBeNull();
+
+    // An explicit rerun, or a dispatch past its authorization window, keeps
+    // the new request on its own.
+    expect(
+      decide(revision, ReviewRequestedTriggerKind.ManualCommand).status,
+    ).toBe(ReviewRequestedRegistrationDecisionStatus.Register);
+    expect(
+      decide(
+        revision,
+        ReviewRequestedTriggerKind.PullRequestReadyForReview,
+        plus(60_000),
+      ).status,
+    ).toBe(ReviewRequestedRegistrationDecisionStatus.Register);
+
+    // A new head still replaces a dispatch that has not been admitted.
+    expect(decide(nextRevision).status).toBe(
+      ReviewRequestedRegistrationDecisionStatus.RegisterAndSupersede,
+    );
+  });
+
   it("cancels a queued request when workspace eligibility changes before dispatch", async () => {
     const intents = new InMemoryReviewRequestedIntentStore();
     await intents.registerIntent({
@@ -601,6 +675,7 @@ describe("review execution domain", () => {
       prepare,
       findByRequestIdentity: vi.fn(),
       inspectKnownRun: vi.fn(),
+      inspectRunnerWait: vi.fn(),
       cancelKnownRun: vi.fn(),
     };
     const dispatcher = new DispatchDueReviewRequestedIntents(
@@ -638,6 +713,7 @@ describe("review execution domain", () => {
         prepare,
         findByRequestIdentity: vi.fn(),
         inspectKnownRun: vi.fn(),
+        inspectRunnerWait: vi.fn(),
         cancelKnownRun: vi.fn(),
       },
       { now: () => baseTime },
@@ -688,6 +764,9 @@ describe("review execution domain", () => {
           sourceRunId: "12345",
           sourceRunAttempt: "1",
         };
+      },
+      async inspectRunnerWait() {
+        return runnerAlreadyAssigned;
       },
       async inspectKnownRun() {
         return { status: ReviewRequestedDispatchRunStatus.Pending };
@@ -774,6 +853,148 @@ describe("review execution domain", () => {
     });
   });
 
+  it.each(["resolve", "reject"] as const)(
+    "does not dispatch after a hung preparation later settles (%s)",
+    async (settles) => {
+      vi.useFakeTimers();
+      try {
+        const intents = new InMemoryReviewRequestedIntentStore();
+        await intents.registerIntent({
+          candidate: intentCandidate("request-hung", "335", scope, revision),
+        });
+        let now = baseTime;
+        let claimNumber = 0;
+        let releasePreparation: (() => void) | undefined;
+        const submit = vi.fn();
+        const dispatcher = new DispatchDueReviewRequestedIntents(
+          intents,
+          intents,
+          {
+            prepare: async () => {
+              await new Promise<void>((resolve, reject) => {
+                releasePreparation = () =>
+                  settles === "resolve"
+                    ? resolve()
+                    : reject(new Error("late_prepare_failure"));
+              });
+              return { submit };
+            },
+            async findByRequestIdentity() {
+              return {
+                status: ReviewRequestedDispatchLookupStatus.Absent as const,
+              };
+            },
+            async inspectRunnerWait() {
+              return runnerAlreadyAssigned;
+            },
+            async inspectKnownRun() {
+              return { status: ReviewRequestedDispatchRunStatus.Pending };
+            },
+            async cancelKnownRun() {},
+          },
+          { now: () => now },
+          {
+            nextClaimId: () => `claim-hung-${++claimNumber}`,
+            nextRequestId: () => "unused",
+          },
+          { digestUtf8: async () => hash("1") },
+          testDispatchPolicy(),
+        );
+        const running = dispatcher.execute({
+          ownerIdHash: hash("a"),
+          limit: 10,
+        });
+        await vi.advanceTimersByTimeAsync(24_000);
+        await expect(running).resolves.toMatchObject({
+          failed: 1,
+          dispatched: 0,
+        });
+        releasePreparation!();
+        await Promise.resolve();
+        expect(submit).not.toHaveBeenCalled();
+        now = plus(reviewRequestedPreparationTimeoutMs + 1);
+        await expect(
+          dispatcher.execute({ ownerIdHash: hash("a"), limit: 10 }),
+        ).resolves.toMatchObject({ failed: 1, dispatched: 0 });
+        expect(await intents.findByRequestId("request-hung")).toMatchObject({
+          state: ReviewRequestedIntentState.Terminal,
+          terminalReason:
+            ReviewRequestedIntentTerminalReason.DispatchFailedNoEffect,
+        });
+        expect(submit).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it.each(["resolve", "reject"] as const)(
+    "does not start preparation when a timed-out gate later settles (%s)",
+    async (settles) => {
+      vi.useFakeTimers();
+      try {
+        const intents = new InMemoryReviewRequestedIntentStore();
+        await intents.registerIntent({
+          candidate: intentCandidate(
+            "request-gate-hung",
+            "337",
+            scope,
+            revision,
+          ),
+        });
+        let settleGate: (() => void) | undefined;
+        const prepare = vi.fn();
+        const dispatcher = new DispatchDueReviewRequestedIntents(
+          intents,
+          intents,
+          {
+            prepare,
+            async findByRequestIdentity() {
+              return {
+                status: ReviewRequestedDispatchLookupStatus.Absent as const,
+              };
+            },
+            async inspectRunnerWait() {
+              return runnerAlreadyAssigned;
+            },
+            async inspectKnownRun() {
+              return { status: ReviewRequestedDispatchRunStatus.Pending };
+            },
+            async cancelKnownRun() {},
+          },
+          { now: () => baseTime },
+          {
+            nextClaimId: () => "claim-gate-hung",
+            nextRequestId: () => "unused",
+          },
+          { digestUtf8: async () => hash("1") },
+          testDispatchPolicy(),
+          () =>
+            new Promise<boolean>((resolve, reject) => {
+              settleGate = () =>
+                settles === "resolve"
+                  ? resolve(true)
+                  : reject(new Error("late_gate_failure"));
+            }),
+        );
+        const running = dispatcher.execute({
+          ownerIdHash: hash("a"),
+          limit: 10,
+        });
+        await vi.advanceTimersByTimeAsync(24_000);
+        await expect(running).resolves.toMatchObject({
+          failed: 1,
+          dispatched: 0,
+        });
+        settleGate!();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(prepare).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it("retries failed transport preparation before entering unknown outcome", async () => {
     const intents = new InMemoryReviewRequestedIntentStore();
     await intents.registerIntent({
@@ -805,6 +1026,9 @@ describe("review execution domain", () => {
           return {
             status: ReviewRequestedDispatchLookupStatus.Absent as const,
           };
+        },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
         },
         async inspectKnownRun() {
           return { status: ReviewRequestedDispatchRunStatus.Pending };
@@ -877,6 +1101,9 @@ describe("review execution domain", () => {
             status: ReviewRequestedDispatchLookupStatus.Absent as const,
           };
         },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
+        },
         async inspectKnownRun() {
           return { status: ReviewRequestedDispatchRunStatus.Pending };
         },
@@ -938,6 +1165,9 @@ describe("review execution domain", () => {
           return {
             status: ReviewRequestedDispatchLookupStatus.Absent as const,
           };
+        },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
         },
         async inspectKnownRun() {
           return { status: ReviewRequestedDispatchRunStatus.Pending };
@@ -1015,6 +1245,9 @@ describe("review execution domain", () => {
           return {
             status: ReviewRequestedDispatchLookupStatus.Absent as const,
           };
+        },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
         },
         async inspectKnownRun() {
           return { status: ReviewRequestedDispatchRunStatus.Pending };
@@ -1688,6 +1921,66 @@ describe("start and admission saga", () => {
 });
 
 describe("work slots and fenced invocation leases", () => {
+  it.each(["execution", "authority"] as const)(
+    "caps lease and report windows at the absolute %s deadline",
+    async (owner) => {
+      const store = new InMemoryReviewExecutionStore();
+      const running = await prepareAndAdmit(store);
+      const notAfter = plus(10_000);
+      const input = {
+        ...leaseCommand(),
+        stream: running.stream,
+        execution: {
+          ...running.execution,
+          executionDeadlineAt:
+            owner === "execution"
+              ? notAfter
+              : running.execution.executionDeadlineAt,
+        },
+        ...(owner === "authority" ? { notAfter } : {}),
+        activeLease: null,
+        fencingToken: 1n,
+      };
+      const result = decideLeaseAcquire(input);
+      expect(result.status).toBe(LeaseAcquireDecisionStatus.Acquired);
+      if (result.status !== LeaseAcquireDecisionStatus.Acquired)
+        throw new Error("fixture_lease_not_acquired");
+      expect(result.lease.expiresAt).toEqual(notAfter);
+      expect(result.lease.resultReportUntil).toEqual(notAfter);
+      expect(result.lease.retainUntil).toEqual(input.retainUntil);
+      expect(result.execution.workSlots[0]?.nextAttemptOrdinal).toBe(2);
+    },
+  );
+
+  it.each(["execution", "authority"] as const)(
+    "does not charge a lease attempt at an expired %s deadline",
+    async (owner) => {
+      const store = new InMemoryReviewExecutionStore();
+      const running = await prepareAndAdmit(store);
+      const command = leaseCommand();
+      const input = {
+        ...command,
+        stream: running.stream,
+        execution: {
+          ...running.execution,
+          executionDeadlineAt:
+            owner === "execution"
+              ? command.now
+              : running.execution.executionDeadlineAt,
+        },
+        ...(owner === "authority" ? { notAfter: command.now } : {}),
+        activeLease: null,
+        fencingToken: 1n,
+      };
+      const before = structuredClone(input.execution);
+      expect(decideLeaseAcquire(input)).toEqual({
+        status: LeaseAcquireDecisionStatus.NotRunnable,
+      });
+      expect(input.execution).toEqual(before);
+      expect(input.execution.workSlots[0]?.nextAttemptOrdinal).toBe(1);
+    },
+  );
+
   it("reports exhausted slots after the final lease is released", () => {
     const prepared = decideExecutionPreparation({
       stream: createEmptyReviewExecutionStream(scope, baseTime),
@@ -2606,6 +2899,9 @@ describe("durable ReviewRequested ingress", () => {
             status: ReviewRequestedDispatchLookupStatus.Absent as const,
           };
         },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
+        },
         async inspectKnownRun() {
           return {
             status: ReviewRequestedDispatchRunStatus.TerminalCurrentRevision,
@@ -2682,6 +2978,9 @@ describe("durable ReviewRequested ingress", () => {
             status: ReviewRequestedDispatchLookupStatus.Absent as const,
           };
         },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
+        },
         async inspectKnownRun() {
           return {
             status: ReviewRequestedDispatchRunStatus.TerminalStaleRevision,
@@ -2743,6 +3042,9 @@ describe("durable ReviewRequested ingress", () => {
           return {
             status: ReviewRequestedDispatchLookupStatus.Absent as const,
           };
+        },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
         },
         async inspectKnownRun() {
           return {
@@ -2815,6 +3117,9 @@ describe("durable ReviewRequested ingress", () => {
             status: ReviewRequestedDispatchLookupStatus.Absent as const,
           };
         },
+        async inspectRunnerWait() {
+          return runnerAlreadyAssigned;
+        },
         async inspectKnownRun() {
           return {
             status: ReviewRequestedDispatchRunStatus.TerminalCurrentRevision,
@@ -2881,6 +3186,91 @@ describe("durable ReviewRequested ingress", () => {
       dispatchAttempt: 3,
       notBefore: plus(30_000 + 4_000),
     });
+  });
+
+  it("isolates due blockers by every field of the PR scope", async () => {
+    const store = new InMemoryReviewRequestedIntentStore();
+    const first = intentCandidate("scope-owner", "0", scope, revision);
+    await store.registerIntent({ candidate: first });
+    expect(
+      (
+        await store.claimIntent(
+          claimIntent(first.requestId, "scope-claim", "scope-owner"),
+        )
+      ).status,
+    ).toBe(ReviewRequestedClaimStatus.Claimed);
+    const variants = [
+      { ...scope, workspaceId: `${scope.workspaceId}-other` },
+      {
+        ...scope,
+        repositoryConnectionId: `${scope.repositoryConnectionId}-other`,
+      },
+      {
+        ...scope,
+        scmRepositoryIdentityId: `${scope.scmRepositoryIdentityId}-other`,
+      },
+      { ...scope, pullRequestNumber: scope.pullRequestNumber + 1 },
+    ];
+    for (const [index, variant] of variants.entries()) {
+      await store.registerIntent({
+        candidate: intentCandidate(
+          `different-scope-${index}`,
+          String(index + 1),
+          variant,
+          revision,
+        ),
+      });
+    }
+    expect(
+      new Set(
+        (await store.listDue({ now: baseTime, limit: 10 })).map(
+          (intent) => intent.requestId,
+        ),
+      ),
+    ).toEqual(new Set(variants.map((_, index) => `different-scope-${index}`)));
+  });
+
+  it("unblocks a same-scope due intent exactly when the claim expires", async () => {
+    const store = new InMemoryReviewRequestedIntentStore();
+    const first = intentCandidate("boundary-first", "1", scope, revision);
+    await store.registerIntent({ candidate: first });
+    expect(
+      (
+        await store.claimIntent({
+          ...claimIntent(first.requestId, "boundary-owner", "boundary-hash"),
+          claimUntil: plus(1000),
+        })
+      ).status,
+    ).toBe(ReviewRequestedClaimStatus.Claimed);
+    const next = {
+      ...intentCandidate("boundary-next", "2", scope, revision),
+      triggerKind: ReviewRequestedTriggerKind.ManualCommand,
+    };
+    await store.registerIntent({ candidate: next });
+    expect(await store.listDue({ now: plus(999), limit: 10 })).toEqual([]);
+    expect(
+      (await store.listDue({ now: plus(1000), limit: 10 })).map(
+        (intent) => intent.requestId,
+      ),
+    ).toEqual(expect.arrayContaining([first.requestId, next.requestId]));
+    expect(
+      (
+        await store.claimIntent({
+          ...claimIntent(
+            next.requestId,
+            "boundary-next-claim",
+            "boundary-next-owner",
+          ),
+          now: plus(1000),
+          claimUntil: plus(2000),
+        })
+      ).status,
+    ).toBe(ReviewRequestedClaimStatus.Claimed);
+    expect(
+      (await store.listDue({ now: plus(1000), limit: 10 })).map(
+        (intent) => intent.requestId,
+      ),
+    ).not.toContain(first.requestId);
   });
 
   it("orders and bounds due intents", async () => {
@@ -3160,6 +3550,13 @@ function resolutionWindow(now: Date) {
     resolutionDeadlineAt: new Date(now.getTime() + 60_000),
   };
 }
+
+/** A run that GitHub already gave a runner: never waits longer (plan 88). */
+const runnerAlreadyAssigned = {
+  waitingForRunner: false,
+  neverStarted: false,
+  revisionCurrent: true,
+} as const;
 
 function testDispatchPolicy() {
   return {

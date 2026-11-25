@@ -13,12 +13,14 @@ import {
   ReviewSkillsError,
   ReviewSkillsErrorCode as Code,
 } from "../../domain/errors.js";
+import { omissionAcknowledgementRequired } from "../../domain/catalog-security.js";
 import {
   PrismaReviewSkillsStore,
   requireReviewSkillsMember,
 } from "./prisma-review-skills-store.js";
 import type { ReviewSkillsCatalogTransactionHooks } from "./catalog-transaction-hooks.js";
 import { canonicalSkillScanText } from "../serialization/canonical-skill-text.js";
+import { linkedFilePaths } from "../serialization/portable-skill.js";
 
 type Tx = Prisma.TransactionClient;
 type Reader = Pick<Tx, "$queryRaw" | "$executeRaw">;
@@ -183,9 +185,22 @@ function candidateView(
       commit: row.sourceCommit,
       path: row.sourcePath,
     },
-    omittedFields: row.omittedFields,
-    hasResources: row.hasResources,
+    ...omissions(row),
     expiresAt: row.expiresAt.toISOString(),
+  };
+}
+/** Derived from stored instructions, so the server and the preview agree. */
+function omissions(
+  row: Pick<CandidateRow, "omittedFields" | "hasResources" | "instructions">,
+) {
+  const value = {
+    omittedFields: row.omittedFields,
+    linkedFiles: linkedFilePaths(row.instructions),
+    hasResources: row.hasResources,
+  };
+  return {
+    ...value,
+    acknowledgementRequired: omissionAcknowledgementRequired(value),
   };
 }
 function profileValid(profile: C.ReviewSkillScanProfile): boolean {
@@ -481,7 +496,7 @@ export class PrismaReviewSkillsCatalogStore implements ReviewSkillsCatalogStore 
       if (effective.report.verdict === "warnings" && !input.acknowledgeWarnings)
         fail(Code.InvalidInput);
       if (
-        (candidate.omittedFields.length > 0 || candidate.hasResources) &&
+        omissions(candidate).acknowledgementRequired &&
         !input.acknowledgeOmissions
       )
         fail(Code.InvalidInput);

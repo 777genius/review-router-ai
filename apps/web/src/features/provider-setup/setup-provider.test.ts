@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  connectsInProviderDialog,
   gatewaySetupProvidersForProfiles,
   getSetupProvider,
   setupProviderForDirectAuthMode,
@@ -42,6 +43,9 @@ describe("provider setup registry", () => {
       ["openrouter", "OpenRouter"],
       ["mimo", "MiMo Token Plan"],
       ["kimi", "Kimi Code"],
+      ["anthropic", "Anthropic API"],
+      ["gemini", "Gemini API"],
+      ["nvidia", "NVIDIA Build"],
       ["glm", "GLM Coding Plan"],
       ["minimax", "MiniMax M Plan"],
       ["grok", "Grok"],
@@ -101,6 +105,45 @@ describe("provider setup registry", () => {
     );
   });
 
+  it.each([false, true])(
+    "uses the same native create permission for embedded import and enrollment (%s)",
+    (create) => {
+      const imported = profile({
+        ...codex,
+        availability: "enabled",
+        connection: {
+          provider: "openai",
+          planLabel: "Codex subscription",
+          regionLabel: "Global",
+          completionInputKind: "none",
+          limitsContract: "account-limits/v2",
+          modelSettings: [],
+          methods: [
+            {
+              kind: "credential_import",
+              method: "oauth_auth_json",
+              maxBytes: 65536,
+              create,
+              reconnect: true,
+            },
+          ],
+        },
+      });
+      expect(connectsInProviderDialog(imported, "codex")).toBe(create);
+      expect(gatewaySetupProvidersForProfiles([imported])).toEqual(
+        create ? ["codex"] : [],
+      );
+      // Existing connection identity remains usable when creation is off.
+      expect(setupProviderForGatewayProfile(imported)).toBe("codex");
+      expect(
+        connectsInProviderDialog(
+          { ...imported, availability: "deployment_configuration_required" },
+          "codex",
+        ),
+      ).toBe(false);
+    },
+  );
+
   it.each([
     ["glm", "glm-coding-global-responses-apikey-v1", "api_key"],
     ["minimax", "minimax-mplan-global-responses-apikey-v1", "api_key"],
@@ -118,7 +161,6 @@ describe("provider setup registry", () => {
           regionLabel: "Global",
           completionInputKind:
             authKind === "oauth" ? "authorization_code" : "none",
-          personalOnly: false,
           limitsContract: "account-limits/v2",
           modelSettings: [],
         },
@@ -146,6 +188,41 @@ describe("provider setup registry", () => {
       ).toEqual([]);
     },
   );
+
+  it("admits NVIDIA only as its own Gateway API-key profile, without a direct secret", () => {
+    const nvidia = profile({
+      id: "nvidia-build-chat-apikey-v1",
+      provider: "nvidia",
+      authKind: "api_key",
+      connection: {
+        provider: "nvidia",
+        planLabel: "NVIDIA Build evaluation",
+        regionLabel: "Global",
+        completionInputKind: "none",
+        limitsContract: "none",
+        modelSettings: [],
+      },
+    });
+    expect(setupProviderForGatewayProfile(nvidia)).toBe("nvidia");
+    expect(gatewaySetupProvidersForProfiles([nvidia])).toEqual(["nvidia"]);
+    expect(getSetupProvider("nvidia").githubSource).toBeNull();
+    expect(getSetupProvider("nvidia").publicCatalogProvider).toBeNull();
+    expect(
+      setupProviderForGatewayProfile({ ...nvidia, id: "unqualified-nvidia" }),
+    ).toBeUndefined();
+    expect(
+      setupProviderForGatewayProfile({ ...nvidia, authKind: "oauth" }),
+    ).toBeUndefined();
+    expect(
+      setupProviderForGatewayProfile({ ...nvidia, provider: "openrouter" }),
+    ).toBeUndefined();
+    expect(
+      setupProviderForGatewayProfile({
+        ...nvidia,
+        connection: { ...nvidia.connection!, provider: "openrouter" },
+      }),
+    ).toBeUndefined();
+  });
 
   it("uses the authenticated deployment availability and deduplicates profiles", () => {
     expect(
@@ -198,7 +275,6 @@ describe("provider setup registry", () => {
         planLabel: "Untrusted display label",
         regionLabel: "Global",
         completionInputKind: "callback_url",
-        personalOnly: false,
         limitsContract: "none",
         modelSettings: [],
       };

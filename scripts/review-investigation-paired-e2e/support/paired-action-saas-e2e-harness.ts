@@ -16,6 +16,7 @@ import {
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { exportJWK, SignJWT } from "jose";
 import {
@@ -499,7 +500,7 @@ export class PairedActionSaasE2EHarness {
       { encoding: "utf8", mode: 0o600 },
     );
     try {
-      const tsxCli = require.resolve("tsx/cli");
+      const tsxLoader = pathToFileURL(require.resolve("tsx")).href;
       const runner = path.resolve(
         "scripts/review-investigation-paired-e2e/support/paired-action-runner.ts",
       );
@@ -511,7 +512,7 @@ export class PairedActionSaasE2EHarness {
       try {
         const completed = await execFileAsync(
           process.execPath,
-          [tsxCli, runner, configPath],
+          ["--import", tsxLoader, runner, configPath],
           {
             cwd: path.resolve("."),
             env: {

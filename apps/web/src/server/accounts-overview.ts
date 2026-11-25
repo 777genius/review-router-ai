@@ -1,4 +1,5 @@
 import type { AccountLimitsService } from "./account-limits-service";
+import type { AccountMetadataService } from "./account-metadata-service";
 import { lifecycleProjection } from "./account-lifecycle";
 import type { AccountLifecycleRead } from "./account-lifecycle-reader";
 import {
@@ -52,6 +53,7 @@ async function workspaceOwnerAvatar(
 // executable-only selector. Authorization is repeated after all remote reads.
 export function createAccountsOverview(input: {
   limits?: AccountLimitsService;
+  metadata?: AccountMetadataService;
   prisma: PrismaClient;
   cursorSecret: string;
   gateway: { get(accountRef: string): Promise<AccountLifecycleRead> };
@@ -275,6 +277,12 @@ export function createAccountsOverview(input: {
                 ? "organization"
                 : "operator",
             isOwnedByViewer: source.ownerUserId === who.userId,
+            // The viewer's own connection id, already listed in their own
+            // connections; it lets one list show that connection once.
+            ...(source.ownerUserId === who.userId &&
+            source.ownerWorkspaceId === null
+              ? { sourceId: source.id }
+              : {}),
             canManage: own && isAdmin,
             label: remote?.displayName ?? source.displayName,
             profileId: profile.id,
@@ -423,7 +431,9 @@ export function createAccountsOverview(input: {
         return {
           status: "ok",
           value: {
-            accounts,
+            accounts: input.metadata
+              ? await input.metadata.page(accounts)
+              : accounts,
             profiles: [],
             nextCursor:
               candidates.length > limit

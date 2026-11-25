@@ -153,6 +153,7 @@ test(
       };
       const scope = { workspaceId, connectionId };
       const metadata = {
+        authorizationEpoch: 1,
         gatewayOperationRef: "rr-test-operation",
         profileRef: "rr-test-profile",
         displayName: "Synthetic gateway account",
@@ -977,6 +978,8 @@ test(
             Object.keys(active).sort(),
             [
               "displayName",
+              "authorizationEpochMirror",
+              "pendingSourceOperationId",
               "gatewayAccountRef",
               "gatewayOperationRef",
               "id",

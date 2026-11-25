@@ -400,6 +400,7 @@ export function ProviderSetupPreviewClient({
 
         <section className="rounded-2xl border border-cyan-200/10 bg-slate-950/45 px-4 pb-1 pt-4 sm:px-5">
           <RepositorySetupProgressPanel
+            verificationNeeded={false}
             workspaceId={workspaceId}
             repositoryId={api.id}
             repositoryFullName={api.fullName}

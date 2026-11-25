@@ -12,6 +12,7 @@ export function ApiKeyStorageChoice({
   disabled = false,
   reviewRouterUnavailable,
   githubUnavailable,
+  githubSupported = true,
   credentialKind = "api_key",
 }: {
   readonly value: ApiKeyStorage;
@@ -19,6 +20,7 @@ export function ApiKeyStorageChoice({
   readonly disabled?: boolean;
   readonly reviewRouterUnavailable?: string | undefined;
   readonly githubUnavailable?: string | undefined;
+  readonly githubSupported?: boolean;
   readonly credentialKind?:
     | "api_key"
     | "codex_session"
@@ -40,9 +42,11 @@ export function ApiKeyStorageChoice({
         value={value}
         onValueChange={(next) => onValueChange(next as ApiKeyStorage)}
         disabled={disabled}
-        className="sm:grid-cols-2"
+        {...(githubSupported ? { className: "sm:grid-cols-2" } : {})}
       >
         {apiKeyStorageOptions.map((option) => {
+          if (option.value === "github_secrets" && !githubSupported)
+            return null;
           const reason =
             option.value === "reviewrouter"
               ? reviewRouterUnavailable

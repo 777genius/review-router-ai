@@ -1,0 +1,77 @@
+{
+  "scope": "Account metadata only; legacy account lifecycle and limits adoption remain unchanged",
+  "decision": "ai-docs/decisions/035-native-account-metadata.md",
+  "owner": "reviewrouter/account-metadata",
+  "standards": {
+    "consumerModuleStandard": {
+      "repository": "agent-teams-ai/get-modular",
+      "commit": "7a7c4c54add9ccc06509423d7b89bcfc037227b1",
+      "path": "docs/architecture/common-assembly.md",
+      "anchor": "#consumer-module-standard",
+      "gitBlob": "df4eff7235ac781ec574903c6b2aec13bcd7bfaa",
+      "sha256": "3c5814ebf1ab1bd17688e49955aa0baa2ee91dd3a369adcea4d38aaccd53ba86"
+    },
+    "moduleAuthoringGuide": {
+      "repository": "agent-teams-ai/get-modular",
+      "commit": "7a7c4c54add9ccc06509423d7b89bcfc037227b1",
+      "path": "docs/guides/module-authoring.md",
+      "sha256": "9bdbc6a6eac511691cf429c7e7e12b4cf4fd86ec16a348fb3af7a46c989af144"
+    },
+    "featureModuleStandard": {
+      "version": "v1.1",
+      "sha256": "cfa088ef7396139554fe5e3bcc839271b23299c6b60c569a3a7f1cd7c9f0bc6c"
+    },
+    "engineeringQualityStandard": {
+      "repository": "agent-teams-ai/.github",
+      "commit": "c8f3e7ba220241f79292c84c72712653019aa1df",
+      "path": "docs/engineering-quality-standard.md"
+    }
+  },
+  "packages": {
+    "@get-modular/core": "0.8.0",
+    "@get-modular/assembly": "0.8.0",
+    "@get-modular/conformance": "0.5.2"
+  },
+  "sourceRoot": "packages/features/provider-accounts/src/account-metadata",
+  "layoutMapping": {
+    "physical": "packages/features/provider-accounts/src/account-metadata",
+    "conformance": "features/account-metadata"
+  },
+  "productionRoot": "packages/features/provider-accounts/src/account-metadata/composition/account-metadata.root.ts",
+  "group": "packages/features/provider-accounts/src/account-metadata/composition/account-metadata.group.ts",
+  "module": "packages/features/provider-accounts/src/account-metadata/composition/account-metadata.module.ts",
+  "namespace": "reviewrouter",
+  "input": "reviewrouter/account-metadata-reader/host",
+  "implementation": "reviewrouter/account-metadata/default",
+  "lifetime": {
+    "owner": "existing Web host",
+    "borrowed": ["AccountMetadataReader"],
+    "ownedResources": []
+  },
+  "fixedAdapters": [
+    "apps/web/src/server/account-metadata-sdk-reader.ts",
+    "apps/web/src/server/account-metadata-service.ts",
+    "apps/web/src/server/account-metadata/authorization.ts"
+  ],
+  "publicSurfaces": [
+    "packages/features/provider-accounts/src/account-metadata/application/ports/account-metadata.ts",
+    "packages/features/provider-accounts/src/account-metadata/composition/account-metadata.root.ts"
+  ],
+  "blockingCommands": [
+    "pnpm metadata:architecture",
+    "pnpm metadata:typecheck",
+    "pnpm modular:qualify"
+  ],
+  "exceptions": [],
+  "claimLimit": "Scoped source/layout/wiring and disposable integration evidence; no whole-package adoption or production rollout.",
+  "boundaryChecks": {
+    "foundation": [
+      "account-metadata.application",
+      "account-metadata.composition",
+      "account-metadata.authorization",
+      "account-metadata.tests"
+    ],
+    "host": "scripts/check-architecture-boundaries.mjs: checkAccountMetadataHostBoundaries",
+    "limitation": "Foundation schema v1 cannot prove exact runtime export ownership inside mixed runtime/development packages. Host public imports are governed by the existing RR AST boundary checker; no whole-Web Foundation adoption."
+  }
+}

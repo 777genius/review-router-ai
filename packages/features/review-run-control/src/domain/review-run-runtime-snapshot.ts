@@ -1,7 +1,7 @@
 import {
   lifecycleVerificationContract,
   parseReviewReviewerPlan,
-  type ReviewReviewerPlanV1,
+  type ReviewReviewerPlan,
   type ReviewReviewerPlanReviewerV1,
   type ReviewReviewerModelSettings,
   lifecycleVerificationDescriptorDigest,
@@ -222,6 +222,8 @@ export type ReviewRunRuntimeSnapshotV4 = Omit<
 > &
   Readonly<{
     snapshotVersion: 4;
+    /** Ordered fallback, captured only for a producer that runs it. */
+    providerMode?: "fallback";
     primaryReviewerId: string;
     maxParallelReviewers: number;
     inlineMinAgreement: number;
@@ -265,7 +267,7 @@ export function buildReviewRunReviewerPlan(
     string,
     ReviewReviewerModelSettings | undefined
   > = new Map(),
-): ReviewReviewerPlanV1 {
+): ReviewReviewerPlan {
   const reviewers = snapshot.reviewers.map((reviewer) => ({
     ...reviewer,
     transport: "account_gateway" as const,
@@ -274,7 +276,7 @@ export function buildReviewRunReviewerPlan(
       : { modelSettings: settingsMap.get(reviewer.reviewerId) }),
   }));
   return parseReviewReviewerPlan({
-    planVersion: 1,
+    ...reviewerPlanVersion(snapshot.providerMode),
     primaryReviewerId: snapshot.primaryReviewerId,
     maxParallelReviewers: snapshot.maxParallelReviewers,
     inlineMinAgreement: snapshot.inlineMinAgreement,
@@ -320,8 +322,11 @@ export function parseReviewRunRuntimeSnapshot(
         "lifecycleVerificationUnavailableReason",
         "lifecycleVerificationCapability",
         "prDescriptionCapability",
+        "providerMode",
       ].filter((key) => Object.hasOwn(parsed, key)),
     ]) ||
+    (Object.hasOwn(parsed, "providerMode") &&
+      parsed.providerMode !== "fallback") ||
     !Array.isArray(parsed.reviewers) ||
     parsed.reviewers.length < 1 ||
     parsed.reviewers.length > 16 ||
@@ -336,6 +341,7 @@ export function parseReviewRunRuntimeSnapshot(
     primaryReviewerId,
     maxParallelReviewers,
     inlineMinAgreement,
+    providerMode,
     snapshotVersion: _version,
     ...common
   } = parsed;
@@ -366,7 +372,7 @@ export function parseReviewRunRuntimeSnapshot(
   });
   if (reviewers.some((row) => Object.hasOwn(row, "unavailableReason"))) fail();
   const plan = parseReviewReviewerPlan({
-    planVersion: 1,
+    ...reviewerPlanVersion(providerMode as "fallback" | undefined),
     primaryReviewerId,
     maxParallelReviewers,
     inlineMinAgreement,
@@ -425,7 +431,9 @@ export function parseReviewRunRuntimeSnapshot(
   if (
     !record(configuration) ||
     !Array.isArray(configuration.providers) ||
-    configuration.providers.length !== plan.reviewers.length
+    configuration.providers.length !== plan.reviewers.length ||
+    // The captured mode is exactly the mode of the captured configuration.
+    configuration.providerMode !== providerMode
   )
     fail();
   for (const reviewer of plan.reviewers) {
@@ -459,6 +467,7 @@ export function parseReviewRunRuntimeSnapshot(
   return {
     ...shared,
     snapshotVersion: 4,
+    ...(plan.planVersion === 2 ? { providerMode: plan.providerMode } : {}),
     primaryReviewerId: plan.primaryReviewerId,
     maxParallelReviewers: plan.maxParallelReviewers,
     inlineMinAgreement: plan.inlineMinAgreement,
@@ -471,6 +480,13 @@ export function parseReviewRunRuntimeSnapshot(
     })),
     allocations: selectedAllocations,
   };
+}
+
+/** A fallback snapshot runs a version 2 plan; every other one keeps version 1. */
+function reviewerPlanVersion(providerMode: "fallback" | undefined) {
+  return providerMode === "fallback"
+    ? { planVersion: 2, providerMode }
+    : { planVersion: 1 };
 }
 
 function parseReviewRunRuntimeSnapshotV3(

@@ -101,6 +101,14 @@ export type PersonalRevokeRequest = {
   bindingId: string;
   expectedBindingRevision: number;
 };
+/** Adding a just-connected personal connection to the workspace it was
+ * connected from. A reason is shown when it stays personal. */
+export type ConnectWorkspaceAttachment =
+  | { status: "attached"; bindingId: string }
+  | {
+      status: "not_attached";
+      reason: "not_permitted" | "not_connected" | "removed" | "unavailable";
+    };
 export type PersonalAccountsApi = {
   listSources(request: {
     afterSourceId?: string;

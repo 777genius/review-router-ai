@@ -1,6 +1,6 @@
 # ReviewRouter landing research — full template and motion comparison
 Date: 2026-11-13. **Research/decision only. No template installed, homepage rewritten, browser E2E, or deployed change.**
-Companion: [earlier shortlist](landing-template-research.md), [product truth](../../PRODUCT.md), [design baseline](../../DESIGN.md).
+Companion: [earlier shortlist](landing-template-research.md), [product truth](../../README.md), [design baseline](../product/08-visual-direction.md).
 
 ## Non-negotiable brief
 The existing dark cyberpunk ReviewRouter brand is approved: graphite, cyan, lime and restrained magenta; actual icon and fonts; same dashboard tokens and shared Radix UI. The page needs **far fewer words, stronger visibly separated sections** and product-first proof, not a new gradient/glass design. The hero shows 3–4 severity labels and SHORT finding titles, never a diff or paragraphs of model comments.

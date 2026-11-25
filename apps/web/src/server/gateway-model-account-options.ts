@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import * as c from "@agent-teams/account-gateway/contracts";
 import type { ManagementClient } from "@agent-teams/account-gateway/http";
+import type { AccountMetadataService } from "./account-metadata-service";
 import {
   assertOpaqueReference,
   assertMetadata,
@@ -34,6 +35,7 @@ class RowDenied extends Error {}
  * Gateway discovery, mirror writes, provisioning or implicit binding creation.
  */
 export function createGatewayModelAccountOptions(input: {
+  readonly metadata?: AccountMetadataService;
   readonly prisma: PrismaClient;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly operatorWorkspaceId?: string;
@@ -241,16 +243,29 @@ export function createGatewayModelAccountOptions(input: {
         after.account.mirrorRevision !== row.connection.metadataRevision
       )
         throw new RowDenied();
+      // A source without a known upstream identity (e.g. a native catalogue on a
+      // profile that has no connection projection) cannot be presented as another
+      // vendor: fail closed instead of defaulting to OpenRouter.
+      const fallbackProvider =
+        discoverySource === "codex"
+          ? ("openai" as const)
+          : discoverySource === "nvidia"
+            ? ("nvidia" as const)
+            : discoverySource === "openrouter"
+              ? ("openrouter" as const)
+              : undefined;
+      if (
+        models.status === "snapshot" &&
+        !profile.connection &&
+        !fallbackProvider
+      )
+        models = { status: "unknown" };
       if (models.status === "snapshot") {
         const connection = profile.connection ?? {
-          provider:
-            discoverySource === "codex"
-              ? ("openai" as const)
-              : ("openrouter" as const),
+          provider: fallbackProvider ?? ("openrouter" as const),
           planLabel: profile.label,
           regionLabel: "Global",
           completionInputKind: "none" as const,
-          personalOnly: false,
           limitsContract: "none" as const,
           modelSettings: [],
         };
@@ -270,7 +285,9 @@ export function createGatewayModelAccountOptions(input: {
         // Only the Gateway's unavailable fallback admits the configured anchor.
         // Unsupported/unknown discovery cannot authorize profile seed models.
         const legacyModels =
-          models.status === "unavailable" ? [...profile.models] : [];
+          models.status === "unavailable" && discoverySource !== "nvidia"
+            ? [...profile.models]
+            : [];
         scopedProfile = {
           ...profile,
           models: legacyModels,
@@ -353,10 +370,17 @@ export function createGatewayModelAccountOptions(input: {
     }
   }
   return {
+    enrichMetadata: <T extends AccountView>(
+      accounts: readonly T[],
+    ): Promise<T[]> =>
+      input.metadata
+        ? input.metadata.page(accounts)
+        : Promise.resolve([...accounts]),
     list(
       request: {
         readonly afterBindingId?: string;
         readonly limit?: number;
+        readonly includeMetadata?: boolean;
       } = {},
     ): Promise<AccountsResult<ModelPage>> {
       const afterBindingId = request.afterBindingId,
@@ -403,7 +427,10 @@ export function createGatewayModelAccountOptions(input: {
         }
         await checked(authority, async () => undefined);
         return {
-          accounts: projected,
+          accounts:
+            input.metadata && request.includeMetadata !== false
+              ? await input.metadata.page(projected)
+              : projected,
           profiles,
           nextCursor:
             candidates.length > limit ? rows[rows.length - 1]!.id : null,
@@ -412,7 +439,10 @@ export function createGatewayModelAccountOptions(input: {
     },
     get(
       bindingId: string,
-      options: { readonly forceRefresh?: boolean } = {},
+      options: {
+        readonly forceRefresh?: boolean;
+        readonly includeMetadata?: boolean;
+      } = {},
     ): Promise<
       AccountsResult<{ account: ModelAccount; profile: AccountProfileView }>
     > {
@@ -427,7 +457,11 @@ export function createGatewayModelAccountOptions(input: {
           options.forceRefresh === true,
         );
         await checked(authority, async () => undefined);
-        return { account, profile };
+        const displayed =
+          input.metadata && options.includeMetadata !== false
+            ? (await input.metadata.page([account]))[0]!
+            : account;
+        return { account: displayed, profile };
       });
     },
     // Private server-only selection for a diagnostic inference. Never returned

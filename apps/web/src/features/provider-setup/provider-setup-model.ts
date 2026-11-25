@@ -13,6 +13,7 @@ import type {
   ManagedApiKeyAuthMode,
   UserCiSecretAuthMode,
 } from "@reviewrouter/features-review-config/workspace-provider-profile";
+import type { ReviewProviderMode } from "@reviewrouter/features-review-config/review-configuration";
 import type { ReviewProviderSelection } from "@reviewrouter/features-review-config/review-policy-document";
 import {
   apiKeyProviders,
@@ -33,6 +34,17 @@ export const PROVIDER_SETUP_MAX_REPOSITORIES = 100;
 /** "1 repository", "3 repositories". */
 export function repositoryCountLabel(count: number): string {
   return `${count} ${count === 1 ? "repository" : "repositories"}`;
+}
+
+/** "Account · model; Other · model", in roster order; null is a missing profile. */
+export function reviewerNames(
+  profiles: readonly (Readonly<{ label: string; model: string }> | null)[],
+): string {
+  return profiles
+    .map((profile) =>
+      profile ? `${profile.label} · ${profile.model}` : "Reviewer unavailable",
+    )
+    .join("; ");
 }
 
 /** Who the dialog configures. Repository targets are fixed by the caller. */
@@ -109,6 +121,8 @@ export type ProviderSetupRepositoryView = Readonly<{
   /** Its own selection, when it has one. */
   selection: ReviewProviderSelection | null;
   selections?: readonly ReviewProviderSelection[];
+  /** How its own reviewers interact; only meaningful with its own selection. */
+  providerMode?: ReviewProviderMode;
   version?: number | null;
   execution?: Readonly<{
     providerMaxParallel?: number | undefined;
@@ -124,6 +138,8 @@ export type ProviderSetupView = Readonly<{
   repositories: readonly ProviderSetupRepositoryView[];
   defaultSelection: ReviewProviderSelection | null;
   defaultSelections?: readonly ReviewProviderSelection[];
+  /** How the workspace default reviewers interact. */
+  providerMode?: ReviewProviderMode;
   workspaceVersion?: number | null;
   execution?: Readonly<{
     providerMaxParallel: number;
@@ -157,6 +173,7 @@ export type ProviderSetupFacts = Readonly<{
   }>[];
   defaultSelection: ReviewProviderSelection | null;
   defaultSelections?: readonly ReviewProviderSelection[];
+  providerMode?: ReviewProviderMode;
   workspaceVersion?: number | null;
   execution?: Readonly<{
     providerMaxParallel: number;
@@ -168,6 +185,7 @@ export type ProviderSetupFacts = Readonly<{
     capability: ProviderRepositoryCapability | null;
     ownSelection: ReviewProviderSelection | null;
     ownSelections?: readonly ReviewProviderSelection[];
+    providerMode?: ReviewProviderMode;
     version?: number | null;
     execution?: Readonly<{
       providerMaxParallel?: number | undefined;
@@ -456,6 +474,9 @@ export function buildProviderSetupView(
       selections:
         repository.ownSelections ??
         (repository.ownSelection ? [repository.ownSelection] : []),
+      ...(repository.providerMode
+        ? { providerMode: repository.providerMode }
+        : {}),
       version: repository.version ?? null,
       execution: repository.execution ?? {},
       useDefault: decide({
@@ -467,6 +488,7 @@ export function buildProviderSetupView(
     defaultSelections:
       facts.defaultSelections ??
       (facts.defaultSelection ? [facts.defaultSelection] : []),
+    ...(facts.providerMode ? { providerMode: facts.providerMode } : {}),
     workspaceVersion: facts.workspaceVersion ?? null,
     execution: facts.execution ?? {
       providerMaxParallel: 1,
