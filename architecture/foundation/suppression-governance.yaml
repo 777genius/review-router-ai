@@ -1,0 +1,56 @@
+schemaVersion: 1
+# Migration-safe initial set. Remaining legacy suppressions are documented in
+# ai-docs/architecture/84-foundation-default-adoption.md; new packages have
+# mandatory source governance under scripts/architecture-boundaries/.
+governedRoots:
+  - apps/api/src
+  - apps/worker/src
+  - apps/web/src
+  - apps/web/app/dashboard
+  - apps/web/app/setup
+  - packages/ui/src
+  - packages/shared/src
+  - packages/platform
+  - packages/context-memory/src
+  - packages/protocol-review-action-v2/src
+  - packages/protocol-review-workflow/src
+  - packages/features/action-control-plane/src
+  - packages/features/api-demo/src
+  - packages/features/audit-log/src
+  - packages/features/auth/src
+  - packages/features/conflict-review/src
+  - packages/features/conflict-runtime/src
+  - packages/features/conversations/src
+  - packages/features/entitlements/src
+  - packages/features/github-installations/src
+  - packages/features/gitlab-integration/src
+  - packages/features/hosted-account-pool/src
+  - packages/features/memory/src
+  - packages/features/org-ruleset-provisioning/src
+  - packages/features/outbox/src
+  - packages/features/provider-accounts/src
+  - packages/features/provider-usage/src
+  - packages/features/rate-limits/src
+  - packages/features/release-rollout/src
+  - packages/features/repo-health/src
+  - packages/features/repositories/src
+  - packages/features/review-context-attestation/src
+  - packages/features/review-context-tools/src
+  - packages/features/review-evidence/src
+  - packages/features/review-execution-checkpoints/src
+  - packages/features/review-executions/src
+  - packages/features/review-history/src
+  - packages/features/review-investigation-operations/src
+  - packages/features/review-investigations/src
+  - packages/features/review-processes/src
+  - packages/features/review-progress/src
+  - packages/features/review-providers/src
+  - packages/features/review-publishing/src
+  - packages/features/review-run-control/src
+  - packages/features/review-snapshots/src
+  - packages/features/sdk-growth-authority/src
+  - packages/features/support-diagnostics/src
+  - packages/features/system-health/src
+nonWaivableRulePrefixes:
+  - access-control.
+waivers: []
