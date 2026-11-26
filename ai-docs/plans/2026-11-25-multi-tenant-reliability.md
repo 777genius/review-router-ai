@@ -382,3 +382,40 @@ Direct checks accept the historical schema and reject both altered bytes and
 substitution of the current writer schema. This is not a PostgreSQL E2E pass;
 the original full parity check, migration/PG suites, browser workflows and final
 main checks must pass on the published follow-up before acceptance.
+
+### Bounded catalog read recovery found by final E2E
+
+On `2bb8a08d`, the Catalog browser trace recorded one `loadScan` response with
+`unavailable` after a successful static-scan admission. No more reads followed
+for the remaining 110-second assertion, while the native scanner and worker
+completed their work. A concurrent event-loop stall is recorded; a database
+transaction timeout is a possible cause, not a confirmed PostgreSQL exception.
+The confirmed defect is that one failed read permanently stops polling.
+
+The final correction stays inside the existing overload/recovery scope:
+
+1. Retry only the read-only `loadScan` query, at most twice, for typed
+   `unavailable` or transport `unknown` errors, using existing query backoff.
+   Other failures remain terminal and exhaustion retains the existing manual
+   refresh. No mutation, quota admission, timeout, worker or database policy changes.
+2. Extract only the existing three client status/error predicates alongside this
+   read policy so the dialog does not grow past its current file-size ceiling.
+   No shared retry framework, hook, dependency, feature flag or new service.
+3. Exercise transient recovery, exhausted retries and terminal refusals through
+   the actual dialog/query state. Strengthen the existing browser import-recovery
+   case by losing a real scan-read reply and checking one persisted scan/quota
+   admission before its unchanged lost-import assertions.
+
+Two independent scope passes confirmed the bounded read/mutation distinction.
+The expected increment is about 15 implementation lines plus 100-170 focused
+test lines. Acceptance requires the fresh dialog tests and full existing Catalog
+browser lane; no assertion timeout, skip, required gate or native-scanner proof
+is relaxed. Results are recorded against the published head in PR #1007.
+
+Both independent reviews found the new forbidden-state test expecting controls
+that correctly disappear after access loss; the test now checks that denied UI.
+No P0/P1/P2 remains in the reviewed correction. Local Vitest 4.1.10 passed all
+18 dialog and 3 client-adapter tests using an isolated consumer of the exact
+repository lockfile entries, with a successful frozen install and the unchanged
+supply-chain checks. Repository manifests, compiler and test configuration are
+unchanged. This focused result does not replace the fresh browser/full CI gates.
