@@ -13,11 +13,11 @@
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                                    |
-| -------------------- | --------- | ------------------------------- | ------------------- | ----------------------------------------------------------------------- |
-| CI                   | `pending` | Required checks not verified    | Not verified        | Run required exact-commit checks before merging.                        |
-| staging              | `pending` | Not verified                    | Not verified        | Include in a later authorized coherent build; no standalone activation. |
-| production           | `installed` | `f20a75ed` / `sha256:2a601d6b…` | 2026-11-26 | Included in the exact fleet build; downstream classic API consumers remain. |
+| Environment / target | Status      | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                                        |
+| -------------------- | ----------- | ------------------------------- | ------------------- | --------------------------------------------------------------------------- |
+| CI                   | `pending`   | Required checks not verified    | Not verified        | Run required exact-commit checks before merging.                            |
+| staging              | `pending`   | Not verified                    | Not verified        | Include in a later authorized coherent build; no standalone activation.     |
+| production           | `installed` | `f20a75ed` / `sha256:2a601d6b…` | 2026-11-26          | Included in the exact fleet build; downstream classic API consumers remain. |
 
 ## Applicability and prerequisites
 

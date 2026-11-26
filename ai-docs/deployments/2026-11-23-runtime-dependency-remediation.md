@@ -15,10 +15,10 @@
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step                              |
-| -------------------- | --------- | ------------------------------- | ------------------- | ------------------------------------------------- |
-| staging              | `pending` | Not verified                    | Not verified        | Select and qualify the exact source and image.    |
-| production           | `installed` | `f20a75ed` / `sha256:2a601d6b…` | 2026-11-26 | Fleet installed; live provider acceptance remains pending. |
+| Environment / target | Status      | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                       |
+| -------------------- | ----------- | ------------------------------- | ------------------- | ---------------------------------------------------------- |
+| staging              | `pending`   | Not verified                    | Not verified        | Select and qualify the exact source and image.             |
+| production           | `installed` | `f20a75ed` / `sha256:2a601d6b…` | 2026-11-26          | Fleet installed; live provider acceptance remains pending. |
 
 This task records ordinary application rollout work. It does not authorize a
 deployment, provider call, schema change or new activation.

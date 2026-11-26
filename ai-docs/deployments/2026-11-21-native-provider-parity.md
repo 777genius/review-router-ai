@@ -17,10 +17,10 @@
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version | Last verified | Evidence / next step                                                               |
-| -------------------- | --------- | ----------------------- | ------------- | ---------------------------------------------------------------------------------- |
-| staging              | `pending` | Not verified            | Not verified  | Qualify exact native, Gateway and consumer revisions before an authorized rollout. |
-| production           | `installed` | `f20a75ed` / `sha256:2a601d6b…` | 2026-11-26 | Fleet and producers installed; 52-scenario and live account verification pending. |
+| Environment / target | Status      | Actual deployed version         | Last verified | Evidence / next step                                                               |
+| -------------------- | ----------- | ------------------------------- | ------------- | ---------------------------------------------------------------------------------- |
+| staging              | `pending`   | Not verified                    | Not verified  | Qualify exact native, Gateway and consumer revisions before an authorized rollout. |
+| production           | `installed` | `f20a75ed` / `sha256:2a601d6b…` | 2026-11-26    | Fleet and producers installed; 52-scenario and live account verification pending.  |
 
 ## Current acceptance scope
 

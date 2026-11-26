@@ -8,10 +8,10 @@
 
 ## Environment status
 
-| Environment | Status    | Actual version / image | Last verified (UTC) | Evidence / next step                                                                                |
-| ----------- | --------- | ---------------------- | ------------------- | --------------------------------------------------------------------------------------------------- |
-| staging     | `pending` | Not verified           | Not verified        | Ship a qualified release including both dependencies; perform disposable verification.              |
-| production  | `installed` | `f20a75ed` / `sha256:2a601d6b…` | 2026-11-26 | Fleet installed; live diagnostics remain pending. |
+| Environment | Status      | Actual version / image          | Last verified (UTC) | Evidence / next step                                                                   |
+| ----------- | ----------- | ------------------------------- | ------------------- | -------------------------------------------------------------------------------------- |
+| staging     | `pending`   | Not verified                    | Not verified        | Ship a qualified release including both dependencies; perform disposable verification. |
+| production  | `installed` | `f20a75ed` / `sha256:2a601d6b…` | 2026-11-26          | Fleet installed; live diagnostics remain pending.                                      |
 
 ## Applicability and prerequisites
 

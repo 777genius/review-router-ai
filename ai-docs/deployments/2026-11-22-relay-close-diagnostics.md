@@ -10,10 +10,10 @@
 
 ## Environment status
 
-| Environment | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                                   |
-| ----------- | --------- | ------------------------------- | ------------------- | ---------------------------------------------------------------------- |
-| staging     | `pending` | Not verified                    | Not verified        | Review, merge, and select an authorized release before rollout.        |
-| production  | `installed` | `f20a75ed` / `sha256:2a601d6b…` | 2026-11-26 | Fleet installed; inspect naturally occurring diagnostic events. |
+| Environment | Status      | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                            |
+| ----------- | ----------- | ------------------------------- | ------------------- | --------------------------------------------------------------- |
+| staging     | `pending`   | Not verified                    | Not verified        | Review, merge, and select an authorized release before rollout. |
+| production  | `installed` | `f20a75ed` / `sha256:2a601d6b…` | 2026-11-26          | Fleet installed; inspect naturally occurring diagnostic events. |
 
 ## Applicability and prerequisites
 

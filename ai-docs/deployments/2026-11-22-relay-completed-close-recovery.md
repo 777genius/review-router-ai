@@ -10,10 +10,10 @@
 
 ## Environment status
 
-| Environment | Status    | Actual version / image | Last verified (UTC) | Evidence / next step                                                          |
-| ----------- | --------- | ---------------------- | ------------------- | ----------------------------------------------------------------------------- |
-| staging     | `pending` | Not verified           | Not verified        | Include this implementation in an authorized API rollout and verify recovery. |
-| production  | `installed` | `f20a75ed` / `sha256:2a601d6b…` | 2026-11-26 | Fleet installed; task-specific real Gateway verification remains pending. |
+| Environment | Status      | Actual version / image          | Last verified (UTC) | Evidence / next step                                                          |
+| ----------- | ----------- | ------------------------------- | ------------------- | ----------------------------------------------------------------------------- |
+| staging     | `pending`   | Not verified                    | Not verified        | Include this implementation in an authorized API rollout and verify recovery. |
+| production  | `installed` | `f20a75ed` / `sha256:2a601d6b…` | 2026-11-26          | Fleet installed; task-specific real Gateway verification remains pending.     |
 
 ## Applicability and prerequisites
 
