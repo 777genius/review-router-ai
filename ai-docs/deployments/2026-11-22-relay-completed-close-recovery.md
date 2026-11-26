@@ -10,10 +10,10 @@
 
 ## Environment status
 
-| Environment | Status    | Actual version / image | Last verified (UTC) | Evidence / next step                                                          |
-| ----------- | --------- | ---------------------- | ------------------- | ----------------------------------------------------------------------------- |
-| staging     | `pending` | Not verified           | Not verified        | Include this implementation in an authorized API rollout and verify recovery. |
-| production  | `pending` | Not verified           | Not verified        | No production slots or provider requests were used for development.           |
+| Environment | Status      | Actual version / image          | Last verified (UTC) | Evidence / next step                                                          |
+| ----------- | ----------- | ------------------------------- | ------------------- | ----------------------------------------------------------------------------- |
+| staging     | `pending`   | Not verified                    | Not verified        | Include this implementation in an authorized API rollout and verify recovery. |
+| production  | `installed` | `f20a75ed` / `sha256:2a601d6b…` | 2026-11-26          | Fleet installed; task-specific real Gateway verification remains pending.     |
 
 ## Applicability and prerequisites
 
@@ -53,3 +53,11 @@ Before a rollout retry, reconcile the actual installed image and task evidence. 
 An authorized build of `95201f4e0d63d3ab7c4d585a1e55a6317e84ca6b` succeeded on production as `sha256:d27fe909487003c294ebe70e51d27acad505bd9b00e3ca36da4c158dab21e0c2`, but free disk dropped to 379,858,944 bytes. No backup, migration, fleet swap or verification was started. The newly built image was removed after confirming no container referenced it; free disk rose to 3,187,478,528 bytes. The installed fleet remains on the prior image; production remains pending. Preserve the build directory and log for reconciliation. Do not retry the build until adequate disk headroom is established.
 
 After the attempt, three exact private immutable cache records created by this build (`v70n9i4x9mglol4alhwis86ey`, `lnn9a9oe9xsxx24xh5ucg36me`, `p9dnr1ijjhd8hq45qspmptp49`) were removed in dependency order after reference checks. Free disk increased from 3,186,040,832 to 6,938,902,528 bytes. The source archive, checksum, source tree and build log remain in build custody; `image.id` is historical and no longer identifies an installed image.
+
+## Production installation — 2026-11-26
+
+Production installed ReviewRouter `f20a75edbc7eff11be4f2423fb2e723f6e484223`, image `sha256:2a601d6bffaebea0c2cdd4e1cf82c95a10312136b173f56e837f15a09aa0d810`; API, web, worker and skills scanner verified running without restarts, API readiness 200. The exact image passed 175 relay fixture tests on the isolated worker, including completed-close timer and restored-session recovery. This is synthetic evidence, not proof of real Gateway teardown, historical slot cause, or recovery after bearer expiry. Task-specific real Gateway/SDK/SQL qualification and naturally occurring production diagnostics remain open.
+
+A failed first image import had unreadable source permissions and `migrate` refused before a database write; the corrected image passed a real runtime-user read check. The completed production rollout applied RR migration 000161, native 260–266 and Gateway 013, backed up both PostgreSQL estates, and retained old fleet containers. Gateway/native startup initially failed because a private engine binary was mistaken for its launcher; the correct `cmd/account-gateway` artifact fixed startup. Admission was restored after each failed attempt. Production free disk was approximately 2.4 GiB after rollout; preserve backups, rollback and active work and plan targeted cleanup. Gateway backup was decoded but restore on actual production data was not exercised.
+
+Evidence: `/srv/platform/projects/review-router/releases/fleet-overlay-f20a75ed-oLiXCpng`, `/srv/platform/projects/review-router/account-gateway/rr959-prepared-20261126/v7-ready-fenced.json`, `/srv/platform/projects/review-router/account-gateway/backup-rr959-20261126-v7`, and worker job `0bd9edbb9f45641ab207141b4df18ff0`.

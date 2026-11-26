@@ -15,10 +15,10 @@
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step                              |
-| -------------------- | --------- | ------------------------------- | ------------------- | ------------------------------------------------- |
-| staging              | `pending` | Not verified                    | Not verified        | Select and qualify the exact source and image.    |
-| production           | `pending` | Not verified                    | Not verified        | Reconcile the fleet before an authorized rollout. |
+| Environment / target | Status      | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                       |
+| -------------------- | ----------- | ------------------------------- | ------------------- | ---------------------------------------------------------- |
+| staging              | `pending`   | Not verified                    | Not verified        | Select and qualify the exact source and image.             |
+| production           | `installed` | `f20a75ed` / `sha256:2a601d6b…` | 2026-11-26          | Fleet installed; live provider acceptance remains pending. |
 
 This task records ordinary application rollout work. It does not authorize a
 deployment, provider call, schema change or new activation.
@@ -137,3 +137,7 @@ risk and the follow-up rather than marking this remediation deployed.
 | Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result         | Evidence | Next action                         |
 | ------------ | -------------------- | ---------- | ---------------------- | -------------------------------- | -------- | ----------------------------------- |
 | Not executed | staging / production | Unassigned | Not verified           | Implementation preparation only. | PR #959  | Qualify and select a release first. |
+
+## Production installation — 2026-11-26
+
+RR `f20a75edbc7eff11be4f2423fb2e723f6e484223`, image `sha256:2a601d6bffaebea0c2cdd4e1cf82c95a10312136b173f56e837f15a09aa0d810`, installed across the fleet with the coordinated Gateway/native producer update. Fleet readiness passed; task-specific provider acceptance remains pending.
