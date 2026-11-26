@@ -1,5 +1,7 @@
 # Unified Identity integration: planning review record
 
+> Earlier sections record the original publication checkpoint. The reopened deep-review section at the end records the later findings, corrected hashes and verification boundary.
+
 Date: 2026-11-26, Europe/Kyiv. Scope: the proposed
 [Review Router integration plan](2026-11-26-unified-identity-and-scm-connections.md)
 and consistency with the
@@ -82,3 +84,97 @@ PR #1007 advanced from inspected auth head
 private usage-retention source classification and related reliability-plan
 annotation. Other cited RR PR heads remained unchanged. The plan preserves
 the original source observation and labels this later, narrowly inspected delta.
+
+## Reopened deep review — 26 November 2026
+
+The owner requested a deeper consistency/security review and explicitly limited
+the task to documentation. The previous final-reviewed hashes above remain a
+historical checkpoint. This pass found real omissions despite that earlier
+acceptance; it supersedes the earlier confidence for the affected guarantees.
+
+### Independent work actually performed
+
+Three reviewers examined the two plans separately from the coordinating author:
+security/proof and takeover scenarios; lifecycle/consumer delivery and phase
+dependencies; Foundation/module architecture and source freshness. The Foundation
+reviewer authored the BOOTSTRAP/package refresh, so that author's checks of those
+edits are self-review, not a separate independent approval. The coordinating
+author checked the shared contracts, source deltas and exact publication content.
+
+First-pass findings were reconciled in both owning repositories. Second-pass
+reviewers read the published corrected candidates at Identity
+`22f98035de1b8f006c3b2aa58a3878ebcfcf23d5` and ReviewRouter
+`8f911716dca510965d5901c2ae9a7b7f951081a9`. They confirmed the substantive
+first-pass fixes and identified the three narrower residual issues listed below.
+This is documentation/design review by separate assistant agents; it is neither
+human approval nor a GitHub APPROVED review.
+
+### Findings and corrections
+
+| Priority | Counterexample or inconsistency | Corrected requirement |
+| --- | --- | --- |
+| P1 | Fresh broker/OAuth timestamp was treated as recent factor authentication | Two qualified proof classes and explicit ordinary migration versus incident recovery policies |
+| P1 | Detach/reattach could revive old product sessions | Immutable issued attachment generation in session/status/cache/late-response fences, separate from account epoch |
+| P1 | Closed central owner could be treated as an unbound legacy user | Never-centrally-bound predicate, retained history and repair/transfer-required conflict |
+| P1/P2 | Closure lacked a bounded participant and late-write protocol | Existing account operation freezes manifest; own scoped receipts and a committed product terminal fence precede completion |
+| P2 | GetOperation authority after closure was undefined | Operator-only detailed progress by default; bounded user receipt is optional, ordinary sessions remain closed |
+| P2 | P1/R0/P5 publication requirements formed a cycle | Versioned packed TEST candidate, consumer qualification, then published production artifact |
+| P2 | Absolute post-cutoff promise contradicted bounded staleness | Pin accepted snapshot; known newer state wins, original source/request-start deadline bounds older evidence |
+| P2 | Generic scaffolding was assumed to generate DDD features | Package-boundary recipe only; real feature/composition/FMS/CMS source authored under the gates |
+| P2 | CMS and resource-close semantics were underspecified | Forbid own public contracts in inner layers; close callbacks/waiter state do not prove physical release |
+| P2 | Source/package observations had advanced | Foundation4.0.2/FMS0.4.3; RR f20a75ed/Prisma7.9.0; preserve historical evidence and unresolved bootstrap admission gaps |
+
+Second-pass residual corrections:
+
+1. **First factor / add-only root bootstrap.** An unrestricted social-only account
+   can use an explicitly admitted bounded bootstrap profile; it inherits the
+   original social-root risk. Persist prior stronger-profile admission rather
+   than deriving eligibility from the current factor count. The exception cannot
+   reopen after factor loss, remove an established root, clear incident
+   restrictions or prove earlier legacy ownership. First enrollment and prohibited
+   reuse share the existing T3 family; ordinary social login remains available.
+2. **Cleanup membership outlives routing history.** Preserve the minimal
+   consumer/account cleanup relation while in-scope product data or an obligation
+   may remain. If an explicitly accepted retention decision removes it earlier,
+   expose limited/unknown coverage; absence never proves not-provisioned or
+   complete cross-product erasure. No discovery service or provisioning ledger
+   was added.
+3. **Residual all-path scaffolding wording.** The prospective tree now limits
+   Plan/Apply/Receipt to actual eligible package-boundary recipes. Feature layout,
+   composition and FMS/CMS facts are reviewed source changes, consistently with
+   P1, BOOTSTRAP and AGENTS.
+
+The owning PR descriptions record the status and outcome of the targeted final
+check and current-head hosted CI, with exact commit identities.
+The old hosted results are not transferred to a new head. This record identifies
+the substantive corrected bytes below; it does not hash itself or infer successful
+runtime qualification from reviewer agreement.
+
+### Corrected document identities
+
+| Document | SHA-256 |
+| --- | --- |
+| Identity architecture and implementation plan | `600d2e8448069dc5de821c38bc38e8c1d09c3001e686e2c261ae920d3a741f36` |
+| ReviewRouter integration plan | `e79ea56d0a94e98e68cbf1a32f584280b6d89b8ad0f0dd4208f531ba798fd335` |
+| Identity BOOTSTRAP | `58904cf6a4d5f1ae1fc21a9a721d9405df2e8a863cf4686ab59254c1d42ee129` |
+| Identity dated source-freshness record | `a405c140b11cf2091287f20b931b1fe7f6e47cd511639278e005f394339b758c` |
+
+### Verification method and limits
+
+The reopened pass checked exact UTF-8 content for final newlines, trailing
+whitespace and balanced fences, and resolved local Markdown targets against
+the planned files and exact Git trees, including used anchors. It used direct
+content/tree verification; the earlier `git diff --check` results above remain
+historical, not reruns falsely attributed to this pass. Published source
+candidates were fetched back and matched exactly; remote incremental file
+scope contained only the intended Markdown documents. Final publication
+verification and author/committer identity belong to the exact heads recorded
+in the PRs.
+
+The implementation test families were amended with discriminating counterexamples,
+not executed. No runtime source, database migration, service scaffold, dependency
+installation, Keycloak/provider registration, production rollout or merge was
+performed. Foundation consumer admission, proof-provenance enforcement, native
+provider behavior, retention decisions and the operational freshness target
+remain concrete P0–P6 / R0–R6 implementation gates. They are not blockers to
+reviewing these complete proposed plans.
