@@ -20,7 +20,7 @@
 | Environment / target | Status    | Actual deployed version | Last verified | Evidence / next step                                                               |
 | -------------------- | --------- | ----------------------- | ------------- | ---------------------------------------------------------------------------------- |
 | staging              | `pending` | Not verified            | Not verified  | Qualify exact native, Gateway and consumer revisions before an authorized rollout. |
-| production           | `pending` | Not verified            | Not verified  | This implementation task does not authorize production deployment.                 |
+| production           | `installed` | `f20a75ed` / `sha256:2a601d6b…` | 2026-11-26 | Fleet and producers installed; 52-scenario and live account verification pending. |
 
 ## Current acceptance scope
 
@@ -160,3 +160,9 @@ remain native-owned throughout.
 
 No environment rollout, production migration or live-provider call is claimed
 by this deployment task.
+
+## Production installation — 2026-11-26
+
+RR `f20a75edbc7eff11be4f2423fb2e723f6e484223` / `sha256:2a601d6bffaebea0c2cdd4e1cf82c95a10312136b173f56e837f15a09aa0d810`, Gateway `c6d73002ac28bb11c3d2e88d135a05c7f2f06bd6`, and native `9fc45a440eefcad815e16775200407b839419313` launcher `sha256:5a3e6b93e2d96f639188ee28cacfe92a985d079265de30db838173786a3c17b8` were installed. RR migration 000161, native 260–266 and Gateway 013 applied. Four RR roles and API readiness passed; native process identity and Gateway service readiness passed, admission reopened. New native-method enrollment was not enabled; the 52-scenario acceptance, live account/recovery/reconnect/model/usage qualification and backup restore remain pending. Do not treat service readiness as complete product acceptance.
+
+Initial producer starts failed because the staged executable was the private engine rather than the foreground `cmd/account-gateway` launcher. Old service/admission were restored between attempts; a synthetic fullstack smoke with the corrected launcher passed before installation. Durable evidence: `/srv/platform/projects/review-router/account-gateway/rr959-prepared-20261126/v7-ready-fenced.json`, `/srv/platform/projects/review-router/releases/fleet-overlay-f20a75ed-oLiXCpng`, and `/srv/platform/projects/review-router/account-gateway/backup-rr959-20261126-v7`. Free production disk was approximately 2.4 GiB after rollout.

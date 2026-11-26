@@ -13,7 +13,7 @@
 | Environment | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                                   |
 | ----------- | --------- | ------------------------------- | ------------------- | ---------------------------------------------------------------------- |
 | staging     | `pending` | Not verified                    | Not verified        | Review, merge, and select an authorized release before rollout.        |
-| production  | `pending` | Not verified                    | Not verified        | Reconcile current release and follow the authorized release procedure. |
+| production  | `installed` | `f20a75ed` / `sha256:2a601d6b…` | 2026-11-26 | Fleet installed; inspect naturally occurring diagnostic events. |
 
 ## Applicability and prerequisites
 
@@ -48,3 +48,7 @@ Reconcile the actually installed image and prior attempt before retrying. Use th
 | Time (UTC)   | Environment          | Operator   | Actual version / image | Step and result       | Evidence | Next action                                       |
 | ------------ | -------------------- | ---------- | ---------------------- | --------------------- | -------- | ------------------------------------------------- |
 | Not executed | staging / production | Unassigned | Not verified           | No rollout attempted. | None     | Complete review and select an authorized release. |
+
+## Production installation — 2026-11-26
+
+API code installed as RR `f20a75edbc7eff11be4f2423fb2e723f6e484223`, image `sha256:2a601d6bffaebea0c2cdd4e1cf82c95a10312136b173f56e837f15a09aa0d810`; fleet and readiness checks passed. Inspect naturally occurring close and pressure diagnostics without triggering customer traffic or saturation. Event availability and historical cause are not yet established. Evidence: `/srv/platform/projects/review-router/releases/fleet-overlay-f20a75ed-oLiXCpng`.

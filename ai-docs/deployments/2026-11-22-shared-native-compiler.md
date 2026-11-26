@@ -6,7 +6,7 @@
 - Affected targets: build/CI; shared artifacts consumed by Web, API and worker.
 - Implementation PR: [#967](https://github.com/777genius/review-router-ai/pull/967), ready.
 - Implementation reference: `3495ca84c6e4e1162ae4dc4b77aa32fa24729578`, based on
-  main `cc8ab361d1fcb22140037d20380e02eb2ba1e2d5`; not merged or deployed.
+  main `cc8ab361d1fcb22140037d20380e02eb2ba1e2d5`; merged into the installed main.
 - Dependencies: existing `compiler:prepare` installation of the pinned native
   compiler; no dependency, lockfile, schema or configuration changes.
 - Last updated: `2026-11-23`.
@@ -17,7 +17,7 @@
 | -------------------- | --------- | ------------------------------- | ------------------- | ----------------------------------------------------------------------- |
 | CI                   | `pending` | Required checks not verified    | Not verified        | Run required exact-commit checks before merging.                        |
 | staging              | `pending` | Not verified                    | Not verified        | Include in a later authorized coherent build; no standalone activation. |
-| production           | `pending` | Not verified                    | Not verified        | Include in a later authorized coherent build; no standalone activation. |
+| production           | `installed` | `f20a75ed` / `sha256:2a601d6b…` | 2026-11-26 | Included in the exact fleet build; downstream classic API consumers remain. |
 
 ## Applicability and prerequisites
 
@@ -119,3 +119,7 @@ the normal release process. No data rollback is involved.
 PR #967 is ready after local qualification and technical review. Required
 exact-commit CI remains pending. No release or deployment has been executed for
 this patch.
+
+## Production installation — 2026-11-26
+
+The shared build/typecheck implementation was included in RR `f20a75edbc7eff11be4f2423fb2e723f6e484223`, image `sha256:2a601d6bffaebea0c2cdd4e1cf82c95a10312136b173f56e837f15a09aa0d810`; the image build succeeded and the production fleet runs it. This does not claim that Next, ESLint or every compiler consumer has moved off classic APIs.

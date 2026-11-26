@@ -11,7 +11,7 @@
 | Environment | Status    | Actual version / image | Last verified (UTC) | Evidence / next step                                                                                |
 | ----------- | --------- | ---------------------- | ------------------- | --------------------------------------------------------------------------------------------------- |
 | staging     | `pending` | Not verified           | Not verified        | Ship a qualified release including both dependencies; perform disposable verification.              |
-| production  | `pending` | Not verified           | Not verified        | Reconcile target state and pending release tasks; no production traffic was used for qualification. |
+| production  | `installed` | `f20a75ed` / `sha256:2a601d6b…` | 2026-11-26 | Fleet installed; live diagnostics remain pending. |
 
 ## Applicability and prerequisites
 
@@ -33,3 +33,7 @@ Reconcile the installed source/image and durable state before a retry. Roll back
 | Time (UTC)   | Environment          | Operator   | Actual version / image | Result                                                   | Next action                                    |
 | ------------ | -------------------- | ---------- | ---------------------- | -------------------------------------------------------- | ---------------------------------------------- |
 | Not executed | staging / production | Unassigned | Not verified           | Local synthetic regressions and independent review only. | Complete exact-head CI and authorized rollout. |
+
+## Production installation — 2026-11-26
+
+API code and both prerequisites installed as RR `f20a75edbc7eff11be4f2423fb2e723f6e484223`, image `sha256:2a601d6bffaebea0c2cdd4e1cf82c95a10312136b173f56e837f15a09aa0d810`; fleet and readiness checks passed. The exact image passed the 175-case relay synthetic suite on the isolated worker (job `0bd9edbb9f45641ab207141b4df18ff0`). This does not prove physical Gateway teardown, fairness, or recovery after expiry. Inspect naturally occurring admission and cleanup diagnostics; task-specific live evidence remains pending.
