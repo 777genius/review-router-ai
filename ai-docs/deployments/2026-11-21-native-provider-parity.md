@@ -166,3 +166,25 @@ by this deployment task.
 RR `f20a75edbc7eff11be4f2423fb2e723f6e484223` / `sha256:2a601d6bffaebea0c2cdd4e1cf82c95a10312136b173f56e837f15a09aa0d810`, Gateway `c6d73002ac28bb11c3d2e88d135a05c7f2f06bd6`, and native `9fc45a440eefcad815e16775200407b839419313` launcher `sha256:5a3e6b93e2d96f639188ee28cacfe92a985d079265de30db838173786a3c17b8` were installed. RR migration 000161, native 260–266 and Gateway 013 applied. Four RR roles and API readiness passed; native process identity and Gateway service readiness passed, admission reopened. New native-method enrollment was not enabled; the 52-scenario acceptance, live account/recovery/reconnect/model/usage qualification and backup restore remain pending. Do not treat service readiness as complete product acceptance.
 
 Initial producer starts failed because the staged executable was the private engine rather than the foreground `cmd/account-gateway` launcher. Old service/admission were restored between attempts; a synthetic fullstack smoke with the corrected launcher passed before installation. Durable evidence: `/srv/platform/projects/review-router/account-gateway/rr959-prepared-20261126/v7-ready-fenced.json`, `/srv/platform/projects/review-router/releases/fleet-overlay-f20a75ed-oLiXCpng`, and `/srv/platform/projects/review-router/account-gateway/backup-rr959-20261126-v7`. Free production disk was approximately 2.4 GiB after rollout.
+
+## Production native-method availability — 2026-11-26
+
+At 21:58 UTC the existing eight native profiles were enabled through the
+`native-account-capabilities/v2` Gateway configuration, preserving their
+previous limits, token bounds and bearer grants. The current RR and producer
+revisions did not change. Gateway configuration SHA256 is
+`a49b517f855f20930f5adf83cedd368b73bd9ae9dab95f9ddb6927b365cafdd8`.
+The fenced restart completed, the Gateway was active, admission reopened, and
+both management and consumer-control V3 catalog reads returned HTTP 200 with
+eight profiles. The catalog includes the newly exposed Codex and Grok native
+methods; native discovery returned no additional provider profile IDs.
+
+The stopped backup and activation evidence are retained under
+`/srv/platform/projects/review-router/account-gateway/backup-native-methods-20261126-v1`,
+`/srv/platform/projects/review-router/account-gateway/rr959-prepared-20261126/native-methods-ready-fenced-v1.json`,
+and `/srv/platform/projects/review-router/releases/gate-native-methods-20261126`.
+The owner requested activation without the extended live test suite. Actual
+browser visibility, account enrollment and live provider/model/Usage behavior
+remain unverified; this is availability, not completion of the 52-scenario
+acceptance. Once native selections are recorded, an older reader may be below
+the rollback floor; preserve the compatible reader and receipts.
