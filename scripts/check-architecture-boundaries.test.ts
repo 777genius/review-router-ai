@@ -241,8 +241,20 @@ describe("transaction reference regressions", () => {
       "async function load(db: Prisma.TransactionClient) { var db; return Promise.all([db.first(), db.second()]); }",
     ],
     [
+      "parameter with a self-initializing var redeclaration",
+      "async function load(db: Prisma.TransactionClient) { var db = db; return Promise.all([db.first(), db.second()]); }",
+    ],
+    [
+      "parameter with a wrapped self-initializing var redeclaration",
+      "async function load(db: Prisma.TransactionClient) { var db = (db as Prisma.TransactionClient); return Promise.all([db.first(), db.second()]); }",
+    ],
+    [
       "client alias with a no-op var redeclaration",
       "async function load(db: Prisma.TransactionClient) { var alias = db; var alias; return Promise.all([alias.first(), alias.second()]); }",
+    ],
+    [
+      "client alias with a self-initializing var redeclaration",
+      "async function load(db: Prisma.TransactionClient) { var alias = db; var alias = alias; return Promise.all([alias.first(), alias.second()]); }",
     ],
   ])("rejects an unsafe %s", (_name, source) => {
     const root = createFixture("export type Local = string;");
@@ -264,6 +276,14 @@ describe("transaction reference regressions", () => {
     [
       "a nested pooled-client parameter",
       "async function load(db: Prisma.TransactionClient) { const batch = async (db: Pool) => Promise.all([db.first(), db.second()]); return batch(pool); }",
+    ],
+    [
+      "a self-redeclared nested pooled-client parameter",
+      "async function load(db: Prisma.TransactionClient) { const batch = async (db: Pool) => { var db = db; return Promise.all([db.first(), db.second()]); }; return batch(pool); }",
+    ],
+    [
+      "a var redeclaration initialized with a pooled client",
+      "async function load(db: Prisma.TransactionClient) { var db = pool; return Promise.all([db.first(), db.second()]); }",
     ],
     [
       "a block-local pooled-client binding",
@@ -1335,6 +1355,38 @@ function createFixture(
 ): string {
   const root = mkdtempSync(join(tmpdir(), prefix));
   fixtureRoots.push(root);
+  // Legacy-boundary fixtures still run every admission policy. Only their
+  // historical package names are exempt from new-package migration.
+  const baseline = JSON.parse(
+    readFileSync(
+      resolve(
+        "architecture/consumer-module-standard/legacy-feature-packages.json",
+      ),
+      "utf8",
+    ),
+  ) as { schemaVersion: number; legacyFeaturePackages: string[] };
+  writeFile(
+    root,
+    "architecture/consumer-module-standard/legacy-feature-packages.json",
+    JSON.stringify({
+      ...baseline,
+      legacyFeaturePackages: [
+        ...baseline.legacyFeaturePackages,
+        "consumer",
+        "legacy",
+      ],
+    }),
+  );
+  writeFile(
+    root,
+    "package.json",
+    readFileSync(resolve("package.json"), "utf8"),
+  );
+  writeFile(
+    root,
+    "architecture/foundation/provider-seams.yaml",
+    "schemaVersion: 1\ngovernedRoots: []\n",
+  );
   writeFile(
     root,
     "packages/features/review-investigations/package.json",

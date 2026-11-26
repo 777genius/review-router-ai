@@ -33,6 +33,7 @@ import {
   CurrentReviewExecutionRevisionStatus,
   LeaseTransitionDecisionStatus,
   ReviewCoverageState,
+  ReviewExecutionAdmissionVerdict,
   ReviewExecutionProviderKind,
   ReviewExecutionFinalizeStatus,
   ReviewExecutionLifecycleTransitionStatus,
@@ -56,6 +57,7 @@ import {
   type InvocationFlight,
   type ReviewInvocationLease,
 } from "@reviewrouter/features-review-executions";
+import { InMemoryReviewExecutionStore } from "@reviewrouter/features-review-executions/testing";
 import {
   ReviewProtocolVersion,
   ReviewRunAuthorizationState,
@@ -2172,107 +2174,364 @@ describe("Review Action v2 execution/evidence composition", () => {
     ).not.toHaveBeenCalled();
   });
 
-  it("returns resource gone instead of re-signing an expired replay permit", async () => {
-    const capabilities = capabilityAdapter();
-    const issuePublicationPermit = vi.spyOn(
-      capabilities,
-      "issuePublicationPermit",
+  it("restores a lost fresh-attachment response after the persisted source lease is released", async () => {
+    const { d, store, sourceLease, request } =
+      await persistedObservationFixture();
+    const handlers = createReviewActionV2ExecutionHandlers(d);
+
+    await expect(
+      handlers.attachObservation.execute(request),
+    ).resolves.toMatchObject({
+      result: { status: ReviewExecutionMutationResultStatus.Applied },
+    });
+    expect(await store.findLease(sourceLease.leaseId)).toMatchObject({
+      state: ReviewInvocationLeaseState.Released,
+    });
+    const attached = await store.findExecution(sourceLease.executionId);
+    expect(attached?.observationRefs).toHaveLength(1);
+
+    await expect(
+      handlers.attachObservation.execute(request),
+    ).resolves.toMatchObject({
+      result: { status: ReviewExecutionMutationResultStatus.Restored },
+    });
+    expect(await store.findExecution(sourceLease.executionId)).toEqual(
+      attached,
     );
-    const projectionEnvelopeCanonicalJson = "{}";
-    const projectionHash = await digest.digestUtf8(
-      projectionEnvelopeCanonicalJson,
+  });
+
+  it("does not use an unattached released lease to create a fresh observation reference", async () => {
+    const { d, store, sourceLease, request } =
+      await persistedObservationFixture();
+    await store.releaseLease({
+      leaseId: sourceLease.leaseId,
+      ownerIdHash: sourceLease.ownerIdHash,
+      leaseCapabilityId: sourceLease.leaseCapabilityId,
+      fencingToken: sourceLease.fencingToken,
+      now,
+    });
+    const released = await store.findExecution(sourceLease.executionId);
+
+    await expect(
+      createReviewActionV2ExecutionHandlers(d).attachObservation.execute(
+        request,
+      ),
+    ).resolves.toMatchObject({
+      result: { status: ReviewExecutionMutationResultStatus.Rejected },
+    });
+    expect(
+      d.executions.observationAttachments.attachFresh,
+    ).toHaveBeenCalledTimes(1);
+    expect(await store.findExecution(sourceLease.executionId)).toEqual(
+      released,
     );
-    const artifactHash = hash("a");
-    const lifecycleStateHash = hash("b");
-    const expiredPublicationNotAfter = new Date(now.getTime() - 1);
-    const artifact: FinalizedReviewProjectionArtifact = {
-      artifactId: "artifact-1",
-      executionId: snapshot.execution.executionId,
-      generation: snapshot.execution.generation,
-      reviewedHeadSha: snapshot.execution.revision.headSha,
-      reviewRevisionHash: snapshot.execution.revision.reviewRevisionHash,
-      coverageState: ReviewCoverageState.Completed,
-      projectionEnvelopeVersion: 1,
-      projectionEnvelopeJson: projectionEnvelopeCanonicalJson,
-      projectionHash,
-      byteCount: 2,
-      findingCount: 0,
-      lifecycleStateHash,
-      commandLedgerWatermark: 0n,
-      projectionPolicyVersion: "projection-policy-1",
-      publicationPermit: {
-        workspaceId: authorization.workspaceId,
-        repositoryConnectionId: authorization.repositoryConnectionId,
-        scmRepositoryIdentityId: authorization.scmRepositoryIdentityId,
-        pullRequestNumber: authorization.pullRequestNumber,
-        executionId: snapshot.execution.executionId,
-        generation: snapshot.execution.generation,
-        authorizationId: authorization.authorizationId,
-        producerReleaseId: authorization.producerReleaseId,
-        reviewedHeadSha: snapshot.execution.revision.headSha,
-        reviewRevisionHash: snapshot.execution.revision.reviewRevisionHash,
-        projectionHash,
-        lifecycleStateHash,
-        commandLedgerWatermark: 0n,
-        permitEpoch: authorization.mutationEpoch,
-        publicationSafetyDecisionHash: hash("c"),
-        publicationNotAfter: expiredPublicationNotAfter,
-      },
-      createdAt: new Date(now.getTime() - 60_000),
-      retainUntil: new Date(now.getTime() + 3_600_000),
-    };
-    const finalize = vi.fn(async () => ({
-      status: ReviewExecutionFinalizeStatus.Restored,
-      artifact,
-      snapshot: { ...snapshot, artifact },
-    }));
-    const finalizationFacts = vi.fn(async () => ({
-      expectedArtifactHash: artifactHash,
-      byteCount: artifact.byteCount,
-      findingCount: artifact.findingCount,
-      projectionPolicyVersion: artifact.projectionPolicyVersion,
-      publicationSafetyDecisionHash:
-        artifact.publicationPermit.publicationSafetyDecisionHash,
-      publicationNotAfter: new Date(now.getTime() + 60_000),
-      retainUntil: artifact.retainUntil,
-    }));
-    const request = await withBodyHash(
-      ReviewActionV2OperationId.ReviewExecutionFinalize,
+  });
+
+  it("does not restore a changed fresh-attachment body from a released source lease", async () => {
+    const { d, store, sourceLease, request } =
+      await persistedObservationFixture();
+    const handlers = createReviewActionV2ExecutionHandlers(d);
+    await handlers.attachObservation.execute(request);
+    const attached = await store.findExecution(sourceLease.executionId);
+    const changed = await withBodyHash(
+      ReviewActionV2OperationId.ReviewExecutionObservationAttach,
       {
-        ...envelope("finalize-expired-replay"),
-        authorizationToken: "authorization-token",
-        idempotencyKey: "finalize-expired-replay",
-        requestBodyHash: hash("0"),
-        executionId: snapshot.execution.executionId,
-        expectedStreamVersion: snapshot.stream.version.toString(10),
-        expectedExecutionVersion: snapshot.execution.version.toString(10),
-        artifactId: artifact.artifactId,
-        artifactHash,
-        projectionEnvelopeVersion: artifact.projectionEnvelopeVersion,
-        projectionEnvelopeCanonicalJson,
-        projectionHash,
-        lifecycleStateHash,
-        commandLedgerWatermark: artifact.commandLedgerWatermark.toString(10),
-        allowPartial: false,
+        ...request,
+        payloadHash: hash("8"),
       },
     );
 
     await expect(
-      createReviewActionV2ExecutionHandlers(
+      handlers.attachObservation.execute(changed),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      issues: ["fresh_observation_authority_mismatch"],
+    });
+    expect(
+      d.executions.observationAttachments.attachFresh,
+    ).toHaveBeenCalledTimes(1);
+    expect(await store.findExecution(sourceLease.executionId)).toEqual(
+      attached,
+    );
+  });
+
+  it("does not restore an attached observation after its authorization expires", async () => {
+    const { d, store, sourceLease, request } =
+      await persistedObservationFixture();
+    const handlers = createReviewActionV2ExecutionHandlers(d);
+    await handlers.attachObservation.execute(request);
+    const attached = await store.findExecution(sourceLease.executionId);
+    d.authorizations.resolveReviewRunAuthorizationToken = vi.fn(async () => ({
+      status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+      authorization: { ...authorization, expiresAt: new Date(now) },
+    }));
+
+    await expect(
+      handlers.attachObservation.execute(request),
+    ).rejects.toMatchObject({
+      statusCode: 410,
+      issues: ["authorization_inactive"],
+    });
+    expect(
+      d.executions.observationAttachments.attachFresh,
+    ).toHaveBeenCalledTimes(1);
+    expect(await store.findExecution(sourceLease.executionId)).toEqual(
+      attached,
+    );
+  });
+
+  it.each([
+    {
+      label: "API deadline expired",
+      deadlineMs: -1,
+      serverTimeMs: 0,
+      statusCode: 410,
+    },
+    {
+      label: "database deadline equality",
+      deadlineMs: 60_000,
+      serverTimeMs: 60_000,
+      statusCode: 410,
+    },
+    {
+      label: "database expiry with lagging API",
+      deadlineMs: 60_000,
+      serverTimeMs: 60_001,
+      statusCode: 410,
+    },
+    {
+      label: "unavailable database clock",
+      deadlineMs: 180_000,
+      serverTimeMs: "reject",
+      statusCode: 503,
+    },
+    {
+      label: "invalid database clock",
+      deadlineMs: 180_000,
+      serverTimeMs: "invalid",
+      statusCode: 503,
+    },
+    {
+      label: "valid deadline with database ahead",
+      deadlineMs: 180_000,
+      serverTimeMs: 60_000,
+      statusCode: 200,
+    },
+  ] as const)(
+    "checks publication replay before signing: $label",
+    async ({ deadlineMs, serverTimeMs, statusCode }) => {
+      const capabilities = capabilityAdapter();
+      const issuePublicationPermit = vi.spyOn(
+        capabilities,
+        "issuePublicationPermit",
+      );
+      const fixture = await finalizationFixture(
+        new Date(now.getTime() + 180_000),
+      );
+      const artifact = {
+        ...fixture.artifact,
+        publicationPermit: {
+          ...fixture.artifact.publicationPermit,
+          publicationNotAfter: new Date(now.getTime() + deadlineMs),
+        },
+      };
+      const persisted = { ...snapshot, artifact };
+      const unchanged = structuredClone(persisted);
+      const finalize = vi.fn(async () => ({
+        status: ReviewExecutionFinalizeStatus.Restored,
+        artifact,
+        snapshot: persisted,
+      }));
+      const readServerTime = vi.fn(async () => {
+        if (serverTimeMs === "reject")
+          throw new Error("database clock unavailable");
+        return serverTimeMs === "invalid"
+          ? new Date(Number.NaN)
+          : new Date(now.getTime() + serverTimeMs);
+      });
+      const handlers = createReviewActionV2ExecutionHandlers(
         executionDependencies({
           capabilities,
           finalize,
-          finalizationFacts,
+          finalizationFacts: fixture.finalizationFacts,
+          readServerTime,
         }),
-      ).finalize.execute(request),
-    ).rejects.toMatchObject({
-      statusCode: 410,
-      errorCode: ReviewActionV2ProtocolErrorCode.ResourceGone,
-      issues: ["publication_permit_expired"],
-    });
-    expect(finalize).toHaveBeenCalledTimes(1);
-    expect(issuePublicationPermit).not.toHaveBeenCalled();
-  });
+      );
+
+      if (statusCode === 200) {
+        const response = await handlers.finalize.execute(fixture.request);
+        expect(response).toMatchObject({
+          statusCode: 200,
+          result: { status: ReviewExecutionMutationResultStatus.Restored },
+        });
+        expect(issuePublicationPermit).toHaveBeenCalledTimes(1);
+        expect(issuePublicationPermit).toHaveBeenCalledWith(
+          artifact.publicationPermit,
+          now,
+        );
+        const token = response.result.publicationPermit;
+        expect(token).toEqual(expect.any(String));
+        await expect(
+          capabilities.verifyPublicationPermit(token!, now),
+        ).resolves.toMatchObject({
+          executionId: artifact.executionId,
+        });
+      } else {
+        await expect(
+          handlers.finalize.execute(fixture.request),
+        ).rejects.toMatchObject({
+          statusCode,
+          errorCode:
+            statusCode === 410
+              ? ReviewActionV2ProtocolErrorCode.ResourceGone
+              : ReviewActionV2ProtocolErrorCode.ServiceUnavailable,
+          issues: [
+            statusCode === 410
+              ? "publication_permit_expired"
+              : "publication_time_unavailable",
+          ],
+        });
+        expect(issuePublicationPermit).not.toHaveBeenCalled();
+      }
+      expect(finalize).toHaveBeenCalledTimes(1);
+      expect(readServerTime).toHaveBeenCalledTimes(1);
+      expect(persisted).toEqual(unchanged);
+    },
+  );
+
+  it.each(["authorization", "publication"] as const)(
+    "does not finalize when facts resolution outlives the %s deadline",
+    async (deadlineOwner) => {
+      const {
+        d: dependencies,
+        store,
+        sourceLease,
+        request: attach,
+      } = await persistedObservationFixture();
+      await createReviewActionV2ExecutionHandlers(
+        dependencies,
+      ).attachObservation.execute(attach);
+      const before = (await store.findExecution(sourceLease.executionId))!;
+      const deadline =
+        deadlineOwner === "authorization"
+          ? authorization.expiresAt
+          : new Date(now.getTime() + 60_000);
+      const fixture = await finalizationFixture(deadline);
+      let currentNow = new Date(now);
+      const d = { ...dependencies, now: () => currentNow };
+      const finalize = vi.fn(store.finalizeExecution.bind(store));
+      d.executions.finalizeReviewExecution.execute = finalize;
+      d.finalizationFacts.resolve = vi.fn(async () => {
+        currentNow = new Date(deadline);
+        return fixture.finalizationFacts();
+      });
+      const issuePublicationPermit = vi.spyOn(
+        d.capabilities,
+        "issuePublicationPermit",
+      );
+      const request = await withBodyHash(
+        ReviewActionV2OperationId.ReviewExecutionFinalize,
+        {
+          ...fixture.request,
+          expectedStreamVersion: before.stream.version.toString(10),
+          expectedExecutionVersion: before.execution.version.toString(10),
+        },
+      );
+
+      await expect(
+        createReviewActionV2ExecutionHandlers(d).finalize.execute(request),
+      ).rejects.toMatchObject({
+        statusCode: 410,
+        errorCode: ReviewActionV2ProtocolErrorCode.ResourceGone,
+        issues: [
+          deadlineOwner === "authorization"
+            ? "authorization_inactive"
+            : "publication_permit_expired",
+        ],
+      });
+      expect(finalize).not.toHaveBeenCalled();
+      expect(issuePublicationPermit).not.toHaveBeenCalled();
+      expect(await store.findExecution(sourceLease.executionId)).toEqual(
+        before,
+      );
+    },
+  );
+
+  it.each([
+    { label: "deadline equality", offsetMs: 0, invalidRetention: false },
+    { label: "past deadline", offsetMs: 1, invalidRetention: false },
+    { label: "invalid retention", offsetMs: 0, invalidRetention: true },
+  ])(
+    "preserves the store finalization outcome: $label",
+    async ({ offsetMs, invalidRetention }) => {
+      const {
+        d: dependencies,
+        store,
+        sourceLease,
+        request: attach,
+      } = await persistedObservationFixture();
+      await createReviewActionV2ExecutionHandlers(
+        dependencies,
+      ).attachObservation.execute(attach);
+      const before = (await store.findExecution(sourceLease.executionId))!;
+      const fixture = await finalizationFixture(
+        new Date(now.getTime() + 60_000),
+      );
+      const d = { ...dependencies };
+      const finalize = vi.fn(
+        (command: Parameters<typeof store.finalizeExecution>[0]) =>
+          store.finalizeExecution({
+            ...command,
+            now: new Date(command.publicationNotAfter.getTime() + offsetMs),
+            retainUntil: invalidRetention
+              ? command.publicationNotAfter
+              : command.retainUntil,
+          }),
+      );
+      d.executions.finalizeReviewExecution.execute = finalize;
+      d.finalizationFacts.resolve = fixture.finalizationFacts;
+      const readServerTime = vi.spyOn(d, "readServerTime");
+      const issuePublicationPermit = vi.spyOn(
+        d.capabilities,
+        "issuePublicationPermit",
+      );
+      const request = await withBodyHash(
+        ReviewActionV2OperationId.ReviewExecutionFinalize,
+        {
+          ...fixture.request,
+          expectedStreamVersion: before.stream.version.toString(10),
+          expectedExecutionVersion: before.execution.version.toString(10),
+        },
+      );
+
+      const result =
+        createReviewActionV2ExecutionHandlers(d).finalize.execute(request);
+      if (invalidRetention) {
+        await expect(result).rejects.toThrowError(
+          "review_execution_invalid_finalization_window",
+        );
+      } else {
+        await expect(result).rejects.toMatchObject({
+          statusCode: 410,
+          errorCode: ReviewActionV2ProtocolErrorCode.ResourceGone,
+          issues: ["publication_permit_expired"],
+        });
+      }
+      expect(finalize).toHaveBeenCalledTimes(1);
+      expect(finalize).toHaveBeenCalledWith(
+        expect.objectContaining({
+          now,
+          publicationNotAfter:
+            fixture.artifact.publicationPermit.publicationNotAfter,
+        }),
+      );
+      expect(readServerTime).not.toHaveBeenCalled();
+      expect(issuePublicationPermit).not.toHaveBeenCalled();
+      expect(await store.findExecution(sourceLease.executionId)).toEqual(
+        before,
+      );
+    },
+  );
 
   it.each([
     CurrentReviewExecutionRevisionStatus.Unavailable,
@@ -2317,6 +2576,61 @@ describe("Review Action v2 execution/evidence composition", () => {
       expect(issuePublicationPermit).not.toHaveBeenCalled();
     },
   );
+
+  it("does not issue a publication permit when post-finalization revision verification reaches its deadline", async () => {
+    const {
+      d: dependencies,
+      store,
+      sourceLease,
+      request: attach,
+    } = await persistedObservationFixture();
+    await createReviewActionV2ExecutionHandlers(
+      dependencies,
+    ).attachObservation.execute(attach);
+    const before = (await store.findExecution(sourceLease.executionId))!;
+    const publicationNotAfter = new Date(now.getTime() + 60_000);
+    const fixture = await finalizationFixture(publicationNotAfter);
+    let currentNow = new Date(now);
+    const d = { ...dependencies, now: () => currentNow };
+    const finalize = vi.fn(store.finalizeExecution.bind(store));
+    d.executions.finalizeReviewExecution.execute = finalize;
+    d.finalizationFacts.resolve = fixture.finalizationFacts;
+    const currentRevision = vi
+      .fn()
+      .mockResolvedValueOnce(CurrentReviewExecutionRevisionStatus.Current)
+      .mockImplementationOnce(async () => {
+        currentNow = new Date(publicationNotAfter);
+        return CurrentReviewExecutionRevisionStatus.Current;
+      });
+    d.executions.currentRevision.execute = currentRevision;
+    const issuePublicationPermit = vi.spyOn(
+      d.capabilities,
+      "issuePublicationPermit",
+    );
+    const request = await withBodyHash(
+      ReviewActionV2OperationId.ReviewExecutionFinalize,
+      {
+        ...fixture.request,
+        expectedStreamVersion: before.stream.version.toString(10),
+        expectedExecutionVersion: before.execution.version.toString(10),
+      },
+    );
+
+    await expect(
+      createReviewActionV2ExecutionHandlers(d).finalize.execute(request),
+    ).rejects.toMatchObject({
+      statusCode: 410,
+      issues: ["publication_permit_expired"],
+    });
+    expect(finalize).toHaveBeenCalledTimes(1);
+    expect(currentRevision).toHaveBeenCalledTimes(2);
+    expect(issuePublicationPermit).not.toHaveBeenCalled();
+    const persisted = (await store.findExecution(sourceLease.executionId))!;
+    expect(persisted.execution.state).toBe(ReviewExecutionState.Completed);
+    expect(persisted.artifact?.publicationPermit.publicationNotAfter).toEqual(
+      publicationNotAfter,
+    );
+  });
 
   it("fails finalization before projection work when context policy is stale", async () => {
     const fixture = await finalizationFixture(new Date(now.getTime() + 60_000));
@@ -2519,27 +2833,18 @@ describe("Review Action v2 execution/evidence composition", () => {
   });
 
   it("rejects adoption after the source result-report deadline", async () => {
-    const { manifestCanonicalJson, identity, sourceLease, observation } =
-      await committedAdoptionFixture({
-        state: ReviewInvocationLeaseState.Released,
-        resultReportUntil: new Date(now.getTime() - 1),
-      });
-    const adoptAccepted = vi.fn();
-    const leaseSafety = vi.fn();
-    const d = executionDependencies({
-      currentLease: sourceLease,
-      observation,
-      adoptAccepted,
-      leaseSafety,
-    });
-    const request = await adoptionRequest({
+    const {
+      d: dependencies,
+      store,
+      before,
       sourceLease,
-      observation,
-      manifestCanonicalJson,
-      manifestKey: identity.manifestKey,
-      expectedExecutionVersion: snapshot.execution.version,
-      expectedStreamVersion: snapshot.stream.version,
-    });
+      request,
+      adoptAccepted,
+    } = await persistedAdoptionFixture();
+    const d = {
+      ...dependencies,
+      now: () => new Date(sourceLease.resultReportUntil.getTime() + 1),
+    };
 
     await expect(
       createReviewActionV2ExecutionHandlers(d).adoptObservation.execute(
@@ -2549,9 +2854,125 @@ describe("Review Action v2 execution/evidence composition", () => {
       statusCode: 412,
       issues: ["adoption_result_report_expired"],
     });
-    expect(leaseSafety).not.toHaveBeenCalled();
-    expect(adoptAccepted).not.toHaveBeenCalled();
+    expect(adoptAccepted).toHaveBeenCalledTimes(1);
+    expect(await store.findExecution(sourceLease.executionId)).toEqual(before);
+    expect(await store.findLease(sourceLease.leaseId)).toEqual(sourceLease);
   });
+
+  it("reports adoption expiry from the store clock when the API clock lags", async () => {
+    const { d, store, before, sourceLease, request, adoptAccepted } =
+      await persistedAdoptionFixture();
+    adoptAccepted.mockImplementation((command) =>
+      store.adoptObservation({
+        ...command,
+        now: new Date(sourceLease.resultReportUntil.getTime() + 1),
+      }),
+    );
+
+    await expect(
+      createReviewActionV2ExecutionHandlers(d).adoptObservation.execute(
+        request,
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 412,
+      issues: ["adoption_result_report_expired"],
+    });
+    expect(adoptAccepted).toHaveBeenCalledTimes(1);
+    expect(await store.findExecution(sourceLease.executionId)).toEqual(before);
+    expect(await store.findLease(sourceLease.leaseId)).toEqual(sourceLease);
+  });
+
+  it("keeps a stale adoption rejection when the API clock passes the report window", async () => {
+    const {
+      d: dependencies,
+      store,
+      before,
+      sourceLease,
+      request,
+      adoptAccepted,
+    } = await persistedAdoptionFixture();
+    let currentNow = new Date(now);
+    const d = { ...dependencies, now: () => currentNow };
+    adoptAccepted.mockImplementation(async (command) => {
+      const result = await store.adoptObservation({
+        ...command,
+        expectedExecutionVersion: command.expectedExecutionVersion + 1n,
+      });
+      expect(result.status).toBe(ReviewObservationAttachmentStatus.Ineligible);
+      currentNow = new Date(sourceLease.resultReportUntil.getTime() + 1);
+      return result;
+    });
+
+    await expect(
+      createReviewActionV2ExecutionHandlers(d).adoptObservation.execute(
+        request,
+      ),
+    ).resolves.toMatchObject({
+      statusCode: 200,
+      result: { status: ReviewExecutionMutationResultStatus.Rejected },
+    });
+    expect(adoptAccepted).toHaveBeenCalledTimes(1);
+    expect(await store.findExecution(sourceLease.executionId)).toEqual(before);
+    expect(await store.findLease(sourceLease.leaseId)).toEqual(sourceLease);
+  });
+
+  it.each(["safety resolution", "capability preparation"] as const)(
+    "rejects adoption when %s outlives the source result-report window",
+    async (delayAt) => {
+      const {
+        d: dependencies,
+        store,
+        sourceLease,
+        observation,
+        manifestCanonicalJson,
+        identity,
+      } = await persistedObservationFixture();
+      const before = (await store.findExecution(sourceLease.executionId))!;
+      let currentNow = new Date(now);
+      const d = { ...dependencies, now: () => currentNow };
+      const advancePastReportWindow = () => {
+        currentNow = new Date(sourceLease.resultReportUntil.getTime() + 1);
+      };
+      d.leaseSafety.resolve = vi.fn(async () => {
+        if (delayAt === "safety resolution") advancePastReportWindow();
+        return { allowed: true, decisionHash: hash("6") };
+      });
+      const prepareIdentity = d.capabilities.prepareIdentity.bind(
+        d.capabilities,
+      );
+      vi.spyOn(d.capabilities, "prepareIdentity").mockImplementation(
+        async () => {
+          const identity = await prepareIdentity();
+          if (delayAt === "capability preparation") advancePastReportWindow();
+          return identity;
+        },
+      );
+      const adoptAccepted = vi.fn(store.adoptObservation.bind(store));
+      d.executions.observationAttachments.adoptAccepted = adoptAccepted;
+      const request = await adoptionRequest({
+        sourceLease,
+        observation,
+        manifestCanonicalJson,
+        manifestKey: identity.manifestKey,
+        expectedExecutionVersion: before.execution.version,
+        expectedStreamVersion: before.stream.version,
+      });
+
+      await expect(
+        createReviewActionV2ExecutionHandlers(d).adoptObservation.execute(
+          request,
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 412,
+        issues: ["adoption_result_report_expired"],
+      });
+      expect(adoptAccepted).toHaveBeenCalledTimes(1);
+      expect(await store.findExecution(sourceLease.executionId)).toEqual(
+        before,
+      );
+      expect(await store.findLease(sourceLease.leaseId)).toEqual(sourceLease);
+    },
+  );
 
   it("rejects an inactive-source adoption whose caller version is exactly one behind", async () => {
     const { manifestCanonicalJson, identity, sourceLease, observation } =
@@ -2591,6 +3012,287 @@ describe("Review Action v2 execution/evidence composition", () => {
     });
     expect(leaseSafety).not.toHaveBeenCalled();
     expect(adoptAccepted).not.toHaveBeenCalled();
+  });
+
+  it("restores concurrent identical observation adoptions without a second persisted mutation", async () => {
+    const {
+      d,
+      store,
+      before,
+      sourceLease,
+      observation,
+      request,
+      adoptAccepted,
+    } = await persistedAdoptionFixture();
+    let releasePreparations!: () => void;
+    const preparationsReady = new Promise<void>((resolve) => {
+      releasePreparations = resolve;
+    });
+    let preparationCount = 0;
+    const prepareIdentity = d.capabilities.prepareIdentity.bind(d.capabilities);
+    vi.spyOn(d.capabilities, "prepareIdentity").mockImplementation(async () => {
+      const identity = await prepareIdentity();
+      const ordinal = ++preparationCount;
+      if (preparationCount === 2) releasePreparations();
+      await preparationsReady;
+      return { ...identity, capabilityId: `concurrent-adoption-${ordinal}` };
+    });
+    const handlers = createReviewActionV2ExecutionHandlers(d);
+    const results = await Promise.all([
+      handlers.adoptObservation.execute(request),
+      handlers.adoptObservation.execute(request),
+    ]);
+
+    expect(preparationCount).toBe(2);
+    expect(adoptAccepted).toHaveBeenCalledTimes(2);
+    const firstCommand = adoptAccepted.mock.calls[0]![0];
+    const secondCommand = adoptAccepted.mock.calls[1]![0];
+    expect(secondCommand.adoptionLeaseId).toBe(firstCommand.adoptionLeaseId);
+    expect(secondCommand.leaseCapabilityId).not.toBe(
+      firstCommand.leaseCapabilityId,
+    );
+    const persisted = (await store.findExecution(sourceLease.executionId))!;
+    expect(persisted.observationRefs).toHaveLength(1);
+    expect(persisted.execution.version).toBe(before.execution.version + 1n);
+    expect(persisted.execution.workSlots[0]).toMatchObject({
+      state: ReviewWorkSlotState.Satisfied,
+      activeLeaseId: null,
+      acceptedObservationRefId: persisted.observationRefs[0]!.observationRefId,
+      nextAttemptOrdinal: before.execution.workSlots[0]!.nextAttemptOrdinal,
+    });
+    expect(await store.findLease(sourceLease.leaseId)).toMatchObject({
+      state: ReviewInvocationLeaseState.Released,
+    });
+    expect(await store.findLease(firstCommand.adoptionLeaseId)).toMatchObject({
+      purpose: ReviewInvocationLeasePurpose.ObservationAdoption,
+      state: ReviewInvocationLeaseState.Released,
+      sourceObservationId: observation.observationId,
+      acquireRequestHash: request.requestBodyHash,
+    });
+    expect(results.map((result) => result.result.status).sort()).toEqual(
+      [
+        ReviewExecutionMutationResultStatus.Applied,
+        ReviewExecutionMutationResultStatus.Restored,
+      ].sort(),
+    );
+    for (const result of results) {
+      expect(result.result).toMatchObject({
+        observationPayloadCanonicalJson: expect.any(String),
+        observationFactsCanonicalJson: expect.any(String),
+      });
+    }
+
+    const persistedSource = await store.findLease(sourceLease.leaseId);
+    const persistedAdoption = await store.findLease(
+      firstCommand.adoptionLeaseId,
+    );
+    const preparedReplay = await d.capabilities.prepareIdentity();
+    const replayCommand = {
+      ...firstCommand,
+      leaseCapabilityId: preparedReplay.capabilityId,
+      capabilitySigningKeyId: preparedReplay.signingKeyId,
+      now: new Date(sourceLease.resultReportUntil.getTime() + 1),
+    };
+    expect(replayCommand.leaseCapabilityId).not.toBe(
+      persistedAdoption?.leaseCapabilityId,
+    );
+    const lateReplay = await store.adoptObservation(replayCommand);
+    expect(lateReplay.status).toBe(ReviewObservationAttachmentStatus.Restored);
+    expect(lateReplay.snapshot).toEqual(persisted);
+    for (const changedIntent of [
+      { ownerIdHash: hash("e") },
+      { adoptionAcquireRequestHash: hash("f") },
+    ]) {
+      const conflict = await store.adoptObservation({
+        ...replayCommand,
+        ...changedIntent,
+      });
+      expect(conflict.status).toBe(ReviewObservationAttachmentStatus.Conflict);
+    }
+    expect(await store.findExecution(sourceLease.executionId)).toEqual(
+      persisted,
+    );
+    expect(await store.findLease(sourceLease.leaseId)).toEqual(persistedSource);
+    expect(await store.findLease(firstCommand.adoptionLeaseId)).toEqual(
+      persistedAdoption,
+    );
+  });
+
+  it("restores an identical in-flight adoption after its first commit crosses the report window", async () => {
+    const fixture = await persistedAdoptionFixture();
+    const {
+      d: dependencies,
+      store,
+      sourceLease,
+      request,
+      adoptAccepted,
+    } = fixture;
+    let currentNow = new Date(now);
+    const d = { ...dependencies, now: () => currentNow };
+    let releasePreparations!: () => void;
+    let rejectPreparations!: (error: unknown) => void;
+    const preparationsReady = new Promise<void>((resolve, reject) => {
+      releasePreparations = resolve;
+      rejectPreparations = reject;
+    });
+    let releaseFirstCommit!: () => void;
+    let rejectFirstCommit!: (error: unknown) => void;
+    const firstCommitted = new Promise<void>((resolve, reject) => {
+      releaseFirstCommit = resolve;
+      rejectFirstCommit = reject;
+    });
+    // A request can fail before its peer starts waiting on either gate.
+    void preparationsReady.catch(() => {});
+    void firstCommitted.catch(() => {});
+    const rejectGates = (error: unknown) => {
+      rejectPreparations(error);
+      rejectFirstCommit(error);
+    };
+    let preparationCount = 0;
+    const prepareIdentity = d.capabilities.prepareIdentity.bind(d.capabilities);
+    vi.spyOn(d.capabilities, "prepareIdentity").mockImplementation(async () => {
+      const identity = await prepareIdentity();
+      const ordinal = ++preparationCount;
+      if (ordinal === 1) {
+        await preparationsReady;
+      } else {
+        releasePreparations();
+        await firstCommitted;
+      }
+      return { ...identity, capabilityId: `late-adoption-${ordinal}` };
+    });
+    adoptAccepted.mockImplementationOnce(async (command) => {
+      try {
+        const result = await store.adoptObservation(command);
+        expect(result.status).toBe(ReviewObservationAttachmentStatus.Attached);
+        currentNow = new Date(sourceLease.resultReportUntil.getTime() + 1);
+        releaseFirstCommit();
+        return result;
+      } catch (error) {
+        rejectFirstCommit(error);
+        throw error;
+      }
+    });
+    const handlers = createReviewActionV2ExecutionHandlers(d);
+
+    const barrierTimeout = setTimeout(() => {
+      rejectGates(
+        new Error(
+          preparationCount < 2
+            ? "late_adoption_preparation_timeout"
+            : "late_adoption_first_commit_timeout",
+        ),
+      );
+    }, 5_000);
+    const pending = [
+      handlers.adoptObservation.execute(request),
+      handlers.adoptObservation.execute(request),
+    ];
+    const requestsSettled = Promise.allSettled(pending);
+    pending.forEach((pendingRequest, index) => {
+      void pendingRequest.then(
+        () => {
+          if (preparationCount < 2) {
+            rejectGates(
+              new Error(
+                `late_adoption_request_${index + 1}_settled_before_preparation_barrier`,
+              ),
+            );
+          }
+        },
+        (error: unknown) => {
+          rejectGates(
+            new Error(`late_adoption_request_${index + 1}_failed`, {
+              cause: error,
+            }),
+          );
+        },
+      );
+    });
+    let responses: Awaited<typeof requestsSettled>;
+    try {
+      await preparationsReady;
+      await firstCommitted;
+      responses = await requestsSettled;
+    } finally {
+      clearTimeout(barrierTimeout);
+      releasePreparations();
+      releaseFirstCommit();
+      await requestsSettled;
+    }
+
+    expect(currentNow.getTime()).toBeLessThan(
+      authorization.expiresAt.getTime(),
+    );
+    expect(preparationCount).toBe(2);
+    const persisted = (await store.findExecution(sourceLease.executionId))!;
+    expect(persisted.observationRefs).toHaveLength(1);
+    expect(persisted.execution.version).toBe(
+      fixture.before.execution.version + 1n,
+    );
+    expect(responses).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "fulfilled",
+          value: expect.objectContaining({
+            result: expect.objectContaining({
+              status: ReviewExecutionMutationResultStatus.Applied,
+            }),
+          }),
+        }),
+        expect.objectContaining({
+          status: "fulfilled",
+          value: expect.objectContaining({
+            result: expect.objectContaining({
+              status: ReviewExecutionMutationResultStatus.Restored,
+            }),
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("conflicts on an adoption identity reused with a changed canonical body at API and persistence boundaries", async () => {
+    const { d, store, sourceLease, request, adoptAccepted } =
+      await persistedAdoptionFixture();
+    const handlers = createReviewActionV2ExecutionHandlers(d);
+    const first = await handlers.adoptObservation.execute(request);
+    expect(first.result.status).toBe(
+      ReviewExecutionMutationResultStatus.Applied,
+    );
+    const persisted = (await store.findExecution(sourceLease.executionId))!;
+    const changedRequest = await withBodyHash(
+      ReviewActionV2OperationId.ReviewExecutionObservationAdopt,
+      {
+        ...request,
+        expectedExecutionVersion: persisted.execution.version.toString(10),
+      },
+    );
+    expect(changedRequest.requestBodyHash).not.toBe(request.requestBodyHash);
+
+    await expect(
+      handlers.adoptObservation.execute(changedRequest),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      issues: ["adoption_replay_conflict"],
+    });
+    expect(adoptAccepted).toHaveBeenCalledTimes(1);
+    const firstCommand = adoptAccepted.mock.calls[0]![0];
+    const persistedAdoption = await store.findLease(
+      firstCommand.adoptionLeaseId,
+    );
+    const result = await store.adoptObservation({
+      ...firstCommand,
+      expectedExecutionVersion: persisted.execution.version,
+      adoptionAcquireRequestHash: changedRequest.requestBodyHash,
+    });
+    expect(result.status).toBe(ReviewObservationAttachmentStatus.Conflict);
+    expect(await store.findExecution(sourceLease.executionId)).toEqual(
+      persisted,
+    );
+    expect(await store.findLease(firstCommand.adoptionLeaseId)).toEqual(
+      persistedAdoption,
+    );
   });
 
   it("restores an exact observation adoption replay after signing-key rotation", async () => {
@@ -2722,6 +3424,7 @@ function executionDependencies(
     currentRevision?: ReviewActionV2ExecutionHandlerDependencies["executions"]["currentRevision"]["execute"];
     contextReplay?: ReviewActionV2ExecutionHandlerDependencies["contextReplay"];
     now?: () => Date;
+    readServerTime?: () => Promise<Date>;
   } = {},
 ): ReviewActionV2ExecutionHandlerDependencies {
   const shared = common(
@@ -2731,6 +3434,7 @@ function executionDependencies(
   );
   return {
     ...shared,
+    readServerTime: overrides.readServerTime ?? (async () => now),
     authorizationQueries: {
       findReviewRunAuthorizationById: vi.fn(async () => authorization),
     },
@@ -2868,6 +3572,7 @@ function common(
     | "observations"
     | "leaseSafety"
     | "finalizationFacts"
+    | "readServerTime"
   >;
 }
 
@@ -2927,6 +3632,128 @@ async function committedAdoptionFixture(
     findingCount: prepared.findingCount,
   });
   return { manifestCanonicalJson, identity, sourceLease, observation } as const;
+}
+
+async function persistedObservationFixture() {
+  const fixture = await committedAdoptionFixture();
+  const store = new InMemoryReviewExecutionStore();
+  const scope = {
+    workspaceId: authorization.workspaceId,
+    repositoryConnectionId: authorization.repositoryConnectionId,
+    scmRepositoryIdentityId: authorization.scmRepositoryIdentityId,
+    pullRequestNumber: authorization.pullRequestNumber,
+  };
+  const limits = {
+    profileId: protocolLimits.protocolLimitsProfileId,
+    maxWorkSlots: protocolLimits.maxWorkSlots,
+    maxAttemptBudget: protocolLimits.maxAttemptsPerSlot,
+    maxProjectionBytes: protocolLimits.maxProjectionBytes,
+    maxFindingCount: protocolLimits.maxProjectionFindings,
+    maxLeaseDurationMs: protocolLimits.maxLeaseDurationMs,
+    maxResultReportDurationMs: protocolLimits.maxResultReportDurationMs,
+  };
+  const prepared = await store.prepareExecution({
+    scope,
+    expectedStreamVersion: 0n,
+    executionId: snapshot.execution.executionId,
+    authorizationId: authorization.authorizationId,
+    producerReleaseId: authorization.producerReleaseId,
+    mutationEpoch: authorization.mutationEpoch,
+    revision: snapshot.execution.revision,
+    startIdentityHash: hash("1"),
+    canonicalStartHash: hash("2"),
+    admissionSafetyDecisionHash: hash("3"),
+    compatibilityKey: "compatibility-1",
+    planHash: snapshot.execution.planHash,
+    workSlots: snapshot.execution.workSlots,
+    limits,
+    sourceRunId: authorization.sourceRunId,
+    sourceRunAttempt: authorization.sourceRunAttempt,
+    now,
+    admissionDeadlineAt: new Date(now.getTime() + 30_000),
+    executionDeadlineAt: snapshot.execution.executionDeadlineAt,
+    retainUntil: fixture.sourceLease.retainUntil,
+  });
+  if (!prepared.snapshot) throw new Error("test_execution_not_prepared");
+  await store.confirmAdmission({
+    scope,
+    executionId: snapshot.execution.executionId,
+    expectedStreamVersion: prepared.snapshot.stream.version,
+    authorizationId: authorization.authorizationId,
+    mutationEpoch: authorization.mutationEpoch,
+    requestedRevision: snapshot.execution.revision,
+    observedRevision: snapshot.execution.revision,
+    verdict: ReviewExecutionAdmissionVerdict.Current,
+    checkedAt: now,
+  });
+  const acquired = await store.acquireLease({
+    scope,
+    executionId: fixture.sourceLease.executionId,
+    workSlotId: fixture.sourceLease.workSlotId,
+    purpose: ReviewInvocationLeasePurpose.ProviderExecution,
+    providerInvocationKey: fixture.sourceLease.providerInvocationKey,
+    preparedManifestCanonicalJson: fixture.manifestCanonicalJson,
+    preparedManifestKey: fixture.identity.manifestKey,
+    providerVoteIdentityHash: fixture.sourceLease.providerVoteIdentityHash,
+    leaseId: fixture.sourceLease.leaseId,
+    attemptId: fixture.sourceLease.attemptId,
+    sourceObservationId: null,
+    acquireRequestIdHash: fixture.sourceLease.acquireRequestIdHash,
+    acquireRequestHash: fixture.sourceLease.acquireRequestHash,
+    ownerIdHash: fixture.sourceLease.ownerIdHash,
+    leaseCapabilityId: fixture.sourceLease.leaseCapabilityId,
+    capabilitySigningKeyId: fixture.sourceLease.capabilitySigningKeyId,
+    leaseSafetyDecisionHash: fixture.sourceLease.leaseSafetyDecisionHash,
+    now,
+    expiresAt: fixture.sourceLease.expiresAt,
+    resultReportUntil: fixture.sourceLease.resultReportUntil,
+    retainUntil: fixture.sourceLease.retainUntil,
+    limits,
+  });
+  if (!acquired.lease) throw new Error("test_lease_not_acquired");
+  const sourceLease = acquired.lease;
+  const observation = {
+    ...fixture.observation,
+    sourceFencingToken: sourceLease.fencingToken.toString(10),
+  };
+  const capabilities = capabilityAdapter();
+  const d = executionDependencies({
+    capabilities,
+    currentLease: sourceLease,
+    observation,
+    findExecution: store.findExecution.bind(store),
+    findLease: store.findLease.bind(store),
+    attachFresh: vi.fn(store.attachObservation.bind(store)),
+  });
+  const request = await attachRequest(
+    await capabilities.issueLease(sourceLease, manifest().scopeHash),
+    observation,
+  );
+  return { ...fixture, d, store, sourceLease, observation, request };
+}
+
+async function persistedAdoptionFixture() {
+  const fixture = await persistedObservationFixture();
+  const before = (await fixture.store.findExecution(
+    fixture.sourceLease.executionId,
+  ))!;
+  const adoptAccepted = vi.fn(
+    fixture.store.adoptObservation.bind(fixture.store),
+  );
+  fixture.d.executions.observationAttachments.adoptAccepted = adoptAccepted;
+  fixture.d.leaseSafety.resolve = vi.fn(async () => ({
+    allowed: true,
+    decisionHash: hash("6"),
+  }));
+  const request = await adoptionRequest({
+    sourceLease: fixture.sourceLease,
+    observation: fixture.observation,
+    manifestCanonicalJson: fixture.manifestCanonicalJson,
+    manifestKey: fixture.identity.manifestKey,
+    expectedExecutionVersion: before.execution.version,
+    expectedStreamVersion: before.stream.version,
+  });
+  return { ...fixture, before, adoptAccepted, request };
 }
 
 async function adoptionRequest(input: {

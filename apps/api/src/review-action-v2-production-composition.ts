@@ -1761,6 +1761,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
       runtime: schemaBoundRuntime,
       handlers: {
         ...common,
+        readServerTime: input.runtime.readServerTime,
         executions,
         evidence,
         observations: observationStore,

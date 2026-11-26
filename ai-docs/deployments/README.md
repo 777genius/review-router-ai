@@ -11,11 +11,16 @@ remains authoritative for release gates, migration order, approvals, and tags.
 Task files add feature-specific instructions and actual environment evidence.
 They do not grant deployment permission or replace existing operational runbooks.
 
+PR #977 follow-up: [observation retry, absolute deadlines and replay permit issuance](2026-11-25-pr977-observation-recovery.md)
+are in [PR #1003](https://github.com/777genius/review-router-ai/pull/1003) under
+qualification, including precise database-time publication expiry; ordinary API
+rollout pending, with no migration or configuration change.
+
 <a id="current-coordinated-rollout-reconciliation-2026-11-14"></a>
 
 ## Current coordinated rollout reconciliation (2026-11-15)
 
-Confirmed current application delivery is signed private **238**, source `75b3a479f8f1febf5920d566d10d1a7db641faeb`, OCI index/actual Docker LocalId `sha256:add1ae123acec36032e873124370e66e5b2b1e220f05b3ff1f69988e4df1a434`, paired with public **Action 238** at `42b37d742fca5c4a40b540db437a6400e5ea5f2a` and Gateway **108/native 98**. Current API `c4b51ca6cd32bbd36e1e678363f3b7e1fe932bb4ad7860cc91a0fd3cd82c7f7d` and the other three FILE 66 roles are healthy with zero restarts; normal producer registration preserved old 237 and existing profiles. The combined activation restored admission at `2026-11-15T00:50:19Z`; app schema 166 and native ledger 318 are unchanged, with no migration. The [current registry baseline](README.md#current-coordinated-rollout-reconciliation-2026-11-14) records actual activation and channel evidence. Earlier 234/235/236/237 results below remain historical, not relabeled 238 qualification.
+Confirmed current application delivery is signed private **238**, source `75b3a479f8f1febf5920d566d10d1a7db641faeb`, OCI index/actual Docker LocalId `sha256:add1ae123acec36032e873124370e66e5b2b1e220f05b3ff1f69988e4df1a434`, paired with public **Action 238** at `42b37d742fca5c4a40b540db437a6400e5ea5f2a` and Gateway **108/native 98**. Current API `c4b51ca6cd32bbd36e1e678363f3b7e1fe932bb4ad7860cc91a0fd3cd82c7f7d` and the other three FILE 66 roles are healthy with zero restarts; normal producer registration preserved old 237 and existing profiles. The combined activation restored admission at `2026-11-15T00:50:19Z`; app schema 166 and native ledger 318 are unchanged, with no migration. The [current registry baseline](README.md#current-coordinated-rollout-reconciliation-2026-11-15) records actual activation and channel evidence. Earlier 234/235/236/237 results below remain historical, not relabeled 238 qualification.
 
 Native 98 source `5ed186ecf7e0313ee17cdcd514131a7373030d2b`/binary `171cdfdc00bb1e8a9a1f0a4234ba6aeb57926a715eda60fe1ab44f7807583707` is active; Gateway 108 JavaScript remains on `9a842ff6a39c652409fe3b67a39c75d023e24db9`. Accounts, old seven profile definitions, schema 318/app 166 and autorestart are preserved; NVIDIA is the eighth profile. The first admission window aborted after 268 seconds and restored originals; the successful window used full gate 194.7 seconds/admission 221.4 seconds. Durable idle OPEN state was preserved under normal retirement; occupied/inflight/cleanup and capacity guards stayed required. No migration or model call was issued for activation. Normal promotion 43660258055 and actual channel 238 readback passed. The later NVIDIA configuration window and native 98 recovery are recorded below.
 
@@ -30,6 +35,10 @@ User-declined legacy Statistics/DL backfill, separate GitLab, owner-SKIPPED Anth
 The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:12.132Z` (admission 142.293 seconds/full 106.377 seconds). Catalog/capabilities expose the old seven plus NVIDIA; API policy preserves its old three/defaults plus NVIDIA. Service config `49ba7d0e…`, bootstrap `b3f0c8f4…`; same signed image/source/FILE 66, no migration, production NVIDIA account or model call. [Full recovery/availability evidence](2026-11-14-producer-registry-file.md#final-nvidia-availability-and-native-98-recovery) records the refused 128-vs-640 candidate, premature proxy restoration and real outage, native 98's 64-receipt count-cap repair, all retained state and rollback limitation. The bounded PR 35 semantic reply and complete Usage stands remain the live model qualification; no production inference is claimed.
 
 ## Task index
+
+Production relay build attempt 2026-11-25: image built but removed after disk headroom fell to 380 MB; no backup or fleet swap. Production remains pending; see [attempt](2026-11-22-relay-completed-close-recovery.md#production-build-attempt-2026-11-25).
+
+Scoped dashboard/worker modular refactor: [combined delivery and qualification](2026-11-25-scoped-modular-refactor.md), [PR #998](https://github.com/777genius/review-router-ai/pull/998) — combines #999, #1000, #1001, #1004 and the agent-workflow/suppression portion of #1002; the global Markdown candidate remains in Draft #1002. Implementation checkpoint `ff30c381` passed production PostgreSQL E2E 17/17 and targeted native/static checks; full browser and CI qualification remain pending. Ordinary Web/worker rollout only, no migration or activation change; staging/production `pending`, no deployment authorized.
 
 Review dispatch past busy pull requests: [filter already occupied scopes before limiting due work](2026-11-23-review-requested-busy-scopes.md), [PR #994](https://github.com/777genius/review-router-ai/pull/994) - API/worker ordinary rollout; staging and production `pending`. No migration; transactional claim and fencing remain authoritative.
 

@@ -4,3 +4,7 @@ project:
 capabilities:
   architecture.source-dependencies:
     configPath: architecture/foundation/provider-seams.yaml
+  repository.agent-workflow:
+    configPath: architecture/foundation/repository-agent-workflow.yaml
+  quality.suppression-governance:
+    configPath: architecture/foundation/suppression-governance.yaml

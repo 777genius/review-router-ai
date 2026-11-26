@@ -127,6 +127,7 @@ export type CommonDependencies = Readonly<{
 
 export type ReviewActionV2ExecutionHandlerDependencies = CommonDependencies &
   Readonly<{
+    readServerTime: () => Promise<Date>;
     authorizationQueries: Pick<
       ReviewRunAuthorizationQueryPort,
       "findReviewRunAuthorizationById"

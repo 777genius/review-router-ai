@@ -2474,7 +2474,7 @@ describe("observation references and finalization", () => {
     const source = (await store.acquireLease(leaseCommand())).lease!;
     const adoptionTarget = (await store.findExecution("execution-1"))!;
     const before = adoptionTarget.execution.workSlots[0]!;
-    const adopted = await store.adoptObservation({
+    const adoptionCommand = {
       scope,
       executionId: "execution-1",
       expectedStreamVersion: adoptionTarget.stream.version,
@@ -2499,7 +2499,8 @@ describe("observation references and finalization", () => {
       leaseSafetyDecisionHash: hash("4"),
       now: plus(6_000),
       retainUntil: plus(300_000),
-    });
+    };
+    const adopted = await store.adoptObservation(adoptionCommand);
     expect(adopted.status).toBe(ReviewObservationAttachmentStatus.Attached);
     expect(adopted.snapshot?.execution.workSlots[0]?.nextAttemptOrdinal).toBe(
       before.nextAttemptOrdinal,
@@ -2508,53 +2509,140 @@ describe("observation references and finalization", () => {
     expect((await store.findLease(source.leaseId))?.state).toBe(
       ReviewInvocationLeaseState.Released,
     );
-  });
 
-  it("keeps the source lease active when an adoption CAS fence is stale", async () => {
-    const store = new InMemoryReviewExecutionStore(
-      new MonotonicBigIntFencingTokenSource(),
+    const persistedSource = await store.findLease(source.leaseId);
+    const persistedAdoption = await store.findLease(
+      adoptionCommand.adoptionLeaseId,
     );
-    await prepareAndAdmit(store, "execution-1", "1", revision, 2);
-    const source = (await store.acquireLease(leaseCommand())).lease!;
-    const target = (await store.findExecution("execution-1"))!;
-
-    const stale = await store.adoptObservation({
-      scope,
-      executionId: "execution-1",
-      expectedStreamVersion: target.stream.version + 1n,
-      expectedExecutionVersion: target.execution.version,
-      workSlotId: "slot-1",
-      sourceLeaseId: source.leaseId,
-      sourceFencingToken: source.fencingToken,
-      sourceObservationId: "observation-1",
-      observationRefId: "observation-ref-stale",
-      providerInvocationKey: source.providerInvocationKey,
-      providerVoteIdentityHash: hash("1"),
-      payloadHash: hash("6"),
-      byteCount: 100,
-      findingCount: 1,
-      eligibilityPolicyVersion: "eligibility-v1",
-      adoptionLeaseId: "adoption-lease-stale",
-      adoptionAcquireRequestIdHash: hash("2"),
-      adoptionAcquireRequestHash: hash("3"),
-      ownerIdHash: "owner-adoption",
-      leaseCapabilityId: "capability-adoption",
-      capabilitySigningKeyId: "signing-key-1",
-      leaseSafetyDecisionHash: hash("4"),
-      now: plus(6_000),
-      retainUntil: plus(300_000),
+    const replay = await store.adoptObservation({
+      ...adoptionCommand,
+      now: new Date(source.resultReportUntil.getTime() + 1),
     });
-
-    expect(stale.status).toBe(ReviewObservationAttachmentStatus.Ineligible);
-    expect(await store.findLease(source.leaseId)).toMatchObject({
-      state: ReviewInvocationLeaseState.Active,
-    });
-    expect(await store.findLease("adoption-lease-stale")).toBeNull();
-    expect(
-      (await store.findExecution("execution-1"))?.execution.workSlots[0]
-        ?.activeLeaseId,
-    ).toBe(source.leaseId);
+    expect(replay.status).toBe(ReviewObservationAttachmentStatus.Restored);
+    expect(replay.snapshot).toEqual(adopted.snapshot);
+    expect(await store.findLease(source.leaseId)).toEqual(persistedSource);
+    expect(await store.findLease(adoptionCommand.adoptionLeaseId)).toEqual(
+      persistedAdoption,
+    );
   });
+
+  it.each([-1, 1])(
+    "keeps a stale adoption CAS ineligible at report offset %i ms",
+    async (offsetMs) => {
+      const store = new InMemoryReviewExecutionStore(
+        new MonotonicBigIntFencingTokenSource(),
+      );
+      await prepareAndAdmit(store, "execution-1", "1", revision, 2);
+      const source = (await store.acquireLease(leaseCommand())).lease!;
+      const target = (await store.findExecution("execution-1"))!;
+
+      const stale = await store.adoptObservation({
+        scope,
+        executionId: "execution-1",
+        expectedStreamVersion: target.stream.version + 1n,
+        expectedExecutionVersion: target.execution.version,
+        workSlotId: "slot-1",
+        sourceLeaseId: source.leaseId,
+        sourceFencingToken: source.fencingToken,
+        sourceObservationId: "observation-1",
+        observationRefId: "observation-ref-stale",
+        providerInvocationKey: source.providerInvocationKey,
+        providerVoteIdentityHash: hash("1"),
+        payloadHash: hash("6"),
+        byteCount: 100,
+        findingCount: 1,
+        eligibilityPolicyVersion: "eligibility-v1",
+        adoptionLeaseId: "adoption-lease-stale",
+        adoptionAcquireRequestIdHash: hash("2"),
+        adoptionAcquireRequestHash: hash("3"),
+        ownerIdHash: "owner-adoption",
+        leaseCapabilityId: "capability-adoption",
+        capabilitySigningKeyId: "signing-key-1",
+        leaseSafetyDecisionHash: hash("4"),
+        now: new Date(source.resultReportUntil.getTime() + offsetMs),
+        retainUntil: plus(300_000),
+      });
+
+      expect(stale.status).toBe(ReviewObservationAttachmentStatus.Ineligible);
+      expect(await store.findLease(source.leaseId)).toMatchObject({
+        state: ReviewInvocationLeaseState.Active,
+      });
+      expect(await store.findLease("adoption-lease-stale")).toBeNull();
+      expect(
+        (await store.findExecution("execution-1"))?.execution.workSlots[0]
+          ?.activeLeaseId,
+      ).toBe(source.leaseId);
+    },
+  );
+
+  it.each([0, 1])(
+    "honors the inclusive adoption result-report deadline at offset %i ms",
+    async (offsetMs) => {
+      const store = new InMemoryReviewExecutionStore();
+      await prepareAndAdmit(store);
+      const source = (await store.acquireLease(leaseCommand())).lease!;
+      const target = (await store.findExecution(source.executionId))!;
+      const result = await store.adoptObservation({
+        scope,
+        executionId: source.executionId,
+        expectedStreamVersion: target.stream.version,
+        expectedExecutionVersion: target.execution.version,
+        workSlotId: source.workSlotId,
+        sourceLeaseId: source.leaseId,
+        sourceFencingToken: source.fencingToken,
+        sourceObservationId: "observation-1",
+        observationRefId: "observation-ref-1",
+        providerInvocationKey: source.providerInvocationKey,
+        providerVoteIdentityHash: source.providerVoteIdentityHash,
+        payloadHash: hash("6"),
+        byteCount: 100,
+        findingCount: 1,
+        eligibilityPolicyVersion: "eligibility-v1",
+        adoptionLeaseId: "adoption-lease-1",
+        adoptionAcquireRequestIdHash: hash("2"),
+        adoptionAcquireRequestHash: hash("3"),
+        ownerIdHash: source.ownerIdHash,
+        leaseCapabilityId: "capability-adoption",
+        capabilitySigningKeyId: "signing-key-1",
+        leaseSafetyDecisionHash: hash("4"),
+        now: new Date(source.resultReportUntil.getTime() + offsetMs),
+        retainUntil: plus(300_000),
+      });
+
+      expect(result.status).toBe(
+        offsetMs === 0
+          ? ReviewObservationAttachmentStatus.Attached
+          : ReviewObservationAttachmentStatus.ReportWindowExpired,
+      );
+      if (offsetMs > 0) {
+        expect(await store.findExecution(source.executionId)).toEqual(target);
+        expect(await store.findLease(source.leaseId)).toEqual(source);
+        expect(await store.findLease("adoption-lease-1")).toBeNull();
+      }
+    },
+  );
+
+  it.each([0, 1])(
+    "rejects publication at or after its deadline without effects (offset %i ms)",
+    async (offsetMs) => {
+      const store = new InMemoryReviewExecutionStore();
+      await prepareAndAdmit(store);
+      const lease = (await store.acquireLease(leaseCommand())).lease!;
+      const attached = await store.attachObservation(attachmentCommand(lease));
+      const before = attached.snapshot!;
+      const command = finalizeCommand(before);
+
+      await expect(
+        store.finalizeExecution({
+          ...command,
+          now: new Date(command.publicationNotAfter.getTime() + offsetMs),
+        }),
+      ).resolves.toEqual({
+        status: ReviewExecutionFinalizeStatus.PublicationWindowExpired,
+      });
+      expect(await store.findExecution(command.executionId)).toEqual(before);
+    },
+  );
 
   it("derives completed coverage from persisted required slots and issues an immutable permit", async () => {
     const store = new InMemoryReviewExecutionStore();
@@ -2582,9 +2670,18 @@ describe("observation references and finalization", () => {
 
     const restored = await store.finalizeExecution(command);
     expect(restored.status).toBe(ReviewExecutionFinalizeStatus.Restored);
+    const restoredAfterDeadline = await store.finalizeExecution({
+      ...command,
+      now: new Date(command.publicationNotAfter),
+    });
+    expect(restoredAfterDeadline.status).toBe(
+      ReviewExecutionFinalizeStatus.Restored,
+    );
+    expect(restoredAfterDeadline.artifact).toEqual(result.artifact);
     const conflict = await store.finalizeExecution({
       ...command,
       artifactHash: hash("9"),
+      now: new Date(command.publicationNotAfter),
     });
     expect(conflict.status).toBe(ReviewExecutionFinalizeStatus.Conflict);
 

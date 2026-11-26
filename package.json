@@ -10,6 +10,9 @@
   "type": "module",
   "packageManager": "pnpm@11.28.7",
   "scripts": {
+    "check:changed": "agent-teams-foundation agent-workflow changed --consumer .",
+    "check:fast": "pnpm lint && pnpm typecheck && pnpm architecture:check",
+    "check": "pnpm check:fast && pnpm test",
     "dev": "node scripts/run-with-env.mjs turbo run dev --parallel",
     "web:dev": "node scripts/run-with-env.mjs pnpm --filter @reviewrouter/web dev",
     "api:dev": "node scripts/run-with-env.mjs pnpm --filter @reviewrouter/api dev",

@@ -245,7 +245,9 @@ boundaries:
         - catalog.public
       packages:
         - vitest
-      builtins: []
+      builtins:
+        - "node:events"
+        - "node:http"
       runtimeReferences: []
     dependencyMode: development
   - id: usage.domain

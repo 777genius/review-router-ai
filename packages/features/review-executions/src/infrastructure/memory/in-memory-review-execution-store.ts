@@ -803,6 +803,14 @@ export class InMemoryReviewExecutionStore
         activeLeases,
         ...command,
       });
+      if (
+        decision.status ===
+        ExecutionFinalizationDecisionStatus.PublicationWindowExpired
+      ) {
+        return {
+          status: ReviewExecutionFinalizeStatus.PublicationWindowExpired,
+        };
+      }
       if (decision.status === ExecutionFinalizationDecisionStatus.NotRunnable) {
         return { status: ReviewExecutionFinalizeStatus.NotRunnable };
       }
@@ -1185,6 +1193,10 @@ export class InMemoryReviewExecutionStore
         return { status: ReviewObservationAttachmentStatus.StaleLease };
       case ObservationAttachmentDecisionStatus.Ineligible:
         return { status: ReviewObservationAttachmentStatus.Ineligible };
+      case ObservationAttachmentDecisionStatus.ReportWindowExpired:
+        return {
+          status: ReviewObservationAttachmentStatus.ReportWindowExpired,
+        };
       case ObservationAttachmentDecisionStatus.Attached: {
         const ref = decision.observationRef;
         if (this.observationRefs.has(ref.observationRefId)) {
