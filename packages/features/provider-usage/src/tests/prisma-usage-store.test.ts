@@ -28,6 +28,44 @@ import {
 import { buildUsagePeriodReport } from "../application/report-usage";
 import type { UsageReportQuery } from "../application/ports";
 import { qualifyUsageSqlReport } from "./usage-sql-qualification";
+// These fixtures carry neither native billing evidence nor a matching allocation.
+// The SQL reader explicitly reports unknown billing for those legacy rows.
+function expectedLegacyUsageReport(
+  rows: readonly UsageProjection[],
+  query: UsageReportQuery,
+) {
+  const report = buildUsagePeriodReport(rows, query);
+  const { overview } = report;
+  const withUnknownBilling = <T extends object>(value: T) => ({
+    ...value,
+    billing: { status: "unknown" as const },
+  });
+  return {
+    ...report,
+    rows: report.rows.map(withUnknownBilling),
+    overview: {
+      ...overview,
+      models: overview.models.map(withUnknownBilling),
+      topModels: {
+        tokens: overview.topModels.tokens.map(withUnknownBilling),
+        requests: overview.topModels.requests.map(withUnknownBilling),
+        costs: overview.topModels.costs.map((bucket) => ({
+          ...bucket,
+          models: bucket.models.map(withUnknownBilling),
+        })),
+      },
+      runs: overview.runs.map((run) => ({
+        ...run,
+        identities: run.identities.map(withUnknownBilling),
+      })),
+      facets: {
+        ...overview.facets,
+        models: overview.facets.models.map(withUnknownBilling),
+      },
+    },
+  };
+}
+
 const adminUrl = process.env.USAGE_TEST_POSTGRES_ADMIN_URL;
 // Opt-in dedicated disposable DB; no application DATABASE_URL is read.
 describe.skipIf(!adminUrl)("usage ledger real PostgreSQL", () => {
@@ -1080,7 +1118,7 @@ describe.skipIf(!adminUrl)("usage ledger real PostgreSQL", () => {
     const query = { ...reportQuery(scope), limit: 2 };
     const report = await reader.report(query);
     expect(report).toEqual({
-      ...buildUsagePeriodReport(rows, query),
+      ...expectedLegacyUsageReport(rows, query),
       unattributedCount: 0,
     });
     // Independent arithmetic: the partial family contributes 100; the complete
@@ -1111,7 +1149,7 @@ describe.skipIf(!adminUrl)("usage ledger real PostgreSQL", () => {
     const filteredQuery = { ...query, provider: "B", model: "Y" };
     const filtered = await reader.report(filteredQuery);
     expect(filtered).toEqual({
-      ...buildUsagePeriodReport(rows, filteredQuery),
+      ...expectedLegacyUsageReport(rows, filteredQuery),
       unattributedCount: 0,
     });
     expect(filtered.totals).toMatchObject({
@@ -1126,7 +1164,7 @@ describe.skipIf(!adminUrl)("usage ledger real PostgreSQL", () => {
       actorId: "actor-2",
     };
     const member = await reader.report(memberQuery);
-    expect(member).toEqual(buildUsagePeriodReport([b, d], memberQuery));
+    expect(member).toEqual(expectedLegacyUsageReport([b, d], memberQuery));
     expect(member.totals).toMatchObject({
       tokens: { total: 19 },
       providerAttempts: 2,
@@ -1136,7 +1174,7 @@ describe.skipIf(!adminUrl)("usage ledger real PostgreSQL", () => {
     const familyOwnerQuery = { ...memberQuery, actorId: "actor-1" };
     const familyOwner = await reader.report(familyOwnerQuery);
     expect(familyOwner).toEqual(
-      buildUsagePeriodReport(
+      expectedLegacyUsageReport(
         rows.filter((p) => p.identity.actorId === "actor-1"),
         familyOwnerQuery,
       ),
@@ -1157,7 +1195,7 @@ describe.skipIf(!adminUrl)("usage ledger real PostgreSQL", () => {
     const query = reportQuery(scope);
     const report = await new PrismaUsageReportReader(prisma).report(query);
     expect(report).toEqual({
-      ...buildUsagePeriodReport(rows, query),
+      ...expectedLegacyUsageReport(rows, query),
       unattributedCount: 0,
     });
     expect(report.totals).toMatchObject({
@@ -1216,7 +1254,7 @@ describe.skipIf(!adminUrl)("usage ledger real PostgreSQL", () => {
     const query = reportQuery(scope);
     const actual = await new PrismaUsageReportReader(prisma).report(query);
     expect(actual).toEqual({
-      ...buildUsagePeriodReport(rows, query),
+      ...expectedLegacyUsageReport(rows, query),
       unattributedCount: 0,
     });
     expect(actual.totals.tokens.total).toBe(320);
@@ -1331,7 +1369,7 @@ describe.skipIf(!adminUrl)("usage ledger real PostgreSQL", () => {
     const query = reportQuery(scope);
     const report = await new PrismaUsageReportReader(prisma).report(query);
     expect(report).toEqual({
-      ...buildUsagePeriodReport(rows, query),
+      ...expectedLegacyUsageReport(rows, query),
       unattributedCount: 0,
     });
     expect(report.totals.tokens.total).toBe(12);

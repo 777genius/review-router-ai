@@ -1,0 +1,22 @@
+{
+  "extends": "../../apps/web/tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "@/*": ["../../apps/web/src/*"],
+      "@agent-teams/account-gateway/contracts": [
+        "../../apps/web/node_modules/@agent-teams/account-gateway/dist/contracts/index.d.ts"
+      ],
+      "@agent-teams/account-gateway/http": [
+        "../../apps/web/node_modules/@agent-teams/account-gateway/dist/http/index.d.ts"
+      ]
+    }
+  },
+  "include": [
+    "../../apps/web/next-env.d.ts",
+    "../../apps/web/src/auth/next-auth.d.ts",
+    "../../scripts/review-investigation-paired-e2e/support/provider-subscriptions-extension.ts"
+  ],
+  "exclude": ["../../node_modules", "../../dist", "../../.next"]
+}

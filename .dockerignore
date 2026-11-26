@@ -28,6 +28,7 @@ coverage
 tmp
 **/tmp
 artifacts
+ai-docs/design/archive
 playwright-report
 test-results
 
