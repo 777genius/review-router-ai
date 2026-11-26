@@ -44,7 +44,7 @@ Limits can be generous, but they must exist.
 - Dashboard rate-limit denials are mapped to a safe `rate_limited` UI error without exposing bucket keys.
 - The worker periodically prunes expired DB rate-limit buckets, so the fixed-window table does not grow forever.
 - Cleanup is bounded by `REVIEW_ROUTER_RATE_LIMIT_PRUNE_BATCH_SIZE`, throttled by `REVIEW_ROUTER_RATE_LIMIT_PRUNE_INTERVAL_MS`, and logs only aggregate deleted counts.
-- Installation repository sync applies `REVIEW_ROUTER_MAX_REPOSITORIES_PER_SYNC` before persistence, default `250`, using deterministic full-name ordering when the GitHub installation exceeds the cap.
+- Installation repository sync applies `REVIEW_ROUTER_MAX_REPOSITORIES_PER_SYNC`, default `250`, inside the serialized inventory transaction. It retains admitted repositories still present in the complete GitHub inventory, then fills remaining slots by deterministic full-name ordering. Quota exclusion never implies SCM removal. An installation generation rejects stale inserts as well as updates/removals. Lowering the cap below the current retained selection fails explicitly (`repository_sync_quota_below_current_selection`) instead of silently disconnecting working repositories.
 
 Local DB smoke:
 

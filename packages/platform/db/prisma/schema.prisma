@@ -327,6 +327,8 @@ model GitHubUserAuthorization {
   userId                String
   githubUserId          BigInt
   appSlug               String
+  revision              Int       @default(0)
+  refreshAttemptId      String?
   encryptedAccessToken  String
   encryptedRefreshToken String?
   accessTokenExpiresAt  DateTime?
@@ -368,6 +370,7 @@ model GitHubInstallation {
   accountType          String
   accountAvatarUrl     String?
   repositorySelection  String
+  inventoryGeneration  BigInt                   @default(0)
   status               GitHubInstallationStatus @default(active)
   createdAt            DateTime                 @default(now())
   updatedAt            DateTime                 @updatedAt
@@ -532,6 +535,8 @@ model RepositoryPermissionCache {
   userId               String
   repositoryId         String
   githubInstallationId BigInt
+  authorizationAppSlug String?
+  authorizationRevision Int?
   permission           String?
   roleName             String?
   canManage            Boolean
@@ -3227,6 +3232,7 @@ model OrgRulesetProvisioning {
   installationId           String
   githubInstallationId     BigInt
   organizationLogin        String
+  revision                 Int                          @default(1)
   status                   OrgRulesetProvisioningStatus @default(requested)
   scope                    OrgRulesetScope
   enforcement              OrgRulesetEnforcement
@@ -3238,6 +3244,8 @@ model OrgRulesetProvisioning {
   sourceWorkflowSha        String?
   rulesetId                BigInt?
   rulesetUrl               String?
+  pendingRulesetCreateOrganization String?
+  pendingRemoteAttemptId String?
   targetRepositoryIds      Json
   safeErrorCode            String?
   safeErrorSummary         String?
@@ -4886,6 +4894,7 @@ model UsageCall {
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
   @@index([workspaceId, occurredAt, provider, actualModel])
   @@index([workspaceId, actorId, occurredAt])
+  @@index([occurredAt])
 }
 model UsageDedupeTombstone {
   sourceInstance String

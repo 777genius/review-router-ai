@@ -5,7 +5,9 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GitLabConnectWizard } from "./gitlab-connect-wizard";
 
@@ -28,7 +30,22 @@ describe("GitLabConnectWizard", () => {
       },
     });
 
-    render(<GitLabConnectWizard workspaceId="workspace_1" />);
+    const wizard = <GitLabConnectWizard workspaceId="workspace_1" />;
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(wizard);
+    const sourceInput = within(container).getByLabelText<HTMLInputElement>(
+      "Paste your GitLab group or project URL",
+    );
+    const tokenInput = within(container).getByLabelText<HTMLInputElement>(
+      "GitLab access token",
+    );
+    expect(sourceInput.disabled).toBe(true);
+    expect(tokenInput.disabled).toBe(true);
+
+    document.body.append(container);
+    render(wizard, { container, hydrate: true });
+    expect(sourceInput.disabled).toBe(false);
+    expect(tokenInput.disabled).toBe(false);
 
     fireEvent.change(
       screen.getByLabelText("Paste your GitLab group or project URL"),
@@ -46,6 +63,9 @@ describe("GitLabConnectWizard", () => {
     expect(await screen.findByText("Select repositories")).toBeTruthy();
     expect(screen.getByText("acme/platform/api")).toBeTruthy();
 
+    fireEvent.change(screen.getByLabelText("Project or group review token"), {
+      target: { value: "project-review-token" },
+    });
     fireEvent.click(
       screen.getByRole("button", { name: "Install ReviewRouter" }),
     );
@@ -79,12 +99,15 @@ describe("GitLabConnectWizard", () => {
       workspaceId: "workspace_1",
       selectedProjectIds: ["101"],
       token: "glpat-test-secret",
+      reviewToken: "project-review-token",
     });
     expect(bodies[2]).toEqual({
       workspaceId: "workspace_1",
       installationId: "gitlab_install_1",
     });
     expect(JSON.stringify(bodies[2])).not.toContain("glpat-test-secret");
+    expect(JSON.stringify(bodies[0])).not.toContain("project-review-token");
+    expect(JSON.stringify(bodies[2])).not.toContain("project-review-token");
   });
 
   it("shows setup MR action needed when ci_config_path cannot be changed directly", async () => {
@@ -119,6 +142,9 @@ describe("GitLabConnectWizard", () => {
     );
     await screen.findByText("Select repositories");
 
+    fireEvent.change(screen.getByLabelText("Project or group review token"), {
+      target: { value: "project-review-token" },
+    });
     fireEvent.click(
       screen.getByRole("button", { name: "Install ReviewRouter" }),
     );
@@ -150,6 +176,9 @@ describe("GitLabConnectWizard", () => {
     );
     await screen.findByText("Select repositories");
 
+    fireEvent.change(screen.getByLabelText("Project or group review token"), {
+      target: { value: "project-review-token" },
+    });
     fireEvent.click(
       screen.getByRole("button", { name: "Install ReviewRouter" }),
     );

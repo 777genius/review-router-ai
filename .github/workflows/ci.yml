@@ -757,6 +757,8 @@ jobs:
       - name: Unit tests
         env:
           AUTH_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+          GITHUB_AUTH_REQUIRE_POSTGRES: "1"
+          RELIABILITY_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
           GITLAB_INVENTORY_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
           GITLAB_INVENTORY_REQUIRE_POSTGRES: "1"
           PUBLICATION_WORK_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
@@ -766,6 +768,47 @@ jobs:
           HISTORY_TEST_POSTGRES_TEMPLATE_DATABASE: review_router_history_template
           HISTORY_REQUIRE_POSTGRES: "1"
         run: pnpm test
+
+      - name: Isolated usage PostgreSQL and bounded SQL qualification
+        env:
+          USAGE_TEST_POSTGRES_IMAGE: postgres:17.5-bookworm@sha256:fbcea1bd13b6a882cd6caa6b58db3ae5c102efe50ec625b3e2a5cbc50db5bfe4
+          USAGE_SQL_QUALIFICATION: "1"
+          NODE_OPTIONS: --max-old-space-size=768
+        run: |
+          set -euo pipefail
+          container_id=""
+          trap '[ -z "$container_id" ] || docker rm -f "$container_id" >/dev/null' EXIT
+          container_id=$(docker run --rm -d -p 127.0.0.1::5432 \
+            -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=postgres \
+            "$USAGE_TEST_POSTGRES_IMAGE")
+          ready=false
+          for ((attempt=0; attempt<60; attempt++)); do
+            if docker exec "$container_id" pg_isready -h 127.0.0.1 -U postgres -d postgres >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          [ "$ready" = true ] || { docker logs "$container_id"; exit 1; }
+          binding=$(docker port "$container_id" 5432/tcp)
+          export USAGE_TEST_POSTGRES_ADMIN_URL="postgresql://postgres@127.0.0.1:${binding##*:}/postgres"
+          pnpm exec vitest run packages/features/provider-usage/src/tests/prisma-usage-store.test.ts --maxWorkers=1 --no-file-parallelism
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const result = JSON.parse(readFileSync('tmp/usage-sql-followthrough/qualification/result.json', 'utf8'));
+          assert.equal(result.status, 'passed');
+          assert.equal(result.cases.length, 6);
+          NODE
+
+      - name: Preserve usage query evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: usage-sql-${{ github.sha }}-${{ github.run_attempt }}
+          path: tmp/usage-sql-followthrough/qualification/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Architecture boundaries
         run: pnpm architecture:check

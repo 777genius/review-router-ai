@@ -22,6 +22,12 @@ export type UsageReportObservation = UsageProjection & {
 export interface UsagePeriodReport {
   overview: UsageOverview;
   unattributedCount: number | null;
+  deliveryCoverageTotals: {
+    sessions: number;
+    lossSessions: number;
+    droppedEvents: number;
+  };
+  nextCoverageCursor: string | null;
   deliveryCoverage: {
     invocationId: string;
     coverage: {
@@ -110,6 +116,8 @@ export function buildUsagePeriodReport(
     overview: buildUsageOverview(projections, selected, attempts, query),
     unattributedCount: null,
     deliveryCoverage: [],
+    deliveryCoverageTotals: { sessions: 0, lossSessions: 0, droppedEvents: 0 },
+    nextCoverageCursor: null,
     sources: [],
     from: query.from.toISOString(),
     to: query.to.toISOString(),

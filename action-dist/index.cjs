@@ -74706,7 +74706,7 @@ var require_async = __commonJS({
         return value && typeof value.length === "number" && value.length >= 0 && value.length % 1 === 0;
       }
       const breakLoop = {};
-      function once2(fn) {
+      function once3(fn) {
         function wrapper(...args) {
           if (fn === null) return;
           var callFn = fn;
@@ -74813,7 +74813,7 @@ var require_async = __commonJS({
       }
       var eachOfLimit$2 = (limit) => {
         return (obj, iteratee, callback) => {
-          callback = once2(callback);
+          callback = once3(callback);
           if (limit <= 0) {
             throw new RangeError("concurrency limit cannot be less than 1");
           }
@@ -74871,7 +74871,7 @@ var require_async = __commonJS({
       }
       var eachOfLimit$1 = awaitify(eachOfLimit, 4);
       function eachOfArrayLike(coll, iteratee, callback) {
-        callback = once2(callback);
+        callback = once3(callback);
         var index2 = 0, completed = 0, { length } = coll, canceled = false;
         if (length === 0) {
           callback(null);
@@ -74930,7 +74930,7 @@ var require_async = __commonJS({
           callback = concurrency;
           concurrency = null;
         }
-        callback = once2(callback || promiseCallback());
+        callback = once3(callback || promiseCallback());
         var numTasks = Object.keys(tasks).length;
         if (!numTasks) {
           return callback(null);
@@ -75224,7 +75224,7 @@ var require_async = __commonJS({
         function on(event, handler2) {
           events[event].push(handler2);
         }
-        function once3(event, handler2) {
+        function once4(event, handler2) {
           const handleAndRemove = (...args) => {
             off(event, handleAndRemove);
             handler2(...args);
@@ -75309,7 +75309,7 @@ var require_async = __commonJS({
         const eventMethod = (name) => (handler2) => {
           if (!handler2) {
             return new Promise((resolve4, reject2) => {
-              once3(name, (err, data) => {
+              once4(name, (err, data) => {
                 if (err) return reject2(err);
                 resolve4(data);
               });
@@ -75451,7 +75451,7 @@ var require_async = __commonJS({
         return queue$1(worker, concurrency, payload);
       }
       function reduce(coll, memo2, iteratee, callback) {
-        callback = once2(callback);
+        callback = once3(callback);
         var _iteratee = wrapAsync(iteratee);
         return eachOfSeries$1(coll, (x2, i2, iterCb) => {
           _iteratee(memo2, x2, (err, v2) => {
@@ -75731,7 +75731,7 @@ var require_async = __commonJS({
       }
       var log2 = consoleFunc("log");
       function mapValuesLimit(obj, limit, iteratee, callback) {
-        callback = once2(callback);
+        callback = once3(callback);
         var newObj = {};
         var _iteratee = wrapAsync(iteratee);
         return eachOfLimit$2(limit)(obj, (val, key, next) => {
@@ -75930,7 +75930,7 @@ var require_async = __commonJS({
         return q2;
       }
       function race(tasks, callback) {
-        callback = once2(callback);
+        callback = once3(callback);
         if (!Array.isArray(tasks)) return callback(new TypeError("First argument to race must be an array of functions"));
         if (!tasks.length) return callback();
         for (var i2 = 0, l2 = tasks.length; i2 < l2; i2++) {
@@ -76145,7 +76145,7 @@ var require_async = __commonJS({
           iteratee = accumulator;
           accumulator = Array.isArray(coll) ? [] : {};
         }
-        callback = once2(callback || promiseCallback());
+        callback = once3(callback || promiseCallback());
         var _iteratee = wrapAsync(iteratee);
         eachOf$1(coll, (v2, k2, cb) => {
           _iteratee(accumulator, v2, k2, cb);
@@ -76199,7 +76199,7 @@ var require_async = __commonJS({
         return whilst$1((cb) => _test((err, truth) => cb(err, !truth)), iteratee, callback);
       }
       function waterfall(tasks, callback) {
-        callback = once2(callback);
+        callback = once3(callback);
         if (!Array.isArray(tasks)) return callback(new Error("First argument to waterfall must be an array of functions"));
         if (!tasks.length) return callback();
         var taskIndex = 0;
@@ -81734,7 +81734,7 @@ var require_end_of_stream = __commonJS({
     var process5 = require_process2();
     var { AbortError: AbortError3, codes } = require_errors3();
     var { ERR_INVALID_ARG_TYPE, ERR_STREAM_PREMATURE_CLOSE } = codes;
-    var { kEmptyObject, once: once2 } = require_util10();
+    var { kEmptyObject, once: once3 } = require_util10();
     var { validateAbortSignal, validateFunction, validateObject, validateBoolean } = require_validators();
     var { Promise: Promise2, PromisePrototypeThen, SymbolDispose } = require_primordials();
     var {
@@ -81771,7 +81771,7 @@ var require_end_of_stream = __commonJS({
       }
       validateFunction(callback, "callback");
       validateAbortSignal(options.signal, "options.signal");
-      callback = once2(callback);
+      callback = once3(callback);
       if (isReadableStream3(stream4) || isWritableStream(stream4)) {
         return eosWeb(stream4, options, callback);
       }
@@ -81910,7 +81910,7 @@ var require_end_of_stream = __commonJS({
           addAbortListener = addAbortListener || require_util10().addAbortListener;
           const disposable = addAbortListener(options.signal, abort);
           const originalCallback = callback;
-          callback = once2((...args) => {
+          callback = once3((...args) => {
             disposable[SymbolDispose]();
             originalCallback.apply(stream4, args);
           });
@@ -81937,7 +81937,7 @@ var require_end_of_stream = __commonJS({
           addAbortListener = addAbortListener || require_util10().addAbortListener;
           const disposable = addAbortListener(options.signal, abort);
           const originalCallback = callback;
-          callback = once2((...args) => {
+          callback = once3((...args) => {
             disposable[SymbolDispose]();
             originalCallback.apply(stream4, args);
           });
@@ -85125,7 +85125,7 @@ var require_pipeline = __commonJS({
     var process5 = require_process2();
     var { ArrayIsArray, Promise: Promise2, SymbolAsyncIterator, SymbolDispose } = require_primordials();
     var eos = require_end_of_stream();
-    var { once: once2 } = require_util10();
+    var { once: once3 } = require_util10();
     var destroyImpl = require_destroy2();
     var Duplex = require_duplex();
     var {
@@ -85277,7 +85277,7 @@ var require_pipeline = __commonJS({
       }
     }
     function pipeline(...streams) {
-      return pipelineImpl(streams, once2(popCallback(streams)));
+      return pipelineImpl(streams, once3(popCallback(streams)));
     }
     function pipelineImpl(streams, callback, opts) {
       if (streams.length === 1 && ArrayIsArray(streams[0])) {
@@ -139040,6 +139040,7 @@ function isHostedPoolQuotaFailureText(text2) {
 
 // packages/features/codex-oauth-rotating/src/action/codex-local-provider-proxy.ts
 var import_node_crypto3 = require("node:crypto");
+var import_node_events = require("node:events");
 var import_node_http = __toESM(require("node:http"));
 
 // packages/features/codex-oauth-rotating/src/action/provider-usage-responses.ts
@@ -139251,6 +139252,15 @@ async function startCodexLocalProviderProxy(input2) {
           return;
         }
         const upstreamController = new AbortController();
+        const cancelDisconnectedClient = () => {
+          if (!res.writableFinished)
+            upstreamController.abort(new Error("proxy_client_disconnected"));
+        };
+        res.once("close", cancelDisconnectedClient);
+        if (res.destroyed) {
+          res.off("close", cancelDisconnectedClient);
+          return;
+        }
         activeUpstreamRequests.add(upstreamController);
         const usage = input2.usageDelivery ? createResponsesUsageObserver(input2.usageDelivery, "", "codex") : void 0;
         let failed = false;
@@ -139267,13 +139277,19 @@ async function startCodexLocalProviderProxy(input2) {
           });
           usage?.responseReceived();
           failed = !upstream.ok;
-          await writeProxyUpstreamResponse(res, upstream, usage);
+          await writeProxyUpstreamResponse(
+            res,
+            upstream,
+            upstreamController.signal,
+            usage
+          );
         } catch (error63) {
           failed = true;
           throw error63;
         } finally {
           usage?.finish(failed, upstreamController.signal.aborted);
           activeUpstreamRequests.delete(upstreamController);
+          res.off("close", cancelDisconnectedClient);
         }
       } catch {
         writeProxyError(res, 502, "proxy_upstream_failed");
@@ -139356,7 +139372,12 @@ function readProxyRequestBody(req) {
     req.on("end", () => resolve4(Buffer.concat(chunks)));
   });
 }
-async function writeProxyUpstreamResponse(res, upstream, usage) {
+async function writeProxyUpstreamResponse(res, upstream, signal, usage) {
+  if (signal.aborted || res.destroyed) {
+    void upstream.body?.cancel().catch(() => void 0);
+    signal.throwIfAborted();
+    return;
+  }
   const headers = {};
   const contentType2 = upstream.headers.get("content-type");
   if (contentType2) {
@@ -139368,17 +139389,24 @@ async function writeProxyUpstreamResponse(res, upstream, usage) {
     return;
   }
   const reader = upstream.body.getReader();
+  const cancelReader = () => {
+    void reader.cancel(signal.reason).catch(() => void 0);
+  };
+  signal.addEventListener("abort", cancelReader, { once: true });
   const usageStream = usage ? createResponsesUsageStreamObserver(usage, contentType2) : void 0;
   try {
     for (; ; ) {
       const { done, value } = await reader.read();
+      signal.throwIfAborted();
       if (done) break;
       usageStream?.chunk(value);
-      res.write(Buffer.from(value));
+      if (!res.write(Buffer.from(value))) await (0, import_node_events.once)(res, "drain", { signal });
     }
     usageStream?.end();
     res.end();
   } finally {
+    signal.removeEventListener("abort", cancelReader);
+    if (signal.aborted || res.destroyed) cancelReader();
     reader.releaseLock();
   }
 }
@@ -142450,7 +142478,7 @@ var CodexEphemeralSessionMaterializer = class {
         ...codexProviderEgressEnv()
       },
       snapshotSession: () => snapshotCodexSession({ codexHome }),
-      release: once(async () => {
+      release: once2(async () => {
         try {
           await cleanupCodexRuntimeTempRoot({
             tempRoot,
@@ -142539,7 +142567,7 @@ async function writeFileAtomic(path4, value) {
   await (0, import_promises6.writeFile)(tempPath, value, { mode: 384 });
   await (0, import_promises6.rename)(tempPath, path4);
 }
-function once(fn) {
+function once2(fn) {
   let called = false;
   return async () => {
     if (called)

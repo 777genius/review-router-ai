@@ -45,6 +45,7 @@ export function safeDashboardErrorCode(error: unknown): string {
       "review_policy_resave_required",
       "review_provider_selection_required",
       "workflow_delete_untrusted",
+      "repository_access_reauthorization_required",
       "repository_access_token_missing",
       "repository_access_token_revoked",
       "repository_access_token_expired",

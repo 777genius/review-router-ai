@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { generateKeyPairSync, randomBytes, verify } from "node:crypto";
 import { once } from "node:events";
 export const SKILLS_MANAGER_EXTERNAL_ID = "910000000003";
+export const SKILLS_AUTHORIZATION_APP_SLUG = "rr-e2e-skills-app";
 export async function startSkillsGitHubFixture() {
   const pair = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const privateKey = pair.privateKey

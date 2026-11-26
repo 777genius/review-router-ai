@@ -287,6 +287,7 @@ boundaries:
     roots:
       - packages/features/provider-usage/src/infrastructure/prisma-operator-usage-report-reader.ts
       - packages/features/provider-usage/src/infrastructure/prisma-usage-reconciliation.ts
+      - packages/features/provider-usage/src/infrastructure/prisma-usage-retention.ts
       - packages/features/provider-usage/src/infrastructure/prisma-usage-report.ts
       - packages/features/provider-usage/src/infrastructure/usage-requested-provider-sql.ts
       - packages/features/provider-usage/src/infrastructure/gateway-profile-provider.ts

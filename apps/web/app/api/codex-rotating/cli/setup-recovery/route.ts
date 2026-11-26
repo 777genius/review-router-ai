@@ -1,3 +1,4 @@
+import { readBoundedRequestJson } from "../../../../../src/server/bounded-request-body";
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -26,7 +27,7 @@ const requestSchema = z
 export async function POST(request: Request): Promise<NextResponse> {
   try {
     const accessToken = readBearerToken(request);
-    const rawBody: unknown = await request.json();
+    const rawBody: unknown = await readBoundedRequestJson(request, 32_768);
     const parsed = requestSchema.safeParse(rawBody);
     if (!parsed.success) {
       const fields =

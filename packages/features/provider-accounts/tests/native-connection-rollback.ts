@@ -182,11 +182,25 @@ let db: PrismaClient | undefined;
 try {
   const lock = await readFile(join(writerRoot, "pnpm-lock.yaml"));
   const readerLock = await readFile(join(readerRoot, "pnpm-lock.yaml"));
-  const schema = await readFile(join(writerRoot, schemaRelative));
+  const writerSchema = await readFile(join(writerRoot, schemaRelative));
+  // New additive migrations may change the writer schema. Reproduce the old
+  // client's schema from its immutable reader source, never the writer tree.
+  const schema = await readFile(join(readerRoot, schemaRelative));
   equalBytes(
-    await readFile(join(readerRoot, schemaRelative)),
     schema,
-    "old source schema",
+    execFileSync(
+      "git",
+      [
+        "-c",
+        `safe.directory=${readerRoot}`,
+        "-C",
+        readerRoot,
+        "show",
+        `${floor}:${schemaRelative}`,
+      ],
+      { timeout: 10_000, maxBuffer: 2 * 1024 * 1024 },
+    ),
+    "pinned old source schema",
   );
   const buildTools = await readerBuildToolProvenance(
     readerLock.toString("utf8"),
@@ -309,6 +323,7 @@ try {
         runtimeSHA256,
         buildTools,
         sourceSchemaSHA256: digest(schema),
+        writerSourceSchemaSHA256: digest(writerSchema),
         formattedGeneratedSchemaSHA256: digest(generatedSchema),
         generatedClientSHA256,
         inputs: compiled.metafile.inputs,

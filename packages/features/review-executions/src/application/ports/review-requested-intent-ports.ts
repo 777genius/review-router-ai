@@ -323,6 +323,7 @@ export interface ReviewRequestedDispatchGatewayPort {
   }): Promise<ReviewRequestedPreparedDispatchPort>;
   findByRequestIdentity(input: {
     readonly intent: ReviewRequestedIntent;
+    readonly signal?: AbortSignal;
   }): Promise<
     | {
         readonly status: ReviewRequestedDispatchLookupStatus.Found;
@@ -335,14 +336,19 @@ export interface ReviewRequestedDispatchGatewayPort {
           | ReviewRequestedDispatchLookupStatus.Inconclusive;
       }
   >;
-  inspectKnownRun(input: { readonly intent: ReviewRequestedIntent }): Promise<{
+  inspectKnownRun(input: {
+    readonly intent: ReviewRequestedIntent;
+    readonly signal?: AbortSignal;
+  }): Promise<{
     readonly status: ReviewRequestedDispatchRunStatus;
   }>;
   /** Throws when GitHub does not answer plainly; callers then do not wait longer. */
   inspectRunnerWait(input: {
     readonly intent: ReviewRequestedIntent;
+    readonly signal?: AbortSignal;
   }): Promise<ReviewRequestedRunnerWaitInspection>;
   cancelKnownRun(input: {
     readonly intent: ReviewRequestedIntent;
+    readonly signal?: AbortSignal;
   }): Promise<void>;
 }

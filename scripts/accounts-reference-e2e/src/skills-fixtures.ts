@@ -1,8 +1,12 @@
 import { createHash } from "node:crypto";
 import pg from "pg";
 import { FIXTURES } from "./contracts.ts";
-import { SKILLS_MANAGER_EXTERNAL_ID } from "./skills-github-fixture.ts";
+import {
+  SKILLS_AUTHORIZATION_APP_SLUG,
+  SKILLS_MANAGER_EXTERNAL_ID,
+} from "./skills-github-fixture.ts";
 export const SKILLS_SHARED_ID = "rr-e2e-skill-shared";
+const skillsAuthorizationRevision = 1;
 export async function seedSkillsFixtures(databaseUrl: string) {
   const db = new pg.Client({ connectionString: databaseUrl });
   await db.connect();
@@ -88,9 +92,24 @@ export async function seedSkillsFixtures(databaseUrl: string) {
         ],
       );
     }
+    // Discovery reads this fresh observation under its active App authority.
+    // The placeholder user token is unused; mutations still call the App fixture.
     await db.query(
-      `INSERT INTO "RepositoryPermissionCache" (id,"userId","repositoryId","githubInstallationId",permission,"roleName","canManage","checkedAt","expiresAt","updatedAt") VALUES ('rr-e2e-skills-writer-permission',$1,'rr-e2e-repo-rr-e2e-org-alpha-001',920000000001,'write','write',true,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP+interval '4 hours',CURRENT_TIMESTAMP)`,
-      [FIXTURES.users.foreign],
+      `INSERT INTO "GitHubUserAuthorization" (id,"userId","githubUserId","appSlug",revision,"encryptedAccessToken","updatedAt") VALUES ('rr-e2e-skills-manager-authorization',$1,$2,$3,$4,'rr-e2e-skills-cache-only-unused',CURRENT_TIMESTAMP)`,
+      [
+        FIXTURES.users.foreign,
+        SKILLS_MANAGER_EXTERNAL_ID,
+        SKILLS_AUTHORIZATION_APP_SLUG,
+        skillsAuthorizationRevision,
+      ],
+    );
+    await db.query(
+      `INSERT INTO "RepositoryPermissionCache" (id,"userId","repositoryId","githubInstallationId","authorizationAppSlug","authorizationRevision",permission,"roleName","canManage","checkedAt","expiresAt","updatedAt") VALUES ('rr-e2e-skills-writer-permission',$1,'rr-e2e-repo-rr-e2e-org-alpha-001',920000000001,$2,$3,'write','write',true,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP+interval '4 hours',CURRENT_TIMESTAMP)`,
+      [
+        FIXTURES.users.foreign,
+        SKILLS_AUTHORIZATION_APP_SLUG,
+        skillsAuthorizationRevision,
+      ],
     );
     for (let index = 1; index <= 61; index++) {
       const suffix = String(index).padStart(3, "0");

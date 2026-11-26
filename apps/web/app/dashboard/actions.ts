@@ -2936,7 +2936,6 @@ async function enableOrgRulesetWorkflowMutation(
           {
             provisioning: new PrismaOrgRulesetProvisioningRepository(prisma),
             setupGateway: new OctokitOrgRulesetSetupGateway(octokit),
-            outbox: new PrismaOutboxEventRepository(prisma),
             auditLog: new PrismaAuditLogRepository(prisma),
           },
         ),

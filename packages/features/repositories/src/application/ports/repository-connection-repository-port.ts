@@ -4,6 +4,12 @@ import type {
   RepositorySyncResult,
 } from "../../domain/repository-connection";
 
+import type { RepositorySyncPolicy } from "../../domain/repository-sync-policy";
+
+export type RepositoryInventorySyncResult = RepositorySyncResult & {
+  readonly synchronizedRepositories: readonly GitHubRepositorySnapshot[];
+};
+
 export interface RepositoryConnectionRepositoryPort {
   beginInstallationInventory(): Promise<bigint>;
 
@@ -12,7 +18,8 @@ export interface RepositoryConnectionRepositoryPort {
     repositories: readonly GitHubRepositorySnapshot[];
     syncedAt: Date;
     inventoryGeneration: bigint;
-  }): Promise<RepositorySyncResult>;
+    syncPolicy?: RepositorySyncPolicy;
+  }): Promise<RepositoryInventorySyncResult>;
 
   listWorkspaceRepositories(
     workspaceId: string,

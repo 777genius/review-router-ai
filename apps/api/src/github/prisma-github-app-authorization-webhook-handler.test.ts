@@ -46,12 +46,17 @@ describe("PrismaGitHubAppAuthorizationWebhookHandler", () => {
         revokedAt: null,
       },
       data: {
+        revision: { increment: 1 },
+        refreshAttemptId: null,
         revokedAt: expect.any(Date),
         lastErrorCode: "github_app_authorization_revoked",
       },
     });
     expect(deleteMany).toHaveBeenCalledWith({
-      where: { userId: { in: ["user_1"] } },
+      where: {
+        userId: { in: ["user_1"] },
+        authorizationAppSlug: "reviewrouter-test",
+      },
     });
   });
 });

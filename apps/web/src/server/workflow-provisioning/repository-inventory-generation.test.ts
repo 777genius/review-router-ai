@@ -33,8 +33,15 @@ describe("repository inventory ownership order", () => {
     };
     let generation = 0n;
     const repositoryConnection = {
-      findMany: vi.fn(async () => []),
       ...state.repositoryConnection,
+      findMany: vi.fn(
+        async (input: {
+          where?: { githubRepositoryId?: { in?: bigint[] } };
+        }) =>
+          input.where?.githubRepositoryId?.in
+            ? [{ ...repository, githubRepositoryId: 123n }]
+            : [],
+      ),
       findUnique: vi.fn(async () => ({ ...repository })),
       upsert: vi.fn(async ({ update }: { update: typeof repository }) => {
         repository = { ...repository, ...update };
@@ -63,11 +70,20 @@ describe("repository inventory ownership order", () => {
           gitHubInstallation: prisma.gitHubInstallation,
         } as typeof tx),
       gitHubInstallation: {
+        update: vi.fn(async () => ({})),
         findUnique: vi.fn(
           async ({ where }: { where: { githubInstallationId: bigint } }) =>
             where.githubInstallationId === 1n
-              ? { id: record.installationId, workspaceId: record.workspaceId }
-              : { id: "installation_2", workspaceId: "workspace_2" },
+              ? {
+                  id: record.installationId,
+                  workspaceId: record.workspaceId,
+                  inventoryGeneration: 0n,
+                }
+              : {
+                  id: "installation_2",
+                  workspaceId: "workspace_2",
+                  inventoryGeneration: 0n,
+                },
         ),
       },
     };

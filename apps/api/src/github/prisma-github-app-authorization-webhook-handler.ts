@@ -31,12 +31,14 @@ export class PrismaGitHubAppAuthorizationWebhookHandler {
           revokedAt: null,
         },
         data: {
+          revision: { increment: 1 },
+          refreshAttemptId: null,
           revokedAt: new Date(),
           lastErrorCode: "github_app_authorization_revoked",
         },
       }),
       this.prisma.repositoryPermissionCache.deleteMany({
-        where: { userId: { in: userIds } },
+        where: { userId: { in: userIds }, authorizationAppSlug: appSlug },
       }),
     ]);
 

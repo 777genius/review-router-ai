@@ -39,7 +39,7 @@ describe("Codex rotating setup dispatch transport", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
-  it("dispatches the encrypted payload through the serialized setup writer", async () => {
+  it("preserves a maximum encrypted payload through the bounded dispatch transport", async () => {
     mocks.authorizeAndPutSecret.mockResolvedValueOnce({
       status: "confirmed",
       responseCode: 204,
@@ -47,7 +47,7 @@ describe("Codex rotating setup dispatch transport", () => {
     const body = {
       claimId: "codex_claim_11111111-1111-4111-8111-111111111111",
       idempotencyKey: "dispatch:test",
-      encryptedValue: "ZW5jcnlwdGVk",
+      encryptedValue: "a".repeat(1_000_000),
       keyId: "github-key-1",
     };
 

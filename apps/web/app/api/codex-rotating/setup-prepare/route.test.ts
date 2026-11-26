@@ -17,6 +17,31 @@ describe("Codex rotating setup prepare transport", () => {
     vi.clearAllMocks();
   });
 
+  it("rejects oversized streamed input without invoking setup admission", async () => {
+    const cancelled = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(550_001));
+      },
+      cancel: cancelled,
+    });
+    const init: RequestInit & { duplex: "half" } = {
+      method: "POST",
+      body,
+      duplex: "half",
+    };
+    const response = await POST(
+      new Request(
+        "https://reviewrouter.org/api/codex-rotating/setup-prepare",
+        init,
+      ),
+    );
+    expect(response.status).toBe(413);
+    expect(cancelled).toHaveBeenCalledOnce();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
   it("does not cache malformed JSON", async () => {
     const response = await POST(
       new Request("https://reviewrouter.org/api/codex-rotating/setup-prepare", {

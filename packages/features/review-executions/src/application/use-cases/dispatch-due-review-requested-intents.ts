@@ -1,3 +1,4 @@
+import { withReviewRequestedIoTimeout as withIoTimeout } from "./review-requested-io-timeout";
 import type { ReviewRequestedIntent } from "../../domain/review-requested-intent";
 import {
   ReviewRequestedClaimStatus,
@@ -465,30 +466,6 @@ const maximumPreparationsInFlight = 32;
 const maximumSubmissionsInFlight = 32;
 const maximumPreparationWaitMs = 5_000;
 const maximumSubmissionWaitMs = 5_000;
-
-/** Bound observation, not the lifetime of an operation that ignores abort. */
-async function withIoTimeout<T>(
-  timeoutMs: number,
-  work: (signal: AbortSignal) => Promise<T>,
-  onSoftTimeout?: () => void,
-): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const controller = new AbortController();
-  try {
-    return await Promise.race([
-      work(controller.signal),
-      new Promise<never>((_resolve, reject) => {
-        timeout = setTimeout(() => {
-          if (onSoftTimeout) onSoftTimeout();
-          else controller.abort();
-          reject(new Error("review_requested_preparation_timeout"));
-        }, timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timeout !== undefined) clearTimeout(timeout);
-  }
-}
 
 function intentScopeKey(input: {
   readonly workspaceId: string;

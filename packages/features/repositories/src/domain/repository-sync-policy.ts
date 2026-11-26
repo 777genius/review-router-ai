@@ -12,6 +12,7 @@ export type RepositorySyncPolicyResult = {
 export function applyRepositorySyncPolicy(
   repositories: readonly GitHubRepositorySnapshot[],
   policy?: RepositorySyncPolicy,
+  admittedRepositoryIds: ReadonlySet<string> = new Set(),
 ): RepositorySyncPolicyResult {
   if (!policy) {
     return { repositories, skippedDueToLimit: 0 };
@@ -22,8 +23,19 @@ export function applyRepositorySyncPolicy(
     return { repositories, skippedDueToLimit: 0 };
   }
 
+  const admittedCount = repositories.filter((repository) =>
+    admittedRepositoryIds.has(repository.githubRepositoryId),
+  ).length;
+  if (admittedCount > maxRepositories) {
+    throw new Error("repository_sync_quota_below_current_selection");
+  }
   const selectedRepositories = [...repositories]
-    .sort((left, right) => left.fullName.localeCompare(right.fullName))
+    .sort(
+      (left, right) =>
+        Number(admittedRepositoryIds.has(right.githubRepositoryId)) -
+          Number(admittedRepositoryIds.has(left.githubRepositoryId)) ||
+        left.fullName.localeCompare(right.fullName),
+    )
     .slice(0, maxRepositories);
 
   return {

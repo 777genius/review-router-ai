@@ -91,6 +91,7 @@ export class PrismaRateLimitStore
       DELETE FROM "RateLimitBucket"
       USING expired
       WHERE "RateLimitBucket"."key" = expired."key"
+        AND "RateLimitBucket"."windowEndsAt" <= ${input.expiredBefore}
       RETURNING "RateLimitBucket"."key"
     `;
     return { deleted: rows.length };

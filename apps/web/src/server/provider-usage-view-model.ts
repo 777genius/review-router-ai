@@ -14,6 +14,7 @@ export interface UsageFilters {
   provider?: string | undefined;
   model?: string | undefined;
   runAfter?: string | undefined;
+  coverageAfter?: string | undefined;
   after?: string | undefined;
 }
 export interface UsageReportRow {
@@ -41,6 +42,8 @@ export interface ProviderUsageReport {
   overview: UsagePeriodReport["overview"];
   totals: UsageTotals;
   deliveryCoverage: UsagePeriodReport["deliveryCoverage"];
+  deliveryCoverageTotals: UsagePeriodReport["deliveryCoverageTotals"];
+  nextCoverageCursor: string | null;
   groups: UsagePeriodReport["groups"];
   nextCursor: string | null;
   from: string;
@@ -128,6 +131,8 @@ export function buildUsageReport(
     rows,
     totals: report.totals,
     deliveryCoverage: report.deliveryCoverage,
+    deliveryCoverageTotals: report.deliveryCoverageTotals,
+    nextCoverageCursor: report.nextCoverageCursor,
     groups: report.groups,
     nextCursor: report.nextCursor,
     attempts: report.totals.providerAttempts,

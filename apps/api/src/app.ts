@@ -26,6 +26,7 @@ import {
 } from "./review-memory-runtime.js";
 import { createProviderUsageSessionComposition } from "./provider-usage-session-composition.js";
 import { registerProviderUsageRecovery } from "./provider-usage-artifact-recovery.js";
+import { settleProviderUsageMaintenance } from "./provider-usage-maintenance.js";
 import { registerProviderUsageRoutes } from "./provider-usage-routes.js";
 import { registerContextToolsRoutes } from "./review-context-tools.js";
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
@@ -122,6 +123,7 @@ import {
 } from "@reviewrouter/features-hosted-account-pool";
 import {
   createPrismaClient,
+  isDatabaseAcquisitionTimeout,
   resolveCommentTokenCustodyDatabaseAuthorityUrl,
   resolveCodexOAuthDatabaseEffectAuthorityUrl,
   type PrismaClient,
@@ -272,6 +274,14 @@ export async function createApiApp(
 ): Promise<FastifyInstance> {
   const logger = new ConsoleLogger();
   const app = Fastify({ logger: false });
+  const defaultErrorHandler = app.errorHandler;
+  app.setErrorHandler(function (error, request, reply) {
+    if (isDatabaseAcquisitionTimeout(error))
+      return reply.header("Retry-After", "1").code(503).send({
+        error: "database_unavailable",
+      });
+    return defaultErrorHandler.call(this, error, request, reply);
+  });
   const reviewActionV2Env = options.reviewActionV2Env ?? process.env;
   const publicApiUrl = resolveReviewRouterPublicApiUrl(reviewActionV2Env);
   const operatorCredentialSha256 =
@@ -1098,8 +1108,12 @@ export async function createApiApp(
   ) {
     const usage = providerUsageDependencies;
     registerProviderUsageRecovery(app, {
+      onFailure: () =>
+        logger.warn("Provider usage maintenance failed", {
+          event: "provider_usage_recovery_failed",
+        }),
       runBatch: async () =>
-        Promise.allSettled([
+        settleProviderUsageMaintenance([
           ...(usage.providerUsageRecovery
             ? [usage.providerUsageRecovery.runBatch()]
             : []),
