@@ -76,6 +76,13 @@ export async function qualifyReliabilityUi(input: {
     timeout: 180_000,
   });
   await page.getByRole("heading", { name: "Usage", exact: true }).waitFor();
+  await page.waitForFunction(
+    () => document.documentElement.dataset.dashboardLayoutReady === "true",
+  );
+  await page
+    .locator('section[aria-label="Provider usage"] .recharts-surface')
+    .first()
+    .waitFor({ state: "visible" });
   await page.getByLabel("Details", { exact: true }).click();
   const losses = page
     .getByRole("list", { name: "Producer delivery coverage" })

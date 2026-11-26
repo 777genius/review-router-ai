@@ -105,7 +105,11 @@ describe("canonical release migration transition", () => {
         name !== "000157_claude_code_api_key_secret" &&
         name !== "000158_review_run_allocation_provider_quota" &&
         name !== "000159_producer_reviewer_plan_v2" &&
-        name !== "000160_personal_credential_import_method",
+        name !== "000160_personal_credential_import_method" &&
+        name !== "000161_github_authorization_revision" &&
+        name !== "000162_inventory_ruleset_revisions" &&
+        name !== "000163_usage_retention_index" &&
+        name !== "000164_ruleset_create_uncertainty",
     );
     const checkout161 = names.map((migrationName) => ({
       migrationName,
@@ -448,6 +452,10 @@ describe("canonical release migration transition", () => {
           row.migrationName !== "000158_review_run_allocation_provider_quota" &&
           row.migrationName !== "000159_producer_reviewer_plan_v2" &&
           row.migrationName !== "000160_personal_credential_import_method" &&
+          row.migrationName !== "000161_github_authorization_revision" &&
+          row.migrationName !== "000162_inventory_ruleset_revisions" &&
+          row.migrationName !== "000163_usage_retention_index" &&
+          row.migrationName !== "000164_ruleset_create_uncertainty" &&
           row.migrationName !== "000156_verified_thread_reply",
       ),
     );

@@ -309,6 +309,31 @@ export const renderConversationalMemoryCheckoutExtension = Object.freeze([
   }),
 ]);
 
+// Multi-tenant reliability additions are checkout-only. Require this exact tail
+// before retaining every historical manifest and the checkout165-to164 gate.
+const reliabilityCheckoutExtension = Object.freeze([
+  Object.freeze({
+    migrationName: "000161_github_authorization_revision",
+    checksum:
+      "822e6e318392c7edbcf70b5da1e60a9c72e8747d7acefbeec743bd12af501847",
+  }),
+  Object.freeze({
+    migrationName: "000162_inventory_ruleset_revisions",
+    checksum:
+      "e5c2db1d92ccf1b49466a51db006dd277ce7a13ed361565610e929287347a229",
+  }),
+  Object.freeze({
+    migrationName: "000163_usage_retention_index",
+    checksum:
+      "02ec34c16f6fddf58acd48c3fcc74f4c584de6020ffebf4ff1d8d461351fb98d",
+  }),
+  Object.freeze({
+    migrationName: "000164_ruleset_create_uncertainty",
+    checksum:
+      "361bf3464a3533d43bd3482252ca83d3dd20f45e07ab25263e1defc0c9f4e727",
+  }),
+]);
+
 export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (
     !Array.isArray(catalog) ||
@@ -321,6 +346,26 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  if (
+    catalog.some((row) =>
+      reliabilityCheckoutExtension.some(
+        (extension) => extension.migrationName === row.migrationName,
+      ),
+    )
+  ) {
+    if (
+      catalog.length !== 169 ||
+      reliabilityCheckoutExtension.some((extension, index) => {
+        const row = catalog[165 + index];
+        return (
+          row.migrationName !== extension.migrationName ||
+          row.checksum !== extension.checksum
+        );
+      })
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(catalog.slice(0, 165));
+  }
   // The account credential-import method only changes the later personal journal.
   // Require its exact SQL and complete checkout165 before reducing to the frozen
   // reviewer-plan checkout164. The managed92 validator remains unchanged.

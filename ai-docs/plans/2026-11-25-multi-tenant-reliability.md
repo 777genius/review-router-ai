@@ -279,6 +279,28 @@ source classification. It is now listed in the existing `usage.infrastructure`
 roots. No entrypoint, dependency permission or adopted scope was widened; the
 current-head run must verify the correction before acceptance.
 
+The next integration run on `237c802358396414859366520cbb58fb07450004`
+passed C1, native accounts, the Gateway long-run, Memory/Hindsight, self-hosted
+E2E and the OCI build. Unit tests recorded 14,946 passed, 80 failed and 879
+skipped. The failures exposed stale current/historical migration projections and
+one minimal auth fixture missing `inventoryGeneration`. Historical migration
+qualification also rejected the unregistered four-migration checkout tail.
+The correction admits only their exact names/checksums before the unchanged
+165-to-164 historical chain; frozen manifests and retained migrations stay fixed.
+
+Browser integration also caught signed-out explicit-workspace navigation reaching
+404 before the sign-in redirect, and the new Usage scenario clicking native
+Details before client readiness. The redirect now precedes denied-workspace
+handling inside the existing empty-workspace branch. The browser scenario awaits
+the existing dashboard marker and rendered Usage chart before interacting;
+cursor, scope, totals, denial and timeout assertions are preserved.
+
+Independent reviews approved these bounded corrections. Native Node checks read
+the actual 169-migration checkout, preserve the 92/96 historical catalogs and
+165/164 prefixes, and pass 11 damaged/missing/unknown-tail negative cases. A full
+local frozen dependency installation terminated with SIGKILL, so it is not a
+Vitest/PG/browser pass; fresh complete CI remains required.
+
 The existing **Statistics Usage Reviews browser** journey now also opens the
 old authorized workspace, paginates 101 loss details through real GETs, denies a
 foreign workspace visibly, and exercises the GitLab credential UI with keyboard

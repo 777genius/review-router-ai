@@ -755,9 +755,9 @@ export async function DashboardWorkspacePage({
   const pendingOrganizationInstallRequest =
     buildPendingOrganizationInstallRequest(params);
   if (workspaces.length === 0) {
+    if (!mutationStatus.signedIn) redirect("/");
     if (readParam(params.workspace) || readParam(params.installation_id))
       notFound();
-    if (!mutationStatus.signedIn) redirect("/");
     return (
       <>
         <DashboardShellSnapshot workspaces={workspaces} />
