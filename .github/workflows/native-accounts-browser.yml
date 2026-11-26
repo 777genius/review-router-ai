@@ -13,6 +13,7 @@ on:
     paths:
       - ".github/workflows/native-accounts-browser.yml"
       - "scripts/provider-setup-visual/**"
+      - "scripts/tsconfig/tsconfig.provider-*.json"
       - "apps/web/app/dashboard/*account*"
       - "apps/web/app/dashboard/actions.ts"
       - "apps/web/app/dashboard/dashboard-github-verification*"
@@ -114,8 +115,8 @@ jobs:
         run: |
           pnpm compiler:prepare
           node scripts/local-checks/compiler-cli.ts --native --noEmit --incremental false -p apps/web/tsconfig.json
-          node scripts/local-checks/compiler-cli.ts --native --noEmit --incremental false -p tsconfig.provider-setup-visual.json
-          node scripts/local-checks/compiler-cli.ts --native --noEmit --incremental false -p tsconfig.provider-subscriptions-extension.json
+          node scripts/local-checks/compiler-cli.ts --native --noEmit --incremental false -p scripts/tsconfig/tsconfig.provider-setup-visual.json
+          node scripts/local-checks/compiler-cli.ts --native --noEmit --incremental false -p scripts/tsconfig/tsconfig.provider-subscriptions-extension.json
       - name: Qualify native fixture model and metadata authority
         run: pnpm exec vitest run apps/web/src/server/native-visual-fixture.test.ts
       - name: Use the primary runtime for the immutable rollback reader
@@ -129,7 +130,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(node --version)" = v26.11.1
-          node scripts/local-checks/compiler-cli.ts --native --noEmit --incremental false -p tsconfig.provider-accounts-rollback.json
+          node scripts/local-checks/compiler-cli.ts --native --noEmit --incremental false -p scripts/tsconfig/tsconfig.provider-accounts-rollback.json
           reader_sha=38eb54a1706658fc005eba99d5c774c50005df90
           reader_root="$RUNNER_TEMP/rr-native-rollback-source"
           git fetch --no-tags origin "$reader_sha"
