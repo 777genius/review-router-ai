@@ -12,7 +12,9 @@ it("loads the actual trust-root JSON with Node's production ESM loader", async (
     ),
     "utf8",
   );
-  const start = source.indexOf("import activationCatalogRawPromotionTrustRootData");
+  const start = source.indexOf(
+    "import activationCatalogRawPromotionTrustRootData",
+  );
   const end = source.indexOf(";", start);
   expect(start).toBeGreaterThanOrEqual(0);
   expect(end).toBeGreaterThan(start);

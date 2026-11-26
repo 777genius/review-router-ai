@@ -19,6 +19,11 @@ const descriptors = new Set([
   "assemblyFor",
   "implement",
 ]);
+const functionNodes = new Set([
+  "FunctionDeclaration",
+  "FunctionExpression",
+  "ArrowFunctionExpression",
+]);
 
 function bindingNames(pattern: unknown, names: Set<string>): void {
   if (!isSyntaxNode(pattern)) return;
@@ -54,14 +59,7 @@ function valueImports(parsed: ParsedSource): ValueImport[] {
   const imports: ValueImport[] = [];
   const shadowed = new Set<string>();
   walkSourceAst(parsed.root, (node) => {
-    if (
-      [
-        "FunctionDeclaration",
-        "FunctionExpression",
-        "ArrowFunctionExpression",
-      ].includes(node.type) &&
-      Array.isArray(node.params)
-    ) {
+    if (functionNodes.has(node.type) && Array.isArray(node.params)) {
       for (const parameter of node.params) {
         bindingNames(parameter, shadowed);
       }
@@ -211,12 +209,11 @@ export function compositionEntrypoints(
   ];
 }
 
-/** Follow exported runtime imports, never examples or type-only edges. */
-export function hasAssemblyComposition(
-  entrypoints: readonly string[],
+function entrypointHasAssembly(
+  entrypoint: string,
   sources: ReadonlySet<string>,
 ): boolean {
-  const pending = [...entrypoints];
+  const pending = [entrypoint];
   const visited = new Set<string>();
   let found = false;
   while (pending.length > 0) {
@@ -272,6 +269,19 @@ export function hasAssemblyComposition(
   return found;
 }
 
+/** Each runtime export must reach descriptors through its own runtime edges. */
+export function hasAssemblyComposition(
+  entrypoints: readonly string[],
+  sources: ReadonlySet<string>,
+): boolean {
+  return (
+    entrypoints.length > 0 &&
+    entrypoints.every((entrypoint) =>
+      entrypointHasAssembly(entrypoint, sources),
+    )
+  );
+}
+
 function vitestFunction(
   callee: unknown,
   imports: readonly ValueImport[],
@@ -323,6 +333,27 @@ function skippedSuite(
   );
 }
 
+function registeredVitestCallback(
+  node: SyntaxNode,
+  parent: SyntaxNode | null,
+  imports: readonly ValueImport[],
+): boolean {
+  if (
+    parent?.type !== "CallExpression" ||
+    !Array.isArray(parent.arguments) ||
+    !parent.arguments.includes(node)
+  ) {
+    return false;
+  }
+  const root = vitestFunction(parent.callee, imports);
+  return (
+    activeTest(parent.callee, imports) ||
+    (root !== undefined &&
+      ["describe", "suite"].includes(root.name) &&
+      !skippedSuite(parent.callee, imports))
+  );
+}
+
 /** Admission evidence only: Vitest still executes the actual regression. */
 export function hasCompositionConformanceTest(
   file: string,
@@ -347,7 +378,9 @@ export function hasCompositionConformanceTest(
   walkSourceAst(parsed.root, (node, parent) => {
     if (
       (parent && inactive.has(parent)) ||
-      (node.type === "CallExpression" && skippedSuite(node.callee, imports))
+      (node.type === "CallExpression" && skippedSuite(node.callee, imports)) ||
+      (functionNodes.has(node.type) &&
+        !registeredVitestCallback(node, parent, imports))
     ) {
       inactive.add(node);
       return;
@@ -370,7 +403,17 @@ export function hasCompositionConformanceTest(
       }
       let callsConformance = false;
       let usesComposition = false;
-      walkSourceAst(argument, (child) => {
+      const deferred = new Set<SyntaxNode>();
+      walkSourceAst(argument, (child, parent) => {
+        // A declared helper or callback does not prove its body runs in this
+        // test. Admission requires direct evidence in the registered callback.
+        if (
+          (parent && deferred.has(parent)) ||
+          (child !== argument && functionNodes.has(child.type))
+        ) {
+          deferred.add(child);
+          return;
+        }
         if (
           child.type === "CallExpression" &&
           importedCall(child.callee, imports, "@get-modular/conformance")

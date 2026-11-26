@@ -178,6 +178,36 @@ describe("Get Modular default for new feature packages", () => {
     expect(await reasons(root)).toContain(descriptorReason);
   });
 
+  it("requires a descriptor in every runtime composition condition", async () => {
+    const root = fixture();
+    completePackage(root);
+    put(root, prefix + "/src/composition/prod.ts", "export const item = {};\n");
+    put(root, prefix + "/src/composition/dev.ts", declaration);
+    put(
+      root,
+      prefix + "/src/composition/root.test.ts",
+      regression.replace("./root.ts", "./dev.ts"),
+    );
+    newPackage(root, {
+      ...validManifest,
+      exports: {
+        ...validManifest.exports,
+        "./composition": {
+          production: "./src/composition/prod.ts",
+          default: "./src/composition/dev.ts",
+        },
+      },
+    });
+    expect(await reasons(root)).toContain(descriptorReason);
+
+    put(
+      root,
+      prefix + "/src/composition/prod.ts",
+      "export { item } from './dev.ts';\n",
+    );
+    expect(await reasons(root)).toEqual([]);
+  });
+
   it.each([
     "import type { item } from './unused.ts'; export type Item = typeof item;",
     "export type { item } from './unused.ts';",
@@ -242,6 +272,37 @@ describe("Get Modular default for new feature packages", () => {
         ) + "});\n";
     put(root, prefix + "/src/composition/root.test.ts", source);
     expect(await reasons(root)).toContain(testReason);
+  });
+
+  it("rejects conformance evidence inside uncalled helpers", async () => {
+    const root = fixture();
+    completePackage(root);
+    const check =
+      "checkNamespaces({ namespace: 'reviewrouter', declarations: [item] });";
+    for (const source of [
+      regression.replace(check, `function unused() { ${check} }`),
+      regression.replace(check, `const unused = () => { ${check} };`),
+      regression.replace(
+        "it('composition'",
+        "function unused() { it('composition'",
+      ) + "}\n",
+    ]) {
+      put(root, prefix + "/src/composition/root.test.ts", source);
+      expect.soft(await reasons(root), source).toContain(testReason);
+    }
+
+    for (const source of [
+      regression,
+      regression
+        .replace("import { it }", "import { it, describe }")
+        .replace(
+          "it('composition'",
+          "describe('suite', () => { it('composition'",
+        ) + "});\n",
+    ]) {
+      put(root, prefix + "/src/composition/root.test.ts", source);
+      expect(await reasons(root)).toEqual([]);
+    }
   });
 
   it.each(["root.spec.ts", "root.test.mts", "root.test.cts"])(

@@ -11,6 +11,11 @@ remains authoritative for release gates, migration order, approvals, and tags.
 Task files add feature-specific instructions and actual environment evidence.
 They do not grant deployment permission or replace existing operational runbooks.
 
+PR #977 follow-up: [observation retry, absolute deadlines and replay permit issuance](2026-11-25-pr977-observation-recovery.md)
+are in [PR #1003](https://github.com/777genius/review-router-ai/pull/1003) under
+qualification, including precise database-time publication expiry; ordinary API
+rollout pending, with no migration or configuration change.
+
 <a id="current-coordinated-rollout-reconciliation-2026-11-14"></a>
 
 ## Current coordinated rollout reconciliation (2026-11-15)
@@ -30,6 +35,8 @@ User-declined legacy Statistics/DL backfill, separate GitLab, owner-SKIPPED Anth
 The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:12.132Z` (admission 142.293 seconds/full 106.377 seconds). Catalog/capabilities expose the old seven plus NVIDIA; API policy preserves its old three/defaults plus NVIDIA. Service config `49ba7d0e…`, bootstrap `b3f0c8f4…`; same signed image/source/FILE 66, no migration, production NVIDIA account or model call. [Full recovery/availability evidence](2026-11-14-producer-registry-file.md#final-nvidia-availability-and-native-98-recovery) records the refused 128-vs-640 candidate, premature proxy restoration and real outage, native 98's 64-receipt count-cap repair, all retained state and rollback limitation. The bounded PR 35 semantic reply and complete Usage stands remain the live model qualification; no production inference is claimed.
 
 ## Task index
+
+Production relay build attempt 2026-11-25: image built but removed after disk headroom fell to 380 MB; no backup or fleet swap. Production remains pending; see [attempt](2026-11-22-relay-completed-close-recovery.md#production-build-attempt-2026-11-25).
 
 Scoped dashboard/worker modular refactor: [combined delivery and qualification](2026-11-25-scoped-modular-refactor.md), [PR #998](https://github.com/777genius/review-router-ai/pull/998) — combines #999, #1000, #1001, #1004 and the agent-workflow/suppression portion of #1002; the global Markdown candidate remains in Draft #1002. Implementation checkpoint `ff30c381` passed production PostgreSQL E2E 17/17 and targeted native/static checks; full browser and CI qualification remain pending. Ordinary Web/worker rollout only, no migration or activation change; staging/production `pending`, no deployment authorized.
 

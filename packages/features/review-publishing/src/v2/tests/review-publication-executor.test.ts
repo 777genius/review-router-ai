@@ -38,6 +38,83 @@ const initialTime = at("2026-07-23T12:00:00.000Z");
 const ownerIdHash = hash("e");
 
 describe("protocol v2 publication executor", () => {
+  it.each([
+    {
+      claimDurationMs: 1_000,
+      expectedStatus: ReviewV2PublicationExecutionStatus.Retryable,
+      effects: 1,
+    },
+    {
+      claimDurationMs: 60_000,
+      expectedStatus: ReviewV2PublicationExecutionStatus.Completed,
+      effects: 2,
+    },
+  ])(
+    "honors sibling freshness with a $claimDurationMs ms claim",
+    async ({ claimDurationMs, expectedStatus, effects }) => {
+      const fixture = await createFixture({
+        claimDurationMs,
+        operations: independentOperationPlans(),
+      });
+      expect(await fixture.executor.execute(executionCommand())).toMatchObject({
+        status: ReviewV2PublicationExecutionStatus.Completed,
+      });
+      const first = await fixture.repository.findById("publication-1");
+      expect(first?.activeClaim?.expiresAt.getTime()).toBe(
+        initialTime.getTime() + claimDurationMs,
+      );
+      expect(first?.receipts).toHaveLength(1);
+      expect(first?.attempt.state).toBe("publishing");
+      const claim = vi.spyOn(fixture.application, "claim");
+      const begin = vi.spyOn(fixture.application, "beginOperation");
+      const renew = vi.spyOn(fixture.application, "renewClaim");
+
+      fixture.clock.set(new Date(initialTime.getTime() + 900));
+      fixture.gateway.pages = [{ objects: [], nextCursor: null }];
+      const readsAfterFirst = fixture.freshness.reads;
+      fixture.freshness.onRead = (readCount) => {
+        // Routing reads freshness before reusing the sibling's active claim.
+        // Delay the following before-begin read, after that claim was reused.
+        if (readCount === readsAfterFirst + 2) {
+          fixture.freshness.onRead = null;
+          fixture.clock.set(new Date(initialTime.getTime() + 1_001));
+        }
+      };
+      const result = await fixture.executor.execute(
+        executionCommand("operation-2"),
+      );
+      expect(result.status).toBe(expectedStatus);
+      expect(claim).not.toHaveBeenCalled();
+      expect(begin).toHaveBeenCalledOnce();
+      expect(begin.mock.calls[0]?.[0].claimId).toBe(
+        first?.activeClaim?.claimId,
+      );
+      expect(fixture.gateway.applyCalls).toBe(effects);
+      const persisted = await fixture.repository.findById("publication-1");
+      expect(persisted?.receipts).toHaveLength(effects);
+      if (claimDurationMs === 1_000) {
+        expect(result).toEqual({
+          status: ReviewV2PublicationExecutionStatus.Retryable,
+          safeReason: "publication_begin_stale_claim",
+        });
+        expect(await begin.mock.results[0]?.value).toMatchObject({
+          status: "stale_claim",
+        });
+        expect(renew).not.toHaveBeenCalled();
+        expect(
+          persisted?.attempt.operations.find(
+            (operation) => operation.publicationOperationId === "operation-2",
+          )?.state,
+        ).toBe("planned");
+        expect(persisted?.attempt.terminalOutcome).toBeNull();
+      } else {
+        expect(result.safeReason).toBe("publication_operation_completed");
+        expect(renew).toHaveBeenCalled();
+        expect(persisted?.attempt.terminalOutcome).toBe("succeeded");
+      }
+    },
+  );
+
   it("preserves durable publication command identities for in-flight replay", async () => {
     const fixture = await createFixture();
     const claim = vi.spyOn(fixture.application, "claim");

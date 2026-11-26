@@ -1063,12 +1063,8 @@ export class PrismaReviewExecutionStore
             activeLeases: snapshot.activeLeases,
             ...command,
             now,
-            publicationNotAfter: databaseRelativeDate(
-              now,
-              command.now,
-              command.publicationNotAfter,
-              "publication_deadline",
-            ),
+            // This absolute authority bound must not grow while acquiring locks.
+            publicationNotAfter: command.publicationNotAfter,
             retainUntil: databaseRelativeDate(
               now,
               command.now,
@@ -1076,6 +1072,14 @@ export class PrismaReviewExecutionStore
               "artifact_retention_deadline",
             ),
           });
+          if (
+            decision.status ===
+            ExecutionFinalizationDecisionStatus.PublicationWindowExpired
+          ) {
+            return {
+              status: ReviewExecutionFinalizeStatus.PublicationWindowExpired,
+            };
+          }
           if (
             decision.status === ExecutionFinalizationDecisionStatus.NotRunnable
           ) {
@@ -1866,6 +1870,8 @@ async function persistObservationDecision(
       return { status: ReviewObservationAttachmentStatus.StaleLease };
     case ObservationAttachmentDecisionStatus.Ineligible:
       return { status: ReviewObservationAttachmentStatus.Ineligible };
+    case ObservationAttachmentDecisionStatus.ReportWindowExpired:
+      return { status: ReviewObservationAttachmentStatus.ReportWindowExpired };
     case ObservationAttachmentDecisionStatus.Attached:
       await transaction.reviewExecutionObservationRefV2.create({
         data: observationRefCreateData(decision.observationRef),
