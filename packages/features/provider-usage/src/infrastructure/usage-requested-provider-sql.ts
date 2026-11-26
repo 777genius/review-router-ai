@@ -9,7 +9,19 @@ import { gatewayProfileUsageProviders } from "./gateway-profile-provider";
  */
 export function usageRequestedProviderJoinSql(): Prisma.Sql {
   return Prisma.sql`LEFT JOIN LATERAL (
-    SELECT CASE WHEN count(*)=1 THEN min(qualified.provider) END AS provider
+    SELECT CASE WHEN count(*)=1 THEN min(CASE
+      WHEN allocation ? 'nativeContext' THEN CASE
+        WHEN allocation#>'{nativeContext,schemaVersion}'='1'::jsonb
+          AND allocation#>>'{nativeContext,profileId}'=allocation->>'profileRef'
+          AND allocation#>>'{nativeContext,providerId}' ~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+          AND allocation#>>'{nativeContext,productId}' ~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+        THEN allocation#>>'{nativeContext,providerId}' END
+      ELSE CASE WHEN u."provider" IN ('codex','unknown')
+        THEN qualified.provider ELSE u."provider" END END) END AS provider,
+      CASE WHEN count(*)=1 AND bool_and(NOT (allocation ? 'nativeContext'))
+        AND bool_and(qualified.subscription IS TRUE)
+        THEN '{"status":"known","kind":"subscription"}'::jsonb
+        ELSE '{"status":"unknown"}'::jsonb END AS billing
     FROM "ReviewRunAuthorization" auth
     CROSS JOIN LATERAL (SELECT CASE
       WHEN auth."runtimeSnapshotCanonicalJson" IS JSON OBJECT
@@ -24,9 +36,9 @@ export function usageRequestedProviderJoinSql(): Prisma.Sql {
         THEN frozen.snapshot->'allocations'
       ELSE '[]'::jsonb END) allocation
     LEFT JOIN jsonb_to_recordset(${JSON.stringify(gatewayProfileUsageProviders)}::jsonb)
-      AS qualified("profileRef" text,provider text)
+      AS qualified("profileRef" text,provider text,subscription boolean)
       ON qualified."profileRef"=allocation->>'profileRef'
-    WHERE u."provider" IN ('codex','unknown') AND u."route"='gateway'
+    WHERE u."route"='gateway'
       AND auth."authorizationId"=u."projection"#>>'{identity,authorizationId}'
       AND auth."workspaceId"=u."workspaceId"
       AND auth."sourceRunId"=u."runId"
@@ -39,3 +51,11 @@ export function usageRequestedProviderJoinSql(): Prisma.Sql {
 
 export const usageRequestedProviderSql = () =>
   Prisma.sql`COALESCE(requested_attribution.provider,u."provider")`;
+
+/** Native request evidence wins; requested allocation context never claims billing. */
+export const usageBillingSql = () => Prisma.sql`CASE
+  WHEN u."projection"#>'{usage,nativeContext,schemaVersion}'='1'::jsonb
+    THEN u."projection"#>'{usage,nativeContext,billing}'
+  WHEN u."projection"#>'{usage,nativeContext}' IS NOT NULL
+    THEN '{"status":"unknown"}'::jsonb
+  ELSE COALESCE(requested_attribution.billing,'{"status":"unknown"}'::jsonb) END`;

@@ -89,9 +89,11 @@ test("Add provider connects an API-key account in place and saves it with its mo
   });
 
   const name = `One step ${Date.now()}`;
-  await form.getByLabel("Connection name (optional)").fill(name);
-  await form.locator('input[name="credential"]').fill(secret);
-  await form.getByRole("button", { name: "Connect account" }).click();
+  await form.getByLabel("Connection name", { exact: true }).fill(name);
+  await form.getByLabel("API key", { exact: true }).fill(secret);
+  await form
+    .getByRole("button", { name: "Connect OpenRouter", exact: true })
+    .click();
 
   await expect(
     dialog.getByText("Connected and added to this workspace."),
@@ -179,7 +181,7 @@ test("Add provider signs in to Grok in place and selects the new account", async
   await expect(form).toBeVisible();
   await form.getByLabel("Connection name").fill(`One step Grok ${Date.now()}`);
   const popup = page.waitForEvent("popup");
-  await form.getByRole("button", { name: "Sign in to Grok" }).click();
+  await form.getByRole("button", { name: "Connect Grok", exact: true }).click();
   const authorization = await popup;
   const code = await authorization.locator("code").innerText();
   await authorization.close();
@@ -275,24 +277,36 @@ test("Add provider resets unsubmitted credentials when switching providers and p
     dialog.getByRole("button", { name: "New connection", exact: true }),
   ).toHaveCount(0);
 
-  // Neither of these profiles has an account here, so the same embedded host
-  // stays mounted across the provider change. Each provider needs a fresh form.
-  await choose(page, "Provider", "Kimi Code");
+  // Each provider needs a fresh form. MiMo already has a shared account here,
+  // so its credentials form opens only after choosing a new connection.
+  const kimi = apiKeyStorageProfiles.find(
+    (profile) => profile.provider === "kimi",
+  )!;
+  const mimo = apiKeyStorageProfiles.find(
+    (profile) => profile.provider === "mimo",
+  )!;
+  await choose(page, "Provider", kimi.label);
   const kimiForm = dialog.getByRole("region", {
-    name: "Connect Kimi Code",
+    name: `Connect ${kimi.label}`,
     exact: true,
   });
-  const kimiKey = kimiForm.locator('input[name="credential"]');
+  const kimiKey = kimiForm.getByLabel("API key", { exact: true });
   await expect(kimiKey).toBeVisible();
   await kimiKey.fill(secret);
-  await choose(page, "Provider", "MiMo Token Plan");
+  await choose(page, "Provider", mimo.label);
+  await expect(
+    dialog.getByRole("combobox", { name: /^Account\b/ }),
+  ).toContainText(FIXTURES.sourceLabels.otherPrimary);
+  await dialog
+    .getByRole("button", { name: "New connection", exact: true })
+    .click();
   const mimoKey = dialog
-    .getByRole("region", { name: "Connect MiMo Token Plan", exact: true })
-    .locator('input[name="credential"]');
+    .getByRole("region", { name: `Connect ${mimo.label}`, exact: true })
+    .getByLabel("API key", { exact: true });
   await expect(mimoKey).toBeVisible();
   await expect(mimoKey).toHaveValue("");
   await expect(kimiForm).toHaveCount(0);
-  await choose(page, "Provider", "Kimi Code");
+  await choose(page, "Provider", kimi.label);
   await expect(kimiKey).toBeVisible();
   await expect(kimiKey).toHaveValue("");
   await noSecrets(page, [secret]);

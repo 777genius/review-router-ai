@@ -76,26 +76,30 @@ test("subscription connections use real server actions for all four providers an
   await openAccounts(page, "rr-e2e-personal-viewer");
   const secrets: string[] = ["synthetic-wrong-subscription-key"];
   const declined = await connectProvider(page, "Kimi");
-  await declined.getByLabel(/Subscription key/).fill(secrets[0]!);
-  await declined.getByLabel(/Subscription key/).press("Enter");
+  await declined.getByLabel("API key", { exact: true }).fill(secrets[0]!);
+  await declined.getByLabel("API key", { exact: true }).press("Enter");
   await expect(page.getByText("Declined", { exact: true })).toBeVisible();
   await noSecrets(page, secrets);
   for (const profile of subscriptionProfiles.filter(
     (profile) => profile.provider !== "grok",
   )) {
     const dialog = await connectProvider(page, profile.label);
-    await expect(dialog.getByRole("link", { name: "Get key" })).toHaveAttribute(
-      "href",
-      /^https:\/\//,
+    // Native descriptors own the credential form and its bounded secret field.
+    const key = dialog.getByLabel("API key", { exact: true });
+    await expect(key).toHaveAttribute("type", "password");
+    await expect(key).toHaveAttribute("required", "");
+    await expect(key).toHaveAttribute("autocomplete", "off");
+    await expect(key).toHaveAttribute("maxlength", "65536");
+    await expect(dialog.getByLabel(/Base URL|Connection method/)).toHaveCount(
+      0,
     );
-    await expect(dialog.getByLabel(/Base URL|Sign-in method/)).toHaveCount(0);
     const label = `Browser ${profile.label} subscription`;
-    await dialog.getByLabel("Connection name (optional)").fill(label);
+    await dialog.getByLabel("Connection name", { exact: true }).fill(label);
     const secret = `synthetic-${profile.provider}-subscription-key`;
     secrets.push(secret);
-    await dialog.getByLabel(/Subscription key/).fill(secret);
+    await key.fill(secret);
     // Exercise actual form keyboard submission, not a synthetic API call.
-    await dialog.getByLabel(/Subscription key/).press("Enter");
+    await key.press("Enter");
     const row = sourceRow(page, label);
     await expect(row).toBeVisible();
     await expect(row).toContainText(profile.label);
@@ -119,10 +123,15 @@ test("subscription connections use real server actions for all four providers an
     await noSecrets(page, secrets);
     if (profile.provider === "glm" || profile.provider === "minimax") {
       await row.getByRole("button", { name: `Actions for ${label}` }).click();
-      await page.getByRole("menuitem", { name: "Update API key" }).click();
-      const reconnect = page.getByRole("dialog");
-      await reconnect.getByLabel(/Subscription key/).fill(secret);
-      await reconnect.getByLabel(/Subscription key/).press("Enter");
+      await page
+        .getByRole("menuitem", { name: "Reconnect", exact: true })
+        .click();
+      const reconnect = page.getByRole("dialog", {
+        name: `Reconnect ${profile.label}`,
+        exact: true,
+      });
+      await reconnect.getByLabel("API key", { exact: true }).fill(secret);
+      await reconnect.getByLabel("API key", { exact: true }).press("Enter");
       await expect(page.getByRole("dialog")).toHaveCount(0);
       await expect(row).toBeVisible();
       await expect(sourceRow(page, label)).toHaveCount(1);
@@ -131,16 +140,18 @@ test("subscription connections use real server actions for all four providers an
     }
   }
   const enrollment = await connectProvider(page, "Grok");
-  // Grok signs in one way only, so the form asks for no sign-in method.
+  // Grok signs in one way only, so the native form needs no method picker.
   await expect(
-    enrollment.getByRole("combobox", { name: "Sign-in method" }),
+    enrollment.getByRole("combobox", { name: "Connection method" }),
   ).toHaveCount(0);
   await expect(enrollment).not.toContainText("ChatGPT Settings");
   await enrollment
     .getByLabel("Connection name")
     .fill("Browser Grok subscription");
   const popup = page.waitForEvent("popup");
-  await enrollment.getByRole("button", { name: "Sign in to Grok" }).click();
+  await enrollment
+    .getByRole("button", { name: "Connect Grok", exact: true })
+    .click();
   const authorization = await popup;
   await expect.poll(() => authorizationDocuments).toBe(1);
   const authorizationCode = await authorization.locator("code").innerText();
@@ -166,11 +177,14 @@ test("subscription connections use real server actions for all four providers an
   await grokRow
     .getByRole("button", { name: "Actions for Browser Grok subscription" })
     .click();
-  await page.getByRole("menuitem", { name: "Refresh Grok sign-in" }).click();
-  const reconnectDialog = page.getByRole("dialog");
+  await page.getByRole("menuitem", { name: "Reconnect", exact: true }).click();
+  const reconnectDialog = page.getByRole("dialog", {
+    name: "Reconnect Grok",
+    exact: true,
+  });
   const reconnectPopup = page.waitForEvent("popup");
   await reconnectDialog
-    .getByRole("button", { name: "Sign in to Grok" })
+    .getByRole("button", { name: "Reconnect Grok", exact: true })
     .click();
   const reconnectAuthorization = await reconnectPopup;
   await expect.poll(() => authorizationDocuments).toBe(2);
@@ -192,10 +206,15 @@ test("subscription connections use real server actions for all four providers an
   await noSecrets(page, [...secrets, reconnectCode]);
   await expect(grokRow).toContainText("Ready");
   await expect(grokRow.getByRole("progressbar")).toHaveCount(2);
-  const glmReceipt = page.getByRole("status").filter({
+  const glmReceipts = page.getByRole("status").filter({
     hasText: "Browser GLM subscription",
   });
-  await expect(glmReceipt).not.toContainText("Personal use");
+  // Enrollment and reconnect each retain their own completed receipt.
+  await expect(glmReceipts).toHaveCount(2);
+  for (const receipt of await glmReceipts.all()) {
+    await expect(receipt).toContainText("Completed");
+    await expect(receipt).not.toContainText("Personal use");
+  }
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({
     path: testInfo.outputPath("subscriptions-desktop.png"),
@@ -240,7 +259,7 @@ test("subscription connections use real server actions for all four providers an
     .toBe(true);
   await reloadAccounts(page);
   await expect(
-    removed.getByRole("button", { name: "Refresh Grok sign-in" }),
+    removed.getByRole("button", { name: "Reconnect", exact: true }),
   ).toHaveCount(0);
   for (const provider of ["GLM", "MiniMax"]) {
     const label = `Browser ${provider} subscription`;
@@ -264,7 +283,17 @@ test("subscription connections use real server actions for all four providers an
   await reloadAccounts(page);
   for (const provider of ["GLM", "MiniMax"]) {
     const row = sourceRow(page, `Browser ${provider} subscription`);
-    if (await row.count()) await expect(row).toContainText("Retired");
+    // Removal can finish while the reloaded inventory is being rendered.
+    // Check absence or the retired state in one locator snapshot per probe.
+    await expect
+      .poll(async () => {
+        const texts = await row.allTextContents();
+        return (
+          texts.length === 0 ||
+          (texts.length === 1 && texts[0]!.includes("Retired"))
+        );
+      })
+      .toBe(true);
   }
   await openAccounts(page, "rr-e2e-org-alpha");
   await page.getByRole("button", { name: "Add account", exact: true }).click();

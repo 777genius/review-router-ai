@@ -2,10 +2,15 @@ import type { UsageProjection } from "../domain/usage";
 import type { UsageReportQuery } from "./ports";
 import { costUnits } from "./usage-money";
 import { aggregateUsage, type UsageTotals } from "./usage-totals";
+import {
+  combineUsageBilling,
+  type UsageBilling,
+} from "../domain/native-usage-context";
 
 export interface UsageRequestedIdentity {
   provider: string;
   requestedModel: string | null;
+  billing?: UsageBilling;
 }
 export interface UsageModelAggregate extends UsageRequestedIdentity {
   totals: UsageTotals;
@@ -48,18 +53,33 @@ const identityKey = usageRequestedIdentityKey;
 const requestedIdentity = (p: UsageProjection): UsageRequestedIdentity => ({
   provider: p.identity.provider,
   requestedModel: p.identity.requestedModel,
+  ...(p.usage?.nativeContext ? { billing: p.usage.nativeContext.billing } : {}),
 });
+function billing(rows: readonly UsageProjection[]): { billing?: UsageBilling } {
+  return rows.some((row) => row.usage?.nativeContext)
+    ? {
+        billing: combineUsageBilling(
+          rows.map(
+            (row) => row.usage?.nativeContext?.billing ?? { status: "unknown" },
+          ),
+        ),
+      }
+    : {};
+}
 function identities(
   rows: readonly UsageProjection[],
 ): UsageRequestedIdentity[] {
-  return [
-    ...new Map(
-      rows.map((p) => {
-        const identity = requestedIdentity(p);
-        return [identityKey(identity), identity] as const;
-      }),
-    ).values(),
-  ].sort((a, b) => compare(identityKey(a), identityKey(b)));
+  const grouped = new Map<string, UsageProjection[]>();
+  for (const row of rows) {
+    const key = identityKey(requestedIdentity(row));
+    grouped.set(key, [...(grouped.get(key) ?? []), row]);
+  }
+  return [...grouped.values()]
+    .map((group) => ({
+      ...requestedIdentity(group[0]!),
+      ...billing(group),
+    }))
+    .sort((a, b) => compare(identityKey(a), identityKey(b)));
 }
 function annotations(rows: readonly UsageProjection[]) {
   return {
@@ -163,6 +183,7 @@ export function buildUsageOverview(
   const modelKey = (p: UsageProjection) => identityKey(requestedIdentity(p));
   const aggregateModels = buckets(selected, attempts, modelKey).map((g) => ({
     ...requestedIdentity(g.rows[0]!),
+    ...billing(g.rows),
     totals: g.totals,
     ...annotations(g.rows),
   }));
@@ -198,6 +219,7 @@ export function buildUsageOverview(
       ]),
     ).map((g) => ({
       ...requestedIdentity(g.rows[0]!),
+      ...billing(g.rows),
       route: g.rows[0]!.identity.route,
       totals: g.totals,
       ...annotations(g.rows),

@@ -1,6 +1,7 @@
 import type {
   UsagePeriodReport,
   UsageTotals,
+  UsageBilling,
 } from "@reviewrouter/features-provider-usage";
 import { gatewaySubscriptionUsageProviders } from "@reviewrouter/features-provider-usage";
 export interface UsageFilters {
@@ -16,6 +17,7 @@ export interface UsageFilters {
   after?: string | undefined;
 }
 export interface UsageReportRow {
+  billing?: UsageBilling;
   id: string;
   provider: string;
   requestedProvider?: string;
@@ -66,6 +68,8 @@ export function buildUsageReport(
   report: UsagePeriodReport,
 ): ProviderUsageReport {
   const rows = report.rows.map((p) => ({
+    billing: p.usage?.nativeContext?.billing ??
+      p.billing ?? { status: "unknown" as const },
     id: p.identity.callId,
     provider:
       p.usage?.actualProvider ?? p.requestedProvider ?? p.identity.provider,

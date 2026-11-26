@@ -34,12 +34,18 @@ export type SubscriptionLimitsWindow = SourceWindow & {
   readonly dimension: "plan_quota" | "rate_limit";
   readonly unit: "credits" | "tokens" | "requests" | "unknown";
 };
+/** V3 opens provider identity while retaining the canonical window vocabulary. */
+export type NativeLimitsWindow = Omit<SubscriptionLimitsWindow, "family"> & {
+  readonly family: "native";
+  readonly providerId: string;
+};
 export type AccountLimitsSourceWindow =
   | (SourceWindow & {
       readonly family: "codex" | "claude";
       readonly basis: "duration" | "legacy_alias" | "unknown";
     })
-  | SubscriptionLimitsWindow;
+  | SubscriptionLimitsWindow
+  | NativeLimitsWindow;
 
 /** This result is server-only: physical identity must never enter a browser DTO. */
 export type AccountLimitsSnapshot = {
@@ -164,11 +170,11 @@ const subscriptionWindows = new Set<string>([
 ]);
 function subscriptionWindow(
   window: AccountLimitsSourceWindow,
-): window is SubscriptionLimitsWindow {
-  return subscriptionProviders.has(window.family);
+): window is SubscriptionLimitsWindow | NativeLimitsWindow {
+  return window.family === "native" || subscriptionProviders.has(window.family);
 }
 function subscriptionLabel(
-  window: SubscriptionLimitsWindow,
+  window: SubscriptionLimitsWindow | NativeLimitsWindow,
   duration: number | null,
 ): string {
   if (window.dimension === "rate_limit") {
@@ -232,6 +238,10 @@ export function projectAccountLimits(
     return invalid();
   const ids = new Set<string>();
   const family = result.windows[0]?.family;
+  const nativeProvider =
+    result.windows[0]?.family === "native"
+      ? result.windows[0].providerId
+      : undefined;
   for (const window of result.windows) {
     const subscription = window && subscriptionWindow(window);
     const key = subscription
@@ -241,19 +251,27 @@ export function projectAccountLimits(
       !window ||
       typeof window.id !== "string" ||
       !window.id ||
+      window.id.length > 128 ||
       ids.has(key) ||
       (!["codex", "claude"].includes(window.family) && !subscription) ||
       window.family !== family ||
+      (window.family === "native" &&
+        (!/^[a-z][a-z0-9_-]{0,127}$/.test(window.providerId) ||
+          window.providerId !== nativeProvider)) ||
       (window.family === "claude" && !Object.hasOwn(claudeLabels, window.id)) ||
       (subscription
-        ? !subscriptionWindows.has(window.id) ||
+        ? (window.family !== "native" && !subscriptionWindows.has(window.id)) ||
           !["plan_quota", "rate_limit"].includes(window.dimension) ||
           !["credits", "tokens", "requests", "unknown"].includes(window.unit) ||
           !["duration", "billing_cycle", "unknown"].includes(window.basis) ||
           (window.basis === "billing_cycle" &&
-            (window.id !== "monthly" ||
+            ((window.family !== "native" && window.id !== "monthly") ||
               window.dimension !== "plan_quota" ||
               window.durationSeconds !== null)) ||
+          (window.basis === "duration" &&
+            (window.durationSeconds === null ||
+              !Number.isSafeInteger(window.durationSeconds) ||
+              window.durationSeconds <= 0)) ||
           (window.id === "five_hour" && window.durationSeconds !== 18000) ||
           (window.id === "weekly" && window.durationSeconds !== 604800) ||
           (window.id === "monthly" && window.basis !== "billing_cycle") ||

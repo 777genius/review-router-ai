@@ -1,16 +1,24 @@
 import * as c from "@agent-teams/account-gateway/contracts";
-import type { LifecycleClient } from "@agent-teams/account-gateway/http";
+import type {
+  LifecycleClient,
+  LifecycleV3Client,
+} from "@agent-teams/account-gateway/http";
 export type AccountLifecycleRead = Omit<c.Account, "state"> & {
   state: c.Account["state"] | "suspended";
+  authKind?: c.LifecycleAccountV3["authKind"];
   resumeCustody?: "not_applicable" | "verified" | "attention_required";
+  credential?: c.CredentialAttestation | undefined;
 };
 /** Reader negotiation is independent of RR write activation, so closing writes
  * never makes suspended accounts look active or hides their inventory. */
 export function createAccountLifecycleReader(input: {
-  lifecycle: LifecycleClient;
+  contract?: "account-lifecycle/v2" | "account-lifecycle/v3";
+  lifecycle: LifecycleClient | LifecycleV3Client;
   legacy: { get(accountRef: string): Promise<c.Account> };
 }) {
-  type Capability = Awaited<ReturnType<LifecycleClient["capability"]>>;
+  type Capability = Awaited<
+    ReturnType<(LifecycleClient | LifecycleV3Client)["capability"]>
+  >;
   let capability: Promise<Capability | null> | undefined;
   const discover = () =>
     (capability ??= input.lifecycle.capability().catch(() => {
@@ -23,6 +31,10 @@ export function createAccountLifecycleReader(input: {
     compatible,
     writable,
     async get(accountRef: string): Promise<AccountLifecycleRead> {
+      if (input.contract === "account-lifecycle/v3")
+        return c.lifecycleAccountV3.parse(
+          await input.lifecycle.get(accountRef),
+        );
       return (await compatible())
         ? c.lifecycleAccount.parse(await input.lifecycle.get(accountRef))
         : c.account.parse(await input.legacy.get(accountRef));

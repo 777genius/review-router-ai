@@ -1,4 +1,8 @@
 import type { UsageTokens } from "../domain/usage";
+import {
+  combineUsageBilling,
+  type UsageBilling,
+} from "../domain/native-usage-context";
 import type { UsageReportQuery } from "./ports";
 import type { UsagePeriodReport, UsageReportObservation } from "./report-usage";
 import { costUnits, decimal } from "./usage-money";
@@ -36,6 +40,7 @@ export interface UsageReportAggregateBucket {
   firstOccurredAt: string | null;
   lastOccurredAt: string | null;
   identities: UsageRequestedIdentity[];
+  billings?: UsageBilling[];
   routes: ("gateway" | "direct")[];
 }
 export interface UsageReportAggregateInput {
@@ -90,21 +95,33 @@ const annotations = (bucket: UsageReportAggregateBucket) => ({
 const requestedIdentity = (bucket: UsageReportAggregateBucket) => ({
   provider: required(bucket.provider),
   requestedModel: bucket.model,
+  ...(bucket.billings ? { billing: combineUsageBilling(bucket.billings) } : {}),
 });
 function sortedIdentities(identities: readonly UsageRequestedIdentity[]) {
-  return [
-    ...new Map(
-      identities.map((identity) => [
-        usageRequestedIdentityKey(identity),
-        identity,
-      ]),
-    ).values(),
-  ].sort((a, b) =>
-    compareUsageStrings(
-      usageRequestedIdentityKey(a),
-      usageRequestedIdentityKey(b),
-    ),
-  );
+  const grouped = new Map<string, UsageRequestedIdentity[]>();
+  for (const identity of identities) {
+    const key = usageRequestedIdentityKey(identity);
+    grouped.set(key, [...(grouped.get(key) ?? []), identity]);
+  }
+  return [...grouped.values()]
+    .map((group) => ({
+      ...group[0]!,
+      ...(group.some((identity) => identity.billing)
+        ? {
+            billing: combineUsageBilling(
+              group.map(
+                (identity) => identity.billing ?? { status: "unknown" },
+              ),
+            ),
+          }
+        : {}),
+    }))
+    .sort((a, b) =>
+      compareUsageStrings(
+        usageRequestedIdentityKey(a),
+        usageRequestedIdentityKey(b),
+      ),
+    );
 }
 
 /** Assemble bounded pages and full-period aggregates without recreating source facts. */

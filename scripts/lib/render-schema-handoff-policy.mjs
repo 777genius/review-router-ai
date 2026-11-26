@@ -321,6 +321,23 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Native connection selection is an additive immutable personal-journal field.
+  // Admit only this reviewed tail; the frozen managed92/historical96 stay intact.
+  const nativeConnectionMigration = catalog.find(
+    (row) => row.migrationName === "000161_native_connection_intent",
+  );
+  if (nativeConnectionMigration) {
+    if (
+      catalog.length !== 166 ||
+      catalog.at(-1) !== nativeConnectionMigration ||
+      nativeConnectionMigration.checksum !==
+        "bade571a5cbde14407ff5dc76cdc33c67f7d1224afa9839dfd822f347165b90d"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== nativeConnectionMigration),
+    );
+  }
   // The account credential-import method only changes the later personal journal.
   // Require its exact SQL and complete checkout165 before reducing to the frozen
   // reviewer-plan checkout164. The managed92 validator remains unchanged.

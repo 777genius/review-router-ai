@@ -17,6 +17,7 @@ import {
 } from "./fixture-contract.js";
 import {
   chooseCard,
+  chooseClaudeSecret,
   chooseModel,
   chooseNewProvider,
   chooseSource,
@@ -219,7 +220,7 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
   {
     id: "native-account-info-owner",
     title:
-      "Native details in the real accounts list: long identity, calendar date and stale privacy",
+      "Native details in the real accounts list: long identity, calendar date and stale training preference",
     users: ["owner"],
     route: workspaceRoute("main", "setup"),
     widths: [390, 900, 1440],
@@ -288,12 +289,12 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
           .click();
         await page
           .getByRole("option", {
-            name: label.endsWith("API") ? label : /Codex/,
+            name: label.endsWith("API") ? label.replace(/ API$/, "") : /Codex/,
           })
           .click();
         if (!label.endsWith("API")) {
           await dialog
-            .getByRole("combobox", { name: "Sign-in method" })
+            .getByRole("combobox", { name: "Connection method" })
             .click();
           await page
             .getByRole("option", { name: `Import ${label}`, exact: true })
@@ -584,7 +585,7 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
         page.getByRole("button", { name: "Choose default provider" }),
       );
       await chooseNewProvider(dialog);
-      await chooseSource(page, dialog, SOURCE.claudeSecret);
+      await chooseClaudeSecret(page, dialog);
     },
   }),
   dialogScenario({
@@ -606,7 +607,7 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
         page,
         page.getByRole("button", { name: "Add provider" }),
       );
-      await chooseSource(page, dialog, SOURCE.claudeSecret);
+      await chooseClaudeSecret(page, dialog);
     },
   }),
   dialogScenario({

@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["scripts/provider-setup-visual/**/*.ts"],
+  "exclude": ["node_modules", "dist", ".next"]
+}
