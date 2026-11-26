@@ -221,3 +221,42 @@ qualify the new head or real authentication. The current PR description records
 the new head's publication and applicable checks separately. No service code,
 dependency, migration, provider registration, deployment or merge is authorized
 or performed by this review.
+
+## Owner-selected D3-A and implementation handoff — 2026-11-26
+
+This later checkpoint follows the open-choice review above. The owner selected
+D3 continuity option A, with progressive independent proof for protected
+organizational use and a future path toward scoped enterprise authentication.
+The alternative profiles remain preserved. The selected direction does not
+accept a numerical proof/freshness horizon, D6 legacy-ownership policy, D8's
+additional session-control policies, or an unqualified provider mechanism.
+
+Two actual gpt-6.1-sol xhigh critics re-read the current plans for implementation
+readiness, scope and sizing. Their bounded review identified the necessary
+handoff detail: P0/R0 must map protected resource/actions and session assurance;
+P2 must qualify enrollment/recovery and real provider proof before dependent
+admission. Identity P0 and bounded P2 fixtures can start first; substantive P1
+and RR R0/R1 retain the exact prerequisites in the phase table. This is a
+bounded first release on the intended architecture. P7 and enterprise breadth
+are later scope, while the relevant P2-P6 / R2-R6 release evidence remains required.
+
+The growth contract preserves AccountId and product IDs, permits versioned
+proof/authority integration and forbids a policy change from silently widening
+existing sessions. No zero-refactoring guarantee or general identity/grant
+migration framework was introduced. The estimate clarification distinguishes
+ReviewRouter's mixed non-test lines from pure production TS and prevents
+counting D3's overlapping cross-product estimate twice.
+
+Current substantive document SHA-256 values:
+
+| Document | SHA-256 |
+| --- | --- |
+| Identity plan | `572e55379f7137b74c76e71114ec4ab7a5a7b6cfde061c47e547f591a74453ab` |
+| ReviewRouter plan | `37c8acf8261360698f35862a828eca158ad31ba2e39be0e3de927b3dd326eac5` |
+
+The coordinator checked UTF-8 contents, final newlines, trailing whitespace,
+fence balance and the bounded Markdown delta. Existing local link targets were
+unchanged. No runtime source, migration, dependency, provider configuration,
+deployment or merge is part of this documentation update. Prior-head CI and
+hashes remain historical; the PR descriptions record new-head delivery evidence
+separately. The selected policy is not an executed E2E or provider qualification.

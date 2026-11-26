@@ -16,6 +16,32 @@ The intended experience is:
 
 This is the smallest useful separation. A new OIDC provider entry alone would leave the dashboard dependent on `sourceProvider === "github"`; moving all provider tokens into Identity would create an unnecessary shared credential service. Neither satisfies the intended ownership model.
 
+### Owner-selected continuity profile and implementation handoff
+
+On 2026-11-26 the owner selected Identity D3 continuity option A: retain direct
+GitHub/GitLab login and progressively require independently admitted proof
+before declared protected organizational use. Ordinary login/onboarding does
+not automatically require a second factor on every request. Actual proof must
+belong to the session, scope and accepted age; an account's mutable MFA flag is
+insufficient. Existing ownership/legacy migration still needs its separately
+selected native proof; enrolling a new factor cannot claim old assets.
+
+R0 maps protected reads, mutations, connection/installation actions and queued
+subject-authorized effects by actual resource/action, not only workspace type.
+Record proof provenance/age, step-up and insufficient-proof behavior, plus
+bootstrap and recovery restrictions before enabling those surfaces. Identity P2
+must qualify the real provider enforcement. D8's native-session policies and
+numerical freshness/retention choices remain separate.
+
+The implementer can start bounded R0/R1 work against Identity P1's exact packed
+TEST candidate once its prerequisite contract exists. Identity P0 and bounded
+P2 fixtures can start earlier. Preserve the phase dependencies below; this is
+not a login-button-only production release. Full relevant R2-R6 and Identity
+P2-P6 evidence is required for cutover. Enterprise SSO/SCIM and P7 are later
+scope. Growth preserves AccountId/local User.id through versioned contracts;
+new corporate policy cannot silently upgrade existing sessions or grants.
+This plan remains a documentation-only handoff, with no implementation claimed.
+
 ### Non-goals
 
 - A global rewrite of Next.js, Auth.js, Prisma, Fastify, workspace authorization, or the model-provider system.
@@ -368,6 +394,14 @@ These are planning ranges after reusing existing custody, #1007's accepted relia
 | Schema/migrations, configuration and runbooks | 350–750 | Existing data quality and final operational freshness policy |
 | Focused tests/fixtures, extending current harnesses | 900–1,600 | Availability of reusable Keycloak/provider browser fixtures |
 
+The first two rows total 3,100-5,500 runtime/integration/UX lines. With the
+350-750 mixed schema/configuration/runbook row, the non-test estimate is
+3,450-6,250; tests remain 900-1,600 separately. This is not an estimate of pure
+backend production TypeScript. Identity's service estimate is separate.
+Selected D3 continuity option A is a cross-Identity/one-consumer estimate that
+already overlaps factor/session/lifecycle work. R0 assigns ownership and sizes
+only uncovered work; do not count it once in each repository.
+
 Do not sum this estimate with #1007's entire scope. The bounded generation/history/closure-fence and participant-receipt work above is included in the adapter/lifecycle/migration ranges; it reuses existing operations and inbox/transactions. Optional self-service post-close receipts or provider-specific stronger-auth extensions need separate sizing if selected. Some changed lines are extraction or relocation, and R0 may materially narrow or expand the estimate. Confidence is **4/10** until the real adapter/proof spike and legacy-data inventory complete.
 
 | Assessment | Rating | Reason and limitation |
@@ -412,13 +446,15 @@ preserves the 18 answers and all alternatives. ReviewRouter continues to own its
 local users, permissions, BFF sessions and repository grants; this does not require
 OpenFGA in ReviewRouter or move SCM credentials into Identity.
 
-Identity D3 still needs an enforceable ongoing root-custody policy: a public
-social account can later become company controlled. A stable AccountId and local
-membership checks alone do not prove A-to-B root isolation. D8 still needs the
+Identity D3 continuity option A was subsequently selected by the owner. Its
+protected-surface parameters and real ongoing root-custody enforcement still
+need P0/R0 specification and P2 qualification: a public social account can later
+become company controlled. A stable AccountId and local membership checks alone
+do not prove A-to-B root isolation. D8 still needs the
 scope and lost-delivery horizon of native session/client termination. The existing
 60-second account-status proposal is not a bound for an unobserved per-session
 provider change. R0 must carry the chosen evidence/scope into the actual session
 adapter; a mutable account assurance label or renewed workload lease is insufficient.
-Direct GitHub/GitLab login remains the approved experience. The newly documented
-alternatives, numerical horizons and qualification outcomes are not silently
-accepted by that approval.
+Direct GitHub/GitLab login remains the approved experience. D3 option A's later
+selection does not accept D3 B/C, D8's additional policies, numerical horizons,
+legacy-migration proof or qualification outcomes.
