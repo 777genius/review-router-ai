@@ -53,7 +53,13 @@ owns that evidence. Shared findings were reconciled in both documents.
 | Document | SHA-256 |
 | --- | --- |
 | Review Router plan | `dfd7cec89a266024c3424dfd9b8aebb8818a02edd3648cdd834e1e53d1b9fa24` |
-| Identity core plan | `d4de28a235be00f17b1994e31c2d331eda46ae7044520274ace186b8c8b630c2` |
+| Identity architecture after second-round closure | `d4de28a235be00f17b1994e31c2d331eda46ae7044520274ace186b8c8b630c2` |
+| Identity final plan after the independently checked GetTok source-provenance correction | `10fda9097aa22c1aa92e585ac965e61fd615b4fe960041d39f6de95ec579996e` |
+
+The final Identity-only correction distinguishes the actual GetTok fork main
+from a newer supplemental TokenRouter upstream snapshot. The Foundation reviewer
+checked the actual fork's existing OIDC and user/identity schemas. That correction
+does not change the reviewed Identity/RR protocol or this consumer plan's bytes.
 
 The independent reviewers reported no unresolved material design/documentation
 blocker for these proposed planning Draft PRs in their reviewed scope. Runtime
