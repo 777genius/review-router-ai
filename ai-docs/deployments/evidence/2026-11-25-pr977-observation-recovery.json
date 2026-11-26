@@ -1484,10 +1484,7 @@
       }
     ],
     "reviewSource": "CodeRabbit review submitted 2026-11-25T23:39:57Z for exact head 61ec1cb6, independently checked against source.",
-    "reviewThreads": [
-      "PRRT_kwDOSTxTWc68J7vt",
-      "PRRT_kwDOSTxTWc68J7vx"
-    ],
+    "reviewThreads": ["PRRT_kwDOSTxTWc68J7vt", "PRRT_kwDOSTxTWc68J7vx"],
     "corrections": [
       "Assert the precise authorization/publication deadline reason, retaining no-finalization, no-signing and unchanged-state checks.",
       "Return explicit internal PublicationWindowExpired through the domain and both adapters; API emits existing HTTP 410 ResourceGone/publication_permit_expired.",
