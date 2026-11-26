@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Badge,
   Button,
@@ -57,6 +57,10 @@ export function GitLabConnectWizard({
   readonly initialSourceUrl?: string;
   readonly workspaceId: string;
 }): React.ReactElement {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    setReady(true);
+  }, []);
   const [sourceUrl, setSourceUrl] = useState(initialSourceUrl);
   const [token, setToken] = useState("");
   const [reviewToken, setReviewToken] = useState("");
@@ -163,6 +167,7 @@ export function GitLabConnectWizard({
           </FieldLabel>
           <input
             id="gitlab-source-url"
+            disabled={!ready}
             value={sourceUrl}
             onChange={(event) => setSourceUrl(event.target.value)}
             placeholder="https://gitlab.com/acme/platform"
@@ -174,6 +179,7 @@ export function GitLabConnectWizard({
           </FieldLabel>
           <input
             id="gitlab-access-token"
+            disabled={!ready}
             value={token}
             onChange={(event) => setToken(event.target.value)}
             type="password"

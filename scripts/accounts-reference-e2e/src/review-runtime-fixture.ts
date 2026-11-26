@@ -8,6 +8,8 @@ import { FIXTURES } from "./contracts.ts";
 export const RUNTIME_READY_SHA = "a".repeat(40);
 export const RUNTIME_OLD_SHA = "b".repeat(40);
 export const RUNTIME_FIXTURE_RELEASE_ID = "rr-e2e-runtime-release";
+export const RUNTIME_AUTHORIZATION_APP_SLUG = "rr-e2e-runtime-cache-only";
+const runtimeAuthorizationRevision = 1;
 const profileRef = "rr-e2e-runtime-ocr";
 const {
   extensionId,
@@ -104,9 +106,24 @@ export async function seedReviewRuntimeFixtures(
         `${FIXTURES.identities.foreign.login}/runtime-foreign`,
       ],
     );
+    // This cache-only observation belongs to an active synthetic authority.
+    // Its token placeholder is never decrypted or sent to GitHub: the matching
+    // fresh observation returns ready before token acquisition or external IO.
     await db.query(
-      `INSERT INTO "RepositoryPermissionCache" (id,"userId","repositoryId","githubInstallationId",permission,"roleName","canManage","checkedAt","expiresAt","updatedAt") VALUES ('rr-e2e-runtime-readonly-observation',$1,'rr-e2e-runtime-foreign',950000000100,'read','read',false,(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'),(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')+interval '15 minutes',(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'))`,
-      [FIXTURES.users.viewer],
+      `INSERT INTO "GitHubUserAuthorization" (id,"userId","githubUserId","appSlug",revision,"encryptedAccessToken","updatedAt") SELECT 'rr-e2e-runtime-github-authorization',id,"githubUserId",$2,$3,'rr-e2e-runtime-cache-only-unused',CURRENT_TIMESTAMP FROM "User" WHERE id=$1`,
+      [
+        FIXTURES.users.viewer,
+        RUNTIME_AUTHORIZATION_APP_SLUG,
+        runtimeAuthorizationRevision,
+      ],
+    );
+    await db.query(
+      `INSERT INTO "RepositoryPermissionCache" (id,"userId","repositoryId","githubInstallationId","authorizationAppSlug","authorizationRevision",permission,"roleName","canManage","checkedAt","expiresAt","updatedAt") VALUES ('rr-e2e-runtime-readonly-observation',$1,'rr-e2e-runtime-foreign',950000000100,$2,$3,'read','read',false,(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'),(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')+interval '15 minutes',(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'))`,
+      [
+        FIXTURES.users.viewer,
+        RUNTIME_AUTHORIZATION_APP_SLUG,
+        runtimeAuthorizationRevision,
+      ],
     );
     await db.query(
       `INSERT INTO "ReviewProtocolLimitsV2" ("protocolLimitsProfileId","limitsDigest","maxWorkSlots","maxAttemptsPerSlot","maxObservationBytes","maxObservationFindings","maxProjectionBytes","maxProjectionFindings","maxPublicationOperations","maxPublicationChunks","maxPublicationBodyBytes","maxRequestBatchSize","maxLeaseDurationMs","maxResultReportDurationMs","maxReconciliationDurationMs","registeredAt") VALUES ($1,$2,1,1,1024,1,1024,1,1,1,1024,1,1000,2000,3000,CURRENT_TIMESTAMP)`,

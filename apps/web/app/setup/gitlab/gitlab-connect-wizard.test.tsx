@@ -5,7 +5,9 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GitLabConnectWizard } from "./gitlab-connect-wizard";
 
@@ -28,7 +30,22 @@ describe("GitLabConnectWizard", () => {
       },
     });
 
-    render(<GitLabConnectWizard workspaceId="workspace_1" />);
+    const wizard = <GitLabConnectWizard workspaceId="workspace_1" />;
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(wizard);
+    const sourceInput = within(container).getByLabelText<HTMLInputElement>(
+      "Paste your GitLab group or project URL",
+    );
+    const tokenInput = within(container).getByLabelText<HTMLInputElement>(
+      "GitLab access token",
+    );
+    expect(sourceInput.disabled).toBe(true);
+    expect(tokenInput.disabled).toBe(true);
+
+    document.body.append(container);
+    render(wizard, { container, hydrate: true });
+    expect(sourceInput.disabled).toBe(false);
+    expect(tokenInput.disabled).toBe(false);
 
     fireEvent.change(
       screen.getByLabelText("Paste your GitLab group or project URL"),

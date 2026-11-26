@@ -301,6 +301,21 @@ the actual 169-migration checkout, preserve the 92/96 historical catalogs and
 local frozen dependency installation terminated with SIGKILL, so it is not a
 Vitest/PG/browser pass; fresh complete CI remains required.
 
+The next run on `ada687c041128d9ff24ffd45865a82e348c69bd3` passed the browser
+checks for the old workspace, SQL delivery pages 100+1, Previous and denied
+workspace access. It then exposed enabled SSR GitLab inputs accepting text
+before React owned the form. The two initial inputs now remain disabled
+until the mount effect; the existing first wizard test hydrates actual SSR
+markup before continuing its unchanged discover/install credential assertions.
+The browser helper and its timeouts stay unchanged.
+
+The same source passed Provider C1, Operator S and Hindsight. OCR's two runtime
+readiness cases rejected an orphan legacy permission-cache fixture, as the new
+authorization fence requires. That fixture now pairs its read-only observation
+with active synthetic viewer authority under one stable, fixture-only app slug;
+resume uses the same slug. Production authorization and all denial/readiness
+assertions remain unchanged. Both follow-ups require fresh complete CI.
+
 The existing **Statistics Usage Reviews browser** journey now also opens the
 old authorized workspace, paginates 101 loss details through real GETs, denies a
 foreign workspace visibly, and exercises the GitLab credential UI with keyboard
