@@ -11,6 +11,11 @@ remains authoritative for release gates, migration order, approvals, and tags.
 Task files add feature-specific instructions and actual environment evidence.
 They do not grant deployment permission or replace existing operational runbooks.
 
+PR #977 follow-up: [observation retry, absolute deadlines and replay permit issuance](2026-11-25-pr977-observation-recovery.md)
+are in [PR #1003](https://github.com/777genius/review-router-ai/pull/1003) under
+qualification, including precise database-time publication expiry; ordinary API
+rollout pending, with no migration or configuration change.
+
 <a id="current-coordinated-rollout-reconciliation-2026-11-14"></a>
 
 ## Current coordinated rollout reconciliation (2026-11-15)

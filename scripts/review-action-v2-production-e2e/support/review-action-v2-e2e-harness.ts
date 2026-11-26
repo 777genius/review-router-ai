@@ -138,6 +138,7 @@ import {
   reviewV2WorkerEnabledEnv,
 } from "../../../apps/worker/src/review-v2-worker-runtime.js";
 import { FakeGitHubTransport, type FakeGitHubRevision } from "./fake-github.js";
+import { drainReviewActionV2Worker } from "./review-action-v2-worker-drain.js";
 
 const lifecycleVerificationExtensionV1 = {
   extensionId: lifecycleVerificationContract.extensionId,
@@ -273,6 +274,7 @@ export class ReviewActionV2E2EHarness {
   readonly env: Readonly<Record<string, string>>;
   readonly routes: ReturnType<typeof composeReviewActionV2ProductionRoutes>;
   private readonly worker: ReturnType<typeof createReviewV2WorkerFeature>;
+  private readonly workerDrainAbort = new AbortController();
   private readonly statistics: ReviewStatisticsFeature;
   private readonly knownOutboxHandlers: readonly OutboxHandler[];
   private readonly originalFetch: typeof globalThis.fetch;
@@ -699,6 +701,7 @@ export class ReviewActionV2E2EHarness {
   }
 
   async close(): Promise<void> {
+    this.workerDrainAbort.abort(new Error("review_v2_e2e_worker_closed"));
     globalThis.fetch = this.originalFetch;
     await this.prisma.$disconnect();
   }
@@ -1569,21 +1572,28 @@ export class ReviewActionV2E2EHarness {
   }
 
   async runWorkerUntilSettled(maxPasses = 12): Promise<void> {
-    for (let pass = 0; pass < maxPasses; pass += 1) {
-      await this.worker.runMaintenance();
-      const active = await this.prisma.reviewCompletionProcess.count({
-        where: {
-          state: {
-            in: [
-              "pending_publication",
-              "awaiting_publication",
-              "pending_snapshot",
-            ],
-          },
-        },
-      });
-      if (active === 0) return;
-    }
+    const settled = await drainReviewActionV2Worker(
+      {
+        runMaintenance: () => this.worker.runMaintenance(),
+        hasActiveCompletion: async () =>
+          (await this.prisma.reviewCompletionProcess.count({
+            where: {
+              state: {
+                in: [
+                  "pending_publication",
+                  "awaiting_publication",
+                  "pending_snapshot",
+                ],
+              },
+            },
+          })) > 0,
+        nextEligibleAt: () => this.nextWorkerEligibleAt(),
+        signal: this.workerDrainAbort.signal,
+      },
+      maxPasses,
+    );
+    this.workerDrainAbort.signal.throwIfAborted();
+    if (settled) return;
     // Retain safe publication state diagnostics for paired CI failures.
     // No receipt bodies, credentials, repository identifiers or secrets.
     const pending = await this.prisma.reviewPublicationOperationV2.findMany({
@@ -1605,6 +1615,73 @@ export class ReviewActionV2E2EHarness {
       })),
     );
     throw new Error("review_v2_e2e_worker_did_not_settle");
+  }
+
+  private async nextWorkerEligibleAt(): Promise<Date | null> {
+    const now = new Date();
+    const processes = await this.prisma.reviewCompletionProcess.findMany({
+      where: {
+        state: {
+          in: [
+            "pending_publication",
+            "awaiting_publication",
+            "pending_snapshot",
+          ],
+        },
+        retainUntil: { gt: now },
+      },
+      select: {
+        publicationAttemptId: true,
+        nextActionAt: true,
+        claimId: true,
+        claimUntil: true,
+      },
+    });
+    this.workerDrainAbort.signal.throwIfAborted();
+    const eligibleAt = processes.flatMap((process) =>
+      process.nextActionAt
+        ? [
+            Math.max(
+              process.nextActionAt.getTime(),
+              process.claimId ? (process.claimUntil?.getTime() ?? 0) : 0,
+            ),
+          ]
+        : [],
+    );
+    if (eligibleAt.some((at) => at <= now.getTime())) {
+      return now;
+    }
+    const attemptIds = processes.flatMap((process) =>
+      process.publicationAttemptId ? [process.publicationAttemptId] : [],
+    );
+    if (attemptIds.length > 0) {
+      const attempts = await this.prisma.reviewPublicationAttemptV2.findMany({
+        where: {
+          publicationAttemptId: { in: attemptIds },
+          state: { in: ["pending", "publishing", "reconciling"] },
+          retainUntil: { gt: now },
+        },
+        select: { publicationAttemptId: true },
+      });
+      this.workerDrainAbort.signal.throwIfAborted();
+      const operation =
+        await this.prisma.reviewPublicationOperationV2.findFirst({
+          where: {
+            publicationAttemptId: {
+              in: attempts.map((attempt) => attempt.publicationAttemptId),
+            },
+            state: {
+              in: ["planned", "in_flight", "effect_observed", "reconciling"],
+            },
+          },
+          select: { nextEligibleAt: true },
+          orderBy: { nextEligibleAt: "asc" },
+        });
+      // Same-owner publication claims can be reused immediately. A blocking
+      // claim is handled by production maintenance and its persisted retry.
+      if (operation) eligibleAt.push(operation.nextEligibleAt.getTime());
+    }
+    return eligibleAt.length > 0 ? new Date(Math.min(...eligibleAt)) : null;
   }
 
   async captureProgress(executionId: string): Promise<void> {
@@ -2290,9 +2367,13 @@ export async function resetReviewActionV2E2EDatabase(
   assertDisposableDatabaseUrl(databaseUrl);
   const prisma = createPrismaClient({ databaseUrl, poolMax: 2 });
   try {
+    // These progress tables have no foreign keys, so CASCADE cannot reset them.
     await prisma.$executeRawUnsafe(`
       TRUNCATE TABLE
         "OutboxEvent",
+        "ReviewExecutionProgressV1",
+        "ReviewProgressPublicationV1",
+        "ReviewProgressInstallationBudgetV1",
         "ReviewCompletionProcess",
         "ReviewPublicationOutcomeCorrectionV2",
         "ReviewPublicationAuditTombstoneV2",

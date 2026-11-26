@@ -321,12 +321,18 @@ function localBindings(root: SyntaxNode): LocalBindings {
     if (node.type === "VariableDeclarator" && isSyntaxNode(node.id)) {
       const functionScoped =
         parent?.type === "VariableDeclaration" && parent.kind === "var";
+      const initializer = isSyntaxNode(node.init) ? node.init : null;
+      const value = initializer && unwrapExpression(initializer);
       declare(
         node.id,
         scopeAt(node, functionScoped),
-        isSyntaxNode(node.init) ? node.init : null,
-        // A no-op var redeclaration retains its existing parameter/alias.
-        functionScoped && node.init === null,
+        initializer,
+        // Bare and self-initializing var redeclarations retain the binding.
+        functionScoped &&
+          (node.init === null ||
+            (node.id.type === "Identifier" &&
+              value?.type === "Identifier" &&
+              node.id.name === value.name)),
       );
     }
     if (isFunctionNode(node)) {
