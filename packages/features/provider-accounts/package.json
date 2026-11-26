@@ -43,12 +43,12 @@
   "dependencies": {
     "@get-modular/core": "0.8.0",
     "@get-modular/assembly": "0.8.0",
-    "@prisma/client": "7.8.0",
+    "@prisma/client": "7.9.0",
     "@reviewrouter/features-auth": "workspace:*"
   },
   "devDependencies": {
     "vitest": "4.1.10",
-    "@prisma/adapter-pg": "7.8.0",
+    "@prisma/adapter-pg": "7.9.0",
     "@types/pg": "8.23.1",
     "pg": "8.23.0",
     "@get-modular/conformance": "0.5.2"

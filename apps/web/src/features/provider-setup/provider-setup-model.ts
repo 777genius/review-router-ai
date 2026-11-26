@@ -1,5 +1,5 @@
 import type { ProviderIdentity } from "./provider-identity";
-import type { SetupProviderId } from "./setup-provider";
+import type { SetupProviderId, SetupProvider } from "./setup-provider";
 import {
   decideProviderManagement,
   type ProviderManagementActor,
@@ -150,6 +150,7 @@ export type ProviderSetupView = Readonly<{
   viewerIsAdmin: boolean;
   /** Enrollment capabilities, independent of whether an account exists yet. */
   gatewaySetupProviders?: readonly SetupProviderId[];
+  gatewayProviderChoices?: readonly SetupProvider[];
 }>;
 
 /** Verified facts of one dialog read. */
@@ -204,6 +205,7 @@ export type ProviderSetupFacts = Readonly<{
   >;
   claudeCodeEnabled: boolean;
   gatewaySetupProviders?: readonly SetupProviderId[];
+  gatewayProviderChoices?: readonly SetupProvider[];
 }>;
 
 const allowed: ProviderSetupDecision = { allowed: true };
@@ -499,6 +501,9 @@ export function buildProviderSetupView(
     viewerIsAdmin: admin,
     ...(facts.gatewaySetupProviders
       ? { gatewaySetupProviders: facts.gatewaySetupProviders }
+      : {}),
+    ...(facts.gatewayProviderChoices
+      ? { gatewayProviderChoices: facts.gatewayProviderChoices }
       : {}),
   };
 }

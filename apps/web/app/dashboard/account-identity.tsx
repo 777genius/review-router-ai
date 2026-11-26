@@ -7,6 +7,17 @@ import {
 import { ProviderLogo } from "./provider-logo";
 import { AccountMetadataLine } from "./account-metadata-line";
 import type { AccountMetadataView } from "@reviewrouter/features-provider-accounts";
+import type { NativeCredentialAttestation } from "../../src/features/account-gateway/domain/native-connection";
+
+const credentialLabels: Record<
+  NativeCredentialAttestation["credentialPolicy"],
+  string
+> = {
+  provider_key: "Provider key",
+  subscription_session: "Subscription session",
+  cloud_identity: "Cloud identity",
+  delegated_identity: "Delegated identity",
+};
 
 export function AccountProviderLogo({
   providerId,
@@ -33,6 +44,7 @@ export function AccountIdentity({
   profileLabel,
   provider,
   authKind,
+  nativeCredential,
   connection,
   metadata,
 }: {
@@ -40,6 +52,7 @@ export function AccountIdentity({
   profileLabel?: string;
   provider?: ProviderKind | "nvidia" | undefined;
   authKind?: string | undefined;
+  nativeCredential?: NativeCredentialAttestation | undefined;
   connection?: AccountConnectionView | undefined;
   metadata?: AccountMetadataView | undefined;
 }) {
@@ -56,9 +69,13 @@ export function AccountIdentity({
             .includes(connection.planLabel.toLowerCase())
             ? ` · ${connection.planLabel}`
             : ""}
-          {authKind
-            ? ` · ${authKind === "oauth" ? "OAuth" : connection && ["kimi", "glm", "minimax"].includes(connection.provider) ? "Subscription key" : "API key"}`
-            : ""}
+          {nativeCredential
+            ? ` · ${credentialLabels[nativeCredential.credentialPolicy]}`
+            : authKind === "oauth"
+              ? " · OAuth"
+              : authKind === "api_key"
+                ? " · API key"
+                : ""}
         </p>
         <AccountMetadataLine metadata={metadata} />
       </div>

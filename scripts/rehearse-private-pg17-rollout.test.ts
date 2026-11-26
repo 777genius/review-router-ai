@@ -1291,11 +1291,12 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000159_producer_reviewer_plan_v2" &&
         name !== "000160_personal_credential_import_method" &&
         name !== "000161_github_authorization_revision" &&
+        name !== "000161_native_connection_intent" &&
         name !== "000162_inventory_ruleset_revisions" &&
         name !== "000163_usage_retention_index" &&
         name !== "000164_ruleset_create_uncertainty",
     );
-    expect(migrationNames).toHaveLength(169);
+    expect(migrationNames).toHaveLength(170);
     const legacyMigrationNames = currentMigrationNames.filter(
       (name) =>
         name !== "000155_usage_member_report_index" &&
@@ -1668,6 +1669,7 @@ describe("disposable dual-version rehearsal", () => {
       "000159_producer_reviewer_plan_v2",
       "000160_personal_credential_import_method",
       "000161_github_authorization_revision",
+      "000161_native_connection_intent",
       "000162_inventory_ruleset_revisions",
       "000163_usage_retention_index",
       "000164_ruleset_create_uncertainty",
@@ -1957,6 +1959,7 @@ describe("disposable dual-version rehearsal", () => {
     "000159_producer_reviewer_plan_v2",
     "000160_personal_credential_import_method",
     "000161_github_authorization_revision",
+    "000161_native_connection_intent",
     "000162_inventory_ruleset_revisions",
     "000163_usage_retention_index",
     "000164_ruleset_create_uncertainty",
@@ -2042,6 +2045,7 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000159_producer_reviewer_plan_v2" &&
                 name !== "000160_personal_credential_import_method" &&
                 name !== "000161_github_authorization_revision" &&
+                name !== "000161_native_connection_intent" &&
                 name !== "000162_inventory_ruleset_revisions" &&
                 name !== "000163_usage_retention_index" &&
                 name !== "000164_ruleset_create_uncertainty" &&

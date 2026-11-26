@@ -353,10 +353,19 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
       ),
     )
   ) {
+    // Native intent sorts between the reliability migrations. Validate both
+    // exact tails, then retain native intent for its unchanged admission below.
+    const hasNativeConnection = catalog.some(
+      (row) => row.migrationName === "000161_native_connection_intent",
+    );
+    const reliabilityTail = catalog.slice(165).filter(
+      (row) => row.migrationName !== "000161_native_connection_intent",
+    );
     if (
-      catalog.length !== 169 ||
+      catalog.length !== (hasNativeConnection ? 170 : 169) ||
+      reliabilityTail.length !== reliabilityCheckoutExtension.length ||
       reliabilityCheckoutExtension.some((extension, index) => {
-        const row = catalog[165 + index];
+        const row = reliabilityTail[index];
         return (
           row.migrationName !== extension.migrationName ||
           row.checksum !== extension.checksum
@@ -364,7 +373,31 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
       })
     )
       fail("checkout_extension");
-    return partitionRenderSchemaHandoffCheckout(catalog.slice(0, 165));
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter(
+        (row) =>
+          !reliabilityCheckoutExtension.some(
+            (extension) => extension.migrationName === row.migrationName,
+          ),
+      ),
+    );
+  }
+  // Native connection selection is an additive immutable personal-journal field.
+  // Admit only this reviewed tail; the frozen managed92/historical96 stay intact.
+  const nativeConnectionMigration = catalog.find(
+    (row) => row.migrationName === "000161_native_connection_intent",
+  );
+  if (nativeConnectionMigration) {
+    if (
+      catalog.length !== 166 ||
+      catalog.at(-1) !== nativeConnectionMigration ||
+      nativeConnectionMigration.checksum !==
+        "bade571a5cbde14407ff5dc76cdc33c67f7d1224afa9839dfd822f347165b90d"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== nativeConnectionMigration),
+    );
   }
   // The account credential-import method only changes the later personal journal.
   // Require its exact SQL and complete checkout165 before reducing to the frozen

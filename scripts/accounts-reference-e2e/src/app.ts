@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import { applicationEnvironment } from "./database.ts";
 import type { FixtureSecrets } from "./contracts.ts";
 import { skillsReadinessFixtureEnv } from "./skills-readiness-fixture.ts";
+import { SKILLS_AUTHORIZATION_APP_SLUG } from "./skills-github-fixture.ts";
 
 export type AppFixture = {
   readonly url: string;
@@ -82,6 +83,7 @@ export async function startNextApp(input: {
       ),
       REVIEW_ROUTER_GITHUB_APP_TEST_ORIGIN: input.skillsGitHub.origin,
       GITHUB_APP_ID: "990001",
+      GITHUB_APP_SLUG: SKILLS_AUTHORIZATION_APP_SLUG,
       GITHUB_APP_PRIVATE_KEY: input.skillsGitHub.privateKey,
       NODE_OPTIONS: [
         environment.NODE_OPTIONS,

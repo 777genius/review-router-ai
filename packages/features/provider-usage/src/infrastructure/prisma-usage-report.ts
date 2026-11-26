@@ -14,6 +14,7 @@ import type { UsageReportObservation } from "../application/report-usage";
 import {
   usageRequestedProviderJoinSql,
   usageRequestedProviderSql,
+  usageBillingSql,
 } from "./usage-requested-provider-sql";
 
 type ProfileDecision = {
@@ -205,20 +206,26 @@ async function readProjectionPage(
   const page = ids.slice(0, limit).map((r) => r.callId);
   const rows = page.length
     ? await tx.$queryRaw<
-        { projection: UsageProjection; requestedProvider: string }[]
+        {
+          projection: UsageProjection;
+          requestedProvider: string;
+          billing: NonNullable<UsageReportObservation["billing"]>;
+        }[]
       >(
-        Prisma.sql`/* usage-report:projection-page */ SELECT u."projection",${usageRequestedProviderSql()} AS "requestedProvider"
+        Prisma.sql`/* usage-report:projection-page */ SELECT u."projection",${usageRequestedProviderSql()} AS "requestedProvider",${usageBillingSql()} AS billing
           ${fromScope(scope)} WHERE ${scopePredicate(scope)}
           AND u."callId" IN (${jsonValues(page)})
           ORDER BY ${jsOrder(Prisma.sql`u."callId"`)} LIMIT ${limit}`,
       )
     : [];
   return {
-    rows: rows.map((r) =>
-      r.requestedProvider === r.projection.identity.provider
-        ? r.projection
-        : { ...r.projection, requestedProvider: r.requestedProvider },
-    ),
+    rows: rows.map((r) => ({
+      ...r.projection,
+      billing: r.billing,
+      ...(r.requestedProvider === r.projection.identity.provider
+        ? {}
+        : { requestedProvider: r.requestedProvider }),
+    })),
     nextCursor: ids.length > limit ? page.at(-1)! : null,
   };
 }
@@ -324,7 +331,8 @@ async function readAggregates(
       ${bucket.kind === "run" ? Prisma.sql`(array_agg("rawOccurredAt" ORDER BY "occurredAt","rawOccurredAt" COLLATE "C"))[1]` : Prisma.sql`NULL::text`} AS "firstOccurredAt",
       ${bucket.kind === "run" ? Prisma.sql`(array_agg("rawOccurredAt" ORDER BY "occurredAt" DESC,"rawOccurredAt" COLLATE "C" DESC))[1]` : Prisma.sql`NULL::text`} AS "lastOccurredAt",
       ${bucket.kind === "totals" ? Prisma.sql`(array_agg("rawOccurredAt" ORDER BY "occurredAt" DESC,"rawOccurredAt" COLLATE "C" DESC) FILTER (WHERE spend AND ("unknownWeight"=1 OR "partialWeight"=1)))[1]` : Prisma.sql`NULL::text`} AS "latestPendingAt",
-      ${bucket.kind === "run" ? Prisma.sql`jsonb_agg(DISTINCT jsonb_build_object('provider',"requestedProvider",'requestedModel',"requestedModel"))` : Prisma.sql`'[]'::jsonb`} AS identities,
+      ${bucket.kind === "run" ? Prisma.sql`jsonb_agg(DISTINCT jsonb_build_object('provider',"requestedProvider",'requestedModel',"requestedModel",'billing',billing))` : Prisma.sql`'[]'::jsonb`} AS identities,
+      COALESCE(jsonb_agg(DISTINCT billing),'[]'::jsonb) AS billings,
       ${bucket.kind === "run" ? Prisma.sql`array_agg(DISTINCT "observationRoute")` : Prisma.sql`'{}'::text[]`} AS routes,
       bool_or("observationRoute"='direct') AS "hasDirectObservations",
       COUNT(*) FILTER (WHERE "observationRunId" IS NULL)::text AS "observationsWithoutRunId",
@@ -344,6 +352,7 @@ async function readAggregates(
     raw AS MATERIALIZED (
       SELECT u."callId",u."runId" AS "observationRunId",u."route" AS "observationRoute",
         ${usageRequestedProviderSql()} AS "requestedProvider",u."projection"#>>'{identity,requestedModel}' AS "requestedModel",
+        ${usageBillingSql()} AS billing,
         COALESCE(u."projection"#>>'{usage,actualProvider}',${usageRequestedProviderSql()}) AS "observedProvider",
         u."projection"#>>'{usage,actualModel}' AS "observedModel",
         left(u."projection"#>>'{identity,occurredAt}',10) AS day,
@@ -369,7 +378,7 @@ async function readAggregates(
     SELECT m."bucketKey"->>0 AS kind,m."bucketKey"->>1 AS provider,m."bucketKey"->>2 AS model,
       m."bucketKey"->>3 AS route,m."bucketKey"->>4 AS day,m."bucketKey"->>5 AS "runId",
       m.totals||jsonb_build_object('costs',COALESCE(c.costs,'[]'::jsonb)) AS totals,
-      m."observedModels",m."hasUnknownObservedModel",m."firstOccurredAt",m."lastOccurredAt",m."latestPendingAt",m.identities,m.routes,
+      m."observedModels",m."hasUnknownObservedModel",m."firstOccurredAt",m."lastOccurredAt",m."latestPendingAt",m.identities,m.billings,m.routes,
       m."hasDirectObservations",m."observationsWithoutRunId"
     FROM metrics m LEFT JOIN cost_arrays c USING ("bucketKey")
     ORDER BY m."bucketKey"->>0,

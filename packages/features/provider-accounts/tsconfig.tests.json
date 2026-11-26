@@ -1,6 +1,10 @@
 {
   "extends": "./tsconfig.json",
-  "compilerOptions": { "allowJs": true, "checkJs": false },
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "allowImportingTsExtensions": true
+  },
   "include": [
     "src/**/*.ts",
     "tests/**/*.mts",

@@ -69,6 +69,7 @@ it("does not inherit parent NODE_OPTIONS when no controlled heap limit was reque
       false,
     );
     expect(options.env.NODE_OPTIONS).toBeUndefined();
+    expect(options.env.CI).toBe("1");
     vi.stubEnv("NODE_OPTIONS", options.env.NODE_OPTIONS);
     expect(getMaxOldSpaceSize()).toBeUndefined();
   } finally {

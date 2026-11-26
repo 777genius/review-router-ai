@@ -1,4 +1,5 @@
 import { gatewayProfileAcceptsRequestedModel } from "./review-run-gateway-model-qualification";
+import type { GatewayModelQualificationProfile } from "./review-run-gateway-model-qualification";
 import type { UsageIdentity } from "@reviewrouter/features-provider-usage";
 import { gatewayUsageReceipt } from "./provider-usage-gateway-relay-receipt";
 import { createHash, randomUUID } from "node:crypto";
@@ -51,7 +52,7 @@ import {
 
 export type ReviewRunGatewayRelayPolicy = {
   readonly profiles: readonly {
-    readonly profile: z.infer<typeof c.profile>;
+    readonly profile: c.Profile & GatewayModelQualificationProfile;
     readonly outputTokens: number;
   }[];
   readonly ingressBytes: number;
@@ -63,22 +64,52 @@ export type ReviewRunGatewayRelayPolicy = {
 };
 
 // Explicit server configuration; numbers are bounds, not qualification receipts.
-const relayPolicy: z.ZodType<ReviewRunGatewayRelayPolicy> = z.strictObject({
-  profiles: z
-    .array(
-      z.strictObject({
-        profile: c.profile,
-        outputTokens: c.limits.shape.tokens,
-      }),
-    )
-    .min(1)
-    .max(128),
+export const relayResourceLimits = {
   ingressBytes: z.number().int().min(1).max(16_777_216),
   requestTimeoutMs: z.number().int().min(1).max(3_600_000),
   waitBudgetMs: z.number().int().min(0).max(3_600_000),
   maxWaits: z.number().int().min(0).max(128),
   maxSessions: z.number().int().min(1).max(10_000),
   maxInFlight: z.number().int().min(1).max(10_000),
+};
+const nativeQualifiedProfile = z
+  .strictObject({
+    profileId: c.reference,
+    protocol: z.literal("openai-responses"),
+    modelIds: z.array(z.string().min(1).max(256)).max(512),
+    // No legacy credential kind is guessed for a native connection.
+    authKinds: z.tuple([]),
+    modelPolicy: c.nativeModelPolicy,
+    nativeContext: z.strictObject({
+      schemaVersion: z.literal(1),
+      profileId: c.reference,
+      providerId: c.reference,
+      productId: c.reference,
+    }),
+  })
+  .refine((profile) => profile.profileId === profile.nativeContext.profileId);
+// An explicit native config remains readable during discovery outages, with zero model authority.
+const unavailableNativeProfile = z.strictObject({
+  profileId: c.reference,
+  protocol: z.literal("openai-responses"),
+  modelIds: z.tuple([]),
+  authKinds: z.tuple([]),
+});
+const relayPolicy: z.ZodType<ReviewRunGatewayRelayPolicy> = z.strictObject({
+  profiles: z
+    .array(
+      z.strictObject({
+        profile: z.union([
+          z.custom<c.Profile>((value) => c.profile.safeParse(value).success),
+          nativeQualifiedProfile,
+          unavailableNativeProfile,
+        ]),
+        outputTokens: c.limits.shape.tokens,
+      }),
+    )
+    .min(1)
+    .max(128),
+  ...relayResourceLimits,
 });
 export function readReviewRunGatewayRelayPolicy(raw: string) {
   try {

@@ -4,7 +4,7 @@ const m = vi.hoisted(() => ({
   prune: vi.fn(async () => {}),
   claim: vi.fn(async () => null),
   replay: vi.fn(async () => 0),
-  listUsage: vi.fn(),
+  listUsageV2: vi.fn(),
   commitPage: vi.fn(),
   fail: vi.fn(),
   findIdentity: vi.fn(),
@@ -26,7 +26,7 @@ vi.mock("@agent-teams/account-gateway/http", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-teams/account-gateway/http")
   >()),
-  createConsumerControlClient: () => ({ listUsage: m.listUsage }),
+  createConsumerControlClient: () => ({ listUsageV2: m.listUsageV2 }),
 }));
 vi.mock("./provider-usage-quarantine", () => ({
   replayGatewayQuarantine: m.replay,
@@ -159,7 +159,7 @@ describe("usage maintenance source scheduling", () => {
         cursor: null,
         highWaterMark: null,
       } as never);
-      m.listUsage.mockRejectedValueOnce(error);
+      m.listUsageV2.mockRejectedValueOnce(error);
       const maintenance = createProviderUsageGatewayReconciliation(
         {
           $queryRaw: vi.fn().mockResolvedValue([{ workspaceId: "workspace" }]),
@@ -172,6 +172,8 @@ describe("usage maintenance source scheduling", () => {
         },
       );
       await maintenance.runBatch();
+      expect(m.listUsageV2).toHaveBeenCalledExactlyOnceWith({ limit: 50 });
+      expect(m.commitPage).not.toHaveBeenCalled();
       expect(m.fail).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({ code: expected }),
@@ -188,7 +190,7 @@ describe("usage maintenance source scheduling", () => {
       cursor: null,
       highWaterMark: null,
     } as never);
-    m.listUsage.mockResolvedValueOnce({
+    m.listUsageV2.mockResolvedValueOnce({
       observations: [],
       nextCursor: "cursor",
       highWaterCursor: "cursor",
@@ -208,6 +210,8 @@ describe("usage maintenance source scheduling", () => {
       },
     );
     await maintenance.runBatch();
+    expect(m.listUsageV2).toHaveBeenCalledExactlyOnceWith({ limit: 50 });
+    expect(m.commitPage).toHaveBeenCalledOnce();
     expect(m.fail).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ code: "native_source_error" }),
@@ -222,8 +226,29 @@ describe("usage maintenance source scheduling", () => {
       cursor: null,
       highWaterMark: null,
     } as never);
-    m.listUsage.mockResolvedValueOnce({
-      observations: [{ executionRef: "execution", requestRef: "request" }],
+    m.listUsageV2.mockResolvedValueOnce({
+      observations: [
+        {
+          schemaVersion: 2,
+          eventId: "event",
+          revision: 1,
+          executionRef: "execution",
+          requestRef: "request",
+          invocationRef: "invocation",
+          attemptRef: "attempt",
+          accountRef: "account",
+          profileId: "native-profile",
+          model: "native-model",
+          occurredAt: "2026-11-01T00:00:00Z",
+          effect: "completed",
+          completeness: "unknown",
+          inputTokens: null,
+          outputTokens: null,
+          cachedInputTokens: null,
+          reasoningTokens: null,
+          cost: null,
+        },
+      ],
       nextCursor: "cursor",
       highWaterCursor: "cursor",
     });
@@ -242,6 +267,9 @@ describe("usage maintenance source scheduling", () => {
       },
     );
     await maintenance.runBatch();
+    expect(m.listUsageV2).toHaveBeenCalledExactlyOnceWith({ limit: 50 });
+    expect(m.findIdentity).toHaveBeenCalledOnce();
+    expect(m.commitPage).not.toHaveBeenCalled();
     expect(m.fail).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ code: "native_source_error" }),

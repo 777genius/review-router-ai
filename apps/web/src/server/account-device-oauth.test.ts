@@ -399,6 +399,7 @@ async function fixture(
   );
   const workspace = createAccountsAdapter({
     gateway: createManagementClient({ ...control, role: "management" }),
+    connectionContract: "provider-connections/v2",
     authorize: async (context) => {
       if (context !== "workspace" || actor !== "device-owner")
         throw new Error("denied");

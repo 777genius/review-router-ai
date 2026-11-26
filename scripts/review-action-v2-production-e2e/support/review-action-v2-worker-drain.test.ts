@@ -37,7 +37,7 @@ function fixture() {
 }
 
 describe("Review v2 E2E worker drain", () => {
-  it.each([874, 5_000])(
+  it.each([874, 2_594, 5_000])(
     "waits for a deferred retry in %i ms before spending another pass",
     async (delayMs) => {
       const worker = fixture();

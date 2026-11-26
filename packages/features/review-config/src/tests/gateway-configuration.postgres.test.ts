@@ -105,9 +105,9 @@ describe.skipIf(!enabled)(
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
         // Replay all current migrations, including credential import and the
-        // four additive multi-tenant reliability migrations.
-        expect(names).toHaveLength(169);
-        expect(names.slice(-30)).toEqual([
+        // native connection intent and four multi-tenant reliability migrations.
+        expect(names).toHaveLength(170);
+        expect(names.slice(-31)).toEqual([
           "000138_pr_description",
           "000139_review_context_tools",
           "000140_personal_oauth_method",
@@ -135,6 +135,7 @@ describe.skipIf(!enabled)(
           "000159_producer_reviewer_plan_v2",
           "000160_personal_credential_import_method",
           "000161_github_authorization_revision",
+          "000161_native_connection_intent",
           "000162_inventory_ruleset_revisions",
           "000163_usage_retention_index",
           "000164_ruleset_create_uncertainty",

@@ -51,18 +51,21 @@ import {
 } from "./fixture-contract.js";
 import type { VisualTheme } from "./scenarios.js";
 import type { VisualSeedResult } from "./seed.js";
+import { nativeConnectionFlow } from "./native-connection-flow.js";
+import { nativeVisibilityFlow } from "./native-visibility-flow.js";
+import type { NativeVisibilityFixture } from "./native-visibility-fixture.js";
+import type { NativeOperationsFixture } from "./native-operations-fixture.js";
 import {
   chooseCard,
+  chooseClaudeSecret,
   chooseModel,
   chooseNewProvider,
-  chooseSource,
   openDialog,
   providerListRow,
   repositoryRoute,
   repositoryRowHeader,
   repositorySetupPanel,
   repositoryStepPill,
-  SOURCE,
   workspaceRoute,
 } from "./ui.js";
 
@@ -94,9 +97,11 @@ export type FlowEnvironment = Readonly<{
   /** Restores the data set and the GitHub state of a fresh seed. */
   reset: () => Promise<VisualSeedResult>;
   writeGitHubState: (state: GitHubFixtureState) => Promise<void>;
+  nativeOperations?: NativeOperationsFixture;
+  nativeVisibility?: NativeVisibilityFixture;
 }>;
 
-type VisualFlow = Readonly<{
+export type VisualFlow = Readonly<{
   id: string;
   title: string;
   requires?: Partial<VisualRunFlags>;
@@ -106,7 +111,7 @@ type VisualFlow = Readonly<{
 class FlowCheckFailed extends Error {}
 
 /** One flow's pages, checks and screenshots. */
-class FlowRun {
+export class FlowRun {
   readonly checks: FlowCheck[] = [];
   readonly screenshots: string[] = [];
   readonly pageErrors: string[] = [];
@@ -183,17 +188,24 @@ class FlowRun {
 }
 
 /** Whether `--only` selects any flow. */
-export function visualFlowSelected(only: RegExp | null): boolean {
-  return VISUAL_FLOWS.some((flow) => !only || only.test(flow.id));
+export function visualFlowSelected(
+  only: RegExp | null,
+  deferredId?: string,
+): boolean {
+  return VISUAL_FLOWS.some(
+    (flow) => flow.id !== deferredId && (!only || only.test(flow.id)),
+  );
 }
 
 export async function runFlows(
   env: FlowEnvironment,
   only: RegExp | null,
+  deferredId?: string,
 ): Promise<readonly FlowRecord[]> {
   await mkdir(join(env.outDir, "flows"), { recursive: true, mode: 0o700 });
   const records: FlowRecord[] = [];
   for (const flow of VISUAL_FLOWS) {
+    if (flow.id === deferredId) continue;
     if (only && !only.test(flow.id)) continue;
     const unmet = Object.entries(flow.requires ?? {}).find(
       ([flag, value]) => env.flags[flag as keyof VisualRunFlags] !== value,
@@ -213,6 +225,8 @@ export async function runFlows(
       continue;
     }
     const startedAt = Date.now();
+    // A role-specific native overlay must never survive a later legacy reseed.
+    env.nativeVisibility?.setActive(false);
     const run = new FlowRun(env, flow.id, await env.reset());
     let reason: string | undefined;
     try {
@@ -227,6 +241,7 @@ export async function runFlows(
       await run.evidence();
     } finally {
       await run.close();
+      env.nativeVisibility?.setActive(false);
     }
     if (!reason && run.pageErrors.length > 0)
       reason = `browser runtime errors: ${run.pageErrors.join("; ")}`;
@@ -252,6 +267,8 @@ export async function runFlows(
 }
 
 const VISUAL_FLOWS: readonly VisualFlow[] = [
+  nativeConnectionFlow,
+  nativeVisibilityFlow,
   {
     id: "flow-gateway-reviewer-roster",
     title:
@@ -716,7 +733,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
 
       await dialog.getByRole("button", { name: "1. Provider" }).click();
       await chooseNewProvider(dialog);
-      await chooseSource(page, dialog, SOURCE.claudeSecret);
+      await chooseClaudeSecret(page, dialog);
       await flow.check(
         "subscription selection remains OAuth, never the Anthropic API-key source",
         async () => {
@@ -918,7 +935,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
       );
       await dialog.getByRole("button", { name: "1. Provider" }).click();
       await chooseNewProvider(dialog);
-      await chooseSource(page, dialog, /^Claude Code(?: · GitHub Secrets)?$/);
+      await chooseClaudeSecret(page, dialog);
 
       await flow.check(
         "Claude is one provider with two explicit credential methods",
@@ -1278,7 +1295,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
         }),
       );
       await chooseNewProvider(dialog);
-      await chooseSource(page, dialog, SOURCE.claudeSecret);
+      await chooseClaudeSecret(page, dialog);
       await chooseModel(dialog, "haiku");
       await dialog
         .getByRole("button", { name: "Use for this repository" })
@@ -2014,7 +2031,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
         owner.getByRole("button", { name: "Choose default provider" }),
       );
       await chooseNewProvider(dialog);
-      await chooseSource(owner, dialog, SOURCE.claudeSecret);
+      await chooseClaudeSecret(owner, dialog);
       await dialog.getByRole("button", { name: "Set as default" }).click();
       const finish = dialog.getByRole("link", {
         name: "Finish repository setup",

@@ -8,6 +8,10 @@ export const personalManagementApi = {
   submitGatewayApiKey: personalActions.submitPersonalGatewayKey,
   readGatewayOperation: personalActions.readPersonalGatewayOperation,
   beginGatewayOAuth: personalActions.beginPersonalGatewayOAuth,
+  beginGatewayNativeConnection:
+    personalActions.beginPersonalGatewayNativeConnection,
+  continueGatewayNativeConnection:
+    personalActions.continuePersonalGatewayNativeConnection,
   pollGatewayOAuth: personalActions.pollPersonalGatewayOAuth,
   completeGatewayOAuth: personalActions.completePersonalGatewayOAuth,
 };

@@ -368,6 +368,7 @@ const preReleaseMigrationBoundary = Object.freeze({
     "000159_producer_reviewer_plan_v2",
     "000160_personal_credential_import_method",
     "000161_github_authorization_revision",
+    "000161_native_connection_intent",
     "000162_inventory_ruleset_revisions",
     "000163_usage_retention_index",
     "000164_ruleset_create_uncertainty",

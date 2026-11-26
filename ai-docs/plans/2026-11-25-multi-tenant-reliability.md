@@ -339,3 +339,30 @@ requires confirmed recovery using the
 to retry. Exact usage totals still scan the selected period. Local fixtures and
 CI do not assert production installation, a real paid-provider review, credential
 rotation or a customer-repository mutation.
+
+### Current-main integration and remaining qualification (2026-11-26)
+
+After head `223402e3`, the actual main branch advanced to `f20a75ed`
+through #998 and #959. This PR retains their modular extraction, native billing,
+SDK and locked dependency changes without reopening their accepted scope.
+The combined checkout has 170 migrations: the four reliability SQL files and
+main's native-connection migration remain byte-for-byte unchanged. Exact
+169/170 reliability admission composes with the existing 166 native admission;
+frozen 92/96 manifests and the 76-migration private rehearsal remain unchanged.
+
+The completed head-223 CI isolated a historical rehearsal seed using the current
+Prisma create shape against an older catalog. The seed now inserts only the
+historical columns through Prisma's SQL API. Skills qualification isolated
+an obsolete permission-cache fixture and a redundant second-tab navigation that
+reloaded the stale editor before the intended mutation. The fixture now carries
+matching active App authority/revision; the browser scenario keeps its existing
+second tab. Production authorization, document/generation assertions, all 24
+Skills scenarios and the existing required checks remain mandatory.
+
+The executor became unavailable during integration. If normal local rebuilding
+remains unavailable, the existing CI parity check preserves its failure and a
+failure-only diagnostic step runs the unchanged Action builder, uploads its two
+outputs and records the actual checkout/tree/lockfile/output digests. These
+diagnostics do not qualify stale checked-in bundles. The normally generated
+outputs must be committed to this same PR and the original full parity check,
+migration/PG suites, browser workflows and final main checks must then pass.

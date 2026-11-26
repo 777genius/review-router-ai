@@ -1,11 +1,19 @@
 import {
+  snapshotAccountCredential,
+  snapshotOAuthCompletion,
+  oauthCompletionMatchesProfile,
+  oauthCompletionCredential,
+  oauthMethodFor,
+} from "./legacy-oauth-credentials";
+import { createNativeConnectionAdapter } from "./native-connection-adapter";
+import { createNativeConnectionManagementClient } from "./native-connection-client";
+import {
   connectionMethodAllowed,
   type CredentialImportMethod,
 } from "../features/account-gateway/connection-capabilities";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import * as c from "@agent-teams/account-gateway/contracts";
 import {
-  createManagementClient,
   createConsumerControlClient,
   type ConsumerControlConfig,
   GatewayError,
@@ -140,6 +148,7 @@ export type AccountView = {
   profileId: string;
   profileLabel: string;
   authKind?: NonNullable<AccountProfileView["authKind"]>;
+  nativeCredential?: import("../features/account-gateway/domain/native-connection").NativeCredentialAttestation;
   state: c.Account["state"] | "suspended";
   authorizationEpoch?: number;
   lifecycle?: {
@@ -168,6 +177,11 @@ export type AccountsPage = {
   nextCursor: string | null;
 };
 export type AccountOperationView = {
+  native?: {
+    connection: import("../features/account-gateway/domain/native-connection").NativeConnectionSelection;
+    method: import("../features/account-gateway/domain/native-connection").NativeConnectionMethod;
+    credential?: import("../features/account-gateway/domain/native-connection").NativeCredentialAttestation;
+  };
   nonce: string;
   state: c.Operation["state"];
   oauthMethod?: "device_code" | "browser";
@@ -188,6 +202,7 @@ export type AccountOperationView = {
     gatewayRevision: number;
     mirrorRevision: number;
     credentialImportMethod?: CredentialImportMethod;
+    nativeConnection?: import("../features/account-gateway/domain/native-connection").NativeConnectionSelection;
   };
   // Management disable is logical denial. This SDK supplies no erasure/transport cleanup proof.
   cleanup: "unresolved";
@@ -203,12 +218,20 @@ export type AccountOAuthReconnectIntent = {
   gatewayRevision: number;
   mirrorRevision: number;
 };
-export type AccountOAuthCompletion = z.infer<typeof oauthCompletionSchema>;
+export type AccountOAuthCompletion =
+  | { nonce: string; callbackURL: string }
+  | { nonce: string; authorizationCode: string }
+  | { nonce: string; authorizationResult: string };
 // A fresh Begin response is a one-off handoff, never list/operation/cache metadata.
 export type AccountOAuthBeginView = {
   operation: AccountOperationView;
   authorizationURL?: string;
-  deviceAuthorization?: c.OAuthBeginResponse["deviceAuthorization"];
+  deviceAuthorization?: {
+    userCode: string;
+    verificationURL: string;
+    expiresAt: string;
+    intervalSeconds: number;
+  };
 };
 export type AccountIntent = {
   kind: "connect" | "rename" | "reconnect" | "disable";
@@ -251,40 +274,7 @@ const existing = {
 };
 const codexOAuthProfileId = "openai-codex-oauth-responses-v1";
 const claudeOAuthProfileId = "anthropic-claude-oauth-messages-v1";
-function oauthMethodFor(
-  profile: Pick<
-    AccountProfileView,
-    | "id"
-    | "oauthMethods"
-    | "authKind"
-    | "canReconnect"
-    | "connection"
-    | "availability"
-  >,
-  requested?: "device_code" | "browser",
-  action: "create" | "reconnect" = "create",
-) {
-  const allowed = profile.oauthMethods ?? ["device_code", "browser"];
-  const method = requested ?? allowed[0];
-  if (
-    !method ||
-    !allowed.includes(method) ||
-    !connectionMethodAllowed(profile, action, method)
-  )
-    throw new Denied();
-  return method;
-}
 const credentialImportMethod = z.enum(["refresh_token", "oauth_auth_json"]);
-export function snapshotAccountCredential(
-  method: CredentialImportMethod | undefined,
-  value: string,
-) {
-  return secretSubmission.credential.parse(
-    method
-      ? { kind: "credential_import", method, value }
-      : { kind: "api_key", value },
-  );
-}
 const oauthIntentSchema = z.strictObject({
   nonce: uuid,
   profileId: c.reference,
@@ -304,90 +294,6 @@ const oauthBeginIntentSchema = z.union([
     method: z.enum(["device_code", "browser"]).optional(),
   }),
 ]);
-// The SDK owns the closed credential grammars. Snapshot before any await;
-// no URL/code/state is retained in an intent or safe view.
-const oauthCredentialCompletionSchema = z.union([
-  z.strictObject({
-    nonce: uuid,
-    callbackURL: z
-      .string()
-      .refine(
-        (value) =>
-          secretSubmission.oauthCallbackURL.safeParse(value).success ||
-          secretSubmission.grokOAuthCallbackURL.safeParse(value).success,
-      ),
-  }),
-  z.strictObject({
-    nonce: uuid,
-    authorizationCode: z
-      .string()
-      .refine(
-        (value) =>
-          secretSubmission.claudeOAuthAuthorizationCode.safeParse(value)
-            .success ||
-          secretSubmission.grokOAuthAuthorizationCode.safeParse(value).success,
-      ),
-  }),
-]);
-const oauthCompletionSchema = z.union([
-  oauthCredentialCompletionSchema,
-  z.strictObject({
-    nonce: uuid,
-    authorizationResult: z.string().min(1).max(8257),
-  }),
-]);
-type NormalizedOAuthCompletion = z.infer<
-  typeof oauthCredentialCompletionSchema
->;
-function oauthCompletionCredential(intent: NormalizedOAuthCompletion) {
-  return "authorizationCode" in intent
-    ? { authorizationCode: intent.authorizationCode }
-    : { callbackURL: intent.callbackURL };
-}
-/** Credential authority comes from the saved profile, never from the pasted value. */
-export function oauthCompletionMatchesProfile(
-  profile: Pick<AccountProfileView, "id" | "label" | "connection">,
-  completion: NormalizedOAuthCompletion | { nonce: string },
-): boolean {
-  const { inputKind: kind, providerId } = operationCompletion(profile);
-  if (kind === "none") return false;
-  if (providerId === "grok") {
-    return "authorizationCode" in completion
-      ? secretSubmission.grokOAuthAuthorizationCode.safeParse(
-          completion.authorizationCode,
-        ).success
-      : "callbackURL" in completion &&
-          secretSubmission.grokOAuthCallbackURL.safeParse(
-            completion.callbackURL,
-          ).success;
-  }
-  return kind === "authorization_code"
-    ? "authorizationCode" in completion &&
-        secretSubmission.claudeOAuthAuthorizationCode.safeParse(
-          completion.authorizationCode,
-        ).success
-    : "callbackURL" in completion &&
-        secretSubmission.oauthCallbackURL.safeParse(completion.callbackURL)
-          .success;
-}
-export function snapshotOAuthCompletion(
-  raw: AccountOAuthCompletion,
-): NormalizedOAuthCompletion {
-  const captured = oauthCompletionSchema.parse(raw);
-  if (!("authorizationResult" in captured)) return captured;
-  // Legacy pending operation DTOs omit profile metadata. Decode only the closed
-  // SDK credential representation; the Gateway still selects the saved profile.
-  const { nonce, authorizationResult } = captured;
-  const callback =
-    secretSubmission.oauthCallbackURL.safeParse(authorizationResult).success ||
-    secretSubmission.grokOAuthCallbackURL.safeParse(authorizationResult)
-      .success;
-  return oauthCredentialCompletionSchema.parse(
-    callback
-      ? { nonce, callbackURL: authorizationResult }
-      : { nonce, authorizationCode: authorizationResult },
-  );
-}
 const intentSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("connect"),
@@ -450,6 +356,11 @@ export function createAccountsAdapter(input: {
   metadata?(context: string): Promise<AccountMetadataService>;
   authorize(context: string): Promise<Authority>;
   gateway: ManagementClient;
+  /** Explicit legacy consumer compatibility; production declares v3. */
+  connectionContract?:
+    | "provider-connections/v1"
+    | "provider-connections/v2"
+    | "provider-connections/v3";
   accounts: ProviderAccountAccountsQueryPort;
   synchronization: ProviderAccountSynchronizationPort;
   bindingDependencies: ProviderAccountDependencies;
@@ -612,7 +523,32 @@ export function createAccountsAdapter(input: {
     }
     return {
       profiles: () => checked(() => gateway.profiles()),
-      ...(gateway.getProviderConnectionCapabilitiesV2
+      beginConnection: (
+        request: Parameters<ManagementClient["beginConnection"]>[0],
+      ) => checked(() => gateway.beginConnection(request), true),
+      reconnectConnection: (
+        accountRef: string,
+        request: Parameters<ManagementClient["reconnectConnection"]>[1],
+      ) =>
+        checked(() => gateway.reconnectConnection(accountRef, request), true),
+      submitConnection: (
+        request: Parameters<ManagementClient["submitConnection"]>[0],
+      ) => checked(() => gateway.submitConnection(request), true),
+      pollConnection: (
+        request: Parameters<ManagementClient["pollConnection"]>[0],
+      ) => checked(() => gateway.pollConnection(request), true),
+      readConnection: (operationId: string) =>
+        checked(() => gateway.readConnection(operationId)),
+      ...(typeof gateway.getProviderConnectionCapabilitiesV3 === "function" &&
+      (input.connectionContract ?? "provider-connections/v3") ===
+        "provider-connections/v3"
+        ? {
+            getProviderConnectionCapabilitiesV3: () =>
+              checked(() => gateway.getProviderConnectionCapabilitiesV3()),
+          }
+        : {}),
+      ...(typeof gateway.getProviderConnectionCapabilitiesV2 === "function" &&
+      input.connectionContract !== "provider-connections/v1"
         ? {
             getProviderConnectionCapabilitiesV2: () =>
               checked(() => gateway.getProviderConnectionCapabilitiesV2()),
@@ -662,10 +598,19 @@ export function createAccountsAdapter(input: {
           ScopedClient,
           | "getProviderConnectionCapabilities"
           | "getProviderConnectionCapabilitiesV2"
+          | "getProviderConnectionCapabilitiesV3"
           | "reauthorize"
         >
       >,
   ): Promise<AccountProfileView[]> {
+    if (client.getProviderConnectionCapabilitiesV3) {
+      const result = await connectionProfiles({
+        legacy: [],
+        capabilitiesV3: client.getProviderConnectionCapabilitiesV3,
+      });
+      await client.reauthorize?.();
+      return result;
+    }
     const catalogue = await client.profiles();
     const legacy = catalogue.profiles
       .filter((p) => {
@@ -685,6 +630,9 @@ export function createAccountsAdapter(input: {
       }));
     const result = await connectionProfiles({
       legacy,
+      ...(client.getProviderConnectionCapabilitiesV3
+        ? { capabilitiesV3: client.getProviderConnectionCapabilitiesV3 }
+        : {}),
       ...(client.getProviderConnectionCapabilitiesV2
         ? { capabilitiesV2: client.getProviderConnectionCapabilitiesV2 }
         : {}),
@@ -764,6 +712,10 @@ export function createAccountsAdapter(input: {
     mirror: ProviderAccountConnection,
     catalogue: AccountProfileView[],
   ): Promise<AccountView> {
+    const profile = catalogue.find(
+      (profile) => profile.id === account.profileId,
+    );
+    if (!profile) throw new Denied();
     const binding = await accounts.findConnectionBinding({
       workspaceId: authority.workspaceId,
       connectionId: mirror.id,
@@ -775,10 +727,10 @@ export function createAccountsAdapter(input: {
       connectionId: mirror.id,
       label: account.displayName,
       profileId: account.profileId,
-      profileLabel: catalogue.find((p) => p.id === account.profileId)!.label,
-      provider: catalogue.find((p) => p.id === account.profileId)!.provider,
-      connection: catalogue.find((p) => p.id === account.profileId)!.connection,
-      authKind: catalogue.find((p) => p.id === account.profileId)!.authKind!,
+      profileLabel: profile.label,
+      provider: profile.provider,
+      connection: profile.connection,
+      ...(profile.authKind ? { authKind: profile.authKind } : {}),
       state: account.state,
       gatewayRevision: account.metadataRevision,
       mirrorRevision: mirror.metadataRevision,
@@ -839,6 +791,7 @@ export function createAccountsAdapter(input: {
       profileId: string;
       credentialImportMethod?: CredentialImportMethod;
     },
+    recovery = false,
   ) {
     if (operation.operationRef !== operationRef(authority.owner, nonce))
       throw new Denied();
@@ -866,11 +819,20 @@ export function createAccountsAdapter(input: {
       workspaceId: authority.workspaceId,
       gatewayAccountRef: returned.accountRef,
     });
-    const account = verified(
-      await client.get(returned.accountRef),
-      authority,
-      catalogue,
-    );
+    const remote = await client.get(returned.accountRef);
+    // Recovery is bound to the authorized durable operation and its account result.
+    // It does not need current discovery and never authorizes a new enrollment.
+    if (recovery && catalogue.length === 0)
+      catalogue = [
+        {
+          id: remote.profileId,
+          label: approved.get(remote.profileId)?.label ?? "Provider account",
+          protocol: "openai-responses",
+          models: [],
+          canReconnect: false,
+        },
+      ];
+    const account = verified(remote, authority, catalogue);
     if (
       account.accountRef !== returned.accountRef ||
       account.metadataRevision < returned.metadataRevision ||
@@ -887,6 +849,46 @@ export function createAccountsAdapter(input: {
     );
     return result;
   }
+  const nativeConnections = createNativeConnectionAdapter({
+    authorize,
+    owner: (scope) => scope.owner,
+    operationId: (scope, nonce) => operationRef(scope.owner, nonce),
+    client: scoped,
+    reauthorize: (context, scope) => scoped(context, scope).reauthorize(),
+    profiles: (context, scope) => profiles(scoped(context, scope)),
+    async reconnectTarget(context, scope, intent, catalogue) {
+      if (!intent.existing) throw new Denied();
+      const { prior, account } = await current(
+        scope,
+        intent.existing.connectionId,
+        catalogue,
+        scoped(context, scope),
+      );
+      if (
+        prior.metadataRevision !== intent.existing.mirrorRevision ||
+        account.metadataRevision !== intent.existing.gatewayRevision
+      )
+        throw new ProviderAccountError("revision_conflict");
+      if (account.state === "tombstoned") throw new Denied();
+      return {
+        accountRef: account.accountRef,
+        profileId: account.profileId,
+        metadataRevision: account.metadataRevision,
+        assertCurrent: () => assertCurrentMirror(scope, prior),
+      };
+    },
+    project: (context, scope, nonce, operation, catalogue, profileId) =>
+      projectOperation(
+        scope,
+        nonce,
+        operation,
+        catalogue,
+        scoped(context, scope),
+        profileId ? { profileId } : undefined,
+        true,
+      ),
+    failure: safeFailure,
+  });
   async function list(
     context: string,
     cursor: string | null = null,
@@ -1443,6 +1445,12 @@ export function createAccountsAdapter(input: {
     context: string,
     rawNonce: string,
   ): Promise<AccountsResult<AccountOperationView>> {
+    if (
+      typeof gateway.readConnection === "function" &&
+      (input.connectionContract ?? "provider-connections/v3") ===
+        "provider-connections/v3"
+    )
+      return nativeConnections.read(context, rawNonce);
     let nonce: string | undefined;
     try {
       nonce = uuid.parse(rawNonce);
@@ -1776,7 +1784,16 @@ export function createAccountsAdapter(input: {
     reviewCatalog: () =>
       profiles({
         profiles: () => gateway.profiles(),
-        ...(gateway.getProviderConnectionCapabilitiesV2
+        ...(typeof gateway.getProviderConnectionCapabilitiesV3 === "function" &&
+        (input.connectionContract ?? "provider-connections/v3") ===
+          "provider-connections/v3"
+          ? {
+              getProviderConnectionCapabilitiesV3: () =>
+                gateway.getProviderConnectionCapabilitiesV3(),
+            }
+          : {}),
+        ...(typeof gateway.getProviderConnectionCapabilitiesV2 === "function" &&
+        input.connectionContract !== "provider-connections/v1"
           ? {
               getProviderConnectionCapabilitiesV2: () =>
                 gateway.getProviderConnectionCapabilitiesV2(),
@@ -1792,6 +1809,9 @@ export function createAccountsAdapter(input: {
     mutate: (...args: Parameters<typeof mutate>) =>
       withMetadata(args[0], mutate(...args)),
     beginOAuth,
+    beginNative: nativeConnections.begin,
+    continueNative: (...args: Parameters<typeof nativeConnections.continue>) =>
+      withMetadata(args[0], nativeConnections.continue(...args)),
     completeOAuth: (...args: Parameters<typeof completeOAuth>) =>
       withMetadata(args[0], completeOAuth(...args)),
     pollOAuth: (...args: Parameters<typeof pollOAuth>) =>
@@ -1973,7 +1993,9 @@ export function createDisabledPersonalAccountsAdapter(input: {
             client.completeOAuth(
               secretSubmission.oauthComplete.parse({
                 ...request,
-                ...oauthCompletionCredential(safe as NormalizedOAuthCompletion),
+                ...oauthCompletionCredential(
+                  safe as ReturnType<typeof snapshotOAuthCompletion>,
+                ),
               }),
             ),
           );
@@ -2330,12 +2352,10 @@ export function accountGatewayProfilesConfiguration() {
 function configuration() {
   return {
     ...accountGatewayProfilesConfiguration(),
-    gateway: createManagementClient({
+    gateway: createNativeConnectionManagementClient({
       role: "management",
       origin: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "",
       token: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN ?? "",
-      timeoutMs: 10000,
-      responseBytes: 65536,
     }),
   };
 }
