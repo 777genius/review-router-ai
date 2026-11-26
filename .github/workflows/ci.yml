@@ -1268,29 +1268,7 @@ jobs:
 
       # Source/bundle parity needs installed dependencies, not app builds or databases.
       - name: Codex rotating action artifact smoke
-        id: action_artifact_smoke
         run: pnpm action:artifact:check:smoke
-
-      - name: Rebuild Action artifacts for failed parity diagnostics
-        if: ${{ failure() && steps.action_artifact_smoke.outcome == 'failure' }}
-        id: action_artifact_diagnostic_build
-        run: |
-          pnpm action:build
-          git rev-parse HEAD > "$RUNNER_TEMP/action-artifact-source.txt"
-          git rev-parse 'HEAD^{tree}' >> "$RUNNER_TEMP/action-artifact-source.txt"
-          sha256sum pnpm-lock.yaml action-dist/index.cjs action-dist/conflict-runtime.cjs >> "$RUNNER_TEMP/action-artifact-source.txt"
-
-      - name: Preserve regenerated Action artifacts
-        if: ${{ failure() && steps.action_artifact_smoke.outcome == 'failure' && steps.action_artifact_diagnostic_build.outcome == 'success' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: action-artifact-diagnostic-${{ github.sha }}-${{ github.run_attempt }}
-          path: |
-            action-dist/index.cjs
-            action-dist/conflict-runtime.cjs
-            ${{ runner.temp }}/action-artifact-source.txt
-          if-no-files-found: error
-          retention-days: 14
 
       - name: Generate Prisma client
         env:

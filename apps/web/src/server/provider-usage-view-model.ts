@@ -71,10 +71,8 @@ export function buildUsageReport(
   report: UsagePeriodReport,
 ): ProviderUsageReport {
   const rows = report.rows.map((p) => ({
-    billing:
-      p.usage?.nativeContext?.billing ??
-      p.billing ??
-      { status: "unknown" as const },
+    billing: p.usage?.nativeContext?.billing ??
+      p.billing ?? { status: "unknown" as const },
     id: p.identity.callId,
     provider:
       p.usage?.actualProvider ?? p.requestedProvider ?? p.identity.provider,

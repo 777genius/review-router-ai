@@ -359,10 +359,26 @@ matching active App authority/revision; the browser scenario keeps its existing
 second tab. Production authorization, document/generation assertions, all 24
 Skills scenarios and the existing required checks remain mandatory.
 
-The executor became unavailable during integration. If normal local rebuilding
-remains unavailable, the existing CI parity check preserves its failure and a
-failure-only diagnostic step runs the unchanged Action builder, uploads its two
-outputs and records the actual checkout/tree/lockfile/output digests. These
-diagnostics do not qualify stale checked-in bundles. The normally generated
-outputs must be committed to this same PR and the original full parity check,
-migration/PG suites, browser workflows and final main checks must then pass.
+The executor became unavailable during integration, and a restored local frozen
+dependency installation terminated before completion. The existing CI parity
+gate correctly rejected the old bundles on `1a80c51e`. A temporary failure-only
+diagnostic ran the unchanged `pnpm action:build` successfully in
+[CI run 45831738588](https://github.com/777genius/review-router-ai/actions/runs/45831738588).
+Artifact `15128616284` records the actual synthetic checkout `81084fb8`, whose
+tree is identical to `1a80c51e`, plus lockfile and output digests. ZIP integrity,
+source/tree identity and both exact output blobs were independently verified.
+Those normal builder outputs replace the stale bundles in this PR; the temporary
+diagnostic is removed and the original strict parity gate remains unchanged.
+The same follow-up applies the pinned formatter to two integration files.
+
+Native rollback qualification exposed an incorrect requirement that the old
+reader schema equal the current writer schema. The actual schema difference is
+the additive reliability fields and usage index. The harness now reproduces
+the old generated schema from its exact immutable reader commit and records
+the current writer schema digest separately. Full historical client/runtime
+hashes, clean source checks, all current migrations and the real three-phase
+new-writer/old-read-only-client PostgreSQL qualification remain mandatory.
+Direct checks accept the historical schema and reject both altered bytes and
+substitution of the current writer schema. This is not a PostgreSQL E2E pass;
+the original full parity check, migration/PG suites, browser workflows and final
+main checks must pass on the published follow-up before acceptance.

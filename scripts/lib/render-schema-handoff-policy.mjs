@@ -358,9 +358,9 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     const hasNativeConnection = catalog.some(
       (row) => row.migrationName === "000161_native_connection_intent",
     );
-    const reliabilityTail = catalog.slice(165).filter(
-      (row) => row.migrationName !== "000161_native_connection_intent",
-    );
+    const reliabilityTail = catalog
+      .slice(165)
+      .filter((row) => row.migrationName !== "000161_native_connection_intent");
     if (
       catalog.length !== (hasNativeConnection ? 170 : 169) ||
       reliabilityTail.length !== reliabilityCheckoutExtension.length ||
