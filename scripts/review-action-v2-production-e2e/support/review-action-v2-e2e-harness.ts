@@ -1567,8 +1567,8 @@ export class ReviewActionV2E2EHarness {
   }
 
   /** Pump one maintenance pass while a review runner is still in progress. */
-  async runWorkerMaintenanceOnce(): Promise<void> {
-    await this.worker.runMaintenance();
+  async runWorkerMaintenanceOnce() {
+    return this.worker.runMaintenance();
   }
 
   async runWorkerUntilSettled(maxPasses = 12): Promise<void> {

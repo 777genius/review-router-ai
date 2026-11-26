@@ -4,7 +4,7 @@
 
 ## Current code reconciliation (2026-11-15)
 
-PR #815 is merged. Its private code ancestry is included in installed d2f and retained signed 238/source 75b, as reconciled in the [current registry baseline](README.md#current-coordinated-rollout-reconciliation-2026-11-14). Earlier pending-source/no-installation statements below describe historical delivery checkpoints. There is no new schema/configuration/activation step or reason to redeploy this behavior-preserving code merely to clear a stale task status. This is **installed ordinary code**, not a claim of feature activation, independent live qualification or public Action artifact proof inferred from ancestry. Preserve separate semantic Memory, public distribution, self-hosted and GitLab acceptance boundaries.
+PR #815 is merged. Its private code ancestry is included in installed d2f and retained signed 238/source 75b, as reconciled in the [current registry baseline](README.md#current-coordinated-rollout-reconciliation-2026-11-15). Earlier pending-source/no-installation statements below describe historical delivery checkpoints. There is no new schema/configuration/activation step or reason to redeploy this behavior-preserving code merely to clear a stale task status. This is **installed ordinary code**, not a claim of feature activation, independent live qualification or public Action artifact proof inferred from ancestry. Preserve separate semantic Memory, public distribution, self-hosted and GitLab acceptance boundaries.
 
 - Task ID: `2026-11-05-action-runtime-ownership`
 - Goal: preserve existing GitHub Action reviews while assigning credential-safe checkout, HTTP retries, subprocess custody/redaction, bundle verification, provider environment policy and workflow attestation to bounded owners.

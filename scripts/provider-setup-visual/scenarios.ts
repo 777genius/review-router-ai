@@ -5,6 +5,7 @@
  * the dialog or list action a user would and leaves the screen to capture.
  */
 import type { Page } from "playwright-core";
+import { ORG_RULESET_SCENARIOS } from "./org-ruleset-scenarios.ts";
 import {
   VISUAL_REPOSITORIES,
   visualRepositoryEnabled,
@@ -214,6 +215,7 @@ async function openBulkDialog({ page, user }: ScenarioContext) {
 }
 
 export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
+  ...ORG_RULESET_SCENARIOS,
   {
     id: "native-account-info-owner",
     title:

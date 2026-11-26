@@ -85,7 +85,7 @@ approval or of a live Infinity deployment.
 - Dashboard/pause/preview tests: 102 passed. Actual Next/Chromium qualification:
   15 route/viewport cases passed; six screenshots visually reviewed. The app
   role had no privileges on any Memory table. See the
-  [browser evidence limits and reproduction](../../scripts/memory-e2e/browser-README.md).
+  [browser evidence limits and reproduction](https://github.com/777genius/review-router-ai/blob/9cc02f68fe8f8bcef9a52bd6c5eeddbb51f6b8ca/scripts/memory-e2e/browser-README.md).
 - Three separate disposable Router PostgreSQL databases were used. Preparation
   creates the current Prisma schema and applies the actual affected projection
   and outbox-fencing SQL. This does not claim a full historical migration replay.
