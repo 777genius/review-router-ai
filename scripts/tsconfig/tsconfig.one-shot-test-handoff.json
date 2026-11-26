@@ -8,5 +8,5 @@
     "allowImportingTsExtensions": true,
     "types": ["node"]
   },
-  "include": ["scripts/one-shot-test-handoff/*.mts"]
+  "include": ["../../scripts/one-shot-test-handoff/*.mts"]
 }

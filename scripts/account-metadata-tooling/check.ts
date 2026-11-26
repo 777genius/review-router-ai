@@ -57,7 +57,10 @@ assert(
   ),
 );
 const config = JSON.parse(
-  await readFile(join(root, "tsconfig.account-metadata.json"), "utf8"),
+  await readFile(
+    join(root, "scripts/tsconfig/tsconfig.account-metadata.json"),
+    "utf8",
+  ),
 );
 assert.equal(config.compilerOptions.skipLibCheck, false);
 for (const path of [
