@@ -178,3 +178,46 @@ performed. Foundation consumer admission, proof-provenance enforcement, native
 provider behavior, retention decisions and the operational freshness target
 remain concrete P0–P6 / R0–R6 implementation gates. They are not blockers to
 reviewing these complete proposed plans.
+
+## Additional IAM cross-product review — 2026-11-26
+
+This is a later pass, after the historical checkpoints above. Three actual
+independent critics used **gpt-6.1-sol, xhigh**: account security, product/authority
+boundaries, and ReviewRouter migration. They read Identity `ae61c972c8e4b40062c36dcc13c8075a5e1b002e`
+and ReviewRouter `5c6b78776244d22c30a6d02aa05a0fa8c7d52959`, then cross-checked
+each other's counterexamples. The coordinator re-read the exact owning clauses
+and primary sources. No previous critic result is represented as a new run.
+
+The approved expanded Identity architecture, direct GitHub/GitLab login, local
+product ownership and standalone/Fully Local independence pass this comparison.
+The [shared research](https://github.com/agent-teams-ai/engineering-research/blob/578b166650b916efa51f011598a42fabadaeff2f/docs/studies/identity-provider-evidence.md)
+preserves the earlier 18-question alternatives and the owner's newly endorsed
+directions. It is not provider qualification or implementation authorization.
+
+| ID | Disposition |
+| --- | --- |
+| IAM-N26-01 | Open P0/P2 trust-profile choice, now explicit: social-root custody can change after enrollment; unknown custody is not proof of neutral recovery. D3 contains three scoped options and the A-to-B negative experiment. |
+| IAM-N26-02 | Clarified in both plans: first attachment/history registration and closure participant capture serialize through the same Account lifecycle gate. The consumer is included or the new admission loses; test both orders with delayed responses. |
+| IAM-N26-03 | Corrected consumer wording: only operations with the same proven native identity promise convergence. A deliberate central-only new user may later hit a safe native-identity ownership conflict; no automatic merge. |
+| IAM-N26-04 | Open P0/R0 session-control contract, now explicit in D8 and consumer behavior: account-status renewal does not prove a native SSO/client session remains active after lost logout delivery. Three finite-scope alternatives are recorded. |
+
+These are two precise plan fixes and two retained admission choices, not four
+demonstrated vulnerabilities. The earlier generation, proof-strength, bootstrap,
+closure-fence and retired-owner corrections remain valid. Root-removal/recovery
+session invalidation is included in the operation inventory without claiming a
+separate confirmed defect.
+
+Updated substantive document SHA-256 values:
+
+| Document | SHA-256 |
+| --- | --- |
+| Identity plan | `14e3d84985af996e4e4ed0d429e4ab636394cd74fc97712c0750f945b6641903` |
+| ReviewRouter plan | `99866dedddc77121f7fa231612fc460f7a8236fcbc722013593fba54c26d3695` |
+
+This pass changes Markdown only. The future transaction, provider and browser
+counterexamples are specified, not executed. Old-head CI 45834320649 remains
+historical: two jobs succeeded and ten were skipped under Draft policy. It cannot
+qualify the new head or real authentication. The current PR description records
+the new head's publication and applicable checks separately. No service code,
+dependency, migration, provider registration, deployment or merge is authorized
+or performed by this review.
