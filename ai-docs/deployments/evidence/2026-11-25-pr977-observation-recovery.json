@@ -1,0 +1,1560 @@
+{
+  "kind": "local-review-qualification-record",
+  "task": "2026-11-25-pr977-observation-recovery",
+  "pullRequest": "https://github.com/777genius/review-router-ai/pull/1003",
+  "recordedAtUtc": "2026-11-25T14:03:26.753916+00:00",
+  "originalMerge": "319e98fd3ed47568436df3258417d92d942b492c",
+  "integrationBase": "919a5add21a40d9adee064bf23b2e4217bd7e040",
+  "coreCheckpoint": "ce0d75ff32e6f7a7f28ccb7ab23d48eade791081",
+  "fixtureCheckpoint": "59bcfc986e7902c8309b1a223251add71e9d8472",
+  "sourceBindings": [
+    {
+      "path": "apps/api/src/review-action-v2-execution-evidence-composition.test.ts",
+      "gitBlob": "a8b3ab98f2441225b5533c81f9104052b36d543d",
+      "sha256": "6463c0741a6e8dcb058fb581a2cf2b5cd929876febeb8554aeaf55c4d9fa243b"
+    },
+    {
+      "path": "apps/api/src/review-action-v2-execution-evidence-lifecycle.ts",
+      "gitBlob": "6e145fb3e5499c952aff9d7db9438eec51c67e4d",
+      "sha256": "3797c0bafab418bc29049918d39821301e3a62e0314829727ffce68acf636779"
+    },
+    {
+      "path": "apps/api/src/review-action-v2-execution-evidence-observations.ts",
+      "gitBlob": "e6fab442a84b0908ff92ccaf99d320b10f9e7b5d",
+      "sha256": "f92a7b8c843a3216ffb9ce42c72407765f6e7e12f0030ba1fe8a64701c350299"
+    },
+    {
+      "path": "packages/features/review-executions/src/domain/review-execution-observation-transitions.ts",
+      "gitBlob": "fcd7b27cc4d3f5366a5e8417a3612d5705291b8e",
+      "sha256": "401e3dbeb55c958a3c0efd05d962e4b977fbbb70f0c305691e78eb3089002cae"
+    },
+    {
+      "path": "packages/features/review-executions/src/infrastructure/prisma/prisma-review-execution-store.ts",
+      "gitBlob": "3927071b94f9b65a9389d56d7dd40906722d6c07",
+      "sha256": "433073b5cabb096bcc1b72326a96d7e09eb485cf189eaca4fa0a2d1bb07e1783"
+    },
+    {
+      "path": "packages/features/review-executions/src/tests/prisma-review-execution-store-real.test.ts",
+      "gitBlob": "1f02e826b92691d4f00cc7e14dc247425f1cb45b",
+      "sha256": "5a07039cdad8f466fe5a5944db783da8197753c64f42f9a1fab35b4a9f48f0d2"
+    },
+    {
+      "path": "packages/features/review-executions/src/tests/review-executions.test.ts",
+      "gitBlob": "7d6eab0d2f58c77956733cc47d3e5e867e91f2bb",
+      "sha256": "069f01a20636fbbcc3e4eb2e162f4ae1aa216211dcbf9281a59dc7b8d2574db1"
+    },
+    {
+      "path": "scripts/architecture-boundaries/transaction-serialization.ts",
+      "gitBlob": "16f26dc60a2d5adc57f427a9c274827884e65ffb",
+      "sha256": "c732f479f046f29ea8bd7874723489fb834887fb73dce748da43ea5986174290"
+    },
+    {
+      "path": "scripts/check-architecture-boundaries.test.ts",
+      "gitBlob": "66f32ca6e18ae473e6b9806501e490d077c44aeb",
+      "sha256": "3e686cd5902be7254d5b2eca4064a446db0f242fb8dfd25255d280feb4291265"
+    },
+    {
+      "path": "scripts/manage-review-provider-scope-concurrency.test.ts",
+      "gitBlob": "67b690dcfd459a7393f6f6e2b9764d6912cf5de8",
+      "sha256": "713f512e1f02154e032abe152054928ac2f47b57ac959aa2b4152de934500aa0"
+    },
+    {
+      "path": "scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts",
+      "gitBlob": "e760ee9284e86d857af5b6a89dc6d8d4b4089e2a",
+      "sha256": "8996aec7af626e195d7b4c51c96766d7d544692a8e16d14c673bfc0adc8ab853"
+    },
+    {
+      "path": "scripts/review-action-v2-production-e2e/support/review-action-v2-e2e-harness.ts",
+      "gitBlob": "9c5774629ed4a0b57c5fae11214e609cd331bff3",
+      "sha256": "d4845bb341b7a4527c7e27ee9f51da27b3b9670869b577fafdc992291479d8f3"
+    }
+  ],
+  "toolchain": {
+    "node": "26.11.1",
+    "pnpm": "11.28.7",
+    "typescript": "7.0.2",
+    "oxc": "0.159.0",
+    "nativeLoadGuard": "scripts/local-checks/lint-format-native-load-guard.ts"
+  },
+  "databases": {
+    "engine": "PostgreSQL 17.12",
+    "providerMigrationCount": 82,
+    "applicationMigrationCount": 165,
+    "disposable": true,
+    "productionCredentialsUsed": false
+  },
+  "checks": [
+    {
+      "report": {
+        "localPath": "tmp/deep-review-evidence/final-api-domain.json",
+        "sha256": "febad779f2963480042e9e926d5a7254490bd3c977641e0ed15008548c172e41"
+      },
+      "success": true,
+      "total": 150,
+      "passed": 150,
+      "failed": 0,
+      "pending": 0,
+      "todo": 0,
+      "note": "Complete API/domain suites after the late-retry fix; the subsequent fixture-only readonly typing correction is separately checked.",
+      "suites": [
+        "apps/api/src/review-action-v2-execution-evidence-composition.test.ts",
+        "packages/features/review-executions/src/tests/review-executions.test.ts"
+      ],
+      "failedTests": [],
+      "exitCode": 0
+    },
+    {
+      "report": {
+        "localPath": "tmp/deep-review-evidence/late-adoption-final.json",
+        "sha256": "5fcf17cbd0ccd2442e0074390758018ed5cc6fd008c83b5e139451c0cbba2c3b"
+      },
+      "success": true,
+      "total": 61,
+      "passed": 1,
+      "failed": 0,
+      "pending": 60,
+      "todo": 0,
+      "note": "Exact late concurrent retry after the readonly test dependency correction; 60 unrelated tests filtered by the targeted test-name selection.",
+      "suites": [
+        "apps/api/src/review-action-v2-execution-evidence-composition.test.ts"
+      ],
+      "failedTests": [],
+      "exitCode": 0
+    },
+    {
+      "report": {
+        "localPath": "tmp/deep-review-evidence/related-units.json",
+        "sha256": "451d6637323ce9a889f1268205bbc17f6bcb907482b415b9a6f425be28459427"
+      },
+      "success": true,
+      "total": 376,
+      "passed": 375,
+      "failed": 0,
+      "pending": 1,
+      "todo": 0,
+      "note": "Expanded related suites before the final late-retry adjustment; the conditional public Action test is closed separately below.",
+      "suites": [
+        "apps/api/src/review-action-v2-execution-evidence-composition.test.ts",
+        "apps/api/src/review-action-v2-execution-result-mappers.test.ts",
+        "apps/api/src/review-action-v2-production-composition-snapshot-publication.test.ts",
+        "apps/api/src/review-action-v2-production-composition.test.ts",
+        "apps/api/src/review-execution-publication-restore.test.ts",
+        "packages/features/review-executions/src/tests/check-current-review-execution-revision.test.ts",
+        "packages/features/review-executions/src/tests/invocation-flight.test.ts",
+        "packages/features/review-executions/src/tests/prisma-review-execution-store-retry.test.ts",
+        "packages/features/review-executions/src/tests/prisma-review-execution-write-mappers.test.ts",
+        "packages/features/review-executions/src/tests/review-coverage-ordered-fallback.test.ts",
+        "packages/features/review-executions/src/tests/review-coverage-quota-skip.test.ts",
+        "packages/features/review-executions/src/tests/review-execution-store-contract-memory.test.ts",
+        "packages/features/review-executions/src/tests/review-executions.test.ts",
+        "packages/features/review-executions/src/tests/review-projection-authority.test.ts",
+        "packages/features/review-executions/src/tests/review-requested-admission.test.ts",
+        "packages/features/review-executions/src/tests/review-requested-preparation.test.ts",
+        "packages/features/review-executions/src/tests/review-requested-queued-run-wait.test.ts",
+        "packages/features/review-executions/src/tests/review-requested-rerun.test.ts"
+      ],
+      "failedTests": []
+    },
+    {
+      "report": {
+        "localPath": "tmp/deep-review-evidence/paired-snapshot.json",
+        "sha256": "d76d36d04af05228c8dcfa0a81574b6c869886e2c6592968c9ea6fefadb01ebb"
+      },
+      "success": true,
+      "total": 46,
+      "passed": 46,
+      "failed": 0,
+      "pending": 0,
+      "todo": 0,
+      "note": "Complete paired publication suite with public Action a79dd059e7adcf60895af29e3c91f670b9ee5d03; no skips.",
+      "suites": [
+        "apps/api/src/review-action-v2-production-composition-snapshot-publication.test.ts"
+      ],
+      "failedTests": []
+    },
+    {
+      "report": {
+        "localPath": "tmp/deep-review-evidence/tooling-green.json",
+        "sha256": "086fcea2b9570e958a5c5acc6c92a0697ed00de9f6c0e99bcc270e5fab36b9fe"
+      },
+      "success": true,
+      "total": 205,
+      "passed": 205,
+      "failed": 0,
+      "pending": 0,
+      "todo": 0,
+      "note": "Complete architecture/provider-fixture suites; production checker inputs unchanged since this run.",
+      "suites": [
+        "scripts/check-architecture-boundaries.test.ts",
+        "scripts/manage-review-provider-scope-concurrency.test.ts"
+      ],
+      "failedTests": []
+    },
+    {
+      "report": {
+        "localPath": "tmp/deep-review-evidence/pg-full-green.json",
+        "sha256": "7a89d9b0b71933f3a5ce23ad64c7fbce230e171f015041ed99743193b885533e"
+      },
+      "success": true,
+      "total": 56,
+      "passed": 56,
+      "failed": 0,
+      "pending": 0,
+      "todo": 0,
+      "note": "Complete 56-case real PostgreSQL execution store suite; affected store/domain inputs unchanged since this run.",
+      "suites": [
+        "packages/features/review-executions/src/tests/prisma-review-execution-store-real.test.ts"
+      ],
+      "failedTests": [],
+      "exitCode": 0
+    },
+    {
+      "report": {
+        "localPath": "tmp/deep-review-evidence/progress-isolation-green.json",
+        "sha256": "ab575fa410633a0df45297dd28abf3481b04cde3ba1de9e4981f1159951198d5"
+      },
+      "success": true,
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "pending": 0,
+      "todo": 0,
+      "note": "Diagnostic real PostgreSQL A-reset-B proof after the three-table reset repair.",
+      "suites": [
+        "tmp/deep-review-postgres/progress-isolation-diagnostic.test.ts"
+      ],
+      "failedTests": [],
+      "exitCode": 0
+    },
+    {
+      "report": {
+        "localPath": "tmp/deep-review-evidence/production-e2e-repeat-1.json",
+        "sha256": "a4b8855892447b0f3a1439dc287231464cac895f9cb5f0016c41f9f37df2f9d0"
+      },
+      "success": true,
+      "total": 18,
+      "passed": 18,
+      "failed": 0,
+      "pending": 0,
+      "todo": 0,
+      "note": "Complete 18-case source E2E after the reset repair, no skips. The following failed repeat is retained separately.",
+      "suites": [
+        "scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts"
+      ],
+      "failedTests": [],
+      "exitCode": 0
+    }
+  ],
+  "historicalAttempts": [
+    {
+      "report": {
+        "localPath": "tmp/deep-review-evidence/execution-red.json",
+        "sha256": "33f28647e86f8c982b9cd2c0fd73241d999fc06dca5687f8116e4e0c604332c8"
+      },
+      "success": false,
+      "total": 144,
+      "passed": 140,
+      "failed": 4,
+      "pending": 0,
+      "todo": 0,
+      "note": "Before observation retry/report-window repairs.",
+      "suites": [
+        "apps/api/src/review-action-v2-execution-evidence-composition.test.ts",
+        "packages/features/review-executions/src/tests/review-executions.test.ts"
+      ],
+      "failedTests": [
+        "Review Action v2 execution/evidence composition restores a lost fresh-attachment response after the persisted source lease is released",
+        "Review Action v2 execution/evidence composition rejects adoption when safety resolution outlives the source result-report window",
+        "Review Action v2 execution/evidence composition rejects adoption when capability preparation outlives the source result-report window",
+        "observation references and finalization honors the inclusive adoption result-report deadline at offset 1 ms"
+      ]
+    },
+    {
+      "report": {
+        "localPath": "tmp/deep-review-evidence/execution-finalization-api-red.json",
+        "sha256": "4178117c73afe520c571b52a40a66e799b33b257f36f97e665c516a62f7c47cc"
+      },
+      "success": false,
+      "total": 57,
+      "passed": 0,
+      "failed": 2,
+      "pending": 55,
+      "todo": 0,
+      "note": "Before API finalization time rechecks; unrelated cases filtered.",
+      "suites": [
+        "apps/api/src/review-action-v2-execution-evidence-composition.test.ts"
+      ],
+      "failedTests": [
+        "Review Action v2 execution/evidence composition does not finalize when facts resolution outlives the authorization deadline",
+        "Review Action v2 execution/evidence composition does not finalize when facts resolution outlives the publication deadline"
+      ]
+    },
+    {
+      "report": {
+        "localPath": "tmp/deep-review-evidence/context-adoption-red.json",
+        "sha256": "a8bda8ed186f67f7b5fbe8be8ca3bf0e9b18e2e027fc956d92cefb18daea568c"
+      },
+      "success": false,
+      "total": 59,
+      "passed": 1,
+      "failed": 1,
+      "pending": 57,
+      "todo": 0,
+      "note": "Concurrent identical adoption failed while the changed-intent negative control passed.",
+      "suites": [
+        "apps/api/src/review-action-v2-execution-evidence-composition.test.ts"
+      ],
+      "failedTests": [
+        "Review Action v2 execution/evidence composition restores concurrent identical observation adoptions without a second persisted mutation"
+      ]
+    },
+    {
+      "report": {
+        "localPath": "tmp/deep-review-evidence/late-adoption-red.json",
+        "sha256": "806f057008524c60f79f6f4ec76bf7f1ea995ede4258c2375478be70d70a3205"
+      },
+      "success": false,
+      "total": 61,
+      "passed": 0,
+      "failed": 1,
+      "pending": 60,
+      "todo": 0,
+      "note": "Exact in-flight adoption retry failed after the first commit crossed the report window.",
+      "suites": [
+        "apps/api/src/review-action-v2-execution-evidence-composition.test.ts"
+      ],
+      "failedTests": [
+        "Review Action v2 execution/evidence composition restores an identical in-flight adoption after its first commit crosses the report window"
+      ],
+      "exitCode": 1
+    },
+    {
+      "report": {
+        "localPath": "tmp/deep-review-evidence/execution-finalization-pg-red.json",
+        "sha256": "70b9aaee251c929ba4a1983206e8a674b5d92120e248a6e7d877c259e35d57ce"
+      },
+      "success": false,
+      "total": 56,
+      "passed": 2,
+      "failed": 2,
+      "pending": 52,
+      "todo": 0,
+      "note": "Both absolute-deadline regressions failed under actual database time; unrelated cases filtered.",
+      "suites": [
+        "packages/features/review-executions/src/tests/prisma-review-execution-store-real.test.ts"
+      ],
+      "failedTests": [
+        "Prisma review execution PostgreSQL invariants preserves the absolute publication deadline when finalization uses a lagging caller clock",
+        "Prisma review execution PostgreSQL invariants does not persist finalization once the absolute publication window has closed at database time"
+      ],
+      "exitCode": 1
+    },
+    {
+      "report": {
+        "localPath": "tmp/deep-review-evidence/provider-scope-computed-red.json",
+        "sha256": "0067329fd3516ed5485b25caee67e00b699b19561ae2ddee6f0cd2d176b22d42"
+      },
+      "success": false,
+      "total": 39,
+      "passed": 38,
+      "failed": 1,
+      "pending": 0,
+      "todo": 0,
+      "note": "Computed database URL override was accepted by the old fixture oracle.",
+      "suites": ["scripts/manage-review-provider-scope-concurrency.test.ts"],
+      "failedTests": [
+        "provider scope concurrency rollout control rejects a computed property overriding the dedicated database URL"
+      ]
+    },
+    {
+      "report": {
+        "localPath": "tmp/deep-review-evidence/architecture-var-self-red.json",
+        "sha256": "326e845fddffdfc962765790aca29d816ec4d82b299a470f5f98419409f43893"
+      },
+      "success": false,
+      "total": 159,
+      "passed": 157,
+      "failed": 2,
+      "pending": 0,
+      "todo": 0,
+      "note": "Self-initializing var redeclarations escaped the old transaction checker.",
+      "suites": ["scripts/check-architecture-boundaries.test.ts"],
+      "failedTests": [
+        "transaction reference regressions rejects an unsafe parameter with a self-initializing var redeclaration",
+        "transaction reference regressions rejects an unsafe client alias with a self-initializing var redeclaration"
+      ]
+    },
+    {
+      "report": {
+        "localPath": "tmp/deep-review-evidence/production-e2e-green.json",
+        "sha256": "8eacb6d41114cfcb97a72808a6f6051a93421e342f95b6cd78562d3d2ccf808d"
+      },
+      "success": true,
+      "total": 17,
+      "passed": 17,
+      "failed": 0,
+      "pending": 0,
+      "todo": 0,
+      "note": "Initial successful 17-case source E2E, retained as historical qualification.",
+      "suites": [
+        "scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts"
+      ],
+      "failedTests": [],
+      "exitCode": 0
+    },
+    {
+      "report": {
+        "localPath": "tmp/deep-review-evidence/production-e2e-final.json",
+        "sha256": "2c9fbaca11ce5c08eee5a9f19c107547ba41f3c92fdf6560a1b70bfbbb0e23c1"
+      },
+      "success": false,
+      "total": 17,
+      "passed": 15,
+      "failed": 2,
+      "pending": 0,
+      "todo": 0,
+      "note": "15/17: retained orphan progress rows consumed the publisher batch; diagnosed and corrected.",
+      "suites": [
+        "scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts"
+      ],
+      "failedTests": [
+        "Review Action v2 production PostgreSQL E2E and fault recovery repairs an older PATCH after a newer progress publication settles",
+        "Review Action v2 production PostgreSQL E2E and fault recovery publishes durable 108-file progress, recovers six retried units, and reconciles duplicate comments"
+      ],
+      "exitCode": 1
+    },
+    {
+      "report": {
+        "localPath": "tmp/deep-review-evidence/progress-isolation-red.json",
+        "sha256": "2a85aad889c9bd05333f0d8df17cbb5a24e6da7a19aaecf90170a471ccdca03c"
+      },
+      "success": false,
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "pending": 0,
+      "todo": 0,
+      "note": "Real A-reset-B proof of retained progress/publication/budget state and publication starvation.",
+      "suites": [
+        "tmp/deep-review-postgres/progress-isolation-diagnostic.test.ts"
+      ],
+      "failedTests": ["records the real A-reset-B progress isolation contract"],
+      "exitCode": 1
+    },
+    {
+      "report": {
+        "localPath": "tmp/deep-review-evidence/production-e2e-repeat-2.json",
+        "sha256": "7e0458bfd6efe0690183fe5aea908c34b4f6baa5cadc97dbf5b6c8e2ff9ca919"
+      },
+      "success": false,
+      "total": 18,
+      "passed": 16,
+      "failed": 2,
+      "pending": 0,
+      "todo": 0,
+      "note": "16/18: discovery timed out and its continuing provider-account query overlapped teardown; this failed attempt remains failed.",
+      "suites": [
+        "scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts"
+      ],
+      "failedTests": [
+        "Review Action v2 production PostgreSQL E2E and fault recovery publishes discovery with captured lifecycle capability before resolution history activation",
+        "Review Action v2 production PostgreSQL E2E and fault recovery adopts a committed observation after provider restart without another semantic attempt"
+      ],
+      "exitCode": 1
+    }
+  ],
+  "nativeCompiler": {
+    "coreOriginalConfigurations": {
+      "configs": [
+        "apps/api/tsconfig.json",
+        "packages/features/review-executions/tsconfig.json",
+        "tsconfig.tooling.json"
+      ],
+      "exitCode": 0,
+      "receipt": {
+        "localPath": "tmp/deep-review-evidence/final-strict-limited.exit-code",
+        "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+      },
+      "audit": {
+        "localPath": "tmp/deep-review-evidence/final-strict-limited-native.jsonl",
+        "sha256": "5a227bb240286355414d7df4b26879675736226fe6aa58ab734606486bcfe902"
+      },
+      "note": "Passed before the final E2E fixture addition. The same complete configuration scopes remain required in CI."
+    },
+    "finalFixtureAttempts": [
+      {
+        "name": "fixture-tooling-strict",
+        "exitCode": 1,
+        "log": {
+          "localPath": "tmp/deep-review-evidence/fixture-tooling-strict.log",
+          "sha256": "a5d4e03752c3a69f45665deac0829d0b622cfae754ce7772cb27faf5f1b81ddc"
+        },
+        "observed": "compiler terminated by SIGKILL, without TypeScript diagnostics"
+      },
+      {
+        "name": "fixture-tooling-strict-serial",
+        "exitCode": 1,
+        "log": {
+          "localPath": "tmp/deep-review-evidence/fixture-tooling-strict-serial.log",
+          "sha256": "a5d4e03752c3a69f45665deac0829d0b622cfae754ce7772cb27faf5f1b81ddc"
+        },
+        "observed": "compiler terminated by SIGKILL, without TypeScript diagnostics"
+      }
+    ]
+  },
+  "localDiagnosticInterruption": {
+    "exitCode": 1,
+    "log": {
+      "localPath": "tmp/deep-review-evidence/discovery-diagnostic-1.log",
+      "sha256": "b9244de86290e8dd1b6dd42afb47d0e9b798cb1fe808946ba8fa9698e3abcedd"
+    },
+    "stages": {
+      "localPath": "tmp/deep-review-evidence/discovery-diagnostic-1-stages.jsonl",
+      "sha256": "ee6ef0038756918a4f78fe6666035b807757e7e9949414fa75f1e7f819ca5bb9"
+    },
+    "observed": "Isolated diagnostic process terminated with SIGKILL during module loading, before beforeEach or application SQL; no completed test report was produced.",
+    "interpretation": "This does not identify the original timeout's exact cause and does not qualify the test. Final full qualification uses the normal required CI lanes without weakening scope."
+  },
+  "sourceReview": {
+    "production": "Independent reviewer reproduced the late retry race; corrected and re-reviewed with no remaining blocking findings.",
+    "fixture": "Independent review found no new P0/P1/P2 in the three-table reset and A-reset-B regression; preserved the separate timeout/lifecycle diagnosis."
+  },
+  "limitations": [
+    "This is an agent-authored local evidence summary, not a signed release attestation.",
+    "Test counts overlap across suites and targeted reruns; they must not be summed into a unique-test claim.",
+    "Raw temporary report hashes are supporting local receipts; the maintained tests and source blob bindings are the reproducible inputs.",
+    "Source E2E uses real PostgreSQL, production routes and workers with fake GitHub transport; it is not a live deployment or compiled-release qualification.",
+    "Final required CI, merge and resulting main checks are independently read from the linked pull request and Actions runs.",
+    "Application staging and production rollout remain pending; no deployment is performed or claimed."
+  ],
+  "recordSemantics": "The original root sections preserve first-checkpoint evidence and failed attempts. Later qualification sections identify their own source checkpoints or file bindings; no historical failure is converted into a pass.",
+  "executorRecoveryQualification": {
+    "sourceCheckpoint": "3eac637488c5b06ea932d17e7409ee5740cdd8d2",
+    "toolingStrict": {
+      "exitCode": 0,
+      "log": {
+        "localPath": "tmp/deep-review-evidence/recovered-tooling-strict.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "note": "Original full tooling configuration, native TypeScript 7.0.2, unchanged scope.",
+      "resources": {
+        "summary": {
+          "head": "3eac637488c5b06ea932d17e7409ee5740cdd8d2",
+          "command": [
+            "node",
+            "scripts/local-checks/compiler-cli.ts",
+            "--native",
+            "--noEmit",
+            "-p",
+            "tsconfig.tooling.json"
+          ],
+          "exitCode": 0,
+          "durationSeconds": 24.033,
+          "resources": {
+            "userCpuSeconds": 37.838701,
+            "systemCpuSeconds": 8.414716,
+            "maxRssKiB": 1849508,
+            "majorFaults": 13,
+            "minorFaults": 653770,
+            "involuntaryContextSwitches": 889
+          },
+          "sampleCount": 24
+        },
+        "samples": [
+          {
+            "elapsedSeconds": 0.002,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node",
+                "rssKiB": 2480
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 1.003,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 156464
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 2.004,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 413676
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 3.005,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 520056
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 4.006,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 647516
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 5.007,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 726880
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 6.008,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 815500
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 7.009,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 900928
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 8.01,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 976340
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 9.011,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1040912
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 10.014,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1091576
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 11.015,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1158292
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 12.016,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1220184
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 13.017,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1290860
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 14.018,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1352496
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 15.022,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1410368
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 16.022,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1467160
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 17.023,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1515012
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 18.024,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1550748
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 19.025,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1623164
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 20.026,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1659752
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 21.027,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1729568
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 22.028,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1759096
+              }
+            ]
+          },
+          {
+            "elapsedSeconds": 23.029,
+            "processes": [
+              {
+                "pid": 6,
+                "ppid": 5,
+                "name": "node-MainThread",
+                "rssKiB": 77784
+              },
+              {
+                "pid": 14,
+                "ppid": 6,
+                "name": "tsc",
+                "rssKiB": 1823512
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "productionE2E": [
+      {
+        "report": {
+          "localPath": "tmp/deep-review-evidence/production-e2e-restored-1.json",
+          "sha256": "71b2489a5c09961e1871a46e2f47d85051c0df2fd51a9f60b53c4e336519dc4a"
+        },
+        "exitCode": 0,
+        "success": true,
+        "total": 18,
+        "passed": 18,
+        "failed": 0,
+        "pending": 0,
+        "todo": 0,
+        "note": "Complete maintained18-case source E2E.",
+        "suites": [
+          "scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts"
+        ],
+        "failedTests": []
+      },
+      {
+        "report": {
+          "localPath": "tmp/deep-review-evidence/production-e2e-restored-2.json",
+          "sha256": "b824441035bfe715a66cad053eab32fff54dac6a835b0d5c2669f855a6e583ae"
+        },
+        "exitCode": 0,
+        "success": true,
+        "total": 18,
+        "passed": 18,
+        "failed": 0,
+        "pending": 0,
+        "todo": 0,
+        "note": "Second consecutive complete run on the same DB, no manual cleanup or changed assertions/timeouts.",
+        "suites": [
+          "scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts"
+        ],
+        "failedTests": []
+      }
+    ],
+    "qualifiesLaterSourceChanges": false
+  },
+  "currentBaseIntegration": {
+    "base": "95201f4e0d63d3ab7c4d585a1e55a6317e84ca6b",
+    "commit": "bfbece593a64232d934115755a5fc42de72ab56b",
+    "previousHead": "70923853138997eb37cbe71de443019f3f46eb34",
+    "unchangedTree": "db90a5a785d888de8ec60afdd829b96c97a8c542",
+    "mainPullRequest": 1006,
+    "matchingFormatterBlobs": 8,
+    "precedingCI": "https://github.com/777genius/review-router-ai/actions/runs/45651139678",
+    "precedingConfirmedResults": [
+      "Static Checks: complete56 workspace typecheck tasks plus original root configurations, lint and format",
+      "Ubuntu installer63/63",
+      "macOS installer63/63"
+    ],
+    "qualifiesAdditionalCorrections": false
+  },
+  "additionalReviewQualification": {
+    "recordedAtUtc": "2026-11-25T17:26:18.552939+00:00",
+    "parentCheckpoint": "bfbece593a64232d934115755a5fc42de72ab56b",
+    "integrationBase": "95201f4e0d63d3ab7c4d585a1e55a6317e84ca6b",
+    "sourceBindings": [
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-composition.test.ts",
+        "gitBlob": "c6d18561a0f2819e79e3bbec68687fad2ee8770c",
+        "sha256": "f7a27120ab8d66cda2c9ec79c292c5f5375455484f9f5a11ad9f86ac9a4e7f36"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-dependencies.ts",
+        "gitBlob": "0f872a1e535485f67061cc1ea5ec1f73944a8b4c",
+        "sha256": "4875660d027d61b9e9621a10f4dee506be506f061ebd76e577929cb72cc9b77d"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-lifecycle.ts",
+        "gitBlob": "a677e6bb74a415436a3df8a7999772921279effe",
+        "sha256": "c21e24de72eff8521b0b9eb564b1da4bb4dc3491c4cc2f66b9518fbe2c867590"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-observations.ts",
+        "gitBlob": "6bdd124e5eea665c895625095cb7dbb7d0d56888",
+        "sha256": "a49e7260e72383da7a2f7610f9f2ce9681207dc2683b927ef13211aca6ad8cf9"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-production-composition.ts",
+        "gitBlob": "1f39bb660c098129aa2a6e79354e206bc4b1ab46",
+        "sha256": "f79659ee3510b563c718b8d9035af6c97fea72d337856d61bc34d61cb6ebcac1"
+      },
+      {
+        "path": "packages/features/review-executions/src/application/ports/review-execution-ports.ts",
+        "gitBlob": "5c6ff54de9cd4e142a37aaf994baac5816e6b9f4",
+        "sha256": "0c5c45fed16dd7e7d23f29e29449e2cfd0f463c61abd1a6d9d7829ee0f6f87a5"
+      },
+      {
+        "path": "packages/features/review-executions/src/domain/review-execution-observation-transitions.ts",
+        "gitBlob": "a05cbf9d074d1d1ff7cbcb303d4093976e775462",
+        "sha256": "681eedc54d01145eddc78077cdb47b573da2abb57cf8cd108ffcdff7197a1718"
+      },
+      {
+        "path": "packages/features/review-executions/src/infrastructure/memory/in-memory-review-execution-store.ts",
+        "gitBlob": "1697476fd73ad0bfddcf4cb91cbc1f7add3f10d0",
+        "sha256": "e18a45797010d4025ab27f10ea50ec56964b29fe7d8a42484d67aca846c9fc52"
+      },
+      {
+        "path": "packages/features/review-executions/src/infrastructure/prisma/prisma-review-execution-store.ts",
+        "gitBlob": "da5d4e894eb1b2f14117d69af76c4ae954dd34db",
+        "sha256": "a6b5244459ebe6445a6e532d12f5fc6f423c625a938ab3f979b5bbafbb884729"
+      },
+      {
+        "path": "packages/features/review-executions/src/tests/prisma-review-execution-store-real.test.ts",
+        "gitBlob": "4927486f54b0e0186d46b229222f2e92d6e766ec",
+        "sha256": "28e900e147a7a6b483ba492d312bee58342e6d4830616aaab06e46d967470591"
+      },
+      {
+        "path": "packages/features/review-executions/src/tests/review-executions.test.ts",
+        "gitBlob": "952cc6b6241c89d6cfce3b73acc83cd3b4aefd52",
+        "sha256": "40a3e18935ee0a0c5ecaaa9c9a7c01a94694977470a824449f45dc6c6aaeb8ed"
+      },
+      {
+        "path": "scripts/architecture-boundaries/transaction-serialization.ts",
+        "gitBlob": "16f26dc60a2d5adc57f427a9c274827884e65ffb",
+        "sha256": "c732f479f046f29ea8bd7874723489fb834887fb73dce748da43ea5986174290"
+      },
+      {
+        "path": "scripts/check-architecture-boundaries.test.ts",
+        "gitBlob": "66f32ca6e18ae473e6b9806501e490d077c44aeb",
+        "sha256": "3e686cd5902be7254d5b2eca4064a446db0f242fb8dfd25255d280feb4291265"
+      },
+      {
+        "path": "scripts/manage-review-provider-scope-concurrency.test.ts",
+        "gitBlob": "67b690dcfd459a7393f6f6e2b9764d6912cf5de8",
+        "sha256": "713f512e1f02154e032abe152054928ac2f47b57ac959aa2b4152de934500aa0"
+      },
+      {
+        "path": "scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts",
+        "gitBlob": "e760ee9284e86d857af5b6a89dc6d8d4b4089e2a",
+        "sha256": "8996aec7af626e195d7b4c51c96766d7d544692a8e16d14c673bfc0adc8ab853"
+      },
+      {
+        "path": "scripts/review-action-v2-production-e2e/support/review-action-v2-e2e-harness.ts",
+        "gitBlob": "a80fb9ba728fd8b70e303d366d7df4ceb282f883",
+        "sha256": "a3e93bb2893134e304bbb63cebdbf3421fe39e000eadb8f55c447b7a838956b9"
+      },
+      {
+        "path": "scripts/review-action-v2-production-e2e/support/review-action-v2-worker-drain.test.ts",
+        "gitBlob": "18dcbd2fc2a278a6f5d521d8853d745d2cb95caf",
+        "sha256": "883d03552621a12306fc7699443005c896c102ef79a141d7d46c1a226fcf1634"
+      },
+      {
+        "path": "scripts/review-action-v2-production-e2e/support/review-action-v2-worker-drain.ts",
+        "gitBlob": "473222a6892ead9634bfd1326c47dc42c51a63d7",
+        "sha256": "8c98f15fdcf1b58e075e4fb04b7a0e31f3b81fe097852ece75cef1b144c67c6a"
+      }
+    ],
+    "reviewSource": "https://github.com/777genius/review-router-ai/pull/1003#issuecomment-7164210441",
+    "reviewDispositions": [
+      "Distinct internal ReportWindowExpired outcome preserves authoritative HTTP412 classification and exact replay ordering.",
+      "Publication issuance checks fresh database and local clocks; invalid/unavailable database time fails closed, local issuedAt/nbf remain unchanged.",
+      "Fresh observation mismatch fixture changes only payload hash and asserts exact403 authority mismatch.",
+      "Late adoption concurrency gates reject unexpected/early request outcomes, have a bounded barrier wait, and join both requests on cleanup.",
+      "PostgreSQL replay fixture names only its immutable-artifact assertion; synthetic active-authority validation no longer claims production permit grace."
+    ],
+    "positiveChecks": [
+      {
+        "report": {
+          "localPath": "tmp/deep-review-evidence/review-clock-api-domain-green.json",
+          "sha256": "a0461822de6a048ccf1abc26bbe04ee7846c8cbf9c9d76378bbb50861e30330c"
+        },
+        "exitCode": 0,
+        "success": true,
+        "total": 158,
+        "passed": 158,
+        "failed": 0,
+        "pending": 0,
+        "todo": 0,
+        "note": "Complete API/domain158; followed only by a type-only Omit fixture clarification, without runtime/assertion changes.",
+        "suites": [
+          "apps/api/src/review-action-v2-execution-evidence-composition.test.ts",
+          "packages/features/review-executions/src/tests/review-executions.test.ts"
+        ],
+        "failedTests": []
+      },
+      {
+        "report": {
+          "localPath": "tmp/deep-review-evidence/review-clock-pg.json",
+          "sha256": "c691a7c44f54c30b551c451c0e3d4a1022897e46ee2dad0ce5394ba990881c12"
+        },
+        "exitCode": 0,
+        "success": true,
+        "total": 56,
+        "passed": 56,
+        "failed": 0,
+        "pending": 0,
+        "todo": 0,
+        "note": "Complete maintained real-PostgreSQL execution suite on canonical82 migrations.",
+        "suites": [
+          "packages/features/review-executions/src/tests/prisma-review-execution-store-real.test.ts"
+        ],
+        "failedTests": []
+      },
+      {
+        "report": {
+          "localPath": "tmp/deep-review-evidence/worker-drain-tests.json",
+          "sha256": "5e2362ee782f9c4b6974fdc46c28c43aace58ccd9336f9f18da8be2b9dc3cfe0"
+        },
+        "exitCode": 0,
+        "success": true,
+        "total": 7,
+        "passed": 7,
+        "failed": 0,
+        "pending": 0,
+        "todo": 0,
+        "note": "Focused helper contract: deferred/due work, single-pass, shared wait budget and cancellation; not a replacement for full E2E.",
+        "suites": [
+          "scripts/review-action-v2-production-e2e/support/review-action-v2-worker-drain.test.ts"
+        ],
+        "failedTests": []
+      }
+    ],
+    "negativeChecks": [
+      {
+        "report": {
+          "localPath": "tmp/deep-review-evidence/adoption-status-domain-red.json",
+          "sha256": "ac37f952c0aa6d492c0340e466943a6f74abe83b15deb3f81b87249670af5feb"
+        },
+        "exitCode": 1,
+        "success": false,
+        "total": 90,
+        "passed": 89,
+        "failed": 1,
+        "pending": 0,
+        "todo": 0,
+        "note": "Expected transition failure before distinct expiry outcome; unrelated domain tests passed.",
+        "suites": [
+          "packages/features/review-executions/src/tests/review-executions.test.ts"
+        ],
+        "failedTests": [
+          "observation references and finalization honors the inclusive adoption result-report deadline at offset 1 ms"
+        ]
+      },
+      {
+        "report": {
+          "localPath": "tmp/deep-review-evidence/api-clock-red.json",
+          "sha256": "2bc6f78e36b15c6392cd41acc2b41586a7e2fefa02b806fbc2df978a0f1f712a"
+        },
+        "exitCode": 1,
+        "success": false,
+        "total": 68,
+        "passed": 0,
+        "failed": 2,
+        "pending": 66,
+        "todo": 0,
+        "note": "Two expected API classification failures on the previous handler; other cases filtered.",
+        "suites": [
+          "apps/api/src/review-action-v2-execution-evidence-composition.test.ts"
+        ],
+        "failedTests": [
+          "Review Action v2 execution/evidence composition reports adoption expiry from the store clock when the API clock lags",
+          "Review Action v2 execution/evidence composition keeps a stale adoption rejection when the API clock passes the report window"
+        ]
+      },
+      {
+        "report": {
+          "localPath": "tmp/deep-review-evidence/publication-clock-red-2.json",
+          "sha256": "07c7c5463459a47cadecda8eb78af79e0455027270217e9d3ab2da1506339899"
+        },
+        "exitCode": 1,
+        "success": false,
+        "total": 68,
+        "passed": 0,
+        "failed": 4,
+        "pending": 64,
+        "todo": 0,
+        "note": "Four expected issuance failures on the previous lifecycle handler; unrelated cases filtered.",
+        "suites": [
+          "apps/api/src/review-action-v2-execution-evidence-composition.test.ts"
+        ],
+        "failedTests": [
+          "Review Action v2 execution/evidence composition checks publication replay before signing: 'database deadline equality'",
+          "Review Action v2 execution/evidence composition checks publication replay before signing: 'database expiry with lagging API'",
+          "Review Action v2 execution/evidence composition checks publication replay before signing: 'unavailable database clock'",
+          "Review Action v2 execution/evidence composition checks publication replay before signing: 'invalid database clock'"
+        ]
+      }
+    ],
+    "qualityChecks": {
+      "ownerStrict": {
+        "exitCode": 0,
+        "log": {
+          "localPath": "tmp/deep-review-evidence/adoption-status-typecheck.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "note": "Original complete review-executions TypeScript project, native7.0.2."
+      },
+      "format": {
+        "exitCode": 0,
+        "log": {
+          "localPath": "tmp/deep-review-evidence/review-clock-final-format.log",
+          "sha256": "e24424053621f1d1ea7c30573802b3393380464897c56a9113342011782bd547"
+        },
+        "note": "All17 edited source/document files before adding this JSON section; no source changes from formatting."
+      },
+      "lint": {
+        "exitCode": 0,
+        "log": {
+          "localPath": "tmp/deep-review-evidence/review-clock-final-lint.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "note": "All14 changed TypeScript files, native load guard."
+      }
+    },
+    "interruptedAttempts": {
+      "publicationRed": {
+        "exitCode": 1,
+        "log": {
+          "localPath": "tmp/deep-review-evidence/publication-clock-red.log",
+          "sha256": "feb373f921ddaafb6059d0a6dbc07cdc385c681e4066f4281d7d248b96f5ac1c"
+        },
+        "note": "SIGKILL without final JSON; not counted as a regression result. A later distinct attempt reproduced four expected failures."
+      },
+      "apiStrict": {
+        "exitCode": 1,
+        "log": {
+          "localPath": "tmp/deep-review-evidence/review-clock-api-strict.log",
+          "sha256": "a5d4e03752c3a69f45665deac0829d0b622cfae754ce7772cb27faf5f1b81ddc"
+        },
+        "note": "SIGKILL without TypeScript diagnostics; not a successful typecheck.",
+        "resources": {
+          "exitCode": 1,
+          "durationSeconds": 10.06102084200029,
+          "maxRssKiB": 441308,
+          "userCpuSeconds": 2.147099,
+          "systemCpuSeconds": 12.690536999999999
+        }
+      },
+      "toolingStrict": {
+        "exitCode": 1,
+        "log": {
+          "localPath": "tmp/deep-review-evidence/review-clock-tooling-strict.log",
+          "sha256": "a5d4e03752c3a69f45665deac0829d0b622cfae754ce7772cb27faf5f1b81ddc"
+        },
+        "note": "Original full tooling scope after the helper change; SIGKILL without TypeScript diagnostics, not a successful typecheck.",
+        "resources": {
+          "exitCode": 1,
+          "durationSeconds": 3.8085325350002677,
+          "maxRssKiB": 507804,
+          "userCpuSeconds": 2.6152480000000002,
+          "systemCpuSeconds": 4.105073
+        }
+      },
+      "dbQualificationSummary": {
+        "sourceBinding": "review-clock-db-source.json",
+        "sourceFilesChangedAfterDiagnostic": [],
+        "postgres": {
+          "exitCode": 0,
+          "passed": 56,
+          "failed": 0,
+          "skipped": 0,
+          "todo": 0,
+          "reportSha256": "c691a7c44f54c30b551c451c0e3d4a1022897e46ee2dad0ce5394ba990881c12",
+          "fixture": "review-clock-pg.fixture.json"
+        },
+        "productionE2E": {
+          "exitCode": 1,
+          "reportPresent": false,
+          "outcome": "interrupted-SIGKILL",
+          "testCounts": null,
+          "observedDiagnostic": "adoption recovery publication worker did not settle; managed_check completed, summary in_flight with publication_claim_fenced_before_mutation and nextEligibleAt still 874ms in the future",
+          "underlyingKillCause": "not established",
+          "log": "review-clock-e2e.log"
+        },
+        "diagnosticE2E": {
+          "exitCode": 1,
+          "reportPresent": false,
+          "outcome": "interrupted-SIGKILL",
+          "testCounts": null,
+          "elapsedSeconds": 4.302768024001125,
+          "maxChildRssKiB": 297852,
+          "userCpuSeconds": 1.818873,
+          "systemCpuSeconds": 3.886654,
+          "cgroupCountersAvailable": false,
+          "observedApplicationSessionRows": 0,
+          "pgObservationSamples": 11,
+          "maxPgObservationQueryDurationMs": 1292.072838,
+          "maxObservedLoopDelayMs": 1290.797055,
+          "executionPhaseLimit": "Only Vitest RUN was printed; no direct beforeEach hook was instrumented, so the exact execution point is not established.",
+          "underlyingKillCause": "not established; OOM not asserted",
+          "resources": "review-clock-e2e-diagnostic.resources.json"
+        },
+        "firstStop": {
+          "stoppedAt": "2026-11-25T16:49:19.676973+00:00",
+          "providerStopExitCode": 0,
+          "applicationStopExitCode": 0,
+          "qualificationExitCode": 1,
+          "providerPidFilePresent": false,
+          "applicationPidFilePresent": false,
+          "sensitiveEnvMode": "0o600"
+        },
+        "diagnosticStop": {
+          "stoppedAt": "2026-11-25T16:57:27.939002+00:00",
+          "applicationStopExitCode": 0,
+          "qualificationExitCode": 1,
+          "providerPidFilePresent": false,
+          "applicationPidFilePresent": false,
+          "sensitiveEnvMode": "0o600"
+        }
+      },
+      "dbSummaryReceipt": {
+        "localPath": "tmp/deep-review-evidence/review-clock-db-qualification-summary.json",
+        "sha256": "8fc5627e428b4c305a7b3d9f9f58f253d188b71739dabeeeedd897b7d517a02f"
+      }
+    },
+    "workerDrainCorrection": {
+      "reason": "The prior helper declared worker_stalled while the summary nextEligibleAt was still874ms in the future.",
+      "sourceEvidence": {
+        "localPath": "tmp/deep-review-evidence/review-clock-e2e.log",
+        "sha256": "fbe73d2459df12de20537d6fe2cf1466a87550fcbef8e1194e30fb4379245603"
+      },
+      "maximumAddedTimerDelayMs": 5000,
+      "preserved": [
+        "production retry policy",
+        "lease durations",
+        "reset and result assertions",
+        "global test timeouts",
+        "maxPasses=1 without deadline reads or waiting"
+      ],
+      "cancellation": "close aborts a pending retry timer and prevents a further maintenance pass.",
+      "limits": "The budget bounds requested timer delays, not maintenance/DB duration. General async teardown hazards and SIGKILL causes are not claimed fixed."
+    },
+    "independentSourceReview": "All five review findings validated and addressed; no remaining confirmed blocking source finding after source/evidence and helper review.",
+    "pendingQualification": [
+      "Ordinary exact-corrected-head full CI, including original native strict and complete production E2E",
+      "Protected merge and independent merge readback",
+      "Resulting main CI and automatic artifact publication verification"
+    ],
+    "applicationDeployment": "Not performed; staging and production remain pending in the registry."
+  },
+  "publicationWindowReviewFollowup": {
+    "recordedAtUtc": "2026-11-25T23:51:06.115Z",
+    "parentCheckpoint": "61ec1cb63ffc7d949fa5e040490930048e272032",
+    "integrationBase": "1912bb61b54de8af113e0dccd5d4a144382e19e2",
+    "sourceBindingFormat": "Exact Git blob object identities for all cumulative changed TypeScript files; prior SHA-256 receipts and source bindings remain unchanged in their historical sections.",
+    "sourceBindings": [
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-composition.test.ts",
+        "gitBlob": "30f8d57c5cec9409f12fca93c5861679fc2d8f8b"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-dependencies.ts",
+        "gitBlob": "0f872a1e535485f67061cc1ea5ec1f73944a8b4c"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-lifecycle.ts",
+        "gitBlob": "54fdc70b6ff0c0f056f9a75078da3051aa4140fe"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-execution-evidence-observations.ts",
+        "gitBlob": "6bdd124e5eea665c895625095cb7dbb7d0d56888"
+      },
+      {
+        "path": "apps/api/src/review-action-v2-production-composition.ts",
+        "gitBlob": "1f39bb660c098129aa2a6e79354e206bc4b1ab46"
+      },
+      {
+        "path": "packages/features/review-executions/src/application/ports/review-execution-ports.ts",
+        "gitBlob": "989d61e6a7d2433cd7ec65c31c08caeaf3c22825"
+      },
+      {
+        "path": "packages/features/review-executions/src/domain/review-execution-finalization-transitions.ts",
+        "gitBlob": "ad31f56b1da16867f418918d0aed4650a77109f2"
+      },
+      {
+        "path": "packages/features/review-executions/src/domain/review-execution-observation-transitions.ts",
+        "gitBlob": "a05cbf9d074d1d1ff7cbcb303d4093976e775462"
+      },
+      {
+        "path": "packages/features/review-executions/src/infrastructure/memory/in-memory-review-execution-store.ts",
+        "gitBlob": "919dd3642481ea502fa397dff1b24deffc777edf"
+      },
+      {
+        "path": "packages/features/review-executions/src/infrastructure/prisma/prisma-review-execution-store.ts",
+        "gitBlob": "ab11f3ce2586557f0d393a373f7f42bace2c175c"
+      },
+      {
+        "path": "packages/features/review-executions/src/tests/prisma-review-execution-store-real.test.ts",
+        "gitBlob": "b7e791fe2edd8d535bbabd8f84af2e681aabc82f"
+      },
+      {
+        "path": "packages/features/review-executions/src/tests/review-executions.test.ts",
+        "gitBlob": "6da54e36871958a097dee4901ccfddc033a593f5"
+      },
+      {
+        "path": "scripts/architecture-boundaries/transaction-serialization.ts",
+        "gitBlob": "16f26dc60a2d5adc57f427a9c274827884e65ffb"
+      },
+      {
+        "path": "scripts/check-architecture-boundaries.test.ts",
+        "gitBlob": "66f32ca6e18ae473e6b9806501e490d077c44aeb"
+      },
+      {
+        "path": "scripts/manage-review-provider-scope-concurrency.test.ts",
+        "gitBlob": "67b690dcfd459a7393f6f6e2b9764d6912cf5de8"
+      },
+      {
+        "path": "scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts",
+        "gitBlob": "e760ee9284e86d857af5b6a89dc6d8d4b4089e2a"
+      },
+      {
+        "path": "scripts/review-action-v2-production-e2e/support/review-action-v2-e2e-harness.ts",
+        "gitBlob": "a80fb9ba728fd8b70e303d366d7df4ceb282f883"
+      },
+      {
+        "path": "scripts/review-action-v2-production-e2e/support/review-action-v2-worker-drain.test.ts",
+        "gitBlob": "18dcbd2fc2a278a6f5d521d8853d745d2cb95caf"
+      },
+      {
+        "path": "scripts/review-action-v2-production-e2e/support/review-action-v2-worker-drain.ts",
+        "gitBlob": "473222a6892ead9634bfd1326c47dc42c51a63d7"
+      }
+    ],
+    "reviewSource": "CodeRabbit review submitted 2026-11-25T23:39:57Z for exact head 61ec1cb6, independently checked against source.",
+    "reviewThreads": ["PRRT_kwDOSTxTWc68J7vt", "PRRT_kwDOSTxTWc68J7vx"],
+    "corrections": [
+      "Assert the precise authorization/publication deadline reason, retaining no-finalization, no-signing and unchanged-state checks.",
+      "Return explicit internal PublicationWindowExpired through the domain and both adapters; API emits existing HTTP 410 ResourceGone/publication_permit_expired.",
+      "Keep full input and scope validation before expiry, and preserve immutable replay and version conflicts before the domain decision.",
+      "Require the real-PostgreSQL closed-window test to observe only the exact expired outcome with no persisted artifact/outbox/execution changes."
+    ],
+    "addedRegressionCases": [
+      "Maintained in-memory store: publication deadline equality and past deadline, unchanged snapshot.",
+      "Maintained API/store: lagging API time, simulated authoritative decision time at and after expiry, exact HTTP error and no signing.",
+      "Invalid retention remains a generic invariant failure instead of being relabeled as publication expiry.",
+      "Existing exact artifact replay remains Restored after its publication deadline; changed hash remains Conflict."
+    ],
+    "precedingQualification": {
+      "sourceCheckpoint": "97be9156e4ca1b115b1d5f4bb34e3f39c80116c2",
+      "ci": "https://github.com/777genius/review-router-ai/actions/runs/45665988909",
+      "completedAtUtc": "2026-11-25T23:10:37Z",
+      "conclusion": "success",
+      "manualJobRetries": 1,
+      "interruptedJob": "https://github.com/777genius/review-router-ai/actions/runs/45665988909/job/139390753477",
+      "successfulRetry": "https://github.com/777genius/review-router-ai/actions/runs/45665988909/job/139491255220",
+      "interruptionCause": "Unknown; exit 137/SIGKILL does not establish OOM. Original command, selection, timeouts, isolation and worker settings were retained.",
+      "fullNativeStrict": "TypeScript 7.0.2; 56/56 workspace tasks and original spikes, handoff and tooling configurations.",
+      "vitest": {
+        "passedFiles": 1076,
+        "skippedFiles": 71,
+        "passedTests": 15748,
+        "skippedTests": 891,
+        "failedTests": 0
+      },
+      "nodeEvalRisk": {
+        "passed": 47,
+        "failed": 0,
+        "skipped": 0
+      },
+      "realPostgresExecution": {
+        "passed": 56,
+        "failed": 0,
+        "skipped": 0
+      },
+      "productionSourceE2E": {
+        "passed": 18,
+        "failed": 0,
+        "skipped": 0
+      },
+      "relatedWorkflows": [
+        "https://github.com/777genius/review-router-ai/actions/runs/45665988913",
+        "https://github.com/777genius/review-router-ai/actions/runs/45665988968",
+        "https://github.com/777genius/review-router-ai/actions/runs/45665988922",
+        "https://github.com/777genius/review-router-ai/actions/runs/45665988918"
+      ],
+      "relatedConclusion": "success",
+      "qualifiesLaterSourceChanges": false,
+      "note": "Counts overlap. Skipped unit tests are reported as observed, not individually re-audited; real PostgreSQL and production E2E qualified separately without skips."
+    },
+    "documentationOnlyIntegration": {
+      "commit": "61ec1cb63ffc7d949fa5e040490930048e272032",
+      "tree": "2586dde16542ea38bccbd2fcf28240b23193c0a9",
+      "previousHead": "97be9156e4ca1b115b1d5f4bb34e3f39c80116c2",
+      "main": "1912bb61b54de8af113e0dccd5d4a144382e19e2",
+      "changedMarkdownFiles": 2,
+      "addedLines": 8,
+      "applicationAndQualificationInputsUnchanged": true,
+      "actualGitMergeTreeEqualsPublishedTree": true
+    },
+    "localQualification": "Not run for this follow-up while the local executor was unavailable. No fallback compiler, formatter, reduced configuration or fabricated RED result is claimed.",
+    "pendingQualification": [
+      "Independent review of the concrete prepared correction before publication.",
+      "Ordinary exact-head full CI and related workflows, using pinned original native tools and complete PostgreSQL/E2E lanes.",
+      "Normal protected merge, merge readback, main CI and automatic artifact verification."
+    ],
+    "applicationDeployment": "Not performed; staging and production remain pending in the registry."
+  }
+}
