@@ -17,6 +17,7 @@ import {
 } from "./fixture-contract.js";
 import {
   chooseCard,
+  chooseClaudeSecret,
   chooseModel,
   chooseNewProvider,
   chooseSource,
@@ -584,7 +585,7 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
         page.getByRole("button", { name: "Choose default provider" }),
       );
       await chooseNewProvider(dialog);
-      await chooseSource(page, dialog, SOURCE.claudeSecret);
+      await chooseClaudeSecret(page, dialog);
     },
   }),
   dialogScenario({
@@ -606,7 +607,7 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
         page,
         page.getByRole("button", { name: "Add provider" }),
       );
-      await chooseSource(page, dialog, SOURCE.claudeSecret);
+      await chooseClaudeSecret(page, dialog);
     },
   }),
   dialogScenario({

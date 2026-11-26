@@ -57,16 +57,15 @@ import type { NativeVisibilityFixture } from "./native-visibility-fixture.js";
 import type { NativeOperationsFixture } from "./native-operations-fixture.js";
 import {
   chooseCard,
+  chooseClaudeSecret,
   chooseModel,
   chooseNewProvider,
-  chooseSource,
   openDialog,
   providerListRow,
   repositoryRoute,
   repositoryRowHeader,
   repositorySetupPanel,
   repositoryStepPill,
-  SOURCE,
   workspaceRoute,
 } from "./ui.js";
 
@@ -734,7 +733,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
 
       await dialog.getByRole("button", { name: "1. Provider" }).click();
       await chooseNewProvider(dialog);
-      await chooseSource(page, dialog, SOURCE.claudeSecret);
+      await chooseClaudeSecret(page, dialog);
       await flow.check(
         "subscription selection remains OAuth, never the Anthropic API-key source",
         async () => {
@@ -936,7 +935,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
       );
       await dialog.getByRole("button", { name: "1. Provider" }).click();
       await chooseNewProvider(dialog);
-      await chooseSource(page, dialog, /^Claude Code(?: · GitHub Secrets)?$/);
+      await chooseClaudeSecret(page, dialog);
 
       await flow.check(
         "Claude is one provider with two explicit credential methods",
@@ -1296,7 +1295,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
         }),
       );
       await chooseNewProvider(dialog);
-      await chooseSource(page, dialog, SOURCE.claudeSecret);
+      await chooseClaudeSecret(page, dialog);
       await chooseModel(dialog, "haiku");
       await dialog
         .getByRole("button", { name: "Use for this repository" })
@@ -2032,7 +2031,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
         owner.getByRole("button", { name: "Choose default provider" }),
       );
       await chooseNewProvider(dialog);
-      await chooseSource(owner, dialog, SOURCE.claudeSecret);
+      await chooseClaudeSecret(owner, dialog);
       await dialog.getByRole("button", { name: "Set as default" }).click();
       const finish = dialog.getByRole("link", {
         name: "Finish repository setup",
