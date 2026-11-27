@@ -5096,6 +5096,36 @@ it("retains the original capability when exact preparation proof is unavailable"
   }
 });
 
+it("does not reprepare when the durable binding differs from the retained capability", async () => {
+  const f = await fixture(MiB);
+  const originalRead = f.bindings.readForCleanup;
+  try {
+    await f.preparation.prepare();
+    vi.spyOn(f.bindings, "readForCleanup").mockImplementation(async (owner) => {
+      const value = await originalRead(owner);
+      return value ? { ...value, executionRef: "foreign-execution" } : null;
+    });
+    f.setCloseResponseOverride((operationId) => ({
+      status: 401,
+      body: {
+        code: "unauthenticated",
+        traceRef: "trace-1",
+        operationRef: operationId,
+        effect: "not_dispatched",
+        retry: { kind: "never" },
+      },
+    }));
+    await expect(f.preparation.close("cancelled")).rejects.toBeDefined();
+    expect(f.intents).toHaveLength(1);
+    expect(f.operationReads).toHaveLength(0);
+    expect(f.preparation.canReleaseWithoutRemoteClose()).toBe(false);
+  } finally {
+    vi.restoreAllMocks();
+    f.setCloseResponseOverride();
+    await f.relay.shutdown();
+  }
+});
+
 it("joins concurrent stale close retries without changing the close identity", async () => {
   const f = await fixture(MiB);
   let calls = 0;

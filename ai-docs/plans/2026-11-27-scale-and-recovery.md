@@ -503,8 +503,9 @@ effects survive restart and rollback. Never delete pending work to recover healt
   passed 90, adjacent authorization suites 37, and the final repository admission
   suite 11. The final suite proves rollback after later authority SQL, authorization
   insertion and outbox insertion cross the catalog TTL. Seven new relay recovery
-  cases and one original HTTP case passed separately. The complete 182-case relay
-  suite and the extended 91-case snapshot suite still need successful completion;
+  cases and one original HTTP case passed separately. The pre-main-integration 182-case relay
+  suite and the extended 91-case snapshot suite still needed successful completion
+  at that checkpoint;
   interrupted runs supply no evidence for their remaining cases.
 - Cross-owner G review found TTL could expire during SQL after the first runtime
   fence. The existing authorization repository now checks a synchronous native
@@ -587,7 +588,7 @@ effects survive restart and rollback. Never delete pending work to recover healt
   migrating their full historical policy/rehearsal modules would expand this fix.
   Their JavaScript type-coverage gap remains explicit; new test code is TypeScript.
 
-### Final main integration: stale close capability
+### Main integration: stale close capability
 
 The live PR recheck found #1022 after the initial audit. Its source demonstrated
 a separate pre-existing cleanup liveness defect: a retained client can keep
@@ -607,7 +608,7 @@ normal merge from main. The author's external fixtures are not our test results.
 One additional integration case combines a native catalog outage with a single
 definite 401, then uses the ordinary close fixture for the successful retry.
 It must prove no extra catalog read or inference, unchanged preparation/close
-identity and a closed native execution. The combined relay suite now expects
+identity and a closed native execution. The combined relay suite at that checkpoint expects
 188 cases. This does not promise recovery of already expired capabilities or
 establish the cause of the author's reported historical bearer refusals.
 
@@ -617,9 +618,58 @@ The merged API source needs its own full qualification; the web/browser inputs
 are unchanged by this API-only main integration and retain their original source
 binding. No queued run is treated as a blocker or a successful test.
 
+### Follow-up binding guard and qualification checkpoint
+
+Main advanced to `d84feba7ae08cf477f5b0584e526971f38458c04`, preserving the
+follow-up `6271ebe1f5e98bb376b4c7269394f806cb73041f` and its two deployment
+records. The source delta is 12 preparation lines and one 30-line regression.
+Independent reviews approved the ordinary merge: a stale canonical or saved
+binding mismatch is rejected before consumer-control readback or reprepare;
+the original operation, execution, account, epoch and deadline must agree.
+This narrows stale refresh, preserves custody on refusal, and adds no catalog
+dependency to cleanup. Our existing outage/401 case covers the positive path;
+the incoming mismatch case covers the negative path. The combined suite now
+contains 189 cases and requires its own successful execution.
+
+The peer's 181 isolated tests and reported production installation of `6271ebe1`
+remain attributed in the unchanged peer record. They are not qualification or
+deployment of this Draft. No production operation was performed in this task.
+
+| Qualification on exact `e6095e3e` | Actual result | Remaining boundary |
+| --- | --- | --- |
+| Public catalog HTTP and provider-key route | 18/18 passed, zero skips. The corrected unfinished ServerResponse close assertion executed successfully. | Real loopback response ownership and the existing 256 KiB route envelope. |
+| Migration source admission | 252/252 passed across six complete suites, zero skips. | The seventh private-rehearsal suite still requires generated Prisma. Earlier 14 reader/partition checks and three syntax checks remain separate evidence. |
+| Late source integration | All 12 JS/TS files since `dc9f0cd8` passed original ESLint 10.3.0 and Prettier 3.8.3; zero lint warnings/errors. Incoming shell passed `bash -n`. | This does not replace the complete original strict TypeScript projects or qualify the later 12-line main guard. |
+| Native relay / snapshot | Full relay188 and extended snapshot91 remained pending on this source. | After the follow-up main guard, require relay189; no interrupted process counts as a completed case. |
+| Actual webhook database boundaries | 23 atomicity cases plus one COMMIT-acknowledgement-loss case remain pending. | Require all 24 through the real signed HTTP/PostgreSQL composition. |
+| Usage fixture correction | All 20 actual PostgreSQL cases remain pending. | Preserve complete report equality and the exact four-line correction from #1015. |
+
+Frozen dependency restoration succeeded with the pinned toolchain. The subsequent
+ordinary offline Prisma probe could not create its network namespace, and the
+canonical pinned runtime build was killed before root exports existed; no partial
+runtime was installed. A later legitimate rootless user/network namespace probe
+succeeded with distinct network identity and no egress. The executor disconnected
+before canonical generation could start inside it. This is preparation evidence
+only; the required offline guard and environment whitelist remain unchanged.
+
+Manual full CI `45937669312` (`29cbbe54`), full CI `45940187687` (`e6095e3e`)
+and Native Accounts browser `45937901453` (`29cbbe54`) remain independently
+source-bound. The older Linux installer job `140316711863` reached Vitest and
+was cancelled by its 10-minute job limit, confirmed by the official job
+annotation. No testcase failure or narrower cause was available. One exact local
+diagnostic was killed before Vitest collection; it does not reproduce that CI
+timeout. Workflow deadlines, installer assertions and routing were not changed.
+The current installer counterpart and the other jobs continue normally.
+
+The Web, browser harness, database and dependency inputs are unchanged by both
+API-only main integrations, so the older browser run remains applicable to J
+with its original source binding. The new merged API still requires exact-source
+full CI and its dedicated PG17 job, separately from the aggregate status.
+
 ### Remaining qualification and review gates
 
-1. Finish G and I focused real-boundary suites and the corrected HTTP assertion.
+1. Finish G and I focused real-boundary suites. The corrected HTTP assertion
+   and provider-key route already passed all 18 cases on `e6095e3e`.
    Restore valid test fixture composition when strict production roots require it;
    do not add production fallbacks solely for incomplete mocks.
 2. Run original strict TS7 owner projects, changed-file preflight and the applicable

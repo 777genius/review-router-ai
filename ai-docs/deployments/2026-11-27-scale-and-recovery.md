@@ -15,7 +15,10 @@
 - Final main dependency: preserve the merged stale-close capability correction
   `ef062a4828ab96aa8199ca2710328c9644da96af` and its
   [separate deployment record](2026-11-27-relay-stale-close-capability.md).
-  The combined API source and catalog-outage/401 interaction require qualification.
+  Preserve the follow-up binding guard `6271ebe1f5e98bb376b4c7269394f806cb73041f`
+  from main `d84feba7ae08cf477f5b0584e526971f38458c04`. The peer reports its own
+  production installation; this Draft remains uninstalled. The combined 189-case
+  API source and catalog-outage/401 interaction require separate qualification.
 - Dependencies: preserve the already merged
   [multi-tenant reliability work](2026-11-25-multi-tenant-reliability.md);
   complete exact-head qualification before release selection.
@@ -99,8 +102,11 @@ the earlier fresh-cluster migration pass alone does not qualify every release ga
 | Runtime SQL plus worker/SQL integration | 9 actual PostgreSQL 17.10 tests passed. | Server cancellation, lock wait, disconnect and subsequent pool recovery; no throughput SLA. |
 | Accounts enrichment and final fences | 155 tests in 11 suites passed; actual SDK/HTTP 100-account stalled body followed by successful recovery. | Final local authorization remains mandatory beyond the optional remote budget. |
 | Latest-row readers and migrations | 16 tests passed; full 172 migrations applied, including both new indexes. | Driver SQL/rows, tenant and empty cases, ordering and real concurrent snapshot. Timings are synthetic. |
-| Migration source admission on `29cbbe54` | Three legacy modules passed syntax checks; 14 checks of actual exported readers and partition functions passed. | Node 24.22.3 without dependency substitutions; not Vitest, strict TypeScript or PostgreSQL qualification. |
-| Native catalog, atomic webhook, corrected catalog body assertion | Qualification in progress. | Source changes or an interrupted run are not passing evidence. |
+| Migration source admission | On `e6095e3e`, 252/252 cases in six full suites passed without skips. Earlier `29cbbe54` syntax3 and reader/partition14 also passed. | Seventh private-rehearsal suite and full release gates still pending; original assertions/configs retained. |
+| HTTP catalog body and provider-key envelope | On `e6095e3e`, all 18 tests passed without skips, including the corrected unfinished-response close assertion. | Real loopback transport recovery and the existing 256 KiB request limit. |
+| Native catalog and atomic webhook | Full relay189, extended snapshot91 and real webhook23+COMMIT-loss1 remain pending. | The incoming main binding guard needs combined qualification; earlier focused results do not replace these gates. |
+| Usage fixture correction | Actual PostgreSQL20 remain pending. | Exact four-line #1015 test correction, with full report assertions retained. |
+| Late source checks | On `e6095e3e`, all 12 late JS/TS files passed ESLint and Prettier; shell syntax passed. | Zero lint warnings/errors; full strict projects and the later main guard still require CI. |
 | Strict projects and authoritative CI | In progress. | Queued/running/skipped or resource-killed checks are not successful completion. |
 
 The synthetic 20-repository fixture changed health/diagnostics child hydration
@@ -153,8 +159,11 @@ inference or establish why historical production bearers were rejected.
 
 | Time (UTC) | Environment | Operator | Source | Step and observed result | Next action |
 | --- | --- | --- | --- | --- | --- |
-| 2026-11-27 | Local qualification | Coding agent | `3cb28a1`, corrected test `c9659a4` | Initial HTTP suites passed 18 tests; response-close observation strengthened in review. | Rerun strengthened assertion. |
+| 2026-11-27 | Local qualification | Coding agent | `3cb28a1`, corrected test `c9659a4` | Initial HTTP suites passed 18 tests; response-close observation strengthened in review. | Corrected suite subsequently passed on `e6095e3e`. |
 | 2026-11-27 | Local qualification | Coding agents | `b63ff68` | Worker 227 and actual PostgreSQL/worker 9 passed. | Finish original strict projects. |
 | 2026-11-27 | Local qualification | Coding agent | `bdb4ac8` | Accounts 155 passed, including real SDK/HTTP recovery. | Final cross-owner review. |
 | 2026-11-27 | Disposable PostgreSQL 17.10 | Coding agent | F candidate on the same branch | 172 actual migrations; 16 latest-reader tests passed. | Publish source and finish strict checks. |
-| Not executed | staging / production | Unassigned | Not verified | No rollout attempted. | Complete qualification before separately authorized release. |
+| 2026-11-27 | Local qualification | Coding agent | `e6095e3e` | HTTP18 and six migration suites252 passed, zero skips; late ESLint/Prettier12 and shell syntax passed. | Complete strict/PG/full API/browser CI. |
+| 2026-11-27 | Local preparation | Coding agent | `e6095e3e` | Ordinary offline Prisma isolation unavailable; runtime build killed. Rootless isolation probe later succeeded, but executor disconnected before generation. No partial runtime installed. | Resume only with actual isolated generation, or use authoritative CI. |
+| 2026-11-27 | GitHub CI | Coding agent | `29cbbe54` | Installer job140316711863 cancelled at the 10-minute limit; narrower cause unconfirmed. Local diagnostic was killed before Vitest collection. | Await current counterpart and remaining jobs; preserve timeouts/assertions. |
+| Not executed | staging / production | Unassigned | Not verified | No rollout of this Draft attempted. The separate peer installation record remains attributed to its owner. | Complete qualification before separately authorized release. |
