@@ -4,6 +4,7 @@ import {
   randomUUID,
   timingSafeEqual,
 } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import {
   Prisma,
   type PrismaClient,
@@ -720,9 +721,9 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
       const initial = await tx.reviewRunCompanionDispatchV1.findUnique({
         where,
       });
-      const notAfter =
+      const authority =
         initial && (await this.nativeRetryAuthority(tx, initial));
-      if (!initial || !notAfter) fail("model_dispatch_retry_denied");
+      if (!initial || !authority) fail("model_dispatch_retry_denied");
       await tx.$queryRaw`SELECT "dispatchId" FROM "ReviewRunCompanionDispatchV1" WHERE "authorizationId" = ${authorizationId} AND "dispatchId" = ${dispatchId} FOR UPDATE`;
       const row = await tx.reviewRunCompanionDispatchV1.findUnique({ where });
       if (
@@ -752,7 +753,7 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
       >`SELECT (clock_timestamp() AT TIME ZONE 'UTC') AS "now"`;
       if (
         !clock ||
-        clock.now >= notAfter ||
+        clock.now >= authority.notAfter ||
         !nativeRetryBindingMatches(
           auth?.gatewayExecutionCanonicalJson,
           captured,
@@ -777,21 +778,17 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
     if (row.nativeRetryProofJson === null || row.state !== "not_dispatched")
       return dispatch;
     const notAfter = await this.prisma.$transaction(async (tx) => {
-      const authorityNotAfter = await this.nativeRetryAuthority(tx, row);
-      if (!authorityNotAfter) return undefined;
+      const authority = await this.nativeRetryAuthority(tx, row);
+      if (!authority) return undefined;
       const successors = await tx.reviewRunCompanionDispatchV1.count({
         where: {
           authorizationId: row.authorizationId,
           retryOfDispatchId: row.dispatchId,
         },
       });
-      return successors === 0
-        ? new Date(
-            Math.min(authorityNotAfter.getTime(), row.retainUntil.getTime()),
-          )
-        : undefined;
+      return successors === 0 ? authority.proofNotAfter : undefined;
     });
-    return notAfter
+    return notAfter !== undefined && performance.now() < notAfter
       ? {
           ...dispatch,
           nativeRetryProofNotAfter: notAfter,
@@ -808,7 +805,7 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
   private async nativeRetryAuthority(
     tx: Prisma.TransactionClient,
     row: ReviewRunCompanionDispatchV1,
-  ) {
+  ): Promise<Readonly<{ notAfter: Date; proofNotAfter: number }> | false> {
     const first = await tx.reviewRunAuthorization.findUnique({
       where: { authorizationId: row.authorizationId },
     });
@@ -863,6 +860,7 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
       },
     });
     const budget = modelBudget(auth?.runtimeSnapshotCanonicalJson);
+    const clockReadStartedAt = performance.now();
     const [clock] = await tx.$queryRaw<
       readonly { now: Date }[]
     >`SELECT (clock_timestamp() AT TIME ZONE 'UTC') AS "now"`;
@@ -918,24 +916,34 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
     )
       return false;
     const proof = nativeRetryAttestation(row);
-    if (
-      row.nativeRetryProofJson !== null &&
-      !nativeRetryBindingMatches(
-        auth.gatewayExecutionCanonicalJson,
-        proof,
-        clock.now,
-      )
-    )
-      return false;
-    return new Date(
+    let bindingDeadline = Number.POSITIVE_INFINITY;
+    if (row.nativeRetryProofJson !== null) {
+      const binding = auth.gatewayExecutionCanonicalJson;
+      if (!binding || !nativeRetryBindingMatches(binding, proof, clock.now))
+        return false;
+      bindingDeadline = Date.parse(
+        parseReviewRunGatewayExecutionBinding(binding).deadline,
+      );
+    }
+    const notAfter = new Date(
       Math.min(
         auth.expiresAt.getTime(),
         auth.maxExpiresAt.getTime(),
         execution.executionDeadlineAt.getTime(),
         lease.expiresAt.getTime(),
         Date.parse(budget.deadline),
+        bindingDeadline,
       ),
     );
+    return {
+      notAfter,
+      // Anchor before the DB read so elapsed query time only shortens validity.
+      // Host wall-clock skew must never extend authority or receipt retention.
+      proofNotAfter:
+        clockReadStartedAt +
+        (Math.min(notAfter.getTime(), row.retainUntil.getTime()) -
+          clock.now.getTime()),
+    };
   }
 }
 

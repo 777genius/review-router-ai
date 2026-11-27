@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import Fastify from "fastify";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   canonicalJson,
   ClaimReviewRunCompanionDispatch,
@@ -459,6 +460,8 @@ it.each([
     };
     let reads = 0;
     let custodyChecks = 0;
+    let monotonicNow = 1_000;
+    let wallClockNow = Date.UTC(2126, 0, 1);
     const denied = async (): Promise<never> => {
       throw new Error("unexpected_authority_request");
     };
@@ -483,13 +486,14 @@ it.each([
         });
         if (custody === "failed")
           throw new Error("disposable_custody_unavailable");
-        if (expires) {
-          const cutoff = dispatch.nativeRetryProofNotAfter!.getTime();
-          expect(cutoff).toBeGreaterThan(Date.now());
-          await new Promise<void>((resolve) =>
-            setTimeout(resolve, Math.max(0, cutoff - Date.now()) + 10),
-          );
-          expect(Date.now()).toBeGreaterThanOrEqual(cutoff);
+        if (custody === "live") {
+          const cutoff = dispatch.nativeRetryProofNotAfter!;
+          expect(cutoff).toBeGreaterThan(performance.now());
+          // Custody spans an await while wall time moves backwards. Only the
+          // original monotonic cutoff controls its exact expiry boundary.
+          await Promise.resolve();
+          monotonicNow = expires ? cutoff : cutoff - 1;
+          wallClockNow = Date.UTC(1970, 0, 1);
         }
         return custody === "live";
       },
@@ -497,9 +501,8 @@ it.each([
         row = {
           ...row,
           state: "not_dispatched",
-          nativeRetryProofNotAfter: new Date(
-            Date.now() + (expires ? 1000 : 60_000),
-          ),
+          nativeRetryProofNotAfter:
+            performance.now() + (expires ? 1_000 : 60_000),
           nativeRetryProof: {
             kind: "native_rejection_after_forward",
             reason: "admission_storage_conflict",
@@ -529,6 +532,10 @@ it.each([
         },
       },
     });
+    const monotonic = vi
+      .spyOn(performance, "now")
+      .mockImplementation(() => monotonicNow);
+    const wall = vi.spyOn(Date, "now").mockImplementation(() => wallClockNow);
     try {
       const response = await app.inject({
         method: "GET",
@@ -552,7 +559,12 @@ it.each([
       else
         expect(response.json().dispatch).not.toHaveProperty("nativeRetryProof");
     } finally {
-      await app.close();
+      try {
+        await app.close();
+      } finally {
+        monotonic.mockRestore();
+        wall.mockRestore();
+      }
     }
   },
 );
@@ -1274,6 +1286,83 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
     },
   );
 
+  it("bounds the DB-derived proof cutoff by the shorter original Gateway deadline despite host skew", async () => {
+    const f = await fixture(4, "account_gateway", true, true, true);
+    const original = claim(await f.acquireClaim(0), f);
+    const [auth, execution, lease] = await Promise.all([
+      f.prisma.reviewRunAuthorization.findUniqueOrThrow({
+        where: { authorizationId: original.authorizationId },
+      }),
+      f.prisma.reviewExecutionV2.findUniqueOrThrow({
+        where: { executionId: original.executionId },
+      }),
+      f.prisma.reviewInvocationLeaseV2.findUniqueOrThrow({
+        where: { leaseId: original.leaseId },
+      }),
+    ]);
+    const bindingDeadline = lease.expiresAt.getTime() - 1_000;
+    await f.prisma.reviewRunAuthorization.update({
+      where: { authorizationId: original.authorizationId },
+      data: {
+        gatewayExecutionCanonicalJson: canonicalJson({
+          bindingVersion: 1,
+          operationId: "operation-1",
+          executionRef: "original-gateway-execution",
+          accountRef: "original-account",
+          authorizationEpoch: 1,
+          deadline: new Date(bindingDeadline).toISOString(),
+        }),
+      },
+    });
+    const rejected = await reservedNative(f, original);
+    await f.repository.recordNativeRejection(
+      original.authorizationId,
+      original.dispatchId,
+      nativeProof(rejected.dispatch.nativeRequestRef),
+    );
+    const notAfter = Math.min(
+      auth.expiresAt.getTime(),
+      auth.maxExpiresAt.getTime(),
+      execution.executionDeadlineAt.getTime(),
+      lease.expiresAt.getTime(),
+      Date.parse(f.budget.deadline),
+      bindingDeadline,
+    );
+    expect(notAfter).toBe(bindingDeadline);
+    expect(bindingDeadline).toBeLessThan(lease.expiresAt.getTime());
+    const monotonic = vi.spyOn(performance, "now").mockReturnValue(10_000);
+    const wall = vi.spyOn(Date, "now").mockReturnValue(Date.UTC(2126, 0, 1));
+    try {
+      const [before] = await f.prisma.$queryRaw<
+        readonly { now: Date }[]
+      >`SELECT (clock_timestamp() AT TIME ZONE 'UTC') AS "now"`;
+      const row = await f.repository.readReceipt(
+        original.dispatchId,
+        rejected.receiptToken!,
+      );
+      const [after] = await f.prisma.$queryRaw<
+        readonly { now: Date }[]
+      >`SELECT (clock_timestamp() AT TIME ZONE 'UTC') AS "now"`;
+      expect(row).toMatchObject({
+        state: "not_dispatched",
+        nativeRetryProof: {
+          kind: "native_rejection_after_forward",
+          reason: "admission_storage_conflict",
+        },
+      });
+      expect(row?.nativeRetryProofNotAfter).toBeGreaterThan(10_000);
+      expect(row?.nativeRetryProofNotAfter).toBeLessThanOrEqual(
+        10_000 + notAfter - before!.now.getTime(),
+      );
+      expect(row?.nativeRetryProofNotAfter).toBeGreaterThanOrEqual(
+        10_000 + notAfter - after!.now.getTime(),
+      );
+    } finally {
+      monotonic.mockRestore();
+      wall.mockRestore();
+    }
+  });
+
   it("hides retry after ownership expiry while retained reporting still accepts late ACK", async () => {
     const f = await fixture(4, "account_gateway", true, true, true);
     const original = claim(await f.acquireClaim(0), f);
@@ -1638,7 +1727,10 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
           reservation.receiptToken!,
         );
         expect(before).toHaveProperty("nativeRetryProof");
-        expect(before?.nativeRetryProofNotAfter).toBeInstanceOf(Date);
+        expect(typeof before?.nativeRetryProofNotAfter).toBe("number");
+        expect(before?.nativeRetryProofNotAfter).toBeGreaterThan(
+          performance.now(),
+        );
       }
       const settlement = native ? nativeSettlement : completed(c, f);
       const unexpected = async (): Promise<never> => {

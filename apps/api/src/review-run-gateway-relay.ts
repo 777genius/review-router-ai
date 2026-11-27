@@ -1311,7 +1311,7 @@ export function createReviewRunGatewayRelay(input: {
       const reader = stream.body.getReader();
       let received = 0;
       let completed = false;
-      let settlementStarted = false;
+      let outcomeOwner: "pull" | "cancel" | undefined;
       const abort = () => {
         dispose();
         void stream.cancel().catch(() => {});
@@ -1339,14 +1339,18 @@ export function createReviewRunGatewayRelay(input: {
                 | "downstream" = "upstream_read";
               try {
                 const chunk = await reader.read();
+                phase = "cancelled";
+                if (outcomeOwner === "cancel")
+                  throw new Error("companion_cancelled");
+                // EOF reconciliation owns the outcome across authority, status,
+                // and both persistence awaits; its catch still records failure.
+                if (chunk.done) outcomeOwner = "pull";
                 phase = "authority_recheck";
                 await localFresh();
                 phase = "cancelled";
                 if (signal.aborted) throw new Error("companion_cancelled");
                 if (chunk.done) {
-                  // EOF owns its status read and both settlement writes.
                   // EOF alone is not native no-dispatch/completion evidence.
-                  settlementStarted = true;
                   phase = "native_status";
                   const status = await session.preparation.status(
                     requestRef,
@@ -1392,7 +1396,10 @@ export function createReviewRunGatewayRelay(input: {
                 } catch {
                   /* Diagnostics must not affect settlement. */
                 }
-                if (!completed) await unknown();
+                if (!completed && outcomeOwner !== "cancel") {
+                  outcomeOwner = "pull";
+                  await unknown();
+                }
                 cleanup();
                 await stream.cancel().catch(() => {});
                 target.error(
@@ -1406,7 +1413,10 @@ export function createReviewRunGatewayRelay(input: {
               }
             },
             async cancel() {
-              if (!completed && !settlementStarted) await unknown();
+              if (!completed && outcomeOwner === undefined) {
+                outcomeOwner = "cancel";
+                await unknown();
+              }
               cleanup();
               await stream.cancel();
             },
@@ -1414,7 +1424,10 @@ export function createReviewRunGatewayRelay(input: {
           { highWaterMark: 0 },
         ),
         cancel: async () => {
-          if (!completed && !settlementStarted) await unknown();
+          if (!completed && outcomeOwner === undefined) {
+            outcomeOwner = "cancel";
+            await unknown();
+          }
           cleanup();
           await stream.cancel();
         },
