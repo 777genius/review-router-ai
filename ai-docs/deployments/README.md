@@ -104,7 +104,7 @@ Repositories page without a reload after setup confirmations: [the repository ro
 
 - [Relay stale close capability recovery](2026-11-27-relay-stale-close-capability.md): exact pre-expiry retry after a definite 401; production installed on `6271ebe1`, live recovery verification and staging pending.
 - [PostgreSQL automatic restart deferral](2026-11-27-postgresql-maintenance-deferral.md): production override installed; actual unattended-upgrade observation and staging pending.
-- [Durable GitHub webhook delivery](2026-11-27-webhook-effect-fence.md): all six production paths and bounded known-delivery recovery implemented; final-source tests/CI pending, staging and production `pending`; controlled writer drain required, no operational rollout or replay performed.
+- [Durable GitHub webhook delivery](2026-11-27-webhook-effect-fence.md): all six production paths and bounded known-delivery recovery implemented; native PostgreSQL 142/142 and unit/harness 111/111 passed; merge requires current-head CI, staging and production `pending`; controlled writer drain required, no operational rollout or replay performed.
 - [Relay close and pressure-batch diagnostics](2026-11-22-relay-close-diagnostics.md): #962 preparation observations plus an aggregate continuation; API observability is pending staging and production rollout.
 
 Bound close-authority database work and drain restored closes on shutdown: [relay close authority bounds](2026-11-23-relay-close-authority-bounds.md) - API-only, depends on #970 and #988; staging `pending`, production `installed` on `f20a75ed`, with live verification pending. Limits close-authority phases, not all DB traffic or tenant fairness.

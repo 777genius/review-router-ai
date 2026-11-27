@@ -1,8 +1,9 @@
 # Durable GitHub webhook delivery — completion plan
 
-Status: production composition and bounded recovery are implemented in PR #1027;
-final-source execution and CI qualification are still pending. No production
-migration, replay, deployment or activation has been performed by this workstream.
+Status: production composition and bounded recovery are implemented in PR #1027.
+The complete native PostgreSQL matrix has passed. Merge requires successful checks
+on the exact reviewed final head; the PR validation and checks record that status.
+No production migration, replay, deployment or activation has been performed.
 
 ## Outcome and scope
 
@@ -159,7 +160,8 @@ token/revision/expiry snapshot and performs a bounded read-only GitHub `/user`
 request outside the transaction. A valid response for the expected user preserves
 the grant. A `401` can revoke only that exact unrefreshed snapshot under the auth
 owner's row lock, using a fresh database clock and the existing five-minute expiry
-skew. Reconnect, refresh, near/unknown expiry, other HTTP outcomes and unavailable
+skew. Database comparisons and timestamp writes use UTC explicitly, matching
+Prisma's timestamp-without-timezone storage even in a non-UTC PostgreSQL session. Reconnect, refresh, near/unknown expiry, other HTTP outcomes and unavailable
 evidence require reconciliation without changing the grant or its permission cache.
 This prevents an unsupported destructive revocation; existing authorization/cache
 policy still governs subsequent requests and is not claimed to be globally denied.
@@ -177,50 +179,58 @@ this token check from the schema migration: the controlled fleet drain is mandat
        (source complete; runtime qualification remains below).
 4. [x] Implement bounded claim/retry, stale terminal rejection, failure and known
        recovery transitions (source complete; execution proof remains below).
-5. [ ] Apply the complete actual migration history to a disposable PostgreSQL database;
+5. [x] Apply the complete actual migration history to a disposable PostgreSQL database;
        exercise trigger/check/index behavior and application-role privileges (no db push).
-6. [ ] Run real signed HTTP → Prisma → PostgreSQL → outbox E2E, including concurrent
+6. [x] Run real signed HTTP → Prisma → PostgreSQL → outbox E2E, including concurrent
        duplicate, body/App mismatch, death before effects, rollback during effects,
        expired held owner, simultaneous takeover, stale finish/fail/renew and COMMIT loss.
-7. [ ] Verify independent PR/push work, setup versus authority change, old terminal
+7. [x] Verify independent PR/push work, setup versus authority change, old terminal
        writer rejection, legacy no-takeover and old schema reader compatibility.
-8. [ ] Exercise one POST, response loss, duplicate request, fake 202/200 without a
+8. [x] Exercise one POST, response loss, duplicate request, fake 202/200 without a
        receipt, exact receiver confirmation and bounded pagination/rate-limit failures.
-9. [ ] Run affected tests, strict TypeScript 7.0.2, lint/format/architecture and required
-       full CI. Mandatory PostgreSQL qualification must fail if its tests are skipped.
-10. [ ] Review the complete final diff independently; fix findings and repeat affected
-        evidence. Reconcile PR #1026's acknowledgement contract and overlapping #1021 work.
+9. Run affected tests, strict TypeScript 7.0.2, lint/format/architecture and required
+   full CI. Mandatory PostgreSQL qualification must fail if its tests are skipped.
+10. Review the complete final diff independently; fix findings and repeat affected
+    evidence. Reconcile PR #1026's acknowledgement contract and overlapping #1021 work.
 
 ## Current execution evidence
 
-The earlier isolated fence tests and 170-baseline → 172-final migration rehearsal
-were partial checkpoints before the final replay guard, production HTTP suites and
-operator composition. They are not a passing result for the final source.
+Source `76f715cb57721558a6fff1dcf87696b7e2717c96` completed all 13 mandatory
+PostgreSQL suites: **142 tests passed, zero failures, skips or todo**. Its tree
+`4d75176b436fed41e180bc052c5da4425a09e2f8` exactly matches the executed source.
+The runner applied the actual 170-migration baseline, seeded a legacy receipt and
+expanded to all 172 migrations. It exercised signed HTTP/default composition,
+Prisma/outbox, admission and ownership races, rollback, real COMMIT-response loss,
+legacy-role compatibility and bounded one-shot recovery.
 
-Checkpoint `3e017ec226842c7fb7fb62bf4dc882b87aaa3786` completed all 13 native
-PostgreSQL suites: 106 tests passed, zero failed or skipped. The runner applied the
-actual 170-migration baseline, seeded a legacy receipt and expanded to all 172
-migrations. The suites exercised signed HTTP/default composition, Prisma/outbox,
-concurrent ownership, real COMMIT-response loss and bounded recovery.
+The fresh run found and corrected a UTC/session-timezone mismatch in authorization
+expiry checks. Production composition now runs in an explicit Asia/Tokyo test
+session; isolated authorization checks use Pacific/Honolulu and preserve expired
+grants. Revocation timestamps must remain UTC. The expiry race observes a real
+PostgreSQL lock wait and the specific reconciliation error, so a generic transaction
+timeout cannot satisfy it.
 
-On the same checkpoint, 78 focused unit tests, ESLint for 66 changed TypeScript
-files, the changed-file format check, the architecture check over 705 domain and
-application files, the installations feature typecheck and scoped webhook tooling
-typecheck passed. All 11 harness unit tests had already passed on unchanged runner
-inputs. The pinned toolchain was Node 26.11.1, pnpm 11.28.7, TypeScript 7.0.2,
-Prisma 7.9.0 and Vitest 4.1.10, using the verified exact subscription-runtime artifact.
+The affected unit and qualification-harness run passed **111 tests in 15 files**,
+with no skips. Changed-file formatting, the architecture check over 705
+domain/application files and scoped webhook-tooling strict types passed. ESLint
+passed for all 69 changed TypeScript files after removing two unused initial
+assignments in the production fixture. These checks use the frozen root/API graph,
+verified exact subscription-runtime artifact, isolated Prisma client generation,
+Node 26.11.1, pnpm 11.28.7, TypeScript 7.0.2, Prisma 7.9.0 and Vitest 4.1.10.
+The local database was PostgreSQL 17.10.
 
-Subsequent review fixes add admission serialization, action-family validation,
-current-token authorization reconciliation, recovery reporting/cancellation and
-legacy-role/CI isolation checks. They require fresh affected qualification; the
-106-test checkpoint does not qualify changed inputs. Whole-API typecheck/build and
-compiled recovery CLI smoke have not completed: earlier attempts reached shared
-memory limits without compiler diagnostics. Ordinary GitHub CI is still pending.
-The existing CI includes the mandatory
-`scripts/webhook-fencing/run-postgres.ts` runner; it executes every required suite
-in a fresh process and rejects skipped, missing or unsuccessful results. A queued
-or skipped job is not qualification. Ready-for-review status enables the ordinary
-full CI lanes; merge remains blocked until the actual required gates pass.
+Earlier `3e017ec2` results (106 PostgreSQL tests and 78 focused units) are historical.
+Local whole-API/feature compiler attempts interrupted by resource guards or
+`SIGKILL` are not passing evidence. The final PR validation records subsequent
+strict types, production build and compiled recovery CLI results; its exact-head
+required checks remain the authority for merge readiness.
+
+The existing CI runs `scripts/webhook-fencing/run-postgres.ts` on its own database
+cluster, using a fresh process per suite and rejecting missing, skipped or failed
+results. Queued or skipped jobs do not establish qualification. Independent review
+confirmed that #1026's acknowledgement contract is covered by this default fenced
+production path; its separate legacy repository changes are not imported. #1021's
+worker and transport work remains outside this PR.
 
 ## Rollout and rollback
 

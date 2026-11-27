@@ -833,8 +833,8 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
         await gate;
       };
       const pending = post("github_app_authorization", deliveryId, f.payload);
-      let current = f.authorization;
-      let cache = f.cache;
+      let current: typeof f.authorization;
+      let cache: typeof f.cache;
       let result: Awaited<typeof pending> | undefined;
       try {
         await Promise.race([

@@ -6,10 +6,10 @@
 - Affected targets: API and database; existing outbox workers retain ownership of
   external commands. Their compatibility must be checked during the fleet drain.
 - Implementation: [PR #1027](https://github.com/777genius/review-router-ai/pull/1027).
-- Source checkpoint: `7f4ceded6c0d7703c94fb94a5fd43e921a4519ab` wired the default
-  routes. The subsequent PR continuation adds replay eligibility, known-delivery
-  CLI and full-schema HTTP qualification. Record the exact passing final SHA before
-  selecting a release; the earlier checkpoint is not that qualification.
+- Qualified native checkpoint: `76f715cb57721558a6fff1dcf87696b7e2717c96`
+  passed the full 142-test PostgreSQL matrix. Select the exact reviewed final source
+  only after its required PR checks, strict types, production build and compiled CLI
+  checks pass; a local checkpoint alone is not release authorization.
 - Dependencies: existing release/migration authority and configuration; no new
   service, queue, dependency or activation flag.
 - Last updated: `2026-11-27`.
@@ -33,25 +33,29 @@ Later generations never recreate that ingress. Other local effects/outbox and
 terminal receipt commit together. Unrelated account/auth/config epoch changes have
 been removed; existing authority owners and scope/row locks remain.
 
-| Evidence                                                                   | Current status                                                                                                                          |
-| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Default route wiring, claim/failure protocol and explicit operator command | Implemented; 13 native suites passed on checkpoint `3e017ec2`; subsequent fixes require renewed checks                                  |
-| Full migration catalog                                                     | 172 directories, including `000165_webhook_effect_fence` and `000167_webhook_recovery_intent`; no experimental `000166` epoch migration |
-| Full signed HTTP/Prisma/PostgreSQL/outbox and recovery matrix              | 106/106 tests, zero skips, on `3e017ec2`; actual 170 → 172 migration rehearsal                                                          |
-| Focused unit/lint/architecture and scoped strict types                     | Passed on `3e017ec2`; changed inputs need requalification                                                                               |
-| Whole-API typecheck/build, compiled CLI and ordinary CI                    | Pending; earlier compiler attempts hit shared-memory limits without diagnostics; CI queued                                              |
-| Production replay or fleet qualification                                   | Not executed; separately authorized operational work                                                                                    |
+| Evidence                                                                   | Observed result / required gate                                                                                                            |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Default route wiring, claim/failure protocol and explicit operator command | Implemented and exercised by the native matrix                                                                                             |
+| Full migration catalog                                                     | 172 directories; two additive migrations, no experimental epoch migration                                                                  |
+| Signed HTTP/Prisma/PostgreSQL/outbox and recovery matrix                   | **142/142 tests in all 13 suites, zero skips**, on `76f715cb`; actual 170 → 172 migration rehearsal                                        |
+| Focused unit and harness suites                                            | **111/111 tests in 15 files**, zero skips                                                                                                  |
+| Lint / formatting / architecture / scoped tooling types                    | 69 changed TypeScript files linted after fixture cleanup; formatting, 705-file architecture check and strict tooling types passed          |
+| Whole-API/feature strict types, production build and compiled CLI          | Required exact-source gates; consult the current PR validation and CI results                                                              |
+| Protected merge                                                            | Requires current-head `Quality Gates` and `Dedicated Release Authority PG17 contract`, an up-to-date branch and resolved blocking findings |
+| Production replay or fleet qualification                                   | Not executed; separately authorized operational work                                                                                       |
 
-Historical prototype/shim-based checks at `783409f2a21edc182df216d63c1f3cb4b84785bf`
-do not qualify this implementation. Do not treat queued/skipped CI as passing.
+The native run used PostgreSQL 17.10, Node 26.11.1, pnpm 11.28.7, TypeScript 7.0.2,
+Prisma 7.9.0 and Vitest 4.1.10 with the frozen root/API dependency graph, verified
+exact pinned runtime artifact and isolated Prisma client generation. Tokyo and
+Honolulu sessions exercise the UTC timestamp contract in both offset directions.
+The lock-wait expiry regression requires the actual reconciliation error.
 
-The `3e017ec226842c7fb7fb62bf4dc882b87aaa3786` checkpoint used the frozen root/API
-dependency graph, verified exact pinned runtime artifact, isolated Prisma 7.9.0
-client generation, PostgreSQL 17.10, Node 26.11.1, pnpm 11.28.7, TypeScript 7.0.2
-and Vitest 4.1.10. Besides the 106 native tests, 78 focused units, lint on 66 changed
-TypeScript files, formatting, the 705-file core architecture check and scoped types
-passed; the 11 unchanged harness units had already passed. Later review changes
-require a new result tied to their final source. No deployment status changed.
+The `3e017ec2` checkpoint and prototype/shim-based results at `783409f2` remain
+historical; they do not certify later changes. Interrupted compiler attempts
+(`SIGKILL` or a resource guard) and queued/skipped CI are not passing evidence.
+No deployment status changed. The current PR validation and its exact-head checks
+record the final implementation qualification; select that reviewed source before
+an operational rollout.
 
 ## Applicability and prerequisites
 
@@ -125,6 +129,7 @@ receipt order, not GitHub chronology. Authorization revocation has no retained
 original grant revision. Its first delivery checks the current token with a bounded
 read-only GitHub request, then permits revocation only for a refused, still-current,
 unrefreshed and sufficiently unexpired snapshot under the auth owner's row lock.
+Use a fresh UTC database clock for the UTC timestamp-without-timezone columns.
 A valid current token is retained; ambiguous outcomes require reconciliation and
 leave existing authorization/cache policy in place. A replacement GUID is not proof
 of a fresh revocation. Automatic authorization retry remains unsupported.
