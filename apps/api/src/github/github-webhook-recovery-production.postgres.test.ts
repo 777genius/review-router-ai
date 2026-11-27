@@ -23,6 +23,7 @@ import {
 } from "../../../../scripts/webhook-fencing/postgres-fixture";
 import { createDefaultGitHubWebhookDependencies } from "./github-webhook-composition.js";
 import { GitHubAppWebhookRedeliveryClient } from "./github-app-webhook-redelivery-client.js";
+import { GitHubAppWebhookRecoveryAuthority } from "./github-app-webhook-recovery-authority.js";
 import {
   runKnownWebhookRecovery,
   type WebhookRecoveryCommand,
@@ -539,40 +540,29 @@ test("known delivery recovery through the production receiver and migrated Postg
     const isolated = new PrismaClient({ adapter: new PrismaPg(pool) });
     const failures: unknown[] = [];
     let ownedClaim: FencedDelivery | undefined;
-    let snapshotReads = 0;
-    let restoreTransaction: (() => void) | undefined;
+    let restoreEligibility: (() => void) | undefined;
     try {
-      const gated = isolated.$extends({
-        query: {
-          async $queryRaw({ args, query }) {
-            const result: unknown = await query(args);
-            if (
-              args.sql.includes('r.state AS "recoveryState"') &&
-              args.values.includes(delivery.guid)
-            ) {
-              snapshotReads++;
-              // A separate connection commits after the snapshot's first read,
-              // before the transaction checks its lease and replay predicates.
-              const takeover = await claimDelivery(delivery);
-              if (takeover.kind !== "claimed")
-                throw new Error("snapshot_takeover_not_claimed");
-              ownedClaim = takeover.claim;
-            }
-            return result;
-          },
-        },
-      });
-      // Preserve native queries and results, adding only the scheduling barrier.
-      const nativeTransaction = gated.$transaction.bind(gated);
-      const transaction = new Proxy(isolated.$transaction, {
-        apply(_target, _receiver, args) {
-          return Reflect.apply(nativeTransaction, gated, args);
-        },
-      });
-      const transactionSpy = vi
-        .spyOn(isolated, "$transaction")
-        .mockImplementation(transaction);
-      restoreTransaction = () => transactionSpy.mockRestore();
+      const nativeEligibility =
+        GitHubAppWebhookRecoveryAuthority.prototype.isReceiverEligible;
+      const eligibilitySpy = vi
+        .spyOn(
+          GitHubAppWebhookRecoveryAuthority.prototype,
+          "isReceiverEligible",
+        )
+        .mockImplementationOnce(async function (
+          this: GitHubAppWebhookRecoveryAuthority,
+          identity,
+        ) {
+          expect(identity.deliveryGuid).toBe(delivery.guid);
+          // The receipt read has established the native transaction's snapshot.
+          // A separate connection commits before its eligibility reads.
+          const takeover = await claimDelivery(delivery);
+          if (takeover.kind !== "claimed")
+            throw new Error("snapshot_takeover_not_claimed");
+          ownedClaim = takeover.claim;
+          return nativeEligibility.call(this, identity);
+        });
+      restoreEligibility = () => eligibilitySpy.mockRestore();
       expect(
         await runKnownWebhookRecovery(command(delivery, "inspect"), {
           prisma: isolated,
@@ -583,7 +573,7 @@ test("known delivery recovery through the production receiver and migrated Postg
         deliveryStatus: "failed",
         recoveryState: null,
       });
-      expect(snapshotReads).toBe(1);
+      expect(eligibilitySpy).toHaveBeenCalledOnce();
       expect((await receipt(delivery)).status).toBe("processing");
       expect(await run(delivery, "inspect")).toMatchObject({
         state: "not_authorized",
@@ -596,7 +586,7 @@ test("known delivery recovery through the production receiver and migrated Postg
       failures.push(error);
     } finally {
       try {
-        restoreTransaction?.();
+        restoreEligibility?.();
       } catch (error) {
         failures.push(error);
       }

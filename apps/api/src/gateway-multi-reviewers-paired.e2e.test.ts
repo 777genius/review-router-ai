@@ -1358,6 +1358,7 @@ if (
                   response.statusCode ?? 502,
                   response.headers,
                 );
+                response.on("error", () => outgoing.destroy());
                 response.pipe(outgoing);
               },
             );

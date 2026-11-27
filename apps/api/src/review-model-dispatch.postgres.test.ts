@@ -4,7 +4,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   canonicalJson,
   ClaimReviewRunCompanionDispatch,
+  ReviewProtocolVersion,
+  ReviewRunAuthorizationState,
+  ReviewRunAuthorizationTokenAudience,
   ReviewRunAuthorizationTokenResolutionStatus,
+  ReviewTrustDomain,
   ReviewRunCompanionDispatchFailure,
   type ReviewRunAuthorization,
   type ReviewRunCompanionDispatchClaim,
@@ -374,9 +378,30 @@ describe("authenticated frozen model dispatch capacity over HTTP", () => {
   );
 });
 
-it.each([false, true])(
-  "refreshes receipt readback after reconciliation and gates actionable proof on retained custody=%s",
-  async (live) => {
+it.each([
+  { name: "live receipt", hasReceipt: true, custody: "live", expires: false },
+  { name: "lost custody", hasReceipt: true, custody: "lost", expires: false },
+  {
+    name: "run bearer only",
+    hasReceipt: false,
+    custody: "live",
+    expires: false,
+  },
+  {
+    name: "expiry during custody check",
+    hasReceipt: true,
+    custody: "live",
+    expires: true,
+  },
+  {
+    name: "custody unavailable",
+    hasReceipt: true,
+    custody: "failed",
+    expires: false,
+  },
+] as const)(
+  "refreshes receipt readback and gates actionable proof: $name",
+  async ({ hasReceipt, custody, expires }) => {
     let row: ReviewRunCompanionDispatch = {
       authorizationId: "original-auth",
       dispatchId: `rr-model-${"a".repeat(64)}`,
@@ -396,19 +421,85 @@ it.each([false, true])(
       requestBytes: 200,
       maxOutputTokens: 1000,
     };
+    const now = new Date();
+    const authorization: ReviewRunAuthorization = {
+      workspaceId: "original-workspace",
+      repositoryConnectionId: "original-repository",
+      scmRepositoryIdentityId: "original-scm-repository",
+      pullRequestNumber: 42,
+      baseSha: "a".repeat(40),
+      mergeBaseSha: "b".repeat(40),
+      headSha: "c".repeat(40),
+      reviewRevisionHash: "d".repeat(64),
+      authorizationId: row.authorizationId,
+      version: 1,
+      sourceRunId: "original-source-run",
+      sourceRunAttempt: "1",
+      workflowIdentityHash: "e".repeat(64),
+      trustDomain: ReviewTrustDomain.TrustedManaged,
+      producerReleaseId: "original-release",
+      selectedProtocolVersion: ReviewProtocolVersion.V2,
+      schemaDigest: "f".repeat(64),
+      protocolLimitsProfileId: "original-limits",
+      operationalSloProfileId: "original-slo",
+      mutationEpoch: 1n,
+      providerVoteLanes: [],
+      reviewInvestigationAuthorizationDescriptorCanonicalJson: null,
+      authorizationSafetyDecisionHash: "1".repeat(64),
+      protocolOfferHash: "2".repeat(64),
+      oidcReplayKeyHash: "3".repeat(64),
+      tokenSigningKeyId: "original-signing-key",
+      tokenIssuer: "reviewrouter-review-run-control",
+      tokenAudience: ReviewRunAuthorizationTokenAudience.ReviewRun,
+      state: ReviewRunAuthorizationState.Active,
+      expiresAt: new Date(now.getTime() + 120_000),
+      maxExpiresAt: new Date(now.getTime() + 120_000),
+      createdAt: now,
+      renewedAt: null,
+    };
     let reads = 0;
+    let custodyChecks = 0;
     const denied = async (): Promise<never> => {
       throw new Error("unexpected_authority_request");
     };
     const app = Fastify({ logger: false });
     await registerReviewModelDispatchRoutes(app, {
-      authorizations: { resolveReviewRunAuthorizationToken: denied },
+      authorizations: {
+        resolveReviewRunAuthorizationToken: async ({ token }) => {
+          expect(hasReceipt).toBe(false);
+          expect(token).toBe("original-run-token");
+          return {
+            status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+            authorization,
+          };
+        },
+      },
       checkAuthority: denied,
-      canReadNativeRetryProof: async () => live,
+      canReadNativeRetryProof: async (dispatch) => {
+        custodyChecks++;
+        expect(dispatch.nativeRetryProof).toEqual({
+          kind: "native_rejection_after_forward",
+          reason: "admission_storage_conflict",
+        });
+        if (custody === "failed")
+          throw new Error("disposable_custody_unavailable");
+        if (expires) {
+          const cutoff = dispatch.nativeRetryProofNotAfter!.getTime();
+          expect(cutoff).toBeGreaterThan(Date.now());
+          await new Promise<void>((resolve) =>
+            setTimeout(resolve, Math.max(0, cutoff - Date.now()) + 10),
+          );
+          expect(Date.now()).toBeGreaterThanOrEqual(cutoff);
+        }
+        return custody === "live";
+      },
       reconcileNativeProof: async () => {
         row = {
           ...row,
           state: "not_dispatched",
+          nativeRetryProofNotAfter: new Date(
+            Date.now() + (expires ? 1000 : 60_000),
+          ),
           nativeRetryProof: {
             kind: "native_rejection_after_forward",
             reason: "admission_storage_conflict",
@@ -419,11 +510,20 @@ it.each([false, true])(
       admission: {
         claim: denied,
         forward: denied,
-        read: denied,
+        read: async (authorizationId, dispatchId) => {
+          expect(hasReceipt).toBe(false);
+          expect(authorizationId).toBe(row.authorizationId);
+          expect(dispatchId).toBe(row.dispatchId);
+          reads++;
+          return { ...row };
+        },
         settle: denied,
         settleReceipt: denied,
         recordNativeRejection: denied,
-        readReceipt: async () => {
+        readReceipt: async (dispatchId, token) => {
+          expect(hasReceipt).toBe(true);
+          expect(dispatchId).toBe(row.dispatchId);
+          expect(token).toBe("d".repeat(64));
           reads++;
           return { ...row };
         },
@@ -433,14 +533,18 @@ it.each([false, true])(
       const response = await app.inject({
         method: "GET",
         url: `${reviewModelDispatchContract.basePath}/${row.dispatchId}`,
-        headers: {
-          [reviewModelDispatchContract.receiptHeader]: "d".repeat(64),
-        },
+        headers: hasReceipt
+          ? { [reviewModelDispatchContract.receiptHeader]: "d".repeat(64) }
+          : { authorization: "Bearer original-run-token" },
       });
       expect(response.statusCode).toBe(200);
       expect(reads).toBe(2);
       expect(response.json().dispatch.state).toBe("not_dispatched");
-      if (live)
+      expect(custodyChecks).toBe(hasReceipt ? 1 : 0);
+      expect(response.json().dispatch).not.toHaveProperty(
+        "nativeRetryProofNotAfter",
+      );
+      if (hasReceipt && custody === "live" && !expires)
         expect(response.json().dispatch.nativeRetryProof).toEqual({
           kind: "native_rejection_after_forward",
           reason: "admission_storage_conflict",
@@ -1360,6 +1464,7 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
     const unexpected = async (): Promise<never> => {
       throw new Error("unexpected_claim_after_custody_loss");
     };
+    const custodyReads: ReviewRunCompanionDispatch[] = [];
     const app = Fastify({ logger: false });
     await registerReviewModelDispatchRoutes(app, {
       authorizations: {
@@ -1369,7 +1474,10 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
         }),
       },
       checkAuthority: async () => true,
-      canReadNativeRetryProof: async () => false,
+      canReadNativeRetryProof: async (dispatch) => {
+        custodyReads.push(dispatch);
+        return false;
+      },
       admission: {
         claim: unexpected,
         forward: unexpected,
@@ -1408,6 +1516,17 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
       expect(response.json()).toEqual({
         code: "model_dispatch_retry_denied",
       });
+      expect(custodyReads).toEqual([
+        expect.objectContaining({
+          authorizationId: original.authorizationId,
+          dispatchId: original.dispatchId,
+          nativeRequestRef: rejected.dispatch.nativeRequestRef,
+          nativeRetryProof: {
+            kind: "native_rejection_after_forward",
+            reason: "admission_storage_conflict",
+          },
+        }),
+      ]);
       expect(
         await f.prisma.reviewRunCompanionDispatchV1.count({
           where: { authorizationId: original.authorizationId },
@@ -1496,6 +1615,122 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
       }),
     ).toBe(1);
   });
+
+  it.each(["completed", "native-expired", "native-unavailable"] as const)(
+    "acknowledges a committed settlement after receipt retention ends: %s",
+    async (mode) => {
+      const native = mode !== "completed";
+      const f = native
+        ? await fixture(4, "account_gateway", true, true, true)
+        : await fixture();
+      const c = claim(await f.acquireClaim(0), f);
+      const reservation = native
+        ? await reservedNative(f, c)
+        : await f.repository.claim(c);
+      if (native) {
+        await f.repository.recordNativeRejection(
+          c.authorizationId,
+          c.dispatchId,
+          nativeProof(reservation.dispatch.nativeRequestRef),
+        );
+        const before = await f.repository.readReceipt(
+          c.dispatchId,
+          reservation.receiptToken!,
+        );
+        expect(before).toHaveProperty("nativeRetryProof");
+        expect(before?.nativeRetryProofNotAfter).toBeInstanceOf(Date);
+      }
+      const settlement = native ? nativeSettlement : completed(c, f);
+      const unexpected = async (): Promise<never> => {
+        throw new Error("unexpected_settlement_authority_request");
+      };
+      let committed = false;
+      let reads = 0;
+      const app = Fastify({ logger: false });
+      await registerReviewModelDispatchRoutes(app, {
+        authorizations: { resolveReviewRunAuthorizationToken: unexpected },
+        checkAuthority: unexpected,
+        canReadNativeRetryProof: unexpected,
+        admission: {
+          claim: unexpected,
+          forward: unexpected,
+          read: unexpected,
+          settle: unexpected,
+          recordNativeRejection: unexpected,
+          readReceipt: async (dispatchId, token) => {
+            reads++;
+            if (committed && mode === "native-unavailable")
+              throw new Error("disposable_post_commit_read_failure");
+            return f.repository.readReceipt(dispatchId, token);
+          },
+          settleReceipt: async (dispatchId, token, value) => {
+            const row = await f.repository.settleReceipt(
+              dispatchId,
+              token,
+              value,
+            );
+            committed = true;
+            // Expire only after the real transaction committed. This is a
+            // deterministic late-ACK boundary, without advancing the HTTP clock.
+            await f.prisma.reviewRunCompanionDispatchV1.update({
+              where: {
+                authorizationId_dispatchId: {
+                  authorizationId: c.authorizationId,
+                  dispatchId: c.dispatchId,
+                },
+              },
+              data: { retainUntil: new Date(Date.now() - 1000) },
+            });
+            return row;
+          },
+        },
+      });
+      try {
+        const response = await app.inject({
+          method: "POST",
+          url: `${reviewModelDispatchContract.basePath}/${c.dispatchId}/settle`,
+          headers: {
+            [reviewModelDispatchContract.receiptHeader]:
+              reservation.receiptToken!,
+          },
+          payload: settlement,
+        });
+        expect(response.statusCode).toBe(200);
+        expect(committed).toBe(true);
+        expect(reads).toBe(native ? 2 : 1);
+        const state = native ? "not_dispatched" : "completed";
+        expect(response.json().dispatch).toMatchObject({
+          dispatchId: c.dispatchId,
+          state,
+        });
+        expect(response.json().dispatch).not.toHaveProperty("nativeRetryProof");
+        const stored =
+          await f.prisma.reviewRunCompanionDispatchV1.findUniqueOrThrow({
+            where: {
+              authorizationId_dispatchId: {
+                authorizationId: c.authorizationId,
+                dispatchId: c.dispatchId,
+              },
+            },
+          });
+        expect(stored.state).toBe(state);
+        if (native)
+          expect(stored.nativeRetryProofJson).toEqual(
+            nativeProof(reservation.dispatch.nativeRequestRef),
+          );
+        else if (settlement.state === "completed")
+          expect(stored.terminalReceiptJson).toEqual(settlement.receipt);
+        expect(
+          await f.repository.readReceipt(
+            c.dispatchId,
+            reservation.receiptToken!,
+          ),
+        ).toBeNull();
+      } finally {
+        await app.close();
+      }
+    },
+  );
 
   it("settles after authority expiry without reopening work and rejects changed receipts, wrong rows and expired retention", async () => {
     const f = await fixture();

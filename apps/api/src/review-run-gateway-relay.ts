@@ -1311,6 +1311,7 @@ export function createReviewRunGatewayRelay(input: {
       const reader = stream.body.getReader();
       let received = 0;
       let completed = false;
+      let settlementStarted = false;
       const abort = () => {
         dispose();
         void stream.cancel().catch(() => {});
@@ -1343,7 +1344,9 @@ export function createReviewRunGatewayRelay(input: {
                 phase = "cancelled";
                 if (signal.aborted) throw new Error("companion_cancelled");
                 if (chunk.done) {
+                  // EOF owns its status read and both settlement writes.
                   // EOF alone is not native no-dispatch/completion evidence.
+                  settlementStarted = true;
                   phase = "native_status";
                   const status = await session.preparation.status(
                     requestRef,
@@ -1403,7 +1406,7 @@ export function createReviewRunGatewayRelay(input: {
               }
             },
             async cancel() {
-              if (!completed) await unknown();
+              if (!completed && !settlementStarted) await unknown();
               cleanup();
               await stream.cancel();
             },
@@ -1411,7 +1414,7 @@ export function createReviewRunGatewayRelay(input: {
           { highWaterMark: 0 },
         ),
         cancel: async () => {
-          if (!completed) await unknown();
+          if (!completed && !settlementStarted) await unknown();
           cleanup();
           await stream.cancel();
         },
@@ -2145,7 +2148,10 @@ export function createReviewRunGatewayRelay(input: {
         !!auth &&
         auth.runtimeSnapshotCanonicalJson === session.canonical &&
         (await input.checkAuthority(auth, "local")) &&
-        (await session.preparation.hasLiveNativeRetryAuthority())
+        (await session.preparation.hasLiveNativeRetryAuthority()) &&
+        !stopping &&
+        !closing.has(dispatch.authorizationId) &&
+        !session.closed
       );
     },
     policy,
@@ -2547,7 +2553,10 @@ export async function registerReviewRunGatewayRelayRoutes(
             reviewerSelector(request),
           );
           if (upstream.kind === "status")
-            return reply.code(202).send(upstream.status);
+            return reply
+              .code(202)
+              .header("x-reviewrouter-request-ref", upstream.status.requestRef)
+              .send(upstream.status);
           diagnostic.stage = "http_headers";
           try {
             diagnostic.bodyLocked = upstream.body.locked === true;
@@ -2599,6 +2608,12 @@ export async function registerReviewRunGatewayRelayRoutes(
           if (reply.raw.headersSent) reply.raw.destroy();
           else {
             const failure = safeFailure(error);
+            const requestRef = c.reference.safeParse(failure.requestRef);
+            if (
+              failure.effect === "rejected_before_dispatch" &&
+              requestRef.success
+            )
+              reply.header("x-reviewrouter-request-ref", requestRef.data);
             reply.code(failure.statusCode).send({
               error: {
                 code: failure.code,

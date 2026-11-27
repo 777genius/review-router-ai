@@ -701,6 +701,13 @@ export function createReviewRunGatewayPreparation(input: {
           requestId,
         );
       await check();
+      if (closed || session !== current || options.signal?.aborted)
+        throw new GatewayError(
+          "cancelled",
+          "effect_unknown",
+          undefined,
+          requestId,
+        );
       return proof;
     },
     close: async (reason: c.Close["reason"], options: CallOptions = {}) => {
