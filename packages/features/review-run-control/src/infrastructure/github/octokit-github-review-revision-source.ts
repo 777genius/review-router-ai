@@ -297,7 +297,8 @@ function httpDateTimestamp(value: string, now: number): number | null {
       Number(obsolete[4]);
     normalized = `${obsolete[1]!.slice(0, 3)}, ${obsolete[2]} ${obsolete[3]} ${year} ${obsolete[5]} GMT`;
     if (
-      Date.parse(normalized) + (leapSecond ? 1_000 : 0) > futureLimit.getTime()
+      Date.parse(normalized) + (leapSecond ? 1_000 : 0) >
+      futureLimit.getTime()
     ) {
       normalized = normalized.replace(` ${year} `, ` ${year - 100} `);
     }

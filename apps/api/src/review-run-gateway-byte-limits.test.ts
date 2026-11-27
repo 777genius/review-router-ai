@@ -1683,9 +1683,10 @@ async function fixture(
       resetAt: string;
     };
     refusalStatus?: number;
-    requestStatus?: (
-      requestRef: string,
-    ) => { statusCode: number; body: unknown };
+    requestStatus?: (requestRef: string) => {
+      statusCode: number;
+      body: unknown;
+    };
     failUsageOutcome?: boolean;
     modelDispatchV2?: boolean;
     modelDispatchCapacity128?: boolean;
@@ -3440,6 +3441,8 @@ it.each(["pressure", "timer"] as const)(
       f.authorizations,
       "expireOrRevokeReviewRunAuthorization",
     );
+    let gate: ReturnType<typeof f.holdClose> | undefined;
+    let closing: ReturnType<typeof f.relay.closeRun> | undefined;
     try {
       await streamRun(f, "authorization-1", "reviewer-0");
       f.setCloseState("unknown");
@@ -3455,9 +3458,14 @@ it.each(["pressure", "timer"] as const)(
         ).rejects.toMatchObject({ code: "relay_saturated" });
         expect(f.nativeCloses).toHaveLength(2);
       } else {
+        gate = f.holdClose();
         await vi.waitFor(() => expect(f.nativeCloses).toHaveLength(2), {
           timeout: 2000,
         });
+        await gate.started;
+        closing = f.relay.closeRun("authorization-1", "completed");
+        gate.release();
+        await expect(closing).resolves.toMatchObject({ state: "unknown" });
       }
       expect(f.intents).toHaveLength(1);
       expect(f.requestModels).toHaveLength(1);
@@ -3466,9 +3474,14 @@ it.each(["pressure", "timer"] as const)(
       expect(new Set(f.nativeCloseOperationIds).size).toBe(1);
       f.setCloseState("applied");
       if (trigger === "timer") {
+        gate = f.holdClose();
         await vi.waitFor(() => expect(f.nativeCloses).toHaveLength(3), {
           timeout: 4000,
         });
+        await gate.started;
+        closing = f.relay.closeRun("authorization-1", "completed");
+        gate.release();
+        await expect(closing).resolves.toMatchObject({ state: "applied" });
       }
       await expect(streamRun(f, "authorization-2", "reviewer-0")).resolves.toBe(
         "stream",
@@ -3483,6 +3496,8 @@ it.each(["pressure", "timer"] as const)(
       expect(revoke).not.toHaveBeenCalled();
       expect(f.requestModels).toHaveLength(2);
     } finally {
+      gate?.release();
+      await closing;
       revoke.mockRestore();
       await f.relay.shutdown();
     }
@@ -3563,9 +3578,9 @@ it("v4 pressure still reclaims an exact retained close after all automatic retri
     expect([...f.nativeExecutions.values()]).toEqual(["active"]);
 
     f.setCloseState("applied");
-    await expect(
-      streamRun(f, "authorization-2", "reviewer-0"),
-    ).resolves.toBe("stream");
+    await expect(streamRun(f, "authorization-2", "reviewer-0")).resolves.toBe(
+      "stream",
+    );
     expect(localCloseCalls).toBe(11);
     expect(f.nativeCloses).toHaveLength(11);
     expect(new Set(f.nativeCloses).size).toBe(1);

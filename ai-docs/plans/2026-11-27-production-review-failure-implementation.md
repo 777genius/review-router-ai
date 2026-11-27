@@ -302,3 +302,75 @@ runner for this job, and this repository had queued runs dating to 04:23 UTC.
 The existing `ci:github-hosted` PR label selects the workflow's supported hosted
 fallback for applicable lanes; no workflow, required check or test was weakened.
 Other lanes retain their configured runners and remain subject to actual results.
+
+## Executable follow-up and precise phase reporting
+
+The execution environment became available again on 2026-11-27. The first
+actual Action run exposed a Jest callback-arity error in two optional-column
+date rows. An explicit default on the first optional callback argument fixes
+that error without changing the oracle. The standalone GitHub suite then passed
+60 tests; four related Action suites passed 93 tests, and the documented strict
+TypeScript 7.0.2 project check passed. Action lint reported no errors and its
+existing warnings. The initial combined run killed with exit 137 is not a pass.
+
+The RR HTTP transport suite passed 50 tests. The relay suite exposed an existing
+timer-close test race: the next admission ran after the HTTP request counter
+advanced but before relay cleanup settled. Hold each timer response, observe its
+automatic start, join the exact close operation, release it, and await settlement.
+The revised relay suite passed all 191 tests. These are local boundary results;
+PostgreSQL, compiled paired Action, complete CI and rollout remain separate gates.
+
+The next independent slice retains exact incomplete-phase explanations through
+the existing accepted evidence and publication paths. Review found that local
+OCR diagnostic prose is intentionally absent from canonical observations; only
+the finite accepted quality vocabulary can carry this information safely.
+
+### Scope and invariants
+
+- Add exactly three explanatory quality flags: `review_main_incomplete`,
+  `review_round_incomplete` and `review_phase_incomplete`. The RR domain accepts
+  them only together with `context_inspection_incomplete`; retain duplicate,
+  unknown-value and 16-item rejection. The Prisma reader accepts the same values.
+- Give the explanatory flags zero additional reuse penalty. Existing incomplete
+  context, coverage, accepted findings and baseline rules keep their authority.
+  Same-attempt flag changes remain an immutable-evidence conflict.
+- The Action maps only finite accepted classifications and structured native
+  phase state. A preserved advisory filter must not acquire a phase-failure cause
+  when another round or normalization problem exists. A real failed plan,
+  compression or relocation phase, or a non-preserved failed filter, may explain
+  existing incomplete context. Native prose never becomes canonical metadata.
+- Required observations contribute these flags to the existing summary cause set.
+  Optional reviewers do not make required coverage incomplete. Extend the existing
+  summary vocabulary and all eleven locale dictionaries; no new summary channel.
+- The wire schema already carries bounded identifiers. Run the owning protocol
+  and handoff checks, then use the official fenced export if rebinding to the
+  accepting RR commit. Never hand-edit generated handoff or runtime bundles.
+- Activate the accepting RR reader before a producer emitting the new values.
+  Once persisted, rollback must retain a reader for those values. This source
+  change does not authorize a production activation or rewrite old evidence.
+
+### Review and acceptance
+
+An independent source investigation traced the API enum, durable decoder, reuse
+ranking, normalization, optional-reviewer handling and all publication locales.
+Root's first critique removed any new endpoint, schema column, raw diagnostic
+field, feature flag or phase-specific recovery policy. A second independent
+compatibility critique accepted this scope after requiring the mixed preserved
+filter cases, required-only projection, every-reader deployment order and actual
+generator/export evidence. Those refinements are included above.
+
+Extend the existing immutable-acceptance, SQL readback, signed API restoration,
+OCR adapter and publication tests. Reuse the existing compiled-Action/PostgreSQL
+paired fixture for (1) failed plan with every path represented and a useful finding,
+and (2) advisory preserved filter with otherwise complete work. Assert persisted
+flags, accurate visible cause, retained finding, unchanged request counts and the
+appropriate baseline decision. Test preserved-filter plus round stop separately.
+An expected incomplete-coverage process result is accepted only by that named
+fixture and must itself be asserted.
+
+Estimated handwritten scope: 110-165 production/integration lines, 260-420 test
+lines, and 30-50 documentation lines, excluding generated artifacts. With existing
+fixtures and a working environment: 1-3 focused engineer-days. Complexity 4/10,
+expected reliability within this reporting scope 8/10, confidence in fit 8/10;
+estimate confidence is moderate. This slice is independent of native retry proof
+and does not claim durable resumption after earlier paid work.

@@ -460,8 +460,7 @@ it("does not retry a server error before its HTTP-date boundary", async () => {
   const log = vi.spyOn(console, "warn").mockImplementation(() => {});
   const retryAt = new Date(Date.now() + 60_000).toUTCString();
   const reads = stubGitHub([
-    () =>
-      json(503, { message: "unavailable" }, { "retry-after": retryAt }),
+    () => json(503, { message: "unavailable" }, { "retry-after": retryAt }),
     () => json(200, pullRequest),
   ]);
   await expect(
