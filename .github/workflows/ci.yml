@@ -33,8 +33,8 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      SUBJECT_SHA: 0492a9deeaa265fb07bb685a27cdd78ad2fe0cce
-      SUBJECT_TREE: 601fbb9aeed4f5f260a5ae8a45ab153424bbc8d8
+      SUBJECT_SHA: c6fa2d737dabc163d914066c3d22477b0f2fa7a9
+      SUBJECT_TREE: fc50696fc6207f78217f4c0a020e0d9221a139ef
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5435/postgres?schema=public
       AUTH_SECRET: ci-auth-secret-not-used-for-production
       AUTH_TRUST_HOST: "true"
@@ -63,7 +63,7 @@ jobs:
       - name: Checkout the immutable subject
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          ref: 0492a9deeaa265fb07bb685a27cdd78ad2fe0cce
+          ref: c6fa2d737dabc163d914066c3d22477b0f2fa7a9
           persist-credentials: false
           fetch-depth: 1
 
@@ -81,7 +81,7 @@ jobs:
           test "$(git rev-parse HEAD^{tree})" = "$SUBJECT_TREE"
           git diff --exit-code HEAD
           test -z "$(git ls-files --others --exclude-standard)"
-          directory="$RUNNER_TEMP/webhook-checkpoint-0492a9"
+          directory="$RUNNER_TEMP/webhook-checkpoint-c6fa2d"
           mkdir -p "$directory"
           echo "QUALIFICATION_DIRECTORY=$directory" >> "$GITHUB_ENV"
           echo "directory=$directory" >> "$GITHUB_OUTPUT"
@@ -97,6 +97,8 @@ jobs:
           NODE
           git rev-parse \
             HEAD:pnpm-lock.yaml \
+            HEAD:packages/features/github-installations/src/infrastructure/prisma/webhook-effect-fence.ts \
+            HEAD:packages/platform/db/src/current-scope-guards.ts \
             HEAD:scripts/webhook-fencing/migrations.postgres.test.ts \
             HEAD:scripts/webhook-fencing/qualification.test.ts \
             HEAD:scripts/webhook-fencing/run-postgres.ts \
@@ -164,12 +166,16 @@ jobs:
           export REVIEWROUTER_NATIVE_FORMAT_AUDIT="$QUALIFICATION_DIRECTORY/native-format-audit.jsonl"
           set +e
           pnpm exec prettier --check \
+            packages/features/github-installations/src/infrastructure/prisma/webhook-effect-fence.ts \
+            packages/platform/db/src/current-scope-guards.ts \
             scripts/webhook-fencing/migrations.postgres.test.ts \
             scripts/webhook-fencing/qualification.test.ts \
             2>&1 | tee "$QUALIFICATION_DIRECTORY/native-format.log"
           format_status=$?
           set -e
           for path in \
+            packages/features/github-installations/src/infrastructure/prisma/webhook-effect-fence.ts \
+            packages/platform/db/src/current-scope-guards.ts \
             scripts/webhook-fencing/migrations.postgres.test.ts \
             scripts/webhook-fencing/qualification.test.ts; do
             output="$QUALIFICATION_DIRECTORY/formatted/$path"
@@ -184,6 +190,8 @@ jobs:
             if [[ "$diff_status" -gt 1 ]]; then exit "$diff_status"; fi
           done
           pnpm exec prettier --config .prettierrc.json --check \
+            "$QUALIFICATION_DIRECTORY/formatted/packages/features/github-installations/src/infrastructure/prisma/webhook-effect-fence.ts" \
+            "$QUALIFICATION_DIRECTORY/formatted/packages/platform/db/src/current-scope-guards.ts" \
             "$QUALIFICATION_DIRECTORY/formatted/scripts/webhook-fencing/migrations.postgres.test.ts" \
             "$QUALIFICATION_DIRECTORY/formatted/scripts/webhook-fencing/qualification.test.ts"
           node --input-type=module <<'NODE'
@@ -202,6 +210,19 @@ jobs:
           NODE
           git diff --exit-code HEAD
           test -z "$(git ls-files --others --exclude-standard)"
+          node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
+          import { readFileSync } from "node:fs";
+          import { execFileSync } from "node:child_process";
+          import { join } from "node:path";
+          for (const path of ["packages/features/github-installations/src/infrastructure/prisma/webhook-effect-fence.ts","packages/platform/db/src/current-scope-guards.ts","scripts/webhook-fencing/migrations.postgres.test.ts","scripts/webhook-fencing/qualification.test.ts"]) {
+            const bytes = readFileSync(join(process.env.QUALIFICATION_DIRECTORY, "formatted", path));
+            const gitBlob = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+            const sha256 = createHash("sha256").update(bytes).digest("hex");
+            const original = execFileSync("git", ["rev-parse", `HEAD:${path}`], { encoding: "utf8" }).trim();
+            console.log("RR_NATIVE_FORMAT_BLOB " + JSON.stringify({ path, source: process.env.SUBJECT_SHA, original, gitBlob, sha256, base64: bytes.toString("base64") }));
+          }
+          NODE
           exit "$format_status"
 
       - name: Run the exact native tooling typecheck
@@ -270,7 +291,7 @@ jobs:
         if: ${{ always() && steps.evidence.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: webhook-0492a9-${{ github.run_id }}-${{ github.run_attempt }}
+          name: webhook-c6fa2d-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ steps.evidence.outputs.directory }}/
           if-no-files-found: error
           retention-days: 7

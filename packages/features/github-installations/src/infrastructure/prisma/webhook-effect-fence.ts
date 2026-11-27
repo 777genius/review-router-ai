@@ -7,6 +7,11 @@ import {
 import type { WebhookDeliveryRecord } from "../../application/ports/webhook-delivery-repository-port";
 import { isWebhookReplayEligible } from "./webhook-replay-eligibility";
 
+type WebhookClaimTransaction = Pick<
+  Prisma.TransactionClient,
+  "$queryRaw" | "$executeRaw" | "gitHubWebhookDelivery"
+>;
+
 /** A delivery owner may commit only through the guarded database transaction. */
 export type FencedDelivery = Readonly<{
   deliveryId: string;
@@ -42,7 +47,7 @@ export async function claimVerifiedFencedWebhookDelivery(
 
 /** Allows initial durable PR ingress and its delivery claim to commit together. */
 export async function claimVerifiedFencedWebhookDeliveryInTransaction(
-  transaction: Prisma.TransactionClient,
+  transaction: WebhookClaimTransaction,
   context: unknown,
   delivery: WebhookDeliveryRecord,
   ownerHash: string,
@@ -223,7 +228,7 @@ function deliveryData(delivery: WebhookDeliveryRecord) {
 }
 
 async function insertFence(
-  transaction: Prisma.TransactionClient,
+  transaction: WebhookClaimTransaction,
   deliveryId: string,
   ownerHash: string,
   appIdentityHash: string,
@@ -251,7 +256,7 @@ function validateLease(leaseMs: number) {
   if (!Number.isInteger(leaseMs) || leaseMs < 1 || leaseMs > 60_000)
     throw new Error("webhook_fence_invalid");
 }
-function assertTransaction(transaction: Prisma.TransactionClient) {
+function assertTransaction(transaction: WebhookClaimTransaction) {
   if (
     !transaction ||
     typeof transaction.$queryRaw !== "function" ||
@@ -263,7 +268,7 @@ function assertTransaction(transaction: Prisma.TransactionClient) {
 
 /** All participants take delivery before fence, including status triggers. */
 async function lockDeliveryAndFence(
-  transaction: Prisma.TransactionClient,
+  transaction: WebhookClaimTransaction,
   deliveryId: string,
 ) {
   await transaction.$queryRaw(Prisma.sql`
@@ -275,7 +280,7 @@ async function lockDeliveryAndFence(
 }
 
 async function replaceOwner(
-  transaction: Prisma.TransactionClient,
+  transaction: WebhookClaimTransaction,
   previous: FencedDelivery,
   ownerHash: string,
   leaseMs: number,
