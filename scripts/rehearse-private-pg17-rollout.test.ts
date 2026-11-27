@@ -1296,9 +1296,11 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000163_usage_retention_index" &&
         name !== "000164_ruleset_create_uncertainty" &&
         name !== "000165_installation_sync_latest_index" &&
-        name !== "000166_repository_health_latest_index",
+        name !== "000165_webhook_effect_fence" &&
+        name !== "000166_repository_health_latest_index" &&
+        name !== "000167_webhook_recovery_intent",
     );
-    expect(migrationNames).toHaveLength(172);
+    expect(migrationNames).toHaveLength(174);
     const legacyMigrationNames = currentMigrationNames.filter(
       (name) =>
         name !== "000155_usage_member_report_index" &&
@@ -1676,7 +1678,9 @@ describe("disposable dual-version rehearsal", () => {
       "000163_usage_retention_index",
       "000164_ruleset_create_uncertainty",
       "000165_installation_sync_latest_index",
+      "000165_webhook_effect_fence",
       "000166_repository_health_latest_index",
+      "000167_webhook_recovery_intent",
       "000150_skills_catalog_security",
       "000151_review_history",
       "000152_memory_automatic_source",
@@ -1968,7 +1972,9 @@ describe("disposable dual-version rehearsal", () => {
     "000163_usage_retention_index",
     "000164_ruleset_create_uncertainty",
     "000165_installation_sync_latest_index",
+    "000165_webhook_effect_fence",
     "000166_repository_health_latest_index",
+    "000167_webhook_recovery_intent",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -2056,7 +2062,9 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000163_usage_retention_index" &&
                 name !== "000164_ruleset_create_uncertainty" &&
                 name !== "000165_installation_sync_latest_index" &&
+                name !== "000165_webhook_effect_fence" &&
                 name !== "000166_repository_health_latest_index" &&
+                name !== "000167_webhook_recovery_intent" &&
                 name !== "000155_usage_member_report_index" &&
                 name !== "000156_verified_thread_reply" &&
                 name !== "000154_unified_model_dispatch" &&

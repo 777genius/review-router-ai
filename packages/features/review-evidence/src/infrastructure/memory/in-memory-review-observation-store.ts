@@ -44,6 +44,27 @@ export class InMemoryReviewObservationStore
     });
   }
 
+  async findSourceSlotCandidates(
+    input: Parameters<ReviewObservationQueryPort["findSourceSlotCandidates"]>[0],
+  ): Promise<readonly ReviewObservation[]> {
+    return [...this.observations.values()]
+      .filter(
+        (observation) =>
+          sameScope(observation.scope, input.scope) &&
+          observation.trustDomain === input.trustDomain &&
+          observation.sourceExecutionId === input.sourceExecutionId &&
+          observation.sourceWorkSlotId === input.sourceWorkSlotId &&
+          observation.providerVoteIdentityHash ===
+            input.providerVoteIdentityHash &&
+          observation.reuseExpiresAtMs > input.reusableAfterMs,
+      )
+      .sort((left, right) =>
+        left.observationId.localeCompare(right.observationId),
+      )
+      .slice(0, 2)
+      .map(cloneReviewObservation);
+  }
+
   async findCandidates(
     input: Parameters<ReviewObservationQueryPort["findCandidates"]>[0],
   ): Promise<readonly ReviewObservation[]> {

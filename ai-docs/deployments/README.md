@@ -16,6 +16,11 @@ are in [PR #1003](https://github.com/777genius/review-router-ai/pull/1003) under
 qualification, including precise database-time publication expiry; ordinary API
 rollout pending, with no migration or configuration change.
 
+PR #1028: [review failure fixes and bounded accepted-source recovery](2026-11-27-production-review-failure-fixes.md)
+are under qualification. The Action source/build checkpoint and the exact RR browser
+caller passed; runtime reproducibility, cold recovery and retry-consumer
+E2E remain pending. Staging and production remain `pending`.
+
 <a id="current-coordinated-rollout-reconciliation-2026-11-14"></a>
 
 ## Current coordinated rollout reconciliation (2026-11-15)
@@ -36,7 +41,7 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
-[Scale and recovery](2026-11-27-scale-and-recovery.md), [Draft PR #1021](https://github.com/777genius/review-router-ai/pull/1021) — worker/database and Accounts checkpoints published; query/index, catalog and atomic webhook qualification in progress. Additive indexes 165/166, ordinary API/Web/worker rollout pending; no environment deployment claimed.
+[Scale and recovery](2026-11-27-scale-and-recovery.md), [PR #1021](https://github.com/777genius/review-router-ai/pull/1021) — worker/database and Accounts checkpoints published; the integration keeps the fenced webhook default from PR #1027 and ports the distinct failure cases. Combined-source qualification is in progress. Additive indexes 165/166, ordinary API/Web/worker rollout pending; no environment deployment claimed.
 
 [Gateway management ingress](2026-11-27-gateway-management-ingress.md): production `installed`; native V2/V3 routes restored and read-only account metadata verified. Browser enrollment and connection mutations remain unverified.
 
@@ -106,6 +111,8 @@ Repositories page without a reload after setup confirmations: [the repository ro
 
 - [Relay stale close capability recovery](2026-11-27-relay-stale-close-capability.md): exact pre-expiry retry after a definite 401; production installed on `6271ebe1`, live recovery verification and staging pending.
 - [PostgreSQL automatic restart deferral](2026-11-27-postgresql-maintenance-deferral.md): production override installed; actual unattended-upgrade observation and staging pending.
+- [Durable GitHub webhook delivery](2026-11-27-webhook-effect-fence.md): all six production paths and bounded known-delivery recovery implemented; recorded checkpoints are native PostgreSQL 142/142 on `91621693` and unit/harness 118/118 on `a505ab23`; subsequent fixes require final-source qualification and current-head CI. Staging and production remain `pending`; controlled writer drain is required, no operational rollout or replay performed.
+- [Unconfirmed webhook acknowledgement](2026-11-27-webhook-unconfirmed-delivery.md): do not acknowledge an unfinished delivery as successfully processed; staging and production pending.
 - [Relay close and pressure-batch diagnostics](2026-11-22-relay-close-diagnostics.md): #962 preparation observations plus an aggregate continuation; API observability is pending staging and production rollout.
 
 Bound close-authority database work and drain restored closes on shutdown: [relay close authority bounds](2026-11-23-relay-close-authority-bounds.md) - API-only, depends on #970 and #988; staging `pending`, production `installed` on `f20a75ed`, with live verification pending. Limits close-authority phases, not all DB traffic or tenant fairness.

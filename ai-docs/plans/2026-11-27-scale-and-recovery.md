@@ -1,10 +1,69 @@
 # Multi-user scale and recovery without process restarts
 
 Date: 2026-11-27. Audited baseline: `5ab12e2d79a2d60351fd17cca871b32f3d039f13`.
-Delivery: one Draft PR, reviewed plan, parallel implementation by existing owner,
+Delivery: one PR, reviewed plan, parallel implementation by existing owner,
 real failure/recovery qualification, and repeated independent review until no
 confirmed critical finding remains. This is implementation authorization, not a
 production deployment or permission to change another PR's scope.
+
+## Combined webhook and recovery integration
+
+The current integration uses the fenced production default from PR #1027.
+It supersedes the unreleased transaction-port prototype recorded below at
+`49c565ac35d13cf0ea1ec1ffe69c195d6ea5b327`. The former prototype's PostgreSQL
+results remain historical evidence for that source; they do not qualify the
+combined fenced implementation.
+
+The integration retains the worker, Accounts, native catalog, database-budget,
+bounded-reader and index changes from this PR. It also retains the current
+retry/settlement and accepted-result recovery contracts from PR #1028 and both
+provider-picker browser contracts from PR #1030. No production deployment is
+part of this integration.
+
+### Webhook ownership and retained failure contracts
+
+- The default signed HTTP composition, durable claim, effect fence, terminal
+  receipt and bounded recovery path come from PR #1027. There is one production
+  default; the unused generic transaction port and its duplicate assembly are
+  removed.
+- Existing fenced installation, repository, setup, push, authorization, ingress,
+  custody and actual COMMIT-response-loss checks remain authoritative. Exact
+  duplicate completion succeeds; a live or unfenced historical attempt remains
+  uncertain and must not be acknowledged as complete.
+- Four focused signed-HTTP PostgreSQL scenarios retain the distinct earlier
+  failure contracts: lost HTTP acknowledgement, lock-wait cancellation, actual
+  backend termination, and installation deletion that observes an installation
+  created while waiting for the scope lock. The backend-termination scenario
+  also checks a brand-new installation for orphan workspace, actor, membership
+  and outbox effects before retry.
+- The legacy injected route keeps conflict-safe receipt insertion with
+  `createMany({ skipDuplicates: true })` and exact-identity, processed-only
+  duplicate acknowledgement. This preserves PR #1026's acknowledgement contract
+  without catching a uniqueness exception inside a transaction. Its repository
+  cases and the unfinished-delivery/privacy HTTP assertions remain covered.
+- App-authorization refresh and reconnect uncertainty remains fail-closed.
+  A prior prototype fixture expecting revocation during an in-flight refresh
+  does not override the fenced authorization contract.
+
+### Migration and qualification boundaries
+
+The application catalog contains all 174 migrations: the shared 170-migration
+baseline, both latest-row indexes and both webhook migrations. Admission accepts
+only each exact complete two-migration group or their exact four-migration union;
+partial, reordered, changed, duplicate and unknown tails fail. Managed92,
+historical96 and the other frozen historical fixtures remain unchanged.
+
+The integration checkpoints received source review. The complete combined
+source still requires its native formatting, strict TypeScript, existing unit
+and PostgreSQL matrices, browser contracts, paired public Action recovery and
+ordinary protected CI checks. Earlier results retain their original commit/tree
+bindings. The local executor became unavailable during preparation, so no
+unexecuted combined-source check is recorded as a pass.
+
+For an eventual webhook rollout, retain the writer-drain, migration and
+legacy-role grant requirements in the
+[webhook deployment record](../deployments/2026-11-27-webhook-effect-fence.md).
+Release selection and deployment remain separate.
 
 ## 1. Outcome and boundaries
 

@@ -105,9 +105,9 @@ describe.skipIf(!enabled)(
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
         // Replay all current migrations, including credential import and the
-        // native connection intent and six multi-tenant reliability migrations.
-        expect(names).toHaveLength(172);
-        expect(names.slice(-33)).toEqual([
+        // native connection intent, six reliability and two webhook migrations.
+        expect(names).toHaveLength(174);
+        expect(names.slice(-35)).toEqual([
           "000138_pr_description",
           "000139_review_context_tools",
           "000140_personal_oauth_method",
@@ -140,7 +140,9 @@ describe.skipIf(!enabled)(
           "000163_usage_retention_index",
           "000164_ruleset_create_uncertainty",
           "000165_installation_sync_latest_index",
+          "000165_webhook_effect_fence",
           "000166_repository_health_latest_index",
+          "000167_webhook_recovery_intent",
         ]);
         let legacyBefore: unknown;
         let legacyBefore146: unknown;

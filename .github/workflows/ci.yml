@@ -63,7 +63,7 @@ env:
   REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: ci_database_recovery_witness_not_for_production_000000000000
   REVIEW_ROUTER_DEFAULT_MODEL: gpt-5.5
   REVIEW_ROUTER_DEFAULT_EFFORT: xhigh
-  REVIEW_ROUTER_PAIRED_ACTION_REF: 1112a0f1de568f9fa927316ab68cef54fbcd4653
+  REVIEW_ROUTER_PAIRED_ACTION_REF: f0fb4d4dcc6871ba9a7a89b1c650c4f99a98f593
   REVIEW_ROUTER_HOSTED_POOL_ACTION_TAG: v1.0.171
   REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA: 66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff
   REVIEW_ROUTER_HOSTED_POOL_ACTION_DIST_SHA256: 2a65907ac8474f805dcb23358618c9c673e6a903bf1c3c26fcdf4cfe02debe2a
@@ -639,6 +639,17 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      postgres-webhook-test:
+        image: postgres:17.5-bookworm@sha256:fbcea1bd13b6a882cd6caa6b58db3ae5c102efe50ec625b3e2a5cbc50db5bfe4
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 127.0.0.1:5435:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout
@@ -710,6 +721,11 @@ jobs:
           DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy
           test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='codex_oauth_provider_identity_guard' AND pg_catalog.pg_get_userbyid(p.proowner)='postgres'")" = 1
           test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname='reviewrouter_release_migration'")" = 0
+
+      - name: Webhook fencing PostgreSQL acceptance
+        env:
+          WEBHOOK_FENCE_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5435/postgres
+        run: node scripts/webhook-fencing/run-postgres.ts
 
       # Keep one idle snapshot before application suites open concurrent sessions.
       # Replaying 000079 after later migrations create global roles is unsafe.
@@ -835,7 +851,14 @@ jobs:
         run: pnpm codex-rotating:secret-write-boundary
 
       - name: Compiled runtime smoke
-        run: pnpm runtime:smoke
+        env:
+          GITHUB_APP_ID: "1"
+          GITHUB_APP_SLUG: reviewrouter-ci
+        run: |
+          pnpm runtime:smoke
+          webhook_recovery_help_output=$(pnpm webhook:recover --help)
+          printf '%s\n' "$webhook_recovery_help_output"
+          [[ "$webhook_recovery_help_output" == *"Usage: pnpm webhook:recover"* ]]
 
       - name: Web page smoke
         run: pnpm web:smoke
@@ -1501,10 +1524,30 @@ jobs:
             --testNamePattern "accepts the paired Action golden projection target|matches the paired Action golden corpus"
 
       - name: Paired Review Action to control plane investigation E2E
+        id: paired_review_investigation
         env:
           REVIEW_ROUTER_ACTION_SOURCE_DIR: ${{ github.workspace }}/.paired/review-router-action
           REVIEW_ROUTER_PAIRED_OCR_BINARY: ${{ runner.temp }}/reviewrouter-paired-ocr/opencodereview
-        run: pnpm review-investigation:paired-e2e
+        run: |
+          mkdir -p tmp/paired-review-investigation
+          rm -f tmp/paired-review-investigation/results.json tmp/multi-reviewer-e2e/accepted-result-recovery.json
+          pnpm review-investigation:paired-e2e \
+            --reporter=default --reporter=json \
+            --outputFile=tmp/paired-review-investigation/results.json
+          node scripts/paired-action-qualification/check-cold-recovery-results.ts \
+            tmp/paired-review-investigation/results.json \
+            tmp/multi-reviewer-e2e/accepted-result-recovery.json
+
+      - name: Preserve paired investigation and cold recovery proof
+        if: ${{ always() && steps.paired_review_investigation.outcome != 'skipped' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: paired-investigation-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            tmp/paired-review-investigation/results.json
+            tmp/multi-reviewer-e2e/accepted-result-recovery.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Captured Skills control plane to paired runtime HTTP proof
         env:

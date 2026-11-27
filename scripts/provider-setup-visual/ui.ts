@@ -155,6 +155,9 @@ export async function chooseSource(
   title: RegExp,
 ): Promise<void> {
   const choices = await showSourceChoices(dialog);
+  const choice = choices.getByRole("radio", { name: title });
+  if (!(await choice.isEnabled()))
+    throw new Error("provider_choice_disabled");
   // ProviderCards visually hides each radio; its visible label is the target
   // a user clicks. Match the radio's title, excluding badges and descriptions.
   await choices

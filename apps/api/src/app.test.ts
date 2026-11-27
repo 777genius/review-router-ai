@@ -28,8 +28,6 @@ import {
   StaticActionRuntimeCompatibilityPolicy,
 } from "@reviewrouter/features-action-control-plane";
 import type {
-  GitHubWebhookTransaction,
-  RegisterGitHubWebhookRoutesDependencies,
   GitHubInstallationRepositoryPort,
   GitHubInstallationSnapshot,
   GitHubPullRequestWebhookEnvelope,
@@ -46,29 +44,6 @@ import type { RegisterGitLabIntegrationRoutesDependencies } from "@reviewrouter/
 import type { Clock } from "@reviewrouter/shared";
 import { reviewActionV2GoldenFixtures } from "@reviewrouter/protocol-review-action-v2";
 import { createApiApp } from "./app.js";
-
-// These in-memory ports exercise HTTP contracts only. Atomicity is qualified
-// separately through the production Prisma composition and disposable PostgreSQL.
-function testWebhookDependencies(
-  input: GitHubWebhookTransaction &
-    Pick<
-      RegisterGitHubWebhookRoutesDependencies,
-      "webhookSecret" | "preAdmissionPullRequests" | "onProcessingError"
-    >,
-): RegisterGitHubWebhookRoutesDependencies {
-  const {
-    webhookSecret,
-    preAdmissionPullRequests,
-    onProcessingError,
-    ...transaction
-  } = input;
-  return {
-    webhookSecret,
-    ...(preAdmissionPullRequests ? { preAdmissionPullRequests } : {}),
-    ...(onProcessingError ? { onProcessingError } : {}),
-    transactions: { run: (_eventName, work) => work(transaction) },
-  };
-}
 
 class InMemoryInstallations implements GitHubInstallationRepositoryPort {
   public readonly snapshots = new Map<string, GitHubInstallationSnapshot>();
@@ -782,13 +757,13 @@ describe("API app", () => {
     const ownerGrants = new InMemoryOwnerGrants();
     const secret = "webhook-secret";
     const app = await createApiApp({
-      githubWebhookDependencies: testWebhookDependencies({
+      githubWebhookDependencies: {
         webhookSecret: secret,
         installations,
         ownerGrants,
         deliveries,
         clock: fixedClock,
-      }),
+      },
     });
     const payload = JSON.stringify({
       action: "created",
@@ -838,12 +813,12 @@ describe("API app", () => {
 
       try {
         const app = await createApiApp({
-          githubWebhookDependencies: testWebhookDependencies({
+          githubWebhookDependencies: {
             webhookSecret: secret,
             installations: new InMemoryInstallations(),
             deliveries: new InMemoryDeliveries(),
             clock: fixedClock,
-          }),
+          },
         });
         try {
           const response = await app.inject({
@@ -890,7 +865,7 @@ describe("API app", () => {
       const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
       try {
         const app = await createApiApp({
-          githubWebhookDependencies: testWebhookDependencies({
+          githubWebhookDependencies: {
             webhookSecret: secret,
             installations: new InMemoryInstallations(),
             deliveries: new InMemoryDeliveries(),
@@ -901,7 +876,7 @@ describe("API app", () => {
             },
             onProcessingError,
             clock: fixedClock,
-          }),
+          },
         });
         try {
           const payload = JSON.stringify({
@@ -943,13 +918,13 @@ describe("API app", () => {
     const pullRequests = new CapturingPullRequestWebhookHandler();
     const secret = "webhook-secret";
     const app = await createApiApp({
-      githubWebhookDependencies: testWebhookDependencies({
+      githubWebhookDependencies: {
         webhookSecret: secret,
         installations: new InMemoryInstallations(),
         deliveries: new InMemoryDeliveries(),
         pullRequests,
         clock: fixedClock,
-      }),
+      },
     });
     const payload = JSON.stringify({
       action: "closed",
@@ -1014,7 +989,7 @@ describe("API app", () => {
     const pullRequests = new CapturingPullRequestWebhookHandler();
     const secret = "webhook-secret";
     const app = await createApiApp({
-      githubWebhookDependencies: testWebhookDependencies({
+      githubWebhookDependencies: {
         webhookSecret: secret,
         installations: new InMemoryInstallations(),
         deliveries,
@@ -1025,7 +1000,7 @@ describe("API app", () => {
         },
         pullRequests,
         clock: fixedClock,
-      }),
+      },
     });
     const payload = JSON.stringify({
       action: "synchronize",
@@ -1071,13 +1046,13 @@ describe("API app", () => {
     const repositories = new CapturingRepositoryWebhookHandler();
     const secret = "webhook-secret";
     const app = await createApiApp({
-      githubWebhookDependencies: testWebhookDependencies({
+      githubWebhookDependencies: {
         webhookSecret: secret,
         installations: new InMemoryInstallations(),
         deliveries: new InMemoryDeliveries(),
         repositories,
         clock: fixedClock,
-      }),
+      },
     });
     const payload = JSON.stringify({
       action: "edited",
@@ -1137,7 +1112,7 @@ describe("API app", () => {
     const deliveries = new InMemoryDeliveries();
     const handledDeliveryIds: string[] = [];
     const app = await createApiApp({
-      githubWebhookDependencies: testWebhookDependencies({
+      githubWebhookDependencies: {
         webhookSecret: secret,
         installations: new InMemoryInstallations(),
         deliveries,
@@ -1148,7 +1123,7 @@ describe("API app", () => {
           },
         },
         clock: fixedClock,
-      }),
+      },
     });
     const payload = JSON.stringify({
       ref: "refs/heads/main",
@@ -1216,12 +1191,12 @@ describe("API app", () => {
   it("rejects signed GitHub webhooks with invalid payload shape safely", async () => {
     const secret = "webhook-secret";
     const app = await createApiApp({
-      githubWebhookDependencies: testWebhookDependencies({
+      githubWebhookDependencies: {
         webhookSecret: secret,
         installations: new InMemoryInstallations(),
         deliveries: new InMemoryDeliveries(),
         clock: fixedClock,
-      }),
+      },
     });
     const payload = JSON.stringify({ action: "created" });
 
@@ -1245,12 +1220,12 @@ describe("API app", () => {
     const secret = "webhook-secret";
     const deliveries = new InMemoryDeliveries();
     const app = await createApiApp({
-      githubWebhookDependencies: testWebhookDependencies({
+      githubWebhookDependencies: {
         webhookSecret: secret,
         installations: new InMemoryInstallations(),
         deliveries,
         clock: fixedClock,
-      }),
+      },
     });
     const payload = JSON.stringify({ zen: "Non-legacy is the best legacy." });
 
@@ -1279,12 +1254,12 @@ describe("API app", () => {
     const secret = "webhook-secret";
     const deliveries = new InMemoryDeliveries();
     const app = await createApiApp({
-      githubWebhookDependencies: testWebhookDependencies({
+      githubWebhookDependencies: {
         webhookSecret: secret,
         installations: new InMemoryInstallations(),
         deliveries,
         clock: fixedClock,
-      }),
+      },
     });
     const payload = JSON.stringify({
       context: "ReviewRouter conflict review",
@@ -1315,12 +1290,12 @@ describe("API app", () => {
 
   it("rejects unsupported GitHub webhook events before ignore when signature is invalid", async () => {
     const app = await createApiApp({
-      githubWebhookDependencies: testWebhookDependencies({
+      githubWebhookDependencies: {
         webhookSecret: "webhook-secret",
         installations: new InMemoryInstallations(),
         deliveries: new InMemoryDeliveries(),
         clock: fixedClock,
-      }),
+      },
     });
 
     const response = await app.inject({

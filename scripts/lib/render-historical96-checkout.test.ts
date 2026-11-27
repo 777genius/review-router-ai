@@ -24,8 +24,16 @@ const readScalingMigrationNames = [
   "000165_installation_sync_latest_index",
   "000166_repository_health_latest_index",
 ];
+const webhookDeliveryMigrationNames = [
+  "000165_webhook_effect_fence",
+  "000167_webhook_recovery_intent",
+];
+const applicationTailMigrationNames = [
+  ...readScalingMigrationNames,
+  ...webhookDeliveryMigrationNames,
+].sort();
 const predecessorFull = currentFull.filter(
-  (row) => !readScalingMigrationNames.includes(row.migrationName),
+  (row) => !applicationTailMigrationNames.includes(row.migrationName),
 );
 const previousFull = predecessorFull.filter(
   (row) =>
@@ -189,9 +197,9 @@ describe("trusted historical96 checkout reader", () => {
     expect(full[96]?.migrationName).toBe(
       "000098_certified_fork_effect_archive",
     );
-    expect(currentFull).toHaveLength(172);
-    expect(currentFull.slice(-2).map((row) => row.migrationName)).toEqual(
-      readScalingMigrationNames,
+    expect(currentFull).toHaveLength(174);
+    expect(currentFull.slice(-4).map((row) => row.migrationName)).toEqual(
+      applicationTailMigrationNames,
     );
     const result = readRenderHistorical96CheckoutInventory();
     expect(result).toEqual(historical);
@@ -210,15 +218,15 @@ describe("trusted historical96 checkout reader", () => {
     expect(reader).toHaveBeenCalledWith();
     reader.mockReturnValue([
       ...currentFull,
-      { migrationName: "000167_unknown", checksum: "0".repeat(64) },
+      { migrationName: "000168_unknown", checksum: "0".repeat(64) },
     ]);
     expect(() => readRenderHistorical96CheckoutInventory()).toThrow(
       "render_historical96_checkout_rejected:count",
     );
   });
 
-  it.each(readScalingMigrationNames)(
-    "rejects altered checkout-only index %s before returning historical96",
+  it.each(applicationTailMigrationNames)(
+    "rejects altered checkout-only migration %s before returning historical96",
     (migrationName) => {
       reader.mockReturnValueOnce(
         currentFull.map((row) =>
@@ -233,8 +241,30 @@ describe("trusted historical96 checkout reader", () => {
     },
   );
 
+  it.each(applicationTailMigrationNames)(
+    "rejects partial checkout174 after removing %s",
+    (migrationName) => {
+      reader.mockReturnValueOnce(
+        currentFull.filter((row) => row.migrationName !== migrationName),
+      );
+      expect(() => readRenderHistorical96CheckoutInventory()).toThrow(
+        "render_historical96_checkout_rejected:count",
+      );
+    },
+  );
+
   it.each([
     { checkout: currentFull },
+    {
+      checkout: currentFull.filter(
+        (row) => !readScalingMigrationNames.includes(row.migrationName),
+      ),
+    },
+    {
+      checkout: currentFull.filter(
+        (row) => !webhookDeliveryMigrationNames.includes(row.migrationName),
+      ),
+    },
     { checkout: predecessorFull },
     {
       checkout: predecessorFull.filter(

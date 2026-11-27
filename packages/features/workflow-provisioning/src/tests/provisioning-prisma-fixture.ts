@@ -112,7 +112,6 @@ export function createProvisioningPrisma(
   const tx = { workflowProvisioning, repositoryConnection };
   const prisma = {
     ...tx,
-    $connect: vi.fn(),
     $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) =>
       callback(tx),
     ),

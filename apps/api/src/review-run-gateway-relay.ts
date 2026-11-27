@@ -1181,8 +1181,13 @@ export function createReviewRunGatewayRelay(input: {
           effect,
         });
     };
-    const settle = async (effect: c.RequestStatus["effect"]) => {
+    const settle = async (
+      effect: c.RequestStatus["effect"],
+      observePhase?: (phase: "usage_outcome" | "companion_settlement") => void,
+    ) => {
+      observePhase?.("usage_outcome");
       await outcome(effect);
+      observePhase?.("companion_settlement");
       await input.companionDispatches!.settle(
         auth.authorizationId,
         dispatch.dispatchId,
@@ -1288,6 +1293,8 @@ export function createReviewRunGatewayRelay(input: {
                 | "authority_recheck"
                 | "cancelled"
                 | "native_status"
+                | "usage_outcome"
+                | "companion_settlement"
                 | "stream_byte_limit"
                 | "downstream" = "upstream_read";
               try {
@@ -1304,7 +1311,10 @@ export function createReviewRunGatewayRelay(input: {
                     { signal },
                     fresh,
                   );
-                  await settle(status.effect);
+                  await settle(status.effect, (settlementPhase) => {
+                    phase = settlementPhase;
+                  });
+                  phase = "downstream";
                   completed = true;
                   cleanup();
                   target.close();
@@ -1330,6 +1340,11 @@ export function createReviewRunGatewayRelay(input: {
                     requestRef,
                     receivedBytes: received,
                     maxStreamBytes: maxResponseBytes,
+                    signalAborted: signal.aborted,
+                    ...(detail ? { errorCategory: detail.errorCategory } : {}),
+                    ...(detail?.httpStatus === undefined
+                      ? {}
+                      : { httpStatus: detail.httpStatus }),
                     ...(detail?.sdkCode ? { sdkCode: detail.sdkCode } : {}),
                   });
                 } catch {
@@ -2704,10 +2719,24 @@ function captureStreamFailureDiagnostic(
       ].includes(code)
         ? code
         : undefined;
-    const status: unknown = object
-      ? (Object.getOwnPropertyDescriptor(object, "status")?.value ??
-        Object.getOwnPropertyDescriptor(object, "statusCode")?.value)
-      : undefined;
+    let status: number | undefined;
+    if (object) {
+      for (const field of ["httpStatus", "status", "statusCode"]) {
+        const candidate: unknown = Object.getOwnPropertyDescriptor(
+          object,
+          field,
+        )?.value;
+        if (
+          typeof candidate === "number" &&
+          Number.isInteger(candidate) &&
+          candidate >= 400 &&
+          candidate <= 599
+        ) {
+          status = candidate;
+          break;
+        }
+      }
+    }
     const message: unknown = object
       ? Object.getOwnPropertyDescriptor(object, "message")?.value
       : undefined;
@@ -2727,12 +2756,7 @@ function captureStreamFailureDiagnostic(
             : error instanceof Error
               ? "Error"
               : "other",
-      ...(typeof status === "number" &&
-      Number.isInteger(status) &&
-      status >= 400 &&
-      status <= 599
-        ? { httpStatus: status }
-        : {}),
+      ...(status === undefined ? {} : { httpStatus: status }),
       ...(sdkCode === undefined ? {} : { sdkCode }),
     };
   } catch {

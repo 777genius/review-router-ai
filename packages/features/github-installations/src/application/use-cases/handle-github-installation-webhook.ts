@@ -1,4 +1,5 @@
 import type { Clock } from "@reviewrouter/shared";
+import { safeGitHubWebhookFailureSummary } from "../../domain/github-webhook-failure";
 import { installationStatusForAction } from "../../domain/github-installation";
 import type { GitHubWebhookEnvelope } from "../../domain/github-webhook";
 import { normalizeGitHubWebhookEvent } from "../../domain/github-webhook-normalization";
@@ -20,9 +21,6 @@ export type HandleGitHubInstallationWebhookResult = {
   readonly status?: string;
 };
 
-/** Execute inside the webhook transaction. Preserve a failure for its owner to
- * roll back or retry; writing a failure receipt in an aborted transaction can
- * mask the actual database error and cannot make the receipt durable. */
 export async function handleGitHubInstallationWebhook(
   envelope: GitHubWebhookEnvelope,
   dependencies: HandleGitHubInstallationWebhookDependencies,
@@ -41,59 +39,67 @@ export async function handleGitHubInstallationWebhook(
     return { processed: false };
   }
 
-  if (envelope.eventName === "installation_repositories") {
-    await dependencies.installations.upsertInstallation({
-      githubInstallationId: installationId,
-      accountLogin: envelope.payload.installation.account.login,
-      accountType: envelope.payload.installation.account.type,
-      accountAvatarUrl:
-        envelope.payload.installation.account.avatar_url ?? null,
-      repositorySelection:
-        envelope.payload.repository_selection ??
-        envelope.payload.installation.repository_selection,
-      status: "active",
-    });
-    await dependencies.syncRequests?.requestInstallationSync({
-      githubInstallationId: installationId,
-      deliveryId: envelope.deliveryId,
-      reason: "installation_repositories_changed",
-      occurredAt: dependencies.clock.now(),
-    });
-    await dependencies.deliveries.markProcessed(envelope.deliveryId);
-    return { processed: true, status: "active" };
-  }
-
-  const status = installationStatusForAction(envelope.payload.action);
-  if (envelope.eventName !== "installation" || status === null) {
-    await dependencies.deliveries.markProcessed(envelope.deliveryId);
-    return { processed: true };
-  }
-
-  if (status === "removed") {
-    await dependencies.installations.markInstallationRemoved(installationId);
-  } else {
-    await dependencies.installations.upsertInstallation({
-      githubInstallationId: installationId,
-      accountLogin: envelope.payload.installation.account.login,
-      accountType: envelope.payload.installation.account.type,
-      accountAvatarUrl:
-        envelope.payload.installation.account.avatar_url ?? null,
-      repositorySelection: envelope.payload.installation.repository_selection,
-      status,
-    });
-    if (status === "active") {
-      await grantInstallationSenderOwner(envelope, dependencies);
+  try {
+    if (envelope.eventName === "installation_repositories") {
+      await dependencies.installations.upsertInstallation({
+        githubInstallationId: installationId,
+        accountLogin: envelope.payload.installation.account.login,
+        accountType: envelope.payload.installation.account.type,
+        accountAvatarUrl:
+          envelope.payload.installation.account.avatar_url ?? null,
+        repositorySelection:
+          envelope.payload.repository_selection ??
+          envelope.payload.installation.repository_selection,
+        status: "active",
+      });
       await dependencies.syncRequests?.requestInstallationSync({
         githubInstallationId: installationId,
         deliveryId: envelope.deliveryId,
-        reason: "installation_access_changed",
+        reason: "installation_repositories_changed",
         occurredAt: dependencies.clock.now(),
       });
+      await dependencies.deliveries.markProcessed(envelope.deliveryId);
+      return { processed: true, status: "active" };
     }
-  }
 
-  await dependencies.deliveries.markProcessed(envelope.deliveryId);
-  return { processed: true, status };
+    const status = installationStatusForAction(envelope.payload.action);
+    if (envelope.eventName !== "installation" || status === null) {
+      await dependencies.deliveries.markProcessed(envelope.deliveryId);
+      return { processed: true };
+    }
+
+    if (status === "removed") {
+      await dependencies.installations.markInstallationRemoved(installationId);
+    } else {
+      await dependencies.installations.upsertInstallation({
+        githubInstallationId: installationId,
+        accountLogin: envelope.payload.installation.account.login,
+        accountType: envelope.payload.installation.account.type,
+        accountAvatarUrl:
+          envelope.payload.installation.account.avatar_url ?? null,
+        repositorySelection: envelope.payload.installation.repository_selection,
+        status,
+      });
+      if (status === "active") {
+        await grantInstallationSenderOwner(envelope, dependencies);
+        await dependencies.syncRequests?.requestInstallationSync({
+          githubInstallationId: installationId,
+          deliveryId: envelope.deliveryId,
+          reason: "installation_access_changed",
+          occurredAt: dependencies.clock.now(),
+        });
+      }
+    }
+
+    await dependencies.deliveries.markProcessed(envelope.deliveryId);
+    return { processed: true, status };
+  } catch (error) {
+    await dependencies.deliveries.markFailed({
+      deliveryId: envelope.deliveryId,
+      errorSummary: safeGitHubWebhookFailureSummary(error),
+    });
+    throw error;
+  }
 }
 
 async function grantInstallationSenderOwner(

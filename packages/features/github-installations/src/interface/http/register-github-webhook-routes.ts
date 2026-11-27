@@ -11,29 +11,53 @@ import {
   githubPullRequestWebhookPayloadSchema,
   githubPushWebhookPayloadSchema,
   githubRepositoryWebhookPayloadSchema,
+  type GitHubAppAuthorizationWebhookHandlerPort,
   isSupportedGitHubInstallationWebhookEvent,
   type GitHubPullRequestWebhookHandlerPort,
+  type GitHubPushWebhookHandlerPort,
+  type GitHubRepositoryWebhookHandlerPort,
 } from "../../domain/github-webhook";
 import { hashGitHubWebhookPayload } from "../../domain/github-webhook-normalization";
-import type { GitHubWebhookTransactionPort } from "../../application/ports/github-webhook-transaction-port";
-import {
-  processGitHubWebhook,
-  type SupportedGitHubWebhookEnvelope,
-} from "../../application/use-cases/process-github-webhook";
+import { handleGitHubInstallationWebhook } from "../../application/use-cases/handle-github-installation-webhook";
+import type { GitHubInstallationRepositoryPort } from "../../application/ports/github-installation-repository-port";
+import type { WebhookDeliveryRepositoryPort } from "../../application/ports/webhook-delivery-repository-port";
+import type { InstallationWorkspaceOwnerGrantPort } from "../../application/ports/installation-workspace-owner-grant-port";
+import type { InstallationSyncRequestPort } from "../../application/ports/installation-sync-request-port";
 import { verifyGitHubWebhookSignature } from "../../infrastructure/crypto/github-webhook-signature";
+import type { Clock } from "@reviewrouter/shared";
+import { safeGitHubWebhookFailureSummary } from "../../domain/github-webhook-failure";
+import {
+  parseGitHubWebhook,
+  type GitHubWebhookProcessor,
+} from "./github-webhook-processor";
 
-export type RegisterGitHubWebhookRoutesDependencies = {
+type LegacyWebhookDependencies = {
   readonly webhookSecret: string;
-  readonly transactions: GitHubWebhookTransactionPort;
-  /** Remote/independent admission runs before the local receipt transaction. */
+  readonly installations: GitHubInstallationRepositoryPort;
+  readonly deliveries: WebhookDeliveryRepositoryPort;
+  readonly ownerGrants?: InstallationWorkspaceOwnerGrantPort;
+  readonly syncRequests?: InstallationSyncRequestPort;
+  readonly appAuthorizations?: GitHubAppAuthorizationWebhookHandlerPort;
   readonly preAdmissionPullRequests?: GitHubPullRequestWebhookHandlerPort;
-  /** Never receives raw payloads or exception text. */
+  readonly pullRequests?: GitHubPullRequestWebhookHandlerPort;
+  readonly pushes?: GitHubPushWebhookHandlerPort;
+  readonly repositories?: GitHubRepositoryWebhookHandlerPort;
+  readonly clock: Clock;
+  readonly processor?: undefined;
+};
+
+export type RegisterGitHubWebhookRoutesDependencies = (
+  | LegacyWebhookDependencies
+  | { readonly processor: GitHubWebhookProcessor }
+) & {
+  /** Operational logging is supplied by the API composition, never raw webhook data. */
   readonly onProcessingError?: () => void;
 };
 
 type RawBodyRequest = FastifyRequest & { readonly rawBody?: Buffer };
 
-// The larger signed webhook limit never changes other API parser limits.
+// GitHub caps webhook payloads at 25 MB. Keep the larger limit on this signed
+// route only; every other API route retains its own smaller parser limit.
 const githubWebhookBodyLimitBytes = 25 * 1024 * 1024;
 
 export async function registerGitHubWebhookRoutes(
@@ -44,9 +68,10 @@ export async function registerGitHubWebhookRoutes(
     try {
       dependencies.onProcessingError?.();
     } catch {
-      // An observer cannot change the opaque webhook response.
+      // Observer failures must never change the opaque webhook response.
     }
   };
+
   await app.register(rawBody, {
     field: "rawBody",
     global: false,
@@ -54,8 +79,11 @@ export async function registerGitHubWebhookRoutes(
     runFirst: true,
     routes: ["/webhooks/github"],
   });
+
   const routeOptions = {
     bodyLimit: githubWebhookBodyLimitBytes,
+    // JSON parsing precedes this handler. Never echo payload-bearing parse
+    // diagnostics to clients, including for signed malformed requests.
     errorHandler: (
       error: FastifyError,
       _request: FastifyRequest,
@@ -82,20 +110,28 @@ export async function registerGitHubWebhookRoutes(
       const deliveryId = request.headers["x-github-delivery"];
       const eventName = request.headers["x-github-event"];
       const signature = request.headers["x-hub-signature-256"];
-      if (!rawPayload || !Buffer.isBuffer(rawPayload)) {
+
+      if (!rawPayload || Buffer.isBuffer(rawPayload) === false) {
         return reply.code(400).send({ error: "missing_raw_body" });
       }
       if (typeof deliveryId !== "string" || typeof eventName !== "string") {
         return reply.code(400).send({ error: "missing_github_headers" });
       }
-      if (
-        !verifyGitHubWebhookSignature({
-          payload: rawPayload,
-          signatureHeader:
-            typeof signature === "string" ? signature : undefined,
-          secret: dependencies.webhookSecret,
-        })
-      ) {
+      const verification = dependencies.processor?.verify({
+        rawPayload,
+        ...(typeof signature === "string"
+          ? { signatureHeader: signature }
+          : {}),
+      });
+      const signatureValid = dependencies.processor
+        ? verification !== null
+        : verifyGitHubWebhookSignature({
+            payload: rawPayload,
+            signatureHeader:
+              typeof signature === "string" ? signature : undefined,
+            secret: dependencies.webhookSecret,
+          });
+      if (!signatureValid) {
         return reply.code(401).send({ error: "invalid_signature" });
       }
       if (!isSupportedGitHubInstallationWebhookEvent(eventName)) {
@@ -103,32 +139,280 @@ export async function registerGitHubWebhookRoutes(
           .code(202)
           .send({ processed: false, ignored: true, eventName });
       }
-      const envelope = parseEnvelope({
-        eventName,
-        deliveryId,
-        payloadHash: hashGitHubWebhookPayload(rawPayload),
-        body: request.body,
-      });
-      if (!envelope) {
-        return reply.code(400).send({ error: "invalid_webhook_payload" });
+
+      if (dependencies.processor) {
+        if (!verification) throw new Error("github_app_webhook_unverified");
+        const envelope = parseGitHubWebhook(eventName, request.body, {
+          deliveryId,
+          payloadHash: verification.payloadHash,
+        });
+        if (!envelope)
+          return reply.code(400).send({ error: "invalid_webhook_payload" });
+        return reply.send(
+          await dependencies.processor.process(envelope, verification),
+        );
       }
-      const preAdmissionResult =
-        envelope.eventName === "pull_request" &&
-        dependencies.preAdmissionPullRequests
+
+      if (eventName === "github_app_authorization") {
+        const parsedAppAuthorizationPayload =
+          githubAppAuthorizationWebhookPayloadSchema.safeParse(request.body);
+        if (!parsedAppAuthorizationPayload.success) {
+          return reply.code(400).send({ error: "invalid_webhook_payload" });
+        }
+        if (!dependencies.appAuthorizations) {
+          return reply
+            .code(202)
+            .send({ processed: false, ignored: true, eventName });
+        }
+
+        const started = await dependencies.deliveries.tryStartProcessing({
+          deliveryId,
+          eventName,
+          action: parsedAppAuthorizationPayload.data.action,
+          ...(rawPayload
+            ? { payloadHash: hashGitHubWebhookPayload(rawPayload) }
+            : {}),
+          normalizedEvent: {
+            type: "github.app_authorization",
+            version: 1,
+            action: parsedAppAuthorizationPayload.data.action,
+            senderId: String(parsedAppAuthorizationPayload.data.sender.id),
+            senderLogin: parsedAppAuthorizationPayload.data.sender.login,
+          },
+        });
+        if (!started) {
+          return reply.send({ processed: false });
+        }
+
+        try {
+          const result =
+            await dependencies.appAuthorizations.handleGitHubAppAuthorizationWebhook(
+              {
+                deliveryId,
+                eventName,
+                payloadHash: hashGitHubWebhookPayload(rawPayload),
+                payload: parsedAppAuthorizationPayload.data,
+              },
+            );
+          await dependencies.deliveries.markProcessed(deliveryId);
+          return reply.send(result);
+        } catch (error) {
+          await dependencies.deliveries.markFailed({
+            deliveryId,
+            errorSummary: safeGitHubWebhookFailureSummary(error),
+          });
+          throw error;
+        }
+      }
+
+      if (eventName === "pull_request") {
+        const parsedPullRequestPayload =
+          githubPullRequestWebhookPayloadSchema.safeParse(request.body);
+        if (!parsedPullRequestPayload.success) {
+          return reply.code(400).send({ error: "invalid_webhook_payload" });
+        }
+        if (
+          !dependencies.preAdmissionPullRequests &&
+          !dependencies.pullRequests
+        ) {
+          return reply
+            .code(202)
+            .send({ processed: false, ignored: true, eventName });
+        }
+
+        const envelope = {
+          deliveryId,
+          eventName,
+          payloadHash: hashGitHubWebhookPayload(rawPayload),
+          payload: parsedPullRequestPayload.data,
+        } as const;
+        const preAdmissionResult = dependencies.preAdmissionPullRequests
           ? await dependencies.preAdmissionPullRequests.handleGitHubPullRequestWebhook(
               envelope,
             )
           : null;
-      const result = await processGitHubWebhook(
-        envelope,
-        dependencies.transactions,
-        preAdmissionResult,
+        if (!dependencies.pullRequests) {
+          return reply.send(preAdmissionResult);
+        }
+
+        const started = await dependencies.deliveries.tryStartProcessing({
+          deliveryId,
+          eventName,
+          action: parsedPullRequestPayload.data.action,
+          installationId: String(parsedPullRequestPayload.data.installation.id),
+          ...(rawPayload
+            ? { payloadHash: hashGitHubWebhookPayload(rawPayload) }
+            : {}),
+          normalizedEvent: {
+            type: "github.pull_request",
+            version: 1,
+            action: parsedPullRequestPayload.data.action,
+            installationId: String(
+              parsedPullRequestPayload.data.installation.id,
+            ),
+            repositoryId: String(parsedPullRequestPayload.data.repository.id),
+            repositoryFullName:
+              parsedPullRequestPayload.data.repository.full_name,
+            pullRequestNumber:
+              parsedPullRequestPayload.data.pull_request.number,
+            merged: parsedPullRequestPayload.data.pull_request.merged,
+          },
+        });
+        if (!started) {
+          return reply.send({ processed: false });
+        }
+
+        try {
+          const result =
+            await dependencies.pullRequests.handleGitHubPullRequestWebhook({
+              ...envelope,
+            });
+          await dependencies.deliveries.markProcessed(deliveryId);
+          return reply.send(result);
+        } catch (error) {
+          await dependencies.deliveries.markFailed({
+            deliveryId,
+            errorSummary: safeGitHubWebhookFailureSummary(error),
+          });
+          throw error;
+        }
+      }
+
+      if (eventName === "push") {
+        const parsedPushPayload = githubPushWebhookPayloadSchema.safeParse(
+          request.body,
+        );
+        if (!parsedPushPayload.success) {
+          return reply.code(400).send({ error: "invalid_webhook_payload" });
+        }
+        if (!dependencies.pushes) {
+          return reply
+            .code(202)
+            .send({ processed: false, ignored: true, eventName });
+        }
+
+        const started = await dependencies.deliveries.tryStartProcessing({
+          deliveryId,
+          eventName,
+          action: "push",
+          installationId: String(parsedPushPayload.data.installation.id),
+          ...(rawPayload
+            ? { payloadHash: hashGitHubWebhookPayload(rawPayload) }
+            : {}),
+          normalizedEvent: {
+            type: "github.push",
+            version: 1,
+            installationId: String(parsedPushPayload.data.installation.id),
+            repositoryId: String(parsedPushPayload.data.repository.id),
+            repositoryFullName: parsedPushPayload.data.repository.full_name,
+            ref: parsedPushPayload.data.ref,
+            deleted: parsedPushPayload.data.deleted,
+          },
+        });
+        if (!started) {
+          return reply.send({ processed: false });
+        }
+
+        try {
+          const result = await dependencies.pushes.handleGitHubPushWebhook({
+            deliveryId,
+            eventName,
+            payloadHash: hashGitHubWebhookPayload(rawPayload),
+            payload: parsedPushPayload.data,
+          });
+          await dependencies.deliveries.markProcessed(deliveryId);
+          return reply.send(result);
+        } catch (error) {
+          await dependencies.deliveries.markFailed({
+            deliveryId,
+            errorSummary: safeGitHubWebhookFailureSummary(error),
+          });
+          throw error;
+        }
+      }
+
+      if (eventName === "repository") {
+        const parsedRepositoryPayload =
+          githubRepositoryWebhookPayloadSchema.safeParse(request.body);
+        if (!parsedRepositoryPayload.success) {
+          return reply.code(400).send({ error: "invalid_webhook_payload" });
+        }
+        if (!dependencies.repositories) {
+          return reply
+            .code(202)
+            .send({ processed: false, ignored: true, eventName });
+        }
+
+        const started = await dependencies.deliveries.tryStartProcessing({
+          deliveryId,
+          eventName,
+          action: parsedRepositoryPayload.data.action,
+          installationId: String(parsedRepositoryPayload.data.installation.id),
+          ...(rawPayload
+            ? { payloadHash: hashGitHubWebhookPayload(rawPayload) }
+            : {}),
+          normalizedEvent: {
+            type: "github.repository",
+            version: 1,
+            action: parsedRepositoryPayload.data.action,
+            installationId: String(
+              parsedRepositoryPayload.data.installation.id,
+            ),
+            repositoryId: String(parsedRepositoryPayload.data.repository.id),
+            repositoryFullName:
+              parsedRepositoryPayload.data.repository.full_name,
+            defaultBranch:
+              parsedRepositoryPayload.data.repository.default_branch ?? null,
+            visibility: normalizeRepositoryWebhookVisibility(
+              parsedRepositoryPayload.data.repository,
+            ),
+            archived: parsedRepositoryPayload.data.repository.archived,
+          },
+        });
+        if (!started) {
+          return reply.send({ processed: false });
+        }
+
+        try {
+          const result =
+            await dependencies.repositories.handleGitHubRepositoryWebhook({
+              deliveryId,
+              eventName,
+              payloadHash: hashGitHubWebhookPayload(rawPayload),
+              payload: parsedRepositoryPayload.data,
+            });
+          await dependencies.deliveries.markProcessed(deliveryId);
+          return reply.send(result);
+        } catch (error) {
+          await dependencies.deliveries.markFailed({
+            deliveryId,
+            errorSummary: safeGitHubWebhookFailureSummary(error),
+          });
+          throw error;
+        }
+      }
+
+      const parsedPayload = githubInstallationWebhookPayloadSchema.safeParse(
+        request.body,
       );
-      // Sending before run() commits would acknowledge an event that can roll back.
-      return result.kind === "unhandled"
-        ? reply.code(202).send({ processed: false, ignored: true, eventName })
-        : reply.send(result.value);
+      if (!parsedPayload.success) {
+        return reply.code(400).send({ error: "invalid_webhook_payload" });
+      }
+
+      const result = await handleGitHubInstallationWebhook(
+        {
+          deliveryId,
+          eventName,
+          payloadHash: hashGitHubWebhookPayload(rawPayload),
+          payload: parsedPayload.data,
+        },
+        dependencies,
+      );
+
+      return reply.send(result);
     } catch {
+      // A caught error will no longer reach Fastify's onError hook. Record only
+      // a bounded opaque failure event, never raw provider/tenant error text.
       notifyProcessingError();
       return reply
         .code(500)
@@ -137,75 +421,11 @@ export async function registerGitHubWebhookRoutes(
   });
 }
 
-function parseEnvelope(input: {
-  readonly eventName: SupportedGitHubWebhookEnvelope["eventName"];
-  readonly deliveryId: string;
-  readonly payloadHash: string;
-  readonly body: unknown;
-}): SupportedGitHubWebhookEnvelope | null {
-  const { deliveryId, payloadHash } = input;
-  switch (input.eventName) {
-    case "github_app_authorization": {
-      const parsed = githubAppAuthorizationWebhookPayloadSchema.safeParse(
-        input.body,
-      );
-      return parsed.success
-        ? {
-            deliveryId,
-            payloadHash,
-            eventName: input.eventName,
-            payload: parsed.data,
-          }
-        : null;
-    }
-    case "pull_request": {
-      const parsed = githubPullRequestWebhookPayloadSchema.safeParse(
-        input.body,
-      );
-      return parsed.success
-        ? {
-            deliveryId,
-            payloadHash,
-            eventName: input.eventName,
-            payload: parsed.data,
-          }
-        : null;
-    }
-    case "push": {
-      const parsed = githubPushWebhookPayloadSchema.safeParse(input.body);
-      return parsed.success
-        ? {
-            deliveryId,
-            payloadHash,
-            eventName: input.eventName,
-            payload: parsed.data,
-          }
-        : null;
-    }
-    case "repository": {
-      const parsed = githubRepositoryWebhookPayloadSchema.safeParse(input.body);
-      return parsed.success
-        ? {
-            deliveryId,
-            payloadHash,
-            eventName: input.eventName,
-            payload: parsed.data,
-          }
-        : null;
-    }
-    case "installation":
-    case "installation_repositories": {
-      const parsed = githubInstallationWebhookPayloadSchema.safeParse(
-        input.body,
-      );
-      return parsed.success
-        ? {
-            deliveryId,
-            payloadHash,
-            eventName: input.eventName,
-            payload: parsed.data,
-          }
-        : null;
-    }
-  }
+function normalizeRepositoryWebhookVisibility(repository: {
+  readonly visibility?: string | undefined;
+  readonly private?: boolean | undefined;
+}): "public" | "private" | "internal" {
+  if (repository.visibility === "internal") return "internal";
+  if (repository.private) return "private";
+  return "public";
 }

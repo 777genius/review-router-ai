@@ -142,6 +142,9 @@ describeWithDatabase("Prisma review evidence observations", () => {
       ReviewObservationQualityFlag.LowConfidence,
       ReviewObservationQualityFlag.ProviderWarning,
       ReviewObservationQualityFlag.ContextInspectionIncomplete,
+      ReviewObservationQualityFlag.ReviewMainIncomplete,
+      ReviewObservationQualityFlag.ReviewRoundIncomplete,
+      ReviewObservationQualityFlag.ReviewPhaseIncomplete,
       ReviewObservationQualityFlag.ContextAttestationUnavailable,
       ReviewObservationQualityFlag.CrossRevisionReuseDisabled,
       ReviewObservationQualityFlag.UnverifiedNativeSpan,
@@ -157,9 +160,55 @@ describeWithDatabase("Prisma review evidence observations", () => {
       status: ReviewObservationAcceptPersistenceStatus.Accepted,
       observation: { qualityFlags: normalizedQualityFlags },
     });
-    await expect(store.findById(current.observationId)).resolves.toMatchObject({
+    const restoredStore = new PrismaReviewObservationStore(prisma);
+    await expect(restoredStore.findById(current.observationId)).resolves.toMatchObject({
       qualityFlags: normalizedQualityFlags,
     });
+  });
+
+  it("bounds original-source inventory by exact slot, execution, vote and live reuse window", async () => {
+    const source = candidate(`unattached-${suffix}`, {
+      sourceExecutionId: `source-${suffix}`,
+      sourceWorkSlotId: "original-slot",
+      attemptId: `source-attempt-${suffix}`,
+    });
+    await store.acceptObservation(source);
+    for (const [name, changes] of [
+      ["other-execution", { sourceExecutionId: "foreign-execution" }],
+      ["other-slot", { sourceWorkSlotId: "foreign-slot" }],
+      ["other-vote", { providerVoteIdentityHash: hash("f") }],
+    ] as const)
+      await store.acceptObservation(candidate(`${name}-${suffix}`, {
+        ...source,
+        ...changes,
+        observationId: `${name}-${suffix}`,
+        attemptId: `${name}-attempt-${suffix}`,
+      }));
+    const query = {
+      scope: source.scope,
+      trustDomain: source.trustDomain,
+      sourceExecutionId: source.sourceExecutionId,
+      sourceWorkSlotId: source.sourceWorkSlotId,
+      providerVoteIdentityHash: source.providerVoteIdentityHash,
+      reusableAfterMs: source.createdAtMs,
+    };
+    expect((await store.findSourceSlotCandidates(query)).map((row) => row.observationId))
+      .toEqual([source.observationId]);
+    expect(await store.findSourceSlotCandidates({
+      ...query,
+      reusableAfterMs: source.reuseExpiresAtMs,
+    })).toEqual([]);
+    expect(await store.findSourceSlotCandidates({
+      ...query,
+      scope: { ...source.scope, authorizationScopeHash: hash("b") },
+    })).toEqual([]);
+    for (let index = 0; index < 3; index += 1)
+      await store.acceptObservation(candidate(`ambiguous-${index}-${suffix}`, {
+        ...source,
+        observationId: `ambiguous-${index}-${suffix}`,
+        attemptId: `ambiguous-attempt-${index}-${suffix}`,
+      }));
+    expect(await store.findSourceSlotCandidates(query)).toHaveLength(2);
   });
 
   function candidate(

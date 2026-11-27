@@ -58,6 +58,28 @@ export class PrismaReviewObservationStore
     }
   }
 
+  async findSourceSlotCandidates(
+    input: Parameters<ReviewObservationQueryPort["findSourceSlotCandidates"]>[0],
+  ): Promise<readonly ReviewObservation[]> {
+    const records = await this.prisma.reviewEvidenceObservation.findMany({
+      where: {
+        workspaceId: input.scope.workspaceId,
+        repositoryConnectionId: input.scope.repositoryConnectionId,
+        scmRepositoryIdentityId: input.scope.scmRepositoryIdentityId,
+        pullRequestNumber: input.scope.pullRequestNumber,
+        authorizationScopeHash: input.scope.authorizationScopeHash,
+        trustDomain: toPrismaTrustDomain(input.trustDomain),
+        sourceExecutionId: input.sourceExecutionId,
+        sourceWorkSlotId: input.sourceWorkSlotId,
+        providerVoteIdentityHash: input.providerVoteIdentityHash,
+        reuseExpiresAt: { gt: new Date(input.reusableAfterMs) },
+      },
+      orderBy: { observationId: "asc" },
+      take: 2,
+    });
+    return Object.freeze(records.map(toDomain));
+  }
+
   async findCandidates(
     input: Parameters<ReviewObservationQueryPort["findCandidates"]>[0],
   ): Promise<readonly ReviewObservation[]> {
@@ -405,6 +427,9 @@ const decodableQualityFlags = {
   [ReviewObservationQualityFlag.LowConfidence]: true,
   [ReviewObservationQualityFlag.ProviderWarning]: true,
   [ReviewObservationQualityFlag.ContextInspectionIncomplete]: true,
+  [ReviewObservationQualityFlag.ReviewMainIncomplete]: true,
+  [ReviewObservationQualityFlag.ReviewRoundIncomplete]: true,
+  [ReviewObservationQualityFlag.ReviewPhaseIncomplete]: true,
   [ReviewObservationQualityFlag.UnverifiedNativeSpan]: true,
   [ReviewObservationQualityFlag.ContextAttestationUnavailable]: true,
   [ReviewObservationQualityFlag.CrossRevisionReuseDisabled]: true,

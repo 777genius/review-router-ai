@@ -4,7 +4,7 @@
 - Goal: bounded resource use and recovery from component failures without
   restarting otherwise healthy services.
 - Affected targets: API, Web, ordinary worker, skill worker and PostgreSQL indexes.
-- Implementation: [Draft PR #1021](https://github.com/777genius/review-router-ai/pull/1021).
+- Implementation: [PR #1021](https://github.com/777genius/review-router-ai/pull/1021).
 - Source checkpoints: worker/database `b63ff683148f2bbf7ecc7e2171883f5f6b4dd1bf`;
   Accounts `bdb4ac8ff76546781fc175526a2cba4e4ce108aa`;
   latest-row readers `d86e501a7c63e748596f4983d336d86868fe5f3f`;
@@ -22,7 +22,7 @@
   from main `d84feba7ae08cf477f5b0584e526971f38458c04`. The peer reports its own
   production installation; this Draft remains uninstalled. The combined relay189
   and snapshot91 locally passed on `f1ccb8cb`, including catalog-outage/401 recovery.
-- Later overlap review: adapt only acknowledgement semantics from open
+- Historical overlap review (before the current integration below): adapt only acknowledgement semantics from open
   [#1026](https://github.com/777genius/review-router-ai/pull/1026) at
   `78ed993e8603aa254ee5022b43564845aa11e540`, preserving our conflict-safe
   transaction. At 09:15 UTC Draft #1027 had head
@@ -37,6 +37,36 @@
   [multi-tenant reliability work](2026-11-25-multi-tenant-reliability.md);
   complete exact-head qualification before release selection.
 - Last updated: `2026-11-27`.
+
+## Current integration status
+
+The batch is ready for review and is being integrated with PRs #1026, #1027,
+#1028 and #1030. The current default webhook implementation is the durable fenced
+processor from PR #1027. It supersedes this PR's unreleased generic webhook
+transaction-port prototype and its old default-composition test harness.
+
+The distinct interruption, cancellation, HTTP-response-loss and lock-visibility
+invariants are retained in four focused cases against the fenced production
+composition. Existing fenced and actual COMMIT-loss suites remain present.
+Historical passes below stay bound to their recorded source and are not passes
+for the combined tree.
+
+Both latest-row indexes remain in the application catalog together with both
+webhook migrations: 174 ordinary migrations in total. Exact complete tail groups
+are admitted without changing managed92 or historical96 manifests. The
+conflict-safe legacy receipt repository still acknowledges only an exact
+processed delivery, preserving PR #1026's unfinished-delivery behavior.
+
+Combined-source native checks and ordinary protected CI remain required. The
+local executor became unavailable during preparation; source review and retained
+historical evidence do not replace current runtime qualification. See the
+[updated integration plan](../plans/2026-11-27-scale-and-recovery.md#combined-webhook-and-recovery-integration)
+for the invariant and test mapping.
+
+Before a separately authorized webhook rollout, follow the
+[webhook writer-drain and grant procedure](2026-11-27-webhook-effect-fence.md)
+in addition to this record's index/API/Web/worker procedure. No staging or
+production rollout was performed by this merge task.
 
 ## Environment status
 

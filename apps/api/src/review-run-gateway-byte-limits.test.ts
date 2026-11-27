@@ -733,6 +733,284 @@ it("keeps oversized companion streams unknown and logs a safe failure phase", as
   }
 });
 
+it.each([
+  { phase: "native_status", loggerThrows: false, statusCase: "sdk" },
+  { phase: "native_status", loggerThrows: true, statusCase: "sdk" },
+  { phase: "usage_outcome", loggerThrows: false, statusCase: "sdk" },
+  { phase: "usage_outcome", loggerThrows: true, statusCase: "sdk" },
+  {
+    phase: "companion_settlement",
+    loggerThrows: false,
+    statusCase: "getter",
+  },
+  { phase: "companion_settlement", loggerThrows: true, statusCase: "getter" },
+  { phase: "usage_outcome", loggerThrows: false, statusCase: "invalid_sdk" },
+  {
+    phase: "usage_outcome",
+    loggerThrows: false,
+    statusCase: "invalid_status",
+  },
+] as const)(
+  "attributes companion EOF failure to $phase without terminal delivery or replay (logger throws=$loggerThrows, status=$statusCase)",
+  async ({ phase, loggerThrows, statusCase }) => {
+    const state = companionReservation();
+    const eof = deferred();
+    const getter = vi.fn(() => {
+      throw new Error("secret-getter");
+    });
+    const failure = Object.defineProperties(
+      new TypeError("secret-persistence-message"),
+      {
+        stack: { value: "secret-stack" },
+        code: { get: getter },
+        httpStatus:
+          statusCase === "getter"
+            ? { get: getter }
+            : { value: statusCase === "sdk" ? 503 : 200 },
+        status: {
+          value:
+            statusCase === "invalid_status"
+              ? 503.5
+              : statusCase === "sdk"
+                ? 502
+                : 503,
+        },
+        statusCode:
+          statusCase === "invalid_status" ? { value: 503 } : { get: getter },
+        meta: { value: { detail: "secret-database-detail" } },
+      },
+    );
+    if (phase === "companion_settlement")
+      Object.defineProperty(failure, "message", { get: getter });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {
+      if (loggerThrows) throw new Error("secret-log-sink");
+    });
+    const requestStatus = vi.fn((requestRef: string) => ({
+      statusCode: 503,
+      body: {
+        code: "upstream_failure",
+        traceRef: "secret-trace",
+        requestRef,
+        effect: "effect_unknown",
+        retry: { kind: "readback" },
+      },
+    }));
+    const f = await fixture(
+      32768,
+      0,
+      2,
+      5000,
+      async (upstream) => {
+        upstream.write(progressFrame);
+        await eof.promise;
+        upstream.end(completedFrame);
+      },
+      {
+        admission: state.admission,
+        ...(phase === "native_status" ? { requestStatus } : {}),
+      },
+    );
+    const recordOutcome = f.usage!.outcome;
+    const usage = vi
+      .spyOn(f.usage!, "outcome")
+      .mockImplementation(async (input) => {
+        if (phase === "usage_outcome" && input.effect === "completed")
+          throw failure;
+        return recordOutcome(input);
+      });
+    const recordSettlement = state.admission.settle;
+    const settlement = vi
+      .spyOn(state.admission, "settle")
+      .mockImplementation(async (authorizationId, dispatchId, effect) => {
+        if (phase === "companion_settlement" && effect === "completed")
+          throw failure;
+        return recordSettlement(authorizationId, dispatchId, effect);
+      });
+    const http = await serveRelay({
+      ...f.relay,
+      responses: (token, _raw, controller, diagnostic) =>
+        f.relay.responses(
+          token,
+          companionEnvelope(),
+          controller,
+          diagnostic,
+          companionContext,
+        ),
+    });
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    let appClosed = false;
+    try {
+      const response = await http.request();
+      expect(response.status).toBe(200);
+      reader = response.body!.getReader();
+      await readExactFrame(reader, progressFrame);
+      eof.resolve();
+      let tail = "";
+      await expect(
+        (async () => {
+          for (;;) {
+            const part = await reader!.read();
+            if (part.done) return;
+            tail += Buffer.from(part.value).toString();
+          }
+        })(),
+      ).rejects.toBeDefined();
+      expect(tail).toBe("");
+      expect(
+        log.mock.calls.filter(
+          ([event]) => event?.event === "review_run_companion_stream_failure",
+        ),
+      ).toEqual([
+        [
+          {
+            event: "review_run_companion_stream_failure",
+            phase,
+            requestRef: "stored-companion-native-ref",
+            receivedBytes: Buffer.byteLength(progressFrame + completedFrame),
+            maxStreamBytes: 32768,
+            signalAborted: false,
+            errorCategory: phase === "native_status" ? "Error" : "TypeError",
+            httpStatus: 503,
+            ...(phase === "native_status" ? { sdkCode: "safe_error" } : {}),
+          },
+        ],
+      ]);
+      expect(
+        log.mock.calls.flat().some((value) => value instanceof Error),
+      ).toBe(false);
+      expect(getter).not.toHaveBeenCalled();
+      expect(JSON.stringify(log.mock.calls)).not.toContain("secret");
+      expect(requestStatus).toHaveBeenCalledTimes(
+        phase === "native_status" ? 1 : 0,
+      );
+      expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+        "effect_unknown",
+      );
+      expect(f.effects.at(-1)?.effect).toBe("effect_unknown");
+      await expect(
+        f.relay.responses(
+          "authorization-1",
+          companionEnvelope(),
+          new AbortController(),
+          undefined,
+          companionContext,
+        ),
+      ).rejects.toMatchObject({ code: "companion_dispatch_already_claimed" });
+      expect(f.requestRefs).toEqual(["stored-companion-native-ref"]);
+      expect(f.admissions).toHaveLength(1);
+      reader.releaseLock();
+      reader = undefined;
+      await http.app.close();
+      appClosed = true;
+      expect([...f.nativeExecutions.values()]).toEqual(["closed"]);
+    } finally {
+      eof.resolve();
+      await reader?.cancel().catch(() => {});
+      reader?.releaseLock();
+      if (!appClosed) await http.app.close();
+      usage.mockRestore();
+      settlement.mockRestore();
+      log.mockRestore();
+    }
+  },
+);
+
+it("attributes consumer cancellation during successful companion settlement to downstream", async () => {
+  const state = companionReservation();
+  const settlementStarted = deferred();
+  const releaseSettlement = deferred();
+  let completedRecorded = false;
+  const recordSettlement = state.admission.settle;
+  const settlement = vi
+    .spyOn(state.admission, "settle")
+    .mockImplementation(async (authorizationId, dispatchId, effect) => {
+      if (effect === "completed") {
+        settlementStarted.resolve();
+        await releaseSettlement.promise;
+      }
+      await recordSettlement(authorizationId, dispatchId, effect);
+      if (effect === "completed") completedRecorded = true;
+    });
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  const f = await fixture(
+    32768,
+    0,
+    2,
+    5000,
+    async (upstream) => {
+      upstream.end(progressFrame + completedFrame);
+    },
+    { admission: state.admission },
+  );
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let draining: Promise<void> | undefined;
+  try {
+    const response = await f.relay.responses(
+      "authorization-1",
+      companionEnvelope(),
+      new AbortController(),
+      undefined,
+      companionContext,
+    );
+    if (response.kind !== "stream") throw new Error("stream_expected");
+    reader = response.body.getReader();
+    draining = (async () => {
+      while (!(await reader!.read()).done) {
+        // Drive EOF until the real companion settlement is held.
+      }
+    })();
+    void draining.catch(() => {});
+    await settlementStarted.promise;
+    expect(completedRecorded).toBe(false);
+    await reader.cancel();
+    await draining;
+    expect(completedRecorded).toBe(false);
+    releaseSettlement.resolve();
+
+    await vi.waitFor(() =>
+      expect(
+        log.mock.calls.filter(
+          ([event]) => event?.event === "review_run_companion_stream_failure",
+        ),
+      ).toEqual([
+        [
+          {
+            event: "review_run_companion_stream_failure",
+            phase: "downstream",
+            requestRef: "stored-companion-native-ref",
+            receivedBytes: Buffer.byteLength(progressFrame + completedFrame),
+            maxStreamBytes: 32768,
+            signalAborted: false,
+            errorCategory: "TypeError",
+          },
+        ],
+      ]),
+    );
+    expect(completedRecorded).toBe(true);
+    expect(
+      settlement.mock.calls.filter(([, , effect]) => effect === "completed"),
+    ).toHaveLength(1);
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "completed",
+    );
+    expect(f.requestRefs).toEqual(["stored-companion-native-ref"]);
+    expect(
+      log.mock.calls.flat().some((value) => value instanceof Error),
+    ).toBe(false);
+  } finally {
+    releaseSettlement.resolve();
+    await reader?.cancel().catch(() => {});
+    await draining?.catch(() => {});
+    reader?.releaseLock();
+    try {
+      await f.relay.shutdown();
+    } finally {
+      settlement.mockRestore();
+      log.mockRestore();
+    }
+  }
+});
+
 it("companion chunks use local authority while phase and EOF status retain full freshness", async () => {
   const state = companionReservation();
   const eof = deferred();
@@ -1505,6 +1783,10 @@ async function fixture(
       resetAt: string;
     };
     refusalStatus?: number;
+    requestStatus?: (requestRef: string) => {
+      statusCode: number;
+      body: unknown;
+    };
     failUsageOutcome?: boolean;
     modelDispatchV2?: boolean;
     modelDispatchCapacity128?: boolean;
@@ -1975,13 +2257,21 @@ async function fixture(
       req.url?.includes("/requests/") &&
       requestRefs.includes(req.url.split("/").at(-1)!)
     ) {
-      res.writeHead(200, { "content-type": "application/json" }).end(
-        JSON.stringify({
-          requestRef: req.url.split("/").at(-1),
-          effect: "completed",
-          status: "completed",
-        }),
-      );
+      const requestRef = req.url.split("/").at(-1)!;
+      const response = companionOptions?.requestStatus?.(requestRef);
+      res
+        .writeHead(response?.statusCode ?? 200, {
+          "content-type": "application/json",
+        })
+        .end(
+          JSON.stringify(
+            response?.body ?? {
+              requestRef,
+              effect: "completed",
+              status: "completed",
+            },
+          ),
+        );
       return;
     }
     if (execution?.[2] === "close") {
@@ -3251,6 +3541,8 @@ it.each(["pressure", "timer"] as const)(
       f.authorizations,
       "expireOrRevokeReviewRunAuthorization",
     );
+    let gate: ReturnType<typeof f.holdClose> | undefined;
+    let closing: ReturnType<typeof f.relay.closeRun> | undefined;
     try {
       await streamRun(f, "authorization-1", "reviewer-0");
       f.setCloseState("unknown");
@@ -3266,9 +3558,14 @@ it.each(["pressure", "timer"] as const)(
         ).rejects.toMatchObject({ code: "relay_saturated" });
         expect(f.nativeCloses).toHaveLength(2);
       } else {
+        gate = f.holdClose();
         await vi.waitFor(() => expect(f.nativeCloses).toHaveLength(2), {
           timeout: 2000,
         });
+        await gate.started;
+        closing = f.relay.closeRun("authorization-1", "completed");
+        gate.release();
+        await expect(closing).resolves.toMatchObject({ state: "unknown" });
       }
       expect(f.intents).toHaveLength(1);
       expect(f.requestModels).toHaveLength(1);
@@ -3277,9 +3574,14 @@ it.each(["pressure", "timer"] as const)(
       expect(new Set(f.nativeCloseOperationIds).size).toBe(1);
       f.setCloseState("applied");
       if (trigger === "timer") {
+        gate = f.holdClose();
         await vi.waitFor(() => expect(f.nativeCloses).toHaveLength(3), {
           timeout: 4000,
         });
+        await gate.started;
+        closing = f.relay.closeRun("authorization-1", "completed");
+        gate.release();
+        await expect(closing).resolves.toMatchObject({ state: "applied" });
       }
       await expect(streamRun(f, "authorization-2", "reviewer-0")).resolves.toBe(
         "stream",
@@ -3294,11 +3596,207 @@ it.each(["pressure", "timer"] as const)(
       expect(revoke).not.toHaveBeenCalled();
       expect(f.requestModels).toHaveLength(2);
     } finally {
+      gate?.release();
+      await closing?.catch(() => {});
       revoke.mockRestore();
       await f.relay.shutdown();
     }
   },
 );
+
+it("v4 pressure still reclaims an exact retained close after all automatic retries are spent", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  const originalFactory = preparationModule.createReviewRunGatewayPreparation;
+  let localCloseCalls = 0;
+  const factory = vi
+    .spyOn(preparationModule, "createReviewRunGatewayPreparation")
+    .mockImplementation((input) => {
+      const preparation = originalFactory(input);
+      return {
+        ...preparation,
+        close: (...args: Parameters<typeof preparation.close>) => {
+          localCloseCalls++;
+          return preparation.close(...args);
+        },
+      };
+    });
+  const f = await fixture(
+    32768,
+    0,
+    1,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    { models: ["gpt-5.6-sol"], independentAllocations: true },
+  );
+  const revoke = vi.spyOn(
+    f.authorizations,
+    "expireOrRevokeReviewRunAuthorization",
+  );
+  let retryClose: ReturnType<typeof f.holdClose> | undefined;
+  let closing: ReturnType<typeof f.relay.closeRun> | undefined;
+  try {
+    await streamRun(f, "authorization-1", "reviewer-0");
+    f.setCloseState("unknown");
+    await f.relay.closeRun("authorization-1", "completed");
+    const deadline = f.authorization().maxExpiresAt.getTime();
+    for (let expected = 2; expected <= 9; expected++) {
+      retryClose = f.holdClose();
+      // Search the remaining original window, excluding its deadline close.
+      while (localCloseCalls < expected && Date.now() < deadline - 1) {
+        await vi.advanceTimersByTimeAsync(
+          Math.min(100, deadline - Date.now() - 1),
+        );
+        await setImmediate();
+      }
+      expect(Date.now()).toBeLessThan(deadline);
+      expect(localCloseCalls).toBe(expected);
+      // Freeze fake time during real I/O. The held response makes this join
+      // exact, so settlement latency cannot consume the next retry's window.
+      await retryClose.started;
+      expect(f.nativeCloses).toHaveLength(expected);
+      closing = f.relay.closeRun("authorization-1", "completed");
+      retryClose.release();
+      await expect(closing).resolves.toMatchObject({ state: "unknown" });
+    }
+
+    const remaining = f.authorization().maxExpiresAt.getTime() - Date.now();
+    expect(remaining).toBeGreaterThan(0);
+    // Pass the next uncapped half-remaining retry while staying before expiry.
+    // Observe local close starts too: slow HTTP cannot hide an extra attempt.
+    await vi.advanceTimersByTimeAsync(Math.floor((remaining * 3) / 4));
+    expect(Date.now()).toBeLessThan(f.authorization().maxExpiresAt.getTime());
+    expect(localCloseCalls).toBe(9);
+    expect(f.nativeCloses).toHaveLength(9);
+
+    await expect(
+      streamRun(f, "authorization-2", "reviewer-0"),
+    ).rejects.toMatchObject({
+      code: "relay_saturated",
+      effect: "not_dispatched",
+    });
+    expect(localCloseCalls).toBe(10);
+    expect(f.nativeCloses).toHaveLength(10);
+    expect(f.intents).toHaveLength(1);
+    expect(f.requestModels).toHaveLength(1);
+    expect([...f.nativeExecutions.values()]).toEqual(["active"]);
+
+    f.setCloseState("applied");
+    await expect(streamRun(f, "authorization-2", "reviewer-0")).resolves.toBe(
+      "stream",
+    );
+    expect(localCloseCalls).toBe(11);
+    expect(f.nativeCloses).toHaveLength(11);
+    expect(new Set(f.nativeCloses).size).toBe(1);
+    expect(new Set(f.nativeCloseOperationIds).size).toBe(1);
+    expect(f.nativeCloseReasons).toEqual(
+      Array.from({ length: 11 }, () => "completed"),
+    );
+    expect(f.intents).toHaveLength(2);
+    expect(f.requestModels).toHaveLength(2);
+    expect(new Set(f.requestRefs).size).toBe(2);
+    expect([...f.nativeExecutions.values()]).toEqual(["closed", "active"]);
+    expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+    expect(revoke).not.toHaveBeenCalled();
+  } finally {
+    retryClose?.release();
+    await closing?.catch(() => {});
+    try {
+      await f.relay.shutdown();
+    } finally {
+      factory.mockRestore();
+      revoke.mockRestore();
+      vi.useRealTimers();
+    }
+  }
+});
+
+it("v4 pressure retains custody when the original native close capability has expired", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  const f = await fixture(
+    32768,
+    0,
+    1,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    { models: ["gpt-5.6-sol"], independentAllocations: true },
+  );
+  let deadlineClose: ReturnType<typeof f.holdClose> | undefined;
+  let closing: ReturnType<typeof f.relay.closeRun> | undefined;
+  try {
+    await streamRun(f, "authorization-1", "reviewer-0");
+    f.setCloseResponseOverride((operationId) => ({
+      status: 401,
+      body: {
+        code: "unauthenticated",
+        traceRef: "trace-1",
+        operationRef: operationId,
+        effect: "not_dispatched",
+        retry: { kind: "never" },
+      },
+    }));
+    deadlineClose = f.holdClose();
+    await vi.advanceTimersByTimeAsync(
+      f.authorization().maxExpiresAt.getTime() - Date.now() + 1,
+    );
+    // Only the deadline timer can initiate this first held HTTP close.
+    await vi.waitFor(() => expect(f.nativeCloses).toHaveLength(1));
+    await deadlineClose.started;
+    expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Expired);
+    closing = f.relay.closeRun("authorization-1", "deadline");
+    const refused = expect(closing).rejects.toMatchObject({
+      code: "safe_error",
+      httpStatus: 401,
+      effect: "not_dispatched",
+      diagnostic: { code: "unauthenticated" },
+    });
+    deadlineClose.release();
+    await refused;
+    expect(f.nativeCloses).toHaveLength(1);
+
+    // A distinct later authorization is live; refusal must come from retained
+    // old custody rather than the second request also having an expired grant.
+    const laterDeadline = new Date(Date.now() + 120_000);
+    const laterSnapshot = JSON.parse(
+      f.authorization("authorization-2").runtimeSnapshotCanonicalJson!,
+    );
+    f.overrides.set("authorization-2", {
+      expiresAt: laterDeadline,
+      maxExpiresAt: laterDeadline,
+      runtimeSnapshotCanonicalJson: canonicalJson({
+        ...laterSnapshot,
+        deadline: laterDeadline.toISOString(),
+      }),
+    });
+    await expect(
+      streamRun(f, "authorization-2", "reviewer-0"),
+    ).rejects.toMatchObject({
+      code: "relay_saturated",
+      effect: "not_dispatched",
+    });
+    expect(f.nativeCloses).toHaveLength(2);
+    expect(new Set(f.nativeCloses).size).toBe(1);
+    expect(new Set(f.nativeCloseOperationIds).size).toBe(1);
+    expect(f.nativeCloseReasons).toEqual(["deadline", "deadline"]);
+    expect(f.intents).toHaveLength(1);
+    expect(f.requestModels).toHaveLength(1);
+    expect([...f.nativeExecutions.values()]).toEqual(["active"]);
+    expect(f.operationReads).toHaveLength(0);
+  } finally {
+    deadlineClose?.release();
+    await closing?.catch(() => {});
+    try {
+      await f.relay.shutdown();
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+});
 
 it("v4 bounds automatic close retries and preserves the original deadline fence", async () => {
   vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });

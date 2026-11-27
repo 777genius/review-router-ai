@@ -30,7 +30,6 @@ describe("PrismaRepositoryWebhookHandler", () => {
       gitHubInstallation: { findUnique: vi.fn() },
     };
     const handler = new PrismaRepositoryWebhookHandler({
-      $connect: vi.fn(),
       $transaction: vi.fn(async (work) => work(transaction)),
     } as never);
 
@@ -124,7 +123,6 @@ describe("PrismaRepositoryWebhookHandler", () => {
       gitHubInstallation: { findUnique: vi.fn() },
     };
     const handler = new PrismaRepositoryWebhookHandler({
-      $connect: vi.fn(),
       $transaction: vi.fn(async (work) => work(transaction)),
     } as never);
 
@@ -181,7 +179,6 @@ describe("PrismaRepositoryWebhookHandler", () => {
       gitHubInstallation: { findUnique: vi.fn() },
     };
     const handler = new PrismaRepositoryWebhookHandler({
-      $connect: vi.fn(),
       $transaction: vi.fn(async (work) => work(transaction)),
     } as never);
 
@@ -295,7 +292,6 @@ describe("PrismaRepositoryWebhookHandler", () => {
       },
     };
     const handler = new PrismaRepositoryWebhookHandler({
-      $connect: vi.fn(),
       $transaction: vi.fn(async (work) => work(transaction)),
     } as never);
 
@@ -368,7 +364,6 @@ describe("PrismaRepositoryWebhookHandler", () => {
       workflowProvisioning,
     };
     const handler = new PrismaRepositoryWebhookHandler({
-      $connect: vi.fn(),
       $transaction: vi.fn(async (work) => work(transaction)),
     } as never);
 
@@ -433,7 +428,6 @@ describe("PrismaRepositoryWebhookHandler", () => {
         },
       };
       const handler = new PrismaRepositoryWebhookHandler({
-        $connect: vi.fn(),
         $transaction: vi.fn(async (work) => work(transaction)),
       } as never);
 
@@ -490,7 +484,6 @@ describe("PrismaRepositoryWebhookHandler", () => {
       gitHubInstallation: { findUnique: vi.fn() },
     };
     const handler = new PrismaRepositoryWebhookHandler({
-      $connect: vi.fn(),
       $transaction: vi.fn(async (work) => work(transaction)),
     } as never);
 
@@ -547,7 +540,6 @@ describe("PrismaRepositoryWebhookHandler", () => {
       gitHubInstallation: { findUnique: vi.fn() },
     };
     const handler = new PrismaRepositoryWebhookHandler({
-      $connect: vi.fn(),
       $transaction: vi.fn(async (work) => work(transaction)),
     } as never);
 
@@ -611,7 +603,6 @@ describe("PrismaRepositoryWebhookHandler", () => {
       },
     };
     const handler = new PrismaRepositoryWebhookHandler({
-      $connect: vi.fn(),
       $transaction: vi.fn(async (work) => work(transaction)),
     } as never);
 
@@ -683,7 +674,6 @@ describe("PrismaRepositoryWebhookHandler", () => {
       gitHubInstallation: { findUnique: vi.fn() },
     };
     const handler = new PrismaRepositoryWebhookHandler({
-      $connect: vi.fn(),
       $transaction: vi.fn(async (work) => work(transaction)),
     } as never);
 
@@ -746,7 +736,6 @@ describe("PrismaRepositoryWebhookHandler", () => {
       },
     };
     const handler = new PrismaRepositoryWebhookHandler({
-      $connect: vi.fn(),
       $transaction: vi.fn(async (work) => work(transaction)),
     } as never);
 
@@ -803,7 +792,6 @@ describe("PrismaRepositoryWebhookHandler", () => {
       gitHubInstallation: { findUnique: vi.fn() },
     };
     const handler = new PrismaRepositoryWebhookHandler({
-      $connect: vi.fn(),
       $transaction: vi.fn(async (work) => work(transaction)),
     } as never);
 
@@ -859,7 +847,6 @@ describe("PrismaRepositoryWebhookHandler", () => {
       gitHubInstallation: { findUnique: vi.fn() },
     };
     const handler = new PrismaRepositoryWebhookHandler({
-      $connect: vi.fn(),
       $transaction: vi.fn(async (work) => work(transaction)),
     } as never);
 
@@ -912,7 +899,6 @@ describe("PrismaRepositoryWebhookHandler", () => {
       gitHubInstallation: { findUnique: vi.fn() },
     };
     const handler = new PrismaRepositoryWebhookHandler({
-      $connect: vi.fn(),
       $transaction: vi.fn(async (work) => work(transaction)),
     } as never);
 
@@ -981,7 +967,6 @@ function fixture(
     return [{ locked: 1 }];
   });
   const prisma = {
-    $connect: vi.fn(),
     $transaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => {
       events.push("begin");
       const value = await work({
@@ -1113,7 +1098,7 @@ describe("repository webhook guard boundaries", () => {
       );
       expect(f.prisma.$transaction).toHaveBeenCalledTimes(2);
       expect(f.prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
-        isolationLevel: "Serializable",
+        isolationLevel: "ReadCommitted",
       });
       if (action === "deleted") {
         expect(
