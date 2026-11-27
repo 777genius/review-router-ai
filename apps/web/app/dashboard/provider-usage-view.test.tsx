@@ -98,6 +98,8 @@ const report: ProviderUsageReport = {
   sourceLag: "unknown",
   sources: [],
   deliveryCoverage: [],
+  deliveryCoverageTotals: { sessions: 0, lossSessions: 0, droppedEvents: 0 },
+  nextCoverageCursor: null,
   unattributed: null,
   rows: [],
   attempts: 101,
@@ -266,6 +268,11 @@ describe("provider usage interactive report", () => {
             { invocationId: "lossy", coverage },
             { invocationId: "quiet", coverage: null },
           ],
+          deliveryCoverageTotals: {
+            sessions: 3,
+            lossSessions: 1,
+            droppedEvents: 3,
+          },
         }}
       />,
     );
@@ -366,18 +373,20 @@ describe("provider usage interactive report", () => {
   it.each([
     ["run", "runAfter", "run-page"],
     ["observation", "after", "observation-page"],
+    ["delivery", "coverageAfter", "delivery-page"],
   ] as const)(
     "returns from a failed %s page without changing the selected report",
     async (kind, key, cursor) => {
       const calls: UsageFilters[] = [];
+      const pagedReport = { ...report, nextCoverageCursor: "delivery-page" };
       vi.mocked(fetchProviderUsage).mockImplementation(
         async (_workspace, filters) => {
           calls.push(filters);
           if (filters[key] === cursor) throw new ProviderUsageError(503);
-          return report;
+          return pagedReport;
         },
       );
-      render(<Harness />);
+      render(<Harness seed={pagedReport} />);
       change("Period", "custom");
       change("Requested model", "requested-alpha");
       await screen.findByRole("table", { name: "Requested model usage" });
@@ -415,15 +424,24 @@ describe("provider usage interactive report", () => {
       ).toBeNull();
     },
   );
-  it("keeps run and observation page histories independent and clears them on a filter change", async () => {
+  it("keeps all three page histories independent and resets them on a filter change", async () => {
     const calls: UsageFilters[] = [];
+    const pagedReport = {
+      ...report,
+      nextCoverageCursor: "delivery-page",
+      deliveryCoverageTotals: {
+        sessions: 10001,
+        lossSessions: 101,
+        droppedEvents: 303,
+      },
+    };
     vi.mocked(fetchProviderUsage).mockImplementation(
       async (_workspace, filters) => {
         calls.push(filters);
-        return report;
+        return pagedReport;
       },
     );
-    render(<Harness />);
+    render(<Harness seed={pagedReport} seedId={usageScope.seedId} />);
     fireEvent.click(
       screen.getByRole("button", { name: "Next observation page" }),
     );
@@ -431,11 +449,31 @@ describe("provider usage interactive report", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Runs" }));
     fireEvent.click(screen.getByRole("button", { name: "Next run page" }));
     await screen.findByRole("table", { name: "Review run usage" });
+    fireEvent.click(screen.getByRole("button", { name: "Next delivery page" }));
+    await screen.findByRole("table", { name: "Review run usage" });
+    expect(calls.at(-1)).toEqual({
+      ...initialFilters,
+      after: "observation-page",
+      runAfter: "run-page",
+      coverageAfter: "delivery-page",
+    });
+    expect(
+      screen.getByText("No delivery loss reported by 9,900 runtime sessions"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "101 runtime sessions reported delivery loss in this interval (303 dropped events).",
+      ),
+    ).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", { name: "Previous observation page" }),
     );
     await waitFor(() =>
-      expect(calls.at(-1)).toEqual({ ...initialFilters, runAfter: "run-page" }),
+      expect(calls.at(-1)).toEqual({
+        ...initialFilters,
+        runAfter: "run-page",
+        coverageAfter: "delivery-page",
+      }),
     );
     expect(
       screen.queryByRole("button", { name: "Previous observation page" }),
@@ -447,10 +485,20 @@ describe("provider usage interactive report", () => {
         screen.queryByRole("button", { name: "Previous run page" }),
       ).toBeNull(),
     );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Previous delivery page" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Previous delivery page" }),
+      ).toBeNull(),
+    );
     expect(
       client.getQueryData(providerUsageKey(usageScope, initialFilters)),
-    ).toEqual(report);
+    ).toEqual(pagedReport);
     fireEvent.click(screen.getByRole("button", { name: "Next run page" }));
+    await screen.findByRole("table", { name: "Review run usage" });
+    fireEvent.click(screen.getByRole("button", { name: "Next delivery page" }));
     await screen.findByRole("table", { name: "Review run usage" });
     change("Requested model", "requested-alpha");
     await screen.findByRole("table", { name: "Review run usage" });

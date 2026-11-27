@@ -5,6 +5,19 @@ export interface DistributedLock {
   withLock<T>(key: string, ttlMs: number, run: () => Promise<T>): Promise<T>;
 }
 
+export interface LeaseOwnership {
+  /** Checks the current database owner and expiry; it cannot fence remote APIs. */
+  assertHeld(): Promise<void>;
+}
+
+export interface DistributedLeaseLock extends DistributedLock {
+  withLease<T>(
+    key: string,
+    ttlMs: number,
+    run: (lease: LeaseOwnership) => Promise<T>,
+  ): Promise<T>;
+}
+
 export class InMemoryLock implements DistributedLock {
   private readonly active = new Set<string>();
 
@@ -21,6 +34,29 @@ export class InMemoryLock implements DistributedLock {
       this.active.delete(key);
     }
   }
+
+  async withLease<T>(
+    key: string,
+    ttlMs: number,
+    run: (lease: LeaseOwnership) => Promise<T>,
+  ): Promise<T> {
+    assertLockInput(key, ttlMs);
+    const expiresAt = Date.now() + ttlMs;
+    let held = true;
+    return this.withLock(key, ttlMs, async () => {
+      try {
+        return await run({
+          async assertHeld() {
+            if (!held || Date.now() >= expiresAt) {
+              throw new Error("distributed_lock_ownership_lost");
+            }
+          },
+        });
+      } finally {
+        held = false;
+      }
+    });
+  }
 }
 
 export class PostgresLeaseLock implements DistributedLock {
@@ -31,10 +67,16 @@ export class PostgresLeaseLock implements DistributedLock {
     ttlMs: number,
     run: () => Promise<T>,
   ): Promise<T> {
+    return this.withLease(key, ttlMs, () => run());
+  }
+
+  async withLease<T>(
+    key: string,
+    ttlMs: number,
+    run: (lease: LeaseOwnership) => Promise<T>,
+  ): Promise<T> {
     assertLockInput(key, ttlMs);
     const owner = randomUUID();
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + ttlMs);
     const acquired = await this.prisma.$queryRaw<readonly { owner: string }[]>`
       INSERT INTO "DistributedLock" (
         "key",
@@ -46,15 +88,15 @@ export class PostgresLeaseLock implements DistributedLock {
       VALUES (
         ${key},
         ${owner},
-        ${expiresAt},
-        ${now},
-        ${now}
+        clock_timestamp() + (${ttlMs} * interval '1 millisecond'),
+        clock_timestamp(),
+        clock_timestamp()
       )
       ON CONFLICT ("key") DO UPDATE SET
         "owner" = EXCLUDED."owner",
         "expiresAt" = EXCLUDED."expiresAt",
         "updatedAt" = EXCLUDED."updatedAt"
-      WHERE "DistributedLock"."expiresAt" <= ${now}
+      WHERE "DistributedLock"."expiresAt" <= clock_timestamp()
       RETURNING "owner"
     `;
 
@@ -63,7 +105,20 @@ export class PostgresLeaseLock implements DistributedLock {
     }
 
     try {
-      return await run();
+      return await run({
+        assertHeld: async () => {
+          const held = await this.prisma.$queryRaw<
+            readonly { owner: string }[]
+          >`
+            SELECT "owner" FROM "DistributedLock"
+            WHERE "key" = ${key} AND "owner" = ${owner}
+              AND "expiresAt" > clock_timestamp()
+          `;
+          if (held[0]?.owner !== owner) {
+            throw new Error("distributed_lock_ownership_lost");
+          }
+        },
+      });
     } finally {
       await this.prisma.$executeRaw`
         DELETE FROM "DistributedLock"

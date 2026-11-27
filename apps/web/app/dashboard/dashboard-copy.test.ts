@@ -42,6 +42,19 @@ describe("repository access recovery", () => {
     );
   });
 
+  it("offers reconnect, not a refresh replay, after a lost one-use token response", () => {
+    const presentation = repositoryAccessPresentation(
+      "token_refresh_failed",
+      "github_user_token_refresh_reauthorization_required",
+    );
+    expect(presentation).toMatchObject({ reconnect: true, canRefresh: false });
+    expect(
+      repositoryAccessErrorPresentation(
+        "repository_access_reauthorization_required",
+      ),
+    ).toEqual(presentation);
+  });
+
   it("offers reconnect only for an unusable connection and retry for an unclassified refresh failure", () => {
     for (const status of [
       "token_missing",

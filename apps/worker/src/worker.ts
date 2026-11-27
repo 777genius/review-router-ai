@@ -75,7 +75,10 @@ import {
   PrismaRepositoryConnectionRepository,
 } from "@reviewrouter/features-repositories";
 import { createInstallationSyncRequestedHandler } from "@reviewrouter/features-repositories/outbox";
-import { createPrismaClient } from "@reviewrouter/platform-db";
+import {
+  createPrismaClient,
+  runtimeDatabaseExecutionBudget,
+} from "@reviewrouter/platform-db";
 import {
   isConflictReviewFallbackAllowedForRepository,
   isConflictReviewFallbackEnabled,
@@ -98,7 +101,12 @@ import {
   safeWorkerErrorSummary,
   sleep,
 } from "./outbox-worker-loop";
-import { runWorkerBatch } from "./worker-batch";
+import {
+  createWorkerBatchProcessor,
+  runWorkerBatch,
+  type WorkerBatchOperations,
+} from "./worker-batch";
+import { registerWorkerShutdown } from "./worker-shutdown";
 import { InvestigationPrunerMaintenanceAdapter } from "./review-investigation-maintenance-adapter";
 import { WorkerInvestigationExecutionAuthority } from "./review-investigation-execution-authority";
 import {
@@ -128,7 +136,12 @@ async function main(): Promise<void> {
     mode: process.env.NODE_ENV ?? "development",
   });
 
-  const prisma = createPrismaClient();
+  const prisma = createPrismaClient({
+    executionBudget: runtimeDatabaseExecutionBudget,
+  });
+  const shutdown = registerWorkerShutdown((signal) => {
+    logger.info("ReviewRouter worker shutdown requested", { signal });
+  });
   try {
     const clock = new SystemClock();
     const memoryRuntime = await createMemoryKnowledgeRuntime({
@@ -260,46 +273,53 @@ async function main(): Promise<void> {
       .digest("hex");
     const takeoverEnabled =
       process.env.REVIEW_ROUTER_OUTBOX_FENCED_TAKEOVER_ENABLED === "1";
-    const processBatch = () =>
-      runWorkerBatch({
-        sdkGrowthMaintenance: () => sdkGrowthPublication.runMaintenance(),
-        processOutbox: async () =>
-          handlers.length > 0
-            ? await processOutboxBatch(
-                {
-                  limit,
-                  handlers,
-                  knownHandlers: knownOutboxHandlers,
-                  claimOwnerHash,
-                  processingLeaseMs: processingStaleAfterMs,
-                  heartbeatIntervalMs,
-                  takeoverEnabled,
-                },
-                {
-                  outbox,
-                  clock,
-                },
-              )
-            : emptyOutboxBatchResult(),
-        pruneRateLimits,
-        pruneActionOidcReplayNonces,
-        pruneReviewSnapshots,
-        pruneReviewExecutionCheckpoints,
-        reviewInvestigationMaintenance: () =>
-          reviewInvestigationMaintenance.runMaintenance(),
-        memoryMaintenance: () => memoryWorker.runMaintenance(),
-        pruneMemoryUsageTelemetry,
-        reviewV2Maintenance: () => reviewV2Worker.runMaintenance(),
-      });
+    const operations: WorkerBatchOperations = {
+      sdkGrowthMaintenance: () => sdkGrowthPublication.runMaintenance(),
+      processOutbox: async () =>
+        handlers.length > 0
+          ? await processOutboxBatch(
+              {
+                limit,
+                handlers,
+                knownHandlers: knownOutboxHandlers,
+                claimOwnerHash,
+                processingLeaseMs: processingStaleAfterMs,
+                heartbeatIntervalMs,
+                takeoverEnabled,
+                signal: shutdown.signal,
+              },
+              {
+                outbox,
+                clock,
+              },
+            )
+          : emptyOutboxBatchResult(),
+      pruneRateLimits,
+      pruneActionOidcReplayNonces,
+      pruneReviewSnapshots,
+      pruneReviewExecutionCheckpoints,
+      reviewInvestigationMaintenance: () =>
+        reviewInvestigationMaintenance.runMaintenance(),
+      memoryMaintenance: () => memoryWorker.runMaintenance(),
+      pruneMemoryUsageTelemetry,
+      reviewV2Maintenance: () =>
+        reviewV2Worker.runMaintenance({ signal: shutdown.signal }),
+    };
 
     if (process.env.REVIEW_ROUTER_WORKER_ONCE === "1") {
-      await runOutboxWorkerOnce({ processor: { processBatch }, logger });
+      await runOutboxWorkerOnce({
+        processor: {
+          processBatch: () =>
+            runWorkerBatch(operations, { signal: shutdown.signal }),
+        },
+        logger,
+      });
       return;
     }
 
     const summary = await runOutboxWorkerLoop(
       {
-        signal: createShutdownSignal(),
+        signal: shutdown.signal,
         idleDelayMs: readPositiveIntegerEnv(
           "REVIEW_ROUTER_WORKER_IDLE_MS",
           5000,
@@ -314,14 +334,20 @@ async function main(): Promise<void> {
         ),
       },
       {
-        processor: { processBatch },
+        processor: createWorkerBatchProcessor(operations, {
+          signal: shutdown.signal,
+        }),
         logger,
         sleep,
       },
     );
     logger.info("ReviewRouter worker stopped", summary);
   } finally {
-    await prisma.$disconnect();
+    try {
+      await prisma.$disconnect();
+    } finally {
+      shutdown.dispose();
+    }
   }
 }
 
@@ -388,6 +414,7 @@ function createOutboxHandlers(
     }),
     createOrgRulesetProvisioningRequestedHandler({
       provisioning: new PrismaOrgRulesetProvisioningRepository(prisma),
+      lock: new PostgresLeaseLock(prisma),
       createSetupGateway: createOrgRulesetSetupGatewayFactory({
         appId,
         privateKey,
@@ -700,17 +727,6 @@ function emptyOutboxBatchResult(): ProcessOutboxBatchResult {
     deadLettered: 0,
     staleClaims: 0,
   };
-}
-
-function createShutdownSignal(): AbortSignal {
-  const controller = new AbortController();
-  const shutdown = (signal: NodeJS.Signals) => {
-    logger.info("ReviewRouter worker shutdown requested", { signal });
-    controller.abort();
-  };
-  process.once("SIGINT", shutdown);
-  process.once("SIGTERM", shutdown);
-  return controller.signal;
 }
 
 function readPositiveIntegerEnv(name: string, fallback: number): number {

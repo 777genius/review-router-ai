@@ -2,7 +2,7 @@ import { dashboardSectionHref } from "./dashboard-section";
 import type { ReactNode } from "react";
 import type { ProviderUsageReport } from "./provider-usage-model";
 import { DailyUsageTable } from "./provider-usage-charts";
-import { ObservationTable } from "./provider-usage-tables";
+import { ObservationTable, UsagePageNavigation } from "./provider-usage-tables";
 import {
   count,
   humanUtc,
@@ -18,6 +18,8 @@ export function UsageDetails({
   controls,
   onNext,
   onPrevious,
+  onNextCoverage,
+  onPreviousCoverage,
   busy,
   selectedCurrency,
   bucket,
@@ -27,6 +29,8 @@ export function UsageDetails({
   controls: ReactNode;
   onNext: () => void;
   onPrevious?: (() => void) | undefined;
+  onNextCoverage: () => void;
+  onPreviousCoverage?: (() => void) | undefined;
   busy?: boolean | undefined;
   selectedCurrency?: string | undefined;
   bucket?: CostBucket | undefined;
@@ -43,7 +47,8 @@ export function UsageDetails({
       loss ? [{ invocationId, loss }] : [],
   );
   const sessionsWithoutLoss =
-    report.deliveryCoverage.length - deliveryLosses.length;
+    report.deliveryCoverageTotals.sessions -
+    report.deliveryCoverageTotals.lossSessions;
   return (
     <div className="space-y-5 border-t border-slate-700/50 pt-5 text-xs text-slate-400">
       <p className="break-words">
@@ -98,6 +103,19 @@ export function UsageDetails({
           </li>
         ) : null}
       </ul>
+      {report.deliveryCoverageTotals.lossSessions ? (
+        <p>
+          {count(report.deliveryCoverageTotals.lossSessions)} runtime sessions
+          reported delivery loss in this interval (
+          {count(report.deliveryCoverageTotals.droppedEvents)} dropped events).
+        </p>
+      ) : null}
+      <UsagePageNavigation
+        kind="delivery"
+        onNext={report.nextCoverageCursor ? onNextCoverage : undefined}
+        onPrevious={onPreviousCoverage}
+        busy={busy}
+      />
       <ul aria-label="Usage source coverage" className="space-y-1">
         {report.sources.map((source) => (
           <li key={source.sourceInstance}>

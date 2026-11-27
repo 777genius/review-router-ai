@@ -1,7 +1,23 @@
-import type { PrismaClient } from "@prisma/client";
+import type { ActionRunHealthReport, PrismaClient } from "@prisma/client";
 import type { RepositoryHealthRepositoryPort } from "../../application/ports/repository-health-repository-port";
 import type { RepositoryHealthInput } from "../../domain/repository-health";
 import { projectRepositorySetupStatus } from "@reviewrouter/features-workflow-provisioning";
+
+type LatestHealth = Pick<
+  ActionRunHealthReport,
+  | "repositoryId"
+  | "providerHealth"
+  | "providerSetupState"
+  | "configSource"
+  | "findingCriticalCount"
+  | "findingMajorCount"
+  | "findingMinorCount"
+  | "findingInfoCount"
+  | "inlineCommentCount"
+  | "summaryCommentCount"
+  | "skippedReasonCategory"
+  | "receivedAt"
+>;
 
 export class PrismaRepositoryHealthRepository implements RepositoryHealthRepositoryPort {
   constructor(private readonly prisma: PrismaClient) {}
@@ -28,29 +44,18 @@ export class PrismaRepositoryHealthRepository implements RepositoryHealthReposit
         installation: {
           select: { githubInstallationId: true },
         },
-        actionHealth: {
-          orderBy: { receivedAt: "desc" },
-          take: 1,
-          select: {
-            providerHealth: true,
-            providerSetupState: true,
-            configSource: true,
-            findingCriticalCount: true,
-            findingMajorCount: true,
-            findingMinorCount: true,
-            findingInfoCount: true,
-            inlineCommentCount: true,
-            summaryCommentCount: true,
-            skippedReasonCategory: true,
-            receivedAt: true,
-          },
-        },
       },
     });
+    const health = await this.latestHealthByRepository(
+      workspaceId,
+      repositories
+        .filter((repository) => repository.installation)
+        .map((repository) => repository.id),
+    );
 
     return repositories.flatMap((repository) => {
       if (!repository.installation) return [];
-      const latestHealth = repository.actionHealth[0];
+      const latestHealth = health.get(repository.id);
       return [
         {
           repositoryId: repository.id,
@@ -88,5 +93,32 @@ export class PrismaRepositoryHealthRepository implements RepositoryHealthReposit
         },
       ];
     });
+  }
+
+  private async latestHealthByRepository(
+    workspaceId: string,
+    repositoryIds: readonly string[],
+  ) {
+    if (repositoryIds.length === 0) return new Map<string, LatestHealth>();
+    // Prisma's nested take:1 loads every historical child for multiple parents.
+    // Keep the limit inside each repository's indexed database lookup instead.
+    const rows = await this.prisma.$queryRaw<LatestHealth[]>`
+      SELECT requested."repositoryId", latest.*
+      FROM unnest(${repositoryIds}::text[]) AS requested("repositoryId")
+      JOIN LATERAL (
+        SELECT health."providerHealth", health."providerSetupState",
+               health."configSource", health."findingCriticalCount",
+               health."findingMajorCount", health."findingMinorCount",
+               health."findingInfoCount", health."inlineCommentCount",
+               health."summaryCommentCount", health."skippedReasonCategory",
+               health."receivedAt"
+        FROM "ActionRunHealthReport" AS health
+        WHERE health."workspaceId" = ${workspaceId}
+          AND health."repositoryId" = requested."repositoryId"
+        ORDER BY health."receivedAt" DESC, health."id" DESC
+        LIMIT 1
+      ) AS latest ON true
+    `;
+    return new Map(rows.map((row) => [row.repositoryId, row]));
   }
 }

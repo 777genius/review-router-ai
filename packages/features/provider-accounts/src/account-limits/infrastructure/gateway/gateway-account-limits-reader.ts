@@ -6,36 +6,49 @@ import type { AccountLimitsSourceResult } from "../../domain/account-limits";
 
 /** Structural consumer boundary implemented by the qualified Gateway SDK client. */
 export type GatewayAccountLimitsClient = {
-  getAccountLimitsCapabilities(): Promise<{
+  getAccountLimitsCapabilities(options?: {
+    readonly signal?: AbortSignal;
+  }): Promise<{
     contract: string;
     cachedRead: boolean;
     quotaOnlyRefresh: boolean;
   }>;
   readAccountLimits(
     target: AccountLimitsTarget,
+    options?: { readonly signal?: AbortSignal },
   ): Promise<AccountLimitsSourceResult>;
 };
 
 /** Only canonical SDK observations enter this adapter; never admin /usage or raw extra. */
 export function createGatewayAccountLimitsReader(
   client: GatewayAccountLimitsClient,
-  contract: "account-limits/v1" | "account-limits/v2" = "account-limits/v1",
+  contract:
+    | "account-limits/v1"
+    | "account-limits/v2"
+    | "account-limits/v3" = "account-limits/v1",
 ): AccountLimitsReader {
   let capability: Promise<boolean> | undefined;
   return {
-    async read(target) {
+    async read(target, options) {
       try {
+        if (options?.signal?.aborted)
+          return { status: "unavailable", reason: "source_unavailable" };
         capability ??= client
-          .getAccountLimitsCapabilities()
+          .getAccountLimitsCapabilities(options)
           .then(
             (value) => value.contract === contract && value.cachedRead === true,
           )
-          .catch(() => false);
-        if (!(await capability))
+          .catch(() => {
+            // A canceled page or failed transport cannot disable the reused
+            // reader. Ownership is released only when this attempt settles.
+            capability = undefined;
+            return false;
+          });
+        if (!(await capability) || options?.signal?.aborted)
           return { status: "unavailable", reason: "source_unavailable" };
         // The SDK owns transport size/deadline and strict canonical DTO validation.
         // Domain projection independently validates fields and strips source identity.
-        return await client.readAccountLimits(target);
+        return await client.readAccountLimits(target, options);
       } catch (error) {
         // The SDK exposes only its validated safe diagnostic here. An authority
         // or identity refusal must clear a previous display, rather than look

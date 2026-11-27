@@ -100,6 +100,10 @@ Suggested artifact paths:
 
 ## Implementation Notes
 
+The committed captures from the historical pass are retained in the
+[design archive](../archive/README.md#memory-verification).
+Use the ignored `tmp/` paths above for fresh verification output.
+
 Historical 2026-05-12 verification pass (before the dashboard pause):
 
 - Preview URL: `/dashboard/memory-preview`.

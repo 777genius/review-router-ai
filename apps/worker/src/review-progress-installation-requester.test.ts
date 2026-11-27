@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createProgressInstallationRequester } from "./review-progress-installation-requester";
 
 const mocks = vi.hoisted(() => {
@@ -30,14 +30,16 @@ vi.mock("@octokit/app", () => ({
   },
 }));
 
-function requester() {
+function requester(requestTimeoutMs?: number) {
   return createProgressInstallationRequester({
     githubAppId: "123",
     githubPrivateKey: "fixture",
+    ...(requestTimeoutMs === undefined ? {} : { requestTimeoutMs }),
   });
 }
 
 describe("createProgressInstallationRequester", () => {
+  afterEach(() => vi.useRealTimers());
   beforeEach(() => {
     vi.resetAllMocks();
     mocks.requestApp.mockResolvedValue({ data: { slug: "reviewrouter" } });
@@ -63,6 +65,7 @@ describe("createProgressInstallationRequester", () => {
     expect(mocks.construct).toHaveBeenCalledExactlyOnceWith({
       appId: "123",
       privateKey: "fixture",
+      Octokit: expect.any(Function),
     });
     expect(mocks.getInstallationOctokit.mock.calls).toEqual([[1], [2]]);
     expect(mocks.requestApp).toHaveBeenCalledExactlyOnceWith("GET /app");
@@ -82,7 +85,7 @@ describe("createProgressInstallationRequester", () => {
     expect(actual).toEqual(response);
     expect(mocks.requestInstallation).toHaveBeenCalledExactlyOnceWith(
       "GET /repos/{owner}/{repo}",
-      parameters,
+      { ...parameters, request: { signal: expect.any(AbortSignal) } },
     );
   });
 
@@ -106,5 +109,95 @@ describe("createProgressInstallationRequester", () => {
       botLogin: "reviewrouter[bot]",
     });
     expect(mocks.requestApp).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps one hanging identity lookup and a finite number of real waiters", async () => {
+    vi.useFakeTimers();
+    let rejectIdentity!: (reason: Error) => void;
+    mocks.requestApp.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectIdentity = reject;
+        }),
+    );
+    const factory = requester(30);
+    const callers = [1n, 2n, 3n, 4n].map((id) => factory(id));
+    const rejected = Promise.all(
+      callers.map((call) => expect(call).rejects.toThrow("operation_deadline")),
+    );
+    await vi.advanceTimersByTimeAsync(30);
+    await rejected;
+    await expect(factory(5n)).rejects.toThrow("operation_capacity");
+    expect(mocks.requestApp).toHaveBeenCalledTimes(1);
+    expect(mocks.getInstallationOctokit).toHaveBeenCalledTimes(4);
+
+    rejectIdentity(new Error("late identity failure"));
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(factory(5n)).resolves.toMatchObject({
+      botLogin: "reviewrouter[bot]",
+    });
+    expect(mocks.requestApp).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("does not expose a late installation requester after its pass was aborted", async () => {
+    let resolveIdentity!: (value: { data: { slug: string } }) => void;
+    mocks.requestApp.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveIdentity = resolve;
+        }),
+    );
+    const controller = new AbortController();
+    const factory = requester();
+    const call = factory(1n, { signal: controller.signal });
+    const stopped = expect(call).rejects.toThrow("pass expired");
+    await vi.waitFor(() => expect(mocks.requestApp).toHaveBeenCalledTimes(1));
+    controller.abort(new Error("pass expired"));
+    await stopped;
+    resolveIdentity({ data: { slug: "reviewrouter" } });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mocks.requestInstallation).not.toHaveBeenCalled();
+    await expect(factory(2n)).resolves.toMatchObject({
+      botLogin: "reviewrouter[bot]",
+    });
+    expect(mocks.requestApp).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry an ambiguous timed-out mutation", async () => {
+    vi.useFakeTimers();
+    const factory = requester(25);
+    const installation = await factory(1n);
+    let settle!: (response: {
+      data: unknown;
+      headers: Record<string, string>;
+    }) => void;
+    mocks.requestInstallation.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          settle = resolve;
+        }),
+    );
+    const call = installation.request(
+      "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
+      {
+        owner: "owner",
+        repo: "repo",
+        issue_number: 1,
+        body: "progress",
+      },
+    );
+    const timedOut = expect(call).rejects.toThrow("operation_deadline");
+    await vi.advanceTimersByTimeAsync(25);
+    await timedOut;
+    expect(mocks.requestInstallation).toHaveBeenCalledTimes(1);
+    const parameters = mocks.requestInstallation.mock.calls[0]?.[1];
+    expect(
+      (parameters?.request as { signal: AbortSignal }).signal.aborted,
+    ).toBe(true);
+    settle({ data: { id: 9 }, headers: {} });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.requestInstallation).toHaveBeenCalledTimes(1);
   });
 });

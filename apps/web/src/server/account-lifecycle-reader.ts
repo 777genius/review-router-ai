@@ -1,31 +1,55 @@
 import * as c from "@agent-teams/account-gateway/contracts";
-import type { LifecycleClient } from "@agent-teams/account-gateway/http";
+import type {
+  LifecycleClient,
+  LifecycleV3Client,
+  CallOptions,
+} from "@agent-teams/account-gateway/http";
 export type AccountLifecycleRead = Omit<c.Account, "state"> & {
   state: c.Account["state"] | "suspended";
+  authKind?: c.LifecycleAccountV3["authKind"];
   resumeCustody?: "not_applicable" | "verified" | "attention_required";
+  credential?: c.CredentialAttestation | undefined;
 };
 /** Reader negotiation is independent of RR write activation, so closing writes
  * never makes suspended accounts look active or hides their inventory. */
 export function createAccountLifecycleReader(input: {
-  lifecycle: LifecycleClient;
-  legacy: { get(accountRef: string): Promise<c.Account> };
+  contract?: "account-lifecycle/v2" | "account-lifecycle/v3";
+  lifecycle: LifecycleClient | LifecycleV3Client;
+  legacy: {
+    get(accountRef: string, options?: CallOptions): Promise<c.Account>;
+  };
 }) {
-  type Capability = Awaited<ReturnType<LifecycleClient["capability"]>>;
+  type Capability = Awaited<
+    ReturnType<(LifecycleClient | LifecycleV3Client)["capability"]>
+  >;
   let capability: Promise<Capability | null> | undefined;
-  const discover = () =>
-    (capability ??= input.lifecycle.capability().catch(() => {
+  const discover = (options?: CallOptions) =>
+    (capability ??= input.lifecycle.capability(options).catch(() => {
       capability = undefined;
       return null;
     }));
-  const compatible = async () => (await discover()) !== null;
-  const writable = async () => (await discover())?.writeGate === "enabled";
+  const compatible = async (options?: CallOptions) =>
+    (await discover(options)) !== null;
+  const writable = async (options?: CallOptions) =>
+    (await discover(options))?.writeGate === "enabled";
   return {
     compatible,
     writable,
-    async get(accountRef: string): Promise<AccountLifecycleRead> {
-      return (await compatible())
-        ? c.lifecycleAccount.parse(await input.lifecycle.get(accountRef))
-        : c.account.parse(await input.legacy.get(accountRef));
+    async get(
+      accountRef: string,
+      options?: CallOptions,
+    ): Promise<AccountLifecycleRead> {
+      if (input.contract === "account-lifecycle/v3")
+        return c.lifecycleAccountV3.parse(
+          await input.lifecycle.get(accountRef, options),
+        );
+      const supported = await compatible(options);
+      options?.signal?.throwIfAborted();
+      return supported
+        ? c.lifecycleAccount.parse(
+            await input.lifecycle.get(accountRef, options),
+          )
+        : c.account.parse(await input.legacy.get(accountRef, options));
     },
   };
 }

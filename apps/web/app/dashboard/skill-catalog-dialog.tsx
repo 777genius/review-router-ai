@@ -23,6 +23,12 @@ import {
 } from "../../src/features/review-skills/catalog-client-adapter";
 import { skillCatalogKeys } from "../../src/features/review-skills/catalog-query-keys";
 import {
+  isForbidden,
+  isRunning,
+  isUnknown,
+  retryScanRead,
+} from "../../src/features/review-skills/interface/catalog-client-recovery";
+import {
   SkillImportOmissions,
   SkillsDialog,
   SkillsError,
@@ -36,12 +42,6 @@ type ScanAttempt = Readonly<{
 }>;
 const attemptKey = (candidateId: string, mode: ReviewSkillScanMode) =>
   `${candidateId}:${mode}`;
-const isUnknown = (error: unknown) =>
-  error instanceof SkillCatalogClientError && error.code === "unknown";
-const isForbidden = (error: unknown) =>
-  error instanceof SkillCatalogClientError && error.code === "forbidden";
-const isRunning = (scan: ReviewSkillScan | undefined) =>
-  scan?.status === "queued" || scan?.status === "running";
 
 /** Kept mounted by the library so closing never loses an outstanding command. */
 export function SkillCatalogDialog({
@@ -124,7 +124,7 @@ export function SkillCatalogDialog({
       }),
     enabled: open && previewing && Boolean(attempt?.scanId),
     staleTime: 0,
-    retry: false,
+    retry: retryScanRead,
     refetchInterval: (current) =>
       !current.state.error && isRunning(current.state.data) ? 1500 : false,
   });

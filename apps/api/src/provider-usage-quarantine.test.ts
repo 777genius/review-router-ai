@@ -45,4 +45,40 @@ describe("safe native quarantine", () => {
     ).rejects.toThrow("usage_hash_conflict");
     expect(upsert.mock.calls).toHaveLength(1);
   });
+  it("retains a validated v2 observation across the installed SDK validator boundary", async () => {
+    const upsert = vi.fn(async ({ create }: { create: { hash: string } }) => ({
+      hash: create.hash,
+    }));
+    const prisma = {
+      usageUnattributedObservation: { upsert },
+    } as unknown as PrismaClient;
+    const observation = {
+      ...safe,
+      schemaVersion: 2 as const,
+      nativeContext: null,
+      cost: { currency: "USD", amountDecimal: "0.001" },
+    };
+    await quarantineGatewayObservation(prisma, "native", observation);
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ payload: observation }),
+        update: {},
+      }),
+    );
+  });
+  it("keeps the SDK v2 rejection of extra upstream fields before persistence", async () => {
+    const upsert = vi.fn();
+    const prisma = {
+      usageUnattributedObservation: { upsert },
+    } as unknown as PrismaClient;
+    await expect(
+      quarantineGatewayObservation(prisma, "native", {
+        ...safe,
+        schemaVersion: 2,
+        nativeContext: null,
+        prompt: "never persist",
+      } as never),
+    ).rejects.toThrow();
+    expect(upsert).not.toHaveBeenCalled();
+  });
 });

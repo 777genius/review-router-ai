@@ -69,6 +69,44 @@ describe("AcceptReviewObservation", () => {
     expect(first.observation?.evidenceWriteSafetyDecisionHash).toBe(hash("f"));
   });
 
+  it.each([
+    ReviewObservationQualityFlag.ReviewMainIncomplete,
+    ReviewObservationQualityFlag.ReviewRoundIncomplete,
+    ReviewObservationQualityFlag.ReviewPhaseIncomplete,
+  ])("preserves incomplete cause %s as immutable attempt metadata", async (cause) => {
+    const fixture = setup();
+    fixture.attempts.put(attemptFacts());
+    await expect(
+      fixture.useCase.execute(command({ qualityFlags: [cause] })),
+    ).rejects.toThrow("review_evidence_incomplete_cause_requires_context_flag");
+    expect(fixture.store.all()).toHaveLength(0);
+
+    const qualityFlags = [
+      ReviewObservationQualityFlag.ContextInspectionIncomplete,
+      ReviewObservationQualityFlag.ProviderWarning,
+      cause,
+    ];
+    const first = await fixture.useCase.execute(command({ qualityFlags }));
+    const retried = await fixture.useCase.execute(command({ qualityFlags }));
+    expect(first.status).toBe(AcceptReviewObservationStatus.Accepted);
+    expect(retried.status).toBe(AcceptReviewObservationStatus.Idempotent);
+    expect(retried.observation?.observationId).toBe(
+      first.observation?.observationId,
+    );
+    expect(retried.observation?.qualityFlags).toEqual([...qualityFlags].sort());
+
+    const changed = await fixture.useCase.execute(
+      command({
+        qualityFlags: [
+          ReviewObservationQualityFlag.ContextInspectionIncomplete,
+          ReviewObservationQualityFlag.ProviderWarning,
+        ],
+      }),
+    );
+    expect(changed.status).toBe(AcceptReviewObservationStatus.Conflict);
+    expect(fixture.store.all()).toHaveLength(1);
+  });
+
   it("never accepts auxiliary prose as finding evidence or a vote", async () => {
     const fixture = setup();
     const facts = attemptFacts();

@@ -234,6 +234,7 @@ boundaries:
       - packages/features/review-providers/src/tests
       - packages/features/review-providers/src/composition/index.test.ts
       - packages/features/review-providers/src/infrastructure/catalog/public-model-catalog.test.ts
+      - packages/features/review-providers/src/infrastructure/catalog/public-model-catalog.http.test.ts
       - packages/features/review-providers/src/infrastructure/openrouter/openrouter-model-catalog.test.ts
     entrypoints: []
     allow:
@@ -255,6 +256,8 @@ boundaries:
       - packages/features/provider-usage/src/domain
     entrypoints:
       - packages/features/provider-usage/src/domain/estimate-usage-cost.ts
+      - packages/features/provider-usage/src/domain/native-usage-context.ts
+      - packages/features/provider-usage/src/domain/native-usage-replay.ts
       - packages/features/provider-usage/src/domain/usage-price.ts
       - packages/features/provider-usage/src/domain/usage.ts
     allow:
@@ -285,6 +288,7 @@ boundaries:
     roots:
       - packages/features/provider-usage/src/infrastructure/prisma-operator-usage-report-reader.ts
       - packages/features/provider-usage/src/infrastructure/prisma-usage-reconciliation.ts
+      - packages/features/provider-usage/src/infrastructure/prisma-usage-retention.ts
       - packages/features/provider-usage/src/infrastructure/prisma-usage-report.ts
       - packages/features/provider-usage/src/infrastructure/usage-requested-provider-sql.ts
       - packages/features/provider-usage/src/infrastructure/gateway-profile-provider.ts

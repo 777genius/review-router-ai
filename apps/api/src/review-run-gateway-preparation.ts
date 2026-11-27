@@ -400,8 +400,14 @@ export function createReviewRunGatewayPreparation(input: {
     pending = run(recovery);
     return pending;
   }
-  async function recoverForCleanup(options: CallOptions = {}): Promise<void> {
-    if (session || noExecutionProven || allocationId === undefined) return;
+  async function recoverForCleanup(
+    options: CallOptions = {},
+    stale?: NonNullable<typeof session>,
+  ): Promise<void> {
+    if ((session && session !== stale) || noExecutionProven) return;
+    // The legacy snapshot is refreshable only while retaining its exact old
+    // capability. An empty legacy session is not proof that no effect exists.
+    if (allocationId === undefined && !stale) return;
     initialAttempted = true; // Unknown cleanup never proves absence of a physical effect.
     if (!input.readPreparationOperation || !bindings.readForCleanup) return;
     const authorization =
@@ -417,21 +423,36 @@ export function createReviewRunGatewayPreparation(input: {
     const snapshot = parseReviewRunRuntimeSnapshot(canonical);
     if (
       !canonical ||
-      snapshot?.snapshotVersion !== 4 ||
+      !snapshot ||
+      (snapshot.snapshotVersion !== 4 && allocationId !== undefined) ||
+      (snapshot.snapshotVersion === 4 && allocationId === undefined) ||
+      (stale &&
+        Date.now() >=
+          Math.min(
+            authorization.expiresAt.getTime(),
+            Date.parse(snapshot.deadline),
+          )) ||
       authorization.maxExpiresAt.toISOString() !== snapshot.deadline
     )
       return;
-    const original = snapshot.allocations.find(
-      (row) => row.allocationId === allocationId,
-    );
+    const original =
+      snapshot.snapshotVersion === 4
+        ? snapshot.allocations.find((row) => row.allocationId === allocationId)
+        : snapshot.gateway;
     if (!original) return;
     const owner = {
       authorizationId,
-      allocationId,
+      ...(allocationId === undefined ? {} : { allocationId }),
       identity,
       runtimeSnapshotCanonicalJson: canonical,
     };
     const saved = await bindings.readForCleanup(owner);
+    if (
+      stale &&
+      (stale.canonical !== canonical ||
+        (saved && canonicalJson(saved) !== canonicalJson(stale.binding)))
+    )
+      return;
     // Consumer-control proves the ORIGINAL operation before any run-access call.
     // The run-control credential cannot query operations and is never widened.
     const proof = await input.readPreparationOperation(
@@ -447,6 +468,13 @@ export function createReviewRunGatewayPreparation(input: {
       operation.result.accountRef !== original.permittedAccountRef ||
       operation.result.deadline !== snapshot.deadline ||
       (saved && operation.result.executionRef !== saved.executionRef) ||
+      (stale && operation.result.executionRef !== stale.binding.executionRef) ||
+      (stale &&
+        (stale.binding.operationId !== original.operationId ||
+          stale.binding.accountRef !== operation.result.accountRef ||
+          stale.binding.authorizationEpoch !==
+            operation.result.authorizationEpoch ||
+          stale.binding.deadline !== operation.result.deadline)) ||
       !reviewRunGatewayEpochMatches(
         snapshot,
         operation.result.authorizationEpoch,
@@ -466,7 +494,26 @@ export function createReviewRunGatewayPreparation(input: {
       limits: { ...original.limits },
       deadline: snapshot.deadline,
     });
-    const prepared = await prepareAccess(intent, options);
+    const remaining =
+      Math.min(
+        authorization.expiresAt.getTime(),
+        Date.parse(snapshot.deadline),
+      ) - Date.now();
+    if (stale && (remaining <= 0 || session !== stale)) return;
+    const deadlineSignal = stale
+      ? AbortSignal.timeout(Math.min(remaining, 2_147_483_647))
+      : undefined;
+    const prepared = await prepareAccess(
+      intent,
+      deadlineSignal
+        ? {
+            ...options,
+            signal: options.signal
+              ? AbortSignal.any([options.signal, deadlineSignal])
+              : deadlineSignal,
+          }
+        : options,
+    );
     const restored = c.preparationOperation.parse(prepared.operation);
     if (
       restored.state !== "applied" ||
@@ -490,7 +537,19 @@ export function createReviewRunGatewayPreparation(input: {
         deadline: snapshot.deadline,
       }),
     );
-    if (saved && canonicalJson(saved) !== canonicalJson(binding)) return;
+    if (
+      (saved && canonicalJson(saved) !== canonicalJson(binding)) ||
+      (stale && canonicalJson(stale.binding) !== canonicalJson(binding)) ||
+      (stale && stale.canonical !== canonical) ||
+      (stale && session !== stale) ||
+      (stale &&
+        Date.now() >=
+          Math.min(
+            authorization.expiresAt.getTime(),
+            Date.parse(snapshot.deadline),
+          ))
+    )
+      return;
     const admission = c.admission.parse(prepared.admission);
     const expected = c.admission.parse({
       invocationRef: original.invocationId,
@@ -636,14 +695,35 @@ export function createReviewRunGatewayPreparation(input: {
           return { state: "unknown" as const };
         }
         closePhase = "remote_close";
-        const operation = await current.client.close(
-          current.binding.executionRef,
-          {
-            operationId: `rr-close-${createHash("sha256").update(current.binding.operationId).digest("hex")}`,
-            reason: firstReason,
-          },
-          options,
-        );
+        const closeIntent = {
+          operationId: `rr-close-${createHash("sha256").update(current.binding.operationId).digest("hex")}`,
+          reason: firstReason,
+        };
+        let operation: c.Operation;
+        try {
+          operation = await current.client.close(
+            current.binding.executionRef,
+            closeIntent,
+            options,
+          );
+        } catch (error) {
+          if (
+            !(error instanceof GatewayError) ||
+            error.code !== "safe_error" ||
+            error.httpStatus !== 401 ||
+            error.effect !== "not_dispatched" ||
+            error.diagnostic?.code !== "unauthenticated"
+          )
+            throw error;
+          await recoverForCleanup(options, current);
+          const refreshed = session;
+          if (!refreshed || refreshed === current) throw error;
+          operation = await refreshed.client.close(
+            refreshed.binding.executionRef,
+            closeIntent,
+            options,
+          );
+        }
         const state = operation.state;
         if (state !== "applied") {
           const category: CloseCategory =

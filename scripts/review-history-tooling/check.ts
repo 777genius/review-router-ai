@@ -205,10 +205,12 @@ assert(
 const records = await collectHistoryLayout(root);
 assert.deepEqual(checkModuleLayout(records).violations, []);
 const nativeConfig = JSON.parse(
-  await readFile(join(root, "tsconfig.modular.json"), "utf8"),
+  await readFile(join(root, "scripts/tsconfig/tsconfig.modular.json"), "utf8"),
 ) as { include: string[] };
 assert(
-  nativeConfig.include.includes("packages/features/review-history/src/**/*.ts"),
+  nativeConfig.include.includes(
+    "../../packages/features/review-history/src/**/*.ts",
+  ),
 );
 // Reject changed pins and disabled entry chains without mutating repository files.
 assert.throws(() => checkPins({ ...profile, productionRoot: "missing.ts" }));

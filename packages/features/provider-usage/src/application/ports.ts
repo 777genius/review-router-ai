@@ -36,6 +36,7 @@ export interface UsageReportQuery {
   provider?: string;
   model?: string;
   runAfter?: string;
+  coverageAfter?: string;
   limit?: number;
   after?: string;
 }
@@ -69,7 +70,7 @@ export function validateReportQuery(q: UsageReportQuery): void {
   const duration = q.to.getTime() - q.from.getTime();
   if (
     !q.workspaceId ||
-    [q.provider, q.model, q.runAfter].some(
+    [q.provider, q.model, q.runAfter, q.coverageAfter].some(
       (id) =>
         id !== undefined &&
         (!id.length ||

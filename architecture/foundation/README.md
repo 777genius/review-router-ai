@@ -1,7 +1,7 @@
 # Provider and memory boundary tooling
 
 The root `foundation.config.yaml` adopts bounded provider catalog, provider usage
-and memory source boundaries. Foundation 3.1.0 is a development dependency; Get Modular
+and memory source boundaries. Foundation 4.1.0 is a development dependency; Get Modular
 Core and Assembly are currently pinned to 0.8.0. The active isolated packed
 consumer qualification covers the same 0.8.0 generation.
 The existing WEB Host CMS / Foundation 1.6 qualification is independent and
@@ -24,6 +24,14 @@ and SRI are recorded separately in `current-registry-artifacts.json`, with
 
 Run `pnpm foundation:check`, `pnpm foundation:assert-dev-only`, and
 `pnpm foundation:assert-registry`; all are included in `architecture:check`.
+The same check includes the complete `docs`, `ai-docs` and `architecture`
+Markdown roots. Schema v2 declares one immutable historical review artifact by
+its exact path, raw SHA-256 and all 21 absolute-reference occurrences. The
+historical diagnostics remain visible as information; changed bytes, stale or
+undeclared references and ordinary broken links still fail. No root or file is
+excluded. See the [adoption record](../../ai-docs/architecture/84-foundation-default-adoption.md#markdown-adoption-in-pr-1002).
+The existing isolated WEB Host and review-skills tooling retain their own pins;
+this root tooling upgrade does not change their adoption profiles.
 `pnpm foundation:qualify` also downloads and verifies the recorded Core/Assembly
 0.8.0 packed artifacts, builds an isolated ESM consumer with TypeScript 7.0.2 and
 `skipLibCheck: false`, and verifies construction, rejection before I/O and host

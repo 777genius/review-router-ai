@@ -28,6 +28,8 @@ export async function processOutboxBatch(
     readonly heartbeatIntervalMs?: number;
     readonly takeoverEnabled?: boolean;
     readonly recoveryEventTypes?: readonly string[];
+    /** Stops new admission only; an already acquired claim is always drained. */
+    readonly signal?: AbortSignal;
   },
   dependencies: {
     readonly outbox: OutboxEventRepositoryPort;
@@ -40,19 +42,20 @@ export async function processOutboxBatch(
   const now = dependencies.clock.now();
   const processingLeaseMs =
     input.processingLeaseMs ?? defaultOutboxProcessingStaleAfterMs;
-  const recoveredStale = input.takeoverEnabled
-    ? await dependencies.outbox.recoverStaleProcessing({
-        ...(input.recoveryEventTypes === undefined
-          ? {}
-          : { eventTypes: input.recoveryEventTypes }),
-        now,
-        legacyStaleBefore: new Date(now.getTime() - processingLeaseMs),
-        nextAttemptAt: now,
-        limit: input.limit,
-        errorCode: "processing_stale",
-        safeErrorSummary: `Processing claim expired after ${processingLeaseMs}ms and was requeued for retry.`,
-      })
-    : { recovered: 0 };
+  const recoveredStale =
+    input.takeoverEnabled && !input.signal?.aborted
+      ? await dependencies.outbox.recoverStaleProcessing({
+          ...(input.recoveryEventTypes === undefined
+            ? {}
+            : { eventTypes: input.recoveryEventTypes }),
+          now,
+          legacyStaleBefore: new Date(now.getTime() - processingLeaseMs),
+          nextAttemptAt: now,
+          limit: input.limit,
+          errorCode: "processing_stale",
+          safeErrorSummary: `Processing claim expired after ${processingLeaseMs}ms and was requeued for retry.`,
+        })
+      : { recovered: 0 };
   const handlers = new Map(
     input.handlers.map((handler) => [
       outboxHandlerKey(handler.type, handler.version),
@@ -65,7 +68,7 @@ export async function processOutboxBatch(
   let deadLettered = 0;
   let staleClaims = 0;
 
-  while (claimed < input.limit) {
+  while (claimed < input.limit && !input.signal?.aborted) {
     // Do not reserve work behind a running handler without owning its lease.
     const [event] = await dependencies.outbox.claimDue({
       limit: 1,

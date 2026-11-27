@@ -247,16 +247,14 @@ try {
     "rr-rehearsal-effect-authority",
   ]);
   let now = await readDatabaseClock(webPrisma);
-  await adminPrisma.gitHubInstallation.create({
-    data: {
-      id: "runtime-proof-installation",
-      workspaceId: "ws-proof",
-      githubInstallationId: 990007n,
-      accountLogin: "local",
-      accountType: "Organization",
-      repositorySelection: "selected",
-    },
-  });
+  // Keep the fixture on the rehearsed historical catalog, independent of current Prisma defaults.
+  await adminPrisma.$executeRaw`
+    INSERT INTO "GitHubInstallation"
+      ("id", "workspaceId", "githubInstallationId", "accountLogin",
+       "accountType", "repositorySelection", "updatedAt")
+    VALUES ('runtime-proof-installation', 'ws-proof', 990007, 'local',
+            'Organization', 'selected', CURRENT_TIMESTAMP)
+  `;
   await adminPrisma.repositoryConnection.update({
     where: { id: "repo-7" },
     data: { installationId: "runtime-proof-installation" },

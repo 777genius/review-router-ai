@@ -25,6 +25,10 @@ import {
 } from "./provider-usage-tables";
 import { UsageDetails } from "./provider-usage-details";
 import {
+  useUsagePagination,
+  type UsagePageCursor,
+} from "./provider-usage-pagination";
+import {
   valuationLabel,
   humanUtc,
   compact,
@@ -82,13 +86,13 @@ function ProviderUsageContext({
   initialReport,
   initialFilters,
 }: Props) {
-  const [{ filters, cursorHistory }, setSelection] = useState(() => ({
-    filters: normalizeUsageFilters(initialFilters),
-    cursorHistory: {
-      after: [] as (string | undefined)[],
-      runAfter: [] as (string | undefined)[],
-    },
-  }));
+  const {
+    filters,
+    cursorHistory,
+    applyFilters,
+    nextPage: advancePage,
+    previousPage,
+  } = useUsagePagination(initialFilters);
   const [period, setPeriod] = useState<"7" | "30" | "90" | "custom">("30");
   const [draftFrom, setDraftFrom] = useState(initialReport.from.slice(0, 10));
   const [draftTo, setDraftTo] = useState(
@@ -166,41 +170,8 @@ function ProviderUsageContext({
     if (bucket && costKey(bucket) !== costSelection)
       setCostSelection(costKey(bucket));
   }, [bucket, costSelection]);
-  const applyFilters = (changes: Partial<UsageFilters>) =>
-    setSelection((current) => ({
-      filters: normalizeUsageFilters({
-        ...current.filters,
-        ...changes,
-        after: undefined,
-        runAfter: undefined,
-      }),
-      cursorHistory: { after: [], runAfter: [] },
-    }));
-  const nextPage = (key: "after" | "runAfter", cursor: string | null) => {
-    if (!cursor || query.isFetching) return;
-    setSelection((current) => ({
-      filters: { ...current.filters, [key]: cursor },
-      cursorHistory: {
-        ...current.cursorHistory,
-        [key]: [...current.cursorHistory[key], current.filters[key]],
-      },
-    }));
-  };
-  const previousPage = (key: "after" | "runAfter") => {
-    setSelection((current) => {
-      const history = current.cursorHistory[key];
-      if (!history.length) return current;
-      return {
-        filters: normalizeUsageFilters({
-          ...current.filters,
-          [key]: history[history.length - 1],
-        }),
-        cursorHistory: {
-          ...current.cursorHistory,
-          [key]: history.slice(0, -1),
-        },
-      };
-    });
+  const nextPage = (key: UsagePageCursor, cursor: string | null) => {
+    if (!query.isFetching) advancePage(key, cursor);
   };
   const refresh = () => {
     if (unavailable) {
@@ -664,6 +635,14 @@ function ProviderUsageContext({
                 selectedCurrency={currency}
                 bucket={metric === "cost" ? bucket : undefined}
                 onNext={() => nextPage("after", data.nextCursor)}
+                onNextCoverage={() =>
+                  nextPage("coverageAfter", data.nextCoverageCursor)
+                }
+                onPreviousCoverage={
+                  cursorHistory.coverageAfter.length
+                    ? () => previousPage("coverageAfter")
+                    : undefined
+                }
                 onPrevious={
                   cursorHistory.after.length
                     ? () => previousPage("after")
@@ -717,6 +696,15 @@ function ProviderUsageContext({
             onPrevious={
               cursorHistory.after.length
                 ? () => previousPage("after")
+                : undefined
+            }
+            busy={query.isFetching}
+          />
+          <UsagePageNavigation
+            kind="delivery"
+            onPrevious={
+              cursorHistory.coverageAfter.length
+                ? () => previousPage("coverageAfter")
                 : undefined
             }
             busy={query.isFetching}

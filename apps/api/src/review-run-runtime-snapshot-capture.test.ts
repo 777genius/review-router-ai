@@ -18,7 +18,11 @@ import {
 } from "@reviewrouter/shared/review-skills-contract";
 import { lifecycleVerificationDescriptorDigest } from "@reviewrouter/shared";
 import { contextToolsDescriptorDigest } from "@reviewrouter/features-review-context-tools";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type {
+  NativeGatewayRelayPolicyObservation,
+  NativeGatewayRelayPolicySource,
+} from "./native-gateway-relay-policy";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   canonicalJson,
@@ -168,6 +172,9 @@ function fakeRuntimeReader(input: {
   readonly profileRows?: readonly unknown[];
 }) {
   return {
+    $queryRaw: async () => {
+      throw new Error("unexpected_runtime_snapshot_raw_query");
+    },
     workspaceProviderProfile: {
       findMany: async () => input.profileRows ?? [],
     },
@@ -215,6 +222,7 @@ function fakeRuntimeReader(input: {
     },
   } as unknown as Pick<
     PrismaClient,
+    | "$queryRaw"
     | "reviewConfiguration"
     | "workspaceProviderProfile"
     | "workspaceAccountBinding"
@@ -2285,3 +2293,367 @@ it.each(providerApiAuthModes)(
     ).toBe(false);
   },
 );
+
+describe("native discovery admission ownership", () => {
+  function fixture(maxSessions = 4, reviewers = 1) {
+    let now = 0;
+    let observation: NativeGatewayRelayPolicyObservation | undefined = {
+      expiresAt: 30_000,
+      policy: {
+        profiles: [
+          {
+            outputTokens: 4096,
+            profile: {
+              profileId: gatewayProfileRef,
+              protocol: "openai-responses",
+              authKinds: [],
+              modelIds: ["mimo-v2-pro"],
+              nativeContext: {
+                schemaVersion: 1,
+                profileId: gatewayProfileRef,
+                providerId: "provider-original",
+                productId: "product-original",
+              },
+              modelPolicy: {
+                contract: "native-account-models/v2",
+                sourceId: "native-models",
+                unavailableFallback: "deny",
+              },
+            },
+          },
+        ],
+        ingressBytes: 4096,
+        requestTimeoutMs: 10_000,
+        waitBudgetMs: 0,
+        maxWaits: 0,
+        maxSessions,
+        maxInFlight: 2,
+      },
+    };
+    const policy = observation.policy;
+    const native: NativeGatewayRelayPolicySource = {
+      read: vi.fn(async () => observation),
+      isFresh: (value) => now < value.expiresAt,
+    };
+    const configuration = JSON.parse(gatewayPolicyJson({}));
+    if (reviewers > 1) {
+      configuration.providers = Array.from(
+        { length: reviewers },
+        (_, index) => ({
+          ...configuration.providers[0],
+          model: `mimo-model-${index}`,
+        }),
+      );
+      configuration.execution.providerLimit = reviewers;
+      configuration.execution.providerMaxParallel = reviewers;
+    }
+    const reader = readerFor(
+      canonicalJson(parseReviewConfigurationStrict(configuration)),
+    );
+    const prisma = {
+      ...reader,
+      $transaction: <T>(read: (transaction: typeof reader) => Promise<T>) =>
+        read(reader),
+    };
+    const runtime = new ProductionReviewRunRuntimeSnapshot(
+      prisma as unknown as PrismaClient,
+      {
+        profiles: [
+          {
+            profileRef: gatewayProfileRef,
+            limits: {
+              requests: 2,
+              concurrency: 1,
+              requestBytes: 4096,
+              outputBytes: 196608,
+              tokens: 128,
+            },
+          },
+        ],
+      },
+      undefined,
+      false,
+      "codex-default",
+      false,
+      policy,
+      native,
+    );
+    const producer = {
+      ...captureInput().producerRelease,
+      ...(reviewers > 1
+        ? {
+            reviewerPlanProfile: {
+              planVersion: 2 as const,
+              descriptorDigest: reviewerPlanDescriptorDigest,
+            },
+          }
+        : {}),
+    };
+    const transaction = {
+      ...reader,
+      workspaceAccountBinding: {
+        ...reader.workspaceAccountBinding,
+        findMany: async () => [
+          { connectionId: "connection1", connection: { ownerUserId: null } },
+        ],
+      },
+      producerRelease: {
+        findUnique: async () => ({
+          ...producer,
+          state: "registered",
+          agentProfilesJson: JSON.stringify(producer.agentProfiles),
+          contextToolsProfile: null,
+          prDescriptionProfile: null,
+          lifecycleVerificationProfile: null,
+        }),
+      },
+      $queryRaw: vi.fn(async () => [{ id: workspaceId }]),
+    };
+    async function capture(admissionId: string) {
+      const snapshot = await runtime.capture({
+        ...captureInput(),
+        admissionId,
+        producerRelease: producer,
+        ...(reviewers > 1
+          ? {
+              providerVoteLanes: [
+                {
+                  providerKind: ReviewProviderKind.Codex,
+                  providerVoteIdentityHash: "a".repeat(64),
+                },
+              ],
+            }
+          : {}),
+      });
+      if (!snapshot || "captureDenied" in snapshot)
+        throw new Error("capture_missing");
+      return {
+        ...identity,
+        authorizationId: admissionId,
+        producerReleaseId: producer.producerReleaseId,
+        maxExpiresAt: captureInput().deadline,
+        runtimeSnapshotCanonicalJson: canonicalJson(snapshot),
+      } as Parameters<
+        ProductionReviewRunRuntimeSnapshot["matchesAdmission"]
+      >[1];
+    }
+    return {
+      runtime,
+      native,
+      capture,
+      transaction,
+      at(value: number) {
+        now = value;
+      },
+      unavailable() {
+        observation = undefined;
+      },
+      refresh() {
+        observation = { policy, expiresAt: now + 30_000 };
+      },
+    };
+  }
+
+  it("pins concurrent candidates to their own observation and never revives an old candidate with an identical catalog", async () => {
+    const f = fixture();
+    const [first, second] = await Promise.all([
+      f.capture("admission-1"),
+      f.capture("admission-2"),
+    ]);
+    expect(first.runtimeSnapshotCanonicalJson).toBe(
+      second.runtimeSnapshotCanonicalJson,
+    );
+    expect(f.runtime.isAdmissionFresh(first)).toBe(true);
+    expect(f.runtime.isAdmissionFresh(second)).toBe(true);
+    expect(
+      await f.runtime.matchesAdmission(
+        f.transaction as unknown as Prisma.TransactionClient,
+        first,
+      ),
+    ).toBe(true);
+    expect(
+      await f.runtime.matchesAdmission(
+        f.transaction as unknown as Prisma.TransactionClient,
+        second,
+      ),
+    ).toBe(true);
+    expect(f.native.read).toHaveBeenCalledTimes(2);
+    f.at(30_000);
+    f.refresh();
+    const third = await f.capture("admission-3");
+    expect(f.runtime.isAdmissionFresh(first)).toBe(false);
+    expect(f.runtime.isAdmissionFresh(second)).toBe(false);
+    expect(f.runtime.isAdmissionFresh(third)).toBe(true);
+    expect(third.runtimeSnapshotCanonicalJson).toBe(
+      first.runtimeSnapshotCanonicalJson,
+    );
+    expect(
+      await f.runtime.matchesAdmission(
+        f.transaction as unknown as Prisma.TransactionClient,
+        first,
+      ),
+    ).toBe(false);
+    expect(
+      await f.runtime.matchesAdmission(
+        f.transaction as unknown as Prisma.TransactionClient,
+        second,
+      ),
+    ).toBe(false);
+    expect(
+      await f.runtime.matchesAdmission(
+        f.transaction as unknown as Prisma.TransactionClient,
+        third,
+      ),
+    ).toBe(true);
+    expect(f.native.read).toHaveBeenCalledTimes(3);
+  });
+
+  it("bounds retained candidate observations and fails closed on eviction", async () => {
+    const f = fixture(2);
+    const first = await f.capture("admission-1");
+    const second = await f.capture("admission-2");
+    const third = await f.capture("admission-3");
+    expect(f.runtime.isAdmissionFresh(first)).toBe(false);
+    expect(f.runtime.isAdmissionFresh(second)).toBe(true);
+    expect(
+      await f.runtime.matchesAdmission(
+        f.transaction as unknown as Prisma.TransactionClient,
+        first,
+      ),
+    ).toBe(false);
+    expect(f.transaction.$queryRaw).not.toHaveBeenCalled();
+    expect(
+      await f.runtime.matchesAdmission(
+        f.transaction as unknown as Prisma.TransactionClient,
+        second,
+      ),
+    ).toBe(true);
+    expect(
+      await f.runtime.matchesAdmission(
+        f.transaction as unknown as Prisma.TransactionClient,
+        third,
+      ),
+    ).toBe(true);
+  });
+
+  it("uses one immutable observation for every V4 reviewer and its admission fence", async () => {
+    const f = fixture(4, 2);
+    const candidate = await f.capture("multi-admission");
+    const snapshot = parseReviewRunRuntimeSnapshot(
+      candidate.runtimeSnapshotCanonicalJson,
+    )!;
+    expect(snapshot.snapshotVersion).toBe(4);
+    if (snapshot.snapshotVersion !== 4) throw new Error("v4_snapshot_required");
+    expect(snapshot.reviewers).toHaveLength(2);
+    expect(
+      snapshot.allocations.every(
+        (allocation) =>
+          allocation.nativeContext?.providerId === "provider-original",
+      ),
+    ).toBe(true);
+    expect(f.native.read).toHaveBeenCalledTimes(1);
+    expect(f.runtime.isAdmissionFresh(candidate)).toBe(true);
+    expect(
+      await f.runtime.matchesAdmission(
+        f.transaction as unknown as Prisma.TransactionClient,
+        candidate,
+      ),
+    ).toBe(true);
+    f.at(30_000);
+    expect(f.runtime.isAdmissionFresh(candidate)).toBe(false);
+    f.refresh();
+    const next = await f.capture("next-multi-admission");
+    expect(
+      await f.runtime.matchesAdmission(
+        f.transaction as unknown as Prisma.TransactionClient,
+        candidate,
+      ),
+    ).toBe(false);
+    expect(
+      await f.runtime.matchesAdmission(
+        f.transaction as unknown as Prisma.TransactionClient,
+        next,
+      ),
+    ).toBe(true);
+    expect(f.native.read).toHaveBeenCalledTimes(2);
+  });
+
+  it("denies a cold unavailable catalog then recovers without recreating runtime, with no HTTP in recapture", async () => {
+    const f = fixture();
+    f.unavailable();
+    expect(
+      await f.runtime.capture({
+        ...captureInput(),
+        admissionId: "failed-admission",
+      }),
+    ).toBeNull();
+    f.refresh();
+    const recovered = await f.capture("recovered-admission");
+    expect(
+      await f.runtime.matchesAdmission(
+        f.transaction as unknown as Prisma.TransactionClient,
+        recovered,
+      ),
+    ).toBe(true);
+    expect(f.native.read).toHaveBeenCalledTimes(2);
+    const forged = JSON.parse(recovered.runtimeSnapshotCanonicalJson!);
+    forged.gateway.nativeContext.providerId = "other-provider";
+    expect(
+      await f.runtime.matchesAdmission(
+        f.transaction as unknown as Prisma.TransactionClient,
+        {
+          ...recovered,
+          runtimeSnapshotCanonicalJson: canonicalJson(forged),
+        },
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects qualification that expires while acquiring transactional admission locks", async () => {
+    const f = fixture();
+    const candidate = await f.capture("expiring-admission");
+    f.at(29_999);
+    f.transaction.$queryRaw.mockImplementation(async () => {
+      f.at(30_000);
+      return [{ id: workspaceId }];
+    });
+    expect(
+      await f.runtime.matchesAdmission(
+        f.transaction as unknown as Prisma.TransactionClient,
+        candidate,
+      ),
+    ).toBe(false);
+    expect(f.native.read).toHaveBeenCalledTimes(1);
+  });
+
+  it("checks expiry after the runtime fence without rereading discovery and exempts non-Gateway snapshots", async () => {
+    const f = fixture();
+    const candidate = await f.capture("final-admission");
+    expect(
+      await f.runtime.matchesAdmission(
+        f.transaction as unknown as Prisma.TransactionClient,
+        candidate,
+      ),
+    ).toBe(true);
+    f.at(30_000);
+    expect(f.runtime.isAdmissionFresh(candidate)).toBe(false);
+    const direct = {
+      ...JSON.parse(candidate.runtimeSnapshotCanonicalJson!),
+      gateway: null,
+    };
+    expect(
+      f.runtime.isAdmissionFresh({
+        ...candidate,
+        authorizationId: "no-native-capture",
+        runtimeSnapshotCanonicalJson: canonicalJson(direct),
+      }),
+    ).toBe(true);
+    expect(
+      f.runtime.isAdmissionFresh({
+        ...candidate,
+        runtimeSnapshotCanonicalJson: "{",
+      }),
+    ).toBe(false);
+    expect(f.native.read).toHaveBeenCalledTimes(1);
+  });
+});

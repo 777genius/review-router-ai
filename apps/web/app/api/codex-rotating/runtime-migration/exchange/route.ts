@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { codexRuntimeMigrationIdSchema } from "@reviewrouter/features-provider-setup";
 import { getPrisma } from "../../../../../src/server/prisma";
+import { readBoundedRequestJson } from "../../../../../src/server/bounded-request-body";
 import { exchangeConfiguredCodexRuntimeMigration } from "../../../../../src/server/codex-runtime-migration-composition";
 
 export async function POST(request: Request): Promise<NextResponse> {
@@ -12,12 +13,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     )?.[1];
     if (!oidcToken || oidcToken.length > 32 * 1024)
       throw new Error("invalid_oidc");
-    const body = await request.text();
-    if (Buffer.byteLength(body) > 2048) throw new Error("invalid_body");
     const { migrationId } = z
       .object({ migrationId: codexRuntimeMigrationIdSchema })
       .strict()
-      .parse(JSON.parse(body));
+      .parse(await readBoundedRequestJson(request, 2048));
     const result = await exchangeConfiguredCodexRuntimeMigration({
       prisma: getPrisma(),
       migrationId,

@@ -1,4 +1,9 @@
-import { gatewayProfileAcceptsRequestedModel } from "./review-run-gateway-model-qualification";
+import {
+  gatewayProfileAcceptsRequestedModel,
+  gatewayProfileMatchesCapturedNativeContext,
+} from "./review-run-gateway-model-qualification";
+import type { NativeGatewayRelayPolicySource } from "./native-gateway-relay-policy";
+import type { GatewayModelQualificationProfile } from "./review-run-gateway-model-qualification";
 import type { UsageIdentity } from "@reviewrouter/features-provider-usage";
 import { gatewayUsageReceipt } from "./provider-usage-gateway-relay-receipt";
 import { createHash, randomUUID } from "node:crypto";
@@ -51,7 +56,7 @@ import {
 
 export type ReviewRunGatewayRelayPolicy = {
   readonly profiles: readonly {
-    readonly profile: z.infer<typeof c.profile>;
+    readonly profile: c.Profile & GatewayModelQualificationProfile;
     readonly outputTokens: number;
   }[];
   readonly ingressBytes: number;
@@ -63,22 +68,52 @@ export type ReviewRunGatewayRelayPolicy = {
 };
 
 // Explicit server configuration; numbers are bounds, not qualification receipts.
-const relayPolicy: z.ZodType<ReviewRunGatewayRelayPolicy> = z.strictObject({
-  profiles: z
-    .array(
-      z.strictObject({
-        profile: c.profile,
-        outputTokens: c.limits.shape.tokens,
-      }),
-    )
-    .min(1)
-    .max(128),
+export const relayResourceLimits = {
   ingressBytes: z.number().int().min(1).max(16_777_216),
   requestTimeoutMs: z.number().int().min(1).max(3_600_000),
   waitBudgetMs: z.number().int().min(0).max(3_600_000),
   maxWaits: z.number().int().min(0).max(128),
   maxSessions: z.number().int().min(1).max(10_000),
   maxInFlight: z.number().int().min(1).max(10_000),
+};
+const nativeQualifiedProfile = z
+  .strictObject({
+    profileId: c.reference,
+    protocol: z.literal("openai-responses"),
+    modelIds: z.array(z.string().min(1).max(256)).max(512),
+    // No legacy credential kind is guessed for a native connection.
+    authKinds: z.tuple([]),
+    modelPolicy: c.nativeModelPolicy,
+    nativeContext: z.strictObject({
+      schemaVersion: z.literal(1),
+      profileId: c.reference,
+      providerId: c.reference,
+      productId: c.reference,
+    }),
+  })
+  .refine((profile) => profile.profileId === profile.nativeContext.profileId);
+// An explicit native config remains readable during discovery outages, with zero model authority.
+const unavailableNativeProfile = z.strictObject({
+  profileId: c.reference,
+  protocol: z.literal("openai-responses"),
+  modelIds: z.tuple([]),
+  authKinds: z.tuple([]),
+});
+const relayPolicy: z.ZodType<ReviewRunGatewayRelayPolicy> = z.strictObject({
+  profiles: z
+    .array(
+      z.strictObject({
+        profile: z.union([
+          z.custom<c.Profile>((value) => c.profile.safeParse(value).success),
+          nativeQualifiedProfile,
+          unavailableNativeProfile,
+        ]),
+        outputTokens: c.limits.shape.tokens,
+      }),
+    )
+    .min(1)
+    .max(128),
+  ...relayResourceLimits,
 });
 export function readReviewRunGatewayRelayPolicy(raw: string) {
   try {
@@ -218,6 +253,7 @@ type Session = {
  * authority/selected facts. Absence NEVER replays inference or auto-recovers. */
 export function createReviewRunGatewayRelay(input: {
   readonly policy: ReviewRunGatewayRelayPolicy;
+  readonly nativePolicySource?: NativeGatewayRelayPolicySource | undefined;
   readonly runAccess: RunAccessConfig;
   /** Authenticated SCM observation only; never proof of absent model effects. */
   readonly isSourceRunTerminal?: (
@@ -1145,8 +1181,13 @@ export function createReviewRunGatewayRelay(input: {
           effect,
         });
     };
-    const settle = async (effect: c.RequestStatus["effect"]) => {
+    const settle = async (
+      effect: c.RequestStatus["effect"],
+      observePhase?: (phase: "usage_outcome" | "companion_settlement") => void,
+    ) => {
+      observePhase?.("usage_outcome");
       await outcome(effect);
+      observePhase?.("companion_settlement");
       await input.companionDispatches!.settle(
         auth.authorizationId,
         dispatch.dispatchId,
@@ -1252,6 +1293,8 @@ export function createReviewRunGatewayRelay(input: {
                 | "authority_recheck"
                 | "cancelled"
                 | "native_status"
+                | "usage_outcome"
+                | "companion_settlement"
                 | "stream_byte_limit"
                 | "downstream" = "upstream_read";
               try {
@@ -1268,7 +1311,10 @@ export function createReviewRunGatewayRelay(input: {
                     { signal },
                     fresh,
                   );
-                  await settle(status.effect);
+                  await settle(status.effect, (settlementPhase) => {
+                    phase = settlementPhase;
+                  });
+                  phase = "downstream";
                   completed = true;
                   cleanup();
                   target.close();
@@ -1294,6 +1340,11 @@ export function createReviewRunGatewayRelay(input: {
                     requestRef,
                     receivedBytes: received,
                     maxStreamBytes: maxResponseBytes,
+                    signalAborted: signal.aborted,
+                    ...(detail ? { errorCategory: detail.errorCategory } : {}),
+                    ...(detail?.httpStatus === undefined
+                      ? {}
+                      : { httpStatus: detail.httpStatus }),
                     ...(detail?.sdkCode ? { sdkCode: detail.sdkCode } : {}),
                   });
                 } catch {
@@ -1461,11 +1512,12 @@ export function createReviewRunGatewayRelay(input: {
       );
       if (
         qualified.length !== 1 ||
-        qualified[0]!.profile.protocol !== "openai-responses" ||
-        !gatewayProfileAcceptsRequestedModel(
-          qualified[0]!.profile,
-          provider.model,
-        ) ||
+        (!input.nativePolicySource &&
+          (qualified[0]!.profile.protocol !== "openai-responses" ||
+            !gatewayProfileAcceptsRequestedModel(
+              qualified[0]!.profile,
+              provider.model,
+            ))) ||
         gateway.limits.tokens > qualified[0]!.outputTokens
       )
         throw new RelayFailure("gateway_unavailable", 403);
@@ -1610,6 +1662,31 @@ export function createReviewRunGatewayRelay(input: {
           claim.dispatch.nativeRequestRef,
           companionReadback(claim.dispatch),
         );
+      // Exact persisted claims above keep their original identity/readback even
+      // during a discovery outage. Only a new inference needs current discovery.
+      const nativeObservation = await input.nativePolicySource?.read();
+      const nativeProfile = nativeObservation?.policy.profiles.find(
+        (entry) => entry.profile.profileId === gateway.profileRef,
+      )?.profile;
+      const ensureNativeFresh = () => {
+        if (
+          input.nativePolicySource &&
+          (!nativeObservation ||
+            !input.nativePolicySource.isFresh(nativeObservation) ||
+            !nativeProfile ||
+            !gatewayProfileMatchesCapturedNativeContext(
+              nativeProfile,
+              gateway.nativeContext,
+            ) ||
+            !gatewayProfileAcceptsRequestedModel(nativeProfile, provider.model))
+        )
+          throw new RelayFailure("gateway_unavailable", 403);
+      };
+      try {
+        ensureNativeFresh();
+      } catch (error) {
+        return await refuseBeforeForward(error as RelayFailure);
+      }
       const remaining = Math.min(
         policy.requestTimeoutMs,
         session.deadline - Date.now(),
@@ -1705,6 +1782,7 @@ export function createReviewRunGatewayRelay(input: {
                   "effect_unknown",
                   claim.dispatch.nativeRequestRef,
                 );
+              ensureNativeFresh();
             },
             reviewerId,
           );
@@ -1754,6 +1832,7 @@ export function createReviewRunGatewayRelay(input: {
               async () => {
                 requestStage = "local_authority";
                 await fresh();
+                ensureNativeFresh();
                 requestStage = "sdk_request";
               },
             );
@@ -2640,10 +2719,24 @@ function captureStreamFailureDiagnostic(
       ].includes(code)
         ? code
         : undefined;
-    const status: unknown = object
-      ? (Object.getOwnPropertyDescriptor(object, "status")?.value ??
-        Object.getOwnPropertyDescriptor(object, "statusCode")?.value)
-      : undefined;
+    let status: number | undefined;
+    if (object) {
+      for (const field of ["httpStatus", "status", "statusCode"]) {
+        const candidate: unknown = Object.getOwnPropertyDescriptor(
+          object,
+          field,
+        )?.value;
+        if (
+          typeof candidate === "number" &&
+          Number.isInteger(candidate) &&
+          candidate >= 400 &&
+          candidate <= 599
+        ) {
+          status = candidate;
+          break;
+        }
+      }
+    }
     const message: unknown = object
       ? Object.getOwnPropertyDescriptor(object, "message")?.value
       : undefined;
@@ -2663,12 +2756,7 @@ function captureStreamFailureDiagnostic(
             : error instanceof Error
               ? "Error"
               : "other",
-      ...(typeof status === "number" &&
-      Number.isInteger(status) &&
-      status >= 400 &&
-      status <= 599
-        ? { httpStatus: status }
-        : {}),
+      ...(status === undefined ? {} : { httpStatus: status }),
       ...(sdkCode === undefined ? {} : { sdkCode }),
     };
   } catch {

@@ -99,13 +99,23 @@ describe("canonical release migration transition", () => {
   it("keeps checkout160, merged checkout159 and published checkout158/157/156/155 admission separate from historical96 and managed92", () => {
     type Row = { migrationName: string; checksum: string };
     // Historical signed checkout160 remains unchanged by additive app-only
-    // Claude credential migration161 and the later personal import journal.
+    // Claude credentials, personal imports, native intents and reliability tails.
     const names: readonly string[] = canonicalPrismaMigrationNames.filter(
       (name) =>
         name !== "000157_claude_code_api_key_secret" &&
         name !== "000158_review_run_allocation_provider_quota" &&
         name !== "000159_producer_reviewer_plan_v2" &&
-        name !== "000160_personal_credential_import_method",
+        name !== "000160_personal_credential_import_method" &&
+        name !== "000161_github_authorization_revision" &&
+        name !== "000161_native_connection_intent" &&
+        name !== "000162_inventory_ruleset_revisions" &&
+        name !== "000163_usage_retention_index" &&
+        name !== "000164_ruleset_create_uncertainty" &&
+        name !== "000165_installation_sync_latest_index" &&
+        name !== "000165_webhook_effect_fence" &&
+        name !== "000166_repository_health_latest_index" &&
+        name !== "000167_webhook_recovery_intent" &&
+        name !== "000168_webhook_receipt_order_indexes",
     );
     const checkout161 = names.map((migrationName) => ({
       migrationName,
@@ -448,6 +458,16 @@ describe("canonical release migration transition", () => {
           row.migrationName !== "000158_review_run_allocation_provider_quota" &&
           row.migrationName !== "000159_producer_reviewer_plan_v2" &&
           row.migrationName !== "000160_personal_credential_import_method" &&
+          row.migrationName !== "000161_github_authorization_revision" &&
+          row.migrationName !== "000161_native_connection_intent" &&
+          row.migrationName !== "000162_inventory_ruleset_revisions" &&
+          row.migrationName !== "000163_usage_retention_index" &&
+          row.migrationName !== "000164_ruleset_create_uncertainty" &&
+          row.migrationName !== "000165_installation_sync_latest_index" &&
+          row.migrationName !== "000165_webhook_effect_fence" &&
+          row.migrationName !== "000166_repository_health_latest_index" &&
+          row.migrationName !== "000167_webhook_recovery_intent" &&
+          row.migrationName !== "000168_webhook_receipt_order_indexes" &&
           row.migrationName !== "000156_verified_thread_reply",
       ),
     );

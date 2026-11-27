@@ -16,6 +16,8 @@ import {
   type ReviewRunAuthorization,
 } from "@reviewrouter/features-review-run-control";
 import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config/review-configuration";
+import { gatewayProfileMatchesCapturedNativeContext } from "./review-run-gateway-model-qualification";
+import type { NativeGatewayRelayPolicySource } from "./native-gateway-relay-policy";
 
 export const gatewayModelSettingsRuntimeEnvKey =
   "REVIEW_ROUTER_GATEWAY_MODEL_SETTINGS_JSON";
@@ -87,13 +89,15 @@ export function serializeSelectedGatewayModelSettings(
 /** Read-only private adapter. Enrollment anchors and saved policy stay immutable. */
 export function createReviewRunGatewayModelSettingsReader(input: {
   readonly accounts: Pick<PrismaProviderAccountRepository, "findBinding">;
-  readonly control: Pick<ConsumerControlClient, "get" | "readAccountModels">;
+  readonly control: Pick<ConsumerControlClient, "get" | "readAccountModels"> &
+    Partial<Pick<ConsumerControlClient, "readAccountModelsV2">>;
   readonly profiles: readonly c.Profile[];
+  readonly nativePolicySource?: NativeGatewayRelayPolicySource | undefined;
   readonly operatorWorkspaceId?: string;
 }): ReadSelectedGatewayModelSettings {
   const { accounts, control, operatorWorkspaceId } = input;
   const profiles = new Map(
-    input.profiles.map((profile) => [
+    (input.nativePolicySource ? [] : input.profiles).map((profile) => [
       profile.profileId,
       c.profile.parse(profile),
     ]),
@@ -135,23 +139,38 @@ export function createReviewRunGatewayModelSettingsReader(input: {
         ? reviewer!.providerIndex
         : snapshot.gateway!.providerIndex;
     const provider = config.providers[providerIndex];
-    const profile = profiles.get(gateway.profileRef);
-    const discoverySource = profile?.authKinds
-      .map((authKind) =>
-        c.accountModelDiscoverySource({
-          profileId: profile.profileId,
-          protocol: profile.protocol,
-          authKind,
-        }),
-      )
-      .find((source) => source !== undefined);
+    const observation = await input.nativePolicySource?.read();
+    const nativeProfile = observation?.policy.profiles.find(
+      (entry) => entry.profile.profileId === gateway.profileRef,
+    )?.profile;
+    const profile = input.nativePolicySource
+      ? nativeProfile
+      : profiles.get(gateway.profileRef);
+    const discoverySource =
+      nativeProfile?.modelPolicy?.sourceId ??
+      profile?.authKinds
+        .map((authKind) =>
+          c.accountModelDiscoverySource({
+            profileId: profile.profileId,
+            protocol: profile.protocol,
+            authKind,
+          }),
+        )
+        .find((source) => source !== undefined);
     if (
       provider?.authMode !== "codex_account_gateway" ||
       provider.gatewayBindingId !== gateway.bindingId ||
       provider.gatewayProfileRef !== gateway.profileRef ||
       !profile ||
       profile.protocol !== "openai-responses" ||
-      !discoverySource
+      !discoverySource ||
+      (input.nativePolicySource &&
+        (!observation ||
+          !input.nativePolicySource.isFresh(observation) ||
+          !gatewayProfileMatchesCapturedNativeContext(
+            profile,
+            gateway.nativeContext,
+          )))
     )
       throw new Error("gateway_model_settings_unavailable");
     async function selected() {
@@ -217,25 +236,32 @@ export function createReviewRunGatewayModelSettingsReader(input: {
       };
     }
     const before = await selected();
-    const models = c.accountModels.parse(
-      await control.readAccountModels(
-        {
-          ownerRef: before.ownerRef,
-          accountRef: gateway.permittedAccountRef,
-          profileId: gateway.profileRef,
-          expectedAuthorizationEpoch: before.authorizationEpoch,
-        },
-        { signal },
-      ),
-    );
+    const request = {
+      ownerRef: before.ownerRef,
+      accountRef: gateway.permittedAccountRef,
+      profileId: gateway.profileRef,
+      expectedAuthorizationEpoch: before.authorizationEpoch,
+    };
+    if (nativeProfile && !control.readAccountModelsV2)
+      throw new Error("gateway_model_settings_unavailable");
+    const models = nativeProfile
+      ? c.accountModelsV2.parse(
+          await control.readAccountModelsV2!(request, { signal }),
+        )
+      : c.accountModels.parse(
+          await control.readAccountModels(request, { signal }),
+        );
     if (
       canonicalJson(before) !== canonicalJson(await selected()) ||
-      signal.aborted
+      signal.aborted ||
+      (observation && !input.nativePolicySource!.isFresh(observation))
     )
       throw new Error("gateway_model_settings_unavailable");
     if (
       models.status === "unavailable" &&
-      profile.modelIds.includes(provider.model)
+      profile.modelIds.includes(provider.model) &&
+      (!nativeProfile ||
+        nativeProfile.modelPolicy?.unavailableFallback === "qualified_anchor")
     )
       return {
         authorizationEpoch: before.authorizationEpoch,
@@ -243,7 +269,9 @@ export function createReviewRunGatewayModelSettingsReader(input: {
       };
     if (
       models.status !== "snapshot" ||
-      models.source !== discoverySource ||
+      ("sourceId" in models ? models.sourceId : models.source) !==
+        discoverySource ||
+      ("profileId" in models && models.profileId !== gateway.profileRef) ||
       Date.parse(models.fetchedAt) > Date.now() ||
       Date.parse(models.expiresAt) <= Date.now()
     )

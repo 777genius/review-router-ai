@@ -1,9 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import type { OutboxEventStatus } from "@reviewrouter/features-outbox";
-import {
-  installationSyncAggregateId,
-  installationSyncRequestedEvent,
-} from "./outbox-installation-sync-requester";
+import { installationSyncAggregateId } from "./outbox-installation-sync-requester";
 
 export type InstallationSyncRequestStatus = {
   readonly status: OutboxEventStatus;
@@ -12,32 +9,44 @@ export type InstallationSyncRequestStatus = {
 
 /** Reads the newest repository scan request of each installation. */
 export class PrismaInstallationSyncStatusReader {
-  constructor(private readonly prisma: Pick<PrismaClient, "outboxEvent">) {}
+  constructor(private readonly prisma: Pick<PrismaClient, "$queryRaw">) {}
 
   async latestByInstallation(
     githubInstallationIds: readonly string[],
   ): Promise<ReadonlyMap<string, InstallationSyncRequestStatus>> {
-    const latest = await Promise.all(
-      [...new Set(githubInstallationIds)].map(async (githubInstallationId) => {
-        const event = await this.prisma.outboxEvent.findFirst({
-          where: {
-            type: installationSyncRequestedEvent.type,
-            version: installationSyncRequestedEvent.version,
-            aggregateId: installationSyncAggregateId(githubInstallationId),
-          },
-          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-          select: { status: true, createdAt: true },
-        });
-        return event
-          ? ([
-              [
-                githubInstallationId,
-                { status: event.status, requestedAt: event.createdAt },
-              ],
-            ] as const)
-          : [];
-      }),
+    const installationIds = [...new Set(githubInstallationIds)];
+    if (installationIds.length === 0) return new Map();
+    const aggregateIds = installationIds.map(installationSyncAggregateId);
+    // Each authorized input owns one LIMIT. A global LIMIT or loading all
+    // history and grouping in JavaScript loses either parents or scalability.
+    // This v1 reader pins the event predicate so the partial index also works
+    // with generic prepared plans; installation IDs remain bound parameters.
+    const latest = await this.prisma.$queryRaw<
+      readonly {
+        installationId: string;
+        status: OutboxEventStatus;
+        createdAt: Date;
+      }[]
+    >`
+      SELECT requested."installationId", latest."status", latest."createdAt"
+      FROM unnest(${installationIds}::text[], ${aggregateIds}::text[])
+        WITH ORDINALITY AS requested("installationId", "aggregateId", ordinal)
+      JOIN LATERAL (
+        SELECT event."status", event."createdAt"
+        FROM "OutboxEvent" AS event
+        WHERE event."type" = 'installation.sync_requested'
+          AND event."version" = 1
+          AND event."aggregateId" = requested."aggregateId"
+        ORDER BY event."createdAt" DESC, event."id" DESC
+        LIMIT 1
+      ) AS latest ON true
+      ORDER BY requested.ordinal
+    `;
+    return new Map(
+      latest.map((event) => [
+        event.installationId,
+        { status: event.status, requestedAt: event.createdAt },
+      ]),
     );
-    return new Map(latest.flat());
   }
 }

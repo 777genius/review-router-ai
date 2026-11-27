@@ -1,3 +1,4 @@
+import { withReviewRequestedIoTimeout } from "./review-requested-io-timeout";
 import {
   ReviewRequestedDispatchLookupStatus,
   ReviewRequestedDispatchRunStatus,
@@ -41,6 +42,7 @@ const queuedRunExtensionPasses = 4;
 
 export class RecoverReviewRequestedDispatches {
   private readonly policy: ReviewRequestedDispatchPolicy;
+  private readonly observationsInFlight = new Set<string>();
 
   constructor(
     private readonly queries: ReviewRequestedIntentQueryPort,
@@ -56,24 +58,34 @@ export class RecoverReviewRequestedDispatches {
 
   async execute(input: {
     readonly limit: number;
+    readonly signal?: AbortSignal;
   }): Promise<RecoverReviewRequestedDispatchesResult> {
     assertLimit(input.limit);
-    const candidates = await this.queries.listDueForResolution({
-      now: this.clock.now(),
-      limit: input.limit,
-    });
+    const passDeadline = performance.now() + maximumRecoveryPassMs;
+    const candidates = input.signal?.aborted
+      ? []
+      : await this.queries.listDueForResolution({
+          now: this.clock.now(),
+          limit: input.limit,
+        });
     let pending = 0;
     let recovered = 0;
     let failed = 0;
 
+    let visited = 0;
     for (const intent of candidates) {
+      if (input.signal?.aborted || performance.now() >= passDeadline) {
+        pending += candidates.length - visited;
+        break;
+      }
+      visited += 1;
       let resolution: CandidateResolution;
       try {
         resolution =
           intent.state === ReviewRequestedIntentState.ReconcilingDispatch
-            ? await this.reconcileUnknownDispatch(intent)
+            ? await this.reconcileUnknownDispatch(intent, passDeadline)
             : intent.state === ReviewRequestedIntentState.AwaitingAuthorization
-              ? await this.resolveAwaitingAuthorization(intent)
+              ? await this.resolveAwaitingAuthorization(intent, passDeadline)
               : "failed";
       } catch {
         failed += 1;
@@ -89,6 +101,7 @@ export class RecoverReviewRequestedDispatches {
 
   private async reconcileUnknownDispatch(
     intent: ReviewRequestedIntent,
+    passDeadline: number,
   ): Promise<CandidateResolution> {
     const deadline = requiredDate(
       intent.resolutionDeadlineAt,
@@ -102,7 +115,9 @@ export class RecoverReviewRequestedDispatches {
         >
       | undefined;
     try {
-      lookup = await this.gateway.findByRequestIdentity({ intent });
+      lookup = await this.observe(intent, passDeadline, (signal) =>
+        this.gateway.findByRequestIdentity({ intent, signal }),
+      );
     } catch {
       lookup = {
         status: ReviewRequestedDispatchLookupStatus.Inconclusive,
@@ -147,13 +162,15 @@ export class RecoverReviewRequestedDispatches {
 
   private async resolveAwaitingAuthorization(
     intent: ReviewRequestedIntent,
+    passDeadline: number,
   ): Promise<CandidateResolution> {
     const deadline = requiredDate(
       intent.resolutionDeadlineAt,
       "review_requested_authorization_deadline_missing",
     );
-    const runStatus = await this.gateway
-      .inspectKnownRun({ intent })
+    const runStatus = await this.observe(intent, passDeadline, (signal) =>
+      this.gateway.inspectKnownRun({ intent, signal }),
+    )
       .then((inspection) => inspection.status)
       .catch((): ReviewRequestedDispatchRunStatus | null => null);
     const now = this.clock.now();
@@ -214,7 +231,12 @@ export class RecoverReviewRequestedDispatches {
     }
     if (
       runStatus === ReviewRequestedDispatchRunStatus.Pending &&
-      (await this.extendWhileWaitingForRunner(intent, now, deadline))
+      (await this.extendWhileWaitingForRunner(
+        intent,
+        now,
+        deadline,
+        passDeadline,
+      ))
     ) {
       return "pending";
     }
@@ -240,7 +262,9 @@ export class RecoverReviewRequestedDispatches {
     });
     if (!transitionApplied(terminalized.status)) return "failed";
     try {
-      await this.gateway.cancelKnownRun({ intent });
+      await this.observe(intent, passDeadline, (signal) =>
+        this.gateway.cancelKnownRun({ intent, signal }),
+      );
     } catch {
       // Terminalization is authoritative. Cancellation is best effort because
       // the run may have completed concurrently or SCM may be unavailable.
@@ -260,6 +284,7 @@ export class RecoverReviewRequestedDispatches {
     intent: ReviewRequestedIntent,
     now: Date,
     deadline: Date,
+    passDeadline: number,
   ): Promise<boolean> {
     if (
       reviewRequestedQueuedRunWaitExtension(
@@ -275,9 +300,11 @@ export class RecoverReviewRequestedDispatches {
     ) {
       return false;
     }
-    const runner = await this.gateway
-      .inspectRunnerWait({ intent })
-      .catch(() => null);
+    const runner = await this.observe(intent, passDeadline, (signal) =>
+      this.gateway.inspectRunnerWait({ intent, signal }),
+    ).catch(() => null);
+    now = this.clock.now();
+    if (now >= deadline) return false;
     if (!runner?.waitingForRunner || !runner.revisionCurrent) return false;
     const extended = await this.commands.extendQueuedRunWait({
       requestId: intent.requestId,
@@ -289,6 +316,33 @@ export class RecoverReviewRequestedDispatches {
       ),
     });
     return transitionApplied(extended.status);
+  }
+
+  private async observe<T>(
+    intent: ReviewRequestedIntent,
+    passDeadline: number,
+    work: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    const remainingMs = passDeadline - performance.now();
+    if (
+      remainingMs <= 0 ||
+      this.observationsInFlight.has(intent.requestId) ||
+      this.observationsInFlight.size >= maximumRecoveryObservationsInFlight
+    ) {
+      throw new Error("review_requested_recovery_observation_unavailable");
+    }
+    this.observationsInFlight.add(intent.requestId);
+    return withReviewRequestedIoTimeout(
+      Math.min(maximumRecoveryObservationMs, remainingMs),
+      async (signal) => {
+        try {
+          return await work(signal);
+        } finally {
+          // Retain the slot when transport ignores abort, until real IO settles.
+          this.observationsInFlight.delete(intent.requestId);
+        }
+      },
+    );
   }
 
   private async defer(
@@ -339,3 +393,7 @@ function assertLimit(value: number): void {
     throw new Error("review_requested_recovery_limit_invalid");
   }
 }
+
+const maximumRecoveryObservationMs = 5_000;
+const maximumRecoveryPassMs = 5_000;
+const maximumRecoveryObservationsInFlight = 32;

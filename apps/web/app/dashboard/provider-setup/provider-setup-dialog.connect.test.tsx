@@ -52,6 +52,8 @@ vi.mock("../provider-setup-actions", () => ({
 // Only the server boundary is mocked; the connect form, its receipts and the
 // dialog's account options are the real components.
 vi.mock("../account-gateway-account-actions", () => ({
+  beginGatewayNativeConnection: vi.fn(),
+  continueGatewayNativeConnection: vi.fn(),
   beginGatewayOAuth: vi.fn(),
   completeGatewayOAuth: vi.fn(),
   pollGatewayOAuth: vi.fn(),
@@ -69,6 +71,8 @@ vi.mock("../account-lifecycle-actions", () => ({
 }));
 vi.mock("../personal-account-actions", () => ({
   attachConnectedPersonalAccount: vi.fn(),
+  beginPersonalGatewayNativeConnection: vi.fn(),
+  continuePersonalGatewayNativeConnection: vi.fn(),
   beginPersonalGatewayOAuth: vi.fn(),
   completePersonalGatewayOAuth: vi.fn(),
   listPersonalGatewayAccounts: vi.fn(),
@@ -293,11 +297,30 @@ function renderAddProvider(
   fireEvent.click(screen.getByRole("button", { name: "Add provider" }));
 }
 
-async function chooseNvidia() {
-  fireEvent.click(await screen.findByRole("combobox", { name: /^Provider\b/ }));
-  const option = await screen.findByRole("option", { name: /NVIDIA Build/ });
-  fireEvent.mouseMove(option);
-  fireEvent.click(option);
+async function chooseProvider(name: RegExp) {
+  const dialog = await screen.findByRole("dialog");
+  const heading = await within(dialog).findByRole("heading", {
+    name: "Provider",
+  });
+  const providers = within(heading.parentElement!).getByRole("radiogroup", {
+    name: "Provider",
+  });
+  fireEvent.click(await within(providers).findByRole("radio", { name }));
+}
+
+function expectProviderChoiceDisabled(disabled: boolean) {
+  const dialog = screen.getByRole("dialog");
+  const heading = within(dialog).getByRole("heading", { name: "Provider" });
+  const providers = within(heading.parentElement!).getByRole("radiogroup", {
+    name: "Provider",
+  });
+  for (const name of [/^Codex/, /NVIDIA Build/]) {
+    expect(
+      within(providers)
+        .getByRole("radio", { name })
+        .getAttribute("aria-disabled"),
+    ).toBe(disabled ? "true" : null);
+  }
 }
 
 function enterKey(form: HTMLElement) {
@@ -340,10 +363,7 @@ async function startWaitingCodexSignIn() {
       },
     }),
   );
-  fireEvent.click(await screen.findByRole("combobox", { name: /^Provider\b/ }));
-  const option = await screen.findByRole("option", { name: /^Codex/ });
-  fireEvent.mouseMove(option);
-  fireEvent.click(option);
+  await chooseProvider(/^Codex/);
   const form = await screen.findByRole("region", { name: "Connect Codex" });
   const start = await within(form).findByRole("button", {
     name: "Sign in to Codex",
@@ -397,12 +417,7 @@ describe("adding a provider and connecting its account in one dialog", () => {
         };
       });
       renderAddProvider();
-      fireEvent.click(
-        await screen.findByRole("combobox", { name: /^Provider\b/ }),
-      );
-      const option = await screen.findByRole("option", { name: /^Codex/ });
-      fireEvent.mouseMove(option);
-      fireEvent.click(option);
+      await chooseProvider(/^Codex/);
       const form = await screen.findByRole("region", { name: "Connect Codex" });
       const label =
         method === "refresh_token" ? "Refresh token" : "Codex auth.json";
@@ -448,12 +463,7 @@ describe("adding a provider and connecting its account in one dialog", () => {
     vi.mocked(listPersonalGatewayAccounts).mockResolvedValue(page([]));
     renderAddProvider();
     const chooseCodex = async () => {
-      fireEvent.click(
-        await screen.findByRole("combobox", { name: /^Provider\b/ }),
-      );
-      const option = await screen.findByRole("option", { name: /^Codex/ });
-      fireEvent.mouseMove(option);
-      fireEvent.click(option);
+      await chooseProvider(/^Codex/);
       return screen.findByRole("region", { name: "Connect Codex" });
     };
     const form = await chooseCodex();
@@ -463,7 +473,7 @@ describe("adding a provider and connecting its account in one dialog", () => {
       within(form).getByRole("button", { name: "Import Codex auth.json" }),
     );
     expect(within(form).getByRole("alert").textContent).toContain("64 KiB");
-    await chooseNvidia();
+    await chooseProvider(/NVIDIA Build/);
     const keyForm = await screen.findByRole("region", {
       name: "Connect NVIDIA Build",
     });
@@ -489,7 +499,7 @@ describe("adding a provider and connecting its account in one dialog", () => {
         target: { files: [file] },
       },
     );
-    await chooseNvidia();
+    await chooseProvider(/NVIDIA Build/);
     const fresh = await chooseCodex();
     const freshField = await within(fresh).findByLabelText("Codex auth.json");
     await act(async () => finishRead("synthetic-stale-file-secret"));
@@ -503,7 +513,7 @@ describe("adding a provider and connecting its account in one dialog", () => {
 
   it("connects an API key in place, selects the new connection and its model", async () => {
     renderAddProvider();
-    await chooseNvidia();
+    await chooseProvider(/NVIDIA Build/);
     const form = await screen.findByRole("region", {
       name: "Connect NVIDIA Build",
     });
@@ -565,7 +575,7 @@ describe("adding a provider and connecting its account in one dialog", () => {
       async (_context, nonce) => operation(nonce, "rejected"),
     );
     renderAddProvider();
-    await chooseNvidia();
+    await chooseProvider(/NVIDIA Build/);
     const form = await screen.findByRole("region", {
       name: "Connect NVIDIA Build",
     });
@@ -576,18 +586,14 @@ describe("adding a provider and connecting its account in one dialog", () => {
 
     await within(form).findByText("Declined");
     // A request in progress holds the provider choice in place.
-    expect(
-      screen.getByRole("combobox", { name: /^Provider\b/ }),
-    ).toHaveProperty("disabled", true);
+    expectProviderChoiceDisabled(true);
     fireEvent.click(
       within(form).getByRole("button", { name: "Add another account" }),
     );
     await waitFor(() =>
       expect(form.querySelector('input[name="credential"]')).not.toBeNull(),
     );
-    expect(
-      screen.getByRole("combobox", { name: /^Provider\b/ }),
-    ).toHaveProperty("disabled", false);
+    expectProviderChoiceDisabled(false);
     expect(attachConnectedPersonalAccount).not.toHaveBeenCalled();
   });
 
@@ -597,7 +603,7 @@ describe("adding a provider and connecting its account in one dialog", () => {
       value: { status: "not_attached", reason: "not_permitted" },
     });
     renderAddProvider();
-    await chooseNvidia();
+    await chooseProvider(/NVIDIA Build/);
     const form = await screen.findByRole("region", {
       name: "Connect NVIDIA Build",
     });
@@ -627,7 +633,7 @@ describe("adding a provider and connecting its account in one dialog", () => {
       ],
     };
     renderAddProvider();
-    await chooseNvidia();
+    await chooseProvider(/NVIDIA Build/);
 
     await screen.findByText("Only workspace owners and admins can do this.");
     expect(
@@ -648,7 +654,7 @@ describe("adding a provider and connecting its account in one dialog", () => {
       async (_context, nonce) => operation(nonce, "pending"),
     );
     renderAddProvider();
-    await chooseNvidia();
+    await chooseProvider(/NVIDIA Build/);
     const form = await screen.findByRole("region", {
       name: "Connect NVIDIA Build",
     });
@@ -662,15 +668,13 @@ describe("adding a provider and connecting its account in one dialog", () => {
     expect(
       screen.getByRole("region", { name: "Connect NVIDIA Build" }),
     ).toBeTruthy();
-    expect(
-      screen.getByRole("combobox", { name: /^Provider\b/ }),
-    ).toHaveProperty("disabled", true);
+    expectProviderChoiceDisabled(true);
   });
 
   it("offers a new connection beside the existing ones and closes it again", async () => {
     workspaceAccounts = [{ ...connected, label: "Team NVIDIA" }];
     renderAddProvider();
-    await chooseNvidia();
+    await chooseProvider(/NVIDIA Build/);
     await waitFor(() =>
       expect(
         screen.getByRole("combobox", { name: /^Account\b/ }).textContent,
@@ -692,7 +696,7 @@ describe("adding a provider and connecting its account in one dialog", () => {
 
   it("keeps the link to Connections where personal connections are off", async () => {
     renderAddProvider(false);
-    await chooseNvidia();
+    await chooseProvider(/NVIDIA Build/);
 
     await screen.findByRole("link", { name: "Connect account" });
     expect(
@@ -769,12 +773,7 @@ describe("adding a provider and connecting its account in one dialog", () => {
       };
     });
     renderAddProvider();
-    fireEvent.click(
-      await screen.findByRole("combobox", { name: /^Provider\b/ }),
-    );
-    const option = await screen.findByRole("option", { name: /^Codex/ });
-    fireEvent.mouseMove(option);
-    fireEvent.click(option);
+    await chooseProvider(/^Codex/);
     const form = await screen.findByRole("region", { name: "Connect Codex" });
     const start = await within(form).findByRole("button", {
       name: "Sign in to Codex",
@@ -784,9 +783,7 @@ describe("adding a provider and connecting its account in one dialog", () => {
 
     // The code is shown in the dialog, and the choice stays put meanwhile.
     await within(form).findByText("WXYZ-1234");
-    expect(
-      screen.getByRole("combobox", { name: /^Provider\b/ }),
-    ).toHaveProperty("disabled", true);
+    expectProviderChoiceDisabled(true);
     await waitFor(() =>
       expect(
         vi.mocked(listPersonalGatewayAccounts).mock.calls.length,
@@ -822,9 +819,7 @@ describe("adding a provider and connecting its account in one dialog", () => {
     );
 
     await within(form).findByRole("button", { name: "Sign in to Codex" });
-    expect(
-      screen.getByRole("combobox", { name: /^Provider\b/ }),
-    ).toHaveProperty("disabled", false);
+    expectProviderChoiceDisabled(false);
     // The waiting request stays a receipt in Connections.
     expect(
       JSON.parse(

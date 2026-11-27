@@ -37,6 +37,51 @@ const capability = {
     },
   ],
 };
+const nativeCapability = {
+  profileId,
+  provider: { id: "kimi", label: "Kimi Code" },
+  product: { id: "coding_plan", label: "Kimi Code" },
+  region: { id: "global", label: "Global" },
+  protocol: "openai-responses",
+  models: capability.models,
+  modelPolicy: {
+    sourceId: "native-test-models",
+    contract: "native-account-models/v2",
+    unavailableFallback: "deny",
+  },
+  methods: [
+    {
+      methodId: "api_key",
+      revision: 1,
+      configurationGeneration: "native-test-config",
+      label: "API key",
+      create: true,
+      reconnect: true,
+      allowedCredentialPolicies: ["provider_key"],
+      requirements: [
+        "native_dispatch/v1",
+        "effect_fence/v1",
+        "owner_scoped_custody/v1",
+      ],
+      availability: "enabled",
+      interaction: {
+        kind: "credential_form",
+        inputFields: [
+          {
+            fieldId: "api_key",
+            label: "API key",
+            kind: "secret",
+            required: true,
+            maxBytes: 65536,
+          },
+        ],
+      },
+    },
+  ],
+  accountInfo: true,
+  limitsContract: "account-limits/v3",
+  availability: "enabled",
+};
 const observation = {
   status: "snapshot",
   physicalGeneration: "native-generation",
@@ -82,17 +127,22 @@ async function fixture(
     missing?: boolean;
     denied?: boolean;
     foreignProvider?: boolean;
+    native?: boolean;
   } = {},
 ) {
   const calls: string[] = [];
   const bodies: unknown[] = [];
+  const discoveryVersion = options.native ? "v3" : "v1";
+  const limitsVersion = options.native ? "v3" : "v2";
   const server = createServer(async (request, response) => {
     calls.push(`${request.method} ${request.url}`);
     expect(request.headers.authorization).toBe(
       "Bearer test-control-credential",
     );
     response.setHeader("content-type", "application/json");
-    if (request.url === "/v1/provider-connection-capabilities") {
+    if (
+      request.url === `/${discoveryVersion}/provider-connection-capabilities`
+    ) {
       if (options.denied) {
         response.statusCode = 403;
         response.end(
@@ -106,19 +156,37 @@ async function fixture(
       } else
         response.end(
           JSON.stringify({
-            contract: "provider-connections/v1",
-            capabilities: options.missing ? [] : [capability],
+            contract: `provider-connections/${discoveryVersion}`,
+            capabilities: options.missing
+              ? []
+              : options.native
+                ? [nativeCapability]
+                : [
+                    capability,
+                    {
+                      ...capability,
+                      profileId: "openai-codex-oauth-responses-v1",
+                      provider: { identity: "openai", label: "Codex" },
+                      authMethods: ["oauth_authorization_code"],
+                      completionInputKind: "callback_url",
+                      oauthCallbackMode: "manual_callback_url",
+                      reconnect: "none",
+                      limitsContract: "account-limits/v1",
+                    },
+                  ],
           }),
         );
-    } else if (request.url === "/v2/capabilities/account-limits") {
+    } else if (
+      request.url === `/${limitsVersion}/capabilities/account-limits`
+    ) {
       response.end(
         JSON.stringify({
-          contract: "account-limits/v2",
+          contract: `account-limits/${limitsVersion}`,
           cachedRead: true,
           quotaOnlyRefresh: false,
         }),
       );
-    } else if (request.url === "/v2/account-limits/read") {
+    } else if (request.url === `/${limitsVersion}/account-limits/read`) {
       let body = "";
       for await (const chunk of request) body += chunk;
       bodies.push(JSON.parse(body));
@@ -156,52 +224,63 @@ async function fixture(
   const address = server.address();
   if (!address || typeof address === "string")
     throw new Error("fixture_address");
-  const reader = await accountLimitsReader({
-    role: "consumer-control",
-    origin: `http://127.0.0.1:${address.port}`,
-    token: "test-control-credential",
-  });
+  const reader = await accountLimitsReader(
+    {
+      role: "consumer-control",
+      origin: `http://127.0.0.1:${address.port}`,
+      token: "test-control-credential",
+    },
+    options.native ? undefined : "provider-connections/v1",
+  );
   return { reader, calls, bodies };
 }
 
-it("selects declared v2 once through the installed SDK and preserves month, zero and unknown", async () => {
-  const f = await fixture();
-  expect(f.calls).toEqual([]);
-  const [first, second] = await Promise.all([
-    f.reader.read(target),
-    f.reader.read(target),
-  ]);
-  expect(first).toEqual(second);
-  expect(first).toMatchObject({
-    status: "snapshot",
-    windows: [
-      {
-        id: "five_hour",
-        family: "kimi",
-        basis: "duration",
-        durationSeconds: 18000,
-        usedPercent: 0,
-      },
-      {
-        id: "monthly",
-        family: "kimi",
-        basis: "billing_cycle",
-        durationSeconds: null,
-        usedPercent: null,
-        resetAt: "2026-11-01T00:00:00Z",
-      },
-    ],
-  });
-  expect(f.calls).toEqual([
-    "GET /v1/provider-connection-capabilities",
-    "GET /v2/capabilities/account-limits",
-    "POST /v2/account-limits/read",
-    "POST /v2/account-limits/read",
-  ]);
-  expect(f.bodies).toEqual([target, target]);
-});
+it.each([
+  { native: false, discovery: "v1", limits: "v2" },
+  { native: true, discovery: "v3", limits: "v3" },
+])(
+  "selects declared $limits once through $discovery discovery and preserves month, zero and unknown",
+  async ({ native, discovery, limits }) => {
+    const f = await fixture({ native });
+    expect(f.calls).toEqual([]);
+    const [first, second] = await Promise.all([
+      f.reader.read(target),
+      f.reader.read(target),
+    ]);
+    expect(first).toEqual(second);
+    expect(first).toMatchObject({
+      status: "snapshot",
+      windows: [
+        {
+          id: "five_hour",
+          family: "native",
+          providerId: "kimi",
+          basis: "duration",
+          durationSeconds: 18000,
+          usedPercent: 0,
+        },
+        {
+          id: "monthly",
+          family: "native",
+          providerId: "kimi",
+          basis: "billing_cycle",
+          durationSeconds: null,
+          usedPercent: null,
+          resetAt: "2026-11-01T00:00:00Z",
+        },
+      ],
+    });
+    expect(f.calls).toEqual([
+      `GET /${discovery}/provider-connection-capabilities`,
+      `GET /${limits}/capabilities/account-limits`,
+      `POST /${limits}/account-limits/read`,
+      `POST /${limits}/account-limits/read`,
+    ]);
+    expect(f.bodies).toEqual([target, target]);
+  },
+);
 
-it("keeps old Codex reads on v1 without discovering or probing v2", async () => {
+it("keeps explicitly advertised old Codex reads on v1 without probing v2", async () => {
   const f = await fixture();
   expect(
     await f.reader.read({
@@ -210,19 +289,23 @@ it("keeps old Codex reads on v1 without discovering or probing v2", async () => 
     }),
   ).toEqual({ status: "unknown" });
   expect(f.calls).toEqual([
+    "GET /v1/provider-connection-capabilities",
     "GET /v1/capabilities/account-limits",
     "POST /v1/account-limits/read",
   ]);
 });
 
-it("does not expose a different provider's otherwise valid observation", async () => {
-  const f = await fixture({ foreignProvider: true });
-  expect(await f.reader.read(target)).toEqual({
-    status: "unavailable",
-    reason: "invalid_snapshot",
-  });
-  expect(f.calls).toHaveLength(3);
-});
+it.each([false, true])(
+  "does not expose a different provider's otherwise valid observation (native: %s)",
+  async (native) => {
+    const f = await fixture({ foreignProvider: true, native });
+    expect(await f.reader.read(target)).toEqual({
+      status: "unavailable",
+      reason: "invalid_snapshot",
+    });
+    expect(f.calls).toHaveLength(3);
+  },
+);
 
 it("does not probe v1 when a new profile has no advertised limits contract", async () => {
   const f = await fixture({ missing: true });
@@ -233,14 +316,19 @@ it("does not probe v1 when a new profile has no advertised limits contract", asy
   expect(f.calls).toEqual(["GET /v1/provider-connection-capabilities"]);
 });
 
-it("clears observations on capability authorization loss instead of falling back", async () => {
-  const f = await fixture({ denied: true });
-  expect(await f.reader.read(target)).toEqual({
-    status: "unknown",
-    reason: "generation_changed",
-  });
-  expect(f.calls).toEqual(["GET /v1/provider-connection-capabilities"]);
-});
+it.each([false, true])(
+  "clears observations on capability authorization loss without fallback (native: %s)",
+  async (native) => {
+    const f = await fixture({ denied: true, native });
+    expect(await f.reader.read(target)).toEqual({
+      status: "unknown",
+      reason: "generation_changed",
+    });
+    expect(f.calls).toEqual([
+      `GET /${native ? "v3" : "v1"}/provider-connection-capabilities`,
+    ]);
+  },
+);
 
 // This transport test catches accidental read/refresh endpoint mixing and unsafe
 // error retention; service tests own authorization policy coverage.

@@ -48,6 +48,7 @@ export async function discoverGitLabConnectProjects(input: {
 export async function installGitLabConnectProjects(input: {
   readonly sourceUrl: string;
   readonly token: string;
+  readonly reviewToken: string;
   readonly workspaceId: string;
   readonly selectedProjectIds: readonly string[];
   readonly installedByUserId: string;
@@ -64,6 +65,7 @@ export async function installGitLabConnectProjects(input: {
   }[];
   readonly results: readonly unknown[];
 }> {
+  const reviewToken = assertGitLabReviewToken(input.reviewToken, input.token);
   const inventory = new PrismaGitLabInstallationInventory(getPrisma());
   const requestStartedAt = await inventory.requestStartedAt();
   const discovery = await discoverGitLabConnectProjects(input);
@@ -92,7 +94,7 @@ export async function installGitLabConnectProjects(input: {
     projectIds: selectedProjects.map((project) => project.projectId),
     apiBaseUrl,
     audience,
-    reviewToken: readGitLabReviewToken(),
+    reviewToken,
   });
 
   const { installationId } = await inventory.record({
@@ -223,9 +225,17 @@ function assertToken(value: string): string {
   return token;
 }
 
-function readGitLabReviewToken(): string {
-  const token = process.env.REVIEW_ROUTER_GITLAB_API_TOKEN?.trim();
+function assertGitLabReviewToken(
+  value: string,
+  installationToken: string,
+): string {
+  const token = value.trim();
   if (!token) throw new Error("gitlab_review_token_missing");
+  if (
+    token === installationToken.trim() ||
+    token === process.env.REVIEW_ROUTER_GITLAB_API_TOKEN?.trim()
+  )
+    throw new Error("gitlab_review_token_must_be_separate");
   return token;
 }
 

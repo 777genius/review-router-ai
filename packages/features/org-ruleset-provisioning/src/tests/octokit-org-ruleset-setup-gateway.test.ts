@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { OctokitOrgRulesetSetupGateway } from "../infrastructure/github/octokit-org-ruleset-setup-gateway.js";
 import { buildGitHubOrgRulesetPayload } from "../domain/org-ruleset-provisioning.js";
 
@@ -80,55 +80,120 @@ describe("OctokitOrgRulesetSetupGateway", () => {
     });
   });
 
-  it("updates an existing ruleset instead of creating duplicates", async () => {
-    const requester = new FakeRequester((route) => {
-      if (route === "GET /orgs/{org}/rulesets") {
-        return { data: [{ id: 77, name: "ReviewRouter required workflow" }] };
-      }
+  it("updates an existing ruleset and verifies the remote payload", async () => {
+    let current = { ...payload(), enforcement: "active" };
+    const requester = new FakeRequester((route, parameters) => {
+      if (route === "GET /orgs/{org}/rulesets")
+        return { data: [{ id: 77, name: payload().name }] };
       if (route === "PUT /orgs/{org}/rulesets/{ruleset_id}") {
+        current = {
+          ...payload(),
+          enforcement: String(parameters?.enforcement),
+        };
+        return { data: { id: 77, name: payload().name } };
+      }
+      if (route === "GET /orgs/{org}/rulesets/{ruleset_id}")
         return {
           data: {
+            ...current,
             id: 77,
-            name: "ReviewRouter required workflow",
             _links: {
-              html: {
-                href: "https://github.com/organizations/agent-teams-ai/settings/rules/77",
-              },
+              html: { href: "https://github.com/orgs/example/rules/77" },
             },
           },
         };
-      }
       throw new Error(`unexpected route ${route}`);
     });
-    const gateway = new OctokitOrgRulesetSetupGateway(requester);
-
+    const beforeMutation = vi.fn(async () => undefined);
     await expect(
-      gateway.createOrUpdateOrganizationRuleset({
-        organizationLogin: "agent-teams-ai",
-        name: "ReviewRouter required workflow",
-        payload: buildGitHubOrgRulesetPayload({
-          enforcement: "evaluate",
-          sourceWorkflow: {
-            repositoryId: "1001",
-            repositoryFullName: "agent-teams-ai/alpha",
-            path: ".github/workflows/reviewrouter-required.yml",
-            ref: "refs/heads/main",
-          },
-          targetSelection: {
-            scope: "selected_repositories",
-            repositoryIds: ["1001"],
-          },
-        }),
+      new OctokitOrgRulesetSetupGateway(
+        requester,
+      ).createOrUpdateOrganizationRuleset({
+        organizationLogin: "example",
+        name: payload().name,
+        payload: payload(),
+        beforeMutation,
       }),
     ).resolves.toEqual({
       id: "77",
-      url: "https://github.com/organizations/agent-teams-ai/settings/rules/77",
+      url: "https://github.com/orgs/example/rules/77",
     });
-
+    expect(beforeMutation).toHaveBeenCalledOnce();
     expect(requester.routes).toEqual([
       "GET /orgs/{org}/rulesets",
+      "GET /orgs/{org}/rulesets/{ruleset_id}",
       "PUT /orgs/{org}/rulesets/{ruleset_id}",
+      "GET /orgs/{org}/rulesets/{ruleset_id}",
     ]);
+  });
+
+  it.each(["duplicate", "incomplete"] as const)(
+    "never creates after %s discovery",
+    async (mode) => {
+      const requester = new FakeRequester(() => ({
+        data:
+          mode === "duplicate"
+            ? [
+                { id: 1, name: payload().name },
+                { id: 2, name: payload().name },
+              ]
+            : Array.from({ length: 100 }, (_, index) => ({
+                id: index + 1,
+                name: `other-${index}`,
+              })),
+      }));
+      await expect(
+        new OctokitOrgRulesetSetupGateway(
+          requester,
+        ).createOrUpdateOrganizationRuleset({
+          organizationLogin: "example",
+          name: payload().name,
+          payload: payload(),
+        }),
+      ).rejects.toThrow(
+        mode === "duplicate"
+          ? "org_ruleset_duplicate_name"
+          : "org_ruleset_discovery_incomplete",
+      );
+      expect(requester.routes.every((route) => route.startsWith("GET"))).toBe(
+        true,
+      );
+    },
+  );
+
+  it("rechecks authority after reads and before a ruleset mutation", async () => {
+    const requester = new FakeRequester(() => ({ data: [] }));
+    await expect(
+      new OctokitOrgRulesetSetupGateway(
+        requester,
+      ).createOrUpdateOrganizationRuleset({
+        organizationLogin: "example",
+        name: payload().name,
+        payload: payload(),
+        beforeMutation: async () => {
+          throw new Error("org_ruleset_revision_superseded");
+        },
+      }),
+    ).rejects.toThrow("org_ruleset_revision_superseded");
+    expect(requester.routes).toEqual(["GET /orgs/{org}/rulesets"]);
+  });
+
+  it("refuses a successful write whose readback differs", async () => {
+    const requester = new FakeRequester((route) => ({
+      data:
+        route === "GET /orgs/{org}/rulesets"
+          ? []
+          : { ...payload(), enforcement: "active", id: 77 },
+    }));
+    await expect(
+      new OctokitOrgRulesetSetupGateway(
+        requester,
+      ).createOrUpdateOrganizationRuleset({
+        organizationLogin: "example",
+        name: payload().name,
+        payload: payload(),
+      }),
+    ).rejects.toThrow("org_ruleset_readback_mismatch");
   });
 
   it("keeps source workflow writes idempotent when content is unchanged", async () => {
@@ -182,4 +247,20 @@ class FakeRequester {
     this.calls.push({ route, parameters });
     return this.handler(route, parameters);
   }
+}
+
+function payload() {
+  return buildGitHubOrgRulesetPayload({
+    enforcement: "evaluate",
+    sourceWorkflow: {
+      repositoryId: "1001",
+      repositoryFullName: "example/workflows",
+      path: ".github/workflows/reviewrouter-required.yml",
+      ref: "refs/heads/main",
+    },
+    targetSelection: {
+      scope: "selected_repositories",
+      repositoryIds: ["1002"],
+    },
+  });
 }

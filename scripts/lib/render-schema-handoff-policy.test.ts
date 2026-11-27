@@ -50,14 +50,42 @@ const providerQuotaMigrationName =
 const reviewerPlanV2MigrationName = "000159_producer_reviewer_plan_v2";
 const credentialImportMigrationName =
   "000160_personal_credential_import_method";
-const readPreIndexCheckoutInventory = () =>
+const nativeConnectionMigrationName = "000161_native_connection_intent";
+const reliabilityMigrationNames = [
+  "000161_github_authorization_revision",
+  "000162_inventory_ruleset_revisions",
+  "000163_usage_retention_index",
+  "000164_ruleset_create_uncertainty",
+];
+const readScalingMigrationNames = [
+  "000165_installation_sync_latest_index",
+  "000166_repository_health_latest_index",
+];
+const webhookDeliveryMigrationNames = [
+  "000165_webhook_effect_fence",
+  "000167_webhook_recovery_intent",
+];
+const webhookReceiptOrderMigrationName =
+  "000168_webhook_receipt_order_indexes";
+const applicationTailMigrationNames = [
+  ...readScalingMigrationNames,
+  ...webhookDeliveryMigrationNames,
+  webhookReceiptOrderMigrationName,
+].sort();
+const readReliabilityCheckoutInventory = () =>
   readRenderManagedCheckoutInventory().filter(
+    (row) => !applicationTailMigrationNames.includes(row.migrationName),
+  );
+const readPreIndexCheckoutInventory = () =>
+  readReliabilityCheckoutInventory().filter(
     (row) =>
       row.migrationName !== usageMemberReportIndexName &&
       row.migrationName !== claudeApiKeyMigrationName &&
       row.migrationName !== providerQuotaMigrationName &&
       row.migrationName !== reviewerPlanV2MigrationName &&
       row.migrationName !== credentialImportMigrationName &&
+      row.migrationName !== nativeConnectionMigrationName &&
+      !reliabilityMigrationNames.includes(row.migrationName) &&
       row.migrationName !== verifiedReplyMigrationName,
   );
 const withoutUnifiedDispatch = <T extends { migrationName: string }>(
@@ -216,6 +244,9 @@ const canonicalPrismaMigrationNames =
       name !== providerQuotaMigrationName &&
       name !== reviewerPlanV2MigrationName &&
       name !== credentialImportMigrationName &&
+      name !== nativeConnectionMigrationName &&
+      !reliabilityMigrationNames.includes(name) &&
+      !applicationTailMigrationNames.includes(name) &&
       name !== usageMemberReportIndexName &&
       name !== verifiedReplyMigrationName &&
       name !== gatewayAllocationsMigrationName &&
@@ -603,8 +634,209 @@ const canonicalPrefix = (count: number) =>
   canonicalPrismaMigrationNames.slice(0, count);
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
+  it("admits exact checkout172/173 tails and their combined checkout174/175", () => {
+    const complete = readRenderManagedCheckoutInventory();
+    expect(complete).toHaveLength(175);
+    expect(complete.slice(-5)).toEqual([
+      {
+        migrationName: "000165_installation_sync_latest_index",
+        checksum:
+          "ca7d7762d40f5a9b019ddc09c69811d1d3bb8ffaaa3386db9fe375dd0c47c509",
+      },
+      {
+        migrationName: "000165_webhook_effect_fence",
+        checksum:
+          "d3f747f018080ca863c0f84f695d6fcd96bd6ef4cd4a5ef5cb2fdc84bc9674f5",
+      },
+      {
+        migrationName: "000166_repository_health_latest_index",
+        checksum:
+          "30846a3fc568e650c1ab1f295691ebe084f875090b5cd0f444dc46997d575f41",
+      },
+      {
+        migrationName: "000167_webhook_recovery_intent",
+        checksum:
+          "e207c11ca7dd836031b8849daf531eb8e56d0f62cc1f34c5c049c60f366d7124",
+      },
+      {
+        migrationName: "000168_webhook_receipt_order_indexes",
+        checksum:
+          "4fe16668e4bc946a9f26f59835f3e7c6072b8ce4cc4ffcd39d667c5faa68c68b",
+      },
+    ]);
+    for (const names of [
+      readScalingMigrationNames,
+      webhookDeliveryMigrationNames,
+      [...webhookDeliveryMigrationNames, webhookReceiptOrderMigrationName],
+      [...readScalingMigrationNames, ...webhookDeliveryMigrationNames].sort(),
+      applicationTailMigrationNames,
+    ]) {
+      const current = complete.filter(
+        (row) =>
+          !applicationTailMigrationNames.includes(row.migrationName) ||
+          names.includes(row.migrationName),
+      );
+      expect(current).toHaveLength(170 + names.length);
+      expect(
+        current.slice(-names.length).map((row) => row.migrationName),
+      ).toEqual(names);
+      expect(partitionRenderSchemaHandoffCheckout(current)).toEqual(catalog);
+      for (const migrationName of [...names, credentialImportMigrationName]) {
+        expect(() =>
+          partitionRenderSchemaHandoffCheckout(
+            current.map((row) =>
+              row.migrationName === migrationName
+                ? { ...row, checksum: "0".repeat(64) }
+                : row,
+            ),
+          ),
+        ).toThrow("checkout_extension");
+      }
+      for (const migrationName of [
+        ...names.filter((name) => name !== webhookReceiptOrderMigrationName),
+        nativeConnectionMigrationName,
+      ]) {
+        expect(() =>
+          partitionRenderSchemaHandoffCheckout(
+            current.filter((row) => row.migrationName !== migrationName),
+          ),
+        ).toThrow("checkout_extension");
+      }
+      expect(() =>
+        partitionRenderSchemaHandoffCheckout([
+          ...current,
+          { migrationName: "000169_unknown", checksum: "0".repeat(64) },
+        ]),
+      ).toThrow("checkout_extension");
+      expect(() =>
+        partitionRenderSchemaHandoffCheckout([
+          ...current.slice(0, -names.length),
+          ...current.slice(-names.length).reverse(),
+        ]),
+      ).toThrow("checkout_catalog");
+      if (names.includes(webhookReceiptOrderMigrationName))
+        expect(
+          partitionRenderSchemaHandoffCheckout(
+            current.filter(
+              (row) => row.migrationName !== webhookReceiptOrderMigrationName,
+            ),
+          ),
+        ).toEqual(catalog);
+    }
+  });
+
+  it.each(Array.from({ length: 32 }, (_, mask) => mask))(
+    "admits only complete groups and dependent receipt indexes (mask %i)",
+    (mask) => {
+      const selected = applicationTailMigrationNames.filter(
+        (_, index) => (mask & (1 << index)) !== 0,
+      );
+      const current = readRenderManagedCheckoutInventory().filter(
+        (row) =>
+          !applicationTailMigrationNames.includes(row.migrationName) ||
+          selected.includes(row.migrationName),
+      );
+      // Positions 0/2 are indexes; 1/3 are webhooks; bit4 requires both webhooks.
+      if ([0, 5, 10, 15, 26, 31].includes(mask))
+        expect(partitionRenderSchemaHandoffCheckout(current)).toEqual(catalog);
+      else
+        expect(() => partitionRenderSchemaHandoffCheckout(current)).toThrow(
+          "checkout_extension",
+        );
+    },
+  );
+
+  it.each([false, true])(
+    "admits only the exact reliability checkout with native intent %s",
+    (withNative) => {
+      const merged = readReliabilityCheckoutInventory();
+      expect(merged).toHaveLength(170);
+      const current = withNative
+        ? merged
+        : merged.filter(
+            (row) => row.migrationName !== nativeConnectionMigrationName,
+          );
+      expect(current).toHaveLength(withNative ? 170 : 169);
+      expect(current.slice(165).map((row) => row.migrationName)).toEqual(
+        withNative
+          ? [
+              "000161_github_authorization_revision",
+              nativeConnectionMigrationName,
+              "000162_inventory_ruleset_revisions",
+              "000163_usage_retention_index",
+              "000164_ruleset_create_uncertainty",
+            ]
+          : reliabilityMigrationNames,
+      );
+      expect(partitionRenderSchemaHandoffCheckout(current)).toEqual(catalog);
+      for (const migrationName of [
+        ...reliabilityMigrationNames,
+        ...(withNative ? [nativeConnectionMigrationName] : []),
+      ]) {
+        expect(() =>
+          partitionRenderSchemaHandoffCheckout(
+            current.map((row) =>
+              row.migrationName === migrationName
+                ? { ...row, checksum: "0".repeat(64) }
+                : row,
+            ),
+          ),
+        ).toThrow("checkout_extension");
+      }
+      for (const migrationName of reliabilityMigrationNames) {
+        expect(() =>
+          partitionRenderSchemaHandoffCheckout(
+            current.filter((row) => row.migrationName !== migrationName),
+          ),
+        ).toThrow("checkout_extension");
+      }
+      expect(() =>
+        partitionRenderSchemaHandoffCheckout([
+          ...current,
+          { migrationName: "000165_unknown", checksum: "0".repeat(64) },
+        ]),
+      ).toThrow("checkout_extension");
+      expect(() =>
+        partitionRenderSchemaHandoffCheckout(
+          current.map((row) =>
+            row.migrationName === credentialImportMigrationName
+              ? { ...row, checksum: "0".repeat(64) }
+              : row,
+          ),
+        ),
+      ).toThrow("checkout_extension");
+      expect(
+        partitionRenderSchemaHandoffCheckout(current.slice(0, 165)),
+      ).toEqual(catalog);
+    },
+  );
+
   it("admits only the exact concurrent-index checkout160 outside managed92 and historical96", () => {
-    const withCredentialImports = readRenderManagedCheckoutInventory();
+    const withNativeConnections = readReliabilityCheckoutInventory().filter(
+      (row) => !reliabilityMigrationNames.includes(row.migrationName),
+    );
+    expect(withNativeConnections).toHaveLength(166);
+    expect(withNativeConnections.at(-1)).toEqual({
+      migrationName: nativeConnectionMigrationName,
+      checksum:
+        "bade571a5cbde14407ff5dc76cdc33c67f7d1224afa9839dfd822f347165b90d",
+    });
+    expect(partitionRenderSchemaHandoffCheckout(withNativeConnections)).toEqual(
+      catalog,
+    );
+    expect(() =>
+      partitionRenderSchemaHandoffCheckout([
+        ...withNativeConnections.slice(0, -1),
+        { ...withNativeConnections.at(-1)!, checksum: "0".repeat(64) },
+      ]),
+    ).toThrow("checkout_extension");
+    expect(() =>
+      partitionRenderSchemaHandoffCheckout([
+        ...withNativeConnections.slice(0, -2),
+        withNativeConnections.at(-1)!,
+      ]),
+    ).toThrow("checkout_extension");
+    const withCredentialImports = withNativeConnections.slice(0, -1);
     expect(withCredentialImports).toHaveLength(165);
     expect(withCredentialImports.at(-1)).toEqual({
       migrationName: credentialImportMigrationName,
@@ -2941,6 +3173,13 @@ describe("complete filesystem checkout inventory", () => {
       { recursive: true },
     );
     if (count !== undefined) {
+      for (const name of applicationTailMigrationNames)
+        rmSync(join(migrations, name), { recursive: true });
+      rmSync(join(migrations, nativeConnectionMigrationName), {
+        recursive: true,
+      });
+      for (const name of reliabilityMigrationNames)
+        rmSync(join(migrations, name), { recursive: true });
       rmSync(join(migrations, verifiedReplyMigrationName), { recursive: true });
       // Historical partial checkouts predate Claude API-key migration161,
       // the provider-quota migration162 and the reviewer plan v2 migration163.
@@ -3047,11 +3286,60 @@ describe("complete filesystem checkout inventory", () => {
     };
   }
 
-  it("reads current checkout160 through checkout159, checkout158, checkout155, checkout154, checkout153, checkout151, checkout150, statistics146, main145, old125, historical124 and key-free123 as identical frozen92 rows", async () => {
+  it("reads standalone index checkout172 as identical frozen92 rows", async () => {
+    const fixture = await checkout();
+    for (const name of [
+      ...webhookDeliveryMigrationNames,
+      webhookReceiptOrderMigrationName,
+    ])
+      rmSync(join(fixture.migrations, name), { recursive: true });
+    expect(readdirSync(fixture.migrations)).toHaveLength(172);
+    expect(fixture.read()).toEqual(catalog);
+  });
+
+  it("reads standalone webhook checkout173 as identical frozen92 rows", async () => {
+    const fixture = await checkout();
+    for (const name of readScalingMigrationNames)
+      rmSync(join(fixture.migrations, name), { recursive: true });
+    expect(readdirSync(fixture.migrations)).toHaveLength(173);
+    expect(fixture.read()).toEqual(catalog);
+  });
+
+  it("reads merged checkout175 and every previous checkout as identical frozen92 rows", async () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(165);
+    expect(inventory).toHaveLength(175);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, webhookReceiptOrderMigrationName), {
+      recursive: true,
+    });
+    expect(readdirSync(fixture.migrations)).toHaveLength(174);
+    expect(fixture.read()).toEqual(catalog);
+    for (const name of readScalingMigrationNames)
+      rmSync(join(fixture.migrations, name), { recursive: true });
+    expect(readdirSync(fixture.migrations)).toHaveLength(172);
+    expect(fixture.read()).toEqual(catalog);
+    for (const name of webhookDeliveryMigrationNames)
+      rmSync(join(fixture.migrations, name), { recursive: true });
+    expect(readdirSync(fixture.migrations)).toHaveLength(170);
+    expect(fixture.read()).toEqual(catalog);
+    const nativeDirectory = join(
+      fixture.migrations,
+      nativeConnectionMigrationName,
+    );
+    const nativeSql = readFileSync(join(nativeDirectory, "migration.sql"));
+    rmSync(nativeDirectory, { recursive: true });
+    expect(readdirSync(fixture.migrations)).toHaveLength(169);
+    expect(fixture.read()).toEqual(catalog);
+    mkdirSync(nativeDirectory);
+    writeFileSync(join(nativeDirectory, "migration.sql"), nativeSql);
+    for (const name of reliabilityMigrationNames)
+      rmSync(join(fixture.migrations, name), { recursive: true });
+    expect(readdirSync(fixture.migrations)).toHaveLength(166);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(nativeDirectory, { recursive: true });
+    expect(readdirSync(fixture.migrations)).toHaveLength(165);
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, credentialImportMigrationName), {
       recursive: true,
@@ -3516,16 +3804,28 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(sql);
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
-      // Each additive checkout tail is checksum-bound. Missing the member
-      // index leaves both successor migrations present and must fail closed.
-      if (name === usageMemberReportIndexName) {
+      // A missing predecessor fails while later tails remain. Removing only
+      // their explicit names must still restore the unchanged historical gate.
+      if (
+        name === usageMemberReportIndexName ||
+        name === credentialImportMigrationName ||
+        name === nativeConnectionMigrationName
+      ) {
         expect(() => fixture.read()).toThrow("checkout_extension");
         const extensions = [
-          credentialImportMigrationName,
-          reviewerPlanV2MigrationName,
-          providerQuotaMigrationName,
-          claudeApiKeyMigrationName,
-          verifiedReplyMigrationName,
+          ...applicationTailMigrationNames,
+          ...(name === nativeConnectionMigrationName
+            ? []
+            : [nativeConnectionMigrationName, ...reliabilityMigrationNames]),
+          ...(name === usageMemberReportIndexName
+            ? [
+                credentialImportMigrationName,
+                reviewerPlanV2MigrationName,
+                providerQuotaMigrationName,
+                claudeApiKeyMigrationName,
+                verifiedReplyMigrationName,
+              ]
+            : []),
         ];
         const saved = extensions.map((migrationName) => {
           const extensionDirectory = join(fixture.migrations, migrationName);
@@ -3543,9 +3843,8 @@ describe("complete filesystem checkout inventory", () => {
             extensionBytes,
           );
         }
-      } else if (name === credentialImportMigrationName) {
-        // Removing only the newest import tail restores the unchanged
-        // checksum-pinned reviewer-plan checkout164.
+      } else if (name === webhookReceiptOrderMigrationName) {
+        // The complete older checkout174 remains independently admitted.
         expect(fixture.read()).toEqual(catalog);
       } else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);

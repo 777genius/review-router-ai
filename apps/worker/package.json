@@ -32,6 +32,7 @@
     "@reviewrouter/platform-signed-capabilities": "workspace:*",
     "@reviewrouter/shared": "workspace:*",
     "@octokit/app": "^16.1.2",
+    "@octokit/core": "7.0.6",
     "@reviewrouter/features-sdk-growth-authority": "workspace:*",
     "@reviewrouter/features-review-skills": "workspace:*",
     "@reviewrouter/features-review-history": "workspace:*"

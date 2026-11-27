@@ -15,6 +15,7 @@ import {
   LookupReviewEvidenceStatus,
   ProviderResultCompletionStatus,
   ProviderExecutionProfile,
+  ReviewObservationQualityFlag,
   ReviewProviderKind,
   ReviewReuseTier,
   ReviewTaskKind as EvidenceTaskKind,
@@ -168,6 +169,91 @@ describe("Review Action v2 execution/evidence composition", () => {
     });
     expect(d.executions.startReviewExecution.execute).not.toHaveBeenCalled();
     expect(d.executions.invocationFlights.execute).not.toHaveBeenCalled();
+  });
+
+  it("restores one unattached source after work expiry without changing admitted plan identity", async () => {
+    const f = await unattachedRestoreFixture();
+    const response = await f.restore();
+    const originalPlan = {
+      planHash: f.snapshot.execution.planHash,
+      assignmentManifestHash: f.snapshot.execution.assignmentManifestHash,
+      assignmentManifestCanonicalJson: f.snapshot.execution.assignmentManifestCanonicalJson,
+    };
+    if (!("executionCanonicalJson" in response.result))
+      throw new Error("restore missing");
+    const readback = JSON.parse(response.result.executionCanonicalJson);
+    expect(readback.persistedPlan).toMatchObject({
+      ...originalPlan,
+      acceptedManifests: [],
+      unattachedAcceptedManifests: [{
+        workSlotId: f.sourceLease.workSlotId,
+        manifestCanonicalJson: f.sourceLease.preparedManifestCanonicalJson,
+        manifestKey: f.sourceLease.preparedManifestKey,
+        observationId: f.observation.observationId,
+        payloadHash: f.observation.payloadHash,
+        sourceLeaseId: f.sourceLease.leaseId,
+        sourceFencingToken: "7",
+        sourceOwnerIdHash: hash("d"),
+      }],
+    });
+    expect(readback.planHash).toBe(originalPlan.planHash);
+    expect(readback.persistedPlan.workSlots).toEqual(f.snapshot.execution.workSlots);
+    expect(f.snapshot.execution).toMatchObject(originalPlan);
+    expect(f.sourceLease.expiresAt.getTime()).toBeLessThan(now.getTime());
+    expect(f.d.executions.startReviewExecution.execute).not.toHaveBeenCalled();
+    expect(f.d.executions.invocationFlights.execute).not.toHaveBeenCalled();
+    expect(f.d.executions.observationAttachments.adoptAccepted).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["revoked", { state: ReviewInvocationLeaseState.Revoked }],
+    ["expired report", { resultReportUntil: new Date(now.getTime() - 1) }],
+    ["wrong fence", { fencingToken: 8n }],
+    ["second attempt", { attemptOrdinal: 2 }],
+    ["foreign execution", { executionId: "foreign-execution" }],
+    ["foreign authorization", { authorizationId: "foreign-authorization" }],
+    ["active source", { state: ReviewInvocationLeaseState.Active }],
+  ] as const)("withholds the original-source hint for %s", async (_label, change) => {
+    const f = await unattachedRestoreFixture(change);
+    const response = await f.restore();
+    if (!("executionCanonicalJson" in response.result))
+      throw new Error("restore missing");
+    expect(JSON.parse(response.result.executionCanonicalJson).persistedPlan)
+      .not.toHaveProperty("unattachedAcceptedManifests");
+    expect(f.d.executions.invocationFlights.execute).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["multi-attempt", { attemptBudget: 2 }],
+    ["unspent", { nextAttemptOrdinal: 1 }],
+    ["leased", { state: ReviewWorkSlotState.Leased, activeLeaseId: "lease-1" }],
+    ["cancelled", { state: ReviewWorkSlotState.Cancelled }],
+    ["already attached", { acceptedObservationRefId: "existing-ref" }],
+  ] as const)("leaves %s slots outside source discovery", async (_label, change) => {
+    const f = await unattachedRestoreFixture({}, change);
+    const response = await f.restore();
+    if (!("executionCanonicalJson" in response.result))
+      throw new Error("restore missing");
+    expect(JSON.parse(response.result.executionCanonicalJson).persistedPlan)
+      .not.toHaveProperty("unattachedAcceptedManifests");
+    expect(f.findSources).not.toHaveBeenCalled();
+  });
+
+  it("fails ambiguous source restore and retains a missing-source exhausted result", async () => {
+    const f = await unattachedRestoreFixture();
+    f.findSources.mockResolvedValueOnce([]);
+    const absent = await f.restore();
+    if (!("executionCanonicalJson" in absent.result))
+      throw new Error("restore missing");
+    const readback = JSON.parse(absent.result.executionCanonicalJson);
+    expect(readback.persistedPlan).not.toHaveProperty("unattachedAcceptedManifests");
+    expect(readback.workSlots[0].state).toBe(ReviewWorkSlotState.Exhausted);
+    f.findSources.mockResolvedValueOnce([
+      f.observation,
+      { ...f.observation, observationId: "ambiguous-source" },
+    ]);
+    await expect(f.restore()).rejects.toThrow("review_restore_accepted_source_ambiguous");
+    expect(f.d.executions.invocationFlights.execute).not.toHaveBeenCalled();
   });
 
   it("restores accepted invocation identity from a released persisted source lease", async () => {
@@ -2661,12 +2747,20 @@ describe("Review Action v2 execution/evidence composition", () => {
     {
       name: "native span",
       qualityFlags: [
-        "context_inspection_incomplete",
-        "provider_warning",
-        "unverified_native_span",
+        ReviewObservationQualityFlag.ContextInspectionIncomplete,
+        ReviewObservationQualityFlag.ProviderWarning,
+        ReviewObservationQualityFlag.UnverifiedNativeSpan,
       ],
     },
-    { name: "verified clean", qualityFlags: ["investigation_verified_clean"] },
+    { name: "verified clean", qualityFlags: [ReviewObservationQualityFlag.InvestigationVerifiedClean] },
+    ...[
+      ReviewObservationQualityFlag.ReviewMainIncomplete,
+      ReviewObservationQualityFlag.ReviewRoundIncomplete,
+      ReviewObservationQualityFlag.ReviewPhaseIncomplete,
+    ].map((cause) => ({
+      name: cause,
+      qualityFlags: [ReviewObservationQualityFlag.ContextInspectionIncomplete, ReviewObservationQualityFlag.ProviderWarning, cause],
+    })),
   ])("restores $name after crash", async ({ qualityFlags }) => {
     const capabilities = capabilityAdapter();
     const currentLease = lease();
@@ -2687,6 +2781,7 @@ describe("Review Action v2 execution/evidence composition", () => {
       providerInvocationKey: currentLease.providerInvocationKey,
       payloadHash: await digest.digest(preparedPayload.canonicalBytes),
       byteCount: preparedPayload.byteCount,
+      qualityFlags,
     });
     const acceptObservation = vi
       .fn()
@@ -2762,6 +2857,12 @@ describe("Review Action v2 execution/evidence composition", () => {
       expect.objectContaining({ qualityFlags: commit.qualityFlags }),
     );
     expect(attachFresh).toHaveBeenCalledTimes(1);
+    expect(execution.observations.findById).toHaveBeenCalledWith(
+      observation.observationId,
+    );
+    await expect(
+      vi.mocked(execution.observations.findById).mock.results[0]?.value,
+    ).resolves.toMatchObject({ qualityFlags });
   });
 
   it("adopts committed evidence after process restart without issuing a reuse capability", async () => {
@@ -3403,6 +3504,71 @@ describe("Review Action v2 execution/evidence composition", () => {
     expect(prepareIdentity).not.toHaveBeenCalled();
   });
 });
+
+async function unattachedRestoreFixture(
+  sourceChanges: Partial<ReviewInvocationLease> = {},
+  slotChanges: Partial<ReviewExecutionSnapshot["execution"]["workSlots"][number]> = {},
+) {
+  const f = await committedAdoptionFixture({
+    state: ReviewInvocationLeaseState.Released,
+    expiresAt: new Date(now.getTime() - 1),
+    ...sourceChanges,
+  });
+  const assignment = canonicalJson({ manifestVersion: 2 });
+  const restored: ReviewExecutionSnapshot = {
+    ...snapshot,
+    execution: {
+      ...snapshot.execution,
+      assignmentManifestVersion: 2,
+      assignmentManifestHash: sha(assignment),
+      assignmentManifestCanonicalJson: assignment,
+      workSlots: [{
+        ...snapshot.execution.workSlots[0]!,
+        state: ReviewWorkSlotState.Exhausted,
+        attemptBudget: 1,
+        nextAttemptOrdinal: 2,
+        activeLeaseId: null,
+        acceptedObservationRefId: null,
+        ...slotChanges,
+      }],
+    },
+  };
+  const observation: ReviewObservation = {
+    ...f.observation,
+    sourceExecutionId: snapshot.execution.executionId,
+    sourceWorkSlotId: "slot-1",
+    sourceAuthorizationId: authorization.authorizationId,
+    sourcePlanHash: snapshot.execution.planHash,
+    sourceRunId: snapshot.execution.sourceRunId,
+    sourceRunAttempt: snapshot.execution.sourceRunAttempt,
+    sourceFencingToken: "7",
+  };
+  const base = executionDependencies({
+    findExecution: async () => restored,
+    findLease: async () => f.sourceLease,
+    observation,
+  });
+  const findSources = vi.fn(async (): Promise<readonly ReviewObservation[]> => [observation]);
+  const d = {
+    ...base,
+    executionQueries: {
+      ...base.executionQueries,
+      findStream: async () => restored.stream,
+    },
+    observations: {
+      findById: async () => observation,
+      findCandidates: async () => [],
+      findSourceSlotCandidates: findSources,
+    },
+  } satisfies ReviewActionV2ExecutionHandlerDependencies;
+  const restore = () => createReviewActionV2ExecutionHandlers(d).restore.execute({
+    ...envelope("restore-unattached"),
+    authorizationToken: "authorization-token",
+    authorizationId: authorization.authorizationId,
+    reviewRevisionHash: authorization.reviewRevisionHash,
+  });
+  return { d, restore, findSources, snapshot: restored, sourceLease: f.sourceLease, observation };
+}
 
 function executionDependencies(
   overrides: {

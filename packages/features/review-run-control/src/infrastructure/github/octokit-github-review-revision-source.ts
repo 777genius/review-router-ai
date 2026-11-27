@@ -270,21 +270,68 @@ function transientRetry(
 
 function retryAfterMs(
   headers: Readonly<Record<string, string>>,
+  now = Date.now(),
 ): number | null {
-  const retryAfter = Number(headers["retry-after"]);
-  return headers["retry-after"] !== undefined && Number.isFinite(retryAfter)
-    ? Math.max(0, retryAfter * 1000)
+  const value = headers["retry-after"]?.trim();
+  if (!value) return null;
+  // An excessive but valid delay must exceed the deadline, not become absent.
+  if (/^\d+$/u.test(value)) return Number(value) * 1_000;
+  const retryAt = httpDateTimestamp(value, now);
+  return retryAt === null ? null : Math.max(0, retryAt - now);
+}
+
+/** HTTP recipients accept all three date forms (RFC 9110, section 5.6.7).
+ * Normalize the obsolete forms before the round-trip calendar check. */
+function httpDateTimestamp(value: string, now: number): number | null {
+  const leapSecond = / 23:59:60(?: GMT| \d{4})$/u.test(value);
+  let normalized = leapSecond ? value.replace("23:59:60", "23:59:59") : value;
+  const obsolete =
+    /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), (\d{2})-([A-Z][a-z]{2})-(\d{2}) (\d{2}:\d{2}:\d{2}) GMT$/u.exec(
+      normalized,
+    );
+  if (obsolete) {
+    const futureLimit = new Date(now);
+    futureLimit.setUTCFullYear(futureLimit.getUTCFullYear() + 50);
+    const year =
+      Math.floor(futureLimit.getUTCFullYear() / 100) * 100 +
+      Number(obsolete[4]);
+    normalized = `${obsolete[1]!.slice(0, 3)}, ${obsolete[2]} ${obsolete[3]} ${year} ${obsolete[5]} GMT`;
+    if (
+      Date.parse(normalized) + (leapSecond ? 1_000 : 0) >
+      futureLimit.getTime()
+    ) {
+      normalized = normalized.replace(` ${year} `, ` ${year - 100} `);
+    }
+  } else {
+    const asctime =
+      /^([A-Z][a-z]{2}) ([A-Z][a-z]{2}) ( \d|\d{2}) (\d{2}:\d{2}:\d{2}) (\d{4})$/u.exec(
+        normalized,
+      );
+    if (asctime) {
+      normalized = `${asctime[1]}, ${asctime[3]!.trim().padStart(2, "0")} ${asctime[2]} ${asctime[5]} ${asctime[4]} GMT`;
+    }
+  }
+  const timestamp = Date.parse(normalized);
+  return Number.isFinite(timestamp) &&
+    new Date(timestamp).toUTCString() === normalized
+    ? timestamp + (leapSecond ? 1_000 : 0)
     : null;
 }
 
 function rateLimitWaitMs(headers: Readonly<Record<string, string>>): number {
-  const retryAfter = retryAfterMs(headers);
-  if (retryAfter !== null) return retryAfter;
-  if (headers["x-ratelimit-remaining"] === "0") {
-    const reset = Number(headers["x-ratelimit-reset"]);
-    if (Number.isFinite(reset)) return Math.max(0, reset * 1000 - Date.now());
+  const now = Date.now();
+  const retryAfter = retryAfterMs(headers, now);
+  const resetHeader = headers["x-ratelimit-reset"]?.trim();
+  const resetSeconds =
+    resetHeader && /^\d+(?:\.\d+)?$/u.test(resetHeader)
+      ? Number(resetHeader)
+      : Number.NaN;
+  // Exhausted primary quota must respect both announced boundaries, including
+  // a syntactically valid boundary too far away to represent as a Date.
+  if (headers["x-ratelimit-remaining"] === "0" && !Number.isNaN(resetSeconds)) {
+    return Math.max(0, retryAfter ?? 0, resetSeconds * 1_000 - now);
   }
-  return unannouncedRateLimitWaitMs;
+  return retryAfter ?? unannouncedRateLimitWaitMs;
 }
 
 function responseHeaders(error: unknown): Readonly<Record<string, string>> {

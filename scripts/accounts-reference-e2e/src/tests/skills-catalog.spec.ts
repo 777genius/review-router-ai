@@ -145,7 +145,10 @@ async function capture(
   ).toBeInViewport({ ratio: 1 });
   await dialog.screenshot({ path: test.info().outputPath(filename) });
 }
-async function loseCommittedReply(page: Page, method: string) {
+async function loseCommittedReply(
+  page: Page,
+  method: "requestScan" | "loadScan" | "importCandidate",
+) {
   let lost = false;
   const commands: { input: Record<string, unknown>; actionId: string }[] = [];
   await page.route("**/dashboard?**", async (route) => {
@@ -174,7 +177,7 @@ async function loseCommittedReply(page: Page, method: string) {
           [workspaceId, viewerId, command.input.operationId],
         ),
       ).toHaveLength(1);
-    } else {
+    } else if (method === "importCandidate") {
       const saved = await sql<{ importedSkillId: string | null }>(
         `SELECT "importedSkillId" FROM "ReviewSkillImportCandidate" WHERE id=$1`,
         [command.input.candidateId],
@@ -424,7 +427,7 @@ test.describe("Catalog real checked import", () => {
     ).toBe(1);
   });
 
-  test("Catalog lost committed import reply recovers one original without changing its submitted intent", async ({
+  test("Catalog lost scan-read and import replies recover one original without changing its submitted intent", async ({
     page,
   }) => {
     const dialog = await preview(
@@ -432,7 +435,24 @@ test.describe("Catalog real checked import", () => {
       "Import retry review",
       "import-retry-review",
     );
+    const reads = await loseCommittedReply(page, "loadScan");
     await check(dialog);
+    const scan = await latestScan("import-retry-review");
+    expect(reads.length).toBeGreaterThanOrEqual(2);
+    expect(reads.every(({ input }) => input.scanId === scan.id)).toBe(true);
+    expect(
+      await sql(`SELECT id FROM "ReviewSkillScan" WHERE "candidateId"=$1`, [
+        scan.candidateId,
+      ]),
+    ).toHaveLength(1);
+    expect(
+      (
+        await sql<{ count: number }>(
+          `SELECT count FROM "RateLimitBucket" WHERE key=$1`,
+          [`skill-catalog:jobs:static:user:${viewerId}`],
+        )
+      )[0]!.count,
+    ).toBe(1);
     const commands = await loseCommittedReply(page, "importCandidate");
     await dialog
       .getByRole("button", { name: "Add to library", exact: true })

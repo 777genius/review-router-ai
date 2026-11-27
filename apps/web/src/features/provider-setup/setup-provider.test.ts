@@ -3,6 +3,8 @@ import {
   connectsInProviderDialog,
   gatewaySetupProvidersForProfiles,
   getSetupProvider,
+  nativeSetupProvidersForProfiles,
+  setupProviderChoices,
   setupProviderForDirectAuthMode,
   setupProviderForGatewayProfile,
   setupProviderForSource,
@@ -34,6 +36,53 @@ const claude = profile({
 });
 
 describe("provider setup registry", () => {
+  it("keeps direct Claude Code distinct from native Anthropic API credentials", () => {
+    const api = profile({
+      id: "anthropic-messages-apikey-v1",
+      authKind: "api_key",
+      connection: {
+        provider: "anthropic",
+        providerLabel: "Anthropic API",
+        planLabel: "API",
+        regionLabel: "Global",
+        completionInputKind: "none",
+        limitsContract: "none",
+        modelSettings: [],
+        nativeMethods: [
+          {
+            methodId: "api_key",
+            revision: 1,
+            configurationGeneration: "fixture",
+            label: "API key",
+            create: true,
+            reconnect: true,
+            allowedCredentialPolicies: ["provider_key"],
+            requirements: [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1",
+            ],
+            interaction: { kind: "credential_form", inputFields: [] },
+            availability: "enabled",
+          },
+        ],
+      },
+    });
+    const native = nativeSetupProvidersForProfiles([api]);
+    expect(native.map(({ id }) => id)).toEqual(["anthropic"]);
+    expect(setupProviderForGatewayProfile(api)).toBe("anthropic");
+    expect(
+      setupProviderForGatewayProfile({
+        ...api,
+        connection: { ...api.connection!, provider: "gemini" },
+      }),
+    ).not.toBe("anthropic");
+    const choices = setupProviderChoices(native);
+    expect(choices.filter(({ id }) => id === "anthropic")).toHaveLength(1);
+    expect(choices.find(({ id }) => id === "claude-code")?.githubSource).toBe(
+      "user_ci_secret:claude_code_oauth",
+    );
+  });
   it("names every provider independently of credential storage", () => {
     expect(
       setupProviders.map((provider) => [provider.id, provider.label]),

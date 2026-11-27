@@ -377,6 +377,7 @@ const schema = [
     "id" text PRIMARY KEY, "workspaceId" text NOT NULL REFERENCES "Workspace"("id") ON DELETE CASCADE,
     "githubInstallationId" bigint NOT NULL UNIQUE, "accountLogin" text NOT NULL,
     "accountType" text NOT NULL, "accountAvatarUrl" text, "repositorySelection" text NOT NULL,
+    "inventoryGeneration" BIGINT NOT NULL DEFAULT 0,
     "status" "GitHubInstallationStatus" NOT NULL DEFAULT 'active',
     "createdAt" timestamp(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" timestamp(3) NOT NULL
   )`,

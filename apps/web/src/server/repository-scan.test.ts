@@ -30,12 +30,10 @@ describe("loadRepositoryScanSnapshot", () => {
           ];
         }),
       },
-      outboxEvent: {
-        findFirst: vi.fn(async () => {
-          reads.push("status");
-          return null;
-        }),
-      },
+      $queryRaw: vi.fn(async () => {
+        reads.push("status");
+        return [];
+      }),
       repositoryConnection: {
         count: vi.fn(async () => {
           reads.push("count");

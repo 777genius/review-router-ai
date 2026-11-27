@@ -1,3 +1,4 @@
+import { readBoundedRequestJson } from "../../../../src/server/bounded-request-body";
 import { NextResponse } from "next/server";
 import {
   codexRotatingSetupLedger,
@@ -7,7 +8,7 @@ import {
 export async function POST(request: Request): Promise<NextResponse> {
   try {
     const result = await codexRotatingSetupLedger.authorizeAndPutSecret(
-      await request.json(),
+      await readBoundedRequestJson(request, 1_100_000),
     );
     return NextResponse.json(result, {
       status: 201,

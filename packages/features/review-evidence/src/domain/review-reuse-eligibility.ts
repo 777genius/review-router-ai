@@ -438,6 +438,10 @@ function qualityPenalty(
         return total + 50;
       case ReviewObservationQualityFlag.CrossRevisionReuseDisabled:
         return total + 1;
+      // Explanations retain the existing incomplete-context penalty.
+      case ReviewObservationQualityFlag.ReviewMainIncomplete:
+      case ReviewObservationQualityFlag.ReviewRoundIncomplete:
+      case ReviewObservationQualityFlag.ReviewPhaseIncomplete:
       case ReviewObservationQualityFlag.InvestigationFindings:
       case ReviewObservationQualityFlag.InvestigationVerifiedClean:
         return total;

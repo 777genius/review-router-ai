@@ -13,11 +13,11 @@ describe("PrismaRepositoryHealthRepository", () => {
         setupStatus: "configured" as const,
         provisioning: [{ status: "failed" as const }],
         installation: { githubInstallationId: 123n },
-        actionHealth: [],
       },
     ]);
     const repository = new PrismaRepositoryHealthRepository({
       repositoryConnection: { findMany },
+      $queryRaw: vi.fn(async () => []),
     } as never);
 
     await expect(

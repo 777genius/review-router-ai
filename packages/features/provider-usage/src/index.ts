@@ -1,4 +1,5 @@
 export * from "./domain/usage";
+export * from "./domain/native-usage-context";
 export * from "./application/ports";
 export * from "./application/ingest-usage";
 export * from "./application/report-usage";

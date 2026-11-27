@@ -20,13 +20,39 @@ const reader = vi.mocked(readRenderManagedCheckoutInventory);
 // Preserve old immutable-prefix fixtures through 000124 explicitly.
 // The complete current checkout is exercised separately.
 const currentFull = readRenderManagedCheckoutInventory();
-const previousFull = currentFull.filter(
+const readScalingMigrationNames = [
+  "000165_installation_sync_latest_index",
+  "000166_repository_health_latest_index",
+];
+const webhookDeliveryMigrationNames = [
+  "000165_webhook_effect_fence",
+  "000167_webhook_recovery_intent",
+];
+const webhookReceiptOrderMigrationName =
+  "000168_webhook_receipt_order_indexes";
+const applicationTailMigrationNames = [
+  ...readScalingMigrationNames,
+  ...webhookDeliveryMigrationNames,
+  webhookReceiptOrderMigrationName,
+].sort();
+const checkout174 = currentFull.filter(
+  (row) => row.migrationName !== webhookReceiptOrderMigrationName,
+);
+const predecessorFull = checkout174.filter(
+  (row) => !applicationTailMigrationNames.includes(row.migrationName),
+);
+const previousFull = predecessorFull.filter(
   (row) =>
     row.migrationName !== "000155_usage_member_report_index" &&
     row.migrationName !== "000157_claude_code_api_key_secret" &&
     row.migrationName !== "000158_review_run_allocation_provider_quota" &&
     row.migrationName !== "000159_producer_reviewer_plan_v2" &&
     row.migrationName !== "000160_personal_credential_import_method" &&
+    row.migrationName !== "000161_github_authorization_revision" &&
+    row.migrationName !== "000161_native_connection_intent" &&
+    row.migrationName !== "000162_inventory_ruleset_revisions" &&
+    row.migrationName !== "000163_usage_retention_index" &&
+    row.migrationName !== "000164_ruleset_create_uncertainty" &&
     row.migrationName !== "000156_verified_thread_reply",
 );
 const full = previousFull
@@ -177,6 +203,11 @@ describe("trusted historical96 checkout reader", () => {
     expect(full[96]?.migrationName).toBe(
       "000098_certified_fork_effect_archive",
     );
+    expect(currentFull).toHaveLength(175);
+    expect(checkout174).toHaveLength(174);
+    expect(currentFull.slice(-5).map((row) => row.migrationName)).toEqual(
+      applicationTailMigrationNames,
+    );
     const result = readRenderHistorical96CheckoutInventory();
     expect(result).toEqual(historical);
     expect(result).toHaveLength(96);
@@ -194,15 +225,85 @@ describe("trusted historical96 checkout reader", () => {
     expect(reader).toHaveBeenCalledWith();
     reader.mockReturnValue([
       ...currentFull,
-      { migrationName: "000160_unknown", checksum: "0".repeat(64) },
+      { migrationName: "000169_unknown", checksum: "0".repeat(64) },
     ]);
     expect(() => readRenderHistorical96CheckoutInventory()).toThrow(
       "render_historical96_checkout_rejected:count",
     );
   });
 
+  it.each(applicationTailMigrationNames)(
+    "rejects altered checkout-only migration %s before returning historical96",
+    (migrationName) => {
+      reader.mockReturnValueOnce(
+        currentFull.map((row) =>
+          row.migrationName === migrationName
+            ? { ...row, checksum: "0".repeat(64) }
+            : row,
+        ),
+      );
+      expect(() => readRenderHistorical96CheckoutInventory()).toThrow(
+        "render_schema_handoff_rejected:checkout_extension",
+      );
+    },
+  );
+
+  it.each([...readScalingMigrationNames, ...webhookDeliveryMigrationNames])(
+    "rejects partial checkout175 after removing %s",
+    (migrationName) => {
+      reader.mockReturnValueOnce(
+        currentFull.filter((row) => row.migrationName !== migrationName),
+      );
+      expect(() => readRenderHistorical96CheckoutInventory()).toThrow(
+        "render_schema_handoff_rejected:checkout_extension",
+      );
+    },
+  );
+
+  it("rejects receipt-order indexes without the complete webhook group", () => {
+    reader.mockReturnValueOnce(
+      currentFull.filter(
+        (row) => !webhookDeliveryMigrationNames.includes(row.migrationName),
+      ),
+    );
+    expect(() => readRenderHistorical96CheckoutInventory()).toThrow(
+      "render_schema_handoff_rejected:checkout_extension",
+    );
+  });
+
   it.each([
     { checkout: currentFull },
+    { checkout: checkout174 },
+    {
+      checkout: currentFull.filter(
+        (row) => !readScalingMigrationNames.includes(row.migrationName),
+      ),
+    },
+    {
+      checkout: checkout174.filter(
+        (row) => !readScalingMigrationNames.includes(row.migrationName),
+      ),
+    },
+    {
+      checkout: checkout174.filter(
+        (row) => !webhookDeliveryMigrationNames.includes(row.migrationName),
+      ),
+    },
+    { checkout: predecessorFull },
+    {
+      checkout: predecessorFull.filter(
+        (row) => row.migrationName !== "000161_native_connection_intent",
+      ),
+    },
+    {
+      checkout: predecessorFull.filter(
+        (row) =>
+          row.migrationName !== "000161_github_authorization_revision" &&
+          row.migrationName !== "000162_inventory_ruleset_revisions" &&
+          row.migrationName !== "000163_usage_retention_index" &&
+          row.migrationName !== "000164_ruleset_create_uncertainty",
+      ),
+    },
     { checkout: previousFull },
     {
       checkout: previousFull.filter(

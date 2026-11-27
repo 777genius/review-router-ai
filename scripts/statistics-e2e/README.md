@@ -200,3 +200,25 @@ or external-request failures, and successful owned cleanup. This dedicated job
 supplies browser evidence; the ordinary CI checks alone do not. The fixture run
 does not qualify deployed versions, live GitHub/provider execution, OAuth login,
 capture/projector behavior, or a complete bound on Usage report cardinality.
+
+### Reliability cases in followthrough
+
+The same `followthrough` scenario now adds eleven recent memberships so the
+original report workspace falls outside the ten-row switcher query. Its real
+SSR/SQL path must still open that authorized workspace, while an existing
+unshared workspace renders the Next not-found boundary without another tenant's
+report. Next may stream that boundary with HTTP 200; the case checks the actual
+not-found content as well as data absence.
+
+A further 101 owned synthetic grants qualify delivery detail pages 100+1, Previous
+navigation and exact 101-session whole-period totals through the real protected
+Usage GET and UI. The fixture removes these grants and extra workspaces in its
+normal owned cleanup.
+
+The GitLab setup form is also inspected at 1440/900/390 px in both themes, with
+keyboard focus, masked review credential, required/distinct-token admission and
+no secret on the follow-up Codex command. Only those three GitLab browser HTTP
+responses are deterministic fixtures; they do not claim a remote GitLab install.
+The separate `gitlab-connect.postgres.test.ts` executes the actual installer,
+gateway HTTP and database persistence against a disposable local GitLab transport
+and fully migrated PostgreSQL. No customer repository or real token is involved.

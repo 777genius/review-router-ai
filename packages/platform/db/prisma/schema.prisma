@@ -232,6 +232,7 @@ model PersonalAccountOperation {
   ingress String?
   oauthMethod String? // Only device_code; null preserves legacy browser identity.
   credentialImportMethod String? // Safe selected method, never imported bytes or fingerprints.
+  nativeConnection Json? // Versioned native method selection; no inputs or challenge values.
   normalizedIntentHash String
   expectedSourceMetadataRevision Int?
   expectedGatewayRevision BigInt?
@@ -326,6 +327,8 @@ model GitHubUserAuthorization {
   userId                String
   githubUserId          BigInt
   appSlug               String
+  revision              Int       @default(0)
+  refreshAttemptId      String?
   encryptedAccessToken  String
   encryptedRefreshToken String?
   accessTokenExpiresAt  DateTime?
@@ -367,6 +370,7 @@ model GitHubInstallation {
   accountType          String
   accountAvatarUrl     String?
   repositorySelection  String
+  inventoryGeneration  BigInt                   @default(0)
   status               GitHubInstallationStatus @default(active)
   createdAt            DateTime                 @default(now())
   updatedAt            DateTime                 @updatedAt
@@ -531,6 +535,8 @@ model RepositoryPermissionCache {
   userId               String
   repositoryId         String
   githubInstallationId BigInt
+  authorizationAppSlug String?
+  authorizationRevision Int?
   permission           String?
   roleName             String?
   canManage            Boolean
@@ -1045,6 +1051,7 @@ model ActionRunHealthReport {
 
   @@unique([repositoryId, githubRunId, githubRunAttempt])
   @@index([workspaceId, receivedAt])
+  @@index([workspaceId, repositoryId, receivedAt(sort: Desc), id(sort: Desc)], map: "ActionRunHealthReport_workspace_repository_latest_idx")
 }
 
 model ReviewSnapshot {
@@ -3226,6 +3233,7 @@ model OrgRulesetProvisioning {
   installationId           String
   githubInstallationId     BigInt
   organizationLogin        String
+  revision                 Int                          @default(1)
   status                   OrgRulesetProvisioningStatus @default(requested)
   scope                    OrgRulesetScope
   enforcement              OrgRulesetEnforcement
@@ -3237,6 +3245,8 @@ model OrgRulesetProvisioning {
   sourceWorkflowSha        String?
   rulesetId                BigInt?
   rulesetUrl               String?
+  pendingRulesetCreateOrganization String?
+  pendingRemoteAttemptId String?
   targetRepositoryIds      Json
   safeErrorCode            String?
   safeErrorSummary         String?
@@ -3288,10 +3298,24 @@ model GitHubWebhookDelivery {
   receivedAt      DateTime              @default(now())
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @default(now()) @updatedAt
+  fence           GitHubWebhookFence?
 
   @@index([eventName, createdAt])
   @@index([installationId])
   @@index([status, receivedAt])
+}
+
+// Preparation for effect-level fencing. A fence row is created only by the
+// new protocol; its absence must never authorize takeover of legacy processing.
+model GitHubWebhookFence {
+  deliveryId String                @id
+  ownerHash  String
+  appIdentityHash String
+  generation BigInt
+  leaseUntil DateTime              @db.Timestamptz(3)
+  effectTransactionId BigInt?
+  signatureHash String?
+  delivery   GitHubWebhookDelivery @relation(fields: [deliveryId], references: [deliveryId], onDelete: Cascade)
 }
 
 model OutboxEvent {
@@ -3324,6 +3348,8 @@ model OutboxEvent {
   @@index([workspaceId, status])
   @@index([repositoryId, status])
   @@index([type, version, status])
+  // 000165: partial latest-request index for installation.sync_requested v1:
+  // (aggregateId, createdAt DESC, id DESC). Other event types are not indexed.
 }
 
 model OutboxFencingControl {
@@ -4885,6 +4911,7 @@ model UsageCall {
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
   @@index([workspaceId, occurredAt, provider, actualModel])
   @@index([workspaceId, actorId, occurredAt])
+  @@index([occurredAt])
 }
 model UsageDedupeTombstone {
   sourceInstance String
@@ -5131,4 +5158,20 @@ model ReviewHistoryRun {
 
   @@unique([workspaceId, scmRepositoryIdentityId, pullRequestNumber, runSequence])
   @@index([workspaceId, pullRequestId, runSequence])
+}
+
+// Draft recovery custody only. No automatic GitHub redelivery is enabled.
+model GitHubWebhookRecoveryIntent {
+  appIdentityHash String
+  deliveryGuid String
+  githubDeliveryId BigInt
+  eventName String
+  action String?
+  installationId BigInt?
+  payloadHash String
+  state String @default("prepared")
+  attemptHash String?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @db.Timestamptz(3)
+  @@id([appIdentityHash, deliveryGuid])
 }

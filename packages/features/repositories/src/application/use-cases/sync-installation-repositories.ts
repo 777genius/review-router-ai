@@ -1,9 +1,6 @@
 import type { Clock } from "@reviewrouter/shared";
 import type { RepositorySyncResult } from "../../domain/repository-connection";
-import {
-  applyRepositorySyncPolicy,
-  type RepositorySyncPolicy,
-} from "../../domain/repository-sync-policy";
+import type { RepositorySyncPolicy } from "../../domain/repository-sync-policy";
 import type { GitHubRepositorySourcePort } from "../ports/github-repository-source-port";
 import type { RepositoryConnectionRepositoryPort } from "../ports/repository-connection-repository-port";
 import type { RepositoryIdentitySynchronizationPort } from "../ports/repository-identity-synchronization-port";
@@ -28,20 +25,20 @@ export async function syncInstallationRepositories(
       githubInstallationId,
     );
 
-  const policyResult = applyRepositorySyncPolicy(
-    repositories,
-    dependencies.syncPolicy,
-  );
-  const result = await dependencies.repositories.syncInstallationRepositories({
-    githubInstallationId,
-    repositories: policyResult.repositories,
-    syncedAt,
-    inventoryGeneration,
-  });
+  const { synchronizedRepositories, ...result } =
+    await dependencies.repositories.syncInstallationRepositories({
+      githubInstallationId,
+      repositories,
+      syncedAt,
+      inventoryGeneration,
+      ...(dependencies.syncPolicy
+        ? { syncPolicy: dependencies.syncPolicy }
+        : {}),
+    });
   if (dependencies.repositoryIdentities) {
     await dependencies.repositoryIdentities.synchronizeRepositoryIdentities({
       githubInstallationId,
-      repositories: policyResult.repositories,
+      repositories: synchronizedRepositories,
       syncedAt,
     });
   }
@@ -49,6 +46,5 @@ export async function syncInstallationRepositories(
   return {
     ...result,
     seen: repositories.length,
-    skippedDueToLimit: policyResult.skippedDueToLimit,
   };
 }

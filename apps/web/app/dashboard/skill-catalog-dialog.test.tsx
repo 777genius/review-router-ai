@@ -124,7 +124,7 @@ function Harness() {
 function mount() {
   const client = new QueryClient({
     defaultOptions: {
-      queries: { retry: false, gcTime: Infinity },
+      queries: { retry: false, retryDelay: 0, gcTime: Infinity },
       mutations: { retry: false },
     },
   });
@@ -215,6 +215,149 @@ describe("catalog client command lifetime", () => {
       screen.getByRole("checkbox", { name: /Include AI-assisted analysis/ }),
     );
     await screen.findByText("No issues found");
+  });
+
+  it.each(["unavailable", "unknown"] as const)(
+    "recovers a %s status read without submitting another scan or import",
+    async (code) => {
+      const normal = h.request.getMockImplementation()!;
+      let reads = 0;
+      h.request.mockImplementation(async (method: string, input: object) => {
+        if (method === "requestScan")
+          return { ...completed(), status: "queued", verdict: null };
+        if (method === "loadScan" && ++reads < 3)
+          throw new SkillCatalogClientError(code, "temporary read failure");
+        return normal(method, input);
+      });
+      mount();
+      await preview();
+      fireEvent.click(screen.getByRole("button", { name: "Check skill" }));
+      await screen.findByText("No issues found");
+      const loads = h.request.mock.calls.filter(
+        ([method]) => method === "loadScan",
+      );
+      expect(loads).toHaveLength(3);
+      expect(loads.every(([, input]) => input.scanId === "static-job")).toBe(
+        true,
+      );
+      expect(
+        h.request.mock.calls.filter(([method]) => method === "requestScan"),
+      ).toHaveLength(1);
+      expect(
+        h.request.mock.calls.filter(([method]) => method === "importCandidate"),
+      ).toHaveLength(0);
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(
+        (
+          screen.getByRole("button", {
+            name: "Add to library",
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false);
+    },
+  );
+
+  it("stops after two failed status retries and lets a manual refresh recover the same scan", async () => {
+    const normal = h.request.getMockImplementation()!;
+    let unavailable = true;
+    let reads = 0;
+    h.request.mockImplementation(async (method: string, input: object) => {
+      if (method === "requestScan")
+        return { ...completed(), status: "queued", verdict: null };
+      if (method === "loadScan") {
+        reads++;
+        if (unavailable)
+          throw new SkillCatalogClientError(
+            "unavailable",
+            "temporary read failure",
+          );
+      }
+      return normal(method, input);
+    });
+    const client = mount();
+    await preview();
+    fireEvent.click(screen.getByRole("button", { name: "Check skill" }));
+    const refresh = await screen.findByRole("button", {
+      name: "Refresh check",
+    });
+    expect(reads).toBe(3);
+    expect(
+      client.getQueryState(
+        skillCatalogKeys.scan(
+          "viewer",
+          "workspace",
+          "candidate",
+          "static",
+          "static-job",
+        ),
+      )?.fetchStatus,
+    ).toBe("idle");
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Add to library",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    unavailable = false;
+    fireEvent.click(refresh);
+    await screen.findByText("No issues found");
+    expect(reads).toBe(4);
+    expect(
+      h.request.mock.calls.filter(([method]) => method === "requestScan"),
+    ).toHaveLength(1);
+    expect(
+      h.request.mock.calls
+        .filter(([method]) => method === "loadScan")
+        .every(([, input]) => input.scanId === "static-job"),
+    ).toBe(true);
+  });
+
+  it.each([
+    "forbidden",
+    "not_found",
+    "invalid_input",
+    "conflict",
+    "incomplete",
+    "rate_limited",
+    "untyped",
+  ])("does not retry a terminal %s status read", async (code) => {
+    const normal = h.request.getMockImplementation()!;
+    h.request.mockImplementation(async (method: string, input: object) => {
+      if (method === "requestScan")
+        return { ...completed(), status: "queued", verdict: null };
+      if (method === "loadScan")
+        throw code === "untyped"
+          ? new Error("terminal read failure")
+          : new SkillCatalogClientError(code, "terminal read failure");
+      return normal(method, input);
+    });
+    mount();
+    await preview();
+    fireEvent.click(screen.getByRole("button", { name: "Check skill" }));
+    if (code === "forbidden") {
+      await screen.findByText(
+        "Your access changed. Sign in or refresh this page before continuing.",
+      );
+      expect(
+        screen.queryByRole("button", { name: "Refresh check" }),
+      ).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: "Add to library" }),
+      ).toBeNull();
+    } else {
+      await screen.findByRole("button", { name: "Refresh check" });
+      expect(
+        (
+          screen.getByRole("button", {
+            name: "Add to library",
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(true);
+    }
+    expect(
+      h.request.mock.calls.filter(([method]) => method === "loadScan"),
+    ).toHaveLength(1);
   });
 
   it("replays an uncertain scan with the exact operation after same-page close and reopen", async () => {

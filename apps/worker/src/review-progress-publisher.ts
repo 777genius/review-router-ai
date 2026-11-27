@@ -20,6 +20,7 @@ import {
 
 export type ReviewProgressInstallationRequesterFactory = (
   installationId: bigint,
+  options?: Readonly<{ signal?: AbortSignal }>,
 ) => Promise<
   Readonly<{
     request: ReviewProgressGitHubRequester;
@@ -59,6 +60,8 @@ export class ReviewProgressPublisher {
       retryDelayMs: number;
       maxCommentPages: number;
       maxFailures: number;
+      /** Whole maintenance pass, including all pages and publication candidates. */
+      passBudgetMs?: number;
     }>,
   ) {
     assertPositive(options.limit, "review_progress_publish_limit_invalid");
@@ -73,9 +76,15 @@ export class ReviewProgressPublisher {
       "review_progress_comment_pages_invalid",
     );
     assertPositive(options.maxFailures, "review_progress_max_failures_invalid");
+    assertPositive(
+      options.passBudgetMs ?? 30_000,
+      "review_progress_pass_budget_invalid",
+    );
   }
 
-  async runMaintenance(): Promise<ReviewProgressPublisherResult> {
+  async runMaintenance(
+    input: Readonly<{ signal?: AbortSignal }> = {},
+  ): Promise<ReviewProgressPublisherResult> {
     const result = {
       claimed: 0,
       published: 0,
@@ -83,7 +92,9 @@ export class ReviewProgressPublisher {
       suppressed: 0,
       failed: 0,
     };
+    const deadline = performance.now() + (this.options.passBudgetMs ?? 30_000);
     for (let index = 0; index < this.options.limit; index += 1) {
+      if (input.signal?.aborted || performance.now() >= deadline) break;
       const publication = await this.store.claimNext({
         ownerIdHash: this.ownerIdHash,
         now: this.clock.now(),
@@ -95,7 +106,22 @@ export class ReviewProgressPublisher {
         continue;
       }
       result.claimed += 1;
-      await this.publishOne(publication, result);
+      const remaining = Math.min(
+        deadline - performance.now(),
+        publication.claim.claimUntil.getTime() - this.clock.now().getTime(),
+      );
+      const controller = new AbortController();
+      // Shutdown stops the next claim. An acquired claim keeps its own finite
+      // lease/pass budget and settles any already issued GitHub effect.
+      const expire = () =>
+        controller.abort(new Error("review_progress_pass_deadline"));
+      if (remaining <= 0) expire();
+      const timer = setTimeout(expire, Math.max(0, remaining));
+      try {
+        await this.publishOne(publication, result, controller.signal);
+      } finally {
+        clearTimeout(timer);
+      }
     }
     return result;
   }
@@ -108,6 +134,7 @@ export class ReviewProgressPublisher {
       suppressed: number;
       failed: number;
     },
+    signal: AbortSignal,
   ): Promise<void> {
     const now = this.clock.now();
     let body: string;
@@ -126,7 +153,7 @@ export class ReviewProgressPublisher {
     if (await this.deferForBusyInstallation(publication, now, result)) return;
     let published: UpsertReviewProgressCommentResult | null = null;
     try {
-      published = await this.upsertProgressComment(publication, body);
+      published = await this.upsertProgressComment(publication, body, signal);
       await this.settlePublishedMutation(
         publication,
         published,
@@ -134,7 +161,13 @@ export class ReviewProgressPublisher {
         result,
       );
     } catch (error) {
-      await this.handlePublishFailure(publication, error, result, published);
+      await this.handlePublishFailure(
+        publication,
+        error,
+        result,
+        published,
+        signal.aborted,
+      );
     }
   }
 
@@ -142,14 +175,18 @@ export class ReviewProgressPublisher {
   private async upsertProgressComment(
     publication: ClaimedReviewProgress,
     body: string,
+    signal: AbortSignal,
   ): Promise<UpsertReviewProgressCommentResult> {
     let installation: Awaited<
       ReturnType<ReviewProgressInstallationRequesterFactory>
     >;
     try {
+      signal.throwIfAborted();
       installation = await this.requestForInstallation(
         publication.repository.githubInstallationId,
+        { signal },
       );
+      signal.throwIfAborted();
     } catch (error) {
       // The requester factory can fail before the GitHub gateway is created.
       // Retain Octokit's HTTP retry boundary instead of using the generic delay.
@@ -163,10 +200,18 @@ export class ReviewProgressPublisher {
       if (classified.metadata.retryable) throw classified;
       throw error;
     }
-    const gateway = new ReviewProgressGitHubGateway(installation.request, {
-      maxCommentPages: this.options.maxCommentPages,
-      now: () => this.clock.now(),
-    });
+    const gateway = new ReviewProgressGitHubGateway(
+      async (route, parameters) => {
+        signal.throwIfAborted();
+        const response = await installation.request(route, parameters);
+        signal.throwIfAborted();
+        return response;
+      },
+      {
+        maxCommentPages: this.options.maxCommentPages,
+        now: () => this.clock.now(),
+      },
+    );
     return gateway.upsert({
       owner: publication.repository.owner,
       repo: publication.repository.name,
@@ -285,6 +330,7 @@ export class ReviewProgressPublisher {
     error: unknown,
     result: { suppressed: number; failed: number; deferred: number },
     published: UpsertReviewProgressCommentResult | null,
+    passExpired: boolean,
   ): Promise<void> {
     const mutationMayHaveLanded =
       (published !== null &&
@@ -327,8 +373,11 @@ export class ReviewProgressPublisher {
       retryOutcome = await this.store.retry({
         publication,
         ...retry,
-        // An ambiguous GitHub write must not be permanently suppressed.
-        ...(mutationMayHaveLanded ? { countFailure: false as const } : {}),
+        // Neither uncertain writes nor our own bounded pass exhaustion may
+        // permanently suppress a healthy publication waiting behind other work.
+        ...(mutationMayHaveLanded || passExpired
+          ? { countFailure: false as const }
+          : {}),
         now: this.clock.now(),
         maxFailures: this.options.maxFailures,
       });
@@ -364,7 +413,11 @@ export class ReviewProgressPublisher {
       result.deferred += 1;
     } else if (retryOutcome === "suppressed") {
       result.suppressed += 1;
-    } else if (retry.countFailure === false || mutationMayHaveLanded) {
+    } else if (
+      retry.countFailure === false ||
+      mutationMayHaveLanded ||
+      passExpired
+    ) {
       result.deferred += 1;
     } else {
       result.failed += 1;

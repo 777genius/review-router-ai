@@ -83,21 +83,18 @@ describe("PrismaReviewPolicyHeadReader batch reads", () => {
         inlineMinAgreement: 1,
       },
     });
-    const findMany = vi.fn(async () => [
+    const queryRaw = vi.fn(async () => [
       {
         repositoryId: "repository_2",
-        versions: [
-          storedPolicyHeadFixture(
-            repositoryPolicyDocumentFixture(
-              repositoryConfig,
-              [rotatingProfile.id, openRouterProfile.id],
-              { execution: { providerMaxParallel: 2 } },
-            ),
-            7,
+        ...storedPolicyHeadFixture(
+          repositoryPolicyDocumentFixture(
+            repositoryConfig,
+            [rotatingProfile.id, openRouterProfile.id],
+            { execution: { providerMaxParallel: 2 } },
           ),
-        ],
+          7,
+        ),
       },
-      { repositoryId: "repository_missing", versions: [] },
     ]);
     const findUnique = vi.fn(async () => ({ versions: [workspaceHead] }));
     const profileFindMany = profileReader();
@@ -108,7 +105,8 @@ describe("PrismaReviewPolicyHeadReader batch reads", () => {
       },
       {
         policyHeads: new PrismaReviewPolicyHeadReader({
-          reviewConfiguration: { findMany, findUnique },
+          reviewConfiguration: { findUnique },
+          $queryRaw: queryRaw,
           workspaceProviderProfile: { findMany: profileFindMany },
         } as never),
       },
@@ -160,34 +158,20 @@ describe("PrismaReviewPolicyHeadReader batch reads", () => {
         },
       },
     });
-    expect(findMany).toHaveBeenCalledOnce();
-    expect(findMany).toHaveBeenCalledWith({
-      where: {
-        workspaceId: "workspace_1",
-        repositoryId: {
-          in: ["repository_2", "repository_missing"],
-        },
-        active: true,
-      },
-      orderBy: { repositoryId: "asc" },
-      select: {
-        repositoryId: true,
-        versions: {
-          orderBy: { version: "desc" },
-          take: 1,
-          select: { version: true, schemaVersion: true, policyJson: true },
-        },
-      },
-    });
+    expect(queryRaw).toHaveBeenCalledOnce();
+    expect(queryRaw).toHaveBeenCalledWith(
+      expect.any(Array),
+      "workspace_1",
+      expect.objectContaining({
+        values: [["repository_2", "repository_missing"]],
+      }),
+    );
   });
 
   it("keeps database reads bounded for 1000 repositories without creating overrides", async () => {
     const findUnique = vi.fn(async () => ({ versions: [workspaceHead] }));
     const profileFindMany = profileReader();
-    const findMany = vi.fn(async (input: unknown) => {
-      expect(input).toBeDefined();
-      return [];
-    });
+    const queryRaw = vi.fn(async () => []);
     const repositoryIds = Array.from(
       { length: 1000 },
       (_, index) => `repository_${index}`,
@@ -196,7 +180,8 @@ describe("PrismaReviewPolicyHeadReader batch reads", () => {
       { workspaceId: "workspace_1", repositoryIds },
       {
         policyHeads: new PrismaReviewPolicyHeadReader({
-          reviewConfiguration: { findUnique, findMany },
+          reviewConfiguration: { findUnique },
+          $queryRaw: queryRaw,
           workspaceProviderProfile: { findMany: profileFindMany },
         } as never),
       },
@@ -211,21 +196,24 @@ describe("PrismaReviewPolicyHeadReader batch reads", () => {
     });
     expect(profileFindMany).toHaveBeenCalledOnce();
     expect(findUnique).toHaveBeenCalledOnce();
-    expect(findMany).toHaveBeenCalledOnce();
-    expect(findMany.mock.calls[0]?.[0]).toMatchObject({
-      where: { repositoryId: { in: repositoryIds } },
-    });
+    expect(queryRaw).toHaveBeenCalledOnce();
+    expect(queryRaw).toHaveBeenCalledWith(
+      expect.any(Array),
+      "workspace_1",
+      expect.objectContaining({ values: [repositoryIds] }),
+    );
   });
 
   it("does not query repositories for an empty request", async () => {
-    const findMany = vi.fn(async () => []);
+    const queryRaw = vi.fn(async () => []);
     const findUnique = vi.fn(async () => null);
 
     const resolved = await resolveEffectiveReviewConfigurations(
       { workspaceId: "workspace_1", repositoryIds: [] },
       {
         policyHeads: new PrismaReviewPolicyHeadReader({
-          reviewConfiguration: { findMany, findUnique },
+          reviewConfiguration: { findUnique },
+          $queryRaw: queryRaw,
         } as never),
       },
     );
@@ -233,6 +221,6 @@ describe("PrismaReviewPolicyHeadReader batch reads", () => {
     expect(resolved.workspace.status).toBe("provider_selection_required");
     expect(resolved.repositories.size).toBe(0);
     expect(findUnique).toHaveBeenCalledOnce();
-    expect(findMany).not.toHaveBeenCalled();
+    expect(queryRaw).not.toHaveBeenCalled();
   });
 });

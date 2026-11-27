@@ -53,7 +53,7 @@ export function selectDashboardWorkspace(
   workspaces: readonly DashboardWorkspaceSummary[],
   workspaceParam: string,
   installationIdParam = "",
-): DashboardWorkspaceSummary {
+): DashboardWorkspaceSummary | null {
   if (!workspaceParam && installationIdParam) {
     const byInstallation = workspaces.find((workspace) =>
       workspace.workspace.installations.some(
@@ -61,17 +61,24 @@ export function selectDashboardWorkspace(
           installation.githubInstallationId === installationIdParam,
       ),
     );
-    if (byInstallation) return byInstallation;
+    return byInstallation ?? null;
   }
 
-  if (!workspaceParam) return workspaces[0]!;
+  if (!workspaceParam) return workspaces[0] ?? null;
 
   const normalized = normalizeWorkspaceKey(workspaceParam);
-  return (
-    workspaces.find((workspace) =>
-      dashboardWorkspaceKeys(workspace.workspace).includes(normalized),
-    ) ?? workspaces[0]!
+  const exactId = workspaces.find(
+    (item) => normalizeWorkspaceKey(item.workspace.id) === normalized,
   );
+  if (exactId) return exactId;
+  const exactSlug = workspaces.find(
+    (item) => normalizeWorkspaceKey(item.workspace.slug) === normalized,
+  );
+  if (exactSlug) return exactSlug;
+  const matches = workspaces.filter((item) =>
+    dashboardWorkspaceKeys(item.workspace).includes(normalized),
+  );
+  return matches.length === 1 ? matches[0]! : null;
 }
 
 function dashboardWorkspaceKeys(workspace: DashboardWorkspace): string[] {

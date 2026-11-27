@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   getPrisma: vi.fn(),
   getServerSession: vi.fn(),
   getValidGitHubUserAccessToken: vi.fn(),
+  readGitHubUserAuthorizationAuthority: vi.fn(),
   appAuth: vi.fn(),
   octokitRequest: vi.fn(),
   updateRepositoryPermissionCacheFromLiveCheck: vi.fn(),
@@ -65,6 +66,8 @@ vi.mock("./github-user-repository-access", () => ({
 
 vi.mock("./github-user-authorization", () => ({
   getValidGitHubUserAccessToken: mocks.getValidGitHubUserAccessToken,
+  readGitHubUserAuthorizationAuthority:
+    mocks.readGitHubUserAuthorizationAuthority,
 }));
 
 vi.mock("./prisma", () => ({
@@ -112,9 +115,11 @@ describe("dashboard repository mutations", () => {
     mocks.assertWorkspaceMutationAllowed.mockRejectedValue(
       new Error("workspace_mutation_forbidden:missing_role"),
     );
-    mocks.updateRepositoryPermissionCacheFromLiveCheck.mockResolvedValue(
-      undefined,
-    );
+    mocks.updateRepositoryPermissionCacheFromLiveCheck.mockResolvedValue(true);
+    mocks.readGitHubUserAuthorizationAuthority.mockResolvedValue({
+      appSlug: "reviewrouter-test",
+      revision: 0,
+    });
     mocks.getValidGitHubUserAccessToken.mockResolvedValue({
       status: "ready",
       accessToken: "ghu_user",
@@ -172,6 +177,44 @@ describe("dashboard repository mutations", () => {
         canManage: false,
       }),
     );
+  });
+
+  it.each([null, { appSlug: "reviewrouter-test", revision: 1 }])(
+    "refuses a live permission response whose captured authorization changed to %s",
+    async (currentAuthority) => {
+      mocks.readGitHubUserAuthorizationAuthority
+        .mockResolvedValueOnce({ appSlug: "reviewrouter-test", revision: 0 })
+        .mockResolvedValueOnce(currentAuthority);
+      mocks.octokitRequest.mockResolvedValue({
+        data: {
+          permission: "admin",
+          role_name: "admin",
+          user: { id: 123, login: "maintainer" },
+        },
+      });
+      await expect(
+        assertDashboardRepositoryMutationAllowed("workspace_1", repository),
+      ).rejects.toThrow("repository_mutation_forbidden");
+      expect(
+        mocks.updateRepositoryPermissionCacheFromLiveCheck,
+      ).not.toHaveBeenCalled();
+    },
+  );
+
+  it("refuses admission when authorization changes immediately before cache publication", async () => {
+    mocks.octokitRequest.mockResolvedValue({
+      data: {
+        permission: "admin",
+        role_name: "admin",
+        user: { id: 123, login: "maintainer" },
+      },
+    });
+    mocks.updateRepositoryPermissionCacheFromLiveCheck.mockResolvedValueOnce(
+      false,
+    );
+    await expect(
+      assertDashboardRepositoryMutationAllowed("workspace_1", repository),
+    ).rejects.toThrow("repository_mutation_forbidden");
   });
 
   it("allows repo-only mutations for live write, maintain, or admin repository roles", async () => {
@@ -404,6 +447,10 @@ describe("dashboard repository mutations", () => {
   it.each([
     ["github_oauth_client_misconfigured", "dashboard_auth_misconfigured"],
     ["github_oauth_refresh_failed", "repository_access_token_refresh_failed"],
+    [
+      "github_user_token_refresh_reauthorization_required",
+      "repository_access_reauthorization_required",
+    ],
   ])(
     "preserves the recovery category for %s before a GitHub request",
     async (errorCode, expected) => {

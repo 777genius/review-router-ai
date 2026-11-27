@@ -13,6 +13,9 @@ export function createPrismaReviewRunControlRepositories(
   runtimeSnapshotFence?: ConstructorParameters<
     typeof PrismaReviewRunAuthorizationRepository
   >[1],
+  runtimeSnapshotIsFresh?: ConstructorParameters<
+    typeof PrismaReviewRunAuthorizationRepository
+  >[2],
 ) {
   const producerReleases = new PrismaProducerReleaseRepository(prisma);
   const repositoryIdentities = new PrismaScmRepositoryIdentityRepository(
@@ -25,6 +28,7 @@ export function createPrismaReviewRunControlRepositories(
   const authorizations = new PrismaReviewRunAuthorizationRepository(
     prisma,
     runtimeSnapshotFence,
+    runtimeSnapshotIsFresh,
   );
   return {
     producerReleases,

@@ -1,3 +1,4 @@
+import { createDefaultGitHubWebhookDependencies } from "./github/github-webhook-composition.js";
 import { createReviewHistoryFeature } from "@reviewrouter/features-review-history/composition";
 import { createMemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
 import { PrismaWorkspaceMemorySettings } from "@reviewrouter/features-review-config/composition";
@@ -25,6 +26,7 @@ import {
 } from "./review-memory-runtime.js";
 import { createProviderUsageSessionComposition } from "./provider-usage-session-composition.js";
 import { registerProviderUsageRecovery } from "./provider-usage-artifact-recovery.js";
+import { settleProviderUsageMaintenance } from "./provider-usage-maintenance.js";
 import { registerProviderUsageRoutes } from "./provider-usage-routes.js";
 import { registerContextToolsRoutes } from "./review-context-tools.js";
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
@@ -86,16 +88,8 @@ import {
   type RegisterReviewRunControlV2RoutesDependencies,
   type RegisterReviewSnapshotReadV2RoutesDependencies,
 } from "@reviewrouter/features-action-control-plane/v2";
+import { PrismaConflictReviewRepository } from "@reviewrouter/features-conflict-review";
 import {
-  ConflictReviewPullRequestWebhookHandler,
-  ConflictReviewPushWebhookHandler,
-  PrismaConflictReviewRepository,
-} from "@reviewrouter/features-conflict-review";
-import {
-  OutboxInstallationSyncRequester,
-  PrismaGitHubInstallationRepository,
-  PrismaInstallationWorkspaceOwnerGrant,
-  PrismaWebhookDeliveryRepository,
   registerGitHubWebhookRoutes,
   type RegisterGitHubWebhookRoutesDependencies,
 } from "@reviewrouter/features-github-installations";
@@ -121,6 +115,8 @@ import {
 } from "@reviewrouter/features-hosted-account-pool";
 import {
   createPrismaClient,
+  isDatabaseUnavailable,
+  runtimeDatabaseExecutionBudget,
   resolveCommentTokenCustodyDatabaseAuthorityUrl,
   resolveCodexOAuthDatabaseEffectAuthorityUrl,
   type PrismaClient,
@@ -144,7 +140,6 @@ import {
   HashedReviewConfigurationOperatorAuthorization,
   PrismaReviewConfigurationOperatorRepository,
   PrismaReviewConfigurationRepository,
-  PrismaWorkspaceReviewSettings,
 } from "@reviewrouter/features-review-config/composition";
 import { PrismaReviewSnapshotRepository } from "@reviewrouter/features-review-snapshots";
 import { PrismaReviewExecutionCheckpointRepository } from "@reviewrouter/features-review-execution-checkpoints";
@@ -156,19 +151,10 @@ import { createPrismaReviewRunControlRepositories } from "@reviewrouter/features
 import { PrismaActionEntitlementPolicy } from "./action-entitlement-policy.js";
 import { ActionRateLimitPolicy } from "./action-rate-limit-policy.js";
 import { ReviewRunControlLegacyMutationAdmission } from "./review-action-v1-mutation-admission.js";
-import {
-  CompositePullRequestWebhookHandler,
-  CompositePushWebhookHandler,
-} from "./github/composite-github-webhook-handlers.js";
 import { OctokitConflictReviewPostingGateway } from "./github/octokit-conflict-review-posting-gateway.js";
 import { OctokitCodexRotatingGitHubSecretGateway } from "./github/octokit-codex-rotating-github-secret-gateway.js";
 import { OctokitGitHubAppCommentTokenIssuer } from "./github/octokit-github-app-comment-token-issuer.js";
 import { PrismaGitHubUserReviewThreadResolver } from "./github/prisma-github-user-review-thread-resolver.js";
-import { PrismaGitHubAppAuthorizationWebhookHandler } from "./github/prisma-github-app-authorization-webhook-handler.js";
-import { PrismaRepositoryWebhookHandler } from "./github/prisma-repository-webhook-handler.js";
-import { PrismaSetupPullRequestMergeHandler } from "./github/prisma-setup-pull-request-merge-handler.js";
-import { ReviewV2PullRequestWebhookHandler } from "./github/review-v2-pull-request-webhook-handler.js";
-import { ReviewV2GitHubRequestIngressOutbox } from "./review-v2-github-request-ingress-outbox.js";
 import { ReviewV2RequestIngressOutbox } from "./review-v2-request-ingress-outbox.js";
 import { FallbackGitLabRepositoryRegistry } from "./gitlab/fallback-gitlab-repository-registry.js";
 import { PrismaGitLabRepositoryRegistry } from "./gitlab/prisma-gitlab-repository-registry.js";
@@ -191,10 +177,7 @@ import {
   composeReviewActionV2RunControlRoutes,
   type ReviewActionV2RunControlHandlerDependencies,
 } from "./review-action-v2-run-control-composition.js";
-import {
-  assertReviewIntentRolloutConfiguration,
-  composeReviewActionV2ProductionRoutes,
-} from "./review-action-v2-production-composition.js";
+import { composeReviewActionV2ProductionRoutes } from "./review-action-v2-production-composition.js";
 import {
   composePrismaReviewInvestigationOperations,
   type ReviewInvestigationTerminalTelemetrySamplePort,
@@ -271,6 +254,14 @@ export async function createApiApp(
 ): Promise<FastifyInstance> {
   const logger = new ConsoleLogger();
   const app = Fastify({ logger: false });
+  const defaultErrorHandler = app.errorHandler;
+  app.setErrorHandler(function (error, request, reply) {
+    if (isDatabaseUnavailable(error))
+      return reply.header("Retry-After", "1").code(503).send({
+        error: "database_unavailable",
+      });
+    return defaultErrorHandler.call(this, error, request, reply);
+  });
   const reviewActionV2Env = options.reviewActionV2Env ?? process.env;
   const publicApiUrl = resolveReviewRouterPublicApiUrl(reviewActionV2Env);
   const operatorCredentialSha256 =
@@ -310,7 +301,7 @@ export async function createApiApp(
     hostedCodexFeatureFlags.admission ||
     hostedCodexFeatureFlags.relay ||
     sdkGrowthAuthorityEnabled
-      ? createPrismaClient()
+      ? createPrismaClient({ executionBudget: runtimeDatabaseExecutionBudget })
       : undefined);
   const historyFeature =
     prisma && reviewActionV2Env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1"
@@ -334,6 +325,7 @@ export async function createApiApp(
   const codexEffectAuthorityPrisma = codexEffectAuthorityDatabaseUrl
     ? createPrismaClient({
         databaseUrl: codexEffectAuthorityDatabaseUrl,
+        executionBudget: runtimeDatabaseExecutionBudget,
         poolMax: 2,
       })
     : undefined;
@@ -349,6 +341,7 @@ export async function createApiApp(
     (commentTokenCustodyDatabaseUrl
       ? createPrismaClient({
           databaseUrl: commentTokenCustodyDatabaseUrl,
+          executionBudget: runtimeDatabaseExecutionBudget,
           poolMax: 4,
           poolMaxLifetimeSeconds: 60,
         })
@@ -1095,8 +1088,12 @@ export async function createApiApp(
   ) {
     const usage = providerUsageDependencies;
     registerProviderUsageRecovery(app, {
+      onFailure: () =>
+        logger.warn("Provider usage maintenance failed", {
+          event: "provider_usage_recovery_failed",
+        }),
       runBatch: async () =>
-        Promise.allSettled([
+        settleProviderUsageMaintenance([
           ...(usage.providerUsageRecovery
             ? [usage.providerUsageRecovery.runBatch()]
             : []),
@@ -1348,90 +1345,6 @@ export async function createApiApp(
   }
 
   return app;
-}
-
-function createDefaultGitHubWebhookDependencies(input: {
-  readonly webhookSecret: string;
-  readonly prisma: PrismaClient;
-  readonly env: Readonly<Record<string, string | undefined>>;
-}): RegisterGitHubWebhookRoutesDependencies {
-  const conflictReviewFallbackEnabled = isConflictReviewFallbackEnabled();
-  const conflictReviewRolloutPolicy = {
-    isConflictReviewFallbackAllowed(input: {
-      readonly repositoryFullName: string;
-    }) {
-      return isConflictReviewFallbackAllowedForRepository(
-        input.repositoryFullName,
-      );
-    },
-  };
-  const outbox = new PrismaOutboxEventRepository(input.prisma);
-  const reviewV2IntentHandler = createReviewV2IntentWebhookHandler(input);
-  return {
-    webhookSecret: input.webhookSecret,
-    installations: new PrismaGitHubInstallationRepository(input.prisma),
-    ownerGrants: new PrismaInstallationWorkspaceOwnerGrant(input.prisma),
-    deliveries: new PrismaWebhookDeliveryRepository(input.prisma),
-    syncRequests: new OutboxInstallationSyncRequester(outbox),
-    appAuthorizations: new PrismaGitHubAppAuthorizationWebhookHandler(
-      input.prisma,
-    ),
-    ...(reviewV2IntentHandler
-      ? { preAdmissionPullRequests: reviewV2IntentHandler }
-      : {}),
-    pullRequests: new CompositePullRequestWebhookHandler([
-      new PrismaSetupPullRequestMergeHandler(input.prisma),
-      ...(conflictReviewFallbackEnabled
-        ? [
-            new ConflictReviewPullRequestWebhookHandler({
-              outbox,
-              rolloutPolicy: conflictReviewRolloutPolicy,
-              clock: new SystemClock(),
-            }),
-          ]
-        : []),
-    ]),
-    ...(conflictReviewFallbackEnabled
-      ? {
-          pushes: new CompositePushWebhookHandler([
-            new ConflictReviewPushWebhookHandler({
-              outbox,
-              rolloutPolicy: conflictReviewRolloutPolicy,
-              clock: new SystemClock(),
-            }),
-          ]),
-        }
-      : {}),
-    repositories: new PrismaRepositoryWebhookHandler(input.prisma),
-    clock: new SystemClock(),
-  };
-}
-
-function createReviewV2IntentWebhookHandler(input: {
-  readonly prisma: PrismaClient;
-  readonly env: Readonly<Record<string, string | undefined>>;
-}): ReviewV2PullRequestWebhookHandler | null {
-  if (input.env.REVIEW_ROUTER_REVIEW_V2_INTENT_INGRESS_ENABLED !== "1") {
-    return null;
-  }
-  assertReviewIntentRolloutConfiguration(input.env);
-  const ingress = new ReviewV2GitHubRequestIngressOutbox(
-    new PrismaOutboxEventRepository(input.prisma),
-    {
-      async digestUtf8(value) {
-        return createHash("sha256").update(value, "utf8").digest("hex");
-      },
-    },
-  );
-  const settings = new PrismaWorkspaceReviewSettings(input.prisma);
-  return new ReviewV2PullRequestWebhookHandler({
-    ingress,
-    clock: new SystemClock(),
-    policy: {
-      reviewDrafts: (githubInstallationId) =>
-        settings.reviewDraftsForGitHubInstallation(githubInstallationId),
-    },
-  });
 }
 
 function definedOption<const Key extends string>(

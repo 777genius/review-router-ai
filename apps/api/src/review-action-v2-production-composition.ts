@@ -1,3 +1,13 @@
+import {
+  assertReviewIntentRolloutConfiguration,
+  reviewActionV2IntentAdmissionRequiredEnv,
+} from "./review-v2-intent-rollout-configuration.js";
+export {
+  assertReviewIntentRolloutConfiguration,
+  reviewActionV2IntentAdmissionRequiredEnv,
+  reviewActionV2IntentIngressEnabledEnv,
+  reviewActionV2WorkflowDispatchReadyEnv,
+} from "./review-v2-intent-rollout-configuration.js";
 import { createReviewRunGatewayTerminalRunReader } from "./review-run-gateway-terminal-run.js";
 import type { HistoryCapture } from "@reviewrouter/features-review-history/composition";
 import type { Logger } from "@reviewrouter/platform-logger";
@@ -23,6 +33,11 @@ import {
 import type { RegisterHostedCodexRelayRoutesDependencies } from "@reviewrouter/features-hosted-account-pool";
 import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config";
 import { createConsumerControlClient } from "@agent-teams/account-gateway/http";
+import type { ProviderConnectionCapabilitiesV3 } from "@agent-teams/account-gateway/contracts";
+import {
+  createNativeGatewayRelayPolicySource,
+  qualifiedGatewayRelayPolicy,
+} from "./native-gateway-relay-policy";
 import { PrismaProviderAccountRepository } from "@reviewrouter/features-provider-accounts";
 import { createProviderUsageActionSessionIssuer } from "./provider-usage-action-session.js";
 import { createProviderUsageRunCompletion } from "./provider-usage-run-completion.js";
@@ -65,7 +80,6 @@ import {
 import { PrismaReviewRunGatewayExecutionBinding } from "./prisma-review-run-gateway-execution-binding";
 import {
   createReviewRunGatewayRelay,
-  readReviewRunGatewayRelayPolicy,
   type ReviewRunGatewayRelay,
 } from "./review-run-gateway-relay";
 import {
@@ -305,12 +319,7 @@ export const reviewActionV2ProviderVoteLanesEnv =
   "REVIEW_ROUTER_REVIEW_V2_PROVIDER_VOTE_LANES_JSON";
 export const reviewActionV2ProjectionPolicyVersionEnv =
   "REVIEW_ROUTER_REVIEW_V2_PROJECTION_POLICY_VERSION";
-export const reviewActionV2IntentAdmissionRequiredEnv =
-  "REVIEW_ROUTER_REVIEW_V2_INTENT_ADMISSION_REQUIRED";
-export const reviewActionV2IntentIngressEnabledEnv =
-  "REVIEW_ROUTER_REVIEW_V2_INTENT_INGRESS_ENABLED";
-export const reviewActionV2WorkflowDispatchReadyEnv =
-  "REVIEW_ROUTER_REVIEW_V2_WORKFLOW_DISPATCH_READY";
+
 export const reviewInvestigationRecordingEnabledEnv =
   investigationRecordingEnabledEnv;
 export const reviewInvestigationShadowEnabledEnv =
@@ -385,6 +394,7 @@ export function composeReviewActionV2ProductionRunControl(input: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly prisma: PrismaClient;
   readonly oidcAudience?: string | undefined;
+  readonly nativeGatewayCatalog?: ProviderConnectionCapabilitiesV3 | undefined;
 }) {
   const githubAppId = requiredEnv(input.env, "GITHUB_APP_ID");
   const githubAppPrivateKey = readGitHubAppPrivateKey(input.env);
@@ -415,10 +425,19 @@ export function composeReviewActionV2ProductionRunControl(input: {
   );
   const accountGatewayRelayPolicy =
     input.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED === "1"
-      ? readReviewRunGatewayRelayPolicy(
+      ? qualifiedGatewayRelayPolicy(
           requiredEnv(input.env, "REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY"),
+          input.nativeGatewayCatalog,
         )
       : undefined;
+  const nativeGatewayPolicySource = createNativeGatewayRelayPolicySource(
+    input.env,
+    {
+      ...(input.nativeGatewayCatalog
+        ? { initialCatalog: input.nativeGatewayCatalog }
+        : {}),
+    },
+  );
   const runGatewayPolicy = readServerApprovedReviewRunGatewayPolicy(
     input.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY,
   );
@@ -442,6 +461,7 @@ export function composeReviewActionV2ProductionRunControl(input: {
           requestCaps: gatewayRequestCaps,
         }
       : undefined,
+    nativeGatewayPolicySource,
   );
   const skillsSnapshots = new ProductionReviewSkillsSnapshot(input.prisma);
   const repositories = createPrismaReviewRunControlRepositories(
@@ -450,6 +470,9 @@ export function composeReviewActionV2ProductionRunControl(input: {
       (await skillsSnapshots.prelock(transaction, candidate)) &&
       (await runtimeSnapshots.matchesAdmission(transaction, candidate)) &&
       (await skillsSnapshots.matchesAdmission(transaction, candidate)),
+    nativeGatewayPolicySource
+      ? (candidate) => runtimeSnapshots.isAdmissionFresh(candidate)
+      : undefined,
   );
   const actionRepositories = new PrismaActionControlPlaneRepository(
     input.prisma,
@@ -539,6 +562,7 @@ export function composeReviewActionV2ProductionRunControl(input: {
     prerequisites,
     runtimeSnapshots,
     accountGatewayRelayPolicy,
+    nativeGatewayPolicySource,
     runControl,
     oidcAudience,
     providerVoteLanes,
@@ -548,6 +572,7 @@ export function composeReviewActionV2ProductionRunControl(input: {
 }
 
 export function composeReviewActionV2ProductionRoutes(input: {
+  readonly nativeGatewayCatalog?: ProviderConnectionCapabilitiesV3 | undefined;
   readonly historyWriter?: HistoryCapture;
   readonly memoryInputAdmission?: ReviewExecutionInputAdmissionPort;
   readonly investigationMemoryInputAdmission?: PrismaInvestigationStoreOptions["inputAdmission"];
@@ -624,6 +649,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
     prerequisites,
     runtimeSnapshots,
     accountGatewayRelayPolicy,
+    nativeGatewayPolicySource,
     runControl,
     oidcAudience,
     providerVoteLanes,
@@ -631,6 +657,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
   } = composeReviewActionV2ProductionRunControl({
     env: input.env,
     prisma: input.prisma,
+    nativeGatewayCatalog: input.nativeGatewayCatalog,
     ...(input.oidcAudience === undefined
       ? {}
       : { oidcAudience: input.oidcAudience }),
@@ -1474,6 +1501,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
   const accountGatewayRelay = accountGatewayRelayPolicy
     ? createReviewRunGatewayRelay({
         policy: accountGatewayRelayPolicy,
+        nativePolicySource: nativeGatewayPolicySource,
         resolveNvidiaRepository: (authorization) =>
           readCheckoutTarget(prisma, authorization),
         isSourceRunTerminal: createReviewRunGatewayTerminalRunReader({
@@ -1680,6 +1708,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
           profiles: accountGatewayRelayPolicy.profiles.map(
             (entry) => entry.profile,
           ),
+          nativePolicySource: nativeGatewayPolicySource,
           ...(input.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID
             ? {
                 operatorWorkspaceId:
@@ -2073,27 +2102,6 @@ function investigationCapabilityEnabled(
   return (
     !policy.emergencyDisabled && policy.enabledCapabilities.has(capability)
   );
-}
-
-export function assertReviewIntentRolloutConfiguration(
-  env: Readonly<Record<string, string | undefined>>,
-): void {
-  const ingressEnabled = env[reviewActionV2IntentIngressEnabledEnv] === "1";
-  const admissionRequired =
-    env[reviewActionV2IntentAdmissionRequiredEnv] === "1";
-  const dispatchReady = env[reviewActionV2WorkflowDispatchReadyEnv] === "1";
-  const workerEnabled = env.REVIEW_ROUTER_REVIEW_V2_WORKER_ENABLED === "1";
-  const outboxTakeoverEnabled =
-    env.REVIEW_ROUTER_OUTBOX_FENCED_TAKEOVER_ENABLED === "1";
-  if (
-    ingressEnabled &&
-    (!dispatchReady || !workerEnabled || !outboxTakeoverEnabled)
-  ) {
-    throw new Error("review_action_v2_intent_ingress_dependencies_unavailable");
-  }
-  if (admissionRequired && !ingressEnabled) {
-    throw new Error("review_action_v2_intent_admission_without_ingress");
-  }
 }
 
 class ProductionReviewActionV2Digest {

@@ -45,6 +45,9 @@ export enum ReviewObservationQualityFlag {
   LowConfidence = "low_confidence",
   ProviderWarning = "provider_warning",
   ContextInspectionIncomplete = "context_inspection_incomplete",
+  ReviewMainIncomplete = "review_main_incomplete",
+  ReviewRoundIncomplete = "review_round_incomplete",
+  ReviewPhaseIncomplete = "review_phase_incomplete",
   UnverifiedNativeSpan = "unverified_native_span",
   ContextAttestationUnavailable = "context_attestation_unavailable",
   CrossRevisionReuseDisabled = "cross_revision_reuse_disabled",
@@ -126,6 +129,17 @@ export function normalizeQualityFlags(
   assertNoDuplicates(sorted, "review_evidence_quality_flag_duplicate");
   if (sorted.includes(ReviewObservationQualityFlag.Unknown)) {
     throw new Error("review_evidence_quality_flag_unknown");
+  }
+  if (
+    !sorted.includes(ReviewObservationQualityFlag.ContextInspectionIncomplete) &&
+    sorted.some(
+      (flag) =>
+        flag === ReviewObservationQualityFlag.ReviewMainIncomplete ||
+        flag === ReviewObservationQualityFlag.ReviewRoundIncomplete ||
+        flag === ReviewObservationQualityFlag.ReviewPhaseIncomplete,
+    )
+  ) {
+    throw new Error("review_evidence_incomplete_cause_requires_context_flag");
   }
   return Object.freeze(sorted);
 }

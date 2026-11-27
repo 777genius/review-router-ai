@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { selectReportFacts, type UsageProjection } from "../domain/usage";
+import { UsageError, type UsageProjection } from "../domain/usage";
 import type { UsageReportQuery } from "../application/ports";
 import {
   classifyUsageContribution,
@@ -14,30 +14,14 @@ import type { UsageReportObservation } from "../application/report-usage";
 import {
   usageRequestedProviderJoinSql,
   usageRequestedProviderSql,
+  usageBillingSql,
 } from "./usage-requested-provider-sql";
 
-type SelectionMetadata = {
-  identity: Pick<
-    UsageProjection["identity"],
-    | "callId"
-    | "granularity"
-    | "parentScope"
-    | "invocationId"
-    | "provider"
-    | "requestedModel"
-  >;
-  usage: Pick<
-    NonNullable<UsageProjection["usage"]>,
-    "childCallIds" | "completeness"
-  > | null;
-};
 type ProfileDecision = {
   profileKey: (string | null)[];
 } & ReturnType<typeof classifyUsageContribution>;
 type ReportScope = { query: UsageReportQuery; operator: boolean };
 type FamilySelection = {
-  suppressedCallIds: string[];
-  selectedSummaryIds: string[];
   partialChildCount: number;
   unboundedSummaryCount: number;
 };
@@ -119,67 +103,87 @@ function profileKeySql(): Prisma.Sql {
     u."projection"#>'{usage,completeness}',u."projection"#>'{lifecycle,state}',
     u."projection"#>'{lifecycle,dispatchEffect}')`;
 }
-function selectionMetadataSql(): Prisma.Sql {
-  return Prisma.sql`jsonb_build_object('identity',jsonb_build_object(
-    'callId',u."callId",'granularity',u."projection"#>'{identity,granularity}',
-    'parentScope',u."projection"#>'{identity,parentScope}',
-    'invocationId',u."projection"#>'{identity,invocationId}',
-    'provider',${usageRequestedProviderSql()},'requestedModel',u."projection"#>'{identity,requestedModel}'),
-    'usage',CASE WHEN u."projection"->'usage' IS NULL OR u."projection"->'usage'='null'::jsonb
-      THEN NULL ELSE jsonb_build_object('childCallIds',u."projection"#>'{usage,childCallIds}',
-        'completeness',u."projection"#>'{usage,completeness}') END)`;
-}
 function decisionRelation(decisions: readonly ProfileDecision[]): Prisma.Sql {
   return Prisma.sql`profile_decisions AS (
     SELECT * FROM jsonb_to_recordset(${JSON.stringify(decisions)}::jsonb) AS p(
       "profileKey" jsonb,"includeSpend" boolean,"providerAttempt" boolean,
       "partialWeight" integer,"unknownWeight" integer,"diagnosticWeight" integer,"summaryWeight" integer))`;
 }
-function selectedCandidate(selection: FamilySelection): Prisma.Sql {
+/** Keep row-level family metadata inside PostgreSQL, before dimension filters. */
+function familyRelation(scope: ReportScope): Prisma.Sql {
+  return Prisma.sql`family_summaries AS MATERIALIZED (
+    SELECT u."callId" AS "summaryId",
+      u."projection"#>>'{identity,parentScope}' AS "parentScope",
+      u."projection"#>>'{identity,invocationId}' AS "invocationId",
+      ${usageRequestedProviderSql()} AS provider,
+      u."projection"#>>'{identity,requestedModel}' AS model,
+      NULLIF(u."projection"#>'{usage,childCallIds}','null'::jsonb) AS manifest
+    ${fromScope(scope)} WHERE ${scopePredicate(scope)}
+      AND u."projection"#>>'{identity,granularity}'='turn'
+  ), family_members AS MATERIALIZED (
+    SELECT s."summaryId",s."parentScope",s."invocationId",m."childId"
+    FROM family_summaries s
+    CROSS JOIN LATERAL jsonb_array_elements_text(s.manifest) AS m("childId")
+  ), family_children AS MATERIALIZED (
+    SELECT u."callId",u."projection"#>>'{identity,parentScope}' AS "parentScope",
+      u."projection"#>>'{identity,invocationId}' AS "invocationId",
+      u."projection"#>>'{usage,completeness}' AS completeness,
+      ${usageRequestedProviderSql()} AS provider,
+      u."projection"#>>'{identity,requestedModel}' AS model
+    ${fromScope(scope)} WHERE ${scopePredicate(scope)}
+      AND u."projection"#>>'{identity,granularity}'='call'
+      AND EXISTS (SELECT 1 FROM family_members m WHERE m."childId"=u."callId")
+  ), family_matches AS MATERIALIZED (
+    SELECT m."summaryId",c."callId",c.completeness,c.provider,c.model
+    FROM family_members m JOIN family_children c ON c."callId"=m."childId"
+      AND c."parentScope" IS NOT DISTINCT FROM m."parentScope"
+      AND c."invocationId"=m."invocationId"
+  ), family_states AS MATERIALIZED (
+    SELECT s."summaryId",s.provider,s.model,s.manifest,
+      s.manifest IS NOT NULL AND
+        COUNT(m."callId") FILTER (WHERE m.completeness='complete') <> jsonb_array_length(s.manifest)
+        AS selected
+    FROM family_summaries s LEFT JOIN family_matches m USING ("summaryId")
+    GROUP BY s."summaryId",s.provider,s.model,s.manifest
+  ), suppressed_children AS MATERIALIZED (
+    SELECT m."callId",m.provider,m.model FROM family_matches m
+      JOIN family_states s USING ("summaryId") WHERE s.selected
+  )`;
+}
+function selectedCandidate(): Prisma.Sql {
   return Prisma.sql`CASE WHEN u."projection"#>>'{identity,granularity}'='call'
-    THEN u."callId" NOT IN (${jsonValues(selection.suppressedCallIds)})
-    ELSE u."callId" IN (${jsonValues(selection.selectedSummaryIds)}) END`;
+    THEN NOT EXISTS (SELECT 1 FROM suppressed_children c WHERE c."callId"=u."callId")
+    ELSE EXISTS (SELECT 1 FROM family_states s WHERE s."summaryId"=u."callId" AND s.selected) END`;
 }
 
 async function readSelection(
   tx: Prisma.TransactionClient,
   scope: ReportScope,
 ): Promise<FamilySelection> {
-  const summaries = await tx.$queryRaw<{ metadata: SelectionMetadata }[]>(
-    Prisma.sql`/* usage-report:families */ SELECT ${selectionMetadataSql()} AS metadata
-      ${fromScope(scope)} WHERE ${scopePredicate(scope)}
-      AND u."projection"#>>'{identity,granularity}'='turn' ORDER BY u."callId"`,
-  );
-  const referenced = [
-    ...new Set(
-      summaries.flatMap(({ metadata }) => metadata.usage?.childCallIds ?? []),
-    ),
-  ];
-  const children = referenced.length
-    ? await tx.$queryRaw<{ metadata: SelectionMetadata }[]>(
-        Prisma.sql`/* usage-report:children */ SELECT ${selectionMetadataSql()} AS metadata
-          ${fromScope(scope)} WHERE ${scopePredicate(scope)}
-          AND u."projection"#>>'{identity,granularity}'='call'
-          AND u."callId" IN (${jsonValues(referenced)}) ORDER BY u."callId"`,
-      )
-    : [];
-  const selection = selectReportFacts(
-    [...children, ...summaries].map((r) => r.metadata),
-  );
-  const matches = ({ identity }: SelectionMetadata) =>
-    (scope.query.provider === undefined ||
-      identity.provider === scope.query.provider) &&
-    (scope.query.model === undefined ||
-      identity.requestedModel === scope.query.model);
+  const filters: Prisma.Sql[] = [];
+  if (scope.query.provider !== undefined)
+    filters.push(Prisma.sql`provider=${scope.query.provider}`);
+  if (scope.query.model !== undefined)
+    filters.push(Prisma.sql`model=${scope.query.model}`);
+  const matching = filters.length
+    ? Prisma.sql`AND ${Prisma.join(filters, " AND ")}`
+    : Prisma.empty;
+  const [row] = await tx.$queryRaw<
+    {
+      conflict: boolean;
+      partialChildCount: string;
+      unboundedSummaryCount: string;
+    }[]
+  >(Prisma.sql`/* usage-report:families */ WITH ${familyRelation(scope)}
+    SELECT EXISTS(SELECT 1 FROM family_members GROUP BY "childId" HAVING COUNT(*)>1) AS conflict,
+      (SELECT COUNT(*)::text FROM suppressed_children WHERE true ${matching}) AS "partialChildCount",
+      (SELECT COUNT(*)::text FROM family_states WHERE manifest IS NULL ${matching}) AS "unboundedSummaryCount"`);
+  if (row?.conflict) throw new UsageError("usage_authority_conflict");
   return {
-    suppressedCallIds: [
-      ...new Set(selection.partialChildren.map((p) => p.identity.callId)),
-    ],
-    selectedSummaryIds: selection.selected
-      .filter((p) => p.identity.granularity === "turn")
-      .map((p) => p.identity.callId),
-    partialChildCount: selection.partialChildren.filter(matches).length,
-    unboundedSummaryCount: selection.unboundedSummaries.filter(matches).length,
+    partialChildCount: checkedUsageInteger(row?.partialChildCount ?? "0"),
+    unboundedSummaryCount: checkedUsageInteger(
+      row?.unboundedSummaryCount ?? "0",
+    ),
   };
 }
 
@@ -187,36 +191,41 @@ async function readProjectionPage(
   tx: Prisma.TransactionClient,
   scope: ReportScope,
   decisions: readonly ProfileDecision[],
-  selection: FamilySelection,
 ): Promise<{ rows: UsageReportObservation[]; nextCursor: string | null }> {
   const { query: q } = scope;
   const limit = q.limit ?? 100;
   const ids = await tx.$queryRaw<{ callId: string }[]>(
-    Prisma.sql`/* usage-report:observation-page */ WITH ${decisionRelation(decisions)}
+    Prisma.sql`/* usage-report:observation-page */ WITH ${familyRelation(scope)}, ${decisionRelation(decisions)}
       SELECT u."callId" ${fromScope(scope)}
       JOIN profile_decisions p ON p."profileKey"=${profileKeySql()}
       WHERE ${scopePredicate(scope)} ${dimensions(q)} AND p."includeSpend"
-      AND (${selectedCandidate(selection)})
+      AND (${selectedCandidate()})
       ${q.after ? Prisma.sql`AND ${jsOrder(Prisma.sql`u."callId"`)}>${jsOrder(Prisma.sql`${q.after}::text`)}` : Prisma.empty}
       ORDER BY ${jsOrder(Prisma.sql`u."callId"`)} LIMIT ${limit + 1}`,
   );
   const page = ids.slice(0, limit).map((r) => r.callId);
   const rows = page.length
     ? await tx.$queryRaw<
-        { projection: UsageProjection; requestedProvider: string }[]
+        {
+          projection: UsageProjection;
+          requestedProvider: string;
+          billing: NonNullable<UsageReportObservation["billing"]>;
+        }[]
       >(
-        Prisma.sql`/* usage-report:projection-page */ SELECT u."projection",${usageRequestedProviderSql()} AS "requestedProvider"
+        Prisma.sql`/* usage-report:projection-page */ SELECT u."projection",${usageRequestedProviderSql()} AS "requestedProvider",${usageBillingSql()} AS billing
           ${fromScope(scope)} WHERE ${scopePredicate(scope)}
           AND u."callId" IN (${jsonValues(page)})
           ORDER BY ${jsOrder(Prisma.sql`u."callId"`)} LIMIT ${limit}`,
       )
     : [];
   return {
-    rows: rows.map((r) =>
-      r.requestedProvider === r.projection.identity.provider
-        ? r.projection
-        : { ...r.projection, requestedProvider: r.requestedProvider },
-    ),
+    rows: rows.map((r) => ({
+      ...r.projection,
+      billing: r.billing,
+      ...(r.requestedProvider === r.projection.identity.provider
+        ? {}
+        : { requestedProvider: r.requestedProvider }),
+    })),
     nextCursor: ids.length > limit ? page.at(-1)! : null,
   };
 }
@@ -252,7 +261,6 @@ async function readAggregates(
   tx: Prisma.TransactionClient,
   scope: ReportScope,
   decisions: readonly ProfileDecision[],
-  selection: FamilySelection,
   runIds: readonly string[],
 ): Promise<AggregateBucket[]> {
   const tokenColumns = tokenKeys.map(
@@ -323,7 +331,8 @@ async function readAggregates(
       ${bucket.kind === "run" ? Prisma.sql`(array_agg("rawOccurredAt" ORDER BY "occurredAt","rawOccurredAt" COLLATE "C"))[1]` : Prisma.sql`NULL::text`} AS "firstOccurredAt",
       ${bucket.kind === "run" ? Prisma.sql`(array_agg("rawOccurredAt" ORDER BY "occurredAt" DESC,"rawOccurredAt" COLLATE "C" DESC))[1]` : Prisma.sql`NULL::text`} AS "lastOccurredAt",
       ${bucket.kind === "totals" ? Prisma.sql`(array_agg("rawOccurredAt" ORDER BY "occurredAt" DESC,"rawOccurredAt" COLLATE "C" DESC) FILTER (WHERE spend AND ("unknownWeight"=1 OR "partialWeight"=1)))[1]` : Prisma.sql`NULL::text`} AS "latestPendingAt",
-      ${bucket.kind === "run" ? Prisma.sql`jsonb_agg(DISTINCT jsonb_build_object('provider',"requestedProvider",'requestedModel',"requestedModel"))` : Prisma.sql`'[]'::jsonb`} AS identities,
+      ${bucket.kind === "run" ? Prisma.sql`jsonb_agg(DISTINCT jsonb_build_object('provider',"requestedProvider",'requestedModel',"requestedModel",'billing',billing))` : Prisma.sql`'[]'::jsonb`} AS identities,
+      COALESCE(jsonb_agg(DISTINCT billing),'[]'::jsonb) AS billings,
       ${bucket.kind === "run" ? Prisma.sql`array_agg(DISTINCT "observationRoute")` : Prisma.sql`'{}'::text[]`} AS routes,
       bool_or("observationRoute"='direct') AS "hasDirectObservations",
       COUNT(*) FILTER (WHERE "observationRunId" IS NULL)::text AS "observationsWithoutRunId",
@@ -339,16 +348,17 @@ async function readAggregates(
   return tx.$queryRaw<
     AggregateBucket[]
   >(Prisma.sql`/* usage-report:aggregates */ WITH
-    ${decisionRelation(decisions)},
+    ${familyRelation(scope)}, ${decisionRelation(decisions)},
     raw AS MATERIALIZED (
       SELECT u."callId",u."runId" AS "observationRunId",u."route" AS "observationRoute",
         ${usageRequestedProviderSql()} AS "requestedProvider",u."projection"#>>'{identity,requestedModel}' AS "requestedModel",
+        ${usageBillingSql()} AS billing,
         COALESCE(u."projection"#>>'{usage,actualProvider}',${usageRequestedProviderSql()}) AS "observedProvider",
         u."projection"#>>'{usage,actualModel}' AS "observedModel",
         left(u."projection"#>>'{identity,occurredAt}',10) AS day,
         u."occurredAt",u."projection"#>>'{identity,occurredAt}' AS "rawOccurredAt",
         CASE WHEN u."projection"#>>'{identity,granularity}'='call' THEN 0 ELSE 1 END AS "granularityRank",
-        (${selectedCandidate(selection)}) AND p."includeSpend" AS spend,
+        (${selectedCandidate()}) AND p."includeSpend" AS spend,
         p."providerAttempt",p."partialWeight",p."unknownWeight",p."diagnosticWeight",p."summaryWeight",
         ${Prisma.join(tokenColumns)},
         u."projection"#>>'{usage,cost,currency}' AS currency,
@@ -368,7 +378,7 @@ async function readAggregates(
     SELECT m."bucketKey"->>0 AS kind,m."bucketKey"->>1 AS provider,m."bucketKey"->>2 AS model,
       m."bucketKey"->>3 AS route,m."bucketKey"->>4 AS day,m."bucketKey"->>5 AS "runId",
       m.totals||jsonb_build_object('costs',COALESCE(c.costs,'[]'::jsonb)) AS totals,
-      m."observedModels",m."hasUnknownObservedModel",m."firstOccurredAt",m."lastOccurredAt",m."latestPendingAt",m.identities,m.routes,
+      m."observedModels",m."hasUnknownObservedModel",m."firstOccurredAt",m."lastOccurredAt",m."latestPendingAt",m.identities,m.billings,m.routes,
       m."hasDirectObservations",m."observationsWithoutRunId"
     FROM metrics m LEFT JOIN cost_arrays c USING ("bucketKey")
     ORDER BY m."bucketKey"->>0,
@@ -412,10 +422,10 @@ export async function readPrismaUsagePeriodReport(
     Prisma.sql`/* usage-report:facets */ SELECT DISTINCT ${usageRequestedProviderSql()} AS provider,u."projection"#>>'{identity,requestedModel}' AS "requestedModel"
       ${fromScope(scope)} WHERE ${scopePredicate(scope)}`,
   );
-  const page = await readProjectionPage(tx, scope, decisions, selection);
+  const page = await readProjectionPage(tx, scope, decisions);
   const runs = await readRunPage(tx, scope);
   const buckets = profiles.length
-    ? await readAggregates(tx, scope, decisions, selection, runs.runIds)
+    ? await readAggregates(tx, scope, decisions, runs.runIds)
     : [];
   const totals = buckets.find((b) => b.kind === "totals");
   return buildUsagePeriodReportFromAggregates({

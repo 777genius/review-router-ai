@@ -9,9 +9,16 @@ import type { PrismaClient, Prisma } from "@prisma/client";
 import type {
   GitHubRepositorySnapshot,
   RepositoryConnectionSummary,
-  RepositorySyncResult,
 } from "../../domain/repository-connection";
-import type { RepositoryConnectionRepositoryPort } from "../../application/ports/repository-connection-repository-port";
+import type {
+  RepositoryConnectionRepositoryPort,
+  RepositoryInventorySyncResult,
+} from "../../application/ports/repository-connection-repository-port";
+
+import {
+  applyRepositorySyncPolicy,
+  type RepositorySyncPolicy,
+} from "../../domain/repository-sync-policy";
 
 function toVisibility(value: GitHubRepositorySnapshot["visibility"]) {
   return value;
@@ -33,107 +40,134 @@ export class PrismaRepositoryConnectionRepository implements RepositoryConnectio
     repositories: readonly GitHubRepositorySnapshot[];
     syncedAt: Date;
     inventoryGeneration: bigint;
-  }): Promise<RepositorySyncResult> {
+    syncPolicy?: RepositorySyncPolicy;
+  }): Promise<RepositoryInventorySyncResult> {
     if (input.inventoryGeneration <= 0n)
       throw new Error("repository_inventory_generation_invalid");
-
-    let upserted = 0;
-    for (const repository of input.repositories) {
-      const applied = await workflowProvisioningTransaction(
-        this.prisma,
-        async (tx) => {
-          const installation = await lockInstallationInventory(
-            tx,
-            input.githubInstallationId,
-          );
-          const previous = await tx.repositoryConnection.findUnique({
-            where: {
-              githubRepositoryId: BigInt(repository.githubRepositoryId),
-            },
-            select: {
-              id: true,
-              workspaceId: true,
-              installationId: true,
-              inventoryGeneration: true,
-              defaultBranch: true,
-              fullName: true,
-              selected: true,
-              scmRepositoryIdentityId: true,
-            },
-          });
+    const seenRepositoryIds = input.repositories.map((repository) =>
+      BigInt(repository.githubRepositoryId),
+    );
+    const result = await workflowProvisioningTransaction(
+      this.prisma,
+      async (tx) => {
+        const installation = await lockInstallationInventory(
+          tx,
+          input.githubInstallationId,
+        );
+        // Read the entire incoming identity set before quota admission: a transfer
+        // must still fence the previous workspace even if it falls outside the cap.
+        const previousRows =
+          seenRepositoryIds.length === 0
+            ? []
+            : await tx.repositoryConnection.findMany({
+                where: { githubRepositoryId: { in: seenRepositoryIds } },
+                select: {
+                  id: true,
+                  githubRepositoryId: true,
+                  workspaceId: true,
+                  installationId: true,
+                  inventoryGeneration: true,
+                  defaultBranch: true,
+                  fullName: true,
+                  selected: true,
+                  scmRepositoryIdentityId: true,
+                },
+              });
+        let reconnectRequired = false;
+        for (const previous of previousRows) {
           if (
-            previous &&
-            (previous.workspaceId !== installation.workspaceId ||
-              previous.installationId !== installation.id)
-          ) {
-            await fenceRepositoryForReconnect(tx, {
-              repositoryId: previous.id,
-              workspaceId: previous.workspaceId,
-              wasSelected: previous.selected,
-              scmRepositoryIdentityId: previous.scmRepositoryIdentityId,
-              fencedAt: input.syncedAt,
-              inventoryGeneration:
-                previous.inventoryGeneration > input.inventoryGeneration
-                  ? previous.inventoryGeneration
-                  : input.inventoryGeneration,
-            });
-            return "reconnect_required" as const;
-          }
-          // Binding mismatches must be fenced even when the incoming inventory
-          // generation would otherwise be treated as a replay.
+            previous.workspaceId === installation.workspaceId &&
+            previous.installationId === installation.id
+          )
+            continue;
+          await fenceRepositoryForReconnect(tx, {
+            repositoryId: previous.id,
+            workspaceId: previous.workspaceId,
+            wasSelected: previous.selected,
+            scmRepositoryIdentityId: previous.scmRepositoryIdentityId,
+            fencedAt: input.syncedAt,
+            inventoryGeneration:
+              previous.inventoryGeneration > input.inventoryGeneration
+                ? previous.inventoryGeneration
+                : input.inventoryGeneration,
+          });
+          reconnectRequired = true;
+        }
+        // Commit transfer revocation before reporting the reconnect requirement.
+        if (reconnectRequired) return null;
+        const empty = {
+          installationId: input.githubInstallationId,
+          seen: input.repositories.length,
+          upserted: 0,
+          unselected: 0,
+          skippedDueToLimit: 0,
+          synchronizedRepositories: [] as GitHubRepositorySnapshot[],
+        };
+        // Installation-wide watermark also rejects stale, previously unseen inserts.
+        if (installation.inventoryGeneration >= input.inventoryGeneration)
+          return empty;
+        const previousById = new Map(
+          previousRows.flatMap((row) =>
+            row.githubRepositoryId === null
+              ? []
+              : [[row.githubRepositoryId.toString(), row] as const],
+          ),
+        );
+        const admittedIds = new Set(
+          previousRows
+            .filter((row) => row.selected)
+            .flatMap((row) =>
+              row.githubRepositoryId === null
+                ? []
+                : [row.githubRepositoryId.toString()],
+            ),
+        );
+        const selection = applyRepositorySyncPolicy(
+          input.repositories,
+          input.syncPolicy,
+          admittedIds,
+        );
+        const synchronizedRepositories: GitHubRepositorySnapshot[] = [];
+        for (const repository of selection.repositories) {
+          const previous = previousById.get(repository.githubRepositoryId);
           if (
             previous &&
             previous.inventoryGeneration >= input.inventoryGeneration
           )
-            return false;
+            continue;
+          const data = {
+            workspaceId: installation.workspaceId,
+            provider: "github" as const,
+            sourceBaseUrl: "https://github.com",
+            externalRepositoryId: repository.githubRepositoryId,
+            installationId: installation.id,
+            owner: repository.owner,
+            name: repository.name,
+            fullName: repository.fullName,
+            defaultBranch: repository.defaultBranch,
+            visibility: toVisibility(repository.visibility),
+            archived: repository.archived,
+            stargazersCount: repository.stargazersCount,
+            selected: true,
+            lastSyncedAt: input.syncedAt,
+            inventoryGeneration: input.inventoryGeneration,
+          };
           await tx.repositoryConnection.upsert({
             where: {
               githubRepositoryId: BigInt(repository.githubRepositoryId),
             },
-            update: {
-              workspaceId: installation.workspaceId,
-              provider: "github",
-              sourceBaseUrl: "https://github.com",
-              externalRepositoryId: repository.githubRepositoryId,
-              installationId: installation.id,
-              owner: repository.owner,
-              name: repository.name,
-              fullName: repository.fullName,
-              defaultBranch: repository.defaultBranch,
-              visibility: toVisibility(repository.visibility),
-              archived: repository.archived,
-              stargazersCount: repository.stargazersCount,
-              selected: true,
-              lastSyncedAt: input.syncedAt,
-              inventoryGeneration: input.inventoryGeneration,
-            },
+            update: data,
             create: {
-              workspaceId: installation.workspaceId,
-              provider: "github",
-              sourceBaseUrl: "https://github.com",
-              externalRepositoryId: repository.githubRepositoryId,
-              installationId: installation.id,
+              ...data,
               githubRepositoryId: BigInt(repository.githubRepositoryId),
-              owner: repository.owner,
-              name: repository.name,
-              fullName: repository.fullName,
-              defaultBranch: repository.defaultBranch,
-              visibility: toVisibility(repository.visibility),
-              archived: repository.archived,
-              stargazersCount: repository.stargazersCount,
-              selected: true,
-              lastSyncedAt: input.syncedAt,
-              inventoryGeneration: input.inventoryGeneration,
             },
           });
-          const durableIdentityChanged =
-            previous !== null &&
+          if (
+            previous?.scmRepositoryIdentityId &&
             (previous.selected === false ||
               previous.fullName !== repository.fullName ||
-              previous.defaultBranch !== repository.defaultBranch ||
-              previous.workspaceId !== installation.workspaceId ||
-              previous.installationId !== installation.id);
-          if (durableIdentityChanged && previous.scmRepositoryIdentityId) {
+              previous.defaultBranch !== repository.defaultBranch)
+          ) {
             await rotateScmRepositoryIdentityEpoch(tx, {
               scmRepositoryIdentityId: previous.scmRepositoryIdentityId,
               repositoryConnectionId: previous.id,
@@ -141,66 +175,59 @@ export class PrismaRepositoryConnectionRepository implements RepositoryConnectio
               boundAt: input.syncedAt,
             });
           }
-          return true;
-        },
-      );
-      if (applied === "reconnect_required") {
-        throw new Error("repository_transfer_reconnect_reselection_required");
-      }
-      if (applied) upserted++;
-    }
-
-    const seenRepositoryIds = input.repositories.map((repository) =>
-      BigInt(repository.githubRepositoryId),
-    );
-    const unselected = await this.prisma.$transaction(async (tx) => {
-      const installation = await lockInstallationInventory(
-        tx,
-        input.githubInstallationId,
-      );
-      const removalWhere = {
-        installationId: installation.id,
-        selected: true,
-        inventoryGeneration: { lt: input.inventoryGeneration },
-        ...(seenRepositoryIds.length > 0
-          ? { githubRepositoryId: { notIn: seenRepositoryIds } }
-          : {}),
-      } as const;
-      const removed = await tx.repositoryConnection.findMany({
-        where: removalWhere,
-        select: {
-          id: true,
-          workspaceId: true,
-          scmRepositoryIdentityId: true,
-        },
-      });
-      for (const repository of removed) {
-        if (repository.scmRepositoryIdentityId) {
-          await rotateRemovedScmRepositoryIdentityEpoch(tx, {
-            scmRepositoryIdentityId: repository.scmRepositoryIdentityId,
-            repositoryConnectionId: repository.id,
-            currentWorkspaceId: repository.workspaceId,
-            removedAt: input.syncedAt,
-          });
+          synchronizedRepositories.push(repository);
         }
-      }
-      return tx.repositoryConnection.updateMany({
-        where: removalWhere,
-        data: {
-          selected: false,
-          lastSyncedAt: input.syncedAt,
-          inventoryGeneration: input.inventoryGeneration,
-        },
-      });
-    });
-
-    return {
-      installationId: input.githubInstallationId,
-      seen: input.repositories.length,
-      upserted,
-      unselected: unselected.count,
-      skippedDueToLimit: 0,
-    };
+        // Only absence from the full GitHub inventory means removal.
+        const removalWhere = {
+          installationId: installation.id,
+          selected: true,
+          inventoryGeneration: { lt: input.inventoryGeneration },
+          ...(seenRepositoryIds.length > 0
+            ? { githubRepositoryId: { notIn: seenRepositoryIds } }
+            : {}),
+        } as const;
+        const removed = await tx.repositoryConnection.findMany({
+          where: removalWhere,
+          select: {
+            id: true,
+            workspaceId: true,
+            scmRepositoryIdentityId: true,
+          },
+        });
+        for (const repository of removed) {
+          if (repository.scmRepositoryIdentityId) {
+            await rotateRemovedScmRepositoryIdentityEpoch(tx, {
+              scmRepositoryIdentityId: repository.scmRepositoryIdentityId,
+              repositoryConnectionId: repository.id,
+              currentWorkspaceId: repository.workspaceId,
+              removedAt: input.syncedAt,
+            });
+          }
+        }
+        const unselected = await tx.repositoryConnection.updateMany({
+          where: removalWhere,
+          data: {
+            selected: false,
+            lastSyncedAt: input.syncedAt,
+            inventoryGeneration: input.inventoryGeneration,
+          },
+        });
+        await tx.gitHubInstallation.update({
+          where: { id: installation.id },
+          data: { inventoryGeneration: input.inventoryGeneration },
+        });
+        return {
+          ...empty,
+          upserted: synchronizedRepositories.length,
+          unselected: unselected.count,
+          skippedDueToLimit: selection.skippedDueToLimit,
+          synchronizedRepositories,
+        };
+      },
+    );
+    if (result === null)
+      throw new Error("repository_transfer_reconnect_reselection_required");
+    return result;
   }
 
   async listWorkspaceRepositories(
@@ -305,8 +332,8 @@ async function fenceRepositoryForReconnect(
  * No stable installation-wide fanout lock exists: inserts have no repository ID
  * yet, transfers can change both workspaces, and trailing unselection targets a
  * predicate. A short global exclusive guard covers that entire old/new union.
- * Acquire at each existing transaction boundary, before provisioning reads/locks;
- * retain per-repository Serializable retries and the separate trailing update.
+ * The inventory admission, writes, removal and installation watermark share one
+ * bounded Serializable transaction, before provisioning reads/locks.
  * No network work runs here. This is serialization, not installation admission.
  */
 async function lockInstallationInventory(
@@ -316,7 +343,7 @@ async function lockInstallationInventory(
   await acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "exclusive" }]);
   const installation = await tx.gitHubInstallation.findUnique({
     where: { githubInstallationId: BigInt(githubInstallationId) },
-    select: { id: true, workspaceId: true },
+    select: { id: true, workspaceId: true, inventoryGeneration: true },
   });
   if (!installation)
     throw new Error(`GitHub installation not found: ${githubInstallationId}`);

@@ -1,3 +1,4 @@
+import { withReviewRequestedIoTimeout as withIoTimeout } from "./review-requested-io-timeout";
 import type { ReviewRequestedIntent } from "../../domain/review-requested-intent";
 import {
   ReviewRequestedClaimStatus,
@@ -61,16 +62,19 @@ export class DispatchDueReviewRequestedIntents {
   async execute(input: {
     readonly ownerIdHash: string;
     readonly limit: number;
+    readonly signal?: AbortSignal;
   }): Promise<DispatchDueReviewRequestedIntentsResult> {
     assertOwnerHash(input.ownerIdHash);
     assertLimit(input.limit);
     const excludedAtQuery = new Set(this.inFlightPreparations);
-    const due = await this.queries.listDue({
-      now: this.clock.now(),
-      limit: input.limit,
-      excludeRequestIds: [...excludedAtQuery],
-      excludeAlwaysRequestIds: [...this.inFlightBeginnings.keys()],
-    });
+    const due = input.signal?.aborted
+      ? []
+      : await this.queries.listDue({
+          now: this.clock.now(),
+          limit: input.limit,
+          excludeRequestIds: [...excludedAtQuery],
+          excludeAlwaysRequestIds: [...this.inFlightBeginnings.keys()],
+        });
     const claimedScopes = new Set<string>();
     let claimed = 0;
     let dispatched = 0;
@@ -94,6 +98,8 @@ export class DispatchDueReviewRequestedIntents {
     }> = [];
 
     for (const candidate of due) {
+      // An already issued claim is drained below; stop before the next claim.
+      if (input.signal?.aborted) break;
       if (this.inFlightBeginnings.has(candidate.requestId)) continue;
       if (this.inFlightPreparations.has(candidate.requestId)) {
         // An abandoned, still-running read cannot issue a POST. At its 24h
@@ -465,30 +471,6 @@ const maximumPreparationsInFlight = 32;
 const maximumSubmissionsInFlight = 32;
 const maximumPreparationWaitMs = 5_000;
 const maximumSubmissionWaitMs = 5_000;
-
-/** Bound observation, not the lifetime of an operation that ignores abort. */
-async function withIoTimeout<T>(
-  timeoutMs: number,
-  work: (signal: AbortSignal) => Promise<T>,
-  onSoftTimeout?: () => void,
-): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const controller = new AbortController();
-  try {
-    return await Promise.race([
-      work(controller.signal),
-      new Promise<never>((_resolve, reject) => {
-        timeout = setTimeout(() => {
-          if (onSoftTimeout) onSoftTimeout();
-          else controller.abort();
-          reject(new Error("review_requested_preparation_timeout"));
-        }, timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timeout !== undefined) clearTimeout(timeout);
-  }
-}
 
 function intentScopeKey(input: {
   readonly workspaceId: string;

@@ -485,6 +485,7 @@ function fixture(
     gatewayRevision: 999,
   };
   return {
+    input,
     api,
     canonical,
     request,
@@ -535,6 +536,111 @@ function fixture(
 }
 
 describe("personal canonical UI server boundary", () => {
+  it.each([
+    ["UUIDv1", "9874b2bc-e987-1456-9212-7f94f58932da", false],
+    ["UUIDv7", "9874b2bc-e987-7456-9212-7f94f58932da", false],
+    ["uppercase UUIDv4", nonce.toUpperCase(), false],
+    ["lowercase UUIDv4", nonce, true],
+  ] as const)(
+    "keeps native begin and recovery on the same nonce contract (%s)",
+    async (_kind, value, accepted) => {
+      const f = fixture();
+      const connection = {
+        profileId: f.profileId,
+        methodId: "browser",
+        methodRevision: 1,
+        configurationGeneration: "generation-1",
+      };
+      const read = vi.spyOn(f.store, "readOperation").mockResolvedValue({
+        id: personalOperationId("user-u", value),
+        intent: {
+          action: "connect",
+          actorUserId: "user-u",
+          personalWorkspaceId: "personal-u",
+          clientOperationId: value,
+          proposedSourceId: "original-native-source",
+          profileId: f.profileId,
+          displayName: "Original native account",
+          ingress: "native-begin",
+          nativeConnection: { schemaVersion: 1, ...connection },
+        },
+        phase: "rejected",
+        source: null,
+        binding: null,
+        available: false,
+      });
+      const operation = {
+        nonce: value,
+        state: "rejected",
+        cleanup: "unresolved",
+      };
+      expect(
+        await f.api.beginGatewayNativeConnection(
+          "",
+          { nonce: value, connection },
+          {},
+        ),
+      ).toEqual(
+        accepted
+          ? { status: "ok", value: { operation } }
+          : { status: "invalid" },
+      );
+      for (const result of [
+        await f.api.readGatewayOperation("", value),
+        await f.api.continueGatewayNativeConnection("", value),
+      ])
+        expect(result).toEqual(
+          accepted ? { status: "ok", value: operation } : { status: "invalid" },
+        );
+      if (accepted) expect(read).toHaveBeenCalledWith("user-u", value);
+      else expect(read).not.toHaveBeenCalled();
+      expect(f.control.profiles).not.toHaveBeenCalled();
+      expect(f.control.operation).not.toHaveBeenCalled();
+      expect(f.delegate.connect).not.toHaveBeenCalled();
+      expect(f.intents).toEqual([]);
+    },
+  );
+
+  it.each(["api_key", "oauth", "unknown"] as const)(
+    "preserves account %s identity when the native catalog has no auth kind",
+    async (authKind) => {
+      const f = fixture();
+      const account = await f.control.get();
+      const api = createPersonalCanonicalAccounts({
+        ...f.input,
+        lifecycleReader: {
+          get: async () => ({ ...account, authKind }),
+          compatible: async () => true,
+          writable: async () => false,
+        },
+        catalogue: async () => [
+          {
+            id: f.profileId,
+            label: "Native account",
+            protocol: "openai-responses",
+            models: [],
+            connection: {
+              provider: "mimo",
+              planLabel: "Native plan",
+              regionLabel: "Global",
+              completionInputKind: "none",
+              limitsContract: "none",
+              modelSettings: [],
+              nativeMethods: [],
+            },
+          },
+        ],
+      });
+      const page = await api.listGatewayAccounts("", null);
+      expect(page.status).toBe("ok");
+      if (page.status !== "ok") throw new Error("expected account inventory");
+      expect(page.value.accounts).toHaveLength(1);
+      expect(page.value.accounts[0]?.authKind).toBe(
+        authKind === "unknown" ? undefined : authKind,
+      );
+    },
+  );
+
   it("denies fresh unqualified NVIDIA enrollment but preserves existing account lifecycle", async () => {
     const f = fixture({ nvidia: "unqualified" });
     expect(
@@ -1496,4 +1602,36 @@ describe("lazy native admission and durable personal recovery", () => {
     expect(f.delegate.connect).not.toHaveBeenCalled();
     expect(f.control.get).not.toHaveBeenCalled();
   });
+});
+
+it("keeps personal local inventory available when the first catalogue read consumes the page budget", async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  const signals: AbortSignal[] = [];
+  const catalogue = vi.fn(
+    (read?: import("./account-inventory-enrichment").AccountInventoryRead) =>
+      read!((signal) => {
+        signals.push(signal);
+        return new Promise<never>(() => {});
+      }),
+  );
+  const api = createPersonalCanonicalAccounts({ ...f.input, catalogue });
+  try {
+    const pending = api.listGatewayAccounts("ignored-display-context", null);
+    await vi.advanceTimersByTimeAsync(3000);
+    const result = await pending;
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") throw new Error("inventory_expected");
+    expect(result.value.accounts).toMatchObject([
+      { connectionId: "own-source", label: "Personal", readiness: "unknown" },
+    ]);
+    expect(f.control.get).not.toHaveBeenCalled();
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.aborted).toBe(true);
+    expect(f.intents).toHaveLength(0);
+    expect(f.deliverFences).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
 });

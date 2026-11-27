@@ -15,13 +15,13 @@ describe("PrismaSupportDiagnosticsRepository", () => {
           archived: false,
           setupStatus: "needs_attention" as const,
           provisioning: [{ status: "configured" as const }],
-          actionHealth: [],
         },
       ],
       provisioning: [{ status: "configured" as const }],
       auditEvents: [],
     }));
     const prisma = {
+      $queryRaw: vi.fn(async () => []),
       workspace: { findUnique: workspaceFindUnique },
       outboxEvent: {
         groupBy: vi.fn(async () => [

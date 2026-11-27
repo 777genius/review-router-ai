@@ -3,7 +3,6 @@ import {
   nvidiaProfileId,
 } from "./account-connection-catalog";
 import { directNativeAPIProfiles } from "../features/account-gateway/native-api-profiles";
-import { connectionMethodAllowed } from "../features/account-gateway/connection-capabilities";
 import {
   subscriptionProfileDefinition,
   subscriptionProfileProviders,
@@ -11,17 +10,18 @@ import {
 import { gatewayAPIKeyProviderKinds } from "../features/provider-setup/provider-identity";
 import { createAccountLimitsService } from "./account-limits-service";
 import { createAccountMetadataService } from "./account-metadata-service";
+import type { AccountInventoryRead } from "./account-inventory-enrichment";
 import { accountMetadataReader } from "./account-metadata-sdk-reader";
 import {
   accountLimitsReader,
   accountLimitsRefresher,
 } from "./account-limits-composition";
 import { createAccountLifecycleReader } from "./account-lifecycle-reader";
+import { createNativeConnectionConsumerControlClient } from "./native-connection-client";
 import { createHash } from "node:crypto";
 import * as c from "@agent-teams/account-gateway/contracts";
 import {
-  createLifecycleClient,
-  createConsumerControlClient,
+  createLifecycleV3Client,
   createManagementClient,
 } from "@agent-teams/account-gateway/http";
 import {
@@ -107,13 +107,14 @@ export async function productionPersonalAccounts() {
     timeoutMs: 10000,
     responseBytes: accountModelCatalogResponseBytes,
   };
-  const control = createConsumerControlClient(controlSettings);
+  const control = createNativeConnectionConsumerControlClient(controlSettings);
   const lifecycleReader = createAccountLifecycleReader({
+    contract: "account-lifecycle/v3",
     legacy: control,
-    lifecycle: createLifecycleClient({
+    lifecycle: createLifecycleV3Client({
       ...controlSettings,
-      capability: c.LIFECYCLE_CAPABILITY_CONTRACT,
-      clientContract: c.LIFECYCLE_CLIENT_CONTRACT,
+      capability: c.LIFECYCLE_V3_CAPABILITY_CONTRACT,
+      clientContract: c.LIFECYCLE_V3_CLIENT_CONTRACT,
     }),
   });
   const prisma = getPrisma();
@@ -178,90 +179,33 @@ export async function productionPersonalAccounts() {
         availability: "deployment_configuration_required",
       });
   }
-  let connectionCapabilitiesV2:
-    | (() => Promise<c.ProviderConnectionCapabilitiesV2>)
-    | undefined;
-  if (
-    (settings.subscriptionProfileIds?.length ?? 0) > 0 ||
-    (process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN &&
-      process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN)
-  ) {
-    const managementSettings = {
-      role: "management" as const,
-      origin: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "",
-      token: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN ?? "",
-      timeoutMs: 10000,
-      responseBytes: 65536,
-    };
-    let v2: Promise<c.ProviderConnectionCapabilitiesV2> | undefined;
-    connectionCapabilitiesV2 = () =>
-      (v2 ??= checked(() =>
-        createManagementClient(
-          managementSettings,
-        ).getProviderConnectionCapabilitiesV2(),
-      ));
-  }
-  async function catalogue(): Promise<AccountProfileView[]> {
-    const live = await checked(() => control.profiles());
-    const configured = legacyProfiles.flatMap((profile) => {
-      const wire = live.profiles.find(
-        (entry) =>
-          entry.profileId === profile.id &&
-          entry.authKinds.includes(profile.authKind),
-      );
-      return wire
-        ? [
-            {
-              ...profile,
-              // This placeholder denies NVIDIA without native qualification;
-              // the catalog's exact-ID/provider guard owns its live status.
-              ...(profile.provider === "nvidia"
-                ? { availability: undefined }
-                : {}),
-              protocol: wire.protocol,
-              models: [...wire.modelIds],
-            },
-          ]
-        : [];
-    });
-    return checked(async () => {
-      const qualified = await connectionProfiles({
-        legacy: configured,
-        subscriptionProfileIds: settings.subscriptionProfileIds ?? [],
-        ...(connectionCapabilitiesV2
-          ? { capabilitiesV2: connectionCapabilitiesV2 }
-          : {}),
-      });
-      return qualified.map((profile) => {
-        if (profile.id !== settings.codexOAuthProfileId) return profile;
-        if (!profile.connection?.methods)
-          return { ...profile, canReconnect: false };
-        // The personal journal supports browser and credential-import reconnect;
-        // device authorization is supported only when creating an account.
-        const bounded = {
-          ...profile,
-          connection: {
-            ...profile.connection,
-            methods: profile.connection.methods.map((method) =>
-              method.kind === "device_code"
-                ? { ...method, reconnect: false }
-                : method,
-            ),
-          },
-        };
-        return {
-          ...bounded,
-          canReconnect: bounded.connection.methods.some((method) =>
-            connectionMethodAllowed(
-              bounded,
-              "reconnect",
-              method.kind,
-              method.kind === "credential_import" ? method.method : undefined,
-            ),
-          ),
-        };
-      });
-    });
+  let v3: Promise<c.ProviderConnectionCapabilitiesV3> | undefined;
+  const connectionCapabilitiesV3 = (read?: AccountInventoryRead) => {
+    const request = (signal?: AbortSignal) =>
+      (v3 ??= control
+        .getProviderConnectionCapabilitiesV3(signal ? { signal } : undefined)
+        .then((catalog) => {
+          if (signal?.aborted)
+            throw new Error("account_inventory_enrichment_unavailable");
+          return catalog;
+        })
+        .catch((error) => {
+          v3 = undefined;
+          throw error;
+        }));
+    // Catalogue's outer checked() owns the live session fence. Cache only the
+    // actual transport, so a page timeout cannot start an overlapping attempt.
+    return read ? read((signal) => request(signal)) : request();
+  };
+  async function catalogue(
+    read?: AccountInventoryRead,
+  ): Promise<AccountProfileView[]> {
+    return checked(() =>
+      connectionProfiles({
+        legacy: [],
+        capabilitiesV3: () => connectionCapabilitiesV3(read),
+      }),
+    );
   }
   const ingress = new Map(
     profiles.map((profile) => [
@@ -281,7 +225,7 @@ export async function productionPersonalAccounts() {
     });
   const gateway = {
     async get(actorUserId: string, accountRef: string, profileId: string) {
-      if (actorUserId !== userId || !ingress.has(profileId))
+      if (actorUserId !== userId)
         throw new ProviderAccountError("connection_unavailable");
       const account = await checked(() => control.get(accountRef));
       if (
@@ -387,9 +331,10 @@ export async function productionPersonalAccounts() {
         target: Parameters<
           import("@reviewrouter/features-provider-accounts").AccountLimitsReader["read"]
         >[0],
+        options?: { signal?: AbortSignal },
       ) {
         cachedReader ??= accountLimitsReader(limitsSettings);
-        return (await cachedReader).read(target);
+        return (await cachedReader).read(target, options);
       },
     };
     return createAccountLimitsService({
@@ -592,7 +537,6 @@ export async function productionPersonalAccounts() {
   }
   async function overview(workspaceId: string) {
     await workspaceAccess(workspaceId);
-    const qualified = await catalogue();
     const managementSettings = {
       role: "management" as const,
       origin: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "",
@@ -601,11 +545,12 @@ export async function productionPersonalAccounts() {
       responseBytes: 65536,
     };
     const overviewReader = createAccountLifecycleReader({
+      contract: "account-lifecycle/v3",
       legacy: createManagementClient(managementSettings),
-      lifecycle: createLifecycleClient({
+      lifecycle: createLifecycleV3Client({
         ...managementSettings,
-        capability: c.LIFECYCLE_CAPABILITY_CONTRACT,
-        clientContract: c.LIFECYCLE_CLIENT_CONTRACT,
+        capability: c.LIFECYCLE_V3_CAPABILITY_CONTRACT,
+        clientContract: c.LIFECYCLE_V3_CLIENT_CONTRACT,
       }),
     });
     return createAccountsOverview({
@@ -616,14 +561,12 @@ export async function productionPersonalAccounts() {
       gateway: overviewReader,
       visibleRepositoryIds: () => usageRepositoryVisibility(workspaceId),
       lifecycleCompatible: overviewReader.writable,
-      profiles: profiles.map(
-        (identity) =>
-          qualified.find((profile) => profile.id === identity.id) ?? {
-            ...identity,
-            availability: "deployment_configuration_required",
-            canReconnect: false,
-          },
-      ),
+      loadProfiles: catalogue,
+      profiles: profiles.map((identity) => ({
+        ...identity,
+        availability: "deployment_configuration_required",
+        canReconnect: false,
+      })),
       ...(settings.operatorWorkspaceId
         ? { operatorWorkspaceId: settings.operatorWorkspaceId }
         : {}),

@@ -816,6 +816,7 @@ function PersonalControls({
                             profileLabel: account.profileLabel,
                             provider: account.provider,
                             authKind: account.authKind,
+                            nativeCredential: account.nativeCredential,
                             connection: account.connection,
                             metadata: lifecycleActivities.has(id)
                               ? {

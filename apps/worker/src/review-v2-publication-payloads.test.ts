@@ -258,6 +258,62 @@ describe("canonical review v2 projection adapter", () => {
     });
   });
 
+  it("rejects noncanonical and malformed persisted projection envelopes", async () => {
+    const artifact = finalizedArtifact();
+    const adapter = new CanonicalReviewV2ProjectionAdapter({
+      async findArtifact() {
+        return null;
+      },
+    });
+    const projection = JSON.parse(artifact.projectionEnvelopeJson);
+
+    await expect(
+      adapter.snapshotProjection({ ...artifact, projectionEnvelopeJson: "{" }),
+    ).rejects.toThrow("review_v2_projection_invalid_json");
+    await expect(
+      adapter.snapshotProjection({
+        ...artifact,
+        projectionEnvelopeJson: JSON.stringify(projection, null, 2),
+      }),
+    ).rejects.toThrow("review_v2_projection_not_canonical");
+
+    projection.publishing.summary.occurrenceCounts.new =
+      Number.MAX_SAFE_INTEGER;
+    projection.publishing.summary.occurrenceCounts.changed = 1;
+    await expect(
+      adapter.snapshotProjection({
+        ...artifact,
+        projectionEnvelopeJson: canonicalJson(projection),
+      }),
+    ).rejects.toThrow("review_v2_projection_shape_invalid");
+  });
+
+  it("rejects invalid snapshot occurrence and lineage identifiers", async () => {
+    const artifact = finalizedArtifact();
+    const adapter = new CanonicalReviewV2ProjectionAdapter({
+      async findArtifact() {
+        return null;
+      },
+    });
+    const projection = JSON.parse(artifact.projectionEnvelopeJson);
+    projection.occurrences[0].observationIds = [" invalid"];
+    await expect(
+      adapter.snapshotProjection({
+        ...artifact,
+        projectionEnvelopeJson: canonicalJson(projection),
+      }),
+    ).rejects.toThrow("identifier_invalid");
+
+    projection.occurrences[0].observationIds = ["observation-1"];
+    projection.snapshot.lineageHints[0].lineageId = "";
+    await expect(
+      adapter.snapshotProjection({
+        ...artifact,
+        projectionEnvelopeJson: canonicalJson(projection),
+      }),
+    ).rejects.toThrow("lineage_id_invalid");
+  });
+
   it("publishes only an explicit generated narrative and withholds it for partial coverage", async () => {
     for (const partial of [false, true]) {
       const artifact = finalizedArtifact({

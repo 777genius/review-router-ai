@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   extendReviewRequestedQueuedRunWait,
   RecoverReviewRequestedDispatches,
@@ -211,8 +211,141 @@ describe("queued run wait (recovery)", () => {
   });
 });
 
+describe("bounded recovery observation", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("takes no new recovery observations after stop, including a raced due query", async () => {
+    const fixture = await recoveryHarness(async () => queued);
+    fixture.setNow(at(28));
+    const original = fixture.intents.listDueForResolution.bind(fixture.intents);
+    const scan = vi.spyOn(fixture.intents, "listDueForResolution");
+    const stopped = new AbortController();
+    stopped.abort();
+    await expect(
+      fixture.recovery.execute({ limit: 10, signal: stopped.signal }),
+    ).resolves.toEqual({ scanned: 0, pending: 0, recovered: 0, failed: 0 });
+    expect(scan).not.toHaveBeenCalled();
+
+    const racing = new AbortController();
+    scan.mockImplementationOnce(async (input) => {
+      const candidates = await original(input);
+      racing.abort();
+      return candidates;
+    });
+    await expect(
+      fixture.recovery.execute({ limit: 10, signal: racing.signal }),
+    ).resolves.toEqual({ scanned: 1, pending: 1, recovered: 0, failed: 0 });
+    expect(fixture.inspectRunnerWait).not.toHaveBeenCalled();
+    expect(fixture.gateway.inspectKnownRun).not.toHaveBeenCalled();
+    await fixture.recovery.execute({ limit: 10 });
+    expect(fixture.inspectRunnerWait).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["findByRequestIdentity", "inspectKnownRun"] as const)(
+    "bounds a pass and retains an abort-ignoring %s until settlement",
+    async (method) => {
+      vi.useFakeTimers({
+        toFake: ["setTimeout", "clearTimeout", "performance"],
+      });
+      const harness = await recoveryHarness(
+        async () => queued,
+        method !== "findByRequestIdentity",
+      );
+      harness.setNow(at(1));
+      const first = (await harness.intent())!;
+      const query = vi
+        .spyOn(harness.intents, "listDueForResolution")
+        .mockResolvedValue([first, { ...first, requestId: "request-2" }]);
+      let release!: () => void;
+      let observedSignal: AbortSignal | undefined;
+      const pending = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const wait = async (input: { readonly signal?: AbortSignal }) => {
+        observedSignal = input.signal;
+        await pending;
+      };
+      const observe =
+        method === "findByRequestIdentity"
+          ? vi
+              .spyOn(harness.gateway, method)
+              .mockImplementation(async (input) => {
+                await wait(input);
+                return {
+                  status: ReviewRequestedDispatchLookupStatus.Found,
+                  sourceRunId: "701",
+                  sourceRunAttempt: "1",
+                };
+              })
+          : vi
+              .spyOn(harness.gateway, method)
+              .mockImplementation(async (input) => {
+                await wait(input);
+                return {
+                  status:
+                    ReviewRequestedDispatchRunStatus.TerminalCurrentRevision,
+                };
+              });
+      const dispatch = vi.spyOn(harness.intents, "recordDispatch");
+      const recover = vi.spyOn(harness.intents, "recoverDispatch");
+      const nextPhase = vi.fn();
+      const pass = harness.recovery.execute({ limit: 10 }).then((result) => {
+        nextPhase();
+        return result;
+      });
+      await vi.advanceTimersByTimeAsync(5_001);
+      await expect(pass).resolves.toMatchObject({ scanned: 2, pending: 2 });
+      expect(nextPhase).toHaveBeenCalledOnce();
+      expect(observedSignal?.aborted).toBe(true);
+      expect(observe).toHaveBeenCalledOnce();
+
+      query.mockResolvedValue([first]);
+      await harness.recovery.execute({ limit: 10 });
+      expect(observe).toHaveBeenCalledOnce();
+      release();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(dispatch).not.toHaveBeenCalled();
+      expect(recover).not.toHaveBeenCalled();
+    },
+  );
+
+  it("bounds the runner-wait observation without a late window extension", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    let release!: () => void;
+    const harness = await recoveryHarness(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(queued);
+        }),
+    );
+    harness.setNow(at(28));
+    const extend = vi.spyOn(harness.intents, "extendQueuedRunWait");
+    const pass = harness.recovery.execute({ limit: 10 });
+    await vi.advanceTimersByTimeAsync(5_001);
+    await expect(pass).resolves.toMatchObject({ pending: 1 });
+    release();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(extend).not.toHaveBeenCalled();
+  });
+
+  it("finishes authoritative terminalization when best-effort cancellation hangs", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    const harness = await recoveryHarness(async () => queued);
+    harness.setNow(at(31));
+    const cancelled = new Promise<void>(() => {});
+    vi.spyOn(harness.gateway, "cancelKnownRun").mockReturnValue(cancelled);
+    const pass = harness.recovery.execute({ limit: 10 });
+    await vi.advanceTimersByTimeAsync(5_001);
+    await expect(pass).resolves.toMatchObject({ recovered: 1 });
+    expect(await harness.intent()).toMatchObject({
+      state: ReviewRequestedIntentState.Terminal,
+    });
+  });
+});
+
 async function recoveryHarness(
   inspectRunnerWait: () => Promise<ReviewRequestedRunnerWaitInspection>,
+  dispatched = true,
 ) {
   const intents = new InMemoryReviewRequestedIntentStore();
   await intents.registerIntent({
@@ -248,13 +381,14 @@ async function recoveryHarness(
     nextResolutionAt: at(0.5),
     resolutionDeadlineAt: at(5),
   });
-  await intents.recordDispatch({
-    ...term,
-    sourceRunId: "701",
-    sourceRunAttempt: "1",
-    nextResolutionAt: at(0.5),
-    resolutionDeadlineAt: at(30),
-  });
+  if (dispatched)
+    await intents.recordDispatch({
+      ...term,
+      sourceRunId: "701",
+      sourceRunAttempt: "1",
+      nextResolutionAt: at(0.5),
+      resolutionDeadlineAt: at(30),
+    });
   let now = dispatchedAt;
   const inspect = vi.fn(inspectRunnerWait);
   const cancel = vi.fn(async () => {});
@@ -287,6 +421,8 @@ async function recoveryHarness(
   const intent = () => intents.findByRequestId("request-1");
   return {
     recovery,
+    gateway,
+    intents,
     /** A `/rr review` on the same head: it does not join the queued run. */
     async registerManualRequest() {
       await intents.registerIntent({

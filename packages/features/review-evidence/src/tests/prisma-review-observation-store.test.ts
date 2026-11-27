@@ -15,6 +15,9 @@ describe("Prisma review observation store", () => {
       ReviewObservationQualityFlag.LowConfidence,
       ReviewObservationQualityFlag.ProviderWarning,
       ReviewObservationQualityFlag.ContextInspectionIncomplete,
+      ReviewObservationQualityFlag.ReviewMainIncomplete,
+      ReviewObservationQualityFlag.ReviewRoundIncomplete,
+      ReviewObservationQualityFlag.ReviewPhaseIncomplete,
       ReviewObservationQualityFlag.ContextAttestationUnavailable,
       ReviewObservationQualityFlag.CrossRevisionReuseDisabled,
       ReviewObservationQualityFlag.UnverifiedNativeSpan,
@@ -41,6 +44,33 @@ describe("Prisma review observation store", () => {
     ).resolves.toMatchObject({
       qualityFlags: candidate.qualityFlags,
     });
+  });
+
+  it.each([
+    ReviewObservationQualityFlag.ReviewMainIncomplete,
+    ReviewObservationQualityFlag.ReviewRoundIncomplete,
+    ReviewObservationQualityFlag.ReviewPhaseIncomplete,
+  ])("rejects persisted cause %s without incomplete context", async (cause) => {
+    const candidate = observation({
+      qualityFlags: [
+        ReviewObservationQualityFlag.ContextInspectionIncomplete,
+        cause,
+      ],
+    });
+    let row: Record<string, unknown> | null = null;
+    const store = new PrismaReviewObservationStore({
+      reviewEvidenceObservation: {
+        create: async ({ data }: { data: Record<string, unknown> }) => {
+          row = data;
+          return data;
+        },
+        findUnique: async () => ({ ...row, qualityFlagsJson: [cause] }),
+      },
+    } as unknown as PrismaClient);
+    await store.acceptObservation(candidate);
+    await expect(store.findById(candidate.observationId)).rejects.toThrow(
+      "review_evidence_incomplete_cause_requires_context_flag",
+    );
   });
 
   it.each(["unknown", "unsupported_quality_flag", "toString"])(

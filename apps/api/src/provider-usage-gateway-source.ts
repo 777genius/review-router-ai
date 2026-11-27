@@ -5,11 +5,13 @@ import type {
   UsageAttributionReader,
   UsageFact,
   UsageSourceReader,
+  NativeUsageContext,
 } from "@reviewrouter/features-provider-usage";
 
 /** Safe native facade contract; no native DB, administrative credential or body. */
 export interface GatewayUsageObservation {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
+  nativeContext?: Omit<NativeUsageContext, "schemaVersion"> | null;
   eventId: string;
   revision: number;
   executionRef: string;
@@ -33,7 +35,7 @@ export interface GatewayUsageObservation {
   outputTokens: number | null;
   cachedInputTokens: number | null;
   reasoningTokens: number | null;
-  cost: null;
+  cost: { currency: string; amountDecimal: string } | null;
 }
 export const gatewayUsageCallId = (executionRef: string, requestRef: string) =>
   `gw-${createHash("sha256").update(executionRef).update("\0").update(requestRef).digest("hex")}`;
@@ -80,6 +82,12 @@ export function createGatewayUsageSource(input: {
           observation.revision > 2147483646
         )
           throw new Error("gateway_usage_revision_invalid");
+        if (
+          observation.schemaVersion === 2 &&
+          observation.nativeContext &&
+          observation.nativeContext.profileId !== observation.profileId
+        )
+          throw new Error("gateway_usage_context_invalid");
         const identity = await input.attribution.findIdentity({
           workspaceId: input.workspaceId,
           callId: gatewayUsageCallId(
@@ -119,6 +127,28 @@ export function createGatewayUsageSource(input: {
         });
         const fact: UsageFact = {
           schemaVersion: 1,
+          ...(observation.schemaVersion === 2 &&
+          (observation.nativeContext || observation.cost)
+            ? { nativeEvidenceVersion: 2 as const }
+            : {}),
+          ...(observation.schemaVersion === 2 && observation.nativeContext
+            ? {
+                nativeContext: {
+                  schemaVersion: 1 as const,
+                  providerId: observation.nativeContext.providerId,
+                  productId: observation.nativeContext.productId,
+                  profileId: observation.nativeContext.profileId,
+                  modelId: observation.nativeContext.modelId,
+                  billing:
+                    observation.nativeContext.billing.status === "known"
+                      ? {
+                          status: "known" as const,
+                          kind: observation.nativeContext.billing.kind,
+                        }
+                      : { status: "unknown" as const },
+                },
+              }
+            : {}),
           sourceInstance: input.sourceInstance,
           eventId: observation.eventId,
           revision: observation.revision + 1,
@@ -153,7 +183,17 @@ export function createGatewayUsageSource(input: {
                 ? observation.inputTokens + observation.outputTokens
                 : null,
           },
-          cost: null,
+          cost:
+            observation.schemaVersion === 2 && observation.cost
+              ? {
+                  amount: observation.cost.amountDecimal,
+                  currency: observation.cost.currency,
+                  basis: "source_reported",
+                  source: input.sourceInstance,
+                  asOf: observation.occurredAt,
+                  priceVersion: null,
+                }
+              : null,
           completeness: observation.completeness,
           state:
             observation.effect === "completed"
@@ -182,7 +222,7 @@ export function createGatewayUsageSource(input: {
           serviceTier: dispatch?.serviceTier ?? null,
           priceSnapshot: dispatch?.priceSnapshot ?? null,
         };
-        fact.cost = estimateUsageCost({
+        fact.cost ??= estimateUsageCost({
           snapshot: fact.priceSnapshot ?? null,
           tokens: fact.tokens,
           provider: fact.actualProvider,
@@ -205,8 +245,15 @@ export function createGatewayUsageSource(input: {
           identity.runAttempt === null &&
           ["completed", "failed", "unknown"].includes(fact.state)
         ) {
+          const {
+            nativeContext: _nativeContext,
+            nativeEvidenceVersion: _version,
+            ...lifecycle
+          } = fact;
+          void _nativeContext;
+          void _version;
           facts.push({
-            ...fact,
+            ...lifecycle,
             sourceInstance: input.sourceInstance,
             eventId: `diagnostic-terminal:${identity.callId}`,
             authority: "lifecycle",

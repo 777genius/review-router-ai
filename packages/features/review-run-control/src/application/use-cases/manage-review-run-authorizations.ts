@@ -277,6 +277,9 @@ export class ManageReviewRunAuthorizations {
       original?.skillsSnapshotCanonicalJson ?? null;
     let reviewInvestigationDescriptorCanonicalJson =
       input.reviewInvestigationAuthorizationDescriptorCanonicalJson ?? null;
+    const authorizationId = this.dependencies.identifiers.nextId(
+      "review_run_authorization",
+    );
     let providerVoteLanes: readonly ProviderVoteLane[];
     if (original) {
       // An original admission for the same run/attempt keeps its captured
@@ -290,6 +293,7 @@ export class ManageReviewRunAuthorizations {
         Math.floor(maxExpiresAt.getTime() / 1000) * 1000,
       );
       const captured = await this.dependencies.runtimeSnapshots.capture({
+        admissionId: authorizationId,
         identity: verifiedIdentity,
         modelTransport: input.modelTransport!,
         ...(input.providerApiAuthMode
@@ -471,9 +475,7 @@ export class ManageReviewRunAuthorizations {
             ...verifiedIdentity,
             runtimeSnapshotCanonicalJson,
             skillsSnapshotCanonicalJson,
-            authorizationId: this.dependencies.identifiers.nextId(
-              "review_run_authorization",
-            ),
+            authorizationId,
             producerReleaseId: eligibility.release.producerReleaseId,
             selectedProtocolVersion: ReviewProtocolVersion.V2,
             schemaDigest: eligibility.release.schemaDigest,

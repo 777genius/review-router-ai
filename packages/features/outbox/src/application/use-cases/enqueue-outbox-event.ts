@@ -3,7 +3,7 @@ import type { OutboxEventRepositoryPort } from "../ports/outbox-event-repository
 
 export async function enqueueOutboxEvent(
   event: NewOutboxEvent,
-  dependencies: { readonly outbox: OutboxEventRepositoryPort },
+  dependencies: { readonly outbox: Pick<OutboxEventRepositoryPort, "enqueue"> },
 ): Promise<{ readonly created: boolean }> {
   return dependencies.outbox.enqueue(event);
 }

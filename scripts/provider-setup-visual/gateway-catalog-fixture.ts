@@ -5,9 +5,23 @@
  * Everything else is 404. The dedicated reviewer-roster flow opts into exact
  * seeded organization-account metadata and two controlled model capabilities;
  * this permits configuration writes, without exposing any inference endpoint.
+ * The separate native visibility flow adds consumer-control reads for the
+ * existing personal/shared PG accounts; RR still authorizes each private read.
  */
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
+import {
+  nativeVisualCatalog,
+  VISUAL_NATIVE_PROFILE,
+} from "./native-catalog-fixture.js";
+import {
+  createNativeVisibilityFixture,
+  type NativeVisibilityFixture,
+} from "./native-visibility-fixture.js";
+import {
+  createNativeOperationsFixture,
+  type NativeOperationsFixture,
+} from "./native-operations-fixture.js";
 import {
   VISUAL_GATEWAY_PROFILE,
   VISUAL_CONNECTIONS,
@@ -68,6 +82,8 @@ const NATIVE_IMPORT_PROFILES = [
 export type GatewayCatalogFixture = Readonly<{
   /** Environment that points the dashboard at this server. */
   environment: Readonly<Record<string, string>>;
+  nativeOperations: NativeOperationsFixture;
+  nativeVisibility?: NativeVisibilityFixture;
   stop(): Promise<void>;
 }>;
 
@@ -77,18 +93,37 @@ export async function startGatewayCatalogFixture(
     nvidiaEvaluation?: boolean;
     accountMetadata?: boolean;
     credentialImports?: boolean;
+    nativeVisibility?: boolean;
   } = {},
 ): Promise<GatewayCatalogFixture> {
   const token = randomBytes(24).toString("base64url");
+  const personalToken = randomBytes(24).toString("base64url");
+  const nativeOperations = createNativeOperationsFixture();
+  const nativeVisibility = options.nativeVisibility
+    ? createNativeVisibilityFixture()
+    : undefined;
   let failedModelRefresh = false;
   const server: Server = createServer(async (request, response) => {
     const send = (status: number, body: unknown) => {
       response.writeHead(status, { "content-type": "application/json" });
       response.end(JSON.stringify(body));
     };
-    if (request.headers.authorization !== `Bearer ${token}`)
-      return send(401, { error: "unauthorized" });
+    const realm =
+      request.headers.authorization === `Bearer ${token}`
+        ? "management"
+        : nativeVisibility?.active &&
+            request.headers.authorization === `Bearer ${personalToken}`
+          ? "consumer-control"
+          : null;
+    if (!realm) return send(401, { error: "unauthorized" });
     const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+    if (await nativeVisibility?.handle(request, path, realm, send)) return;
+    if (await nativeOperations.handle(request, path, send)) return;
+    const nativeAccount = nativeOperations
+      .accounts()
+      .find((row) => path === `/v1/accounts/${row.accountRef}`);
+    if (request.method === "GET" && nativeAccount)
+      return send(200, nativeAccount);
     const accountRows = Object.values(VISUAL_CONNECTIONS)
       .filter((row) => row.owner.kind === "workspace")
       .map((connection) => ({
@@ -107,10 +142,11 @@ export async function startGatewayCatalogFixture(
         metadataRevision: 1,
         authorizationEpoch: 1,
       }));
+    const metadataRows = [...accountRows, ...nativeOperations.accounts()];
     if (
       options.accountMetadata &&
       request.method === "POST" &&
-      path === "/v1/account-info/read"
+      ["/v1/account-info/read", "/v2/account-info/read"].includes(path)
     ) {
       try {
         let body = "";
@@ -124,7 +160,7 @@ export async function startGatewayCatalogFixture(
           input.accountRefs.length > 50 ||
           input.accountRefs.some(
             (ref) =>
-              !accountRows.some(
+              !metadataRows.some(
                 (row) =>
                   row.accountRef === ref && row.ownerRef === input.ownerRef,
               ),
@@ -139,34 +175,44 @@ export async function startGatewayCatalogFixture(
           freshness,
         });
         return send(200, {
-          contract: "account-info/v1",
-          accounts: input.accountRefs.map((accountRef) => ({
-            accountRef,
-            metadataRevision: 1,
-            authorizationEpoch: 1,
-            info:
-              accountRef === VISUAL_CONNECTIONS.lockedOrg.gatewayAccountRef
-                ? { status: "unsupported" }
-                : {
-                    status: "available",
-                    infoRevision: "visual-native-info-1",
-                    fields: {
-                      email: known(
-                        "review-team-with-a-deliberately-long-account-name@example.invalid",
-                      ),
-                      accountLabel: { status: "unknown" },
-                      subscription: known({
-                        code: "team",
-                        label:
-                          "Team annual subscription with extended native account details",
-                        scope: "organization",
-                        endsAt: { kind: "date", value: "2026-12-31" },
-                      }),
-                      credentialExpiresAt: known("2026-11-30T23:00:00Z"),
-                      privacyMode: known("private", "stale"),
+          contract: path.startsWith("/v2/")
+            ? "account-info/v2"
+            : "account-info/v1",
+          accounts: input.accountRefs.map((accountRef) => {
+            const account = metadataRows.find(
+              (row) => row.accountRef === accountRef,
+            )!;
+            return {
+              accountRef,
+              metadataRevision: account.metadataRevision,
+              authorizationEpoch: account.authorizationEpoch,
+              info:
+                account.profileId === VISUAL_NATIVE_PROFILE ||
+                accountRef === VISUAL_CONNECTIONS.lockedOrg.gatewayAccountRef
+                  ? { status: "unsupported" }
+                  : {
+                      status: "available",
+                      infoRevision: "visual-native-info-1",
+                      fields: {
+                        email: known(
+                          "review-team-with-a-deliberately-long-account-name@example.invalid",
+                        ),
+                        accountLabel: { status: "unknown" },
+                        subscription: known({
+                          code: "team",
+                          label:
+                            "Team annual subscription with extended native account details",
+                          scope: "organization",
+                          endsAt: { kind: "date", value: "2026-12-31" },
+                        }),
+                        credentialExpiresAt: known("2026-11-30T23:00:00Z"),
+                        ...(path.startsWith("/v2/")
+                          ? { trainingUsage: known("disabled", "stale") }
+                          : { privacyMode: { status: "unsupported" } }),
+                      },
                     },
-                  },
-          })),
+            };
+          }),
         });
       } catch {
         return send(400, { error: "invalid_metadata_request" });
@@ -242,8 +288,13 @@ export async function startGatewayCatalogFixture(
       });
     if (
       request.method === "GET" &&
-      path === "/v2/provider-connection-capabilities"
+      [
+        "/v2/provider-connection-capabilities",
+        "/v3/provider-connection-capabilities",
+      ].includes(path)
     ) {
+      if (path.startsWith("/v3/") && !nativeOperations.discoveryAvailable)
+        return send(503, { error: "catalog_unavailable" });
       const identity = {
         region: { id: "global", label: "Global" },
         protocol: "openai-responses",
@@ -252,7 +303,7 @@ export async function startGatewayCatalogFixture(
         limitsContract: "none",
         availability: "enabled",
       };
-      return send(200, {
+      const catalog = {
         contract: "provider-connections/v2",
         capabilities: [
           {
@@ -317,7 +368,18 @@ export async function startGatewayCatalogFixture(
               ]
             : []),
         ],
-      });
+      };
+      return send(
+        200,
+        path.startsWith("/v3/")
+          ? nativeVisualCatalog(
+              catalog.capabilities,
+              options.credentialImports === true ||
+                nativeVisibility?.active === true,
+              nativeVisibility?.active === true,
+            )
+          : catalog,
+      );
     }
     if (
       (options.reviewerAccounts ||
@@ -386,9 +448,14 @@ export async function startGatewayCatalogFixture(
         "http://127.0.0.1",
       ).searchParams.get("ownerRef");
       return send(200, {
-        accounts: options.accountMetadata
-          ? accountRows.filter((row) => row.ownerRef === ownerRef)
-          : [],
+        accounts: [
+          ...(options.accountMetadata
+            ? accountRows.filter((row) => row.ownerRef === ownerRef)
+            : []),
+          ...nativeOperations
+            .accounts()
+            .filter((row) => row.ownerRef === ownerRef),
+        ],
       });
     }
     return send(404, { error: "not_found" });
@@ -401,9 +468,17 @@ export async function startGatewayCatalogFixture(
   if (!address || typeof address !== "object")
     throw new Error("provider_visual_gateway_fixture_unavailable");
   return {
+    nativeOperations,
+    ...(nativeVisibility ? { nativeVisibility } : {}),
     environment: {
       REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN: `http://127.0.0.1:${address.port}`,
       REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN: token,
+      ...(nativeVisibility
+        ? {
+            REVIEW_ROUTER_ACCOUNT_GATEWAY_PERSONAL_CONTROL_ORIGIN: `http://127.0.0.1:${address.port}`,
+            REVIEW_ROUTER_ACCOUNT_GATEWAY_PERSONAL_CONTROL_TOKEN: personalToken,
+          }
+        : {}),
       REVIEW_ROUTER_ACCOUNT_GATEWAY_ACCOUNTS_CONTEXT_SECRET:
         randomBytes(32).toString("base64url"),
       // The fixture profile is an approved key profile of this deployment.

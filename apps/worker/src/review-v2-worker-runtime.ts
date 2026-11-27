@@ -29,7 +29,9 @@ export const reviewExecutionFinalizedEventVersion = 2;
 export type ReviewV2WorkerFeature = {
   readonly enabled: boolean;
   readonly handlers: readonly OutboxHandler[];
-  readonly runMaintenance: () => Promise<ReviewV2MaintenanceResult>;
+  readonly runMaintenance: (
+    input?: Readonly<{ signal?: AbortSignal }>,
+  ) => Promise<ReviewV2MaintenanceResult>;
 };
 
 export type ReviewV2MaintenanceResult = {
@@ -61,7 +63,7 @@ export type ReviewV2MaintenanceResult = {
 };
 
 export type ReviewV2IntentMaintenanceRuntime = {
-  runMaintenance(): Promise<{
+  runMaintenance(input?: Readonly<{ signal?: AbortSignal }>): Promise<{
     readonly scanned: number;
     readonly dispatched: number;
     readonly recovered: number;
@@ -79,7 +81,7 @@ export type ReviewV2ExecutionRecoveryRuntime = {
 };
 
 export type ReviewV2PublicationMaintenanceRuntime = {
-  runMaintenance(): Promise<{
+  runMaintenance(input?: Readonly<{ signal?: AbortSignal }>): Promise<{
     readonly processed: number;
     readonly manualRequired: number;
     readonly terminalUnknown: number;
@@ -99,7 +101,7 @@ export type ReviewV2ProgressMaintenanceRuntime = {
   promoteSettledExecutions(input: {
     readonly settlements: readonly ReviewProgressSettlement[];
   }): Promise<number>;
-  runMaintenance(): Promise<{
+  runMaintenance(input?: Readonly<{ signal?: AbortSignal }>): Promise<{
     readonly claimed: number;
     readonly published: number;
     readonly deferred: number;
@@ -189,8 +191,9 @@ export function createReviewV2WorkerFeature(input: {
       }),
       ...(enabled.ingressHandlers ?? []),
     ],
-    runMaintenance: () =>
+    runMaintenance: (admission = {}) =>
       runReviewV2Maintenance({
+        ...admission,
         runtime: enabled.runtime,
         ownerIdHash: enabled.ownerIdHash,
         dueLimit: enabled.dueLimit,
@@ -251,6 +254,7 @@ export async function runReviewV2Maintenance(input: {
   readonly runtime: ReviewV2CompletionRuntime;
   readonly ownerIdHash: string;
   readonly dueLimit: number;
+  readonly signal?: AbortSignal;
   readonly intents?: ReviewV2IntentMaintenanceRuntime;
   readonly executionRecovery?: ReviewV2ExecutionRecoveryRuntime;
   readonly publication?: ReviewV2PublicationMaintenanceRuntime;
@@ -262,7 +266,14 @@ export async function runReviewV2Maintenance(input: {
   }
   const failures: WorkerPhaseFailure[] = [];
   const blockedPhases: Array<{ phase: string; blockedBy: string }> = [];
-  async function run<Value>(phase: string, execute: () => Promise<Value>) {
+  async function run<Value>(
+    phase: string,
+    execute: () => Promise<Value>,
+  ): Promise<MaintenancePhaseResult<Value>> {
+    if (input.signal?.aborted) {
+      blockedPhases.push({ phase, blockedBy: "worker.shutdown" });
+      return { status: "stopped" };
+    }
     const result = await captureWorkerPhase(phase, execute);
     if (result.status === "failed") failures.push(result.failure);
     return result;
@@ -276,24 +287,35 @@ export async function runReviewV2Maintenance(input: {
       )
     : undefined;
   const intents = input.intents
-    ? await run("review_v2.intents", () => input.intents!.runMaintenance())
+    ? await run("review_v2.intents", () =>
+        input.intents!.runMaintenance(admissionInput(input)),
+      )
     : undefined;
   const due = await run("review_v2.due", () =>
     input.runtime.schedulers.due.execute({
       ownerIdHash: input.ownerIdHash,
       limit: input.dueLimit,
+      ...admissionInput(input),
     }),
   );
+  if (due.status === "completed") {
+    failures.push(
+      ...due.value.failures.map((failure) => ({
+        phase: "review_v2.due_item",
+        safeErrorSummary: failure.code,
+      })),
+    );
+  }
   const publication = input.publication
     ? await run("review_v2.publication", () =>
-        input.publication!.runMaintenance(),
+        input.publication!.runMaintenance(admissionInput(input)),
       )
     : undefined;
   if (publication?.status === "completed") {
     failures.push(...(publication.value.itemFailures ?? []));
   }
   const publicationWakeups =
-    publication?.status === "completed"
+    publication?.status === "completed" && !input.signal?.aborted
       ? await Promise.allSettled(
           [...new Set(publication.value.settledExecutionIds)].map(
             (executionId) =>
@@ -314,14 +336,14 @@ export async function runReviewV2Maintenance(input: {
       });
   }
   const advanced =
-    due.status === "failed" ||
+    due.status !== "completed" ||
     publication?.status === "failed" ||
     (publication?.status === "completed" &&
       (publication.value.itemFailures?.length ?? 0) > 0) ||
     publicationWakeups.some((wakeup) => wakeup.status === "rejected")
       ? null
       : [
-          ...due.value,
+          ...due.value.results,
           ...publicationWakeups.flatMap((wakeup) =>
             wakeup.status === "fulfilled" ? [wakeup.value] : [],
           ),
@@ -331,15 +353,15 @@ export async function runReviewV2Maintenance(input: {
             result.status !== AdvanceReviewCompletionProcessStatus.Missing &&
             result.status !== AdvanceReviewCompletionProcessStatus.StaleClaim,
         ).length;
-  let promotion: WorkerPhaseResult<number> | undefined;
+  let promotion: MaintenancePhaseResult<number> | undefined;
   let progress:
-    | WorkerPhaseResult<
+    | MaintenancePhaseResult<
         Awaited<
           ReturnType<ReviewV2ProgressMaintenanceRuntime["runMaintenance"]>
         >
       >
     | undefined;
-  if (input.progress && publication?.status === "failed") {
+  if (input.progress && publication && publication.status !== "completed") {
     blockedPhases.push(
       {
         phase: "review_v2.progress_promotion",
@@ -361,91 +383,106 @@ export async function runReviewV2Maintenance(input: {
     // The final publication precedes terminal promotion and progress comments.
     // Promotion failure does not prevent already eligible progress from publishing.
     progress = await run("review_v2.progress_publication", () =>
-      input.progress!.runMaintenance(),
+      input.progress!.runMaintenance(admissionInput(input)),
     );
   }
   const progressBlocked =
-    input.progress !== undefined && publication?.status === "failed";
+    input.progress !== undefined &&
+    publication !== undefined &&
+    publication.status !== "completed";
   const completedRecovery = completedPhaseValue(recovery);
   const completedExecutionRecovery = completedPhaseValue(executionRecovery);
   const completedIntents = completedPhaseValue(intents);
   const completedPublication = completedPhaseValue(publication);
   const completedProgress = completedPhaseValue(progress);
   return {
-    intentsScanned:
-      intents?.status === "failed" ? null : (completedIntents?.scanned ?? 0),
-    intentsDispatched:
-      intents?.status === "failed" ? null : (completedIntents?.dispatched ?? 0),
-    intentsRecovered:
-      intents?.status === "failed" ? null : (completedIntents?.recovered ?? 0),
-    intentDispatchFailures:
-      intents?.status === "failed" ? null : (completedIntents?.failed ?? 0),
+    intentsScanned: phaseUnavailable(intents)
+      ? null
+      : (completedIntents?.scanned ?? 0),
+    intentsDispatched: phaseUnavailable(intents)
+      ? null
+      : (completedIntents?.dispatched ?? 0),
+    intentsRecovered: phaseUnavailable(intents)
+      ? null
+      : (completedIntents?.recovered ?? 0),
+    intentDispatchFailures: phaseUnavailable(intents)
+      ? null
+      : (completedIntents?.failed ?? 0),
     recovered:
-      recovery.status === "failed"
+      recovery.status !== "completed"
         ? null
         : completedRecovery!.createdOrRestored,
     advanced,
-    publicationProcessed:
-      publication?.status === "failed"
-        ? null
-        : (completedPublication?.processed ?? 0),
-    publicationManualRequired:
-      publication?.status === "failed"
-        ? null
-        : (completedPublication?.manualRequired ?? 0),
-    publicationTerminalUnknown:
-      publication?.status === "failed"
-        ? null
-        : (completedPublication?.terminalUnknown ?? 0),
+    publicationProcessed: phaseUnavailable(publication)
+      ? null
+      : (completedPublication?.processed ?? 0),
+    publicationManualRequired: phaseUnavailable(publication)
+      ? null
+      : (completedPublication?.manualRequired ?? 0),
+    publicationTerminalUnknown: phaseUnavailable(publication)
+      ? null
+      : (completedPublication?.terminalUnknown ?? 0),
     progressPromoted:
-      progressBlocked || promotion?.status === "failed"
+      progressBlocked || phaseUnavailable(promotion)
         ? null
         : (completedPhaseValue(promotion) ?? 0),
     progressClaimed:
-      progressBlocked || progress?.status === "failed"
+      progressBlocked || phaseUnavailable(progress)
         ? null
         : (completedProgress?.claimed ?? 0),
     progressPublished:
-      progressBlocked || progress?.status === "failed"
+      progressBlocked || phaseUnavailable(progress)
         ? null
         : (completedProgress?.published ?? 0),
     progressDeferred:
-      progressBlocked || progress?.status === "failed"
+      progressBlocked || phaseUnavailable(progress)
         ? null
         : (completedProgress?.deferred ?? 0),
     progressSuppressed:
-      progressBlocked || progress?.status === "failed"
+      progressBlocked || phaseUnavailable(progress)
         ? null
         : (completedProgress?.suppressed ?? 0),
     progressFailed:
-      progressBlocked || progress?.status === "failed"
+      progressBlocked || phaseUnavailable(progress)
         ? null
         : (completedProgress?.failed ?? 0),
-    expiredExecutionsScanned:
-      executionRecovery?.status === "failed"
-        ? null
-        : (completedExecutionRecovery?.scanned ?? 0),
-    expiredExecutionsRecovered:
-      executionRecovery?.status === "failed"
-        ? null
-        : (completedExecutionRecovery?.recovered ?? 0),
-    expiredExecutionConflicts:
-      executionRecovery?.status === "failed"
-        ? null
-        : (completedExecutionRecovery?.conflicts ?? 0),
-    expiredExecutionFailures:
-      executionRecovery?.status === "failed"
-        ? null
-        : (completedExecutionRecovery?.failures ?? 0),
+    expiredExecutionsScanned: phaseUnavailable(executionRecovery)
+      ? null
+      : (completedExecutionRecovery?.scanned ?? 0),
+    expiredExecutionsRecovered: phaseUnavailable(executionRecovery)
+      ? null
+      : (completedExecutionRecovery?.recovered ?? 0),
+    expiredExecutionConflicts: phaseUnavailable(executionRecovery)
+      ? null
+      : (completedExecutionRecovery?.conflicts ?? 0),
+    expiredExecutionFailures: phaseUnavailable(executionRecovery)
+      ? null
+      : (completedExecutionRecovery?.failures ?? 0),
     failures,
     blockedPhases,
   };
 }
 
 function completedPhaseValue<Value>(
-  phase: WorkerPhaseResult<Value> | undefined,
+  phase: MaintenancePhaseResult<Value> | undefined,
 ): Value | undefined {
   return phase?.status === "completed" ? phase.value : undefined;
+}
+
+type MaintenancePhaseResult<Value> =
+  | WorkerPhaseResult<Value>
+  | Readonly<{ status: "stopped" }>;
+
+function phaseUnavailable(
+  phase: MaintenancePhaseResult<unknown> | undefined,
+): boolean {
+  return phase !== undefined && phase.status !== "completed";
+}
+
+function admissionInput(
+  input: Readonly<{ signal?: AbortSignal }>,
+): Readonly<{ signal?: AbortSignal }> {
+  return input.signal ? { signal: input.signal } : {};
 }
 
 export function createReviewV2WorkerOwnerId(seed: string): string {

@@ -32,11 +32,23 @@ export interface OrgRulesetSetupGatewayPort {
     readonly path: string;
     readonly content: string;
     readonly message: string;
+    readonly signal?: AbortSignal;
+    readonly beforeMutation?: () => Promise<void>;
+    readonly onMutationSettled?: (input: {
+      readonly createRejected: boolean;
+    }) => Promise<void>;
   }): Promise<SourceWorkflowWriteResult>;
 
   createOrUpdateOrganizationRuleset(input: {
     readonly organizationLogin: string;
     readonly name: string;
     readonly payload: GitHubOrgRulesetPayload;
+    readonly knownRulesetId?: string | null;
+    readonly signal?: AbortSignal;
+    readonly beforeMutation?: () => Promise<void>;
+    readonly beforeCreate?: () => Promise<void>;
+    readonly onMutationSettled?: (input: {
+      readonly createRejected: boolean;
+    }) => Promise<void>;
   }): Promise<OrgRulesetWriteResult>;
 }

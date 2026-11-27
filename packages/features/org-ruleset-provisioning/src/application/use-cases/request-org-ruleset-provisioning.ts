@@ -1,7 +1,5 @@
 import type { AuditLogRepositoryPort } from "@reviewrouter/features-audit-log";
 import { recordAuditEvent } from "@reviewrouter/features-audit-log";
-import type { OutboxEventRepositoryPort } from "@reviewrouter/features-outbox";
-import { enqueueOutboxEvent } from "@reviewrouter/features-outbox";
 import { defaultRequiredWorkflowPath } from "@reviewrouter/features-workflow-provisioning";
 import {
   assertOrganizationRulesetTarget,
@@ -31,7 +29,6 @@ export async function requestOrgRulesetProvisioning(
   dependencies: {
     readonly provisioning: OrgRulesetProvisioningRepositoryPort;
     readonly setupGateway: OrgRulesetSetupGatewayPort;
-    readonly outbox: OutboxEventRepositoryPort;
     readonly auditLog?: AuditLogRepositoryPort | undefined;
   },
 ): Promise<{
@@ -112,21 +109,7 @@ export async function requestOrgRulesetProvisioning(
     requestedBy: input.actor,
     requestedAt: input.requestedAt,
   });
-  const record = await dependencies.provisioning.upsertRequested(request);
-
-  await enqueueOutboxEvent(
-    {
-      type: "org_ruleset.provision_requested",
-      version: 1,
-      idempotencyKey: `org-ruleset:${record.id}:${record.requestedAt.toISOString()}`,
-      workspaceId: record.workspaceId,
-      aggregateId: `org-ruleset:${record.id}`,
-      payload: { provisioningId: record.id },
-      occurredAt: input.requestedAt,
-      maxAttempts: 5,
-    },
-    { outbox: dependencies.outbox },
-  );
+  const record = await dependencies.provisioning.requestAndEnqueue(request);
 
   await auditOptional(input.workspaceId, input.actor, {
     action: "org_ruleset.provision_requested",

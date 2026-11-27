@@ -95,6 +95,9 @@ describe("ReviewReuseEligibilityPolicy", () => {
         providerKind: ReviewProviderKind.Ocr,
         qualityFlags: [
           ReviewObservationQualityFlag.ContextInspectionIncomplete,
+          ReviewObservationQualityFlag.ReviewMainIncomplete,
+          ReviewObservationQualityFlag.ReviewRoundIncomplete,
+          ReviewObservationQualityFlag.ReviewPhaseIncomplete,
           ReviewObservationQualityFlag.ProviderWarning,
           ReviewObservationQualityFlag.UnverifiedNativeSpan,
         ],
@@ -383,6 +386,39 @@ describe("ReviewReuseEligibilityPolicy", () => {
     );
   });
 
+  it.each([
+    ReviewObservationQualityFlag.ReviewMainIncomplete,
+    ReviewObservationQualityFlag.ReviewRoundIncomplete,
+    ReviewObservationQualityFlag.ReviewPhaseIncomplete,
+  ])("does not add a reuse penalty for incomplete cause %s", (cause) => {
+    const targetFacts = target();
+    const candidates = [
+      observation({
+        observationId: "incomplete-older",
+        attemptId: "attempt-older",
+        createdAtMs: nowMs + 1,
+        qualityFlags: [ReviewObservationQualityFlag.ContextInspectionIncomplete],
+      }),
+      observation({
+        observationId: "incomplete-newer",
+        attemptId: "attempt-newer",
+        createdAtMs: nowMs + 2,
+        qualityFlags: [
+          ReviewObservationQualityFlag.ContextInspectionIncomplete,
+          cause,
+        ],
+      }),
+    ].map((candidate) => decideReviewReuseEligibility(candidate, targetFacts));
+
+    expect(
+      selectDeterministicReviewObservations(candidates)[0]?.observation.observationId,
+    ).toBe("incomplete-newer");
+    expect(
+      selectDeterministicReviewObservations([...candidates].reverse())[0]
+        ?.observation.observationId,
+    ).toBe("incomplete-newer");
+  });
+
   it("selects deterministically and permits one observation per vote identity", () => {
     const targetFacts = target();
     const candidates = [
@@ -433,6 +469,59 @@ describe("ReviewReuseEligibilityPolicy", () => {
 });
 
 describe("LookupReviewEvidence", () => {
+  it("finds the exact original source even behind 100 newer foreign hits", async () => {
+    const store = new InMemoryReviewObservationStore();
+    const request = { ...query(), sourceWorkSlotId: "original-slot" };
+    const original = observation({
+      observationId: "original-accepted",
+      attemptId: "original-attempt",
+      sourceExecutionId: request.executionId,
+      sourceWorkSlotId: request.sourceWorkSlotId,
+    });
+    await store.acceptObservation(original);
+    for (let index = 0; index < 101; index += 1)
+      await store.acceptObservation(observation({
+        observationId: `foreign-${index}`,
+        attemptId: `foreign-attempt-${index}`,
+        createdAtMs: nowMs + index + 1,
+      }));
+    const useCase = new LookupReviewEvidence({
+      observations: store,
+      policy: new InMemoryReviewEvidenceSafetyPort(
+        { effectAllowed: true, safetyDecisionHash: hash("e") },
+        { safetyDecision: target().safetyDecision, compatibility: compatibility() },
+      ),
+      digest: new NodeSha256DigestAdapter(),
+      nowMs: () => nowMs,
+    });
+    const result = await useCase.execute(request);
+    expect(result).toMatchObject({
+      status: LookupReviewEvidenceStatus.Shadow,
+      considered: 1,
+      selected: {
+        observation: { observationId: original.observationId },
+        reason: ReviewReuseDenialReason.SameExecutionRequiresAdoption,
+        canAttach: false,
+      },
+    });
+    await expect(useCase.execute({
+      ...request,
+      sourceWorkSlotId: "missing-original-slot",
+    })).resolves.toMatchObject({
+      status: LookupReviewEvidenceStatus.Miss,
+      selected: null,
+      considered: 0,
+    });
+    await store.acceptObservation(observation({
+      ...original,
+      observationId: "second-original-source",
+      attemptId: "second-original-attempt",
+    }));
+    await expect(useCase.execute(request)).rejects.toThrow(
+      "review_observation_source_ambiguous",
+    );
+  });
+
   it("queries bounded candidates and returns the deterministic eligible hit", async () => {
     const store = new InMemoryReviewObservationStore();
     await store.acceptObservation(
