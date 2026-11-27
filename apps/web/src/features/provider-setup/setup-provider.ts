@@ -246,7 +246,8 @@ export function gatewaySetupProvidersForProfiles(
 function nativeSetupId(providerId: string, profileId: string): string {
   // Anthropic API keys and Claude Code subscriptions have distinct execution
   // and custody paths, despite sharing the same vendor identity.
-  if (nativeAPIProvider(profileId) === "anthropic") return "anthropic";
+  if (providerId === "anthropic" && nativeAPIProvider(profileId) === "anthropic")
+    return "anthropic";
   return (
     setupProviders.find(
       (row) => row.identity === providerId && row.githubSource !== null,
