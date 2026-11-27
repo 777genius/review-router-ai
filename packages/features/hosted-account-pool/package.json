@@ -17,6 +17,7 @@
     "@777genius/subscription-runtime": "git+https://github.com/777genius/ar.git#c7543bc716411a5f899a790a735d09ed2530f779",
     "@openai/codex": "0.147.0",
     "@prisma/client": "7.9.0",
+    "@reviewrouter/platform-db": "workspace:*",
     "fastify": "^5.10.0",
     "zod": "^4.4.2"
   },
