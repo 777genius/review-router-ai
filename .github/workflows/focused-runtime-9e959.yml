@@ -1,0 +1,168 @@
+name: Final authority runtime qualification
+
+on:
+  push:
+    branches:
+      - qualification/runtime-9e959-20261128
+
+permissions:
+  contents: read
+
+concurrency:
+  group: focused-runtime-9e959-20261128
+  cancel-in-progress: true
+
+jobs:
+  focused-unit-runtime:
+    name: Final authority EOF regressions and API types
+    if: ${{ github.repository == '777genius/review-router-ai' && github.actor == '777genius' }}
+    runs-on: ${{ vars.CI_STATIC_CHECKS_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 15
+    env:
+      NODE_VERSION: "26.11.1"
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/review_router_ci?schema=public
+      AUTH_SECRET: ci-auth-secret-not-used-for-production
+      AUTH_TRUST_HOST: "true"
+      GITHUB_WEBHOOK_SECRET: ci-webhook-secret-not-used-for-production
+      REVIEW_ROUTER_WEB_URL: http://localhost:3000
+      REVIEW_ROUTER_PUBLIC_WEB_URL: https://web.reviewrouter.test
+      REVIEW_ROUTER_API_URL: http://localhost:4000
+      REVIEW_ROUTER_PUBLIC_API_URL: https://api.reviewrouter.test
+      REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: ci_database_recovery_witness_not_for_production_000000000000
+      REVIEW_ROUTER_DEFAULT_MODEL: gpt-5.5
+      REVIEW_ROUTER_DEFAULT_EFFORT: xhigh
+      GOMAXPROCS: "2"
+    steps:
+      - name: Checkout exact qualification subject
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: 9e95964d85bbde66d3a91e4ccb60a2de185afe4f
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Bind source and lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 9e95964d85bbde66d3a91e4ccb60a2de185afe4f
+          test "$(git rev-parse 'HEAD^{tree}')" = dec877bc8c8ffa48598774dcd01241328edccf06
+          test "$(git rev-parse HEAD:pnpm-lock.yaml)" = 2aa3a8d6ffbcc49dc9577ccc55f5c28e1a290bcc
+          git diff --exit-code HEAD --
+          RR_QUALIFICATION_DIR="$RUNNER_TEMP/focused-runtime-9e959"
+          mkdir -p "$RR_QUALIFICATION_DIR"
+          printf 'RR_QUALIFICATION_DIR=%s\n' "$RR_QUALIFICATION_DIR" >> "$GITHUB_ENV"
+          git show -s --format='commit=%H%ntree=%T' HEAD > "$RR_QUALIFICATION_DIR/source.txt"
+          printf 'lock=%s\n' "$(git rev-parse HEAD:pnpm-lock.yaml)" >> "$RR_QUALIFICATION_DIR/source.txt"
+      - name: Setup pinned Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install pinned pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - name: Record actual toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = v26.11.1
+          test "$(pnpm --version)" = 11.28.7
+          node --version >> "$RR_QUALIFICATION_DIR/source.txt"
+          pnpm --version >> "$RR_QUALIFICATION_DIR/source.txt"
+      - name: Install dependencies with the stock frozen installer
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+      - name: Generate Prisma client offline
+        env:
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
+        run: node scripts/generate-prisma-offline.mjs
+      - name: Bootstrap stock contract-source builds
+        id: bootstrap
+        run: node scripts/check-review-action-v2-protocol.mjs --bootstrap-only
+      - name: Check native format and preserve formatter outputs
+        id: format
+        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/focused-runtime-9e959/native-format-audit.jsonl
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          pnpm exec prettier --check \
+            apps/api/src/review-run-gateway-byte-limits.test.ts \
+            scripts/webhook-fencing/migrations.postgres.test.ts \
+            2>&1 | tee "$RR_QUALIFICATION_DIR/native-format.log"
+          format_status=$?
+          set -e
+          for path in \
+            apps/api/src/review-run-gateway-byte-limits.test.ts \
+            scripts/webhook-fencing/migrations.postgres.test.ts; do
+            output="$RR_QUALIFICATION_DIR/formatted/$path"
+            mkdir -p "$(dirname "$output")"
+            pnpm exec prettier --config .prettierrc.json "$path" > "$output"
+            printf '%s original=%s formatted=%s\n' \
+              "$path" "$(git rev-parse "HEAD:$path")" "$(git hash-object "$output")" \
+              >> "$RR_QUALIFICATION_DIR/native-format-blobs.txt"
+            pnpm exec prettier --config .prettierrc.json --check "$output"
+          done
+          node --input-type=module - <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const rows = readFileSync(process.env.REVIEWROUTER_NATIVE_FORMAT_AUDIT, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+          assert(rows.some(row => row.event === 'formatter-module' && (row.url ?? '').includes('@prettier/plugin-oxc')));
+          assert(rows.every(row => row.event !== 'blocked-before-initialization'));
+          NODE
+          git diff --exit-code HEAD --
+          exit "$format_status"
+      - name: Run the complete byte-limit suite with the two new authority cases
+        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec vitest run --no-file-parallelism --maxWorkers=1 \
+            --reporter=default --reporter=json \
+            --outputFile="$RR_QUALIFICATION_DIR/results.json" \
+            apps/api/src/review-run-gateway-byte-limits.test.ts
+          node --input-type=module - <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          const directory = process.env.RR_QUALIFICATION_DIR;
+          const report = JSON.parse(readFileSync(join(directory, 'results.json'), 'utf8'));
+          assert.equal(report.success, true);
+          assert.equal(report.numTotalTests, 226);
+          assert.equal(report.numPassedTests, 226);
+          assert.equal(report.numFailedTests, 0);
+          assert.equal(report.numPendingTests, 0);
+          assert.equal(report.numTodoTests, 0);
+          assert.equal(report.testResults.length, 1);
+          const cases = report.testResults.flatMap(result => result.assertionResults);
+          assert.equal(cases.length, 226);
+          assert(cases.every(result => result.status === 'passed'));
+          const authority = cases.filter(result => result.fullName.startsWith('keeps EOF settlement authoritative through cancellation at ') && result.fullName.includes('authority_recheck'));
+          assert.equal(authority.length, 2);
+          assert.deepEqual(authority.map(result => result.fullName.replaceAll("'", '')).sort(), [
+            'keeps EOF settlement authoritative through cancellation at authority_recheck (fails=false)',
+            'keeps EOF settlement authoritative through cancellation at authority_recheck (fails=true)',
+          ].sort());
+          writeFileSync(join(directory, 'validated-tests.json'), JSON.stringify({
+            source: '9e95964d85bbde66d3a91e4ccb60a2de185afe4f',
+            total: cases.length,
+            passed: report.numPassedTests,
+            authorityCases: authority.map(result => ({ name: result.fullName, status: result.status })),
+          }, null, 2) + '\n');
+          NODE
+      - name: Run stock API strict typecheck on unchanged source
+        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/focused-runtime-9e959/api-typecheck-native-audit.jsonl
+        run: pnpm --filter @reviewrouter/api typecheck
+      - name: Verify tracked source remains exact
+        if: always()
+        run: git diff --exit-code HEAD --
+      - name: Preserve focused execution evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: focused-runtime-9e959-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/focused-runtime-9e959/
+          if-no-files-found: warn
+          retention-days: 7
