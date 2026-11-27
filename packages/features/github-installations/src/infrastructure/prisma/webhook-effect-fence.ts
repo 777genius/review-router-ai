@@ -5,19 +5,26 @@ import type { WebhookDeliveryRecord } from "../../application/ports/webhook-deli
 export type FencedDelivery = Readonly<{
   deliveryId: string;
   ownerHash: string;
+  appIdentityHash: string;
   generation: bigint;
 }>;
 
-/** Create the delivery and its first fence in a single database transaction. */
+/**
+ * WIP: appIdentityHash must come from the trusted App configuration paired
+ * with the verified webhook secret, never from request-controlled fields.
+ * Route integration is not implemented and this is not activation proof.
+ */
 export async function beginFencedWebhookDelivery(
   prisma: PrismaClient,
   delivery: WebhookDeliveryRecord,
   ownerHash: string,
   leaseMs: number,
+  appIdentityHash: string,
 ): Promise<FencedDelivery> {
   if (
     !delivery.deliveryId ||
     !/^[0-9a-f]{64}$/.test(ownerHash) ||
+    !/^[0-9a-f]{64}$/.test(appIdentityHash) ||
     !Number.isInteger(leaseMs) ||
     leaseMs < 1 ||
     leaseMs > 60_000
@@ -40,11 +47,16 @@ export async function beginFencedWebhookDelivery(
       },
     });
     await transaction.$executeRaw(Prisma.sql`
-      INSERT INTO "GitHubWebhookFence" ("deliveryId", "ownerHash", "generation", "leaseUntil")
-      VALUES (${delivery.deliveryId}, ${ownerHash}, 1,
+      INSERT INTO "GitHubWebhookFence" ("deliveryId", "ownerHash", "appIdentityHash", "generation", "leaseUntil")
+      VALUES (${delivery.deliveryId}, ${ownerHash}, ${appIdentityHash}, 1,
         clock_timestamp() + ${leaseMs} * interval '1 millisecond')
     `);
-    return { deliveryId: delivery.deliveryId, ownerHash, generation: 1n };
+    return {
+      deliveryId: delivery.deliveryId,
+      ownerHash,
+      appIdentityHash,
+      generation: 1n,
+    };
   });
 }
 
@@ -57,6 +69,7 @@ export async function renewWebhookFence(
   if (
     !claim.deliveryId ||
     !/^[0-9a-f]{64}$/.test(claim.ownerHash) ||
+    !/^[0-9a-f]{64}$/.test(claim.appIdentityHash) ||
     claim.generation < 1n ||
     !Number.isInteger(leaseMs) ||
     leaseMs < 1 ||
@@ -68,6 +81,7 @@ export async function renewWebhookFence(
     SET "leaseUntil" = clock_timestamp() + ${leaseMs} * interval '1 millisecond'
     WHERE "deliveryId" = ${claim.deliveryId}
       AND "ownerHash" = ${claim.ownerHash}
+      AND "appIdentityHash" = ${claim.appIdentityHash}
       AND "generation" = ${claim.generation}
       AND "leaseUntil" > clock_timestamp()
       AND EXISTS (SELECT 1 FROM "GitHubWebhookDelivery" d
@@ -94,6 +108,7 @@ export async function reclaimWebhookFence(
   if (
     !previous.deliveryId ||
     !/^[0-9a-f]{64}$/.test(previous.ownerHash) ||
+    !/^[0-9a-f]{64}$/.test(previous.appIdentityHash) ||
     !/^[0-9a-f]{64}$/.test(nextOwnerHash) ||
     previous.ownerHash === nextOwnerHash ||
     previous.generation < 1n ||
@@ -109,6 +124,7 @@ export async function reclaimWebhookFence(
         "leaseUntil" = clock_timestamp() + ${leaseMs} * interval '1 millisecond'
     WHERE "deliveryId" = ${previous.deliveryId}
       AND "ownerHash" = ${previous.ownerHash}
+      AND "appIdentityHash" = ${previous.appIdentityHash}
       AND "generation" = ${previous.generation}
       AND "leaseUntil" <= clock_timestamp()
       AND EXISTS (SELECT 1 FROM "GitHubWebhookDelivery" d
@@ -119,6 +135,7 @@ export async function reclaimWebhookFence(
     ? {
         deliveryId: previous.deliveryId,
         ownerHash: nextOwnerHash,
+        appIdentityHash: previous.appIdentityHash,
         generation: rows[0]!.generation,
       }
     : null;
@@ -164,6 +181,7 @@ export async function runWebhookFencedEffectInTransaction<T>(
     Reflect.get(transaction, "$disconnect") !== undefined ||
     !claim.deliveryId ||
     !/^[0-9a-f]{64}$/.test(claim.ownerHash) ||
+    !/^[0-9a-f]{64}$/.test(claim.appIdentityHash) ||
     claim.generation < 1n ||
     !["processing", "processed", "failed"].includes(expectedFinalStatus)
   )
@@ -182,6 +200,7 @@ export async function runWebhookFencedEffectInTransaction<T>(
     Array<{ valid: boolean }>
   >(Prisma.sql`
       SELECT (f."ownerHash" = ${claim.ownerHash}
+          AND f."appIdentityHash" = ${claim.appIdentityHash}
           AND f."generation" = ${claim.generation}
           AND f."leaseUntil" > clock_timestamp()
           AND d.status = 'processing') AS valid
@@ -194,6 +213,7 @@ export async function runWebhookFencedEffectInTransaction<T>(
     Array<{ valid: boolean }>
   >(Prisma.sql`
       SELECT (f."ownerHash" = ${claim.ownerHash}
+          AND f."appIdentityHash" = ${claim.appIdentityHash}
           AND f."generation" = ${claim.generation}
           AND f."leaseUntil" > clock_timestamp()
           AND d.status::text = ${expectedFinalStatus}) AS valid

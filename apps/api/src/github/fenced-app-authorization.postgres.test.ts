@@ -90,6 +90,7 @@ test("fenced app revocation on isolated PostgreSQL", () => {
       },
       owner,
       10000,
+      "d".repeat(64),
     );
     await new PrismaGitHubAppAuthorizationWebhookHandler(
       prisma,
@@ -135,6 +136,7 @@ test("fenced app revocation on isolated PostgreSQL", () => {
       },
       owner,
       10000,
+      "d".repeat(64),
     );
     await pool.query(
       "ALTER TABLE \"GitHubWebhookDelivery\" ADD CONSTRAINT synthetic_completion_failure CHECK (\"deliveryId\" <> 'app-rollback' OR status <> 'processed')",
@@ -179,6 +181,7 @@ test("fenced app revocation on isolated PostgreSQL", () => {
       },
       owner,
       10000,
+      "d".repeat(64),
     );
     await pool.query(
       'UPDATE "GitHubWebhookFence" SET "leaseUntil"=clock_timestamp()-interval \'1 second\' WHERE "deliveryId"=$1',

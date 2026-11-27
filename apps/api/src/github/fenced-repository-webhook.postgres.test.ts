@@ -104,6 +104,7 @@ test("fenced repository webhook on isolated PostgreSQL", () => {
       },
       owner,
       10000,
+      "d".repeat(64),
     );
     await new PrismaRepositoryWebhookHandler(
       prisma,
@@ -135,6 +136,7 @@ test("fenced repository webhook on isolated PostgreSQL", () => {
       },
       owner,
       10000,
+      "d".repeat(64),
     );
     await pool.query(
       "ALTER TABLE \"GitHubWebhookDelivery\" ADD CONSTRAINT synthetic_repo_failure CHECK (\"deliveryId\" <> 'repo-rollback' OR status <> 'processed')",
@@ -162,6 +164,7 @@ test("fenced repository webhook on isolated PostgreSQL", () => {
       },
       owner,
       10000,
+      "d".repeat(64),
     );
     await pool.query(
       'UPDATE "GitHubWebhookFence" SET "leaseUntil"=clock_timestamp()-interval \'1 second\' WHERE "deliveryId"=$1',
@@ -193,6 +196,7 @@ test("fenced repository webhook on isolated PostgreSQL", () => {
       },
       owner,
       10000,
+      "d".repeat(64),
     );
     let entered!: () => void;
     let release!: () => void;

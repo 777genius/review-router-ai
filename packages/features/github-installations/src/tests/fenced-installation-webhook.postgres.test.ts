@@ -94,6 +94,7 @@ test("fenced installation webhook on isolated PostgreSQL", () => {
       },
       "a".repeat(64),
       10000,
+      "d".repeat(64),
     );
     return { e, claim };
   }

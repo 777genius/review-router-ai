@@ -3309,6 +3309,7 @@ model GitHubWebhookDelivery {
 model GitHubWebhookFence {
   deliveryId String                @id
   ownerHash  String
+  appIdentityHash String
   generation BigInt
   leaseUntil DateTime              @db.Timestamptz(3)
   delivery   GitHubWebhookDelivery @relation(fields: [deliveryId], references: [deliveryId], onDelete: Cascade)

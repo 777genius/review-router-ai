@@ -58,6 +58,7 @@ describe("fenced pull request ingress (not wired)", () => {
     const claim = {
       deliveryId: "delivery-1",
       ownerHash: "a".repeat(64),
+      appIdentityHash: "d".repeat(64),
       generation: 1n,
     };
     const result = await writeFencedPullRequestIngress(prisma, envelope, claim);

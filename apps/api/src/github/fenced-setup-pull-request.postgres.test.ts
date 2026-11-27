@@ -118,6 +118,7 @@ test("fenced setup merge on isolated PostgreSQL", () => {
       },
       owner,
       10000,
+      "d".repeat(64),
     );
     const result = await new PrismaSetupPullRequestMergeHandler(
       prisma,
@@ -152,6 +153,7 @@ test("fenced setup merge on isolated PostgreSQL", () => {
       },
       owner,
       10000,
+      "d".repeat(64),
     );
     await pool.query(
       'UPDATE "GitHubWebhookFence" SET "leaseUntil"=clock_timestamp()-interval \'1 second\' WHERE "deliveryId"=$1',
@@ -192,6 +194,7 @@ test("fenced setup merge on isolated PostgreSQL", () => {
       },
       owner,
       500,
+      "d".repeat(64),
     );
     await expect(
       new PrismaSetupPullRequestMergeHandler(

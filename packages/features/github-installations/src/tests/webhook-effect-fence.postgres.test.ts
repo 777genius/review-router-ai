@@ -114,14 +114,50 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
       [deliveryId],
     );
     await pool.query(
-      "INSERT INTO \"GitHubWebhookFence\" VALUES ($1,$2,1,clock_timestamp()+interval '1 minute')",
-      [deliveryId, a],
+      "INSERT INTO \"GitHubWebhookFence\" VALUES ($1,$2,$3,1,clock_timestamp()+interval '1 minute')",
+      [deliveryId, a, "d".repeat(64)],
     );
   });
   afterAll(async () => {
     await realPrisma.$disconnect();
     await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     await pool.end();
+  });
+
+  it("rejects a different authenticated app identity for the same delivery", async () => {
+    const delivery = { deliveryId: "app-bound", eventName: "push" };
+    const claim = await beginFencedWebhookDelivery(
+      realPrisma,
+      delivery,
+      a,
+      10000,
+      "d".repeat(64),
+    );
+    const otherApp = { ...claim, appIdentityHash: "e".repeat(64) };
+    expect(await renewWebhookFence(realPrisma, otherApp, 10000)).toBe(false);
+    await expect(
+      runWebhookFencedDatabaseEffect(realPrisma, otherApp, async () => {
+        throw new Error("must_not_run");
+      }),
+    ).rejects.toThrow("webhook_fence_stale");
+    await expect(
+      beginFencedWebhookDelivery(
+        realPrisma,
+        delivery,
+        b,
+        10000,
+        otherApp.appIdentityHash,
+      ),
+    ).rejects.toMatchObject({ code: "P2002" });
+    await pool.query(
+      'UPDATE "GitHubWebhookFence" SET "leaseUntil"=clock_timestamp()-interval \'1 second\' WHERE "deliveryId"=$1',
+      [delivery.deliveryId],
+    );
+    expect(
+      await reclaimWebhookFence(realPrisma, otherApp, b, 10000),
+    ).toBeNull();
+    const reclaimed = await reclaimWebhookFence(realPrisma, claim, b, 10000);
+    expect(reclaimed?.appIdentityHash).toBe(claim.appIdentityHash);
   });
 
   it("creates and guards a delivery using the generated Prisma client", async () => {
@@ -134,6 +170,7 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
       identity,
       a,
       10000,
+      "d".repeat(64),
     );
     expect(await renewWebhookFence(realPrisma, claim, 10000)).toBe(true);
     await runWebhookFencedDatabaseEffect(realPrisma, claim, async (tx) => {
@@ -160,6 +197,7 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
       identity,
       a,
       10000,
+      "d".repeat(64),
     );
     await pool.query(
       'UPDATE "GitHubWebhookFence" SET "leaseUntil"=clock_timestamp()-interval \'1 second\' WHERE "deliveryId"=$1',
@@ -199,6 +237,7 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
       identity,
       a,
       10000,
+      "d".repeat(64),
     );
     const holder = await pool.connect();
     try {
@@ -331,14 +370,24 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
     await expect(
       runWebhookFencedDatabaseEffect(
         prisma,
-        { deliveryId: "legacy-without-fence", ownerHash: a, generation: 1n },
+        {
+          deliveryId: "legacy-without-fence",
+          ownerHash: a,
+          appIdentityHash: "d".repeat(64),
+          generation: 1n,
+        },
         async () => undefined,
       ),
     ).rejects.toThrow("webhook_fence_missing");
     await expect(
       reclaimWebhookFence(
         prisma,
-        { deliveryId, ownerHash: a, generation: 1n },
+        {
+          deliveryId,
+          ownerHash: a,
+          appIdentityHash: "d".repeat(64),
+          generation: 1n,
+        },
         b,
         10000,
       ),
@@ -346,7 +395,12 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
     await expect(
       reclaimWebhookFence(
         prisma,
-        { deliveryId, ownerHash: a, generation: 1n },
+        {
+          deliveryId,
+          ownerHash: a,
+          appIdentityHash: "d".repeat(64),
+          generation: 1n,
+        },
         a,
         10000,
       ),
@@ -355,7 +409,13 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
 
   it("creates a fence atomically and never renews an expired generation", async () => {
     const delivery = { deliveryId: "new-delivery", eventName: "pull_request" };
-    const claim = await beginFencedWebhookDelivery(prisma, delivery, a, 10000);
+    const claim = await beginFencedWebhookDelivery(
+      prisma,
+      delivery,
+      a,
+      10000,
+      "d".repeat(64),
+    );
     expect(claim.generation).toBe(1n);
     expect(await renewWebhookFence(prisma, claim, 10000)).toBe(true);
     await pool.query(
@@ -364,7 +424,7 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
     );
     expect(await renewWebhookFence(prisma, claim, 10000)).toBe(false);
     await expect(
-      beginFencedWebhookDelivery(prisma, delivery, b, 10000),
+      beginFencedWebhookDelivery(prisma, delivery, b, 10000, "d".repeat(64)),
     ).rejects.toThrow();
     expect(
       (
@@ -387,7 +447,12 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
     });
     const first = runWebhookFencedDatabaseEffect(
       prisma,
-      { deliveryId, ownerHash: a, generation: 1n },
+      {
+        deliveryId,
+        ownerHash: a,
+        appIdentityHash: "d".repeat(64),
+        generation: 1n,
+      },
       async (tx) => {
         entered();
         await gate;
@@ -414,7 +479,12 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
     await expect(
       runWebhookFencedDatabaseEffect(
         prisma,
-        { deliveryId, ownerHash: a, generation: 1n },
+        {
+          deliveryId,
+          ownerHash: a,
+          appIdentityHash: "d".repeat(64),
+          generation: 1n,
+        },
         async (tx) => {
           await tx.$queryRaw(
             Prisma.sql`INSERT INTO "effect" VALUES (3) RETURNING generation`,
@@ -424,7 +494,12 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
     ).rejects.toThrow("webhook_fence_stale");
     await runWebhookFencedDatabaseEffect(
       prisma,
-      { deliveryId, ownerHash: b, generation: 2n },
+      {
+        deliveryId,
+        ownerHash: b,
+        appIdentityHash: "d".repeat(64),
+        generation: 2n,
+      },
       async (tx) => {
         await tx.$queryRaw(
           Prisma.sql`INSERT INTO "effect" VALUES (2) RETURNING generation`,
@@ -448,7 +523,12 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
     await expect(
       runWebhookFencedDatabaseEffect(
         prisma,
-        { deliveryId, ownerHash: b, generation: 2n },
+        {
+          deliveryId,
+          ownerHash: b,
+          appIdentityHash: "d".repeat(64),
+          generation: 2n,
+        },
         async (tx) => {
           await tx.$queryRaw(
             Prisma.sql`INSERT INTO "effect" VALUES (4) RETURNING generation`,
@@ -471,7 +551,12 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
       'UPDATE "GitHubWebhookFence" SET "leaseUntil"=clock_timestamp()-interval \'1 second\' WHERE "deliveryId"=$1',
       [deliveryId],
     );
-    const previous = { deliveryId, ownerHash: b, generation: 2n };
+    const previous = {
+      deliveryId,
+      ownerHash: b,
+      appIdentityHash: "d".repeat(64),
+      generation: 2n,
+    };
     const outcomes = await Promise.all([
       reclaimWebhookFence(prisma, previous, "c".repeat(64), 10000),
       reclaimWebhookFence(prisma, previous, "d".repeat(64), 10000),

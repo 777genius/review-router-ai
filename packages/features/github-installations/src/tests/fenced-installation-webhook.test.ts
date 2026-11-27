@@ -50,6 +50,7 @@ import { handleFencedInstallationWebhook } from "../infrastructure/prisma/fenced
 const claim = {
   deliveryId: "delivery",
   ownerHash: "owner",
+  appIdentityHash: "d".repeat(64),
   generation: 1,
   expiresAt: new Date("2099-01-01"),
 } as any;
@@ -75,14 +76,12 @@ describe("fenced installation prototype", () => {
     vi.clearAllMocks();
     m.transaction = {
       gitHubWebhookDelivery: {
-        findUnique: vi
-          .fn()
-          .mockResolvedValue({
-            eventName: "installation_repositories",
-            action: "added",
-            installationId: 42n,
-            payloadHash: "hash",
-          }),
+        findUnique: vi.fn().mockResolvedValue({
+          eventName: "installation_repositories",
+          action: "added",
+          installationId: 42n,
+          payloadHash: "hash",
+        }),
         update: vi.fn().mockResolvedValue({}),
       },
     };

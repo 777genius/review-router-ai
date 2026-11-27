@@ -82,6 +82,7 @@ describe("fenced setup pull request prototype (not wired)", () => {
     ).handleFencedGitHubPullRequestWebhook(e, {
       deliveryId: e.deliveryId,
       ownerHash: "a".repeat(64),
+      appIdentityHash: "d".repeat(64),
       generation: 1n,
     });
     expect(result).toMatchObject({ processed: true, status: "configured" });

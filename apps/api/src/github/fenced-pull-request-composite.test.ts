@@ -39,7 +39,12 @@ vi.mock("./prisma-setup-pull-request-merge-handler.js", () => ({
   },
 }));
 import { handleFencedPullRequestComposite } from "./fenced-pull-request-composite";
-const claim = { deliveryId: "d", generation: 1n, ownerHash: "a".repeat(64) };
+const claim = {
+  deliveryId: "d",
+  generation: 1n,
+  ownerHash: "a".repeat(64),
+  appIdentityHash: "d".repeat(64),
+};
 const envelope = {
   deliveryId: "d",
   eventName: "pull_request",

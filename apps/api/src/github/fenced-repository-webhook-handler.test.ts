@@ -71,7 +71,12 @@ describe("epoch-fenced repository webhook prototype (not wired)", () => {
           },
         },
       },
-      { deliveryId: "delivery", ownerHash: "a".repeat(64), generation: 1n },
+      {
+        deliveryId: "delivery",
+        ownerHash: "a".repeat(64),
+        appIdentityHash: "d".repeat(64),
+        generation: 1n,
+      },
     );
     expect(result).toMatchObject({
       processed: false,

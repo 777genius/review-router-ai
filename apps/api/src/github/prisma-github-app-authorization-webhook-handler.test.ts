@@ -101,6 +101,7 @@ describe("PrismaGitHubAppAuthorizationWebhookHandler", () => {
     const claim = {
       deliveryId: "delivery_1",
       ownerHash: "a".repeat(64),
+      appIdentityHash: "d".repeat(64),
       generation: 1n,
     };
     await handler.handleFencedGitHubAppAuthorizationWebhook(envelope, claim);

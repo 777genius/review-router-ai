@@ -138,6 +138,7 @@ test("fenced push on isolated PostgreSQL", () => {
       },
       owner,
       10000,
+      "d".repeat(64),
     );
     return { e, claim };
   }

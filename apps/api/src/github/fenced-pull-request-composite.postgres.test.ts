@@ -126,6 +126,7 @@ test("fenced PR composite on isolated PostgreSQL", () => {
       },
       owner,
       10000,
+      "d".repeat(64),
     );
     return { e, claim };
   }
@@ -184,6 +185,7 @@ test("fenced PR composite on isolated PostgreSQL", () => {
       },
       owner,
       10000,
+      "d".repeat(64),
     );
     const result = await handleFencedPullRequestComposite(prisma, e, claim, {
       reviewIngressEnabled: true,
@@ -215,6 +217,7 @@ test("fenced PR composite on isolated PostgreSQL", () => {
       },
       owner,
       10000,
+      "d".repeat(64),
     );
     const result = await handleFencedPullRequestComposite(prisma, e, claim, {
       reviewIngressEnabled: true,
@@ -254,6 +257,7 @@ test("fenced PR composite on isolated PostgreSQL", () => {
       },
       owner,
       10000,
+      "d".repeat(64),
     );
     const before = (
       await pool.query('SELECT count(*)::int n FROM "OutboxEvent"')
@@ -287,6 +291,7 @@ test("fenced PR composite on isolated PostgreSQL", () => {
       },
       owner,
       10000,
+      "d".repeat(64),
     );
     const before = (
       await pool.query('SELECT count(*)::int n FROM "OutboxEvent"')
@@ -329,6 +334,7 @@ test("fenced PR composite on isolated PostgreSQL", () => {
       },
       owner,
       10000,
+      "d".repeat(64),
     );
     let entered!: () => void;
     let release!: () => void;
@@ -417,6 +423,7 @@ test("fenced PR composite on isolated PostgreSQL", () => {
       },
       owner,
       10000,
+      "d".repeat(64),
     );
     await handleFencedPullRequestComposite(prisma, e, claim, {
       reviewIngressEnabled: true,
