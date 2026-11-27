@@ -1,6 +1,34 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
+// Business/lock-order mocks; actual epoch SQL is tested against PostgreSQL.
+vi.mock("@reviewrouter/platform-db", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@reviewrouter/platform-db")>();
+  return {
+    ...actual,
+    runScopeEpochSerializableTransaction: async (
+      prisma: any,
+      _scopes: unknown,
+      work: (tx: unknown) => unknown,
+    ) => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await prisma.$transaction(work, {
+            isolationLevel: "Serializable",
+          });
+        } catch (error) {
+          if (
+            !(error instanceof Prisma.PrismaClientKnownRequestError) ||
+            error.code !== "P2034" ||
+            attempt >= 2
+          )
+            throw error;
+        }
+      }
+    },
+  };
+});
 import { PrismaRepositoryConnectionRepository } from "../infrastructure/prisma/prisma-repository-connection-repository";
 import { PrismaGitHubInstallationRepository } from "../../../github-installations/src/infrastructure/prisma/prisma-github-installation-repository";
 

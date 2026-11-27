@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { workflowProvisioningTransaction } from "@reviewrouter/features-workflow-provisioning/composition";
 import {
   acquireCurrentScopeGuards,
+  runScopeEpochSerializableTransaction,
   rotateRemovedScmRepositoryIdentityEpoch,
   rotateScmRepositoryIdentityEpoch,
 } from "@reviewrouter/platform-db";
@@ -47,8 +47,9 @@ export class PrismaRepositoryConnectionRepository implements RepositoryConnectio
     const seenRepositoryIds = input.repositories.map((repository) =>
       BigInt(repository.githubRepositoryId),
     );
-    const result = await workflowProvisioningTransaction(
+    const result = await runScopeEpochSerializableTransaction(
       this.prisma,
+      [{ scope: "global", mode: "exclusive" }],
       async (tx) => {
         const installation = await lockInstallationInventory(
           tx,
