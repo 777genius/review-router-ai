@@ -1,12 +1,14 @@
 # Durable GitHub webhook delivery — completion plan
 
-Status: implementation and qualification in progress in PR #1027. No production
+Status: production composition and bounded recovery are implemented in PR #1027;
+final-source execution and CI qualification are still pending. No production
 migration, replay, deployment or activation has been performed by this workstream.
 
 ## Outcome and scope
 
 A verified supported GitHub event has one durable delivery identity. Local effects,
-its existing outbox commands and its terminal receipt commit together. A stopped
+existing outbox commands and the terminal receipt commit together, with the explicit
+PR ingress boundary described below. A stopped
 handler can be replaced only when the complete local effect protocol proves that
 its older generation cannot commit. HTTP success never acknowledges unfinished or
 mismatched work. Operator recovery issues at most one GitHub redelivery request and
@@ -60,7 +62,7 @@ a controlled writer drain. These findings are implementation requirements below.
 | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
 | `installation`, `installation_repositories` — GitHub installations | Installation/workspace membership and repository authority; installation-sync outbox | Existing global exclusive scope → delivery → fence → installation and dependent rows             |
 | `repository` — repository webhook adapter                          | Repository selection/metadata, SCM identity invalidation, workflow state             | Existing global exclusive scope → delivery → fence → repository rows                             |
-| `pull_request` — ingress/setup/conflict composite                  | Review intent outbox, setup workflow CAS, optional conflict outbox                   | Global shared scope → delivery → fence → installation then repository shared rows → workflow CAS |
+| `pull_request` — ingress/setup/conflict composite | First-generation ingress outbox; then setup CAS, optional conflict outbox and terminal status | Both phases: global shared → delivery → fence. Ingress policy: installation → workspace shared rows. Setup: installation → repository shared rows → workflow CAS |
 | `push` — conflict handler                                          | Optional existing conflict outbox                                                    | Delivery → fence → outbox; no global exclusive lock                                              |
 | `github_app_authorization` — authorization adapter                 | GitHub authorization revocation and its permission cache                             | Delivery → fence → authorization/cache rows                                                      |
 
@@ -71,7 +73,13 @@ selects fenced processing for every supported event; no new feature flag selects
 The legacy dependency-injection route remains for existing isolated adapters/tests,
 and is never selected by the default production composition.
 
-No handler invokes provider/GitHub HTTP inside its retryable database effect.
+For enabled PR ingress, the first generation atomically persists the receipt,
+fence and review-ingress outbox. Generic PR effects and terminal status commit in a
+second fenced transaction. An ingress failure rolls back the initial claim; a later
+generic failure retains its already-durable ingress. Later generations never recreate
+initial ingress, including after an existing rollout-flag change or outbox retention.
+
+No handler invokes provider/GitHub HTTP inside its database transaction.
 Installation synchronization and review/conflict work remain commands for existing
 outbox workers, whose authority/idempotency contracts are unchanged. Source census
 includes all delivery repository calls and raw SQL/maintenance references. No generic
@@ -83,14 +91,16 @@ repository-wide authority scanner or new architectural framework is required.
   Raw-body HMAC verification precedes parsing and all writes. The full receipt binds
   App, GUID, event, action, installation and exact authenticated body hash.
 - New delivery and fence creation are atomic. Never add a fence to a legacy row.
-  A matching processed receipt is the only successful duplicate acknowledgement;
+  A matching fenced processed receipt is the only successful duplicate acknowledgement;
   legacy processing/failed/unknown and identity mismatches remain fail closed.
 - Claims have random owner hashes, monotonic generations and database-clock leases.
   An expired processing or failed fenced claim can be replaced under the same row
-  locks; an active owner, processed receipt or mismatch cannot be replaced.
+  locks and only if replay remains eligible; an active owner, processed receipt or
+  mismatch cannot be replaced.
 - Every effect first acquires its complete scope plan, then delivery/fence rows.
   READ COMMITTED rereads after waits. The fence is checked before and after local
-  work; effect, outbox and processed status share one transaction/connection.
+  work; each effect phase shares one transaction/connection. The initial PR ingress
+  boundary above is intentionally durable before the generic phase.
 - The migration's receipt trigger rejects legacy terminal changes or deletion of a
   fenced delivery unless the validated fence names the current database transaction.
   This is a local compatibility defense, not proof of a safe mixed production fleet.
@@ -103,14 +113,19 @@ repository-wide authority scanner or new architectural framework is required.
 ## Recovery boundary
 
 The existing operator environment supplies App JWT credentials and a database URL.
-A small operational command provides read-only status/eligibility and an explicit
-one-shot recovery request, followed by bounded read-only reconciliation. It adds no
-HTTP administration endpoint or scheduler subsystem.
+The `pnpm webhook:recover` operational command provides `inspect`, `request` and
+`reconcile` for one GUID and numeric GitHub delivery ID. `inspect` is read-only;
+`request` may reserve one POST; `reconcile` never sends a POST but can write the local
+custody confirmation after receiver readback. It adds no
+HTTP administration endpoint or scheduler subsystem. Ingress requires a trusted
+`GITHUB_APP_ID`, webhook secret, API origin and matching App slug. The recovery
+client currently supports `https://api.github.com` only; App identity must match.
 
 Recovery accepts only already-ingressed fenced deliveries. Trusted GitHub delivery
 metadata and the retained verified signature digest must match the local exact body
 identity. Missing/redacted signatures, secret-rotation ambiguity, unknown originals
-and never-ingressed deliveries fail closed. HMAC authenticates the body, not event
+and never-ingressed deliveries fail closed. An authorization preflight failure,
+including an unavailable GitHub detail response, reports `not_authorized`. HMAC authenticates the body, not event
 headers or network provenance. A captured identical signed body arriving first must
 still produce at most the same already-authorized local effect.
 
@@ -118,14 +133,35 @@ The durable intent is reserved before POST. A lost reservation/POST response rem
 unknown and never authorizes a second POST. HTTP 202 means accepted, not processed.
 Repeated commands inspect the existing custody state and reconcile; only an exact
 processed receiver receipt confirms recovery. Pagination is bounded and incomplete,
-rate-limited, cancelled and retention-expired observations stay visible as such.
+rate-limited and cancelled poll observations stay visible; an unavailable original
+can only be reported as not authorized, without inferring its retention cause.
+`processed` with `githubDeliveryIdBound: false` describes the local receipt only;
+the supplied numeric ID has not been bound in custody. `confirmed` requires exact
+custody and receiver identity. Unknown or accepted custody is shown by `inspect` as
+`reconciliation_required`, never a fresh permission to POST.
+
+Installation and repository retries are bounded by local receipt evidence. A newer
+or equal-time lifecycle receipt for the same installation, or repository receipt
+for the same canonical repository, blocks replay; an unknown legacy App identity
+is treated conservatively. Repository retry also checks installation lifecycle
+receipts and rejects missing canonical identity. The check runs during acquisition
+and again under effect scopes/row locks, with advisory preflight before redelivery.
+`receivedAt` is immutable on fenced receipts. This is local observation order, not
+a claim about GitHub event chronology or arbitrary first-delivery ordering.
+
+Authorization-revocation retry is explicitly unsupported without the original grant
+revision: automatic generation replacement and redelivery fail closed so a later
+reconnect is not revoked. Keep the receipt for separately authorized reconciliation;
+do not synthesize a new GUID, reset custody, or rewrite history to force replay.
 
 ## Qualification plan
 
 1. [x] Inspect handoff and obtain two independent design/code critiques.
 2. [x] Remove unrelated account/auth/config epochs and retain current owner contracts.
-3. [ ] Wire all six event families through production signed HTTP composition.
-4. [ ] Complete claim, retry, stale terminal rejection, failure and recovery transitions.
+3. [x] Wire all six event families through production signed HTTP composition
+       (source complete; runtime qualification remains below).
+4. [x] Implement bounded claim/retry, stale terminal rejection, failure and known
+       recovery transitions (source complete; execution proof remains below).
 5. [ ] Apply the complete actual migration history to a disposable PostgreSQL database;
        exercise trigger/check/index behavior and application-role privileges (no db push).
 6. [ ] Run real signed HTTP → Prisma → PostgreSQL → outbox E2E, including concurrent
@@ -140,9 +176,23 @@ rate-limited, cancelled and retention-expired observations stay visible as such.
 10. [ ] Review the complete final diff independently; fix findings and repeat affected
         evidence. Reconcile PR #1026's acknowledgement contract and overlapping #1021 work.
 
+## Current execution evidence
+
+The earlier isolated fence tests and 170-baseline → 172-final migration rehearsal
+were partial checkpoints before the final replay guard, production HTTP suites and
+operator composition. They are not a passing result for the final source.
+
+The executor became unavailable during the pinned subscription-runtime build after
+several resource-killed attempts. Final TypeScript, lint/format, full migration/HTTP
+matrix and ordinary CI remain unverified. The existing CI includes the mandatory
+`scripts/webhook-fencing/run-postgres.ts` runner; it executes every required suite
+in a fresh process and rejects skipped, missing or unsuccessful results. A queued
+or skipped job is not qualification. Keep the PR draft until actual gates pass.
+
 ## Rollout and rollback
 
-The deployment registry owns operational evidence. Expand schema first; verify role
+The [deployment registry](../deployments/2026-11-27-webhook-effect-fence.md) owns
+operational evidence. Expand schema first; verify role
 grants and checks. Quiesce ingress, stop/drain all old API/webhook writers and their
 transactions, then start the exact qualified API version and reopen ingress. Do not
 infer old-writer drain from elapsed time, schema presence or green unit tests.

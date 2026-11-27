@@ -42,7 +42,8 @@ BEGIN
       OR NEW.action IS DISTINCT FROM OLD.action
       OR NEW."installationId" IS DISTINCT FROM OLD."installationId"
       OR NEW."payloadHash" IS DISTINCT FROM OLD."payloadHash"
-      OR NEW."normalizedEvent" IS DISTINCT FROM OLD."normalizedEvent" THEN
+      OR NEW."normalizedEvent" IS DISTINCT FROM OLD."normalizedEvent"
+      OR NEW."receivedAt" IS DISTINCT FROM OLD."receivedAt" THEN
     RAISE EXCEPTION 'webhook_fence_identity_immutable' USING ERRCODE = '23514';
   END IF;
   IF effect_transaction IS DISTINCT FROM txid_current()

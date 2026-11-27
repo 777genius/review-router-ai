@@ -11,6 +11,7 @@ export const webhookFencePostgresSuites = [
   "apps/api/src/github/github-app-webhook-recovery-authority.postgres.test.ts",
   "scripts/webhook-fencing/migrations.postgres.test.ts",
   "apps/api/src/github/github-webhook-production.postgres.test.ts",
+  "apps/api/src/github/github-webhook-recovery-production.postgres.test.ts",
 ] as const;
 const reportSchema = z.object({
   success: z.literal(true), numTotalTests: z.number().int().positive(), numPassedTests: z.number().int().positive(),

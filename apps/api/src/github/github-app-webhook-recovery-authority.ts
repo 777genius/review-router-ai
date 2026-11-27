@@ -4,6 +4,7 @@ import type {
   WebhookRecoveryIdentity,
   WebhookRedeliveryAuthority,
 } from "@reviewrouter/features-github-installations";
+import { isWebhookReplayEligible } from "@reviewrouter/features-github-installations";
 import type { GitHubAppWebhookRedeliveryClient } from "./github-app-webhook-redelivery-client";
 
 /** Only exact receiver evidence and trusted App delivery metadata qualify. */
@@ -26,6 +27,7 @@ export class GitHubAppWebhookRecoveryAuthority implements WebhookRedeliveryAutho
     `);
     const signatureHash = rows[0]?.signatureHash;
     if (!signatureHash) return false;
+    if (!(await isWebhookReplayEligible(this.prisma, identity.deliveryGuid))) return false;
     return this.client.verifyOriginalDelivery(identity, signatureHash);
   }
 }

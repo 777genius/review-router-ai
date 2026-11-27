@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
@@ -35,6 +35,7 @@ try {
   const baseline = join(evidence, 'baseline');
   const dbPackage = join(root, 'packages/platform/db');
   mkdirSync(join(baseline, 'prisma/migrations'), {recursive: true});
+  symlinkSync(join(root, 'node_modules'), join(baseline, 'node_modules'), 'dir');
   cpSync(join(dbPackage, 'prisma.config.ts'), join(baseline, 'prisma.config.ts'));
   cpSync(join(dbPackage, 'prisma/schema.prisma'), join(baseline, 'prisma/schema.prisma'));
   for (const name of readdirSync(join(dbPackage, 'prisma/migrations'))) {

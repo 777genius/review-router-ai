@@ -22,7 +22,7 @@ export type WebhookRecoveryPollOutcome = Readonly<{
   observedAttempts: number;
 }>;
 
-/** WIP: no timer/job is registered; only exact receiver terminal proves success. */
+/** Bounded explicit reconciliation; only an exact receiver terminal proves success. */
 export async function pollWebhookRecovery(
   identity: WebhookRecoveryIdentity,
   dependencies: Readonly<{

@@ -167,6 +167,30 @@ test("recovery authority with synthetic GitHub and isolated PostgreSQL", () => {
       await reserveWebhookRedeliveryOnce(prisma, identity, "c".repeat(64)),
     ).toBe(false);
   });
+  it("leaves authorization revocation for reconciliation before any GitHub request", async () => {
+    const identity = {
+      appIdentityHash: client.appIdentityHash,
+      deliveryGuid: "authorization-reconciliation",
+      githubDeliveryId: 42n,
+      eventName: "github_app_authorization",
+      action: "revoked",
+      installationId: null,
+      payloadHash: verified.payloadHash,
+    };
+    const claim = await beginFencedWebhookDelivery(prisma, {
+      deliveryId: identity.deliveryGuid, eventName: identity.eventName,
+      action: identity.action, payloadHash: identity.payloadHash,
+    }, "b".repeat(64), 10000, identity.appIdentityHash, verified.signatureHash);
+    await failWebhookFencedDelivery(prisma, claim, "synthetic_failure");
+    await prepareWebhookRecovery(prisma, identity);
+    const before = calls;
+    const authority = new GitHubAppWebhookRecoveryAuthority(prisma, client);
+    expect(await authority.authorize(identity)).toBe(false);
+    expect(calls).toBe(before);
+    expect(await reserveWebhookRedeliveryOnce(prisma, identity, "c".repeat(64))).toBe(false);
+    expect((await prepareWebhookRecovery(prisma, identity)).state).toBe("prepared");
+  });
+
   it("runs scoped synthetic POST once and confirms only receiver terminal", async () => {
     const identity = {
       appIdentityHash: client.appIdentityHash,

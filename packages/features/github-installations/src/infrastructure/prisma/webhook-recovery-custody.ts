@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
 import type { WebhookRecoveryIdentity } from "../../application/ports/webhook-recovery-identity";
+import { isWebhookReplayEligible } from "./webhook-replay-eligibility";
 export type { WebhookRecoveryIdentity } from "../../application/ports/webhook-recovery-identity";
 
 type RecoveryRow = WebhookRecoveryIdentity & {
@@ -60,6 +61,7 @@ export async function reserveWebhookRedeliveryOnce(
   validate(identity);
   if (!/^[a-f0-9]{64}$/.test(attemptHash))
     throw new Error("webhook_recovery_attempt_invalid");
+  if (!(await isWebhookReplayEligible(prisma, identity.deliveryGuid))) return false;
   const rows = await prisma.$queryRaw<
     Array<{ deliveryGuid: string }>
   >(Prisma.sql`

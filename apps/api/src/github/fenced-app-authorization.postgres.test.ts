@@ -167,7 +167,7 @@ test("fenced app revocation on isolated PostgreSQL", () => {
       ).rows[0].status,
     ).toBe("processing");
   });
-  it("does not apply stale-owner effects after takeover", async () => {
+  it("does not reclaim an expired revocation or revoke a later authorization", async () => {
     const e = envelope("app-stale");
     const previous = await beginFencedWebhookDelivery(
       prisma,
@@ -181,13 +181,25 @@ test("fenced app revocation on isolated PostgreSQL", () => {
       10000,
       "d".repeat(64),
     );
+    // A local reconnect may install a later grant while this receipt waits.
+    await pool.query(
+      'UPDATE "GitHubUserAuthorization" SET "revokedAt"=NULL,revision=2,"refreshAttemptId"=NULL',
+    );
     await pool.query(
       'UPDATE "GitHubWebhookFence" SET "leaseUntil"=clock_timestamp()-interval \'1 second\' WHERE "deliveryId"=$1',
       [e.deliveryId],
     );
     expect(
       await reclaimWebhookFence(prisma, previous, "b".repeat(64), 10000),
-    ).not.toBeNull();
+    ).toBeNull();
+    expect(
+      (
+        await pool.query(
+          'SELECT generation::text,"ownerHash" FROM "GitHubWebhookFence" WHERE "deliveryId"=$1',
+          [e.deliveryId],
+        )
+      ).rows[0],
+    ).toEqual({ generation: "1", ownerHash: owner });
     await expect(
       new PrismaGitHubAppAuthorizationWebhookHandler(
         prisma,
@@ -199,7 +211,7 @@ test("fenced app revocation on isolated PostgreSQL", () => {
           'SELECT "revokedAt" IS NULL AS unchanged,revision FROM "GitHubUserAuthorization"',
         )
       ).rows[0],
-    ).toEqual({ unchanged: true, revision: 1 });
+    ).toEqual({ unchanged: true, revision: 2 });
     expect(
       (
         await pool.query(
@@ -207,5 +219,13 @@ test("fenced app revocation on isolated PostgreSQL", () => {
         )
       ).rows[0].n,
     ).toBe(1);
+    expect(
+      (
+        await pool.query(
+          'SELECT status::text FROM "GitHubWebhookDelivery" WHERE "deliveryId"=$1',
+          [e.deliveryId],
+        )
+      ).rows[0].status,
+    ).toBe("processing");
   });
 });

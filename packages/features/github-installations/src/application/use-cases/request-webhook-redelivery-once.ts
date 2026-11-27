@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { WebhookRecoveryIdentity } from "../ports/webhook-recovery-identity";
 
-/** WIP only: actual GitHub client must be constructed from trusted App credentials. */
+/** The GitHub client must be constructed from trusted App credentials. */
 export interface AppWebhookRedeliveryClient {
   readonly appIdentityHash: string;
   redeliver(githubDeliveryId: bigint): Promise<Readonly<{ status: number }>>;
@@ -30,7 +30,7 @@ export type RedeliveryRequestOutcome =
  * A successful reservation is a one-shot permission for this invocation only.
  * Lost reservation, POST, or accepted-record responses never authorize retry.
  * 202 is only acceptance; receiver completion requires independent readback.
- * No production composition invokes this WIP orchestration.
+ * Only the explicit operational recovery command requests redelivery.
  */
 export async function requestWebhookRedeliveryOnce(
   identity: WebhookRecoveryIdentity,

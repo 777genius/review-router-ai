@@ -194,6 +194,149 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
     await expect(runWebhookFencedDatabaseEffect(realPrisma, first.claim, async () => { throw new Error("must_not_run"); })).rejects.toThrow("webhook_fence_stale");
   });
 
+  it.each(["installation", "installation_repositories"] as const)(
+    "does not replay %s over a same-time receipt for the installation",
+    async (eventName) => {
+      const { context, delivery: original } = verifiedEvent(`superseded-${eventName}`);
+      const delivery = {
+        ...original, eventName, action: eventName === "installation" ? "created" : "added",
+        installationId: eventName === "installation" ? "90101" : "90102",
+      };
+      const first = await claimVerifiedFencedWebhookDelivery(realPrisma, context, delivery, a, 10000);
+      if (first.kind !== "claimed") throw new Error("claim_required");
+      await failWebhookFencedDelivery(realPrisma, first.claim, "synthetic_failure");
+      // A legacy receipt has unknown App identity. Equal timestamps must also
+      // fail closed; receipt precision must not permit the older activation.
+      await pool.query(
+        'INSERT INTO "GitHubWebhookDelivery" ("deliveryId","eventName","action","installationId","receivedAt") SELECT $1, \'installation\', \'deleted\', "installationId", "receivedAt" FROM "GitHubWebhookDelivery" WHERE "deliveryId"=$2',
+        [`newer-${eventName}`, delivery.deliveryId],
+      );
+      await expect(
+        claimVerifiedFencedWebhookDelivery(realPrisma, context, delivery, b, 10000),
+      ).rejects.toThrow("webhook_fence_reconciliation_required");
+      const current = await realPrisma.gitHubWebhookFence.findUniqueOrThrow({ where: { deliveryId: delivery.deliveryId } });
+      expect(current.generation).toBe(1n);
+      expect(current.ownerHash).toBe(a);
+      expect((await realPrisma.gitHubWebhookDelivery.findUniqueOrThrow({ where: { deliveryId: delivery.deliveryId } })).status).toBe("failed");
+    },
+  );
+
+  it("does not confuse another installation or a proven different App with supersession", async () => {
+    const { context, delivery: original } = verifiedEvent("unrelated-receipts");
+    const delivery = { ...original, eventName: "installation", action: "created", installationId: "90103" };
+    const first = await claimVerifiedFencedWebhookDelivery(realPrisma, context, delivery, a, 10000);
+    if (first.kind !== "claimed") throw new Error("claim_required");
+    await failWebhookFencedDelivery(realPrisma, first.claim, "synthetic_failure");
+    await beginFencedWebhookDelivery(realPrisma, { ...delivery, deliveryId: "different-app-receipt" }, a, 10000, "f".repeat(64));
+    await pool.query(
+      'INSERT INTO "GitHubWebhookDelivery" ("deliveryId","eventName","action","installationId","receivedAt") SELECT \'different-installation-receipt\', \'installation\', \'deleted\', 90104, "receivedAt" FROM "GitHubWebhookDelivery" WHERE "deliveryId"=$1',
+      [delivery.deliveryId],
+    );
+    const second = await claimVerifiedFencedWebhookDelivery(realPrisma, context, delivery, b, 10000);
+    if (second.kind !== "claimed") throw new Error("claim_required");
+    expect(second.claim.generation).toBe(2n);
+    await runWebhookFencedDatabaseEffect(realPrisma, second.claim, async (tx) => {
+      await tx.gitHubWebhookDelivery.update({ where: { deliveryId: delivery.deliveryId }, data: { status: "processed" } });
+    }, "processed");
+  });
+
+  it("rechecks repository supersession after the authority lock wait and before any effect", async () => {
+    const { context, delivery: original } = verifiedEvent("repository-replay-wait");
+    const delivery = {
+      ...original, eventName: "repository", action: "deleted", installationId: "90201",
+      normalizedEvent: { repositoryId: "80201" },
+    };
+    const first = await claimVerifiedFencedWebhookDelivery(realPrisma, context, delivery, a, 10000);
+    if (first.kind !== "claimed") throw new Error("claim_required");
+    await failWebhookFencedDelivery(realPrisma, first.claim, "synthetic_failure");
+    const second = await claimVerifiedFencedWebhookDelivery(realPrisma, context, delivery, b, 10000);
+    if (second.kind !== "claimed") throw new Error("claim_required");
+    const holder = await pool.connect();
+    let effectRan = false;
+    try {
+      await holder.query("BEGIN");
+      await holder.query("SELECT pg_advisory_xact_lock(239893)");
+      const attempt = runWebhookFencedDatabaseEffect(
+        realPrisma,
+        second.claim,
+        async () => { effectRan = true; },
+        "processing",
+        async (tx) => { await tx.$queryRaw(Prisma.sql`SELECT 1 AS locked FROM pg_advisory_xact_lock(239893)`); },
+      ).then(() => null, (error: unknown) => error);
+      await waitForAdvisoryWait(pool, 239893);
+      // The repository transferred to another installation after acquisition.
+      // The current effect must see this commit after its scope lock is granted.
+      await holder.query(
+        'INSERT INTO "GitHubWebhookDelivery" ("deliveryId","eventName","action","installationId","normalizedEvent","receivedAt") SELECT \'repository-new-owner\', \'repository\', \'transferred\', 90202, "normalizedEvent", "receivedAt" FROM "GitHubWebhookDelivery" WHERE "deliveryId"=$1',
+        [delivery.deliveryId],
+      );
+      await holder.query("COMMIT");
+      expect(await attempt).toMatchObject({ message: "webhook_fence_reconciliation_required" });
+      expect(effectRan).toBe(false);
+    } finally {
+      await holder.query("ROLLBACK").catch(() => undefined);
+      holder.release();
+    }
+  });
+
+  it("requires a canonical repository identity before replaying repository effects", async () => {
+    const { context, delivery: original } = verifiedEvent("repository-missing-replay-identity");
+    const delivery = { ...original, eventName: "repository", action: "deleted", installationId: "90301" };
+    const first = await claimVerifiedFencedWebhookDelivery(realPrisma, context, delivery, a, 10000);
+    if (first.kind !== "claimed") throw new Error("claim_required");
+    await failWebhookFencedDelivery(realPrisma, first.claim, "synthetic_failure");
+    await expect(
+      claimVerifiedFencedWebhookDelivery(realPrisma, context, delivery, b, 10000),
+    ).rejects.toThrow("webhook_fence_reconciliation_required");
+  });
+
+  it("fails closed when a newer repository receipt cannot prove a different repository", async () => {
+    const { context, delivery: original } = verifiedEvent("repository-unknown-newer");
+    const delivery = {
+      ...original, eventName: "repository", action: "deleted", installationId: "90302",
+      normalizedEvent: { repositoryId: "80302" },
+    };
+    const first = await claimVerifiedFencedWebhookDelivery(realPrisma, context, delivery, a, 10000);
+    if (first.kind !== "claimed") throw new Error("claim_required");
+    await failWebhookFencedDelivery(realPrisma, first.claim, "synthetic_failure");
+    await pool.query(
+      'INSERT INTO "GitHubWebhookDelivery" ("deliveryId","eventName","action","installationId","receivedAt") SELECT \'repository-unknown-newer-legacy\', \'repository\', \'transferred\', "installationId", "receivedAt" FROM "GitHubWebhookDelivery" WHERE "deliveryId"=$1',
+      [delivery.deliveryId],
+    );
+    await expect(
+      claimVerifiedFencedWebhookDelivery(realPrisma, context, delivery, b, 10000),
+    ).rejects.toThrow("webhook_fence_reconciliation_required");
+  });
+
+  it("preserves receipt order even inside an otherwise authorized effect transaction", async () => {
+    const { context, delivery } = verifiedEvent("receipt-order-immutable");
+    const first = await claimVerifiedFencedWebhookDelivery(realPrisma, context, delivery, a, 10000);
+    if (first.kind !== "claimed") throw new Error("claim_required");
+    const before = await realPrisma.gitHubWebhookDelivery.findUniqueOrThrow({ where: { deliveryId: delivery.deliveryId } });
+    await expect(runWebhookFencedDatabaseEffect(realPrisma, first.claim, async (tx) => {
+      await tx.gitHubWebhookDelivery.update({
+        where: { deliveryId: delivery.deliveryId },
+        data: { receivedAt: new Date(before.receivedAt.getTime() + 1000) },
+      });
+    })).rejects.toThrow("webhook_fence_identity_immutable");
+    const after = await realPrisma.gitHubWebhookDelivery.findUniqueOrThrow({ where: { deliveryId: delivery.deliveryId } });
+    expect(after.receivedAt).toEqual(before.receivedAt);
+  });
+
+  it("requires reconciliation for authorization revocation with no original grant revision", async () => {
+    const { context, delivery: original } = verifiedEvent("authorization-reconnect");
+    const delivery = {
+      ...original, eventName: "github_app_authorization", action: "revoked",
+      installationId: null, normalizedEvent: { senderId: "90401" },
+    };
+    const first = await claimVerifiedFencedWebhookDelivery(realPrisma, context, delivery, a, 10000);
+    if (first.kind !== "claimed") throw new Error("claim_required");
+    await failWebhookFencedDelivery(realPrisma, first.claim, "synthetic_failure");
+    await expect(
+      claimVerifiedFencedWebhookDelivery(realPrisma, context, delivery, b, 10000),
+    ).rejects.toThrow("webhook_fence_reconciliation_required");
+  });
+
   it("binds creation to the verified body and trusted App configuration", async () => {
     const body = Buffer.from('{"action":"opened"}');
     const secret = "synthetic-secret";

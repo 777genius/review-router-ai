@@ -114,6 +114,7 @@
     "spike:repo-health:e2e": "tsx spikes/github-oidc/src/repo-health-workflow-e2e.ts",
     "spike:rate-limit:e2e": "tsx spikes/github-oidc/src/rate-limit-e2e.ts",
     "spike:distributed-lock:e2e": "tsx spikes/github-oidc/src/distributed-lock-e2e.ts",
+    "webhook:recover": "node scripts/run-with-env.mjs node --conditions=production apps/api/dist/github-webhook-recovery-cli.js",
     "api:start": "node --conditions=production apps/api/dist/server.js",
     "release-control:start": "pnpm --filter @reviewrouter/api release-control:start",
     "release-witness:start": "pnpm --filter @reviewrouter/api release-witness:start",

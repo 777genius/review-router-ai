@@ -214,6 +214,22 @@ test("webhook recovery custody on isolated PostgreSQL", () => {
     );
   });
 
+  it("does not reserve redelivery after the installation has newer local authority", async () => {
+    const i = {
+      ...identity("superseded-recovery"), eventName: "installation", action: "created",
+      installationId: 90501n,
+    };
+    await prepareWebhookRecovery(prisma, i);
+    await seedFailed(i);
+    // Supersession after an operator's earlier read must still block its POST.
+    await pool.query(
+      'INSERT INTO "GitHubWebhookDelivery" ("deliveryId","eventName","action","installationId","receivedAt") SELECT \'superseding-recovery\', \'installation\', \'deleted\', "installationId", "receivedAt" FROM "GitHubWebhookDelivery" WHERE "deliveryId"=$1',
+      [i.deliveryGuid],
+    );
+    expect(await reserveWebhookRedeliveryOnce(prisma, i, "1".repeat(64))).toBe(false);
+    expect((await prepareWebhookRecovery(prisma, i)).state).toBe("prepared");
+  });
+
   it("requires a valid owner token and rejects an unfenced issued row", async () => {
     const i = identity("invalid-owner");
     await prepareWebhookRecovery(prisma, i);

@@ -1,6 +1,7 @@
 import { requireVerifiedGitHubAppWebhook } from "../crypto/github-app-webhook-verifier";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { WebhookDeliveryRecord } from "../../application/ports/webhook-delivery-repository-port";
+import { isWebhookReplayEligible } from "./webhook-replay-eligibility";
 
 /** A delivery owner may commit only through the guarded database transaction. */
 export type FencedDelivery = Readonly<{
@@ -77,6 +78,8 @@ export async function claimVerifiedFencedWebhookDeliveryInTransaction(
     return { kind: "claimed", claim: previous };
   if (row.ownerHash === ownerHash || !(row.status === "failed" || (row.status === "processing" && row.expired)))
     throw new Error("webhook_fence_delivery_unconfirmed");
+  if (!(await isWebhookReplayEligible(transaction, delivery.deliveryId)))
+    throw new Error("webhook_fence_reconciliation_required");
   const claim = await replaceOwner(transaction, previous, ownerHash, leaseMs);
   if (row.status === "failed") {
     await transaction.gitHubWebhookDelivery.update({
@@ -205,7 +208,9 @@ export async function reclaimWebhookFence(
       FROM "GitHubWebhookFence" f JOIN "GitHubWebhookDelivery" d USING ("deliveryId")
       WHERE f."deliveryId" = ${previous.deliveryId}
     `);
-    return rows[0]?.valid === true ? replaceOwner(transaction, previous, nextOwnerHash, leaseMs) : null;
+    if (rows[0]?.valid !== true || !(await isWebhookReplayEligible(transaction, previous.deliveryId)))
+      return null;
+    return replaceOwner(transaction, previous, nextOwnerHash, leaseMs);
   }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
 }
 
@@ -262,6 +267,8 @@ export async function runWebhookFencedEffectInTransaction<T>(
     WHERE f."deliveryId" = ${claim.deliveryId}
   `);
   if (valid[0]?.valid !== true) throw new Error("webhook_fence_stale");
+  if (claim.generation > 1n && !(await isWebhookReplayEligible(transaction, claim.deliveryId)))
+    throw new Error("webhook_fence_reconciliation_required");
   await transaction.$executeRaw(Prisma.sql`
     UPDATE "GitHubWebhookFence" SET "effectTransactionId" = txid_current()
     WHERE "deliveryId" = ${claim.deliveryId}

@@ -80,7 +80,8 @@ export function createDefaultGitHubWebhookDependencies(input: {
             const acquired = await claimVerifiedFencedWebhookDeliveryInTransaction(
               transaction, verification, deliveryRecord(envelope), ownerHash, 30_000,
             );
-            if (acquired.kind === "claimed") await writePullRequestIngressInTransaction(transaction, envelope);
+            if (acquired.kind === "claimed" && acquired.claim.generation === 1n)
+              await writePullRequestIngressInTransaction(transaction, envelope);
             return acquired;
           }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted })
         : await claimVerifiedFencedWebhookDelivery(input.prisma, verification, deliveryRecord(envelope), ownerHash, 30_000);
