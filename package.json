@@ -224,7 +224,7 @@
     "yaml": "^2.9.0",
     "oxlint": "1.87.0",
     "oxfmt": "0.72.0",
-    "@agent-teams/engineering-foundation": "3.1.0",
+    "@agent-teams/engineering-foundation": "4.1.0",
     "playwright-core": "1.64.1",
     "@types/pg": "8.23.1",
     "@get-modular/conformance": "0.5.2",
