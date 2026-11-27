@@ -177,7 +177,7 @@ function deliveryRecord(envelope: ParsedGitHubWebhook): WebhookDeliveryRecord {
   const common = {
     deliveryId: envelope.deliveryId,
     eventName: envelope.eventName,
-    payloadHash: envelope.payloadHash,
+    payloadHash: envelope.payloadHash ?? null,
   };
   if (envelope.eventName === "github_app_authorization")
     return {

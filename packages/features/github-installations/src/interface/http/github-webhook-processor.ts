@@ -19,7 +19,10 @@ export type ParsedGitHubWebhook =
   | GitHubPushWebhookEnvelope
   | GitHubRepositoryWebhookEnvelope
   | (GitHubWebhookEnvelope & {
-      readonly eventName: "installation" | "installation_repositories";
+      readonly eventName: "installation";
+    })
+  | (GitHubWebhookEnvelope & {
+      readonly eventName: "installation_repositories";
     });
 
 /** The HTTP adapter verifies and parses; the composition owns durable effects. */
