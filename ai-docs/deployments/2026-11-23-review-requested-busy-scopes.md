@@ -10,10 +10,10 @@
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                     |
-| -------------------- | --------- | ------------------------------- | ------------------- | -------------------------------------------------- |
-| staging              | `pending` | Not verified                    | Not verified        | Reconcile target and ship exact qualified release. |
-| production | `installed` | RR `6271ebe1f5e98bb376b4c7269394f806cb73041f` | 2026-11-27 | Source is included in the running fleet; task-specific verification remains pending. |
+| Environment / target | Status      | Actual deployed version / image               | Last verified (UTC) | Evidence / next step / blocker                                                       |
+| -------------------- | ----------- | --------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------ |
+| staging              | `pending`   | Not verified                                  | Not verified        | Reconcile target and ship exact qualified release.                                   |
+| production           | `installed` | RR `6271ebe1f5e98bb376b4c7269394f806cb73041f` | 2026-11-27          | Source is included in the running fleet; task-specific verification remains pending. |
 
 `pending` records no verified completion, not observed absence. The [status contract](README.md#status-contract) applies separately per environment.
 
