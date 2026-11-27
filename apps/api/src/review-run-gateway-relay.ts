@@ -2685,11 +2685,24 @@ function captureStreamFailureDiagnostic(
       ].includes(code)
         ? code
         : undefined;
-    const status: unknown = object
-      ? (Object.getOwnPropertyDescriptor(object, "httpStatus")?.value ??
-        Object.getOwnPropertyDescriptor(object, "status")?.value ??
-        Object.getOwnPropertyDescriptor(object, "statusCode")?.value)
-      : undefined;
+    let status: number | undefined;
+    if (object) {
+      for (const field of ["httpStatus", "status", "statusCode"]) {
+        const candidate: unknown = Object.getOwnPropertyDescriptor(
+          object,
+          field,
+        )?.value;
+        if (
+          typeof candidate === "number" &&
+          Number.isInteger(candidate) &&
+          candidate >= 400 &&
+          candidate <= 599
+        ) {
+          status = candidate;
+          break;
+        }
+      }
+    }
     const message: unknown = object
       ? Object.getOwnPropertyDescriptor(object, "message")?.value
       : undefined;
@@ -2709,12 +2722,7 @@ function captureStreamFailureDiagnostic(
             : error instanceof Error
               ? "Error"
               : "other",
-      ...(typeof status === "number" &&
-      Number.isInteger(status) &&
-      status >= 400 &&
-      status <= 599
-        ? { httpStatus: status }
-        : {}),
+      ...(status === undefined ? {} : { httpStatus: status }),
       ...(sdkCode === undefined ? {} : { sdkCode }),
     };
   } catch {

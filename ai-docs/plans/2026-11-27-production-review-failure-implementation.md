@@ -213,6 +213,12 @@ implemented by a diagnostic or header fix. Its owning source is outside this PR:
 - Long waits beyond the interactive read window still require durable deferred
   recovery with current-revision and previous-effect revalidation. Conservative
   refusal in the header adapter does not implement or qualify that behavior.
+- Exact incomplete-phase explanations need an intentional finite RR/Action
+  vocabulary extension: the real RR receiver and persistence reader reject
+  arbitrary quality flags despite the broad generated JSON schema. Existing
+  flags do not distinguish these causes. Preserve immutable observation identity,
+  reuse behavior and the advisory preserved-filter exception; qualify a
+  compatible persistence reader and rollback target before producer activation.
 - Require joined Gateway/native/PostgreSQL/Action fault injection and staged
   rollout before claiming safe native retry or production resolution.
 
@@ -251,6 +257,20 @@ not measured availability or a claim that all historical incidents are solved.
   fixtures; their exact counters prevent false success from an in-flight close.
   No runtime tests have executed.
 
+- Round 5: CodeRabbit's completed source review raised four minor findings.
+  Replace fixed event-loop yields with a held ninth HTTP close joined through
+  the actual relay operation; observe past the next possible uncapped retry and
+  count local close starts; require the deadline timer to initiate its first
+  close before joining it; and choose the first valid own-data HTTP failure
+  status instead of letting an invalid SDK field hide a valid fallback.
+  Extend the existing EOF matrix to eight cases. Independent source review
+  covers these corrections; execution evidence remains pending.
+- A concurrent investigation identified the RFC 850 century rollover edge.
+  Both read clients now derive the candidate century from the existing
+  50-year future limit, retaining the exact timestamp/leap-second cutoff.
+  The same HTTP 503 boundary regression covers 2099 to 2100 in both clients;
+  normal 2026 interpretation is unchanged.
+
 ## Progress
 
 - [x] Inspect initial PR source, instructions, incident evidence and ownership.
@@ -272,7 +292,7 @@ Source review: two independent reviewers found no remaining P0/P1/P2 in the
 scoped implementation after corrections. Supplemental pure-JavaScript parser
 probes are not Node/Vitest/typecheck/E2E evidence.
 
-The new relay cases use the existing companion V1 in-memory admission fixture
+The settlement relay cases use the existing companion V1 in-memory admission fixture
 with real loopback HTTP/SDK/Fastify streaming. They do not establish PostgreSQL
 or V2 concurrency. The existing database and paired Action CI lanes must supply
 those distinct results; no skipped or queued job counts as passed.

@@ -397,6 +397,12 @@ it.each([
     waitMs: 2_000,
   },
   {
+    retryAt: "Friday, 01-Jan-00 00:00:02 GMT",
+    now: "2099-12-31T23:59:59.000Z",
+    waitMs: 3_000,
+    status: 503,
+  },
+  {
     retryAt: "Fri Nov 27 12:00:02 2026",
     now: "2026-11-27T12:00:00.000Z",
     waitMs: 2_000,
@@ -418,7 +424,7 @@ it.each([
   },
 ])(
   "honors HTTP-date $retryAt within the read deadline",
-  async ({ retryAt, now, waitMs }) => {
+  async ({ retryAt, now, waitMs, status = 403 }) => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(now));
     let retryObserved!: () => void;
@@ -428,14 +434,18 @@ it.each([
     const log = vi.spyOn(console, "warn").mockImplementation(retryObserved);
     const reads = stubGitHub([
       () =>
-        json(403, { message: "secondary rate limit" }, { "retry-after": retryAt }),
+        json(
+          status,
+          { message: status === 503 ? "unavailable" : "secondary rate limit" },
+          { "retry-after": retryAt },
+        ),
       () => json(200, pullRequest),
     ]);
     const result = source(noWait).loadPullRequestPointer(retryInput());
     // Surface an early refusal instead of hanging while waiting for its log.
     await Promise.race([retried, result]);
     expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({
-      failureClass: "rate_limited",
+      failureClass: status === 503 ? "server_error" : "rate_limited",
       waitMs,
     });
     await vi.advanceTimersByTimeAsync(waitMs - 1);

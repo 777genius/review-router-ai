@@ -733,15 +733,25 @@ it("keeps oversized companion streams unknown and logs a safe failure phase", as
 });
 
 it.each([
-  { phase: "native_status", loggerThrows: false },
-  { phase: "native_status", loggerThrows: true },
-  { phase: "usage_outcome", loggerThrows: false },
-  { phase: "usage_outcome", loggerThrows: true },
-  { phase: "companion_settlement", loggerThrows: false },
-  { phase: "companion_settlement", loggerThrows: true },
+  { phase: "native_status", loggerThrows: false, statusCase: "sdk" },
+  { phase: "native_status", loggerThrows: true, statusCase: "sdk" },
+  { phase: "usage_outcome", loggerThrows: false, statusCase: "sdk" },
+  { phase: "usage_outcome", loggerThrows: true, statusCase: "sdk" },
+  {
+    phase: "companion_settlement",
+    loggerThrows: false,
+    statusCase: "getter",
+  },
+  { phase: "companion_settlement", loggerThrows: true, statusCase: "getter" },
+  { phase: "usage_outcome", loggerThrows: false, statusCase: "invalid_sdk" },
+  {
+    phase: "usage_outcome",
+    loggerThrows: false,
+    statusCase: "invalid_status",
+  },
 ] as const)(
-  "attributes companion EOF failure to $phase without terminal delivery or replay (logger throws=$loggerThrows)",
-  async ({ phase, loggerThrows }) => {
+  "attributes companion EOF failure to $phase without terminal delivery or replay (logger throws=$loggerThrows, status=$statusCase)",
+  async ({ phase, loggerThrows, statusCase }) => {
     const state = companionReservation();
     const eof = deferred();
     const getter = vi.fn(() => {
@@ -753,10 +763,19 @@ it.each([
         stack: { value: "secret-stack" },
         code: { get: getter },
         httpStatus:
-          phase === "companion_settlement" ? { get: getter } : { value: 503 },
-        status:
-          phase === "companion_settlement" ? { value: 503 } : { get: getter },
-        statusCode: { get: getter },
+          statusCase === "getter"
+            ? { get: getter }
+            : { value: statusCase === "sdk" ? 503 : 200 },
+        status: {
+          value:
+            statusCase === "invalid_status"
+              ? 503.5
+              : statusCase === "sdk"
+                ? 502
+                : 503,
+        },
+        statusCode:
+          statusCase === "invalid_status" ? { value: 503 } : { get: getter },
         meta: { value: { detail: "secret-database-detail" } },
       },
     );
@@ -3472,6 +3491,20 @@ it.each(["pressure", "timer"] as const)(
 
 it("v4 pressure still reclaims an exact retained close after all automatic retries are spent", async () => {
   vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  const originalFactory = preparationModule.createReviewRunGatewayPreparation;
+  let localCloseCalls = 0;
+  const factory = vi
+    .spyOn(preparationModule, "createReviewRunGatewayPreparation")
+    .mockImplementation((input) => {
+      const preparation = originalFactory(input);
+      return {
+        ...preparation,
+        close: (...args: Parameters<typeof preparation.close>) => {
+          localCloseCalls++;
+          return preparation.close(...args);
+        },
+      };
+    });
   const f = await fixture(
     32768,
     0,
@@ -3487,19 +3520,35 @@ it("v4 pressure still reclaims an exact retained close after all automatic retri
     f.authorizations,
     "expireOrRevokeReviewRunAuthorization",
   );
+  let ninthClose: ReturnType<typeof f.holdClose> | undefined;
+  let closing: ReturnType<typeof f.relay.closeRun> | undefined;
   try {
     await streamRun(f, "authorization-1", "reviewer-0");
     f.setCloseState("unknown");
     await f.relay.closeRun("authorization-1", "completed");
     for (let tick = 0; tick < 1100 && f.nativeCloses.length < 9; tick++) {
+      if (f.nativeCloses.length === 8 && !ninthClose)
+        ninthClose = f.holdClose();
       await vi.advanceTimersByTimeAsync(100);
       await setImmediate();
     }
-    await vi.waitFor(() => expect(f.nativeCloses).toHaveLength(9));
-    for (let tick = 0; tick < 10; tick++) await setImmediate();
-    await vi.advanceTimersByTimeAsync(2000);
+    expect(ninthClose).toBeDefined();
     expect(f.nativeCloses).toHaveLength(9);
+    await ninthClose!.started;
+    // The ninth HTTP response is held, so this call must join its exact close.
+    // Awaiting it after release proves the relay's closing entry has settled.
+    closing = f.relay.closeRun("authorization-1", "completed");
+    ninthClose!.release();
+    await expect(closing).resolves.toMatchObject({ state: "unknown" });
+
+    const remaining = f.authorization().maxExpiresAt.getTime() - Date.now();
+    expect(remaining).toBeGreaterThan(0);
+    // Pass the next uncapped half-remaining retry while staying before expiry.
+    // Observe local close starts too: slow HTTP cannot hide an extra attempt.
+    await vi.advanceTimersByTimeAsync(Math.floor((remaining * 3) / 4));
     expect(Date.now()).toBeLessThan(f.authorization().maxExpiresAt.getTime());
+    expect(localCloseCalls).toBe(9);
+    expect(f.nativeCloses).toHaveLength(9);
 
     await expect(
       streamRun(f, "authorization-2", "reviewer-0"),
@@ -3507,6 +3556,7 @@ it("v4 pressure still reclaims an exact retained close after all automatic retri
       code: "relay_saturated",
       effect: "not_dispatched",
     });
+    expect(localCloseCalls).toBe(10);
     expect(f.nativeCloses).toHaveLength(10);
     expect(f.intents).toHaveLength(1);
     expect(f.requestModels).toHaveLength(1);
@@ -3516,6 +3566,7 @@ it("v4 pressure still reclaims an exact retained close after all automatic retri
     await expect(
       streamRun(f, "authorization-2", "reviewer-0"),
     ).resolves.toBe("stream");
+    expect(localCloseCalls).toBe(11);
     expect(f.nativeCloses).toHaveLength(11);
     expect(new Set(f.nativeCloses).size).toBe(1);
     expect(new Set(f.nativeCloseOperationIds).size).toBe(1);
@@ -3529,9 +3580,15 @@ it("v4 pressure still reclaims an exact retained close after all automatic retri
     expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
     expect(revoke).not.toHaveBeenCalled();
   } finally {
-    revoke.mockRestore();
-    await f.relay.shutdown();
-    vi.useRealTimers();
+    ninthClose?.release();
+    await closing?.catch(() => {});
+    try {
+      await f.relay.shutdown();
+    } finally {
+      factory.mockRestore();
+      revoke.mockRestore();
+      vi.useRealTimers();
+    }
   }
 });
 
@@ -3548,6 +3605,8 @@ it("v4 pressure retains custody when the original native close capability has ex
     undefined,
     { models: ["gpt-5.6-sol"], independentAllocations: true },
   );
+  let deadlineClose: ReturnType<typeof f.holdClose> | undefined;
+  let closing: ReturnType<typeof f.relay.closeRun> | undefined;
   try {
     await streamRun(f, "authorization-1", "reviewer-0");
     f.setCloseResponseOverride((operationId) => ({
@@ -3560,22 +3619,24 @@ it("v4 pressure retains custody when the original native close capability has ex
         retry: { kind: "never" },
       },
     }));
+    deadlineClose = f.holdClose();
     await vi.advanceTimersByTimeAsync(
       f.authorization().maxExpiresAt.getTime() - Date.now() + 1,
     );
-    // Join the deadline cleanup, or repeat the same idempotent close if it
-    // already settled. Expiry cannot refresh the old capability or prove close.
-    await expect(
-      f.relay.closeRun("authorization-1", "deadline"),
-    ).rejects.toMatchObject({
+    // Only the deadline timer can initiate this first held HTTP close.
+    await vi.waitFor(() => expect(f.nativeCloses).toHaveLength(1));
+    await deadlineClose.started;
+    expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Expired);
+    closing = f.relay.closeRun("authorization-1", "deadline");
+    const refused = expect(closing).rejects.toMatchObject({
       code: "safe_error",
       httpStatus: 401,
       effect: "not_dispatched",
       diagnostic: { code: "unauthenticated" },
     });
-    expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Expired);
-    const closes = f.nativeCloses.length;
-    expect(closes).toBeGreaterThan(0);
+    deadlineClose.release();
+    await refused;
+    expect(f.nativeCloses).toHaveLength(1);
 
     // A distinct later authorization is live; refusal must come from retained
     // old custody rather than the second request also having an expired grant.
@@ -3597,19 +3658,22 @@ it("v4 pressure retains custody when the original native close capability has ex
       code: "relay_saturated",
       effect: "not_dispatched",
     });
-    expect(f.nativeCloses).toHaveLength(closes + 1);
+    expect(f.nativeCloses).toHaveLength(2);
     expect(new Set(f.nativeCloses).size).toBe(1);
     expect(new Set(f.nativeCloseOperationIds).size).toBe(1);
-    expect(f.nativeCloseReasons.every((reason) => reason === "deadline")).toBe(
-      true,
-    );
+    expect(f.nativeCloseReasons).toEqual(["deadline", "deadline"]);
     expect(f.intents).toHaveLength(1);
     expect(f.requestModels).toHaveLength(1);
     expect([...f.nativeExecutions.values()]).toEqual(["active"]);
     expect(f.operationReads).toHaveLength(0);
   } finally {
-    await f.relay.shutdown();
-    vi.useRealTimers();
+    deadlineClose?.release();
+    await closing?.catch(() => {});
+    try {
+      await f.relay.shutdown();
+    } finally {
+      vi.useRealTimers();
+    }
   }
 });
 

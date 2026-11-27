@@ -290,12 +290,12 @@ function httpDateTimestamp(value: string, now: number): number | null {
       normalized,
     );
   if (obsolete) {
-    const year =
-      Math.floor(new Date(now).getUTCFullYear() / 100) * 100 +
-      Number(obsolete[4]);
-    normalized = `${obsolete[1]!.slice(0, 3)}, ${obsolete[2]} ${obsolete[3]} ${year} ${obsolete[5]} GMT`;
     const futureLimit = new Date(now);
     futureLimit.setUTCFullYear(futureLimit.getUTCFullYear() + 50);
+    const year =
+      Math.floor(futureLimit.getUTCFullYear() / 100) * 100 +
+      Number(obsolete[4]);
+    normalized = `${obsolete[1]!.slice(0, 3)}, ${obsolete[2]} ${obsolete[3]} ${year} ${obsolete[5]} GMT`;
     if (
       Date.parse(normalized) + (leapSecond ? 1_000 : 0) > futureLimit.getTime()
     ) {
