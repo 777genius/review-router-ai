@@ -167,4 +167,104 @@ test("fenced PR composite on isolated PostgreSQL", () => {
         .rows[0].status,
     ).toBe("setup_pr_open");
   });
+  it("writes conflict and review outbox events together when fallback is allowed", async () => {
+    const e = envelope("conflict-allowed");
+    e.payload.action = "opened";
+    e.payload.pull_request.state = "open";
+    const claim = await beginFencedWebhookDelivery(
+      prisma,
+      {
+        deliveryId: e.deliveryId,
+        eventName: e.eventName,
+        action: e.payload.action,
+        installationId: "123",
+        payloadHash: e.payloadHash,
+      },
+      owner,
+      10000,
+    );
+    const result = await handleFencedPullRequestComposite(prisma, e, claim, {
+      reviewIngressEnabled: true,
+      conflictFallbackEnabled: true,
+      conflictFallbackAllowed: true,
+    });
+    expect(result.conflict).toMatchObject({ processed: true, queued: true });
+    expect(
+      (
+        await pool.query(
+          'SELECT count(*)::int n FROM "OutboxEvent" WHERE "idempotencyKey"=$1',
+          ["conflict-review:detect:delivery:conflict-allowed"],
+        )
+      ).rows[0].n,
+    ).toBe(1);
+  });
+  it("respects disabled conflict policy", async () => {
+    const e = envelope("conflict-denied");
+    e.payload.action = "opened";
+    e.payload.pull_request.state = "open";
+    const claim = await beginFencedWebhookDelivery(
+      prisma,
+      {
+        deliveryId: e.deliveryId,
+        eventName: e.eventName,
+        action: e.payload.action,
+        installationId: "123",
+        payloadHash: e.payloadHash,
+      },
+      owner,
+      10000,
+    );
+    const result = await handleFencedPullRequestComposite(prisma, e, claim, {
+      reviewIngressEnabled: true,
+      conflictFallbackEnabled: true,
+      conflictFallbackAllowed: false,
+    });
+    expect(result.conflict).toMatchObject({
+      processed: false,
+      queued: false,
+      reason: "conflict_review_rollout_disabled",
+    });
+    expect(
+      (
+        await pool.query(
+          'SELECT count(*)::int n FROM "OutboxEvent" WHERE "idempotencyKey"=$1',
+          ["conflict-review:detect:delivery:conflict-denied"],
+        )
+      ).rows[0].n,
+    ).toBe(0);
+  });
+
+  it("rolls back review ingress when conflict outbox insertion fails", async () => {
+    await pool.query(
+      `ALTER TABLE "OutboxEvent" ADD CONSTRAINT synthetic_conflict_failure CHECK ("idempotencyKey" <> 'conflict-review:detect:delivery:conflict-rollback')`,
+    );
+    const e = envelope("conflict-rollback");
+    e.payload.action = "opened";
+    e.payload.pull_request.state = "open";
+    const claim = await beginFencedWebhookDelivery(
+      prisma,
+      {
+        deliveryId: e.deliveryId,
+        eventName: e.eventName,
+        action: e.payload.action,
+        installationId: "123",
+        payloadHash: e.payloadHash,
+      },
+      owner,
+      10000,
+    );
+    const before = (
+      await pool.query('SELECT count(*)::int n FROM "OutboxEvent"')
+    ).rows[0].n;
+    await expect(
+      handleFencedPullRequestComposite(prisma, e, claim, {
+        reviewIngressEnabled: true,
+        conflictFallbackEnabled: true,
+        conflictFallbackAllowed: true,
+      }),
+    ).rejects.toThrow();
+    expect(
+      (await pool.query('SELECT count(*)::int n FROM "OutboxEvent"')).rows[0].n,
+    ).toBe(before);
+  });
 });

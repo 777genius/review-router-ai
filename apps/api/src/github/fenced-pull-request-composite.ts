@@ -1,3 +1,5 @@
+import { ConflictReviewPullRequestWebhookHandler } from "@reviewrouter/features-conflict-review";
+import { writePrismaOutboxEvent } from "@reviewrouter/features-outbox";
 import {
   runWebhookFencedEffectInTransaction,
   type FencedDelivery,
@@ -18,13 +20,17 @@ export async function handleFencedPullRequestComposite(
   options: {
     readonly reviewIngressEnabled: boolean;
     readonly conflictFallbackEnabled: boolean;
+    readonly conflictFallbackAllowed?: boolean;
   },
 ): Promise<Record<string, unknown>> {
   if (claim.deliveryId !== envelope.deliveryId || !envelope.payloadHash)
     throw new Error("webhook_fence_identity_mismatch");
-  // The optional conflict handler is not yet ported to the transaction.
-  if (options.conflictFallbackEnabled)
-    throw new Error("webhook_fence_conflict_fallback_unimplemented");
+  // The caller must evaluate the existing repository rollout policy before entry.
+  if (
+    options.conflictFallbackEnabled &&
+    options.conflictFallbackAllowed === undefined
+  )
+    throw new Error("webhook_fence_conflict_policy_missing");
   return runScopeEpochSerializableTransaction(
     prisma,
     [{ scope: "global", mode: "exclusive" }],
@@ -53,8 +59,20 @@ export async function handleFencedPullRequestComposite(
         const setup = await new PrismaSetupPullRequestMergeHandler(
           prisma,
         ).handlePullRequestInTransaction(transaction, envelope);
-        // Deliberately leave processing; the full handler set and finalization protocol are not qualified.
-        return { ingress, setup };
+        const conflict = options.conflictFallbackEnabled
+          ? await new ConflictReviewPullRequestWebhookHandler({
+              outbox: {
+                enqueue: (event) => writePrismaOutboxEvent(transaction, event),
+              },
+              rolloutPolicy: {
+                isConflictReviewFallbackAllowed: () =>
+                  options.conflictFallbackAllowed!,
+              },
+              clock: { now: () => new Date() },
+            }).handleGitHubPullRequestWebhook(envelope)
+          : null;
+        // Deliberately leave processing; the finalization protocol is not qualified.
+        return { ingress, setup, conflict };
       }),
   );
 }

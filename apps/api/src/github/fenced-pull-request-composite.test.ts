@@ -2,7 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const m = vi.hoisted(() => ({
   tx: {} as Record<string, any>,
   ingress: vi.fn(),
+  conflict: vi.fn(),
   setup: vi.fn(),
+}));
+vi.mock("@reviewrouter/features-outbox", () => ({
+  writePrismaOutboxEvent: vi.fn(),
+}));
+vi.mock("@reviewrouter/features-conflict-review", () => ({
+  ConflictReviewPullRequestWebhookHandler: class {
+    handleGitHubPullRequestWebhook = m.conflict;
+  },
 }));
 vi.mock("@reviewrouter/platform-db", () => ({
   runScopeEpochSerializableTransaction: async (
@@ -42,14 +51,12 @@ describe("fenced pull request composite prototype", () => {
     vi.clearAllMocks();
     m.tx = {
       gitHubWebhookDelivery: {
-        findUnique: vi
-          .fn()
-          .mockResolvedValue({
-            eventName: "pull_request",
-            action: "closed",
-            installationId: 42n,
-            payloadHash: "hash",
-          }),
+        findUnique: vi.fn().mockResolvedValue({
+          eventName: "pull_request",
+          action: "closed",
+          installationId: 42n,
+          payloadHash: "hash",
+        }),
       },
     };
     m.ingress.mockResolvedValue({ queued: true });
@@ -64,17 +71,18 @@ describe("fenced pull request composite prototype", () => {
     ).resolves.toEqual({
       ingress: { queued: true },
       setup: { configured: true },
+      conflict: null,
     });
     expect(m.ingress).toHaveBeenCalledWith(m.tx, envelope);
     expect(m.setup).toHaveBeenCalledWith(m.tx, envelope);
   });
-  it("rejects unsupported conflict fallback before any effect", async () => {
+  it("rejects missing conflict rollout policy before any effect", async () => {
     await expect(
       handleFencedPullRequestComposite({} as any, envelope, claim, {
         reviewIngressEnabled: true,
         conflictFallbackEnabled: true,
       }),
-    ).rejects.toThrow("webhook_fence_conflict_fallback_unimplemented");
+    ).rejects.toThrow("webhook_fence_conflict_policy_missing");
     expect(m.ingress).not.toHaveBeenCalled();
     expect(m.setup).not.toHaveBeenCalled();
   });
