@@ -372,6 +372,7 @@ const preReleaseMigrationBoundary = Object.freeze({
     "000162_inventory_ruleset_revisions",
     "000163_usage_retention_index",
     "000164_ruleset_create_uncertainty",
+    "000165_attested_model_request_retry",
     "000150_skills_catalog_security",
     "000151_review_history",
     "000152_memory_automatic_source",

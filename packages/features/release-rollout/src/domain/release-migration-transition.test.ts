@@ -110,7 +110,8 @@ describe("canonical release migration transition", () => {
         name !== "000161_native_connection_intent" &&
         name !== "000162_inventory_ruleset_revisions" &&
         name !== "000163_usage_retention_index" &&
-        name !== "000164_ruleset_create_uncertainty",
+        name !== "000164_ruleset_create_uncertainty" &&
+        name !== "000165_attested_model_request_retry",
     );
     const checkout161 = names.map((migrationName) => ({
       migrationName,
@@ -458,6 +459,7 @@ describe("canonical release migration transition", () => {
           row.migrationName !== "000162_inventory_ruleset_revisions" &&
           row.migrationName !== "000163_usage_retention_index" &&
           row.migrationName !== "000164_ruleset_create_uncertainty" &&
+          row.migrationName !== "000165_attested_model_request_retry" &&
           row.migrationName !== "000156_verified_thread_reply",
       ),
     );
