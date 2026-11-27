@@ -842,7 +842,9 @@ jobs:
         env:
           GITHUB_APP_ID: "1"
           GITHUB_APP_SLUG: reviewrouter-ci
-        run: pnpm runtime:smoke
+        run: |
+          pnpm runtime:smoke
+          pnpm webhook:recover --help
 
       - name: Web page smoke
         run: pnpm web:smoke

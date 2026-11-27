@@ -189,7 +189,8 @@ TypeScript, lint, full migration/HTTP matrix and ordinary CI remain unverified.
 The existing CI includes the mandatory
 `scripts/webhook-fencing/run-postgres.ts` runner; it executes every required suite
 in a fresh process and rejects skipped, missing or unsuccessful results. A queued
-or skipped job is not qualification. Keep the PR draft until actual gates pass.
+or skipped job is not qualification. Ready-for-review status enables the ordinary
+full CI lanes; merge remains blocked until the actual required gates pass.
 
 ## Rollout and rollback
 
