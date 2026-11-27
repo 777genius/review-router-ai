@@ -54,9 +54,10 @@ and review rules in one dashboard.
   attached to the exact PR commit.
 - **Multiple reviewers.** Choose models and accounts, run reviewers in parallel
   and require agreement before publishing inline findings.
-- **AI providers and accounts.** Connect Codex, Claude Code, OpenRouter,
-  MiMo Token Plan or Kimi Code via supported subscriptions, OAuth or API keys.
-  Manage accounts and choose models from the available provider catalogs.
+- **AI providers and accounts.** Connect native Claude/Anthropic, Gemini,
+  OpenAI/Codex, Grok, Kimi, GLM, MiniMax, DeepSeek, OpenRouter, NVIDIA Build
+  and others through supported per-provider API keys, OAuth or imports.
+  Availability depends on the deployment; see the matrix below.
 - **Review settings.** Workspace defaults and per-repository overrides for models,
   reasoning effort, language, severity, comment limits and parallelism. Workspace
   admins also control automatic reviews of draft PRs.
@@ -98,6 +99,40 @@ and review rules in one dashboard.
 
 Availability varies by provider, installed workflows and deployment. See
 [capabilities and limits](./docs/capabilities.md).
+
+## Supported AI providers
+
+Find your provider and choose the connection method supported by your account.
+These options are available through managed native accounts **when enabled
+by your deployment**; direct GitHub Actions setup supports a smaller subset.
+
+| AI provider                                                                                                              | How to connect                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| <img src="./apps/web/public/provider-logos/claude.svg" width="20" height="20" alt="" /> **Claude (Anthropic)**           | API key; account sign-in (OAuth); setup token or session-assisted sign-in        |
+| <img src="./apps/web/public/provider-logos/bedrock.svg" width="20" height="20" alt="" /> **Claude on Amazon Bedrock**    | AWS credentials; Bedrock API key                                                 |
+| <img src="./apps/web/public/provider-logos/vertexai.svg" width="20" height="20" alt="" /> **Claude on Google Vertex AI** | Google Cloud service account                                                     |
+| <img src="./apps/web/public/provider-logos/gemini.svg" width="20" height="20" alt="" /> **Gemini (Google)**              | API key; Google One, Code Assist or AI Studio sign-in                            |
+| <img src="./apps/web/public/provider-logos/vertexai.svg" width="20" height="20" alt="" /> **Gemini on Vertex AI**        | Google Cloud service account; Vertex API key                                     |
+| <img src="./apps/web/public/provider-logos/openai.svg" width="20" height="20" alt="" /> **OpenAI API**                   | OpenAI API key                                                                   |
+| <img src="./apps/web/public/provider-logos/codex.svg" width="20" height="20" alt="" /> **Codex**                         | Browser/device sign-in; import tokens, session or auth.json; Agent Identity; PAT |
+| <img src="./apps/web/public/provider-logos/grok.svg" width="20" height="20" alt="" /> **Grok**                           | API key; browser sign-in; token or SSO import                                    |
+| <img src="./apps/web/public/provider-logos/antigravity.svg" width="20" height="20" alt="" /> **Antigravity**             | Browser sign-in; token import; approved-target API key                           |
+| <img src="./apps/web/public/provider-logos/kimi.svg" width="20" height="20" alt="" /> **Kimi**                           | Pay-as-you-go API key; Kimi Code plan key                                        |
+| <img src="./apps/web/public/provider-logos/glm.svg" width="20" height="20" alt="" /> **GLM**                             | Pay-as-you-go API key; Coding Plan key                                           |
+| <img src="./apps/web/public/provider-logos/minimax.svg" width="20" height="20" alt="" /> **MiniMax**                     | Pay-as-you-go API key; M Plan key                                                |
+| <img src="./apps/web/public/provider-logos/deepseek.svg" width="20" height="20" alt="" /> **DeepSeek**                   | API key                                                                          |
+| <img src="./apps/web/public/provider-logos/opencode.svg" width="20" height="20" alt="" /> **OpenCode Go / Zen**          | Go API key; Zen API key                                                          |
+| <img src="./apps/web/public/provider-logos/commandcode.svg" width="20" height="20" alt="" /> **Command Code**            | API key                                                                          |
+| <img src="./apps/web/public/provider-logos/cline.svg" width="20" height="20" alt="" /> **Cline**                         | API key                                                                          |
+| <img src="./apps/web/public/provider-logos/openrouter.svg" width="20" height="20" alt="" /> **OpenRouter**               | API key                                                                          |
+| <img src="./apps/web/public/provider-logos/nvidia.svg" width="20" height="20" alt="" /> **NVIDIA Build**                 | API key                                                                          |
+| <img src="./apps/web/public/provider-logos/mimo.svg" width="20" height="20" alt="" /> **MiMo Token Plan**                | Token Plan API key (existing ReviewRouter path)                                  |
+
+See the [full provider guide](./docs/provider-connections.md) and
+[public website table](https://reviewrouter.org/providers) for account-specific
+requirements. Provider logos identify their respective brands; they do not
+imply endorsement. Controlled integration tests do not guarantee that a
+live paid account or model is available in every deployment.
 
 ## PR comment commands
 
