@@ -1,6 +1,9 @@
 import { recordAuditEvent } from "@reviewrouter/features-audit-log";
 import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log/composition";
-import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
+import {
+  acquireCurrentScopeGuards,
+  runScopeEpochSerializableTransaction,
+} from "@reviewrouter/platform-db";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import type { WorkspacePolicyHeads } from "../../application/ports/review-configuration-repository-port";
 import type {
@@ -106,37 +109,47 @@ export class PrismaWorkspaceProviderProfileRepository implements WorkspaceProvid
       WorkspaceProviderProfileRepositoryPort["changeAccessRights"]
     >[0],
   ) {
-    return runReviewConfigurationTransaction(this.prisma, async (tx) => {
-      // Refuses a deleted or deleting workspace before any write.
-      const authority = await lockProviderAuthority(
-        tx,
-        input.workspaceId,
-        input.actor,
-      );
-      input.authorize(authority);
-      const previous = authority.workspace.providerManagementAdminOnly;
-      if (previous !== input.adminOnly)
-        await tx.workspace.update({
-          where: { id: input.workspaceId },
-          data: { providerManagementAdminOnly: input.adminOnly },
-        });
-      await recordAuditEvent(
+    return runScopeEpochSerializableTransaction(
+      this.prisma,
+      [
         {
+          scope: "workspace",
           workspaceId: input.workspaceId,
-          actor: input.actor.auditActor,
-          action: "workspace.access_rights_saved",
-          targetType: "workspace",
-          targetId: input.workspaceId,
-          metadata: {
-            providerManagementAdminOnly: input.adminOnly,
-            previous,
-            ...input.auditMetadata,
-          },
+          mode: "exclusive",
         },
-        { auditLog: new PrismaAuditLogRepository(tx) },
-      );
-      return { adminOnly: input.adminOnly, previous };
-    });
+      ],
+      async (tx) => {
+        // Refuses a deleted or deleting workspace before any write.
+        const authority = await lockProviderAuthority(
+          tx,
+          input.workspaceId,
+          input.actor,
+        );
+        input.authorize(authority);
+        const previous = authority.workspace.providerManagementAdminOnly;
+        if (previous !== input.adminOnly)
+          await tx.workspace.update({
+            where: { id: input.workspaceId },
+            data: { providerManagementAdminOnly: input.adminOnly },
+          });
+        await recordAuditEvent(
+          {
+            workspaceId: input.workspaceId,
+            actor: input.actor.auditActor,
+            action: "workspace.access_rights_saved",
+            targetType: "workspace",
+            targetId: input.workspaceId,
+            metadata: {
+              providerManagementAdminOnly: input.adminOnly,
+              previous,
+              ...input.auditMetadata,
+            },
+          },
+          { auditLog: new PrismaAuditLogRepository(tx) },
+        );
+        return { adminOnly: input.adminOnly, previous };
+      },
+    );
   }
 
   async list(workspaceId: string) {
