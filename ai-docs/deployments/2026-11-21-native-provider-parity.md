@@ -199,3 +199,25 @@ and gate evidence is under
 `/srv/platform/projects/review-router/releases/gate-api-profiles-v2-20261127`.
 The backup was decoded but restore was not verified. Once new native selections
 exist, preserve the compatible reader and journal during any rollback.
+
+## Production native-method availability — 2026-11-26
+
+At 21:58 UTC the existing eight native profiles were enabled through the
+`native-account-capabilities/v2` Gateway configuration, preserving their
+previous limits, token bounds and bearer grants. The current RR and producer
+revisions did not change. Gateway configuration SHA256 is
+`a49b517f855f20930f5adf83cedd368b73bd9ae9dab95f9ddb6927b365cafdd8`.
+The fenced restart completed, the Gateway was active, admission reopened, and
+both management and consumer-control V3 catalog reads returned HTTP 200 with
+eight profiles. The catalog includes the newly exposed Codex and Grok native
+methods; native discovery returned no additional provider profile IDs.
+
+The stopped backup and activation evidence are retained under
+`/srv/platform/projects/review-router/account-gateway/backup-native-methods-20261126-v1`,
+`/srv/platform/projects/review-router/account-gateway/rr959-prepared-20261126/native-methods-ready-fenced-v1.json`,
+and `/srv/platform/projects/review-router/releases/gate-native-methods-20261126`.
+The owner requested activation without the extended live test suite. Actual
+browser visibility, account enrollment and live provider/model/Usage behavior
+remain unverified; this is availability, not completion of the 52-scenario
+acceptance. Once native selections are recorded, an older reader may be below
+the rollback floor; preserve the compatible reader and receipts.
