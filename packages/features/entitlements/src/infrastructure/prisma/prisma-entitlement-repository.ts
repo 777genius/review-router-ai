@@ -1,4 +1,4 @@
-import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
+import { runScopeEpochSerializableTransaction } from "@reviewrouter/platform-db";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import type { EntitlementRepositoryPort } from "../../application/ports/entitlement-repository-port";
 import {
@@ -33,31 +33,34 @@ export class PrismaEntitlementRepository implements EntitlementRepositoryPort {
   async upsertWorkspaceEntitlement(
     entitlement: WorkspaceEntitlement,
   ): Promise<void> {
-    await this.prisma.$transaction(async (transaction) => {
-      await acquireCurrentScopeGuards(transaction, [
+    await runScopeEpochSerializableTransaction(
+      this.prisma,
+      [
         {
           scope: "workspace",
           workspaceId: entitlement.workspaceId,
           mode: "exclusive",
         },
-      ]);
-      await transaction.workspaceEntitlement.upsert({
-        where: { workspaceId: entitlement.workspaceId },
-        update: {
-          plan: entitlement.plan,
-          status: entitlement.status,
-          limits: entitlement.limits as unknown as Prisma.InputJsonValue,
-          flags: entitlement.flags as unknown as Prisma.InputJsonValue,
-        },
-        create: {
-          workspaceId: entitlement.workspaceId,
-          plan: entitlement.plan,
-          status: entitlement.status,
-          limits: entitlement.limits as unknown as Prisma.InputJsonValue,
-          flags: entitlement.flags as unknown as Prisma.InputJsonValue,
-        },
-      });
-    });
+      ],
+      async (transaction) => {
+        await transaction.workspaceEntitlement.upsert({
+          where: { workspaceId: entitlement.workspaceId },
+          update: {
+            plan: entitlement.plan,
+            status: entitlement.status,
+            limits: entitlement.limits as unknown as Prisma.InputJsonValue,
+            flags: entitlement.flags as unknown as Prisma.InputJsonValue,
+          },
+          create: {
+            workspaceId: entitlement.workspaceId,
+            plan: entitlement.plan,
+            status: entitlement.status,
+            limits: entitlement.limits as unknown as Prisma.InputJsonValue,
+            flags: entitlement.flags as unknown as Prisma.InputJsonValue,
+          },
+        });
+      },
+    );
   }
 }
 
