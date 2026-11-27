@@ -283,10 +283,11 @@ function retryAfterMs(
 /** HTTP recipients accept all three date forms (RFC 9110, section 5.6.7).
  * Normalize the obsolete forms before the round-trip calendar check. */
 function httpDateTimestamp(value: string, now: number): number | null {
-  let normalized = value;
+  const leapSecond = / 23:59:60(?: GMT| \d{4})$/u.test(value);
+  let normalized = leapSecond ? value.replace("23:59:60", "23:59:59") : value;
   const obsolete =
     /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), (\d{2})-([A-Z][a-z]{2})-(\d{2}) (\d{2}:\d{2}:\d{2}) GMT$/u.exec(
-      value,
+      normalized,
     );
   if (obsolete) {
     const year =
@@ -295,13 +296,15 @@ function httpDateTimestamp(value: string, now: number): number | null {
     normalized = `${obsolete[1]!.slice(0, 3)}, ${obsolete[2]} ${obsolete[3]} ${year} ${obsolete[5]} GMT`;
     const futureLimit = new Date(now);
     futureLimit.setUTCFullYear(futureLimit.getUTCFullYear() + 50);
-    if (Date.parse(normalized) > futureLimit.getTime()) {
+    if (
+      Date.parse(normalized) + (leapSecond ? 1_000 : 0) > futureLimit.getTime()
+    ) {
       normalized = normalized.replace(` ${year} `, ` ${year - 100} `);
     }
   } else {
     const asctime =
       /^([A-Z][a-z]{2}) ([A-Z][a-z]{2}) ( \d|\d{2}) (\d{2}:\d{2}:\d{2}) (\d{4})$/u.exec(
-        value,
+        normalized,
       );
     if (asctime) {
       normalized = `${asctime[1]}, ${asctime[3]!.trim().padStart(2, "0")} ${asctime[2]} ${asctime[5]} ${asctime[4]} GMT`;
@@ -310,7 +313,7 @@ function httpDateTimestamp(value: string, now: number): number | null {
   const timestamp = Date.parse(normalized);
   return Number.isFinite(timestamp) &&
     new Date(timestamp).toUTCString() === normalized
-    ? timestamp
+    ? timestamp + (leapSecond ? 1_000 : 0)
     : null;
 }
 

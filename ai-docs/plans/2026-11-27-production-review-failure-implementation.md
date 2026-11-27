@@ -18,7 +18,8 @@ existing request budgets, lease/fence admission and physical resource custody.
 ## Exact scope
 
 1. Correct the existing GitHub revision-read adapter's wait calculation:
-   all three HTTP-date forms in Retry-After, strict numeric/header validation, and the later
+   all three HTTP-date forms and leap seconds in Retry-After, strict numeric/header
+   validation, and the later
    applicable Retry-After/primary-quota reset. Preserve its single 15-second
    deadline, finite attempts, read-only operations and fail-closed revision guard.
 2. Attribute companion EOF failures to native status readback, usage outcome
@@ -66,7 +67,8 @@ and its existing transport test.
 
 - Parse trimmed decimal delta-seconds and all three HTTP-date forms from
   [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html#section-5.6.7), with a
-  calendar round-trip check and the two-digit-year interpretation. A valid
+  calendar round-trip check, leap-second normalization and the two-digit-year
+  interpretation. A valid
   excessive delay or reset must exceed the deadline rather than become absent.
   Blank, negative, hexadecimal, exponential and malformed values are not an
   immediate retry instruction.
@@ -155,6 +157,41 @@ any cited run took that path. Preserve RR expiry/coverage semantics while the
 explicit Action outcome/reason and run identity are investigated. Do not reuse
 the after-expiry proof proposal rejected by automatic safety review.
 
+## Follow-up source review and bounded custody checks
+
+Concurrent documentation commits `46a9a89a` and `a1a79ff6` add a
+[cross-execution investigation](2026-11-27-review-follow-up-multi-round.md).
+Both additions are preserved; the earlier provider-effect and physical-close assumptions
+remain unproven for a separately started review.
+
+A fourth review pass found that valid HTTP leap-second dates could become
+absent after the strict JavaScript calendar check. Normalize the final UTC
+`23:59:60` through a validated `:59` and add one second, including in the
+RFC 850 century comparison. Transport cases cover all three representations
+inside the deadline and refuse a longer leap-second wait on both 403 and 503,
+including when a shorter primary reset is present.
+
+The existing real HTTP fixture now also exercises two concrete acceptance gaps:
+
+- After the initial close and all eight background retries remain unknown,
+  a distinct authorization under `maxSessions=1` attempts the exact original
+  close and is refused. An applied close before the original deadline then
+  frees the old slot and admits one new inference. Identity, reason, custody,
+  publication authority and inference counts are independently asserted.
+- After native close returns a structured expired-credential refusal at the
+  original deadline, a distinct live authorization is still refused under
+  pressure. No preparation-operation read, capability refresh or inference
+  replay occurs. This is a controlled response fixture, not proof of actual
+  native/PostgreSQL expiry behavior.
+
+The Action wait fix is prepared in dependent
+[public Action PR #411](https://github.com/777genius/review-router/pull/411),
+source `3064adbb81b00d4b4359011310807c17101d140b`.
+Its own 15-second accepted-wait policy is preserved. The source and tests
+passed independent static review; official Node 24 regeneration of committed
+`dist`, TypeScript 7.0.2 and all runtime gates remain pending. A source-only
+Action draft does not change deployed behavior.
+
 ## External dependencies still required for the full incident goal
 
 The [attested retry design](2026-11-27-attested-request-retry.md) is not
@@ -170,8 +207,12 @@ implemented by a diagnostic or header fix. Its owning source is outside this PR:
 - Lifecycle verification and PR description currently admit one request;
   do not silently broaden them. A first retry capability can retain those
   exclusions; widening them needs deliberate admission/evidence changes.
-- The public Action's independent GitHubClient has its own wait policy and
-  requires its own source/bundle qualification to address that incident path.
+- The public Action's independent GitHubClient has its own wait policy. PR #411
+  contains the source correction; generated bundle and runtime qualification
+  still need a working build environment.
+- Long waits beyond the interactive read window still require durable deferred
+  recovery with current-revision and previous-effect revalidation. Conservative
+  refusal in the header adapter does not implement or qualify that behavior.
 - Require joined Gateway/native/PostgreSQL/Action fault injection and staged
   rollout before claiming safe native retry or production resolution.
 
@@ -204,6 +245,11 @@ not measured availability or a claim that all historical incidents are solved.
   valid numeric waits could become absent on 503. Corrected both, added
   rejecting transport cases and re-reviewed. Runtime qualification remains
   pending; static review does not establish test success.
+- Round 4: independent review found and corrected the leap-second omission,
+  reviewed the dependent Action patch and strengthened its long-date oracle.
+  A separate reviewer accepted the pressure-after-budget and expired-capability
+  fixtures; their exact counters prevent false success from an in-flight close.
+  No runtime tests have executed.
 
 ## Progress
 
@@ -218,7 +264,10 @@ not measured availability or a claim that all historical incidents are solved.
 
 ## Runtime evidence ledger
 
-Runtime implementation commit: `dd17dc481b7d2dadbc62be734d2858de5c51da71`.
+Initial runtime implementation commit: `dd17dc481b7d2dadbc62be734d2858de5c51da71`.
+The subsequent leap-second and custody-test correction is part of the current
+PR candidate; the exact current head and check links are recorded in the PR
+description. Qualify the final head, not the initial implementation alone.
 Source review: two independent reviewers found no remaining P0/P1/P2 in the
 scoped implementation after corrections. Supplemental pure-JavaScript parser
 probes are not Node/Vitest/typecheck/E2E evidence.

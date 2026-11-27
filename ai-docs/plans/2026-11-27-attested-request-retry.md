@@ -25,3 +25,57 @@ The incident logs do not establish the upstream root cause for every partial or 
 - **Action:** `production-t0-review-runner.ts` forces one entire OCR slot attempt for model dispatch. Keep that limit; change only the individual request in `account-gateway-model-transport.ts` and `prepared-model-dispatch.ts`. After confirmed settlement/readback, reserve a new ordinal/reference within the original finite request allowance and deadline, with bounded delay and retry count. A retry is a new request, never replay or reinterpretation of the rejected request. Explicitly gate transient eligibility; native's generic `native_rejected` alone does not distinguish authentication, invalid request or quota from transient failure.
 - **Mandatory tests:** exact bound rejection before and after closure ACK, claim budget and concurrency, negative cross-consumer/reference/route/body proofs, cancellation, expiry and stale lease, failed/ambiguous acknowledgements, response loss and repeated readback, crash between each durable step, concurrent retries, old producer and old Gateway compatibility, no replay of any earlier OCR model turn, and protection for `effect_unknown`. Run actual PostgreSQL and a joined Gateway/native/Action fixture on worker; preserve logs without secrets. Add tests for cost/budget ceilings and the `required_review_coverage_incomplete` path separately.
 - **Release:** capability negotiation and a backward-compatible Gateway rollout precede RR proof verification; only a qualified public Action version uses the new proof. Deploy with existing registry, staged canary, retained images/receipts and rollback to old fail-closed behavior; never reset spent budget or clear unknown custody. This is an unimplemented plan, not approval to replay production reviews.
+
+## Producer prerequisite review, 27 November
+
+Exact inspected source: Gateway
+`a3dafad640689bf08c614a0e0eea3b4cff605bb8` and native
+`e047373eb3bc223bb460bb8b77c2f02a046b4441`. This review did not implement
+or qualify the following producer additions.
+
+Native lifetime observation can establish non-entry and physical closure,
+but it retains no finite rejection cause. The native HTTP transport currently
+discards the error returned by `ForwardGatewayRoute`. Admission phase names
+such as `admission_account_lock` combine temporary, invalid and missing-state
+failures; they cannot serve as retry eligibility. Repository failures are
+collapsed into the generic identity error before receipt creation.
+
+A first producer change must preserve a narrowly typed, trusted transient
+cause through the existing lifetime and receipt. One candidate is specifically
+recognized serialization/deadlock failure during protected storage admission
+before provider entry; arbitrary database errors, timeouts, cancellation,
+credentials and invalid state must remain excluded. The actual allowed codes
+and paths require native PostgreSQL tests. The existing exact-nonce
+`public-admit-capacity/v1` refusal occurs before the SQL claim and cannot be
+used as proof for an already spent rejected request.
+
+Gateway can persist a nullable finite non-entry reason on its existing request
+row only during the authenticated original rejection transition. Never backfill
+eligibility onto historical generic rejections. A separate negotiated proof read
+must observe the exact immutable rejection and reason, acknowledged released
+occupancy, live execution/grant/fence/deadline and original worker lease in one
+committed scope. It must not invoke cleanup, renew authority or produce retry
+proof after expiry. No new bearer, closure-token exposure or permit ledger is
+needed.
+
+The current private native receipt parser is strict. Adding an optional emitted
+field is not automatically compatible: choose and qualify either an accept-first
+Gateway rollout with ordered rollback, or explicit private-wire negotiation.
+Ordinary public requestStatus and the original request's retry.never stay intact.
+
+The Gateway SDK is consumed as a source-built private archive, not through an
+npm publication. Build and pack the exact producer source with the repository's
+pinned tools, record provenance, and update all three RR consumer pins plus the
+lockfile together. The existing joined workflow pins an older native source;
+a passing unchanged workflow cannot qualify the new producer. A usable runtime
+for native/PostgreSQL tests and SDK generation is required before RR plumbing.
+
+The RR/Action successor must carry explicit retry lineage: at most the allowed
+bounded successor, identical body hash and route, fresh request identity and
+ordinal, and still-current original authority. A resolved old row plus an
+unrestricted next ordinal alone is insufficient. Keep single-request role
+constraints and the OCR attempt budget as described above.
+
+No dormant RR proof adapter is added before these real producer prerequisites.
+The source-build and joined qualification requirements remain unfinished parts
+of the original task, not evidence that the retry feature has been delivered.

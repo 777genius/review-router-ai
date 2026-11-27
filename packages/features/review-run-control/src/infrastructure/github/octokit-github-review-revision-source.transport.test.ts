@@ -386,35 +386,65 @@ it("honours a server error's retry-after and refuses when it does not fit", asyn
 });
 
 it.each([
-  "Fri, 27 Nov 2026 12:00:02 GMT",
-  "Friday, 27-Nov-26 12:00:02 GMT",
-  "Fri Nov 27 12:00:02 2026",
-])("honors HTTP-date %s within the read deadline", async (retryAt) => {
-  vi.useFakeTimers();
-  vi.setSystemTime(new Date("2026-11-27T12:00:00.000Z"));
-  let retryObserved!: () => void;
-  const retried = new Promise<void>((resolve) => {
-    retryObserved = resolve;
-  });
-  const log = vi.spyOn(console, "warn").mockImplementation(retryObserved);
-  const reads = stubGitHub([
-    () =>
-      json(403, { message: "secondary rate limit" }, { "retry-after": retryAt }),
-    () => json(200, pullRequest),
-  ]);
-  const result = source(noWait).loadPullRequestPointer(retryInput());
-  // Surface an early refusal instead of hanging while waiting for its log.
-  await Promise.race([retried, result]);
-  expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({
-    failureClass: "rate_limited",
+  {
+    retryAt: "Fri, 27 Nov 2026 12:00:02 GMT",
+    now: "2026-11-27T12:00:00.000Z",
     waitMs: 2_000,
-  });
-  await vi.advanceTimersByTimeAsync(1_999);
-  expect(reads.count).toBe(1);
-  await vi.advanceTimersByTimeAsync(1);
-  await expect(result).resolves.toMatchObject({ headSha });
-  expect(reads.count).toBe(2);
-});
+  },
+  {
+    retryAt: "Friday, 27-Nov-26 12:00:02 GMT",
+    now: "2026-11-27T12:00:00.000Z",
+    waitMs: 2_000,
+  },
+  {
+    retryAt: "Fri Nov 27 12:00:02 2026",
+    now: "2026-11-27T12:00:00.000Z",
+    waitMs: 2_000,
+  },
+  {
+    retryAt: "Sat, 31 Dec 2016 23:59:60 GMT",
+    now: "2016-12-31T23:59:57.000Z",
+    waitMs: 3_000,
+  },
+  {
+    retryAt: "Saturday, 31-Dec-16 23:59:60 GMT",
+    now: "2016-12-31T23:59:57.000Z",
+    waitMs: 3_000,
+  },
+  {
+    retryAt: "Sat Dec 31 23:59:60 2016",
+    now: "2016-12-31T23:59:57.000Z",
+    waitMs: 3_000,
+  },
+])(
+  "honors HTTP-date $retryAt within the read deadline",
+  async ({ retryAt, now, waitMs }) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(now));
+    let retryObserved!: () => void;
+    const retried = new Promise<void>((resolve) => {
+      retryObserved = resolve;
+    });
+    const log = vi.spyOn(console, "warn").mockImplementation(retryObserved);
+    const reads = stubGitHub([
+      () =>
+        json(403, { message: "secondary rate limit" }, { "retry-after": retryAt }),
+      () => json(200, pullRequest),
+    ]);
+    const result = source(noWait).loadPullRequestPointer(retryInput());
+    // Surface an early refusal instead of hanging while waiting for its log.
+    await Promise.race([retried, result]);
+    expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({
+      failureClass: "rate_limited",
+      waitMs,
+    });
+    await vi.advanceTimersByTimeAsync(waitMs - 1);
+    expect(reads.count).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(result).resolves.toMatchObject({ headSha });
+    expect(reads.count).toBe(2);
+  },
+);
 
 it("does not retry a server error before its HTTP-date boundary", async () => {
   const log = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -573,3 +603,30 @@ it.each([
   expect(reads.count).toBe(1);
   expect(log).not.toHaveBeenCalled();
 });
+
+it.each([403, 503])(
+  "does not discard a leap-second Retry-After on %s",
+  async (status) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2016-12-31T23:59:30.000Z"));
+    const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const reads = stubGitHub([
+      () =>
+        json(
+          status,
+          { message: "unavailable" },
+          {
+            "retry-after": "Sat, 31 Dec 2016 23:59:60 GMT",
+            "x-ratelimit-remaining": "0",
+            "x-ratelimit-reset": String(Math.floor(Date.now() / 1_000) - 1),
+          },
+        ),
+      () => json(200, pullRequest),
+    ]);
+    await expect(
+      source(noWait).loadPullRequestPointer(retryInput()),
+    ).rejects.toMatchObject({ status });
+    expect(reads.count).toBe(1);
+    expect(log).not.toHaveBeenCalled();
+  },
+);

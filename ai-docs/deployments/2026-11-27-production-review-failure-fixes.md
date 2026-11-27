@@ -6,11 +6,14 @@
 - Affected services/targets: ReviewRouter API and consumers of its GitHub
   revision-read adapter.
 - Implementation PR: [#1028](https://github.com/777genius/review-router-ai/pull/1028).
-- Implementation reference: `dd17dc481b7d2dadbc62be734d2858de5c51da71`.
-  This identifies runtime source, not completed qualification or deployment.
+- Initial implementation reference: `dd17dc481b7d2dadbc62be734d2858de5c51da71`.
+  The candidate also includes the later leap-second correction and custody
+  regressions. Use the final PR head recorded in its description for exact-source
+  qualification; the initial commit alone is not the final candidate.
 - Dependencies: existing compatible runtime/producer, ordinary release gates.
-  Native attested retry and the public Action's separate GitHubClient change are
-  not part of this implementation.
+  Native attested retry is still unimplemented. The public Action's separate
+  GitHubClient source correction is tracked in [Action #411](https://github.com/777genius/review-router/pull/411),
+  with its generated bundle and runtime qualification pending.
 - Last updated: `2026-11-27`.
 
 ## Environment status
@@ -43,12 +46,16 @@ Draft CI aggregation with skipped lanes is not runtime qualification.
    conversion or activation step is needed.
 3. In isolated staging fixtures, verify that GitHub waits do not precede either
    announced primary/reset boundary and that a wait outside the read deadline
-   refuses without another read.
+   refuses without another read, including valid leap-second dates.
 4. Inject status-read, usage-outcome and companion-settlement failures after
    stream EOF. Confirm the corresponding phase, allowlisted HTTP/category
    detail, uncertain settlement, no successful terminal and no additional model
    request. Verify a throwing diagnostic sink does not change cleanup.
-5. Confirm healthy and partial reviews retain their existing publication and
+5. Qualify retained-close pressure after all eight background retries and
+   expired-credential refusal. An unconfirmed close retains the slot; an applied
+   close before the original deadline permits the next admission. Preserve the
+   original close identity and verify that inference is not repeated.
+6. Confirm healthy and partial reviews retain their existing publication and
    progress outcomes. Record evidence before considering production complete.
 
 ## Verification and completion
@@ -74,6 +81,7 @@ existing contract. Reconcile any partially installed fleet before resuming.
 ## Related links
 
 - [PR #1028](https://github.com/777genius/review-router-ai/pull/1028)
+- [Dependent Action #411](https://github.com/777genius/review-router/pull/411)
 - [Historical incident investigation](../plans/2026-11-27-production-review-failure-investigation.md)
 - [Attested request retry dependencies](../plans/2026-11-27-attested-request-retry.md)
 - [Quality gates](../operations/03-quality-gates.md)
