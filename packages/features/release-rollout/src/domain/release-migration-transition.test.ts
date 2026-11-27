@@ -114,7 +114,8 @@ describe("canonical release migration transition", () => {
         name !== "000165_installation_sync_latest_index" &&
         name !== "000165_webhook_effect_fence" &&
         name !== "000166_repository_health_latest_index" &&
-        name !== "000167_webhook_recovery_intent",
+        name !== "000167_webhook_recovery_intent" &&
+        name !== "000168_webhook_receipt_order_indexes",
     );
     const checkout161 = names.map((migrationName) => ({
       migrationName,
@@ -466,6 +467,7 @@ describe("canonical release migration transition", () => {
           row.migrationName !== "000165_webhook_effect_fence" &&
           row.migrationName !== "000166_repository_health_latest_index" &&
           row.migrationName !== "000167_webhook_recovery_intent" &&
+          row.migrationName !== "000168_webhook_receipt_order_indexes" &&
           row.migrationName !== "000156_verified_thread_reply",
       ),
     );
