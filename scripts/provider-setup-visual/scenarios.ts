@@ -22,12 +22,12 @@ import {
   chooseNewProvider,
   chooseSource,
   openDialog,
-  openSourceList,
   providerListRow,
   repositoryRoute,
   repositoryRowHeader,
   repositorySetupPanel,
   reveal,
+  showSourceChoices,
   SOURCE,
   workspaceRoute,
 } from "./ui.js";
@@ -499,7 +499,7 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
     prepare: async (context) => {
       const dialog = await openFromStepperLine("mainNeedsSecret")(context);
       await chooseNewProvider(dialog);
-      await openSourceList(context.page, dialog);
+      await showSourceChoices(dialog);
     },
   }),
   dialogScenario({
@@ -545,7 +545,7 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
     prepare: async (context) => {
       const dialog = await openFromStepperLine("mainNeedsSecret")(context);
       await chooseNewProvider(dialog);
-      await openSourceList(context.page, dialog);
+      await showSourceChoices(dialog);
     },
   }),
   dialogScenario({
@@ -557,7 +557,7 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
     prepare: async (context) => {
       const dialog = await openFromStepperLine("mainNeedsSecret")(context);
       await chooseNewProvider(dialog);
-      await openSourceList(context.page, dialog);
+      await showSourceChoices(dialog);
     },
   }),
   dialogScenario({
