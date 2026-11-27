@@ -135,10 +135,15 @@ export const CREDENTIAL_SOURCE_LABEL = "Provider";
 
 /** Reveals the inline provider cards of a new provider. */
 export async function showSourceChoices(dialog: Locator): Promise<Locator> {
-  const choices = dialog.getByRole("radiogroup", {
-    name: CREDENTIAL_SOURCE_LABEL,
-    exact: true,
-  });
+  // Repository setup also has a Provider group for existing profiles. The
+  // catalog's own heading identifies the section for a new provider.
+  const choices = dialog
+    .getByRole("heading", { name: CREDENTIAL_SOURCE_LABEL, exact: true })
+    .locator("..")
+    .getByRole("radiogroup", {
+      name: CREDENTIAL_SOURCE_LABEL,
+      exact: true,
+    });
   await choices.waitFor({ state: "visible" });
   await choices.scrollIntoViewIfNeeded();
   return choices;
