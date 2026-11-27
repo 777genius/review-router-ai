@@ -37,6 +37,18 @@ describe("GitHub App redelivery client with synthetic local server", () => {
       return;
     }
     if (req.method === "GET") {
+      if (scanMode === "pending-page") {
+        const closed = new Promise<void>((resolve) => {
+          res.once("close", resolve);
+        });
+        unusedBody = { response: res, closed };
+        res.writeHead(200, {
+          "content-type": "application/json",
+          link: "<https://api.github.com/app/hook/deliveries?cursor=page2>; rel=next",
+        });
+        res.write("[");
+        return;
+      }
       if (req.url === "/app/hook/deliveries/42") {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
@@ -97,18 +109,21 @@ describe("GitHub App redelivery client with synthetic local server", () => {
         res.end();
         return;
       }
-      if (scanMode === "evil") {
+      if (scanMode === "evil" || scanMode === "evil-unquoted") {
         res.writeHead(200, {
           "content-type": "application/json",
-          link: '<https://attacker.invalid/app/hook/deliveries?cursor=secret>; rel="next"',
+          link: `<https://attacker.invalid/app/hook/deliveries?cursor=secret>; rel=${scanMode === "evil" ? '"next"' : "next"}`,
         });
         res.end("[]");
         return;
       }
-      if (scanMode === "two" && !req.url?.includes("cursor=")) {
+      if (
+        (scanMode === "two" || scanMode === "two-unquoted") &&
+        !req.url?.includes("cursor=")
+      ) {
         res.writeHead(200, {
           "content-type": "application/json",
-          link: '<https://api.github.com/app/hook/deliveries?per_page=100&cursor=page2>; rel="next"',
+          link: `<https://api.github.com/app/hook/deliveries?per_page=100&cursor=page2>; rel=${scanMode === "two" ? '"next"' : "next"}`,
         });
         res.end("[]");
         return;
@@ -216,17 +231,100 @@ describe("GitHub App redelivery client with synthetic local server", () => {
     ).toThrow();
     expect(requests).toHaveLength(before);
   });
-  it("scans only bounded App delivery pages and reports remote observation, not completion", async () => {
-    scanMode = "two";
+  it.each(["two", "two-unquoted"])(
+    "follows the next link from an empty page in %s mode",
+    async (mode) => {
+      scanMode = mode;
+      const c = client();
+      const identity = identityFor(c);
+      const result = await c.scanAttempts(identity, 2);
+      expect(result).toEqual({
+        state: "observed",
+        pages: 2,
+        matchingAttempts: 1,
+      });
+      expect(requests.at(-1)?.url).toContain("cursor=page2");
+    },
+  );
+  it("rejects an unquoted next link to a foreign origin", async () => {
+    scanMode = "evil-unquoted";
     const c = client();
-    const identity = identityFor(c);
-    const result = await c.scanAttempts(identity, 2);
-    expect(result).toEqual({
-      state: "observed",
-      pages: 2,
-      matchingAttempts: 1,
+    const before = attemptedUrls.length;
+    expect((await c.scanAttempts(identityFor(c), 5)).state).toBe("incomplete");
+    expect(attemptedUrls.slice(before)).toEqual([
+      "https://api.github.com/app/hook/deliveries?per_page=100",
+    ]);
+  });
+
+  it.each(["before_scan", "during_auth"] as const)(
+    "does not send a page when cancelled %s",
+    async (phase) => {
+      const controller = new AbortController();
+      if (phase === "before_scan") controller.abort();
+      const c = GitHubAppWebhookRedeliveryClient.forSyntheticTest(
+        "123",
+        async () => {
+          controller.abort();
+          return "synthetic-jwt";
+        },
+        sendToLocal,
+      );
+      const before = attemptedUrls.length;
+      expect(
+        await c.scanAttempts(identityFor(c), 5, controller.signal),
+      ).toEqual({
+        state: "incomplete",
+        pages: 0,
+        matchingAttempts: 0,
+      });
+      expect(attemptedUrls).toHaveLength(before);
+    },
+  );
+
+  it("cancels an in-flight page body without requesting the next cursor", async () => {
+    scanMode = "pending-page";
+    const controller = new AbortController();
+    let receivedHeaders!: () => void;
+    const headers = new Promise<void>((resolve) => {
+      receivedHeaders = resolve;
     });
-    expect(requests.at(-1)?.url).toContain("cursor=page2");
+    const c = GitHubAppWebhookRedeliveryClient.forSyntheticTest(
+      "123",
+      async () => "synthetic-jwt",
+      async (resource, options) => {
+        const response = await sendToLocal(resource, options);
+        receivedHeaders();
+        return response;
+      },
+    );
+    const before = attemptedUrls.length;
+    const scan = c.scanAttempts(identityFor(c), 5, controller.signal);
+    const settled = scan.then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("scan_cancel_deadline")),
+        2_000,
+      );
+    });
+    try {
+      await Promise.race([headers, deadline]);
+      controller.abort();
+      expect(await Promise.race([settled, deadline])).toEqual({
+        value: { state: "incomplete", pages: 0, matchingAttempts: 0 },
+      });
+      if (!unusedBody) throw new Error("pending_page_not_received");
+      await Promise.race([unusedBody.closed, deadline]);
+      expect(attemptedUrls.slice(before)).toHaveLength(1);
+    } finally {
+      controller.abort();
+      unusedBody?.response.destroy();
+      await settled;
+      if (timer) clearTimeout(timer);
+    }
   });
   it("fails closed on foreign pagination links, limits, and rate limits", async () => {
     const c = client();

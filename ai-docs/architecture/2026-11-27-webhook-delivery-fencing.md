@@ -151,7 +151,9 @@ receipts and rejects missing canonical identity. The check runs during acquisiti
 and again under effect scopes/row locks, with advisory preflight before redelivery.
 Admission of installation/repository receipts takes the same exclusive scope before
 insertion, so a newer receipt cannot commit between the replay check and effect.
-`receivedAt` is immutable on fenced receipts. This is local observation order, not
+Initial lifecycle/repository receipts take `receivedAt` from the existing database
+clock after acquiring the admission guard. `receivedAt` is immutable on fenced
+receipts. This is local observation order, not
 a claim about GitHub event chronology or arbitrary first-delivery ordering.
 
 An authorization-revocation body has no original grant revision, and a new GUID
@@ -167,7 +169,9 @@ This prevents an unsupported destructive revocation; existing authorization/cach
 policy still governs subsequent requests and is not claimed to be globally denied.
 
 Automatic authorization generation replacement and redelivery remain unsupported.
-Keep the receipt for separately authorized reconciliation; do not synthesize a new
+Keep the receipt for the separately authorized
+[exact-grant reconciliation procedure](../deployments/2026-11-27-webhook-effect-fence.md#exact-grant-authorization-reconciliation);
+do not synthesize a new
 GUID, reset custody, or rewrite history to force replay. Old receivers do not acquire
 this token check from the schema migration: the controlled fleet drain is mandatory.
 

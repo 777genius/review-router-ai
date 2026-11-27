@@ -44,7 +44,7 @@ export function createDefaultGitHubWebhookDependencies(input: {
   });
   const reviewIngressEnabled =
     input.env.REVIEW_ROUTER_REVIEW_V2_INTENT_INGRESS_ENABLED === "1";
-  if (reviewIngressEnabled) assertReviewIntentRolloutConfiguration(input.env);
+  assertReviewIntentRolloutConfiguration(input.env);
   const conflictFallbackEnabled = isConflictReviewFallbackEnabled(input.env);
   const fallbackAllowed = (repositoryFullName: string) =>
     isConflictReviewFallbackAllowedForRepository(repositoryFullName, input.env);

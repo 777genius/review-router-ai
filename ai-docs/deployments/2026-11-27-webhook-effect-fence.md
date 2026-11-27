@@ -135,6 +135,89 @@ leave existing authorization/cache policy in place. A replacement GUID is not pr
 of a fresh revocation. Automatic authorization retry remains unsupported.
 Never-ingressed and unfenced legacy deliveries are unsupported.
 
+### Exact-grant authorization reconciliation
+
+A null token expiry cannot distinguish a revoked grant from an expired or
+reconnected token. The webhook deliberately retains that grant and its cache;
+replaying the delivery does not resolve the ambiguity. Before rollout, assign an
+operator for these incidents and use the following separately authorized procedure.
+The delivery recovery CLI does not perform this authorization-owner operation.
+
+1. Record the environment, exact App slug, numeric GitHub user ID and delivery GUID.
+   Read the current `GitHubUserAuthorization` joined to its `User`. Capture the
+   grant `id`, `userId`, `githubUserId`, `appSlug`, `revision`, expiry,
+   `revokedAt` and `refreshAttemptId`; the two user identities must agree. Do not
+   record tokens or encrypted credentials in logs or the incident record.
+2. Establish the state of this current grant through the existing auth owner. A
+   fresh, bounded GitHub check accepting the captured token and returning the
+   expected numeric user ID supports retaining it. An old webhook, a replacement
+   GUID or an isolated 401 for a token with unknown expiry does not authorize
+   revocation. If the evidence remains ambiguous, obtain an explicit decision from
+   the connection owner to reconnect or disconnect this exact connection.
+3. For reconnect, use the existing OAuth flow. Verify the new revision and current
+   token through the auth owner; do not apply the old incident to that replacement
+   revision. For retention, record the verification outcome and keep the current
+   grant. For a confirmed revocation or explicitly authorized disconnect, capture
+   the approved grant identity and revision, then use the bounded transaction below.
+   An active refresh or any identity/revision change requires a fresh assessment.
+4. Check the transaction result before committing: exactly one grant must change
+   and its revision must advance by one. The cache deletion is tied to that changed
+   grant's user and App; other Apps and users are untouched. Zero changed rows,
+   timeout or any error means rollback and re-read, not an unconditional update.
+   After commit, read back the exact grant and confirm that its matching permission
+   cache is absent and that a new authorization read reports the revoked state.
+5. Record the approving owner/operator, evidence and decision, old/new revision,
+   cache count, UTC time and readback result in the incident and environment's
+   execution record. Retain the webhook receipt, fence and custody as evidence.
+   This grant reconciliation does not itself prove webhook receiver completion;
+   do not mark the receipt processed, reset custody or issue another POST.
+
+The following is an operator procedure, not an executed migration or a new command.
+Use an approved PostgreSQL session and bind the five `psql` variables to the
+reviewed, current grant; never substitute a broad user/App-only predicate. It uses
+the existing auth owner's revision and App-scoped cache-invalidation policy, with
+the grant ID additionally pinned for this manual operation. Acquire its row lock
+before the update/delete statement: permission-cache writers hold the auth owner's
+shared lock, so the next READ COMMITTED statement sees their committed cache rows.
+
+```sql
+BEGIN ISOLATION LEVEL READ COMMITTED;
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '10s';
+SET LOCAL idle_in_transaction_session_timeout = '30s';
+
+SELECT id FROM "GitHubUserAuthorization"
+WHERE id = :'grant_id' FOR UPDATE;
+
+WITH changed AS (
+  UPDATE "GitHubUserAuthorization"
+  SET "revokedAt" = (clock_timestamp() AT TIME ZONE 'UTC'),
+      revision = revision + 1,
+      "refreshAttemptId" = NULL,
+      "lastErrorCode" = 'github_app_authorization_manual_reconciliation',
+      "updatedAt" = (clock_timestamp() AT TIME ZONE 'UTC')
+  WHERE id = :'grant_id'
+    AND "userId" = :'user_id'
+    AND "githubUserId" = :'github_user_id'::bigint
+    AND "appSlug" = :'app_slug'
+    AND revision = :'expected_revision'::integer
+    AND "revokedAt" IS NULL
+    AND "refreshAttemptId" IS NULL
+  RETURNING "userId", "appSlug", revision
+), invalidated AS (
+  DELETE FROM "RepositoryPermissionCache" cache
+  USING changed target_grant
+  WHERE cache."userId" = target_grant."userId"
+    AND cache."authorizationAppSlug" = target_grant."appSlug"
+  RETURNING cache.id
+)
+SELECT (SELECT count(*) FROM changed) AS grants_changed,
+       (SELECT min(revision) FROM changed) AS new_revision,
+       (SELECT count(*) FROM invalidated) AS caches_invalidated;
+-- COMMIT only for grants_changed = 1 and the expected next revision.
+-- Otherwise ROLLBACK; an error or idle timeout also requires a fresh assessment.
+```
+
 ## Verification and completion
 
 Require successful final-source execution of every mandatory PostgreSQL suite,

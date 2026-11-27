@@ -65,7 +65,7 @@ describe("fenced pull request ingress", () => {
     const result = await writeFencedPullRequestIngress(prisma, envelope, claim);
     expect(result.reviewV2Intent).toBe("queued");
     expect(createMany).toHaveBeenCalledOnce();
-    expect(createMany.mock.calls[0]![0].data[0].type).toBe(
+    expect(createMany.mock.calls[0]![0].data[0]?.type).toBe(
       "github.pull_request.review_request_ingress",
     );
     findUnique.mockResolvedValueOnce({

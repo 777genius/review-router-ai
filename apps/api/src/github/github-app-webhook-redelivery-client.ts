@@ -155,6 +155,7 @@ export class GitHubAppWebhookRedeliveryClient implements AppWebhookRedeliveryCli
   async scanAttempts(
     identity: WebhookRecoveryIdentity,
     maxPages: number,
+    signal?: AbortSignal,
   ): Promise<
     Readonly<{
       state: "observed" | "not_observed" | "incomplete" | "rate_limited";
@@ -174,6 +175,8 @@ export class GitHubAppWebhookRedeliveryClient implements AppWebhookRedeliveryCli
     let matchingAttempts = 0;
     const seen = new Set<string>();
     while (pages < maxPages) {
+      if (signal?.aborted)
+        return { state: "incomplete", pages, matchingAttempts };
       const query = new URLSearchParams({
         per_page: "100",
         ...(cursor ? { cursor } : {}),
@@ -183,13 +186,16 @@ export class GitHubAppWebhookRedeliveryClient implements AppWebhookRedeliveryCli
         const token = await this.jwt();
         if (typeof token !== "string" || !token || /[\r\n]/.test(token))
           throw new Error("invalid_auth");
+        signal?.throwIfAborted();
         response = await this.send(
           `${apiOrigin}/app/hook/deliveries?${query}`,
           {
             method: "GET",
             redirect: "error",
             cache: "no-store",
-            signal: AbortSignal.timeout(15_000),
+            signal: signal
+              ? AbortSignal.any([signal, AbortSignal.timeout(15_000)])
+              : AbortSignal.timeout(15_000),
             headers: {
               Accept: "application/vnd.github+json",
               Authorization: `Bearer ${token}`,
@@ -301,7 +307,9 @@ async function readBoundedText(
 
 function nextDeliveryCursor(link: string | null): string | null | false {
   if (!link || !/rel\s*=\s*"?next"?/i.test(link)) return null;
-  const match = link.match(/<([^>]+)>\s*;\s*rel="next"/i);
+  const match = link.match(
+    /<([^>]+)>\s*;\s*rel\s*=\s*(?:"next"|next)(?=\s*(?:[,;]|$))/i,
+  );
   if (!match) return false;
   try {
     const url = new URL(match[1]!);

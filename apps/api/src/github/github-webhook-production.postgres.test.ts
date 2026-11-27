@@ -16,7 +16,14 @@ import {
 } from "@reviewrouter/features-github-installations";
 import Fastify, { type FastifyInstance } from "fastify";
 import { Pool } from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+} from "vitest";
 import {
   assertWebhookFenceTestDatabase,
   webhookFencePostgres,
@@ -51,6 +58,9 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
   });
   const prisma = new PrismaClient({
     adapter: new PrismaPg(pool, { schema: "public" }),
+    // This fixture must hold the expiry race across a real ten-second threshold;
+    // production transaction timeouts and the five-minute refresh skew stay intact.
+    transactionOptions: { timeout: 15_000 },
   });
   const servers: FastifyInstance[] = [];
   type TokenProbe = {
@@ -164,9 +174,18 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
   }, 30_000);
 
   afterAll(async () => {
-    await Promise.all(servers.map((server) => server.close()));
-    await prisma.$disconnect();
-    await pool.end();
+    const serversClosed = await Promise.allSettled(
+      servers.map((server) => server.close()),
+    );
+    const databaseClosed = await Promise.allSettled([
+      prisma.$disconnect(),
+      pool.end(),
+    ]);
+    const errors = [...serversClosed, ...databaseClosed].flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : [],
+    );
+    if (errors.length)
+      throw new AggregateError(errors, "production webhook teardown failed");
     // Fenced receipts are intentionally retained. The disposable database owner
     // removes the database after qualification, never bypassing its delete guard.
   });
@@ -219,13 +238,14 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
     value: Fixture,
     userId: string,
     revision: number,
+    authorizationAppSlug: string = appSlug,
   ) {
     return prisma.repositoryPermissionCache.create({
       data: {
         userId,
         repositoryId: value.repository.id,
         githubInstallationId: BigInt(value.githubInstallationId),
-        authorizationAppSlug: appSlug,
+        authorizationAppSlug,
         authorizationRevision: revision,
         canManage: true,
         checkedAt: new Date(),
@@ -410,13 +430,36 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
         "'" +
         " OR status <> 'processed')",
     );
-    return () =>
-      pool.query(
-        'ALTER TABLE "GitHubWebhookDelivery" DROP CONSTRAINT "' +
+    const restore = async () => {
+      await pool.query(
+        'ALTER TABLE "GitHubWebhookDelivery" DROP CONSTRAINT IF EXISTS "' +
           constraint +
           '"',
       );
+    };
+    // Vitest records cleanup errors alongside an existing body failure.
+    onTestFinished(restore);
+    return restore;
   }
+
+  it("rejects required ingress admission at startup even when run control is disabled", () => {
+    const env = {
+      ...baseEnvironment,
+      REVIEW_ROUTER_REVIEW_V2_RUN_CONTROL_ENABLED: "0",
+      REVIEW_ROUTER_REVIEW_V2_INTENT_INGRESS_ENABLED: "0",
+      REVIEW_ROUTER_REVIEW_V2_INTENT_ADMISSION_REQUIRED: "1",
+    };
+    expect(() =>
+      createDefaultGitHubWebhookDependencies({ prisma, webhookSecret, env }),
+    ).toThrow("review_action_v2_intent_admission_without_ingress");
+    expect(
+      createDefaultGitHubWebhookDependencies({
+        prisma,
+        webhookSecret,
+        env: { ...env, REVIEW_ROUTER_REVIEW_V2_INTENT_ADMISSION_REQUIRED: "0" },
+      }).processor,
+    ).toBeDefined();
+  });
 
   it("routes installation creation through owner membership and the sync outbox", async () => {
     const value = await fixture();
@@ -735,6 +778,12 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
         ),
       },
     });
+    const unrelatedCache = await seedPermissionCache(
+      await fixture(),
+      f.user.id,
+      unrelated.revision,
+      "other-app",
+    );
     expect(
       (await post("github_app_authorization", deliveryId, f.payload)).status,
     ).toBe(200);
@@ -750,9 +799,14 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
     ).toMatchObject({ revokedAt: null, revision: 0 });
     expect(
       await prisma.repositoryPermissionCache.count({
-        where: { userId: f.user.id },
+        where: { userId: f.user.id, authorizationAppSlug: appSlug },
       }),
     ).toBe(0);
+    expect(
+      await prisma.repositoryPermissionCache.findUniqueOrThrow({
+        where: { id: unrelatedCache.id },
+      }),
+    ).toEqual(unrelatedCache);
     expect(f.probe.requests).toBe(1);
     expect(await receipt(deliveryId)).toMatchObject({
       status: "processed",
@@ -833,9 +887,13 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
         await gate;
       };
       const pending = post("github_app_authorization", deliveryId, f.payload);
+      void pending.catch(() => undefined);
+      onTestFinished(async () => {
+        release();
+        await pending;
+      });
       let current: typeof f.authorization;
       let cache: typeof f.cache;
-      let result: Awaited<typeof pending> | undefined;
       try {
         await Promise.race([
           entered,
@@ -878,8 +936,8 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
         });
       } finally {
         release();
-        result = await pending;
       }
+      const result = await pending;
       expect(result).toEqual({
         status: 500,
         body: { error: "github_webhook_processing_failed" },
@@ -900,7 +958,7 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
   );
 
   it("rechecks database expiry after waiting for the authorization row lock", async () => {
-    const f = await authorizationFixture(302);
+    const f = await authorizationFixture(310);
     const expiresAt = f.authorization.accessTokenExpiresAt?.toISOString();
     if (!expiresAt) throw new Error("synthetic_authorization_expiry_missing");
     const deliveryId = randomUUID();
@@ -921,8 +979,19 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
         locked(rows[0].pid);
         await gate;
       },
-      { isolationLevel: "ReadCommitted", timeout: 10_000 },
+      { isolationLevel: "ReadCommitted", timeout: 15_000 },
     );
+    void blocker.catch(() => undefined);
+    const startedTasks: Promise<unknown>[] = [blocker];
+    onTestFinished(async () => {
+      release();
+      const settled = await Promise.allSettled(startedTasks);
+      const errors = settled.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : [],
+      );
+      if (errors.length)
+        throw new AggregateError(errors, "authorization expiry cleanup failed");
+    });
     const blockerPid = await Promise.race([
       ready,
       blocker.then(() => {
@@ -930,6 +999,8 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
       }),
     ]);
     const pending = post("github_app_authorization", deliveryId, f.payload);
+    void pending.catch(() => undefined);
+    startedTasks.push(pending);
     const effectIsBlocked = async () => {
       const result = await pool.query<{ blocked: boolean }>(
         "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND $1 = ANY(pg_blocking_pids(pid))) AS blocked",
@@ -937,7 +1008,6 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
       );
       return result.rows[0]?.blocked === true;
     };
-    let result: Awaited<typeof pending> | undefined;
     try {
       let blocked = false;
       for (let attempt = 0; attempt < 80 && !blocked; attempt++) {
@@ -958,9 +1028,9 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
       expect(await effectIsBlocked()).toBe(true);
     } finally {
       release();
-      await blocker;
-      result = await pending;
     }
+    await blocker;
+    const result = await pending;
     expect(result).toEqual({
       status: 500,
       body: { error: "github_webhook_processing_failed" },
@@ -980,7 +1050,7 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
       }),
     ).toEqual(f.cache);
     expect(await receipt(deliveryId)).toMatchObject({ status: "failed" });
-  });
+  }, 20_000);
 
   it.each([
     { name: "forbidden", status: 403, body: {} },
@@ -1139,11 +1209,28 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
       },
       { isolationLevel: "ReadCommitted", timeout: 10_000 },
     );
-    await ready;
+    void writer.catch(() => undefined);
+    const startedTasks: Promise<unknown>[] = [writer];
+    onTestFinished(async () => {
+      release();
+      const settled = await Promise.allSettled(startedTasks);
+      const errors = settled.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : [],
+      );
+      if (errors.length)
+        throw new AggregateError(errors, "concurrent delivery cleanup failed");
+    });
+    await Promise.race([
+      ready,
+      writer.then(() => {
+        throw new Error("concurrent_delivery_writer_did_not_reach_gate");
+      }),
+    ]);
     const first = post("pull_request", deliveryId, payload, {
       address: ingressDisabledAddress,
     });
-    let firstResult: Awaited<typeof first> | undefined;
+    void first.catch(() => undefined);
+    startedTasks.push(first);
     try {
       let claimed = false;
       for (let attempt = 0; attempt < 150 && !claimed; attempt++) {
@@ -1162,9 +1249,9 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
       });
     } finally {
       release();
-      await writer;
-      firstResult = await first;
     }
+    await writer;
+    const firstResult = await first;
     expect(firstResult?.status).toBe(200);
     expect(await receipt(deliveryId)).toMatchObject({ status: "processed" });
     expect(
@@ -1245,16 +1332,13 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
     const deliveryId = randomUUID();
     const payload = pushPayload(value);
     const restore = await rejectTerminal(deliveryId);
-    try {
-      expect(await post("push", deliveryId, payload)).toEqual({
-        status: 500,
-        body: { error: "github_webhook_processing_failed" },
-      });
-      expect(await receipt(deliveryId)).toMatchObject({ status: "failed" });
-      expect(await outbox(conflictKey(deliveryId))).toBeNull();
-    } finally {
-      await restore();
-    }
+    expect(await post("push", deliveryId, payload)).toEqual({
+      status: 500,
+      body: { error: "github_webhook_processing_failed" },
+    });
+    expect(await receipt(deliveryId)).toMatchObject({ status: "failed" });
+    expect(await outbox(conflictKey(deliveryId))).toBeNull();
+    await restore();
     expect((await post("push", deliveryId, payload)).status).toBe(200);
     expect(await receipt(deliveryId)).toMatchObject({
       status: "processed",
@@ -1302,22 +1386,16 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
     const deliveryId = randomUUID();
     const payload = pullRequestPayload(value);
     const restore = await rejectTerminal(deliveryId);
-    let initialIngressId: string | undefined;
-    try {
-      expect((await post("pull_request", deliveryId, payload)).status).toBe(
-        500,
-      );
-      expect(await receipt(deliveryId)).toMatchObject({ status: "failed" });
-      const ingress = await outbox(ingressKey(deliveryId));
-      expect(ingress).toMatchObject({
-        status: "pending",
-        payload: { commandKind: "request" },
-      });
-      initialIngressId = ingress?.id;
-      expect(await outbox(conflictKey(deliveryId))).toBeNull();
-    } finally {
-      await restore();
-    }
+    expect((await post("pull_request", deliveryId, payload)).status).toBe(500);
+    expect(await receipt(deliveryId)).toMatchObject({ status: "failed" });
+    const ingress = await outbox(ingressKey(deliveryId));
+    expect(ingress).toMatchObject({
+      status: "pending",
+      payload: { commandKind: "request" },
+    });
+    const initialIngressId = ingress?.id;
+    expect(await outbox(conflictKey(deliveryId))).toBeNull();
+    await restore();
     expect((await post("pull_request", deliveryId, payload)).status).toBe(200);
     expect((await outbox(ingressKey(deliveryId)))?.id).toBe(initialIngressId);
     expect(await outbox(conflictKey(deliveryId))).not.toBeNull();
@@ -1329,19 +1407,16 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
     const deliveryId = randomUUID();
     const payload = pullRequestPayload(value);
     const restore = await rejectTerminal(deliveryId);
-    try {
-      expect(
-        (
-          await post("pull_request", deliveryId, payload, {
-            address: ingressDisabledAddress,
-          })
-        ).status,
-      ).toBe(500);
-      expect(await receipt(deliveryId)).toMatchObject({ status: "failed" });
-      expect(await outbox(ingressKey(deliveryId))).toBeNull();
-    } finally {
-      await restore();
-    }
+    expect(
+      (
+        await post("pull_request", deliveryId, payload, {
+          address: ingressDisabledAddress,
+        })
+      ).status,
+    ).toBe(500);
+    expect(await receipt(deliveryId)).toMatchObject({ status: "failed" });
+    expect(await outbox(ingressKey(deliveryId))).toBeNull();
+    await restore();
     expect((await post("pull_request", deliveryId, payload)).status).toBe(200);
     expect(
       await prisma.gitHubWebhookFence.findUniqueOrThrow({

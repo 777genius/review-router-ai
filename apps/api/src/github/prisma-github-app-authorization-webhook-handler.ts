@@ -29,18 +29,20 @@ const reconciliationRequired =
 
 export class PrismaGitHubAppAuthorizationWebhookHandler {
   private readonly env: GitHubUserAuthorizationEnvironment;
+  private readonly appSlug: string;
   private readonly send: typeof fetch;
   private readonly userEndpoint: string;
 
   constructor(
     private readonly prisma: PrismaClient,
-    private readonly appSlug = resolveGitHubUserAuthorizationAppSlug(),
+    appSlug?: string,
     options: Readonly<{
       env?: GitHubUserAuthorizationEnvironment;
       fetch?: typeof fetch;
     }> = {},
   ) {
     this.env = options.env ?? process.env;
+    this.appSlug = appSlug ?? resolveGitHubUserAuthorizationAppSlug(this.env);
     this.send = options.fetch ?? fetch;
     const api = new URL(
       this.env.GITHUB_API_BASE_URL ?? "https://api.github.com",

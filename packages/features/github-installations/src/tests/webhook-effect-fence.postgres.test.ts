@@ -15,6 +15,7 @@ import {
   beginFencedWebhookDelivery,
   beginVerifiedFencedWebhookDelivery,
   claimVerifiedFencedWebhookDelivery,
+  claimVerifiedFencedWebhookDeliveryInTransaction,
   failWebhookFencedDelivery,
   reclaimWebhookFence,
   renewWebhookFence,
@@ -641,6 +642,172 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
           })
         ).generation,
       ).toBe(2n);
+    },
+  );
+
+  it.each([
+    ["installation", "suspend", "unsuspend", "90701"],
+    ["installation_repositories", "removed", "added", "90702"],
+    ["repository", "deleted", "renamed", "90703"],
+  ] as const)(
+    "orders %s receipts by guarded admission when transaction start order is reversed",
+    async (eventName, earlierAction, laterAction, installationId) => {
+      const earlierEvent = verifiedEvent(
+        `receipt-order-earlier-${eventName}`,
+        "123",
+        JSON.stringify({ action: earlierAction }),
+      );
+      const laterEvent = verifiedEvent(
+        `receipt-order-later-${eventName}`,
+        "123",
+        JSON.stringify({ action: laterAction }),
+      );
+      const scope = {
+        eventName,
+        installationId,
+        ...(eventName === "repository"
+          ? { normalizedEvent: { repositoryId: "80703" } }
+          : {}),
+      };
+      const earlierDelivery = {
+        ...earlierEvent.delivery,
+        ...scope,
+        action: earlierAction,
+      };
+      const laterDelivery = {
+        ...laterEvent.delivery,
+        ...scope,
+        action: laterAction,
+      };
+      let entered!: (startedMs: bigint) => void;
+      let release!: () => void;
+      const ready = new Promise<bigint>((resolve) => {
+        entered = resolve;
+      });
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const delayed = realPrisma.$transaction(
+        async (tx) => {
+          const rows = await tx.$queryRaw<Array<{ startedMs: bigint }>>(
+            Prisma.sql`SELECT floor(extract(epoch FROM transaction_timestamp()) * 1000)::bigint AS "startedMs" FROM pg_sleep(0.005)`,
+          );
+          if (!rows[0]) throw new Error("transaction_start_missing");
+          // This pause precedes admission; the later-started transaction can
+          // acquire the actual scope lock and commit its receipt first.
+          entered(rows[0].startedMs);
+          await held;
+          return claimVerifiedFencedWebhookDeliveryInTransaction(
+            tx,
+            laterEvent.context,
+            laterDelivery,
+            a,
+            30000,
+          );
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
+      );
+      const delayedOutcome = delayed.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      try {
+        const olderStartedMs = await Promise.race([
+          ready,
+          delayedOutcome.then((error) => {
+            throw error ?? new Error("transaction_barrier_not_reached");
+          }),
+        ]);
+        const earlier = await realPrisma.$transaction(
+          async (tx) => {
+            const rows = await tx.$queryRaw<Array<{ startedMs: bigint }>>(
+              Prisma.sql`SELECT floor(extract(epoch FROM transaction_timestamp()) * 1000)::bigint AS "startedMs"`,
+            );
+            if (!rows[0]) throw new Error("transaction_start_missing");
+            const result =
+              await claimVerifiedFencedWebhookDeliveryInTransaction(
+                tx,
+                earlierEvent.context,
+                earlierDelivery,
+                a,
+                30000,
+              );
+            return { startedMs: rows[0].startedMs, result };
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
+        );
+        expect(earlier.startedMs).toBeGreaterThan(olderStartedMs);
+        if (earlier.result.kind !== "claimed")
+          throw new Error("claim_required");
+        expect(
+          await failWebhookFencedDelivery(
+            realPrisma,
+            earlier.result.claim,
+            "synthetic_failure",
+          ),
+        ).toBe(true);
+        const originalReceipt =
+          await realPrisma.gitHubWebhookDelivery.findUniqueOrThrow({
+            where: { deliveryId: earlierDelivery.deliveryId },
+          });
+        release();
+        const later = await delayed;
+        if (later.kind !== "claimed") throw new Error("claim_required");
+        const order = await pool.query<{ ordered: boolean }>(
+          'SELECT later."receivedAt" >= earlier."receivedAt" AS ordered FROM "GitHubWebhookDelivery" later CROSS JOIN "GitHubWebhookDelivery" earlier WHERE later."deliveryId"=$1 AND earlier."deliveryId"=$2',
+          [laterDelivery.deliveryId, earlierDelivery.deliveryId],
+        );
+        expect(order.rows[0]?.ordered).toBe(true);
+        await runWebhookFencedDatabaseEffect(
+          realPrisma,
+          later.claim,
+          async (tx) => {
+            await tx.$executeRaw(
+              Prisma.sql`INSERT INTO "effect" (generation) VALUES (${BigInt(installationId)})`,
+            );
+            await tx.gitHubWebhookDelivery.update({
+              where: { deliveryId: laterDelivery.deliveryId },
+              data: { status: "processed" },
+            });
+          },
+          "processed",
+          (tx) =>
+            acquireCurrentScopeGuards(tx, [
+              { scope: "global", mode: "exclusive" },
+            ]),
+        );
+        await expect(
+          claimVerifiedFencedWebhookDelivery(
+            realPrisma,
+            earlierEvent.context,
+            earlierDelivery,
+            b,
+            30000,
+          ),
+        ).rejects.toThrow("webhook_fence_reconciliation_required");
+        const retained =
+          await realPrisma.gitHubWebhookDelivery.findUniqueOrThrow({
+            where: { deliveryId: earlierDelivery.deliveryId },
+          });
+        expect(retained.receivedAt).toEqual(originalReceipt.receivedAt);
+        expect(retained.status).toBe("failed");
+        expect(
+          await realPrisma.gitHubWebhookFence.findUniqueOrThrow({
+            where: { deliveryId: earlierDelivery.deliveryId },
+          }),
+        ).toMatchObject({ ownerHash: a, generation: 1n });
+        expect(
+          (
+            await pool.query<{ n: number }>(
+              'SELECT count(*)::int AS n FROM "effect" WHERE generation=$1',
+              [installationId],
+            )
+          ).rows[0]?.n,
+        ).toBe(1);
+      } finally {
+        release();
+        await delayedOutcome;
+      }
     },
   );
 
@@ -1342,16 +1509,17 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
   });
 
   it("serializes concurrent work and fences the previous generation", async () => {
-    let entered!: () => void;
+    const takeoverConnection = await pool.connect();
+    let entered!: (backendPid: number) => void;
     let release!: () => void;
-    const enteredPromise = new Promise<void>((resolve) => {
+    const enteredPromise = new Promise<number>((resolve) => {
       entered = resolve;
     });
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
     const first = runWebhookFencedDatabaseEffect(
-      prisma,
+      realPrisma,
       {
         deliveryId,
         ownerHash: a,
@@ -1359,31 +1527,73 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
         generation: 1n,
       },
       async (tx) => {
-        entered();
+        const rows = await tx.$queryRaw<Array<{ pid: number }>>(
+          Prisma.sql`SELECT pg_backend_pid() AS pid`,
+        );
+        if (!rows[0]) throw new Error("effect_backend_missing");
+        entered(rows[0].pid);
         await gate;
         await tx.$queryRaw(
           Prisma.sql`INSERT INTO "effect" VALUES (1) RETURNING generation`,
         );
       },
+    ).then(
+      () => null,
+      (error: unknown) => error,
     );
-    await enteredPromise;
-    let taken = false;
-    const takeover = pool
-      .query(
-        'UPDATE "GitHubWebhookFence" SET "ownerHash"=$1,"generation"=2 WHERE "deliveryId"=$2',
-        [b, deliveryId],
-      )
-      .then(() => {
-        taken = true;
-      });
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    expect(taken).toBe(false);
-    release();
-    await first;
-    await takeover;
+    let takeover: Promise<unknown> = Promise.resolve(null);
+    try {
+      const ownerPid = await Promise.race([
+        enteredPromise,
+        first.then((error) => {
+          throw error ?? new Error("effect_barrier_not_reached");
+        }),
+      ]);
+      const rows = await takeoverConnection.query<{ pid: number }>(
+        "SELECT pg_backend_pid() AS pid",
+      );
+      const takeoverPid = rows.rows[0]?.pid;
+      if (takeoverPid === undefined)
+        throw new Error("takeover_backend_missing");
+      takeover = takeoverConnection
+        .query(
+          'UPDATE "GitHubWebhookFence" SET "ownerHash"=$1,"generation"=2 WHERE "deliveryId"=$2',
+          [b, deliveryId],
+        )
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      let blocked = false;
+      for (let attempt = 0; attempt < 80 && !blocked; attempt++) {
+        const result = await Promise.race([
+          pool.query<{ blocked: boolean }>(
+            "SELECT $1::integer = ANY(pg_blocking_pids($2::integer)) AS blocked",
+            [ownerPid, takeoverPid],
+          ),
+          first.then((error) => {
+            throw error ?? new Error("effect_released_before_blocker");
+          }),
+          takeover.then((error) => {
+            throw error ?? new Error("takeover_did_not_wait");
+          }),
+        ]);
+        blocked = result.rows[0]?.blocked === true;
+        if (!blocked) await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(blocked).toBe(true);
+      release();
+      expect(await first).toBeNull();
+      expect(await takeover).toBeNull();
+    } finally {
+      release();
+      await first;
+      await takeover;
+      takeoverConnection.release();
+    }
     await expect(
       runWebhookFencedDatabaseEffect(
-        prisma,
+        realPrisma,
         {
           deliveryId,
           ownerHash: a,
@@ -1398,7 +1608,7 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
       ),
     ).rejects.toThrow("webhook_fence_stale");
     await runWebhookFencedDatabaseEffect(
-      prisma,
+      realPrisma,
       {
         deliveryId,
         ownerHash: b,

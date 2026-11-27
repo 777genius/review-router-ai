@@ -644,7 +644,7 @@ jobs:
         env:
           POSTGRES_PASSWORD: postgres
         ports:
-          - 5435:5432
+          - 127.0.0.1:5435:5432
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 10s

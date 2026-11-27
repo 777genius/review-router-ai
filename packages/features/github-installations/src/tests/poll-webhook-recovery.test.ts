@@ -84,6 +84,11 @@ describe("bounded webhook recovery polling", () => {
       }),
     ).toEqual({ state: "cancelled", polls: 1, observedAttempts: 1 });
     expect(f.custody.confirm).toHaveBeenCalledOnce();
+    expect(f.client.scanAttempts).toHaveBeenCalledWith(
+      identity,
+      options.maxPages,
+      controller.signal,
+    );
   });
   it.each(["confirmation", "scan"] as const)(
     "reports cancellation when %s rejects after abort",

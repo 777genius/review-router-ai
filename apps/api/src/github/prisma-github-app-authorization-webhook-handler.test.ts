@@ -90,6 +90,7 @@ function fixture(status = 401, body = JSON.stringify({ id: 123 })) {
     { env, fetch: send },
   );
   return {
+    prisma,
     snapshot,
     revoke,
     deleteMany,
@@ -103,6 +104,41 @@ function fixture(status = 401, body = JSON.stringify({ id: 123 })) {
 }
 
 describe("PrismaGitHubAppAuthorizationWebhookHandler", () => {
+  it.each([
+    { appSlug: undefined, expected: "provided-environment-app" },
+    { appSlug: "explicit-app", expected: "explicit-app" },
+  ])("resolves the App slug as $expected", async ({ appSlug, expected }) => {
+    vi.stubEnv("GITHUB_APP_SLUG", "ambient-process-app");
+    try {
+      const f = fixture();
+      f.readSnapshot.mockResolvedValueOnce([
+        { ...f.snapshot, appSlug: expected },
+      ]);
+      const handler = new PrismaGitHubAppAuthorizationWebhookHandler(
+        f.prisma,
+        appSlug,
+        {
+          env: { ...env, GITHUB_APP_SLUG: "provided-environment-app" },
+          fetch: f.send,
+        },
+      );
+      expect(
+        await handler.handleGitHubAppAuthorizationWebhook(envelope),
+      ).toMatchObject({
+        processed: true,
+        appSlug: expected,
+      });
+      expect(f.readSnapshot).toHaveBeenCalledWith(
+        expect.objectContaining({ values: expect.arrayContaining([expected]) }),
+      );
+      expect(f.deleteMany).toHaveBeenCalledWith({
+        where: { userId: "user_1", authorizationAppSlug: expected },
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("revokes stored user authorization and clears repository access cache", async () => {
     const f = fixture();
     await expect(

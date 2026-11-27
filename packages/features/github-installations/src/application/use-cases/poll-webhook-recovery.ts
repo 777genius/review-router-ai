@@ -11,6 +11,7 @@ export interface WebhookRecoveryObservationClient {
   scanAttempts(
     identity: WebhookRecoveryIdentity,
     maxPages: number,
+    signal?: AbortSignal,
   ): Promise<WebhookAttemptObservation>;
 }
 export interface WebhookRecoveryConfirmation {
@@ -71,6 +72,7 @@ export async function pollWebhookRecovery(
       observation = await dependencies.client.scanAttempts(
         identity,
         options.maxPages,
+        options.signal,
       );
     } catch {
       return {

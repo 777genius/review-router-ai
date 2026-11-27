@@ -110,16 +110,23 @@ export async function runKnownWebhookRecovery(
   const authority = new GitHubAppWebhookRecoveryAuthority(prisma, client);
 
   if (command.mode === "inspect") {
+    const authorized =
+      receiver.status !== "processed" &&
+      (receiver.recoveryState === null ||
+        receiver.recoveryState === "prepared") &&
+      (await authority.authorize(identity));
+    // Authorization performs HTTP outside the database; another operator may
+    // reserve or finish this delivery before that observation returns.
+    const current = await readReceiver();
     const state =
-      receiver.status === "processed"
+      current.status === "processed"
         ? "processed"
-        : receiver.recoveryState !== null &&
-            receiver.recoveryState !== "prepared"
+        : current.recoveryState !== null && current.recoveryState !== "prepared"
           ? "reconciliation_required"
-          : (await authority.authorize(identity))
+          : authorized
             ? "eligible"
             : "not_authorized";
-    return { ...summary(receiver), state };
+    return { ...summary(current), state };
   }
   if (command.mode === "reconcile" && receiver.recoveryState === null)
     return {

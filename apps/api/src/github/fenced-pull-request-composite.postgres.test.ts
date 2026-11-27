@@ -8,7 +8,14 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
 import { Pool } from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+} from "vitest";
 import {
   beginFencedWebhookDelivery,
   claimVerifiedFencedWebhookDelivery,
@@ -154,16 +161,24 @@ test("fenced PR composite on isolated PostgreSQL", () => {
     await pool.query(
       "ALTER TABLE \"WorkflowProvisioning\" ADD CONSTRAINT synthetic_no_configured CHECK (status <> 'configured')",
     );
+    onTestFinished(async () => {
+      await pool.query(
+        'ALTER TABLE "WorkflowProvisioning" DROP CONSTRAINT synthetic_no_configured',
+      );
+    });
+    const before = (
+      await pool.query('SELECT count(*)::int n FROM "OutboxEvent"')
+    ).rows[0].n;
     const { e, claim } = await begin("composite-rollback");
     await expect(
       handleFencedPullRequestComposite(prisma, e, claim, {
         reviewIngressEnabled: true,
         conflictFallbackEnabled: false,
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow("synthetic_no_configured");
     expect(
       (await pool.query('SELECT count(*)::int n FROM "OutboxEvent"')).rows[0].n,
-    ).toBe(1);
+    ).toBe(before);
     expect(
       (await pool.query('SELECT status::text FROM "WorkflowProvisioning"'))
         .rows[0].status,
@@ -246,6 +261,11 @@ test("fenced PR composite on isolated PostgreSQL", () => {
     await pool.query(
       `ALTER TABLE "OutboxEvent" ADD CONSTRAINT synthetic_conflict_failure CHECK ("idempotencyKey" <> 'conflict-review:detect:delivery:conflict-rollback')`,
     );
+    onTestFinished(async () => {
+      await pool.query(
+        'ALTER TABLE "OutboxEvent" DROP CONSTRAINT synthetic_conflict_failure',
+      );
+    });
     const e = envelope("conflict-rollback");
     e.payload.action = "opened";
     e.payload.pull_request.state = "open";
@@ -273,7 +293,7 @@ test("fenced PR composite on isolated PostgreSQL", () => {
           isConflictReviewFallbackAllowed: () => true,
         },
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow("synthetic_conflict_failure");
     expect(
       (await pool.query('SELECT count(*)::int n FROM "OutboxEvent"')).rows[0].n,
     ).toBe(before);
@@ -282,6 +302,11 @@ test("fenced PR composite on isolated PostgreSQL", () => {
     await pool.query(
       `ALTER TABLE "GitHubWebhookDelivery" ADD CONSTRAINT synthetic_terminal_failure CHECK ("deliveryId" <> 'terminal-fail' OR status <> 'processed')`,
     );
+    onTestFinished(async () => {
+      await pool.query(
+        'ALTER TABLE "GitHubWebhookDelivery" DROP CONSTRAINT synthetic_terminal_failure',
+      );
+    });
     const e = envelope("terminal-fail");
     e.payload.action = "opened";
     e.payload.pull_request.state = "open";
@@ -309,7 +334,7 @@ test("fenced PR composite on isolated PostgreSQL", () => {
           isConflictReviewFallbackAllowed: () => true,
         },
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow("synthetic_terminal_failure");
     expect(
       (await pool.query('SELECT count(*)::int n FROM "OutboxEvent"')).rows[0].n,
     ).toBe(before);
@@ -364,7 +389,23 @@ test("fenced PR composite on isolated PostgreSQL", () => {
       },
       { isolationLevel: "ReadCommitted" },
     );
-    await ready;
+    void writer.catch(() => undefined);
+    const startedTasks: Promise<unknown>[] = [writer];
+    onTestFinished(async () => {
+      release();
+      const settled = await Promise.allSettled(startedTasks);
+      const errors = settled.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : [],
+      );
+      if (errors.length)
+        throw new AggregateError(errors, "scope race cleanup failed");
+    });
+    await Promise.race([
+      ready,
+      writer.then(() => {
+        throw new Error("scope_writer_did_not_reach_gate");
+      }),
+    ]);
     const oldHandler = handleFencedPullRequestComposite(prisma, e, old, {
       reviewIngressEnabled: true,
       conflictFallbackEnabled: true,
@@ -375,6 +416,7 @@ test("fenced PR composite on isolated PostgreSQL", () => {
       () => null,
       (error: unknown) => error,
     );
+    startedTasks.push(oldHandler);
     try {
       let waiting = false;
       for (let i = 0; i < 80 && !waiting; i++) {
@@ -574,49 +616,64 @@ test("fenced PR composite on isolated PostgreSQL", () => {
       CREATE FUNCTION synthetic_hold_policy() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock(87892345); RETURN NEW; END $$;
       CREATE TRIGGER synthetic_hold_policy BEFORE UPDATE ON "Workspace" FOR EACH ROW EXECUTE FUNCTION synthetic_hold_policy();`);
     const blocker = await pool.connect();
+    let unlocked = false;
+    const startedTasks: Promise<unknown>[] = [];
+    onTestFinished(async () => {
+      const unlock = unlocked
+        ? []
+        : await Promise.allSettled([
+            blocker.query("SELECT pg_advisory_unlock(87892345)"),
+          ]);
+      blocker.release(unlock.some((result) => result.status === "rejected"));
+      const settled = await Promise.allSettled(startedTasks);
+      const removed = await Promise.allSettled([
+        pool.query('DROP TRIGGER synthetic_hold_policy ON "Workspace"'),
+      ]);
+      const errors = [...unlock, ...settled, ...removed].flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : [],
+      );
+      if (errors.length)
+        throw new AggregateError(errors, "draft policy cleanup failed");
+    });
     await blocker.query("SELECT pg_advisory_lock(87892345)");
     const writer = new PrismaWorkspaceReviewSettings(prisma).save(
       "workspace",
       false,
     );
-    let reader: Promise<Record<string, unknown>> | undefined;
-    try {
-      let writerWaiting = false;
-      for (let attempt = 0; attempt < 80 && !writerWaiting; attempt++) {
-        writerWaiting =
-          (
-            await pool.query(
-              "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event='advisory') waiting",
-              [schema],
-            )
-          ).rows[0].waiting === true;
-        if (!writerWaiting)
-          await new Promise((resolve) => setTimeout(resolve, 25));
-      }
-      expect(writerWaiting).toBe(true);
-      reader = writeFencedPullRequestIngress(prisma, e, claim);
-      let readerWaiting = false;
-      for (let attempt = 0; attempt < 80 && !readerWaiting; attempt++) {
-        readerWaiting =
-          (
-            await pool.query(
-              "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND wait_event <> 'advisory') waiting",
-              [schema],
-            )
-          ).rows[0].waiting === true;
-        if (!readerWaiting)
-          await new Promise((resolve) => setTimeout(resolve, 25));
-      }
-      expect(readerWaiting).toBe(true);
-    } finally {
-      await blocker.query("SELECT pg_advisory_unlock(87892345)");
-      blocker.release();
+    void writer.catch(() => undefined);
+    startedTasks.push(writer);
+    let writerWaiting = false;
+    for (let attempt = 0; attempt < 80 && !writerWaiting; attempt++) {
+      writerWaiting =
+        (
+          await pool.query(
+            "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event='advisory') waiting",
+            [schema],
+          )
+        ).rows[0].waiting === true;
+      if (!writerWaiting)
+        await new Promise((resolve) => setTimeout(resolve, 25));
     }
-    try {
-      await writer;
-      await expect(reader).resolves.toMatchObject({ commandKind: "cancel" });
-    } finally {
-      await pool.query('DROP TRIGGER synthetic_hold_policy ON "Workspace"');
+    expect(writerWaiting).toBe(true);
+    const reader = writeFencedPullRequestIngress(prisma, e, claim);
+    void reader.catch(() => undefined);
+    startedTasks.push(reader);
+    let readerWaiting = false;
+    for (let attempt = 0; attempt < 80 && !readerWaiting; attempt++) {
+      readerWaiting =
+        (
+          await pool.query(
+            "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND wait_event <> 'advisory') waiting",
+            [schema],
+          )
+        ).rows[0].waiting === true;
+      if (!readerWaiting)
+        await new Promise((resolve) => setTimeout(resolve, 25));
     }
+    expect(readerWaiting).toBe(true);
+    await blocker.query("SELECT pg_advisory_unlock(87892345)");
+    unlocked = true;
+    await writer;
+    await expect(reader).resolves.toMatchObject({ commandKind: "cancel" });
   });
 });

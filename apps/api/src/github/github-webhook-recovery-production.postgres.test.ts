@@ -51,6 +51,10 @@ test("known delivery recovery through the production receiver and migrated Postg
   const appId = "1027";
   const app = Fastify({ logger: false });
   const deliveries = new Map<bigint, Delivery>();
+  const detailGates = new Map<
+    bigint,
+    { entered: boolean; released: Promise<void> }
+  >();
   const verify = createGitHubAppWebhookVerifier({
     appId,
     apiBaseUrl: "https://api.github.com",
@@ -140,6 +144,12 @@ test("known delivery recovery through the production receiver and migrated Postg
     if (!delivery) {
       response.writeHead(404).end();
       return;
+    }
+    const gate = detailGates.get(delivery.id);
+    if (gate) {
+      detailGates.delete(delivery.id);
+      gate.entered = true;
+      await gate.released;
     }
     response.end(
       JSON.stringify({
@@ -352,6 +362,173 @@ test("known delivery recovery through the production receiver and migrated Postg
     });
     expect(delivery.posts).toBe(1);
   });
+
+  it.each([
+    ["lost_before_delivery", "issued_unknown", "reconciliation_required"],
+    ["accept_without_delivery", "accepted", "reconciliation_required"],
+    ["deliver", "confirmed", "processed"],
+  ] as const)(
+    "refreshes inspect after a concurrent %s request while authorization is in flight",
+    async (behavior, recoveryState, state) => {
+      const delivery = await failedDelivery(behavior);
+      let release!: () => void;
+      const gate = {
+        entered: false,
+        released: new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+      };
+      detailGates.set(delivery.id, gate);
+      const inspected = run(delivery, "inspect").then(
+        (value) => ({ value }),
+        (error: unknown) => ({ error }),
+      );
+      const failures: unknown[] = [];
+      try {
+        await expect.poll(() => gate.entered, { timeout: 3_000 }).toBe(true);
+        expect(await run(delivery, "request")).toMatchObject({ recoveryState });
+        release();
+        const outcome = await inspected;
+        if ("error" in outcome) throw outcome.error;
+        expect(outcome.value).toMatchObject({
+          state,
+          recoveryState,
+          githubDeliveryIdBound: true,
+        });
+        expect(delivery.posts).toBe(1);
+      } catch (error) {
+        failures.push(error);
+      } finally {
+        release();
+        detailGates.delete(delivery.id);
+        const outcome = await inspected;
+        if ("error" in outcome && !failures.includes(outcome.error))
+          failures.push(outcome.error);
+      }
+      if (failures.length === 1) throw failures[0];
+      if (failures.length > 1)
+        throw new AggregateError(failures, "inspection_race_failed", {
+          cause: failures[0],
+        });
+    },
+    15_000,
+  );
+
+  it("bounds a blocked confirmation and later reconciles retained custody without another POST", async () => {
+    const delivery = await failedDelivery("accept_without_delivery");
+    expect(await run(delivery, "request")).toMatchObject({
+      recoveryState: "accepted",
+    });
+    expect(await sendReceiver(delivery)).toBe(200);
+    const before = await intent(delivery);
+    const reads = githubReads;
+    const isolatedPool = new Pool({
+      ...webhookFencePostgres.connection,
+      max: 1,
+    });
+    const isolated = new PrismaClient({ adapter: new PrismaPg(isolatedPool) });
+    const blocker = await pool.connect();
+    const failures: unknown[] = [];
+    let locked = false;
+    let pending:
+      | Promise<
+          | { value: Awaited<ReturnType<typeof runKnownWebhookRecovery>> }
+          | { error: unknown }
+        >
+      | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const initialTimeout = await isolated.$queryRaw<
+        Array<{ statement_timeout: string }>
+      >`SHOW statement_timeout`;
+      const waiter = await isolated.$queryRaw<
+        Array<{ pid: number }>
+      >`SELECT pg_backend_pid() AS pid`;
+      if (!waiter[0]) throw new Error("confirmation_backend_missing");
+      await blocker.query("BEGIN");
+      locked = true;
+      const blockerPid = await blocker.query<{ pid: number }>(
+        "SELECT pg_backend_pid() AS pid",
+      );
+      if (!blockerPid.rows[0]) throw new Error("confirmation_blocker_missing");
+      await blocker.query(
+        'SELECT "deliveryGuid" FROM "GitHubWebhookRecoveryIntent" WHERE "deliveryGuid"=$1 FOR UPDATE',
+        [delivery.guid],
+      );
+      pending = runKnownWebhookRecovery(command(delivery, "reconcile"), {
+        prisma: isolated,
+        client: client(),
+      }).then(
+        (value) => ({ value }),
+        (error: unknown) => ({ error }),
+      );
+      const deadline = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("confirmation_sql_deadline_missing")),
+          10_000,
+        );
+      });
+      const bounded = Promise.race([pending, deadline]).catch(
+        (error: unknown) => ({ error }),
+      );
+      await expect
+        .poll(
+          async () => {
+            const result = await pool.query<{ blocked: boolean }>(
+              "SELECT $1::int = ANY(pg_blocking_pids($2::int)) AS blocked",
+              [blockerPid.rows[0]!.pid, waiter[0]!.pid],
+            );
+            return result.rows[0]?.blocked;
+          },
+          { timeout: 3_000, interval: 10 },
+        )
+        .toBe(true);
+      const outcome = await bounded;
+      if ("error" in outcome) throw outcome.error;
+      expect(outcome.value).toMatchObject({
+        state: "incomplete",
+        recoveryState: "accepted",
+        deliveryStatus: "processed",
+        polls: 0,
+      });
+      expect(await intent(delivery)).toEqual(before);
+      expect(githubReads).toBe(reads);
+      expect(await isolated.$queryRaw`SHOW statement_timeout`).toEqual(
+        initialTimeout,
+      );
+      await blocker.query("COMMIT");
+      locked = false;
+      expect(await run(delivery, "reconcile")).toMatchObject({
+        state: "confirmed",
+        recoveryState: "confirmed",
+      });
+      expect(delivery.posts).toBe(1);
+      expect(await outboxCount(delivery)).toBe(1);
+    } catch (error) {
+      failures.push(error);
+    } finally {
+      if (locked)
+        await blocker.query("ROLLBACK").catch((error: unknown) => {
+          failures.push(error);
+        });
+      blocker.release();
+      const outcome = await pending;
+      if (outcome && "error" in outcome && !failures.includes(outcome.error))
+        failures.push(outcome.error);
+      if (timer) clearTimeout(timer);
+      await isolated.$disconnect().catch((error: unknown) => {
+        failures.push(error);
+      });
+      await isolatedPool.end().catch((error: unknown) => {
+        failures.push(error);
+      });
+    }
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1)
+      throw new AggregateError(failures, "confirmation_lock_cleanup_failed", {
+        cause: failures[0],
+      });
+  }, 20_000);
 
   it("keeps an unknown outcome durable across fresh invocations and confirms only a later receiver delivery", async () => {
     const delivery = await failedDelivery("lost_before_delivery");

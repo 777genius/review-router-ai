@@ -112,9 +112,11 @@ export async function confirmWebhookRecovery(
   identity: WebhookRecoveryIdentity,
 ): Promise<boolean> {
   validate(identity);
-  const rows = await prisma.$queryRaw<
-    Array<{ deliveryGuid: string }>
-  >(Prisma.sql`
+  // A poll count does not bound a blocked UPDATE. Keep the SQL deadline local
+  // to this transaction so cancellation rolls back without changing custody.
+  const [, rows] = await prisma.$transaction([
+    prisma.$executeRaw(Prisma.sql`SET LOCAL statement_timeout = '5s'`),
+    prisma.$queryRaw<Array<{ deliveryGuid: string }>>(Prisma.sql`
     UPDATE "GitHubWebhookRecoveryIntent" r SET "state"='confirmed', "updatedAt"=clock_timestamp()
     WHERE r."appIdentityHash"=${identity.appIdentityHash} AND r."deliveryGuid"=${identity.deliveryGuid}
       AND r."githubDeliveryId"=${identity.githubDeliveryId} AND r."eventName"=${identity.eventName}
@@ -125,6 +127,7 @@ export async function confirmWebhookRecovery(
           AND d."eventName"=r."eventName" AND d."action" IS NOT DISTINCT FROM r."action"
           AND d."installationId" IS NOT DISTINCT FROM r."installationId" AND d."payloadHash"=r."payloadHash" AND d.status='processed')
     RETURNING r."deliveryGuid"
-  `);
+    `),
+  ]);
   return rows.length === 1;
 }
