@@ -26,7 +26,19 @@ describe("GitHub App redelivery client with synthetic local server", () => {
             event: "push",
             action: null,
             installation_id: 123,
-            request: { payload: { synthetic: "never-return-this" } },
+            status_code: scanMode === "success-detail" ? 200 : 500,
+            request: {
+              headers:
+                scanMode === "redacted"
+                  ? null
+                  : scanMode === "duplicate"
+                    ? {
+                        "X-Hub-Signature-256": `sha256=${"a".repeat(64)}`,
+                        "x-hub-signature-256": `sha256=${"b".repeat(64)}`,
+                      }
+                    : { "X-Hub-Signature-256": `sha256=${"a".repeat(64)}` },
+              payload: { synthetic: "never-return-this" },
+            },
           }),
         );
         return;
@@ -203,5 +215,27 @@ describe("GitHub App redelivery client with synthetic local server", () => {
       }),
     ).toBe(false);
     expect(requests.length).toBe(before);
+  });
+  it("extracts only a failed delivery signature digest and refuses missing or ambiguous headers", async () => {
+    const c = client();
+    scanMode = "normal";
+    const evidence = await c.inspectUnreceivedDelivery(42n);
+    expect(evidence).toMatchObject({
+      appIdentityHash: c.appIdentityHash,
+      deliveryGuid: "synthetic-guid",
+      githubDeliveryId: 42n,
+      signatureHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(
+      JSON.stringify(evidence, (_key, value) =>
+        typeof value === "bigint" ? String(value) : value,
+      ),
+    ).not.toContain("never-return-this");
+    scanMode = "redacted";
+    expect(await c.inspectUnreceivedDelivery(42n)).toBeNull();
+    scanMode = "duplicate";
+    expect(await c.inspectUnreceivedDelivery(42n)).toBeNull();
+    scanMode = "success-detail";
+    expect(await c.inspectUnreceivedDelivery(42n)).toBeNull();
   });
 });

@@ -7,6 +7,7 @@ declare const verifiedBrand: unique symbol;
 export type VerifiedGitHubAppWebhook = Readonly<{
   appIdentityHash: string;
   payloadHash: string;
+  signatureHash: string;
   readonly [verifiedBrand]: true;
 }>;
 
@@ -41,6 +42,9 @@ export function createGitHubAppWebhookVerifier(
     const context = Object.freeze({
       appIdentityHash,
       payloadHash: createHash("sha256").update(rawPayload).digest("hex"),
+      signatureHash: createHash("sha256")
+        .update(signatureHeader!)
+        .digest("hex"),
     }) as VerifiedGitHubAppWebhook;
     verifiedContexts.add(context);
     return context;

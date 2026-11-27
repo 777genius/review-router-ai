@@ -26,6 +26,7 @@ describe("trusted GitHub App webhook verifier", () => {
     const context = verify({ rawPayload, signatureHeader: signature });
     expect(context?.appIdentityHash).toMatch(/^[a-f0-9]{64}$/);
     expect(context?.payloadHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(context?.signatureHash).toMatch(/^[a-f0-9]{64}$/);
     expect(Object.isFrozen(context)).toBe(true);
     expect(requireVerifiedGitHubAppWebhook(context)).toBe(context);
     expect(() => requireVerifiedGitHubAppWebhook({ ...context })).toThrow(
