@@ -2887,7 +2887,9 @@ async function fixture(
       resetAt: string;
     };
     refusalStatus?: number;
-    requestStatus?: (requestRef: string) =>
+    requestStatus?: (
+      requestRef: string,
+    ) =>
       | { statusCode: number; body: unknown }
       | Promise<{ statusCode: number; body: unknown }>;
     failUsageOutcome?: boolean;

@@ -1331,9 +1331,7 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
     expect(notAfter).toBe(bindingDeadline);
     expect(bindingDeadline).toBeLessThan(lease.expiresAt.getTime());
     const monotonic = vi.spyOn(performance, "now").mockReturnValue(10_000);
-    const wall = vi
-      .spyOn(Date, "now")
-      .mockReturnValue(Date.UTC(2126, 0, 1));
+    const wall = vi.spyOn(Date, "now").mockReturnValue(Date.UTC(2126, 0, 1));
     try {
       const [before] = await f.prisma.$queryRaw<
         readonly { now: Date }[]
