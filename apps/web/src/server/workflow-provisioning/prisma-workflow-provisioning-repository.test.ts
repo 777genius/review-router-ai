@@ -158,6 +158,9 @@ describe("provisioning attempt writers", () => {
       const repositoryConnection = {
         ...f.repositoryConnection,
         findUnique: vi.fn(async () => ({ ...repository })),
+        findMany: vi.fn(async () => [
+          { ...repository, githubRepositoryId: 456n },
+        ]),
         upsert: vi.fn(),
         updateMany: vi.fn(
           async ({ where, data }: { where: { id?: string }; data: object }) => {

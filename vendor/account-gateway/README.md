@@ -1,8 +1,25 @@
 # Account Gateway SDK artifacts
 
+## Native provider parity SDK candidate
+
+The new source checkpoint is
+`agent-teams-account-gateway-0.1.0-native-parity-83c18fd090e7.tgz`. Its SDK source
+files match committed Gateway source `bb5b48cabb01bbf08ed108c5f99d4cc6add0ff68`.
+`native-provider-parity-sdk-provenance.json` records the exact archive hash,
+source hashes, and build tools. This candidate adds provider connections and
+lifecycle v3, account metadata v2, and native model/limits/usage contracts.
+
+SDK compilation, 14 HTTP boundary cases and four Gateway PostgreSQL cases passed.
+All three consumers install the exact 66 archive files under the frozen lockfile.
+The updated consumer passes 13 focused cases plus 15 PostgreSQL boundary cases,
+targeted TypeScript 7.0.2 checks, lint and source-boundary checks. Full browser and
+joined runtime qualification are recorded separately and remain merge gates.
+This private archive is not an npm release or production deployment. Historical
+receipts below retain their original scope.
+
 ## Native account metadata SDK
 
-The web, API and provider-usage consumers now pin
+The previous web, API and provider-usage consumer pin was
 `agent-teams-account-gateway-0.1.0-native-imports-f2690a3c9cfd.tgz`, built from committed Gateway source
 `f2690a3c9cfd0cf61bfb7ca31b802d249105d751`. Exact bytes and build tools are recorded
 in `native-account-info-sdk-provenance.json`. The archive adds account info v1

@@ -84,6 +84,7 @@ type InlineGatewayConnectState = ReturnType<typeof useInlineGatewayConnect>;
 export function InlineGatewayConnect({
   inline,
   provider,
+  providerLabel,
   empty,
   hasAccounts,
   selectedBinding,
@@ -94,6 +95,7 @@ export function InlineGatewayConnect({
 }: {
   readonly inline: InlineGatewayConnectState;
   readonly provider: SetupProviderId;
+  readonly providerLabel?: string;
   /** No ready connection of this provider here yet. */
   readonly empty: boolean;
   /** Some connection could be chosen instead, so the form can be closed. */
@@ -112,7 +114,7 @@ export function InlineGatewayConnect({
     [provider, empty, nonce, setNonce, connected],
   );
   if (!inline.supported) return null;
-  const label = getSetupProvider(provider).label;
+  const label = providerLabel ?? getSetupProvider(provider).label;
   return (
     <>
       {connectedBinding !== null && selectedBinding === connectedBinding ? (

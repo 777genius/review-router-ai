@@ -1,11 +1,12 @@
+import { applyRepositorySyncPolicy } from "../domain/repository-sync-policy";
 import { describe, expect, it } from "vitest";
 import type { Clock } from "@reviewrouter/shared";
-import type {
-  GitHubRepositorySnapshot,
-  RepositorySyncResult,
-} from "../domain/repository-connection";
+import type { GitHubRepositorySnapshot } from "../domain/repository-connection";
 import type { GitHubRepositorySourcePort } from "../application/ports/github-repository-source-port";
-import type { RepositoryConnectionRepositoryPort } from "../application/ports/repository-connection-repository-port";
+import type {
+  RepositoryConnectionRepositoryPort,
+  RepositoryInventorySyncResult,
+} from "../application/ports/repository-connection-repository-port";
 import type { RepositoryIdentitySynchronizationPort } from "../application/ports/repository-identity-synchronization-port";
 import { syncInstallationRepositories } from "../application/use-cases/sync-installation-repositories";
 
@@ -22,28 +23,33 @@ class StaticGitHubSource implements GitHubRepositorySourcePort {
 }
 
 class CapturingRepositoryStore implements RepositoryConnectionRepositoryPort {
-  public lastInput: {
-    githubInstallationId: string;
-    repositories: readonly GitHubRepositorySnapshot[];
-    syncedAt: Date;
-  } | null = null;
+  public lastInput:
+    | Parameters<
+        RepositoryConnectionRepositoryPort["syncInstallationRepositories"]
+      >[0]
+    | null = null;
 
   async beginInstallationInventory() {
     return 1n;
   }
 
-  async syncInstallationRepositories(input: {
-    githubInstallationId: string;
-    repositories: readonly GitHubRepositorySnapshot[];
-    syncedAt: Date;
-  }): Promise<RepositorySyncResult> {
+  async syncInstallationRepositories(
+    input: Parameters<
+      RepositoryConnectionRepositoryPort["syncInstallationRepositories"]
+    >[0],
+  ): Promise<RepositoryInventorySyncResult> {
     this.lastInput = input;
+    const selection = applyRepositorySyncPolicy(
+      input.repositories,
+      input.syncPolicy,
+    );
     return {
       installationId: input.githubInstallationId,
       seen: input.repositories.length,
-      upserted: input.repositories.length,
+      upserted: selection.repositories.length,
       unselected: 0,
-      skippedDueToLimit: 0,
+      skippedDueToLimit: selection.skippedDueToLimit,
+      synchronizedRepositories: selection.repositories,
     };
   }
 
@@ -117,7 +123,7 @@ describe("syncInstallationRepositories", () => {
     ]);
   });
 
-  it("applies a deterministic repository sync limit before persistence", async () => {
+  it("passes full inventory and quota to the persistence admission boundary", async () => {
     const repositories = [
       repositorySnapshot("3", "zeta"),
       repositorySnapshot("1", "alpha"),
@@ -140,9 +146,52 @@ describe("syncInstallationRepositories", () => {
       skippedDueToLimit: 1,
     });
     expect(store.lastInput?.repositories.map((repo) => repo.fullName)).toEqual([
+      "777genius/zeta",
       "777genius/alpha",
       "777genius/beta",
     ]);
+    expect(store.lastInput?.syncPolicy).toEqual({ maxRepositories: 2 });
+  });
+});
+
+describe("stable quota admission", () => {
+  it("retains admitted repositories when an alphabetically earlier one appears", () => {
+    const rows = [
+      repositorySnapshot("1", "alpha"),
+      repositorySnapshot("2", "beta"),
+      repositorySnapshot("3", "zeta"),
+    ];
+    const retained = applyRepositorySyncPolicy(
+      rows,
+      { maxRepositories: 2 },
+      new Set(["2", "3"]),
+    );
+    expect(retained.repositories.map((row) => row.githubRepositoryId)).toEqual([
+      "2",
+      "3",
+    ]);
+    expect(retained.skippedDueToLimit).toBe(1);
+  });
+  it("fills a vacated slot deterministically and refuses a destructive cap reduction", () => {
+    const rows = [
+      repositorySnapshot("3", "zeta"),
+      repositorySnapshot("1", "alpha"),
+      repositorySnapshot("2", "beta"),
+    ];
+    expect(
+      applyRepositorySyncPolicy(
+        rows,
+        { maxRepositories: 2 },
+        new Set(["3"]),
+      ).repositories.map((row) => row.githubRepositoryId),
+    ).toEqual(["3", "1"]);
+    expect(() =>
+      applyRepositorySyncPolicy(
+        rows,
+        { maxRepositories: 1 },
+        new Set(["2", "3"]),
+      ),
+    ).toThrow("repository_sync_quota_below_current_selection");
   });
 });
 

@@ -40,6 +40,11 @@ const originalHistory = readRenderManagedCheckoutInventory()
       row.migrationName !== "000158_review_run_allocation_provider_quota" &&
       row.migrationName !== "000159_producer_reviewer_plan_v2" &&
       row.migrationName !== "000160_personal_credential_import_method" &&
+      row.migrationName !== "000161_github_authorization_revision" &&
+      row.migrationName !== "000161_native_connection_intent" &&
+      row.migrationName !== "000162_inventory_ruleset_revisions" &&
+      row.migrationName !== "000163_usage_retention_index" &&
+      row.migrationName !== "000164_ruleset_create_uncertainty" &&
       row.migrationName !== "000152_review_run_gateway_allocations" &&
       row.migrationName !== "000152_memory_automatic_source" &&
       row.migrationName !== "000153_conversation_processing" &&

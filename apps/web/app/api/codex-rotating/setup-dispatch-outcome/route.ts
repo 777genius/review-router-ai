@@ -1,3 +1,4 @@
+import { readBoundedRequestJson } from "../../../../src/server/bounded-request-body";
 import { NextResponse } from "next/server";
 import {
   codexRotatingSetupLedger,
@@ -7,7 +8,9 @@ import {
 export async function POST(request: Request): Promise<NextResponse> {
   try {
     return NextResponse.json(
-      await codexRotatingSetupLedger.recordOutcome(await request.json()),
+      await codexRotatingSetupLedger.recordOutcome(
+        await readBoundedRequestJson(request, 32_768),
+      ),
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {

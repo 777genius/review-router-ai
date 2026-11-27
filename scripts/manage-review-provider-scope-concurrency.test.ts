@@ -195,7 +195,13 @@ function assertProviderSuiteBinding(suiteSource: string): void {
     databaseUrlProperties.length !== 1 ||
     databaseUrlProperty?.type !== "Property" ||
     !databaseUrlProperty.shorthand ||
-    argument.properties.some((property) => property.type === "SpreadElement")
+    argument.properties.some(
+      (property) =>
+        property.type !== "Property" ||
+        property.kind !== "init" ||
+        property.method ||
+        (property.computed && property.key.type !== "Literal"),
+    )
   ) {
     throw new Error("provider client must use only the dedicated URL binding");
   }
@@ -742,6 +748,47 @@ describe("provider scope concurrency rollout control", () => {
       assertProviderFixtureContract(qualityGatesWorkflow, mutatedSuite),
     ).toThrow("provider client must use only the dedicated URL binding");
   });
+
+  it.each([
+    [
+      "computed property",
+      '["database" + "Url"]: "postgresql://forbidden.invalid/fallback"',
+    ],
+    [
+      "computed accessor",
+      'get ["database" + "Url"]() { return "postgresql://forbidden.invalid/fallback"; }',
+    ],
+    [
+      "computed method",
+      '["database" + "Url"]() { return "postgresql://forbidden.invalid/fallback"; }',
+    ],
+  ])(
+    "rejects a %s overriding the dedicated database URL",
+    (_name, property) => {
+      const mutatedSuite = realProviderScopeSuite.replace(
+        "createPrismaClient({ databaseUrl, poolMax: 8 })",
+        `createPrismaClient({ databaseUrl, ${property}, poolMax: 8 })`,
+      );
+      expect(mutatedSuite).not.toBe(realProviderScopeSuite);
+      expect(() =>
+        assertProviderFixtureContract(qualityGatesWorkflow, mutatedSuite),
+      ).toThrow("provider client must use only the dedicated URL binding");
+    },
+  );
+
+  it.each(['"poolMax"', '["poolMax"]'])(
+    "accepts a static literal option key %s alongside the dedicated URL",
+    (key) => {
+      const mutatedSuite = realProviderScopeSuite.replace(
+        "createPrismaClient({ databaseUrl, poolMax: 8 })",
+        `createPrismaClient({ databaseUrl, ${key}: 8 })`,
+      );
+      expect(mutatedSuite).not.toBe(realProviderScopeSuite);
+      expect(() =>
+        assertProviderFixtureContract(qualityGatesWorkflow, mutatedSuite),
+      ).not.toThrow();
+    },
+  );
 
   it("rejects malformed provider source before accepting a valid-looking binding", () => {
     expect(() =>

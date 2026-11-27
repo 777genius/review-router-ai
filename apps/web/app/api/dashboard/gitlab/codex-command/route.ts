@@ -1,3 +1,4 @@
+import { readBoundedRequestJson } from "../../../../../src/server/bounded-request-body";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { assertDashboardWorkspaceAdminAllowed } from "../../../../../src/server/dashboard-mutations";
@@ -12,7 +13,9 @@ const bodySchema = z
 
 export async function POST(request: Request): Promise<NextResponse> {
   try {
-    const body = bodySchema.parse(await request.json());
+    const body = bodySchema.parse(
+      await readBoundedRequestJson(request, 32_768),
+    );
     await assertDashboardWorkspaceAdminAllowed(body.workspaceId);
     const command = await buildGitLabCodexSeedCommand(body);
     return NextResponse.json(command);

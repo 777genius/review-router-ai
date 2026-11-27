@@ -1289,9 +1289,14 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000157_claude_code_api_key_secret" &&
         name !== "000158_review_run_allocation_provider_quota" &&
         name !== "000159_producer_reviewer_plan_v2" &&
-        name !== "000160_personal_credential_import_method",
+        name !== "000160_personal_credential_import_method" &&
+        name !== "000161_github_authorization_revision" &&
+        name !== "000161_native_connection_intent" &&
+        name !== "000162_inventory_ruleset_revisions" &&
+        name !== "000163_usage_retention_index" &&
+        name !== "000164_ruleset_create_uncertainty",
     );
-    expect(migrationNames).toHaveLength(165);
+    expect(migrationNames).toHaveLength(170);
     const legacyMigrationNames = currentMigrationNames.filter(
       (name) =>
         name !== "000155_usage_member_report_index" &&
@@ -1663,6 +1668,11 @@ describe("disposable dual-version rehearsal", () => {
       "000158_review_run_allocation_provider_quota",
       "000159_producer_reviewer_plan_v2",
       "000160_personal_credential_import_method",
+      "000161_github_authorization_revision",
+      "000161_native_connection_intent",
+      "000162_inventory_ruleset_revisions",
+      "000163_usage_retention_index",
+      "000164_ruleset_create_uncertainty",
       "000150_skills_catalog_security",
       "000151_review_history",
       "000152_memory_automatic_source",
@@ -1948,6 +1958,11 @@ describe("disposable dual-version rehearsal", () => {
     "000158_review_run_allocation_provider_quota",
     "000159_producer_reviewer_plan_v2",
     "000160_personal_credential_import_method",
+    "000161_github_authorization_revision",
+    "000161_native_connection_intent",
+    "000162_inventory_ruleset_revisions",
+    "000163_usage_retention_index",
+    "000164_ruleset_create_uncertainty",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -2029,6 +2044,11 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000158_review_run_allocation_provider_quota" &&
                 name !== "000159_producer_reviewer_plan_v2" &&
                 name !== "000160_personal_credential_import_method" &&
+                name !== "000161_github_authorization_revision" &&
+                name !== "000161_native_connection_intent" &&
+                name !== "000162_inventory_ruleset_revisions" &&
+                name !== "000163_usage_retention_index" &&
+                name !== "000164_ruleset_create_uncertainty" &&
                 name !== "000155_usage_member_report_index" &&
                 name !== "000156_verified_thread_reply" &&
                 name !== "000154_unified_model_dispatch" &&

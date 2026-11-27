@@ -1,6 +1,7 @@
 import type {
   UsagePeriodReport,
   UsageTotals,
+  UsageBilling,
 } from "@reviewrouter/features-provider-usage";
 import { gatewaySubscriptionUsageProviders } from "@reviewrouter/features-provider-usage";
 export interface UsageFilters {
@@ -13,9 +14,11 @@ export interface UsageFilters {
   provider?: string | undefined;
   model?: string | undefined;
   runAfter?: string | undefined;
+  coverageAfter?: string | undefined;
   after?: string | undefined;
 }
 export interface UsageReportRow {
+  billing?: UsageBilling;
   id: string;
   provider: string;
   requestedProvider?: string;
@@ -39,6 +42,8 @@ export interface ProviderUsageReport {
   overview: UsagePeriodReport["overview"];
   totals: UsageTotals;
   deliveryCoverage: UsagePeriodReport["deliveryCoverage"];
+  deliveryCoverageTotals: UsagePeriodReport["deliveryCoverageTotals"];
+  nextCoverageCursor: string | null;
   groups: UsagePeriodReport["groups"];
   nextCursor: string | null;
   from: string;
@@ -66,6 +71,8 @@ export function buildUsageReport(
   report: UsagePeriodReport,
 ): ProviderUsageReport {
   const rows = report.rows.map((p) => ({
+    billing: p.usage?.nativeContext?.billing ??
+      p.billing ?? { status: "unknown" as const },
     id: p.identity.callId,
     provider:
       p.usage?.actualProvider ?? p.requestedProvider ?? p.identity.provider,
@@ -124,6 +131,8 @@ export function buildUsageReport(
     rows,
     totals: report.totals,
     deliveryCoverage: report.deliveryCoverage,
+    deliveryCoverageTotals: report.deliveryCoverageTotals,
+    nextCoverageCursor: report.nextCoverageCursor,
     groups: report.groups,
     nextCursor: report.nextCursor,
     attempts: report.totals.providerAttempts,

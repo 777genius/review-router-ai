@@ -2,19 +2,23 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { assertDashboardWorkspaceAdminMutationAllowed } from "../../../../../src/server/dashboard-mutations";
 import { installGitLabConnectProjects } from "../../../../../src/server/gitlab-connect";
+import { readBoundedRequestJson } from "../../../../../src/server/bounded-request-body";
 
 const bodySchema = z
   .object({
     workspaceId: z.string().min(1),
     sourceUrl: z.string().min(1),
     token: z.string().min(1),
+    reviewToken: z.string().trim().min(1).max(16_384),
     selectedProjectIds: z.array(z.string().regex(/^[1-9][0-9]*$/)).min(1),
   })
   .strict();
 
 export async function POST(request: Request): Promise<NextResponse> {
   try {
-    const body = bodySchema.parse(await request.json());
+    const body = bodySchema.parse(
+      await readBoundedRequestJson(request, 65_536),
+    );
     const actor = await assertDashboardWorkspaceAdminMutationAllowed(
       body.workspaceId,
     );
@@ -29,7 +33,18 @@ export async function POST(request: Request): Promise<NextResponse> {
 }
 
 function gitLabConnectErrorResponse(error: unknown): NextResponse {
-  const message = error instanceof Error ? error.message : "unknown_error";
+  const missingReviewToken =
+    error instanceof z.ZodError &&
+    error.issues.some(
+      (issue) =>
+        issue.path[0] === "reviewToken" &&
+        (issue.code === "invalid_type" || issue.code === "too_small"),
+    );
+  const message = missingReviewToken
+    ? "gitlab_review_token_missing"
+    : error instanceof Error
+      ? error.message
+      : "unknown_error";
   return NextResponse.json(
     {
       error: {
@@ -47,6 +62,7 @@ function safeGitLabConnectErrorCode(message: string): string {
 }
 
 function statusForError(message: string): number {
+  if (message === "request_body_too_large") return 413;
   if (
     message.includes("gitlab_repository_already_owned") ||
     message.includes("gitlab_install_superseded") ||

@@ -282,9 +282,21 @@ test("provider usage overview keeps complete period totals, charts, models and r
       lastOccurredAt: `${lastDay}T00:00:01.000Z`,
       totals: { providerAttempts: 4, tokens: { total: 600 } },
       identities: expect.arrayContaining([
-        { provider: "codex", requestedModel: "model-alpha" },
-        { provider: "anthropic", requestedModel: "model-beta" },
-        { provider: "gemini", requestedModel: LONG_MODEL },
+        {
+          provider: "codex",
+          requestedModel: "model-alpha",
+          billing: { status: "unknown" },
+        },
+        {
+          provider: "anthropic",
+          requestedModel: "model-beta",
+          billing: { status: "unknown" },
+        },
+        {
+          provider: "gemini",
+          requestedModel: LONG_MODEL,
+          billing: { status: "unknown" },
+        },
       ]),
       hasUnknownObservedModel: true,
     });

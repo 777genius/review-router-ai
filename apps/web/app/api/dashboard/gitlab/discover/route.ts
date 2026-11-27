@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { assertDashboardWorkspaceAdminAllowed } from "../../../../../src/server/dashboard-mutations";
 import { discoverGitLabConnectProjects } from "../../../../../src/server/gitlab-connect";
+import { readBoundedRequestJson } from "../../../../../src/server/bounded-request-body";
 
 const bodySchema = z
   .object({
@@ -13,7 +14,9 @@ const bodySchema = z
 
 export async function POST(request: Request): Promise<NextResponse> {
   try {
-    const body = bodySchema.parse(await request.json());
+    const body = bodySchema.parse(
+      await readBoundedRequestJson(request, 65_536),
+    );
     await assertDashboardWorkspaceAdminAllowed(body.workspaceId);
     const result = await discoverGitLabConnectProjects(body);
     return NextResponse.json(result);
@@ -41,6 +44,7 @@ function safeGitLabConnectErrorCode(message: string): string {
 }
 
 function statusForError(message: string): number {
+  if (message === "request_body_too_large") return 413;
   if (message.includes("requires_sign_in")) return 401;
   if (message.includes("forbidden")) return 403;
   if (message.includes("gitlab_api_error_401")) return 401;

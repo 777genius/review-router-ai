@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createDashboardWorkspaceSummaryLoader } from "./dashboard-workspace-summaries";
+import { selectDashboardWorkspace } from "./dashboard-workspace-model";
 
 const baseAccess = {
   status: "ready" as const,
@@ -157,5 +158,85 @@ describe("dashboard workspace read model visibility", () => {
     );
     expect(result.map((entry) => entry.workspace.id)).toEqual(["ws_1"]);
     expect(result[0]?.repositoryCount).toBe(0);
+  });
+
+  it("resolves an explicit eleventh workspace independently of the limited switcher", async () => {
+    const all = Array.from({ length: 11 }, (_, index) => ({
+      ...mainWorkspace,
+      id: `ws_${index}`,
+      slug: `workspace-${index}`,
+    }));
+    const scope = {
+      kind: "workspace_ids" as const,
+      workspaceIds: all.map((workspace) => workspace.id),
+    };
+    const h = harness();
+    h.findMany
+      .mockResolvedValueOnce(all.slice(0, 10))
+      .mockResolvedValueOnce([all[10]]);
+    const recent = await h.load(scope, baseAccess);
+    const requested = await h.load(scope, baseAccess, {
+      workspaceKey: "ws_10",
+    });
+    expect(recent).toHaveLength(10);
+    expect(
+      selectDashboardWorkspace([...recent, ...requested], "ws_10")?.workspace
+        .id,
+    ).toBe("ws_10");
+    expect(h.findMany.mock.calls[1]?.[0]).toMatchObject({
+      take: 2,
+      where: {
+        AND: [
+          { id: { in: scope.workspaceIds } },
+          { id: { equals: "ws_10", mode: "insensitive" } },
+        ],
+      },
+    });
+    expect(selectDashboardWorkspace(recent, "foreign-workspace")).toBeNull();
+    expect(selectDashboardWorkspace(recent, "", "999999")).toBeNull();
+    expect(selectDashboardWorkspace(recent, "")?.workspace.id).toBe("ws_0");
+  });
+
+  it("keeps an older installation link without unbounding the compact installation projection", async () => {
+    const h = harness();
+    const older = {
+      ...mainWorkspace.installations[0]!,
+      githubInstallationId: 50n,
+      accountLogin: "legacy",
+    };
+    h.findMany
+      .mockResolvedValueOnce([mainWorkspace])
+      .mockResolvedValueOnce([
+        { id: mainWorkspace.id, installations: [older] },
+      ]);
+    const result = await h.load(
+      { kind: "workspace_ids", workspaceIds: ["ws_1"] },
+      baseAccess,
+      { installationId: "50" },
+    );
+    expect(selectDashboardWorkspace(result, "", "50")?.workspace.id).toBe(
+      "ws_1",
+    );
+    expect(h.findMany.mock.calls[1]?.[0]).toMatchObject({
+      take: 2,
+      where: { id: { in: ["ws_1"] } },
+      select: {
+        installations: { take: 1, where: { githubInstallationId: 50n } },
+      },
+    });
+  });
+
+  it("rejects ambiguous legacy aliases while preferring exact workspace IDs", async () => {
+    const h = harness([
+      mainWorkspace,
+      { ...mainWorkspace, id: "ws_2", slug: "another" },
+    ]);
+    const result = await h.load(
+      { kind: "all", reason: "local_admin_override" },
+      baseAccess,
+    );
+    expect(selectDashboardWorkspace(result, "acme")).toBeNull();
+    expect(selectDashboardWorkspace(result, "example")).toBe(result[0]);
+    expect(selectDashboardWorkspace(result, "ws_2")?.workspace.id).toBe("ws_2");
   });
 });

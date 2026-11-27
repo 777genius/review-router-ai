@@ -456,6 +456,7 @@ function WorkspacePersonalRows({
               profileLabel={row.profileLabel}
               provider={row.provider}
               authKind={row.authKind}
+              nativeCredential={row.nativeCredential}
               connection={row.connection}
               metadata={
                 lifecycleActivities.has(row.connectionId)

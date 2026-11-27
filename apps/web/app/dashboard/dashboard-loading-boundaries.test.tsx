@@ -421,6 +421,32 @@ describe("dashboard server loading boundaries", () => {
     },
   );
 
+  it("renders reconnect after an ambiguous refresh without offering token replay", async () => {
+    spies.repositories.mockResolvedValueOnce([]);
+    const data = await loadDashboardSectionData(workspace, "policy", access);
+    const html = renderToStaticMarkup(
+      <WorkspaceCard
+        data={data}
+        mutationsEnabled
+        selectedSection="policy"
+        params={{}}
+        workspaceKey="acme"
+        appInstallUrl={null}
+        modelOptions={[]}
+        repositoryAccess={{
+          ...access,
+          status: "token_refresh_failed",
+          errorCode: "github_user_token_refresh_reauthorization_required",
+        }}
+      />,
+    );
+    expect(html).toContain("Reconnect GitHub");
+    expect(html).not.toMatch(/Refresh (?:GitHub )?access/);
+    expect(html).not.toContain(
+      "github_user_token_refresh_reauthorization_required",
+    );
+  });
+
   it("gives the same support action in the empty dashboard without exposing the internal cause", async () => {
     identity.scope.mockResolvedValueOnce({
       kind: "workspace_ids",
@@ -524,7 +550,6 @@ describe("dashboard server loading boundaries", () => {
   it.each([
     ["acme", "workspace-a", "acme"],
     ["second", "workspace-b", "second"],
-    ["unknown", "workspace-a", "acme"],
   ])(
     "redirects the Context tools section to the authorized workspace selected by %s",
     async (requested, id, key) => {
@@ -562,6 +587,18 @@ describe("dashboard server loading boundaries", () => {
       );
     },
   );
+
+  it("refuses an inaccessible Context tools workspace without redirecting to a different workspace", async () => {
+    await expect(
+      DashboardWorkspacePage({
+        searchParams: Promise.resolve({
+          section: "context-tools",
+          workspace: "unknown",
+        }),
+      }),
+    ).rejects.toThrow("NEXT_HTTP_ERROR_FALLBACK;404");
+    expect(redirect).not.toHaveBeenCalled();
+  });
 
   it("starts unrelated workspace reads while policy reads wait for scoped metadata", async () => {
     let resolveRepositories!: (

@@ -1,15 +1,16 @@
+import { applyRepositorySyncPolicy } from "../domain/repository-sync-policy";
 import { describe, expect, it } from "vitest";
 import {
   OutboxHandlerError,
   type OutboxEvent,
 } from "@reviewrouter/features-outbox";
 import type { Clock } from "@reviewrouter/shared";
-import type {
-  GitHubRepositorySnapshot,
-  RepositorySyncResult,
-} from "../domain/repository-connection";
+import type { GitHubRepositorySnapshot } from "../domain/repository-connection";
 import type { GitHubRepositorySourcePort } from "../application/ports/github-repository-source-port";
-import type { RepositoryConnectionRepositoryPort } from "../application/ports/repository-connection-repository-port";
+import type {
+  RepositoryConnectionRepositoryPort,
+  RepositoryInventorySyncResult,
+} from "../application/ports/repository-connection-repository-port";
 import { createInstallationSyncRequestedHandler } from "../infrastructure/outbox/installation-sync-requested-handler";
 
 class StaticGitHubSource implements GitHubRepositorySourcePort {
@@ -25,28 +26,33 @@ class StaticGitHubSource implements GitHubRepositorySourcePort {
 }
 
 class CapturingRepositoryStore implements RepositoryConnectionRepositoryPort {
-  public lastInput: {
-    githubInstallationId: string;
-    repositories: readonly GitHubRepositorySnapshot[];
-    syncedAt: Date;
-  } | null = null;
+  public lastInput:
+    | Parameters<
+        RepositoryConnectionRepositoryPort["syncInstallationRepositories"]
+      >[0]
+    | null = null;
 
   async beginInstallationInventory() {
     return 1n;
   }
 
-  async syncInstallationRepositories(input: {
-    githubInstallationId: string;
-    repositories: readonly GitHubRepositorySnapshot[];
-    syncedAt: Date;
-  }): Promise<RepositorySyncResult> {
+  async syncInstallationRepositories(
+    input: Parameters<
+      RepositoryConnectionRepositoryPort["syncInstallationRepositories"]
+    >[0],
+  ): Promise<RepositoryInventorySyncResult> {
     this.lastInput = input;
+    const selection = applyRepositorySyncPolicy(
+      input.repositories,
+      input.syncPolicy,
+    );
     return {
       installationId: input.githubInstallationId,
       seen: input.repositories.length,
-      upserted: input.repositories.length,
+      upserted: selection.repositories.length,
       unselected: 0,
-      skippedDueToLimit: 0,
+      skippedDueToLimit: selection.skippedDueToLimit,
+      synchronizedRepositories: selection.repositories,
     };
   }
 

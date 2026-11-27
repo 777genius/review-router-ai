@@ -7,7 +7,7 @@ import { PrismaGitHubInstallationRepository } from "../../../github-installation
 function fixture() {
   const events: string[] = [];
   const guarded = (name: string, value: unknown) =>
-    vi.fn(async () => {
+    vi.fn<(input?: unknown) => Promise<unknown>>(async () => {
       events.push(name);
       return value;
     });
@@ -36,9 +36,19 @@ function fixture() {
         id: "installation",
         workspaceId: "destination",
         status: "active",
+        inventoryGeneration: 0n,
       }),
       upsert: guarded("installation-upsert", {}),
-      update: guarded("installation-remove", {}),
+      update: vi.fn(
+        async (input: { data: { inventoryGeneration?: bigint } }) => {
+          events.push(
+            input.data.inventoryGeneration === undefined
+              ? "installation-remove"
+              : "inventory-complete",
+          );
+          return {};
+        },
+      ),
     },
     workspace: {
       update: guarded("workspace-update", {}),
@@ -62,6 +72,31 @@ function fixture() {
       updateMany: guarded("provisioning-invalidate", { count: 1 }),
     },
   };
+  tx.repositoryConnection.findMany.mockImplementation(async (input) => {
+    const query = input as Prisma.RepositoryConnectionFindManyArgs;
+    const ids = query.where?.githubRepositoryId;
+    if (
+      ids &&
+      typeof ids === "object" &&
+      "in" in ids &&
+      Array.isArray(ids.in)
+    ) {
+      const rows = await Promise.all(
+        ids.in.map(async (id) => {
+          const previous = await tx.repositoryConnection.findUnique({
+            where: { githubRepositoryId: id },
+            select: query.select,
+          });
+          return previous && typeof previous === "object"
+            ? { ...previous, githubRepositoryId: id }
+            : null;
+        }),
+      );
+      return rows.filter((row) => row !== null);
+    }
+    events.push("removal-read");
+    return [];
+  });
   const prisma = {
     $transaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => {
       events.push("begin");
@@ -196,7 +231,7 @@ describe("actual installation/inventory current-scope writers", () => {
     await f.installations.markInstallationRemoved("123");
     expect(f.events).toEqual(["begin", "guard", "installation-read", "commit"]);
   });
-  it("guards insertion and trailing predicate unselection separately before any reads", async () => {
+  it("guards quota admission, writes, unselection and watermark in one transaction", async () => {
     const f = fixture();
     expect(await f.inventory.syncInstallationRepositories(input)).toMatchObject(
       { upserted: 1, unselected: 2 },
@@ -207,12 +242,9 @@ describe("actual installation/inventory current-scope writers", () => {
       "installation-read",
       "repository-read",
       "repository-upsert",
-      "commit",
-      "begin",
-      "guard",
-      "installation-read",
       "removal-read",
       "unselect",
+      "inventory-complete",
       "commit",
     ]);
     expect(f.prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
@@ -241,6 +273,7 @@ describe("actual installation/inventory current-scope writers", () => {
       "installation-read",
       "removal-read",
       "unselect",
+      "inventory-complete",
       "commit",
     ]);
   });

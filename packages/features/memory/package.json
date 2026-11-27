@@ -25,7 +25,7 @@
     "@get-modular/core": "0.8.0",
     "@get-modular/assembly": "0.8.0",
     "@vectorize-io/hindsight-client": "https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz",
-    "@prisma/client": "^7.8.0",
+    "@prisma/client": "7.9.0",
     "@reviewrouter/features-entitlements": "workspace:*",
     "@reviewrouter/features-outbox": "workspace:*",
     "@reviewrouter/shared": "workspace:*",
@@ -38,7 +38,7 @@
   "devDependencies": {
     "vitest": "4.1.10",
     "@reviewrouter/platform-db": "workspace:*",
-    "@prisma/adapter-pg": "7.8.0",
+    "@prisma/adapter-pg": "7.9.0",
     "pg": "8.23.0",
     "@types/pg": "8.23.1"
   }

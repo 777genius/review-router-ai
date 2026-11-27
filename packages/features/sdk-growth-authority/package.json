@@ -62,9 +62,9 @@
     "test:ef-v3": "cd ../../.. && node --import tsx --test packages/features/sdk-growth-authority/src/tests/ef-v3-host-transport.node-test.mjs"
   },
   "dependencies": {
-    "@prisma/client": "7.8.0"
+    "@prisma/client": "7.9.0"
   },
   "devDependencies": {
-    "@agent-teams/engineering-foundation": "1.6.0"
+    "@agent-teams/engineering-foundation": "2.1.0"
   }
 }

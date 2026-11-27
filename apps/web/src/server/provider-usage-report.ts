@@ -64,6 +64,9 @@ export function usageReportQuery(
     ...(filters.provider !== undefined ? { provider: filters.provider } : {}),
     ...(filters.model !== undefined ? { model: filters.model } : {}),
     ...(filters.runAfter !== undefined ? { runAfter: filters.runAfter } : {}),
+    ...(filters.coverageAfter !== undefined
+      ? { coverageAfter: filters.coverageAfter }
+      : {}),
     ...(filters.after ? { after: filters.after } : {}),
   };
   validateReportQuery(query);

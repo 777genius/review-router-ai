@@ -1,18 +1,31 @@
 name: Native accounts browser
 
 on:
+  workflow_call:
+    inputs:
+      source_revision:
+        description: Exact Review Router commit qualified by a dependency workflow
+        required: true
+        type: string
   workflow_dispatch:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - ".github/workflows/native-accounts-browser.yml"
       - "scripts/provider-setup-visual/**"
+      - "scripts/tsconfig/tsconfig.provider-*.json"
       - "apps/web/app/dashboard/*account*"
+      - "apps/web/app/dashboard/actions.ts"
+      - "apps/web/app/dashboard/dashboard-github-verification*"
+      - "apps/web/app/dashboard/dashboard-org-ruleset-card*"
+      - "apps/web/app/dashboard/dashboard-workspace-page.tsx"
+      - "apps/web/app/dashboard/native-*"
       - "apps/web/src/features/account-gateway/**"
       - "apps/web/src/features/provider-setup/**"
       - "apps/web/src/server/account-*"
       - "apps/web/src/server/accounts-*"
       - "apps/web/src/server/personal-*"
+      - "apps/web/src/server/native-*"
       - "apps/web/src/server/dashboard-gateway-accounts.ts"
       - "apps/web/src/server/gateway-model-account-options.ts"
       - "packages/features/provider-accounts/**"
@@ -32,7 +45,7 @@ concurrency:
 jobs:
   browser:
     name: Native account details and connection forms
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    if: inputs.source_revision != '' || github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:github-hosted') && 'ubuntu-latest' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LINUX_BUILD_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 35
     services:
@@ -48,38 +61,127 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      postgres_rollback:
+        image: postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: rr_gateway_test_native_rollback
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["127.0.0.1:5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d rr_gateway_test_native_rollback"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/reviewrouter_provider_setup_visual
       PROVIDER_VISUAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/reviewrouter_provider_setup_visual
-      EXPECTED_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+      EXPECTED_REVISION: ${{ inputs.source_revision || github.event.pull_request.head.sha || github.sha }}
       TZ: UTC
     steps:
       - name: Checkout exact qualification source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          repository: 777genius/review-router-ai
+          ref: ${{ inputs.source_revision || github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact consumer source
+        run: |
+          [[ "$EXPECTED_REVISION" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_REVISION"
+          test -z "$(git status --porcelain)"
       - name: Setup pinned provider-accounts toolchain
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "24.21.0"
       - name: Install locked dependencies and pinned runtime
         run: |
-          npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+          browser_bin="$RUNNER_TEMP/native-accounts-browser-bin"
+          corepack_entry="$(dirname "$(dirname "$(command -v node)")")/lib/node_modules/corepack/dist/corepack.js"
+          test -f "$corepack_entry"
+          mkdir -p "$browser_bin"
+          printf '#!/bin/sh\nexec "%s" "%s" pnpm "$@"\n' "$(command -v node)" "$corepack_entry" > "$browser_bin/pnpm"
+          chmod 755 "$browser_bin/pnpm"
+          export PATH="$browser_bin:$PATH"
+          echo "$browser_bin" >> "$GITHUB_PATH"
+          test "$(pnpm --version)" = 11.28.7
           node scripts/install-private-dependencies.mjs --frozen-lockfile
           node scripts/prepare-pinned-subscription-runtime.ts
       - name: Generate offline Prisma client
         env:
           REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
         run: node scripts/generate-prisma-offline.mjs
+      - name: Check the complete web project with TypeScript 7.0.2
+        run: |
+          pnpm compiler:prepare
+          node scripts/local-checks/compiler-cli.ts --native --noEmit --incremental false -p apps/web/tsconfig.json
+          node scripts/local-checks/compiler-cli.ts --native --noEmit --incremental false -p scripts/tsconfig/tsconfig.provider-setup-visual.json
+          node scripts/local-checks/compiler-cli.ts --native --noEmit --incremental false -p scripts/tsconfig/tsconfig.provider-subscriptions-extension.json
+      - name: Qualify native fixture model and metadata authority
+        run: pnpm exec vitest run apps/web/src/server/native-visual-fixture.test.ts
+      - name: Use the primary runtime for the immutable rollback reader
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "26.11.1"
+      - name: Qualify old RR reader against newly written native operation rows
+        env:
+          ROLLBACK_POSTGRES_CONTAINER: ${{ job.services.postgres_rollback.id }}
+          RR_PROVIDER_ACCOUNTS_DISPOSABLE_CLUSTER: "1"
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = v26.11.1
+          node scripts/local-checks/compiler-cli.ts --native --noEmit --incremental false -p scripts/tsconfig/tsconfig.provider-accounts-rollback.json
+          reader_sha=38eb54a1706658fc005eba99d5c774c50005df90
+          reader_root="$RUNNER_TEMP/rr-native-rollback-source"
+          git fetch --no-tags origin "$reader_sha"
+          git worktree add --detach "$reader_root" "$reader_sha"
+          (
+            cd "$reader_root"
+            pnpm --filter review-router --filter @reviewrouter/platform-db --filter @reviewrouter/features-provider-accounts install --ignore-scripts --ignore-pnpmfile --frozen-lockfile
+            pnpm rebuild @prisma/engines
+            REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA=1 node scripts/generate-prisma-offline.mjs
+            git diff --exit-code HEAD
+          )
+          RR_NATIVE_ROLLBACK_READER_ROOT="$reader_root" node --test packages/features/provider-accounts/tests/native-connection-rollback-dependencies.node-test.ts
+          rollback_bin="$RUNNER_TEMP/rr-native-rollback-bin"
+          mkdir "$rollback_bin"
+          ROLLBACK_BIN="$rollback_bin" python3 - <<'PY'
+          import json, os, pathlib, re
+          container = os.environ['ROLLBACK_POSTGRES_CONTAINER']
+          assert re.fullmatch(r'[a-f0-9]{64}', container)
+          script = pathlib.Path(os.environ['ROLLBACK_BIN']) / 'psql'
+          script.write_text(
+            '#!/usr/bin/env python3\n'
+            'import os, sys\n'
+            'args = sys.argv[1:]\n'
+            'assert args[args.index("-h") + 1] == "127.0.0.1"\n'
+            'assert args[args.index("-p") + 1] == "5433"\n'
+            'assert args[args.index("-U") + 1] == "postgres"\n'
+            'args[args.index("-p") + 1] = "5432"\n'
+            'os.execvp("docker", ["docker", "exec", "-i", "-e", "PGOPTIONS=-c search_path=public", '
+            '"-e", "PGSSLMODE=disable", "-e", "PGPASSFILE=/dev/null", '
+            + json.dumps(container) + ', "psql", *args])\n'
+          )
+          script.chmod(0o755)
+          PY
+          export PATH="$rollback_bin:$PATH"
+          node --import tsx packages/features/provider-accounts/tests/native-connection-rollback.ts \
+            --writer-root "$GITHUB_WORKSPACE" --writer-sha "$EXPECTED_REVISION" \
+            --reader-root "$reader_root" --reader-sha "$reader_sha" \
+            --database-url postgresql://postgres@127.0.0.1:5433/rr_gateway_test_native_rollback \
+            --output "$RUNNER_TEMP/rr-native-rollback-output"
+      - name: Restore the browser compatibility runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24.21.0"
       - name: Install Chromium from the locked Playwright package
         run: pnpm exec playwright-core install --with-deps chromium
-      - name: Capture actual authenticated Next accounts and connection forms
+      - name: Capture authenticated accounts, organization settings and secret setup
         run: >-
-          pnpm provider-setup:visual --no-personal-sharing
-          --only 'native-account-info|native-import'
+          pnpm provider-setup:visual --no-personal-sharing --flows
+          --only 'native-account-info|native-import|^flow-native-connections$|^org-ruleset-settings$|^flow-step3-create-attach$|^flow-claude-api-key-github-secrets$'
           --next-heap-mb 4096 --out tmp/native-accounts-browser
-      - name: Assert all 34 screenshots and exact source receipt
+      - name: Assert all 40 screenshots, native connection and both secret flows and exact source receipt
         run: |
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
@@ -91,11 +193,24 @@ jobs:
           assert.deepEqual(manifest.sourceBefore, manifest.sourceAfter);
           assert.equal(manifest.sourceBefore.sourceDeltaSha256, 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
           assert.deepEqual(manifest.sourceBefore.untrackedPaths, []);
-          assert.deepEqual(manifest.summary, { captured: 34, suspect: 0, failed: 0, skipped: 0 });
+          assert.deepEqual(manifest.summary, { captured: 40, suspect: 0, failed: 0, skipped: 0 });
+          assert.deepEqual(manifest.flowSummary, { pass: 3, fail: 0, skipped: 0 });
+          assert.equal(manifest.flows.length, 3);
+          const nativeFlows = manifest.flows.filter(flow => flow.flow === 'flow-native-connections');
+          assert.equal(nativeFlows.length, 1);
+          const flow = nativeFlows[0];
+          assert.equal(flow.flow, 'flow-native-connections');
+          assert.equal(flow.status, 'pass');
+          assert.equal(flow.checks.length, 6);
+          assert(flow.checks.every(check => check.pass));
+          assert.deepEqual(flow.pageErrors, []);
+          assert.deepEqual(flow.blockedRequests, []);
+          assert.equal(flow.screenshots.length, 6);
+          for (const file of flow.screenshots) assert(statSync(join(directory, file)).size > 0);
           assert.deepEqual(manifest.network.blocked, []);
           assert.deepEqual(manifest.network.githubUnhandled, []);
           const expected = new Set();
-          for (const scenario of ['native-account-info-owner', 'native-account-info-unsupported', 'native-import-refresh-token', 'native-import-codex-auth-json', 'native-import-anthropic-api', 'native-import-gemini-api']) {
+          for (const scenario of ['native-account-info-owner', 'native-account-info-unsupported', 'native-import-refresh-token', 'native-import-codex-auth-json', 'native-import-anthropic-api', 'native-import-gemini-api', 'org-ruleset-settings']) {
             for (const width of scenario === 'native-account-info-unsupported' ? [390, 1440] : [390, 900, 1440]) {
               for (const theme of ['light', 'dark']) expected.add(`${scenario}--owner--${width}--${theme}`);
             }
@@ -110,13 +225,77 @@ jobs:
             if (shot.probe?.horizontalOverflow !== undefined) assert.equal(shot.probe.horizontalOverflow, false, id);
           }
           assert.equal(expected.size, 0);
+          const expectedFlows = new Map([
+            ['flow-step3-create-attach', {
+              check: 'the secret check passes against GitHub',
+              shots: ['step3-dialog', 'stepper-workflow-pending'],
+            }],
+            ['flow-claude-api-key-github-secrets', {
+              check: 'the synthetic Anthropic secret is confirmed without upstream inference',
+              shots: ['claude-api-key-selection', 'claude-api-key-secret-missing', 'claude-api-key-credential-verified-workflow-pending'],
+            }],
+          ]);
+          for (const flow of manifest.flows.filter(flow => flow.flow !== 'flow-native-connections')) {
+            const required = expectedFlows.get(flow.flow);
+            assert(required, `unexpected or repeated flow: ${flow.flow}`);
+            expectedFlows.delete(flow.flow);
+            assert.equal(flow.status, 'pass', flow.flow);
+            assert(flow.checks.length > 0, `no executed checks: ${flow.flow}`);
+            assert(flow.checks.every(check => check.pass === true), `failed check: ${flow.flow}`);
+            assert(flow.checks.some(check => check.name === required.check), `secret confirmation not checked: ${flow.flow}`);
+            assert.deepEqual(flow.pageErrors, []);
+            assert.deepEqual(flow.blockedRequests, []);
+            for (const suffix of required.shots) {
+              assert(flow.screenshots.some(file => file.endsWith(`-${suffix}.png`)), `missing flow screenshot: ${flow.flow}/${suffix}`);
+            }
+            for (const file of flow.screenshots) assert(statSync(join(directory, file)).size > 0);
+          }
+          assert.equal(expectedFlows.size, 0);
+          NODE
+      - name: Qualify native account owner and shared borrower visibility in Chromium
+        run: >-
+          pnpm provider-setup:visual --flows-only
+          --only '^flow-native-visibility$'
+          --next-heap-mb 4096 --out tmp/native-accounts-visibility
+      - name: Assert all four native visibility roles and source read boundaries
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync, statSync } from 'node:fs';
+          import { join } from 'node:path';
+          const directory = 'tmp/native-accounts-visibility';
+          const manifest = JSON.parse(readFileSync(join(directory, 'manifest.json'), 'utf8'));
+          assert.equal(manifest.revision, process.env.EXPECTED_REVISION);
+          assert.deepEqual(manifest.sourceBefore, manifest.sourceAfter);
+          assert.equal(manifest.sourceBefore.sourceDeltaSha256, 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+          assert.deepEqual(manifest.sourceBefore.untrackedPaths, []);
+          assert.equal(manifest.flags.personalSharing, true);
+          assert.deepEqual(manifest.summary, { captured: 0, suspect: 0, failed: 0, skipped: 0 });
+          assert.deepEqual(manifest.flowSummary, { pass: 1, fail: 0, skipped: 0 });
+          assert.equal(manifest.flows.length, 1);
+          const flow = manifest.flows[0];
+          assert.equal(flow.flow, 'flow-native-visibility');
+          assert.equal(flow.status, 'pass');
+          assert.equal(flow.checks.length, 4);
+          assert(flow.checks.every(check => check.pass));
+          assert.deepEqual(flow.pageErrors, []);
+          assert.deepEqual(flow.blockedRequests, []);
+          assert.equal(flow.screenshots.length, 4);
+          for (const file of flow.screenshots) assert(statSync(join(directory, file)).size > 0);
+          assert.deepEqual(flow.checks.map(check => JSON.parse(check.detail)), [
+            { viewer: 'admin', workspace: 'adminPersonal', metadataReadAccountRefs: ['rr-visual-gateway-admin-personal'], metadataReadRealms: ['consumer-control'], metadataReadChannels: ['consumer-control:rr-visual-gateway-admin-personal'] },
+            { viewer: 'admin', workspace: 'main', metadataReadAccountRefs: ['rr-visual-gateway-admin-personal', 'rr-visual-gateway-main-org'], metadataReadRealms: ['consumer-control', 'management'], metadataReadChannels: ['consumer-control:rr-visual-gateway-admin-personal', 'management:rr-visual-gateway-admin-personal', 'management:rr-visual-gateway-main-org'] },
+            { viewer: 'owner', workspace: 'main', metadataReadAccountRefs: ['rr-visual-gateway-main-org'], metadataReadRealms: ['management'], metadataReadChannels: ['management:rr-visual-gateway-main-org'] },
+            { viewer: 'member', workspace: 'main', metadataReadAccountRefs: [], metadataReadRealms: [], metadataReadChannels: [] },
+          ]);
+          assert.deepEqual(manifest.network.blocked, []);
+          assert.deepEqual(manifest.network.githubUnhandled, []);
           NODE
       - name: Report bounded native browser failure evidence
         if: failure()
         run: |
           node --input-type=module <<'NODE'
           import { existsSync, readFileSync } from 'node:fs';
-          const directory = 'tmp/native-accounts-browser';
           const safe = value => String(value ?? '')
             .replace(/\x1b\[[0-9;]*m/g, '')
             .replace(/https?:\/\/[^\s"'<>]+/g, value => {
@@ -127,6 +306,7 @@ jobs:
             .replace(/\b[A-Za-z0-9_-]{40,}\b/g, '[opaque]')
             .slice(0, 1200);
           const errors = values => (Array.isArray(values) ? values : []).slice(0, 5).map(safe);
+          for (const directory of ['tmp/native-accounts-browser', 'tmp/native-accounts-visibility']) {
           const manifestPath = directory + '/manifest.json';
           if (existsSync(manifestPath)) {
             const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
@@ -136,6 +316,12 @@ jobs:
                 sourceBefore: manifest.sourceBefore,
                 sourceAfter: manifest.sourceAfter,
                 summary: manifest.summary,
+                flowSummary: manifest.flowSummary,
+                flows: (manifest.flows ?? []).map(flow => ({
+                  flow: flow.flow, status: flow.status, reason: safe(flow.reason),
+                  checks: (flow.checks ?? []).map(check => ({ name: check.name, pass: check.pass })),
+                  pageErrors: errors(flow.pageErrors), blockedRequests: errors(flow.blockedRequests),
+                })),
                 shots: (manifest.shots ?? []).slice(0, 40).map(shot => ({
                   scenario: shot.scenario, user: shot.user, width: shot.width,
                   theme: shot.theme, status: shot.status, httpStatus: shot.httpStatus,
@@ -157,16 +343,42 @@ jobs:
               .filter(line => /GET \/dashboard|POST \/dashboard|[Cc]ompil|[Rr]eady in/.test(line))
               .slice(-40).map(safe) }));
           }
+          }
           NODE
       - name: Preserve visual receipts and screenshots
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: native-accounts-browser-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
+          name: native-accounts-browser-${{ env.EXPECTED_REVISION }}-${{ github.run_attempt }}
           path: |
             tmp/native-accounts-browser/manifest.json
             tmp/native-accounts-browser/screens/
+            tmp/native-accounts-browser/flows/
             tmp/native-accounts-browser/next-app.log
             tmp/native-accounts-browser/migrate.log
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Preserve immutable RR rollback reader evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-rr-rollback-reader-${{ env.EXPECTED_REVISION }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/rr-native-rollback-output/old-reader-build.json
+            ${{ runner.temp }}/rr-native-rollback-output/old-reader-runtime.json
+            ${{ runner.temp }}/rr-native-rollback-output/old-reader-receipt.json
+            ${{ runner.temp }}/rr-native-rollback-output/rollback-receipt.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Preserve native role visibility receipts and screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-accounts-visibility-${{ env.EXPECTED_REVISION }}-${{ github.run_attempt }}
+          path: |
+            tmp/native-accounts-visibility/manifest.json
+            tmp/native-accounts-visibility/flows/
+            tmp/native-accounts-visibility/next-app.log
+            tmp/native-accounts-visibility/migrate.log
           if-no-files-found: warn
           retention-days: 14

@@ -5,6 +5,7 @@
  * the dialog or list action a user would and leaves the screen to capture.
  */
 import type { Page } from "playwright-core";
+import { ORG_RULESET_SCENARIOS } from "./org-ruleset-scenarios.ts";
 import {
   VISUAL_REPOSITORIES,
   visualRepositoryEnabled,
@@ -16,6 +17,7 @@ import {
 } from "./fixture-contract.js";
 import {
   chooseCard,
+  chooseClaudeSecret,
   chooseModel,
   chooseNewProvider,
   chooseSource,
@@ -214,10 +216,11 @@ async function openBulkDialog({ page, user }: ScenarioContext) {
 }
 
 export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
+  ...ORG_RULESET_SCENARIOS,
   {
     id: "native-account-info-owner",
     title:
-      "Native details in the real accounts list: long identity, calendar date and stale privacy",
+      "Native details in the real accounts list: long identity, calendar date and stale training preference",
     users: ["owner"],
     route: workspaceRoute("main", "setup"),
     widths: [390, 900, 1440],
@@ -286,12 +289,12 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
           .click();
         await page
           .getByRole("option", {
-            name: label.endsWith("API") ? label : /Codex/,
+            name: label.endsWith("API") ? label.replace(/ API$/, "") : /Codex/,
           })
           .click();
         if (!label.endsWith("API")) {
           await dialog
-            .getByRole("combobox", { name: "Sign-in method" })
+            .getByRole("combobox", { name: "Connection method" })
             .click();
           await page
             .getByRole("option", { name: `Import ${label}`, exact: true })
@@ -582,7 +585,7 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
         page.getByRole("button", { name: "Choose default provider" }),
       );
       await chooseNewProvider(dialog);
-      await chooseSource(page, dialog, SOURCE.claudeSecret);
+      await chooseClaudeSecret(page, dialog);
     },
   }),
   dialogScenario({
@@ -604,7 +607,7 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
         page,
         page.getByRole("button", { name: "Add provider" }),
       );
-      await chooseSource(page, dialog, SOURCE.claudeSecret);
+      await chooseClaudeSecret(page, dialog);
     },
   }),
   dialogScenario({

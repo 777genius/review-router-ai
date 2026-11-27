@@ -692,7 +692,7 @@ test.describe("Skills real Next UX resilience", () => {
     const network: string[] = [];
     await installLoopbackOnlyNetworkGuard(second, network);
     try {
-      await openOperation(second, "122", "Fixture skill 057");
+      const current = await openOperation(second, "122", "Fixture skill 057");
       // Next dev broadcasts a compilation sync when another tab connects.
       // Establish both tabs before creating the draft whose document must
       // survive the remove/re-add conflict; do not reload the first tab afterward.
@@ -721,9 +721,9 @@ test.describe("Skills real Next UX resilience", () => {
         first.row.getByRole("textbox", { name: "Include paths", exact: true }),
       ).toHaveValue("stale-incarnation/**");
       await expectOriginalDocument();
-      // Reacquire the mutation actor after the first tab's navigation. Next dev
-      // can refresh that second document independently of the retained draft.
-      const current = await openOperation(second, "122", "Fixture skill 057");
+      // Keep the mutation tab open: a full navigation reconnects Next dev and
+      // can reload the first document while it holds the stale draft.
+      await expect(current.row).toBeVisible();
       await expectOriginalDocument();
       await current.row
         .getByRole("button", {

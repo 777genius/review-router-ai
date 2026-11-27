@@ -1,7 +1,28 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { InMemoryLock, PostgresLeaseLock } from "./index.js";
 
 describe("distributed locks", () => {
+  it("rejects ownership checks after lease expiry and after release", async () => {
+    vi.useFakeTimers();
+    try {
+      const lock = new InMemoryLock();
+      let assertReleased: (() => Promise<void>) | undefined;
+      await lock.withLease("expiry", 100, async (lease) => {
+        await lease.assertHeld();
+        await vi.advanceTimersByTimeAsync(100);
+        await expect(lease.assertHeld()).rejects.toThrow(
+          "distributed_lock_ownership_lost",
+        );
+        assertReleased = lease.assertHeld;
+      });
+      await expect(assertReleased?.()).rejects.toThrow(
+        "distributed_lock_ownership_lost",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("rejects lock contention in the in-memory adapter", async () => {
     const lock = new InMemoryLock();
     let release!: () => void;

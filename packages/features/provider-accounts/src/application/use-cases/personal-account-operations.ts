@@ -6,6 +6,10 @@ import {
 } from "../../domain/personal-canonical-operation";
 import { createHash } from "node:crypto";
 import {
+  snapshotNativeConnectionIntent,
+  type NativeConnectionIntent,
+} from "../../domain/native-connection";
+import {
   ProviderAccountError,
   assertExpectedRevision,
   assertMetadata,
@@ -29,7 +33,9 @@ export type PersonalAccountIntent =
           readonly ingress:
             | "api-key-create"
             | "oauth-begin"
-            | "credential-import";
+            | "credential-import"
+            | "native-begin";
+          readonly nativeConnection?: NativeConnectionIntent;
           readonly credentialImportMethod?: CredentialImportMethod;
           readonly method?: "device_code" | "browser";
         }
@@ -81,9 +87,12 @@ export function snapshotPersonalIntent(
     });
     if (
       Buffer.byteLength(displayName, "utf8") > 400 ||
-      !["api-key-create", "oauth-begin", "credential-import"].includes(
-        input.ingress,
-      ) ||
+      ![
+        "api-key-create",
+        "oauth-begin",
+        "credential-import",
+        "native-begin",
+      ].includes(input.ingress) ||
       (input.method !== undefined &&
         (input.ingress !== "oauth-begin" ||
           !["device_code", "browser"].includes(input.method)))
@@ -93,6 +102,15 @@ export function snapshotPersonalIntent(
       assertCredentialImportMethod(input.credentialImportMethod);
     else if (input.credentialImportMethod !== undefined)
       throw new ProviderAccountError("invalid_input");
+    const nativeConnection =
+      input.ingress === "native-begin"
+        ? snapshotNativeConnectionIntent(input.nativeConnection)
+        : undefined;
+    if (
+      (input.nativeConnection !== undefined && !nativeConnection) ||
+      (nativeConnection && nativeConnection.profileId !== input.profileId)
+    )
+      throw new ProviderAccountError("invalid_input");
     return Object.freeze({
       ...base,
       action: "connect",
@@ -100,6 +118,7 @@ export function snapshotPersonalIntent(
       profileId: input.profileId,
       displayName,
       ingress: input.ingress,
+      ...(nativeConnection ? { nativeConnection } : {}),
       ...(input.credentialImportMethod !== undefined
         ? { credentialImportMethod: input.credentialImportMethod }
         : {}),

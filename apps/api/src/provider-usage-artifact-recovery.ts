@@ -310,7 +310,7 @@ async function boundedFetch(
 
 export function registerProviderUsageRecovery(
   app: FastifyInstance,
-  recovery: { runBatch(): Promise<unknown> },
+  recovery: { runBatch(): Promise<unknown>; onFailure?(): void },
 ): void {
   let timer: ReturnType<typeof setInterval> | undefined;
   let pending: Promise<unknown> | undefined;
@@ -318,7 +318,10 @@ export function registerProviderUsageRecovery(
     if (!pending)
       pending = recovery
         .runBatch()
-        .catch(() => app.log.warn({ event: "provider_usage_recovery_failed" }))
+        .catch(() => {
+          if (recovery.onFailure) recovery.onFailure();
+          else app.log.warn({ event: "provider_usage_recovery_failed" });
+        })
         .finally(() => {
           pending = undefined;
         });

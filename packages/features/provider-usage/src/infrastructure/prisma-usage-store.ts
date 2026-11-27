@@ -1,4 +1,5 @@
 import { estimateUsageCost } from "../domain/estimate-usage-cost";
+import { matchesNativeUsageProjectionReplay } from "../domain/native-usage-replay";
 import { validateUsagePriceSnapshot } from "../domain/usage-price";
 import { createHash, randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
@@ -13,6 +14,7 @@ import {
   type UsageProjection,
 } from "../domain/usage";
 import type { UsagePeriodReport } from "../application/report-usage";
+import { checkedUsageInteger } from "../application/usage-totals";
 import { readPrismaUsagePeriodReport } from "./prisma-usage-report";
 import { IngestUsage } from "../application/ingest-usage";
 import {
@@ -132,11 +134,12 @@ export class PrismaUsageStore implements UsageStore {
       )
         return conflict("usage_identity_conflict");
       const duplicate = await tx.$queryRaw<
-        { hash: string }[]
-      >`SELECT "hash" FROM "UsageSourceFact" WHERE "sourceInstance"=${f.sourceInstance} AND "eventId"=${f.eventId} AND "revision"=${f.revision}`;
+        { hash: string; fact: UsageFact }[]
+      >`SELECT "hash","fact" FROM "UsageSourceFact" WHERE "sourceInstance"=${f.sourceInstance} AND "eventId"=${f.eventId} AND "revision"=${f.revision}`;
       if (duplicate[0])
-        return duplicate[0].hash === hash
-          ? { status: "duplicate" as const, hash }
+        return duplicate[0].hash === hash ||
+          matchesNativeUsageProjectionReplay(duplicate[0].fact, f)
+          ? { status: "duplicate" as const, hash: duplicate[0].hash }
           : conflict("usage_hash_conflict");
       if (tombstone && tombstone.lastRevision === f.revision)
         return tombstone.lastHash === hash
@@ -258,19 +261,49 @@ export class PrismaUsageReportReader implements UsageReportReader {
         if (q.runId) coverageFilters.push(Prisma.sql`"runId"=${q.runId}`);
         if (q.bindingId)
           coverageFilters.push(Prisma.sql`"bindingId"=${q.bindingId}`);
+        const predicate = Prisma.join(coverageFilters, " AND ");
+        const loss = Prisma.sql`"producerCoverage" IS NOT NULL AND "producerCoverage"<>'null'::jsonb`;
+        const [coverageTotals] = await tx.$queryRaw<
+          {
+            sessions: string;
+            lossSessions: string;
+            droppedEvents: string;
+          }[]
+        >(Prisma.sql`/* usage-report:coverage-totals */ SELECT COUNT(*)::text AS sessions,
+          COUNT(*) FILTER (WHERE ${loss})::text AS "lossSessions",
+          COALESCE(SUM(("producerCoverage"->>'droppedEvents')::numeric) FILTER (WHERE ${loss}),0)::text AS "droppedEvents"
+          FROM "ProviderUsageGrant" WHERE ${predicate}`);
+        const coverageLimit = q.limit ?? 100;
         const coverage = await tx.$queryRaw<
           {
+            id: string;
             invocationId: string;
             producerCoverage: UsagePeriodReport["deliveryCoverage"][number]["coverage"];
           }[]
         >(
-          Prisma.sql`SELECT "invocationId","producerCoverage" FROM "ProviderUsageGrant" WHERE ${Prisma.join(coverageFilters, " AND ")}`,
+          Prisma.sql`/* usage-report:coverage-page */ SELECT "id","invocationId","producerCoverage" FROM "ProviderUsageGrant"
+            WHERE ${predicate} AND ${loss}
+            ${q.coverageAfter ? Prisma.sql`AND "id" COLLATE "C">${q.coverageAfter}::text COLLATE "C"` : Prisma.empty}
+            ORDER BY "id" COLLATE "C" LIMIT ${coverageLimit + 1}`,
         );
         return {
           ...report,
           unattributedCount:
             q.access === "admin" ? Number(unattributed[0]?.count ?? 0n) : null,
-          deliveryCoverage: coverage.map((row) => ({
+          deliveryCoverageTotals: {
+            sessions: checkedUsageInteger(coverageTotals?.sessions ?? "0"),
+            lossSessions: checkedUsageInteger(
+              coverageTotals?.lossSessions ?? "0",
+            ),
+            droppedEvents: checkedUsageInteger(
+              coverageTotals?.droppedEvents ?? "0",
+            ),
+          },
+          nextCoverageCursor:
+            coverage.length > coverageLimit
+              ? coverage[coverageLimit - 1]!.id
+              : null,
+          deliveryCoverage: coverage.slice(0, coverageLimit).map((row) => ({
             invocationId: row.invocationId,
             coverage: row.producerCoverage,
           })),

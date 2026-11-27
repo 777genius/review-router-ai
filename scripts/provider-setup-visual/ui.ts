@@ -158,12 +158,23 @@ export async function chooseSource(
 
 /** Source titles as `sourceTitle` renders them. */
 export const SOURCE = {
-  claudeSecret: /^Claude Code(?: · GitHub Secrets)?$/,
+  claudeSecret: /^(?:Claude Code(?: · GitHub Secrets)?|Anthropic)$/,
   mimoSecret: /^MiMo Token Plan/,
   openRouterKey: /^OpenRouter/,
   mimoKey: /^MiMo Token Plan/,
   rotating: /^Codex · GitHub Secrets/,
 } as const;
+
+/** Choose the direct Claude credential custody, not the native Gateway default. */
+export async function chooseClaudeSecret(
+  page: Page,
+  dialog: Locator,
+): Promise<void> {
+  await chooseSource(page, dialog, SOURCE.claudeSecret);
+  await dialog
+    .getByRole("radio", { name: "GitHub Secrets", exact: true })
+    .click();
+}
 
 /** One row of the Providers list by its name. */
 export function providerListRow(page: Page, label: string): Locator {
@@ -188,7 +199,9 @@ export async function chooseModel(
   container: Locator,
   model: string,
 ): Promise<void> {
-  await container.getByRole("textbox", { name: "Model" }).fill(model);
+  await container
+    .getByRole("combobox", { name: "Model", exact: true })
+    .fill(model);
   const listed = container.getByRole("option").filter({
     has: container.page().getByText(model, { exact: true }),
   });

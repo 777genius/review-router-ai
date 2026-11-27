@@ -46,6 +46,7 @@ function intentOf(row: PersonalAccountOperation): PersonalCanonicalIntent {
   return snapshotCanonicalIntent({
     ...row,
     credentialImportMethod: row.credentialImportMethod ?? undefined,
+    nativeConnection: row.nativeConnection ?? undefined,
     expectedGatewayRevision: Number(row.expectedGatewayRevision),
     expectedAuthorizationEpoch: Number(row.expectedAuthorizationEpoch),
   } as PersonalCanonicalIntent);

@@ -20,6 +20,8 @@ function usageReportFixture(): UsagePeriodReport {
     },
     sources: [],
     deliveryCoverage: [],
+    deliveryCoverageTotals: { sessions: 0, lossSessions: 0, droppedEvents: 0 },
+    nextCoverageCursor: null,
     unattributedCount: null,
     nextCursor: "call100",
     partialChildCount: 0,

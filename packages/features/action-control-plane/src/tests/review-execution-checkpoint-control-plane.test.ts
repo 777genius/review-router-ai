@@ -1,6 +1,9 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { describe, expect, it, vi } from "vitest";
-import { InMemoryReviewExecutionCheckpointRepository } from "@reviewrouter/features-review-execution-checkpoints";
+import {
+  InMemoryReviewExecutionCheckpointRepository,
+  reviewExecutionCheckpointMaxFindings,
+} from "@reviewrouter/features-review-execution-checkpoints";
 import {
   registerActionControlPlaneRoutes,
   type CodexRotatingReviewExecutionCheckpointAccessPort,
@@ -430,6 +433,57 @@ describe("Codex OAuth review execution checkpoint routes", () => {
         });
         expect(oversized.statusCode, route).toBe(413);
       }
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("rejects an oversized findings collection before validating its elements", async () => {
+    const { app, access } = await buildRouteContext();
+    const readFindingFile = vi.fn(() => undefined);
+    app.addHook("preValidation", async (request) => {
+      const body = request.body as {
+        payload: { findings: Record<string, unknown>[] };
+      };
+      Object.defineProperty(body.payload.findings[0]!, "file", {
+        get: readFindingFile,
+      });
+    });
+    const body = batchResultBody({
+      expectedVersion: 0,
+      workKey: firstWorkKey,
+      batchIndex: 0,
+      payload: batchPayload("src/first.ts", "First"),
+    });
+    try {
+      const oversized = await post(app, "batch-result", {
+        ...body,
+        payload: {
+          ...body.payload,
+          findings: Array.from(
+            { length: reviewExecutionCheckpointMaxFindings + 1 },
+            () => ({}),
+          ),
+        },
+      });
+      expect(oversized.statusCode).toBe(400);
+      expect(oversized.json()).toMatchObject({
+        error: { code: "invalid_action_request" },
+      });
+      expect(readFindingFile).not.toHaveBeenCalled();
+      expect(
+        access.withAuthorizedReviewExecutionCheckpointAccess,
+      ).not.toHaveBeenCalled();
+
+      const invalidElement = await post(app, "batch-result", {
+        ...body,
+        payload: { ...body.payload, findings: [{}] },
+      });
+      expect(invalidElement.statusCode).toBe(400);
+      expect(readFindingFile).toHaveBeenCalled();
+      expect(
+        access.withAuthorizedReviewExecutionCheckpointAccess,
+      ).not.toHaveBeenCalled();
     } finally {
       await app.close();
     }

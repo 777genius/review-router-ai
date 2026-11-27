@@ -88,7 +88,26 @@ describe("installGitLabConnectProjects", () => {
     vi.clearAllMocks();
   });
 
-  it("uses the server review token, records project fallback installs, and deselects removed repositories", async () => {
+  it.each(["user-pat", "server-review-token"])(
+    "never seeds the installation or backend credential: %s",
+    async (reviewToken) => {
+      await expect(
+        installGitLabConnectProjects({
+          sourceUrl: "https://gitlab.com/acme/platform",
+          token: "user-pat",
+          reviewToken,
+          workspaceId: "workspace_1",
+          selectedProjectIds: ["101"],
+          installedByUserId: "user_1",
+        }),
+      ).rejects.toThrow("gitlab_review_token_must_be_separate");
+      expect(mocks.discoverGitLabSourceProjects).not.toHaveBeenCalled();
+      expect(mocks.provisionGitLabReviewRouterProjects).not.toHaveBeenCalled();
+      expect(mocks.recordInventory).not.toHaveBeenCalled();
+    },
+  );
+
+  it("uses only the explicit project review token, records project fallback installs, and deselects removed repositories", async () => {
     mocks.provisionGitLabReviewRouterProjects
       .mockRejectedValueOnce(new Error("gitlab_api_error_403"))
       .mockResolvedValueOnce({
@@ -114,6 +133,7 @@ describe("installGitLabConnectProjects", () => {
       installGitLabConnectProjects({
         sourceUrl: "https://gitlab.com/acme/platform",
         token: "user-pat-should-not-be-seeded",
+        reviewToken: "project-review-token",
         workspaceId: "workspace_1",
         selectedProjectIds: ["101"],
         installedByUserId: "user_1",
@@ -133,7 +153,7 @@ describe("installGitLabConnectProjects", () => {
       1,
       expect.objectContaining({
         variableTarget: { kind: "group", id: "acme/platform" },
-        reviewToken: "server-review-token",
+        reviewToken: "project-review-token",
       }),
       expect.any(Object),
     );
@@ -141,13 +161,16 @@ describe("installGitLabConnectProjects", () => {
       2,
       expect.objectContaining({
         variableTarget: { kind: "project", id: "0" },
-        reviewToken: "server-review-token",
+        reviewToken: "project-review-token",
       }),
       expect.any(Object),
     );
     expect(
       JSON.stringify(mocks.provisionGitLabReviewRouterProjects.mock.calls),
     ).not.toContain("user-pat-should-not-be-seeded");
+    expect(
+      JSON.stringify(mocks.provisionGitLabReviewRouterProjects.mock.calls),
+    ).not.toContain("server-review-token");
     expect(mocks.assertProjectsNotOwned).toHaveBeenCalledExactlyOnceWith({
       workspaceId: "workspace_1",
       sourceBaseUrl: "https://gitlab.com",
@@ -176,6 +199,7 @@ describe("installGitLabConnectProjects", () => {
       installGitLabConnectProjects({
         sourceUrl: "https://gitlab.com/acme/platform",
         token: "user-pat",
+        reviewToken: "project-review-token",
         workspaceId: "workspace_1",
         selectedProjectIds: ["101", "999"],
         installedByUserId: "user_1",
@@ -193,6 +217,7 @@ describe("installGitLabConnectProjects", () => {
       installGitLabConnectProjects({
         sourceUrl: "https://gitlab.com/acme/platform",
         token: "user-pat",
+        reviewToken: "project-review-token",
         workspaceId: "workspace_1",
         selectedProjectIds: ["101"],
         installedByUserId: "user_1",
@@ -202,13 +227,12 @@ describe("installGitLabConnectProjects", () => {
     expect(mocks.recordInventory).not.toHaveBeenCalled();
   });
 
-  it("fails closed when the server GitLab review token is missing", async () => {
-    vi.stubEnv("REVIEW_ROUTER_GITLAB_API_TOKEN", "");
-
+  it("fails closed when the explicit review token is missing even with a backend token", async () => {
     await expect(
       installGitLabConnectProjects({
         sourceUrl: "https://gitlab.com/acme/platform",
         token: "user-pat",
+        reviewToken: "",
         workspaceId: "workspace_1",
         selectedProjectIds: ["101"],
         installedByUserId: "user_1",

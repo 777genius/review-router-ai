@@ -73,6 +73,8 @@ import { createPairedResolutionWriterFixture } from "./support/resolution-writer
 import type { FakeGitHubTransport } from "../review-action-v2-production-e2e/support/fake-github.js";
 import { publishedReviewCommentTimestamps } from "./support/review-comment-fixture.js";
 import { committedLifecycleProducerRelease } from "./support/committed-producer-release.js";
+import { registerPublicationDiagnostics } from "./support/publication-diagnostics.js";
+import { readPublicationState } from "./support/publication-state.js";
 
 const enabled =
   process.env.REVIEW_ROUTER_REVIEW_INVESTIGATION_PAIRED_E2E === "1";
@@ -226,6 +228,7 @@ lifecycleCase.each([
     let apiOrigin: string | undefined;
     const apiRejections: Array<{ status: number; code?: string }> = [];
     const app = tls ? Fastify({ https: tls }) : Fastify();
+    const publicationDiagnostics = registerPublicationDiagnostics(app);
     try {
       if (production) realCheckout = createRealLifecycleCheckout();
       fixture = await createReviewActionV2E2EHarness(databaseUrl!, {
@@ -289,6 +292,15 @@ lifecycleCase.each([
           : {}),
         environmentOverrides: {
           ...upstream.writerEnvironment,
+          // Native runner acceptance uses the production lease defaults. The
+          // one-second fault-recovery fixture can expire between sibling effects.
+          ...(production
+            ? {
+                REVIEW_ROUTER_REVIEW_V2_COMPLETION_CLAIM_MS: "",
+                REVIEW_ROUTER_REVIEW_V2_PUBLICATION_CLAIM_MS: "",
+                REVIEW_ROUTER_REVIEW_V2_MIN_MUTATION_LEASE_MS: "",
+              }
+            : {}),
           ...(unified
             ? {
                 REVIEW_ROUTER_REVIEW_V2_PROVIDER_VOTE_LANES_JSON:
@@ -1037,6 +1049,8 @@ lifecycleCase.each([
           providerRequestEnvelopeHash: hash(upstream.lastRequest()),
         });
       if (unified) {
+        if (snapshot.snapshotVersion !== 3)
+          throw new Error("paired_lifecycle_snapshot_v3_required");
         expect(snapshot.agent.agentKind).toBe("ocr");
         expect(capability).toMatchObject({
           routeIdentityHash:
@@ -1529,6 +1543,8 @@ lifecycleCase.each([
         const run = async (
           authorization: Awaited<ReturnType<typeof owned.authorize>>,
         ) => {
+          const progressStart = progress.length;
+          const publicationTrace = publicationDiagnostics.beginRun();
           const runner = runnerModule.createProductionT0ReviewRunner({
             // Only the GitHub OIDC boundary is controlled. The resulting JWT is
             // signed by the fixture's real issuer key and renewed through the
@@ -1612,7 +1628,9 @@ lifecycleCase.each([
               ).runtimeSnapshotCanonicalJson,
             );
             expect(captured).not.toBeNull();
-            expect(captured!.agent).toMatchObject({
+            if (captured?.snapshotVersion !== 3)
+              throw new Error("paired_production_snapshot_v3_required");
+            expect(captured.agent).toMatchObject({
               profileRef: "ocr-managed-v5",
               packageVersion: "1.13.1-rr.6",
               binarySha256: pairedOcrBinarySha256,
@@ -1793,14 +1811,66 @@ lifecycleCase.each([
                 },
               );
             const deadline = Date.now() + 90_000;
+            let maintenance:
+              | Awaited<ReturnType<typeof owned.runWorkerMaintenanceOnce>>
+              | undefined;
+            const workerFailurePhases: string[] = [];
+            const outboxTotals = {
+              recoveredStale: 0,
+              claimed: 0,
+              processed: 0,
+              retried: 0,
+              deadLettered: 0,
+              staleClaims: 0,
+            };
             while (!done) {
-              if (Date.now() >= deadline)
-                throw new Error("paired_production_runner_deadline");
+              if (Date.now() >= deadline) {
+                const diagnostics = {
+                  progress: progress.slice(
+                    Math.max(progressStart, progress.length - 64),
+                  ),
+                  droppedProgress: Math.max(
+                    0,
+                    progress.length - progressStart - 64,
+                  ),
+                  publication: publicationTrace.snapshot(),
+                  outbox: outboxTotals,
+                  maintenance: maintenance && {
+                    advanced: maintenance.advanced,
+                    publicationProcessed: maintenance.publicationProcessed,
+                    publicationManualRequired:
+                      maintenance.publicationManualRequired,
+                    publicationTerminalUnknown:
+                      maintenance.publicationTerminalUnknown,
+                    blockedPhases: maintenance.blockedPhases.slice(0, 8),
+                  },
+                  workerFailurePhases,
+                };
+                // Preserve the waiting phase before abort changes the trace.
+                controller.abort();
+                const persisted = await readPublicationState(
+                  owned.prisma,
+                  authorization.authorizationId,
+                );
+                throw new Error(
+                  "paired_production_runner_deadline:" +
+                    JSON.stringify({ ...diagnostics, persisted }),
+                );
+              }
               // The real runner polls the publication receipt. Its real worker
               // must consume the finalized outbox while that promise is active.
-              await owned.processFinalizedOutbox();
+              const outbox = await owned.processFinalizedOutbox();
+              for (const key of Object.keys(outboxTotals) as Array<
+                keyof typeof outboxTotals
+              >)
+                outboxTotals[key] += outbox[key];
               // Pending publication is valid until the runner finishes.
-              await owned.runWorkerMaintenanceOnce();
+              maintenance = await owned.runWorkerMaintenanceOnce();
+              workerFailurePhases.push(
+                ...maintenance.failures.map((failure) => failure.phase),
+              );
+              if (workerFailurePhases.length > 8)
+                workerFailurePhases.splice(0, workerFailurePhases.length - 8);
               if (!done)
                 await new Promise((resolve) => setTimeout(resolve, 100));
             }

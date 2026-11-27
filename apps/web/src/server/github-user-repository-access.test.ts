@@ -31,11 +31,13 @@ describe("GitHub user repository access", () => {
         ),
       );
     const prisma = {
+      $queryRaw: vi.fn().mockResolvedValue([{ revision: 0 }]),
       repositoryPermissionCache: {
         findMany: vi.fn().mockResolvedValue([]),
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
       },
       gitHubUserAuthorization: {
+        findFirst: vi.fn().mockResolvedValue({ revision: 0 }),
         findUnique: vi.fn().mockResolvedValue({
           encryptedAccessToken: encryptServerToken("ghu_access", env),
           encryptedRefreshToken: null,
@@ -43,11 +45,16 @@ describe("GitHub user repository access", () => {
           refreshTokenExpiresAt: null,
           revokedAt: null,
           lastErrorCode: null,
+          revision: 0,
+          refreshAttemptId: null,
+          updatedAt: new Date(),
         }),
       },
       $transaction: vi
         .fn()
-        .mockImplementation((operations) => Promise.all(operations)),
+        .mockImplementation((run: (tx: PrismaClient) => Promise<unknown>) =>
+          run(prisma),
+        ),
     } as unknown as PrismaClient;
     const input = {
       prisma,
@@ -123,6 +130,7 @@ describe("GitHub user repository access", () => {
       return Promise.resolve({ count: data.length });
     });
     const prisma = {
+      $queryRaw: vi.fn().mockResolvedValue([{ revision: 0 }]),
       repositoryPermissionCache: {
         findMany: vi.fn().mockImplementation(() => Promise.resolve(cacheRows)),
         deleteMany: vi.fn().mockImplementation(() => {
@@ -132,6 +140,7 @@ describe("GitHub user repository access", () => {
         createMany,
       },
       gitHubUserAuthorization: {
+        findFirst: vi.fn().mockResolvedValue({ revision: 0 }),
         findUnique: vi.fn().mockResolvedValue({
           encryptedAccessToken: encryptServerToken("ghu_access", env),
           encryptedRefreshToken: null,
@@ -139,6 +148,9 @@ describe("GitHub user repository access", () => {
           refreshTokenExpiresAt: null,
           revokedAt: null,
           lastErrorCode: null,
+          revision: 0,
+          refreshAttemptId: null,
+          updatedAt: new Date(),
         }),
       },
       gitHubInstallation: {
@@ -160,7 +172,9 @@ describe("GitHub user repository access", () => {
       },
       $transaction: vi
         .fn()
-        .mockImplementation((operations) => Promise.all(operations)),
+        .mockImplementation((run: (tx: PrismaClient) => Promise<unknown>) =>
+          run(prisma),
+        ),
     } as unknown as PrismaClient;
     const fetchMock = vi.fn().mockImplementation((url: URL) => {
       if (url.pathname === "/user/installations") {
@@ -257,6 +271,7 @@ describe("GitHub user repository access", () => {
       return Promise.resolve({ count: data.length });
     });
     const prisma = {
+      $queryRaw: vi.fn().mockResolvedValue([{ revision: 0 }]),
       repositoryPermissionCache: {
         findMany: vi.fn().mockImplementation(() => Promise.resolve(cacheRows)),
         deleteMany: vi.fn().mockImplementation(() => {
@@ -266,6 +281,7 @@ describe("GitHub user repository access", () => {
         createMany,
       },
       gitHubUserAuthorization: {
+        findFirst: vi.fn().mockResolvedValue({ revision: 0 }),
         findUnique: vi.fn().mockResolvedValue({
           encryptedAccessToken: encryptServerToken("ghu_access", env),
           encryptedRefreshToken: null,
@@ -273,6 +289,9 @@ describe("GitHub user repository access", () => {
           refreshTokenExpiresAt: null,
           revokedAt: null,
           lastErrorCode: null,
+          revision: 0,
+          refreshAttemptId: null,
+          updatedAt: new Date(),
         }),
       },
       gitHubInstallation: {
@@ -289,7 +308,9 @@ describe("GitHub user repository access", () => {
       },
       $transaction: vi
         .fn()
-        .mockImplementation((operations) => Promise.all(operations)),
+        .mockImplementation((run: (tx: PrismaClient) => Promise<unknown>) =>
+          run(prisma),
+        ),
     } as unknown as PrismaClient;
     const fetchMock = vi.fn().mockImplementation((url: URL) => {
       if (url.pathname === "/user/installations") {

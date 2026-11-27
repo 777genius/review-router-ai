@@ -1,4 +1,12 @@
+import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
+import {
+  resolveGitHubUserAuthorizationAppSlug,
+  type GitHubUserAuthorizationAuthority,
+  type GitHubUserAuthorizationEnvironment,
+} from "./github-user-authorization-authority";
+
+export { resolveGitHubUserAuthorizationAppSlug } from "./github-user-authorization-authority";
 import type { AuthenticatedPrincipal } from "../../domain/authenticated-principal";
 import {
   decryptServerToken,
@@ -19,6 +27,7 @@ export type GitHubUserAccessTokenResult =
       readonly status: "ready";
       readonly accessToken: string;
       readonly refreshed: boolean;
+      readonly authority: GitHubUserAuthorizationAuthority;
     }
   | {
       readonly status:
@@ -38,10 +47,6 @@ export type GitHubOAuthAccountTokenInput = {
   readonly expires_in?: unknown;
   readonly refresh_token_expires_at?: unknown;
   readonly refresh_token_expires_in?: unknown;
-};
-
-type GitHubUserAuthorizationEnvironment = {
-  readonly [key: string]: string | undefined;
 };
 
 type FetchLike = typeof fetch;
@@ -92,6 +97,8 @@ export async function saveGitHubUserAuthorizationFromAccount(input: {
       }),
       revokedAt: null,
       lastErrorCode: null,
+      revision: { increment: 1 },
+      refreshAttemptId: null,
     },
     create: {
       userId: input.principal.userId,
@@ -115,18 +122,28 @@ export async function saveGitHubUserAuthorizationFromAccount(input: {
   return "saved";
 }
 
-export async function getValidGitHubUserAccessToken(input: {
+type GitHubUserAccessTokenInput = {
   readonly prisma: PrismaClient;
   readonly userId: string;
   readonly env?: GitHubUserAuthorizationEnvironment;
   readonly now?: Date;
   readonly fetch?: FetchLike;
-}): Promise<GitHubUserAccessTokenResult> {
+};
+
+export async function getValidGitHubUserAccessToken(
+  input: GitHubUserAccessTokenInput,
+): Promise<GitHubUserAccessTokenResult> {
+  return readGitHubUserAccessToken(input, true);
+}
+
+async function readGitHubUserAccessToken(
+  input: GitHubUserAccessTokenInput,
+  allowRefresh: boolean,
+): Promise<GitHubUserAccessTokenResult> {
   const env = input.env ?? process.env;
   if (!getTokenEncryptionStatus(env).configured) {
     return { status: "token_encryption_misconfigured" };
   }
-
   const appSlug = resolveGitHubUserAuthorizationAppSlug(env);
   const authorization = await input.prisma.gitHubUserAuthorization.findUnique({
     where: { userId_appSlug: { userId: input.userId, appSlug } },
@@ -140,7 +157,20 @@ export async function getValidGitHubUserAccessToken(input: {
         : {}),
     };
   }
-
+  if (authorization.refreshAttemptId) {
+    // An unfinished durable claim may represent a process that died after
+    // GitHub consumed its one-use token. Never replay it after a lease expires.
+    return {
+      status: "refresh_failed",
+      errorCode:
+        authorization.lastErrorCode ===
+          "github_user_token_refresh_in_progress" &&
+        Date.now() - authorization.updatedAt.getTime() < githubRefreshTimeoutMs
+          ? "github_user_token_refresh_in_progress"
+          : "github_user_token_refresh_reauthorization_required",
+    };
+  }
+  const authority = { appSlug, revision: authorization.revision };
   const now = input.now ?? new Date();
   if (
     !authorization.accessTokenExpiresAt ||
@@ -155,12 +185,12 @@ export async function getValidGitHubUserAccessToken(input: {
           env,
         ),
         refreshed: false,
+        authority,
       };
     } catch {
       await markGitHubUserAuthorizationError({
-        prisma: input.prisma,
-        userId: input.userId,
-        appSlug,
+        ...input,
+        authority,
         errorCode: "github_user_token_decryption_failed",
         revoke: false,
       });
@@ -170,42 +200,36 @@ export async function getValidGitHubUserAccessToken(input: {
       };
     }
   }
-
-  if (!authorization.encryptedRefreshToken) {
-    await expireGitHubUserAuthorization({
-      prisma: input.prisma,
-      userId: input.userId,
-      appSlug,
-      errorCode: "github_user_token_expired",
-    });
-    return { status: "expired", errorCode: "github_user_token_expired" };
-  }
-
+  if (!allowRefresh)
+    return {
+      status: "refresh_failed",
+      errorCode: "github_user_authorization_changed",
+    };
   if (
-    authorization.refreshTokenExpiresAt &&
-    authorization.refreshTokenExpiresAt.getTime() <= now.getTime()
+    !authorization.encryptedRefreshToken ||
+    (authorization.refreshTokenExpiresAt &&
+      authorization.refreshTokenExpiresAt.getTime() <= now.getTime())
   ) {
-    await expireGitHubUserAuthorization({
-      prisma: input.prisma,
-      userId: input.userId,
-      appSlug,
-      errorCode: "github_user_refresh_token_expired",
+    const errorCode = authorization.encryptedRefreshToken
+      ? "github_user_refresh_token_expired"
+      : "github_user_token_expired";
+    const changed = await markGitHubUserAuthorizationError({
+      ...input,
+      authority,
+      errorCode,
       revoke: true,
     });
-    return {
-      status: "expired",
-      errorCode: "github_user_refresh_token_expired",
-    };
+    return changed
+      ? { status: "expired", errorCode }
+      : readGitHubUserAccessToken(input, false);
   }
-
   let refreshToken: string;
   try {
     refreshToken = decryptServerToken(authorization.encryptedRefreshToken, env);
   } catch {
     await markGitHubUserAuthorizationError({
-      prisma: input.prisma,
-      userId: input.userId,
-      appSlug,
+      ...input,
+      authority,
       errorCode: "github_user_refresh_token_decryption_failed",
       revoke: false,
     });
@@ -214,49 +238,87 @@ export async function getValidGitHubUserAccessToken(input: {
       errorCode: "github_user_refresh_token_decryption_failed",
     };
   }
-
+  const clientId = env.GITHUB_APP_CLIENT_ID?.trim();
+  const clientSecret = env.GITHUB_APP_CLIENT_SECRET?.trim();
+  if (!clientId || !clientSecret) {
+    await markGitHubUserAuthorizationError({
+      ...input,
+      authority,
+      errorCode: "github_oauth_client_misconfigured",
+      revoke: false,
+    });
+    return {
+      status: "refresh_failed",
+      errorCode: "github_oauth_client_misconfigured",
+    };
+  }
+  const refreshAttemptId = randomUUID();
+  const claimed = await input.prisma.gitHubUserAuthorization.updateMany({
+    where: {
+      userId: input.userId,
+      appSlug,
+      revision: authority.revision,
+      revokedAt: null,
+      refreshAttemptId: null,
+    },
+    data: {
+      refreshAttemptId,
+      revision: { increment: 1 },
+      lastErrorCode: "github_user_token_refresh_in_progress",
+    },
+  });
+  if (claimed.count !== 1) return readGitHubUserAccessToken(input, false);
+  const claimedAuthority = { appSlug, revision: authority.revision + 1 };
   const refreshed = await refreshGitHubUserAccessToken({
     refreshToken,
-    env,
+    clientId,
+    clientSecret,
     now,
     fetch: input.fetch ?? fetch,
   });
   if (!refreshed.ok) {
-    await markGitHubUserAuthorizationError({
-      prisma: input.prisma,
-      userId: input.userId,
-      appSlug,
+    const changed = await markGitHubUserAuthorizationError({
+      ...input,
+      authority: claimedAuthority,
+      refreshAttemptId,
       errorCode: refreshed.errorCode,
       revoke: refreshed.revoke,
+      clearAttempt: refreshed.retryable,
     });
-    if (refreshed.revoke) {
-      await input.prisma.repositoryPermissionCache.deleteMany({
-        where: { userId: input.userId },
-      });
-      return { status: "revoked", errorCode: refreshed.errorCode };
-    }
-    return { status: "refresh_failed", errorCode: refreshed.errorCode };
+    if (!changed) return readGitHubUserAccessToken(input, false);
+    return {
+      status: refreshed.revoke ? "revoked" : "refresh_failed",
+      errorCode: refreshed.errorCode,
+    };
   }
-
-  await input.prisma.gitHubUserAuthorization.update({
-    where: { userId_appSlug: { userId: input.userId, appSlug } },
+  const saved = await input.prisma.gitHubUserAuthorization.updateMany({
+    where: {
+      userId: input.userId,
+      appSlug,
+      revision: claimedAuthority.revision,
+      revokedAt: null,
+      refreshAttemptId,
+    },
     data: {
       encryptedAccessToken: encryptServerToken(refreshed.accessToken, env),
+      // The previous refresh token has been consumed, even if the response
+      // unexpectedly omits its replacement.
       encryptedRefreshToken: refreshed.refreshToken
         ? encryptServerToken(refreshed.refreshToken, env)
-        : authorization.encryptedRefreshToken,
+        : null,
       accessTokenExpiresAt: refreshed.accessTokenExpiresAt,
-      refreshTokenExpiresAt:
-        refreshed.refreshTokenExpiresAt ?? authorization.refreshTokenExpiresAt,
-      revokedAt: null,
+      refreshTokenExpiresAt: refreshed.refreshTokenExpiresAt,
+      refreshAttemptId: null,
+      revision: { increment: 1 },
       lastErrorCode: null,
     },
   });
-
+  if (saved.count !== 1) return readGitHubUserAccessToken(input, false);
   return {
     status: "ready",
     accessToken: refreshed.accessToken,
     refreshed: true,
+    authority: { appSlug, revision: claimedAuthority.revision + 1 },
   };
 }
 
@@ -265,51 +327,46 @@ export async function revokeGitHubUserAuthorization(input: {
   readonly githubUserId: string | number | bigint;
   readonly errorCode?: string;
   readonly env?: GitHubUserAuthorizationEnvironment;
-}): Promise<void> {
-  const appSlug = resolveGitHubUserAuthorizationAppSlug(
-    input.env ?? process.env,
-  );
+  /** Required for a refusal observed through a previously captured user token. */
+  readonly authority?: GitHubUserAuthorizationAuthority;
+}): Promise<boolean> {
+  const appSlug =
+    input.authority?.appSlug ??
+    resolveGitHubUserAuthorizationAppSlug(input.env);
   const users = await input.prisma.user.findMany({
     where: { githubUserId: BigInt(input.githubUserId) },
     select: { id: true },
   });
-  if (users.length === 0) return;
-
+  if (users.length === 0) return false;
   const userIds = users.map((user) => user.id);
-  await input.prisma.$transaction([
-    input.prisma.gitHubUserAuthorization.updateMany({
+  return input.prisma.$transaction(async (tx) => {
+    const changed = await tx.gitHubUserAuthorization.updateMany({
       where: {
         appSlug,
         userId: { in: userIds },
         revokedAt: null,
+        ...(input.authority
+          ? { revision: input.authority.revision, refreshAttemptId: null }
+          : {}),
       },
       data: {
         revokedAt: new Date(),
+        revision: { increment: 1 },
+        refreshAttemptId: null,
         lastErrorCode: input.errorCode ?? "github_app_authorization_revoked",
       },
-    }),
-    input.prisma.repositoryPermissionCache.deleteMany({
-      where: { userId: { in: userIds } },
-    }),
-  ]);
+    });
+    if (changed.count > 0)
+      await tx.repositoryPermissionCache.deleteMany({
+        where: { userId: { in: userIds }, authorizationAppSlug: appSlug },
+      });
+    return changed.count > 0;
+  });
 }
 
-export function resolveGitHubUserAuthorizationAppSlug(
-  env: GitHubUserAuthorizationEnvironment = process.env,
-): string {
-  return (
-    env.GITHUB_APP_SLUG?.trim() ||
-    env.GITHUB_APP_CLIENT_ID?.trim() ||
-    "github-app"
-  );
-}
+const githubRefreshTimeoutMs = 10_000;
 
-async function refreshGitHubUserAccessToken(input: {
-  readonly refreshToken: string;
-  readonly env: GitHubUserAuthorizationEnvironment;
-  readonly now: Date;
-  readonly fetch: FetchLike;
-}): Promise<
+type RefreshResult =
   | {
       readonly ok: true;
       readonly accessToken: string;
@@ -321,121 +378,132 @@ async function refreshGitHubUserAccessToken(input: {
       readonly ok: false;
       readonly errorCode: string;
       readonly revoke: boolean;
-    }
-> {
-  const clientId = input.env.GITHUB_APP_CLIENT_ID?.trim();
-  const clientSecret = input.env.GITHUB_APP_CLIENT_SECRET?.trim();
-  if (!clientId || !clientSecret) {
-    return {
-      ok: false,
-      errorCode: "github_oauth_client_misconfigured",
-      revoke: false,
+      readonly retryable: boolean;
     };
-  }
 
-  let response: Response;
+async function refreshGitHubUserAccessToken(input: {
+  readonly refreshToken: string;
+  readonly clientId: string;
+  readonly clientSecret: string;
+  readonly now: Date;
+  readonly fetch: FetchLike;
+}): Promise<RefreshResult> {
+  const controller = new AbortController();
+  const unknown: RefreshResult = {
+    ok: false,
+    errorCode: "github_user_token_refresh_reauthorization_required",
+    revoke: false,
+    retryable: false,
+  };
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    response = await input.fetch(githubOAuthTokenUrl, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        grant_type: "refresh_token",
-        refresh_token: input.refreshToken,
+    return await Promise.race([
+      (async (): Promise<RefreshResult> => {
+        const response = await input.fetch(githubOAuthTokenUrl, {
+          method: "POST",
+          signal: controller.signal,
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            client_id: input.clientId,
+            client_secret: input.clientSecret,
+            grant_type: "refresh_token",
+            refresh_token: input.refreshToken,
+          }),
+        });
+        const body: unknown = await response.json();
+        if (!body || typeof body !== "object") return unknown;
+        const payload = body as Record<string, unknown>;
+        if (!response.ok || typeof payload.error === "string") {
+          if (payload.error === "bad_refresh_token")
+            return {
+              ok: false,
+              errorCode: "github_user_token_refresh_bad_refresh_token",
+              revoke: true,
+              retryable: false,
+            };
+          // Explicit OAuth rejection did not consume the token. Transport errors,
+          // 5xx and malformed responses never establish that fact.
+          if (
+            payload.error === "incorrect_client_credentials" ||
+            payload.error === "unsupported_grant_type"
+          ) {
+            return {
+              ok: false,
+              errorCode: `github_user_token_refresh_${payload.error}`,
+              revoke: false,
+              retryable: true,
+            };
+          }
+          return unknown;
+        }
+        const accessToken = readString(payload.access_token);
+        if (!accessToken) return unknown;
+        return {
+          ok: true,
+          accessToken,
+          refreshToken: readString(payload.refresh_token),
+          accessTokenExpiresAt: secondsFromNow(payload.expires_in, input.now),
+          refreshTokenExpiresAt: secondsFromNow(
+            payload.refresh_token_expires_in,
+            input.now,
+          ),
+        };
+      })().catch(() => unknown),
+      new Promise<RefreshResult>((resolve) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          resolve(unknown);
+        }, githubRefreshTimeoutMs);
       }),
-    });
-  } catch {
-    return {
-      ok: false,
-      errorCode: "github_user_token_refresh_network_error",
-      revoke: false,
-    };
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
-
-  const body = (await response.json().catch(() => ({}))) as {
-    readonly access_token?: unknown;
-    readonly refresh_token?: unknown;
-    readonly expires_in?: unknown;
-    readonly refresh_token_expires_in?: unknown;
-    readonly error?: unknown;
-  };
-  if (!response.ok || typeof body.error === "string") {
-    return {
-      ok: false,
-      errorCode:
-        typeof body.error === "string"
-          ? `github_user_token_refresh_${body.error}`
-          : "github_user_token_refresh_failed",
-      revoke: body.error === "bad_refresh_token",
-    };
-  }
-
-  const accessToken = readString(body.access_token);
-  if (!accessToken) {
-    return {
-      ok: false,
-      errorCode: "github_user_token_refresh_missing_access_token",
-      revoke: false,
-    };
-  }
-
-  return {
-    ok: true,
-    accessToken,
-    refreshToken: readString(body.refresh_token),
-    accessTokenExpiresAt: secondsFromNow(body.expires_in, input.now),
-    refreshTokenExpiresAt: secondsFromNow(
-      body.refresh_token_expires_in,
-      input.now,
-    ),
-  };
 }
 
 async function markGitHubUserAuthorizationError(input: {
   readonly prisma: PrismaClient;
   readonly userId: string;
-  readonly appSlug: string;
+  readonly authority: GitHubUserAuthorizationAuthority;
   readonly errorCode: string;
   readonly revoke: boolean;
-}): Promise<void> {
-  await input.prisma.gitHubUserAuthorization.updateMany({
-    where: {
-      userId: input.userId,
-      appSlug: input.appSlug,
-    },
-    data: {
-      lastErrorCode: input.errorCode,
-      ...(input.revoke ? { revokedAt: new Date() } : {}),
-    },
-  });
-}
-
-async function expireGitHubUserAuthorization(input: {
-  readonly prisma: PrismaClient;
-  readonly userId: string;
-  readonly appSlug: string;
-  readonly errorCode: string;
-  readonly revoke?: boolean;
-}): Promise<void> {
-  await input.prisma.$transaction([
-    input.prisma.gitHubUserAuthorization.updateMany({
+  readonly refreshAttemptId?: string;
+  readonly clearAttempt?: boolean;
+}): Promise<boolean> {
+  return input.prisma.$transaction(async (tx) => {
+    const changed = await tx.gitHubUserAuthorization.updateMany({
       where: {
         userId: input.userId,
-        appSlug: input.appSlug,
+        appSlug: input.authority.appSlug,
+        revision: input.authority.revision,
+        revokedAt: null,
+        refreshAttemptId: input.refreshAttemptId ?? null,
       },
       data: {
         lastErrorCode: input.errorCode,
-        ...(input.revoke ? { revokedAt: new Date() } : {}),
+        ...(input.clearAttempt ? { refreshAttemptId: null } : {}),
+        ...(input.revoke
+          ? {
+              revokedAt: new Date(),
+              revision: { increment: 1 },
+              refreshAttemptId: null,
+            }
+          : {}),
       },
-    }),
-    input.prisma.repositoryPermissionCache.deleteMany({
-      where: { userId: input.userId },
-    }),
-  ]);
+    });
+    if (changed.count === 1 && input.revoke) {
+      await tx.repositoryPermissionCache.deleteMany({
+        where: {
+          userId: input.userId,
+          authorizationAppSlug: input.authority.appSlug,
+        },
+      });
+    }
+    return changed.count === 1;
+  });
 }
 
 function resolveAccessTokenExpiresAt(input: {

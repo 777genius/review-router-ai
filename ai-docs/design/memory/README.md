@@ -36,7 +36,7 @@ images. See [the implementation plan](../../plans/2026-10-22-memory-engine-adapt
   actual theme surfaces and the notice's composited text colors; its minimum
   measured contrast was 7.2882:1. This is focused notice QA, not a full
   accessibility audit.
-  See [the reproducible browser harness](../../../scripts/memory-e2e/browser-README.md)
+  See [the reproducible browser harness](https://github.com/777genius/review-router-ai/blob/9cc02f68fe8f8bcef9a52bd6c5eeddbb51f6b8ca/scripts/memory-e2e/browser-README.md)
   for commands, artifact locations and the development-server/schema-preparation
   limits of this evidence.
 
@@ -99,6 +99,10 @@ Suggested artifact paths:
 - `tmp/design-verification/memory/mobile-detail.png`
 
 ## Implementation Notes
+
+The committed captures from the historical pass are retained in the
+[design archive](../archive/historical-captures/design-verification/memory/).
+Use the ignored `tmp/` paths above for fresh verification output.
 
 Historical 2026-05-12 verification pass (before the dashboard pause):
 

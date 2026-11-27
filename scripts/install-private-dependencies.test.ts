@@ -265,7 +265,7 @@ describe("private dependency installer", () => {
     );
     writeFileSync(
       join(repository, "pnpm-workspace.yaml"),
-      'packages:\n  - packages/*\n\nallowBuilds:\n  "prisma@7.8.0": true\n',
+      'packages:\n  - packages/*\n\nallowBuilds:\n  "prisma@7.9.0": true\n',
     );
     writeFileSync(join(repository, path), value);
     expect(spawnSync("git", ["init", "-q"], { cwd: repository }).status).toBe(
@@ -301,7 +301,9 @@ describe("private dependency installer", () => {
     'allowBuilds:\n  "bun@1.4.4": false\n',
     'allowBuilds:\n  "bun": false\n',
     'allowBuilds:\n  "bun@*": false\n',
-    'allowBuilds:\n  "prisma@7.8.0": false\n',
+    'allowBuilds:\n  "prisma@7.9.0": false\n',
+    'allowBuilds:\n  "prisma@7.8.0": true\n',
+    'allowBuilds:\n  "@prisma/engines@7.8.0": true\n',
     'allowBuilds:\n  "unreviewed@1.0.0": false\n',
     'minimumReleaseAgeExclude:\n  - "stack-toolchain@0.3.0"\n',
     'minimumReleaseAgeExclude:\n  - "stack-toolchain@0.3.2"\n',
@@ -327,7 +329,7 @@ describe("private dependency installer", () => {
     );
     writeFileSync(
       join(repository, "pnpm-workspace.yaml"),
-      `packages:\n  - packages/*\n\nallowBuilds:\n  "prisma@7.8.0": true\n${addition}`,
+      `packages:\n  - packages/*\n\nallowBuilds:\n  "prisma@7.9.0": true\n${addition}`,
     );
     expect(spawnSync("git", ["init", "-q"], { cwd: repository }).status).toBe(
       0,

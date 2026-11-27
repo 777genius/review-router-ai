@@ -100,7 +100,7 @@ No immutable old artifact/profile is changed, and no release or deployment is
 performed by that job.
 
 Later qualification completed the real OCR build, 13 CLI tests and 2 MCP tests;
-see the [acceptance report](../operations/2026-10-27-unified-ocr-acceptance.md#reproducible-ocr-candidate).
+see the [acceptance report](../operations/2026-10-27-unified-ocr-acceptance.md#historical-ocr-candidate-superseded-by-rr6-above).
 This records the outcome without changing the historical review decision.
 
 ### Post-spike Claude lifetime and alias correction
