@@ -5053,6 +5053,8 @@ model ReviewRunCompanionDispatchV1 {
   receiptTokenHash String? @unique(map: "ReviewRunModelDispatch_receipt_token_key")
   forwardedAt DateTime?
   nativeEffectState String?
+  nativeRetryProofJson Json?
+  retryOfDispatchId String?
   nativeRequestRef String
   state String
   usageHash String?
@@ -5065,6 +5067,7 @@ model ReviewRunCompanionDispatchV1 {
 
   @@id([authorizationId, dispatchId])
   @@unique([authorizationId, workSlotId, attemptOrdinal, requestOrdinal], map: "ReviewRunModelDispatch_scope_ordinal_key")
+  @@unique([authorizationId, retryOfDispatchId], map: "ReviewRunModelDispatch_retry_predecessor_key")
   @@index([retainUntil])
 }
 

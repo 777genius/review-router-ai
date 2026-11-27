@@ -1440,6 +1440,8 @@ export function composeReviewActionV2ProductionRoutes(input: {
   const modelDispatch: ReviewModelDispatchApi = {
     authorizations: runControl.authorizations,
     admission: modelDispatchAdmission,
+    canReadNativeRetryProof: async (dispatch) =>
+      accountGatewayRelay?.canReadNativeRetryProof(dispatch) ?? false,
     reconcileNativeProof: createHostedModelDispatchProofReconciler({
       prisma,
       admission: modelDispatchAdmission,

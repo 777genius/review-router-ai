@@ -219,6 +219,7 @@ export function createRunAccessClient(settings: RunAccessConfig) {
           : Object.freeze({
               request: dataClient.request,
               status: controlClient.status,
+              retryProof: controlClient.retryProof,
               close: controlClient.close,
               operation: controlClient.operation,
             });

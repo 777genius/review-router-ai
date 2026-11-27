@@ -43,6 +43,7 @@ import {
   reviewModelDispatchContract,
   reviewModelDispatchHeaders,
   parseReviewModelDispatchCapability,
+  reviewModelDispatchAllowsNativeRetry,
   type ReviewModelDispatchCapability,
 } from "@reviewrouter/shared";
 
@@ -284,7 +285,9 @@ export function createReviewRunGatewayRelay(input: {
   readonly snapshots: ReviewRunRuntimeSnapshotPort;
   readonly bindings: ReviewRunGatewayExecutionBindingPort;
   readonly companionDispatches?: ReviewRunCompanionDispatchAdmission &
-    Partial<Pick<ReviewRunModelDispatchAdmission, "forward">>;
+    Partial<
+      Pick<ReviewRunModelDispatchAdmission, "forward" | "recordNativeRejection">
+    >;
   /** Persist trusted correlation before dispatch; outcome reporting never replays inference. */
   readonly usage?: {
     prepare(input: {
@@ -1176,6 +1179,30 @@ export function createReviewRunGatewayRelay(input: {
           effect,
         });
     };
+    const attestNativeRejection = async () => {
+      const capability = parseReviewRunRuntimeSnapshot(
+        session.canonical,
+      )?.modelDispatchCapability;
+      if (
+        dispatch.dispatchVersion !== 2 ||
+        dispatch.role !== "finding_discovery" ||
+        dispatch.retryOfDispatchId !== undefined ||
+        !reviewModelDispatchAllowsNativeRetry(capability) ||
+        !input.companionDispatches?.recordNativeRejection
+      )
+        return false;
+      const proof = await session.preparation.retryProof(
+        requestRef,
+        { signal },
+        fresh,
+      );
+      await input.companionDispatches.recordNativeRejection(
+        auth.authorizationId,
+        dispatch.dispatchId,
+        proof,
+      );
+      return true;
+    };
     const settle = async (
       effect: c.RequestStatus["effect"],
       observePhase?: (phase: "usage_outcome" | "companion_settlement") => void,
@@ -1183,6 +1210,11 @@ export function createReviewRunGatewayRelay(input: {
       observePhase?.("usage_outcome");
       await outcome(effect);
       observePhase?.("companion_settlement");
+      if (
+        effect === "rejected_before_dispatch" &&
+        (await attestNativeRejection())
+      )
+        return;
       await input.companionDispatches!.settle(
         auth.authorizationId,
         dispatch.dispatchId,
@@ -1385,9 +1417,23 @@ export function createReviewRunGatewayRelay(input: {
         cause.code,
       );
       if (upstream?.kind === "stream") await upstream.cancel().catch(() => {});
-      // Only a positively local native no-dispatch proof settles unpaid.
+      // A distinct authenticated native proof precedes unknown settlement.
       let failureEffect: c.RequestStatus["effect"] = "effect_unknown";
       if (
+        !upstream &&
+        error instanceof GatewayError &&
+        error.effect === "rejected_before_dispatch" &&
+        error.requestRef === requestRef
+      ) {
+        try {
+          if (await attestNativeRejection()) {
+            failureEffect = "rejected_before_dispatch";
+            await outcome("rejected_before_dispatch");
+          } else await unknown();
+        } catch {
+          await unknown();
+        }
+      } else if (
         !upstream &&
         error instanceof GatewayError &&
         error.effect === "not_dispatched" &&
@@ -1536,6 +1582,11 @@ export function createReviewRunGatewayRelay(input: {
           : null;
       if (modelBudget && (!reserved || reserved.dispatchVersion !== 2))
         throw new RelayFailure("model_dispatch_reservation_required", 409);
+      if (
+        reserved?.retryOfDispatchId !== undefined &&
+        !(await session.preparation.hasLiveNativeRetryAuthority())
+      )
+        throw new RelayFailure("model_dispatch_retry_denied", 409);
       const isCompanion = !!companion && reserved?.role !== "finding_discovery";
       if (
         companion &&
@@ -1585,6 +1636,9 @@ export function createReviewRunGatewayRelay(input: {
         companion && modelBudget
           ? {
               ...companion,
+              ...(reserved?.retryOfDispatchId === undefined
+                ? {}
+                : { retryOfDispatchId: reserved.retryOfDispatchId }),
               requestBytes: body.byteLength,
               maxOutputTokens: Number(
                 JSON.parse(new TextDecoder().decode(body)).max_output_tokens,
@@ -1679,6 +1733,10 @@ export function createReviewRunGatewayRelay(input: {
             new RelayFailure("authorization_denied", 401),
           );
         if (!session.preparation.hasSession()) {
+          if (reserved?.retryOfDispatchId !== undefined)
+            return await refuseBeforeForward(
+              new RelayFailure("model_dispatch_retry_denied", 409),
+            );
           if (session.preparation.needsRecovery())
             return await refuseBeforeForward(
               new RelayFailure(
@@ -2031,6 +2089,25 @@ export function createReviewRunGatewayRelay(input: {
     }
   }
   return Object.freeze({
+    canReadNativeRetryProof: async (dispatch: ReviewRunCompanionDispatch) => {
+      const session = sessions.get(dispatch.authorizationId);
+      if (
+        stopping ||
+        closing.has(dispatch.authorizationId) ||
+        !session ||
+        session.closed
+      )
+        return false;
+      const auth = await input.queries.findReviewRunAuthorizationById(
+        dispatch.authorizationId,
+      );
+      return (
+        !!auth &&
+        auth.runtimeSnapshotCanonicalJson === session.canonical &&
+        (await input.checkAuthority(auth, "local")) &&
+        (await session.preparation.hasLiveNativeRetryAuthority())
+      );
+    },
     policy,
     responses,
     closeRun,

@@ -640,3 +640,30 @@ concurrent successor admission. Source, strict compiler, focused PostgreSQL,
 official SDK/export binding, compiled Action and the existing joined native
 consumer oracle remain required evidence. This checkpoint authorizes no release
 registration, deployment or broader retry policy.
+
+The implemented boundary is the existing V3 single prepared model route. The
+new producer profile retains all existing transport declarations; only its
+`account_gateway` capture carries the retry marker. V4 reviewer allocations,
+lifecycle verification and PR descriptions keep their existing behavior.
+Consumer scope comes from the same original prepared SDK client, its pinned
+origin and execution bearer. Gateway authenticates that consumer; RR verifies
+the exact execution/request and retains the returned consumer ID as provenance.
+There is no invented independently configured consumer ID or replacement client.
+
+Independent producer review additionally required a latest-predecessor gate:
+omitting `retryOfDispatchId` cannot turn a rejected request or failed successor
+into a fresh root. The HTTP claim and forwarding boundaries also require the
+retained original Gateway session; a lost session never starts preparation for
+a successor. Readback refresh and current authority checks preserve lost-ACK
+reconciliation without upgrading either a runner or native unknown effect.
+The additive SQL migration is `000165_attested_model_request_retry`.
+
+Local PostgreSQL 17 executed all 51 dispatch tests after ordinary migrations,
+including the native successor, auxiliary exclusions and negative authority cases. The
+capture, Gateway relay and split run-access suites passed all 323 tests; the
+canonical contract and complete release-binding tuple suites passed 16 tests.
+These focused source results remain separate from final strict checks, compiled
+Action provenance and the joined Native/Gateway/RR/Action gate. The formatted
+production patch is approximately 700 added lines plus the small migration;
+the repeated current-authority checks account for the difference from the
+pre-implementation estimate. No separate ledger or retry scheduler was added.

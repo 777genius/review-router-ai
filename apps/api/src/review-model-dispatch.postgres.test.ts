@@ -8,6 +8,7 @@ import {
   ReviewRunCompanionDispatchFailure,
   type ReviewRunAuthorization,
   type ReviewRunCompanionDispatchClaim,
+  type ReviewRunCompanionDispatch,
 } from "@reviewrouter/features-review-run-control";
 import { PrismaReviewRunCompanionDispatchRepository } from "@reviewrouter/features-review-run-control/composition";
 import {
@@ -15,6 +16,8 @@ import {
   reviewModelDispatchCapacity128Contract,
   reviewModelDispatchCapacity128DescriptorDigest,
   reviewModelDispatchDescriptorDigest,
+  reviewModelDispatchNativeRetryContract,
+  reviewModelDispatchNativeRetryDescriptorDigest,
   reviewModelDispatchIdPreimage,
   type ReviewModelDispatchCapability,
   type ReviewModelDispatchProfile,
@@ -144,6 +147,7 @@ describe("model dispatch claim failure diagnostics", () => {
           readReceipt: reject,
           settle: reject,
           settleReceipt: reject,
+          recordNativeRejection: reject,
         },
       };
       await registerReviewModelDispatchRoutes(app, api, (event) => {
@@ -322,6 +326,7 @@ describe("authenticated frozen model dispatch capacity over HTTP", () => {
           readReceipt: unavailable,
           settle: unavailable,
           settleReceipt: unavailable,
+          recordNativeRejection: unavailable,
         },
       });
       await app.listen({ host: "127.0.0.1", port: 0 });
@@ -369,6 +374,85 @@ describe("authenticated frozen model dispatch capacity over HTTP", () => {
   );
 });
 
+it.each([false, true])(
+  "refreshes receipt readback after reconciliation and gates actionable proof on retained custody=%s",
+  async (live) => {
+    let row: ReviewRunCompanionDispatch = {
+      authorizationId: "original-auth",
+      dispatchId: `rr-model-${"a".repeat(64)}`,
+      executionId: "original-execution",
+      workSlotId: "discovery",
+      attemptOrdinal: 1,
+      leaseId: "original-lease",
+      fencingToken: 1n,
+      preparedManifestKey: "manifest",
+      providerRequestEnvelopeHash: "b".repeat(64),
+      nativeRequestRef: "original-native-request",
+      role: "finding_discovery",
+      state: "dispatch_may_have_started",
+      dispatchVersion: 2,
+      requestOrdinal: 1,
+      routeIdentityHash: "c".repeat(64),
+      requestBytes: 200,
+      maxOutputTokens: 1000,
+    };
+    let reads = 0;
+    const denied = async (): Promise<never> => {
+      throw new Error("unexpected_authority_request");
+    };
+    const app = Fastify({ logger: false });
+    await registerReviewModelDispatchRoutes(app, {
+      authorizations: { resolveReviewRunAuthorizationToken: denied },
+      checkAuthority: denied,
+      canReadNativeRetryProof: async () => live,
+      reconcileNativeProof: async () => {
+        row = {
+          ...row,
+          state: "not_dispatched",
+          nativeRetryProof: {
+            kind: "native_rejection_after_forward",
+            reason: "admission_storage_conflict",
+          },
+        };
+        return "not_dispatched";
+      },
+      admission: {
+        claim: denied,
+        forward: denied,
+        read: denied,
+        settle: denied,
+        settleReceipt: denied,
+        recordNativeRejection: denied,
+        readReceipt: async () => {
+          reads++;
+          return { ...row };
+        },
+      },
+    });
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: `${reviewModelDispatchContract.basePath}/${row.dispatchId}`,
+        headers: {
+          [reviewModelDispatchContract.receiptHeader]: "d".repeat(64),
+        },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(reads).toBe(2);
+      expect(response.json().dispatch.state).toBe("not_dispatched");
+      if (live)
+        expect(response.json().dispatch.nativeRetryProof).toEqual({
+          kind: "native_rejection_after_forward",
+          reason: "admission_storage_conflict",
+        });
+      else
+        expect(response.json().dispatch).not.toHaveProperty("nativeRetryProof");
+    } finally {
+      await app.close();
+    }
+  },
+);
+
 describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
   const fixtures: Fixture[] = [];
   afterEach(async () => {
@@ -380,6 +464,7 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
     transport: ReviewModelTransport = "runner_local_responses",
     capacity128 = false,
     frozenCapacity128 = capacity128,
+    nativeRetry = false,
   ): Promise<Fixture> {
     const prefix = `model-dispatch-test-${randomUUID()}`;
     const deadline = new Date(Date.now() + 600_000).toISOString();
@@ -392,7 +477,10 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
     };
     const budget: ReviewModelDispatchCapability = {
       ...limits,
-      ...(frozenCapacity128
+      ...(nativeRetry
+        ? { retryPolicy: reviewModelDispatchNativeRetryContract.retryPolicy }
+        : {}),
+      ...(frozenCapacity128 || nativeRetry
         ? {
             capacityPolicy:
               reviewModelDispatchCapacity128Contract.capacityPolicy,
@@ -418,12 +506,16 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
     };
     const profile: ReviewModelDispatchProfile = {
       extensionId: reviewModelDispatchContract.extensionId,
-      descriptorDigest: capacity128
-        ? reviewModelDispatchCapacity128DescriptorDigest
-        : reviewModelDispatchDescriptorDigest,
-      policyVersion: capacity128
-        ? reviewModelDispatchCapacity128Contract.policyVersion
-        : reviewModelDispatchContract.policyVersion,
+      descriptorDigest: nativeRetry
+        ? reviewModelDispatchNativeRetryDescriptorDigest
+        : capacity128
+          ? reviewModelDispatchCapacity128DescriptorDigest
+          : reviewModelDispatchDescriptorDigest,
+      policyVersion: nativeRetry
+        ? reviewModelDispatchNativeRetryContract.policyVersion
+        : capacity128
+          ? reviewModelDispatchCapacity128Contract.policyVersion
+          : reviewModelDispatchContract.policyVersion,
       transports: [transport],
       wireProtocols: [budget.wireProtocol],
       defaultAgentProfileRefs: { [transport]: "codex-default" },
@@ -497,10 +589,25 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
         runtimeSnapshotCanonicalJson,
         modelDispatchProfile: profile,
         skipInitialLease: true,
+        ...(nativeRetry ? { deadlineAt: new Date(deadline) } : {}),
       })),
       budget,
     };
     fixtures.push(result);
+    if (nativeRetry)
+      await result.prisma.reviewRunAuthorization.update({
+        where: { authorizationId: `${prefix}-auth` },
+        data: {
+          gatewayExecutionCanonicalJson: canonicalJson({
+            bindingVersion: 1,
+            operationId: "operation-1",
+            executionRef: "original-gateway-execution",
+            accountRef: "original-account",
+            authorizationEpoch: 1,
+            deadline,
+          }),
+        },
+      });
     return result;
   }
   function claim(
@@ -709,6 +816,547 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
     },
   );
 
+  async function reservedNative(
+    f: Fixture,
+    c: ReviewRunCompanionDispatchClaim,
+  ) {
+    const reservation = await f.repository.claim(c);
+    await f.repository.claim({ ...c, forwardExisting: true });
+    return reservation;
+  }
+  const nativeProof = (requestRef: string) => ({
+    kind: "request-retry-proof/v1" as const,
+    consumerId: "original-gateway-consumer",
+    executionRef: "original-gateway-execution",
+    requestRef,
+    nonEntryReason: "admission_storage_conflict" as const,
+    transportClosed: true as const,
+  });
+  const nativeSettlement = {
+    state: "not_dispatched" as const,
+    proof: "native_rejection_after_forward" as const,
+  };
+  const successor = (
+    original: ReviewRunCompanionDispatchClaim,
+    f: Fixture,
+  ) => ({
+    ...claim(original, f, original.requestOrdinal! + 1),
+    providerRequestEnvelopeHash: original.providerRequestEnvelopeHash,
+    retryOfDispatchId: original.dispatchId,
+  });
+
+  it("preserves a prior paid turn and spends exactly one concurrent fresh native successor", async () => {
+    const f = await fixture(4, "account_gateway", true, true, true);
+    const base = await f.acquireClaim(0);
+    const prior = claim(base, f);
+    const paid = await reservedNative(f, prior);
+    await f.repository.settle(
+      prior.authorizationId,
+      prior.dispatchId,
+      "completed",
+    );
+    await f.repository.settleReceipt(
+      prior.dispatchId,
+      paid.receiptToken!,
+      completed(prior, f),
+    );
+    const before =
+      await f.prisma.reviewRunCompanionDispatchV1.findUniqueOrThrow({
+        where: {
+          authorizationId_dispatchId: {
+            authorizationId: prior.authorizationId,
+            dispatchId: prior.dispatchId,
+          },
+        },
+      });
+    const original = claim(base, f, 2);
+    const rejected = await reservedNative(f, original);
+    const proof = nativeProof(rejected.dispatch.nativeRequestRef);
+    await f.repository.recordNativeRejection(
+      original.authorizationId,
+      original.dispatchId,
+      proof,
+    );
+    await f.repository.recordNativeRejection(
+      original.authorizationId,
+      original.dispatchId,
+      proof,
+    );
+    await expect(
+      f.repository.settleReceipt(original.dispatchId, rejected.receiptToken!, {
+        state: "not_dispatched",
+        proof: "local_before_forward",
+      }),
+    ).rejects.toMatchObject({ code: "model_dispatch_native_proof_required" });
+    await f.repository.settleReceipt(
+      original.dispatchId,
+      rejected.receiptToken!,
+      nativeSettlement,
+    );
+    expect(
+      await f.repository.readReceipt(
+        original.dispatchId,
+        rejected.receiptToken!,
+      ),
+    ).toMatchObject({
+      state: "not_dispatched",
+      nativeRequestRef: proof.requestRef,
+      nativeRetryProof: {
+        kind: "native_rejection_after_forward",
+        reason: "admission_storage_conflict",
+      },
+    });
+    const next = successor(original, f);
+    const results = await Promise.all([
+      f.repository.claim(next),
+      f.repository.claim(next),
+    ]);
+    expect(results.map((result) => result.status).sort()).toEqual([
+      "claimed",
+      "restored",
+    ]);
+    const fresh = results.find((result) => result.status === "claimed")!;
+    expect(fresh.dispatch.nativeRequestRef).not.toBe(
+      rejected.dispatch.nativeRequestRef,
+    );
+    expect(fresh.dispatch).toMatchObject({
+      retryOfDispatchId: original.dispatchId,
+      requestOrdinal: 3,
+    });
+    expect(
+      results.find((result) => result.status === "restored"),
+    ).not.toHaveProperty("receiptToken");
+    expect(
+      await f.repository.readReceipt(
+        original.dispatchId,
+        rejected.receiptToken!,
+      ),
+    ).not.toHaveProperty("nativeRetryProof");
+    await f.repository.claim({ ...next, forwardExisting: true });
+    await f.repository.settle(
+      next.authorizationId,
+      next.dispatchId,
+      "completed",
+    );
+    await f.repository.settleReceipt(
+      next.dispatchId,
+      fresh.receiptToken!,
+      completed(next, f),
+    );
+    const after = await f.prisma.reviewRunCompanionDispatchV1.findUniqueOrThrow(
+      {
+        where: {
+          authorizationId_dispatchId: {
+            authorizationId: prior.authorizationId,
+            dispatchId: prior.dispatchId,
+          },
+        },
+      },
+    );
+    expect(after).toEqual(before);
+    expect(
+      await f.prisma.reviewRunCompanionDispatchV1.count({
+        where: { authorizationId: original.authorizationId },
+      }),
+    ).toBe(3);
+    // Completed turns may continue normally; the rejected turn is never replayed.
+    await expect(f.repository.claim(claim(base, f, 4))).resolves.toMatchObject({
+      status: "claimed",
+    });
+    expect(
+      await f.prisma.reviewRunCompanionDispatchV1.count({
+        where: { authorizationId: original.authorizationId },
+      }),
+    ).toBe(4);
+    await expect(f.repository.claim(claim(base, f, 5))).rejects.toMatchObject({
+      code: "model_dispatch_claim_invalid",
+    });
+  });
+
+  it("rejects missing lineage and changes to the exact rejected request and route", async () => {
+    const f = await fixture(4, "account_gateway", true, true, true);
+    const original = claim(await f.acquireClaim(0), f);
+    const rejected = await reservedNative(f, original);
+    await f.repository.recordNativeRejection(
+      original.authorizationId,
+      original.dispatchId,
+      nativeProof(rejected.dispatch.nativeRequestRef),
+    );
+    const next = successor(original, f);
+    const unlinked = {
+      ...claim(original, f, 2),
+      providerRequestEnvelopeHash: original.providerRequestEnvelopeHash,
+    };
+    for (const altered of [
+      unlinked,
+      { ...unlinked, providerRequestEnvelopeHash: hash("other-wire") },
+      { ...next, providerRequestEnvelopeHash: hash("changed-wire") },
+      { ...next, routeIdentityHash: hash("changed-route") },
+      { ...next, requestBytes: next.requestBytes! + 1 },
+      { ...next, maxOutputTokens: next.maxOutputTokens! + 1 },
+      { ...next, leaseId: "foreign-lease" },
+      { ...next, fencingToken: next.fencingToken + 1n },
+      { ...next, preparedManifestKey: hash("other-manifest") },
+      { ...next, executionId: "foreign-execution" },
+      {
+        ...next,
+        retryOfDispatchId: `rr-model-${hash("foreign-predecessor")}`,
+      },
+    ])
+      await expect(f.repository.claim(altered)).rejects.toBeInstanceOf(
+        ReviewRunCompanionDispatchFailure,
+      );
+    expect(
+      await f.prisma.reviewRunCompanionDispatchV1.count({
+        where: { authorizationId: original.authorizationId },
+      }),
+    ).toBe(1);
+    await expect(f.repository.claim(next)).resolves.toMatchObject({
+      status: "claimed",
+    });
+  });
+
+  it("does not refund the original request budget", async () => {
+    const f = await fixture(1, "account_gateway", true, true, true);
+    const original = claim(await f.acquireClaim(0), f);
+    const rejected = await reservedNative(f, original);
+    await f.repository.recordNativeRejection(
+      original.authorizationId,
+      original.dispatchId,
+      nativeProof(rejected.dispatch.nativeRequestRef),
+    );
+    await expect(
+      f.repository.claim(successor(original, f)),
+    ).rejects.toMatchObject({ code: "model_dispatch_claim_invalid" });
+    expect(
+      await f.prisma.reviewRunCompanionDispatchV1.count({
+        where: { authorizationId: original.authorizationId },
+      }),
+    ).toBe(1);
+  });
+
+  it.each(["runner", "native"] as const)(
+    "never upgrades a prior %s unknown effect",
+    async (source) => {
+      const f = await fixture(4, "account_gateway", true, true, true);
+      const original = claim(await f.acquireClaim(0), f);
+      const rejected = await reservedNative(f, original);
+      if (source === "runner")
+        await f.repository.settleReceipt(
+          original.dispatchId,
+          rejected.receiptToken!,
+          { state: "effect_unknown" },
+        );
+      else
+        await f.repository.settle(
+          original.authorizationId,
+          original.dispatchId,
+          "effect_unknown",
+        );
+      await expect(
+        f.repository.recordNativeRejection(
+          original.authorizationId,
+          original.dispatchId,
+          nativeProof(rejected.dispatch.nativeRequestRef),
+        ),
+      ).rejects.toMatchObject({ code: "model_dispatch_retry_denied" });
+      await expect(
+        f.repository.settleReceipt(
+          original.dispatchId,
+          rejected.receiptToken!,
+          nativeSettlement,
+        ),
+      ).rejects.toMatchObject({
+        code: "model_dispatch_native_proof_required",
+      });
+      expect(
+        await f.repository.readReceipt(
+          original.dispatchId,
+          rejected.receiptToken!,
+        ),
+      ).not.toHaveProperty("nativeRetryProof");
+      await expect(
+        f.repository.claim(successor(original, f)),
+      ).rejects.toMatchObject({ code: "model_dispatch_effect_unresolved" });
+    },
+  );
+
+  it("requires original forwarding and immutable authenticated native scope", async () => {
+    const f = await fixture(4, "account_gateway", true, true, true);
+    const original = claim(await f.acquireClaim(0), f);
+    const rejected = await f.repository.claim(original);
+    const proof = nativeProof(rejected.dispatch.nativeRequestRef);
+    await expect(
+      f.repository.recordNativeRejection(
+        original.authorizationId,
+        original.dispatchId,
+        proof,
+      ),
+    ).rejects.toMatchObject({ code: "model_dispatch_native_proof_required" });
+    await f.repository.claim({ ...original, forwardExisting: true });
+    for (const invalid of [
+      { ...proof, requestRef: "foreign-request" },
+      { ...proof, executionRef: "foreign-execution" },
+      { ...proof, consumerId: "invalid/consumer" },
+    ])
+      await expect(
+        f.repository.recordNativeRejection(
+          original.authorizationId,
+          original.dispatchId,
+          invalid,
+        ),
+      ).rejects.toBeInstanceOf(ReviewRunCompanionDispatchFailure);
+    // The HTTP proof discriminator cannot invent a trusted server attestation.
+    await expect(
+      f.repository.settleReceipt(
+        original.dispatchId,
+        rejected.receiptToken!,
+        nativeSettlement,
+      ),
+    ).rejects.toMatchObject({ code: "model_dispatch_native_proof_required" });
+    await f.repository.recordNativeRejection(
+      original.authorizationId,
+      original.dispatchId,
+      proof,
+    );
+    await expect(
+      f.repository.recordNativeRejection(
+        original.authorizationId,
+        original.dispatchId,
+        { ...proof, consumerId: "other-consumer" },
+      ),
+    ).rejects.toMatchObject({ code: "model_dispatch_settlement_conflict" });
+  });
+
+  it.each(["expires", "released", "revision", "mutation"] as const)(
+    "hides retained proof after original authority %s",
+    async (change) => {
+      const f = await fixture(4, "account_gateway", true, true, true);
+      const original = claim(await f.acquireClaim(0), f);
+      const rejected = await reservedNative(f, original);
+      await f.repository.recordNativeRejection(
+        original.authorizationId,
+        original.dispatchId,
+        nativeProof(rejected.dispatch.nativeRequestRef),
+      );
+      if (change === "expires")
+        await f.prisma.reviewRunAuthorization.update({
+          where: { authorizationId: original.authorizationId },
+          data: {
+            createdAt: new Date(Date.now() - 60_000),
+            expiresAt: new Date(Date.now() - 1000),
+          },
+        });
+      if (change === "released") await f.releaseClaim(original);
+      if (change === "revision")
+        await f.prisma.reviewExecutionStreamV2.updateMany({
+          where: { activeExecutionId: original.executionId },
+          data: { currentHeadSha: "f".repeat(40) },
+        });
+      if (change === "mutation")
+        await f.prisma.reviewMutationAuthority.updateMany({
+          where: { scmRepositoryIdentityId: f.scope.scmRepositoryIdentityId },
+          data: { epoch: 2n },
+        });
+      const readback = await f.repository.readReceipt(
+        original.dispatchId,
+        rejected.receiptToken!,
+      );
+      expect(readback).toMatchObject({ state: "not_dispatched" });
+      expect(readback).not.toHaveProperty("nativeRetryProof");
+      await expect(
+        f.repository.claim(successor(original, f)),
+      ).rejects.toBeInstanceOf(ReviewRunCompanionDispatchFailure);
+    },
+  );
+
+  it("cannot chain successors or bypass a failed successor with a fresh root", async () => {
+    const f = await fixture(4, "account_gateway", true, true, true);
+    const original = claim(await f.acquireClaim(0), f);
+    const rejected = await reservedNative(f, original);
+    await f.repository.recordNativeRejection(
+      original.authorizationId,
+      original.dispatchId,
+      nativeProof(rejected.dispatch.nativeRequestRef),
+    );
+    const next = successor(original, f);
+    const fresh = await f.repository.claim(next);
+    // Even a truly local pre-forward failure cannot turn this successor into a root.
+    await f.repository.settleReceipt(next.dispatchId, fresh.receiptToken!, {
+      state: "not_dispatched",
+      proof: "local_before_forward",
+    });
+    await expect(
+      f.repository.recordNativeRejection(
+        next.authorizationId,
+        next.dispatchId,
+        nativeProof(fresh.dispatch.nativeRequestRef),
+      ),
+    ).rejects.toMatchObject({ code: "model_dispatch_retry_denied" });
+    await expect(f.repository.claim(successor(next, f))).rejects.toMatchObject({
+      code: "model_dispatch_retry_denied",
+    });
+    await expect(
+      f.repository.claim(claim(original, f, 3)),
+    ).rejects.toMatchObject({ code: "model_dispatch_retry_denied" });
+    await expect(
+      f.repository.claim({
+        ...claim(original, f, 3),
+        retryOfDispatchId: original.dispatchId,
+      }),
+    ).rejects.toMatchObject({ code: "model_dispatch_retry_denied" });
+    expect(
+      await f.prisma.reviewRunCompanionDispatchV1.count({
+        where: { authorizationId: original.authorizationId },
+      }),
+    ).toBe(2);
+  });
+
+  it.each([false, true])(
+    "keeps legacy/capacity128 retry disabled (capacity128=%s)",
+    async (capacity128) => {
+      const f = await fixture(4, "account_gateway", capacity128);
+      const original = claim(await f.acquireClaim(0), f);
+      const rejected = await reservedNative(f, original);
+      await expect(
+        f.repository.recordNativeRejection(
+          original.authorizationId,
+          original.dispatchId,
+          nativeProof(rejected.dispatch.nativeRequestRef),
+        ),
+      ).rejects.toMatchObject({ code: "model_dispatch_retry_denied" });
+      await expect(
+        f.repository.settleReceipt(
+          original.dispatchId,
+          rejected.receiptToken!,
+          nativeSettlement,
+        ),
+      ).rejects.toMatchObject({
+        code: "model_dispatch_native_proof_required",
+      });
+      await expect(
+        f.repository.claim(successor(original, f)),
+      ).rejects.toMatchObject({ code: "model_dispatch_claim_invalid" });
+      expect(
+        await f.repository.readReceipt(
+          original.dispatchId,
+          rejected.receiptToken!,
+        ),
+      ).not.toHaveProperty("nativeRetryProof");
+    },
+  );
+
+  it("denies a successor HTTP claim after retained original Gateway custody is lost", async () => {
+    const f = await fixture(4, "account_gateway", true, true, true);
+    const original = claim(await f.acquireClaim(0), f);
+    const rejected = await reservedNative(f, original);
+    await f.repository.recordNativeRejection(
+      original.authorizationId,
+      original.dispatchId,
+      nativeProof(rejected.dispatch.nativeRequestRef),
+    );
+    const authorization = {
+      authorizationId: original.authorizationId,
+      runtimeSnapshotCanonicalJson: f.snapshot,
+    } as ReviewRunAuthorization;
+    const unexpected = async (): Promise<never> => {
+      throw new Error("unexpected_claim_after_custody_loss");
+    };
+    const app = Fastify({ logger: false });
+    await registerReviewModelDispatchRoutes(app, {
+      authorizations: {
+        resolveReviewRunAuthorizationToken: async () => ({
+          status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+          authorization,
+        }),
+      },
+      checkAuthority: async () => true,
+      canReadNativeRetryProof: async () => false,
+      admission: {
+        claim: unexpected,
+        forward: unexpected,
+        settle: unexpected,
+        settleReceipt: unexpected,
+        recordNativeRejection: unexpected,
+        readReceipt: unexpected,
+        read: (auth, dispatchId) => f.repository.read(auth, dispatchId),
+      },
+    });
+    const next = successor(original, f);
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: reviewModelDispatchContract.claimPath,
+        headers: { authorization: "Bearer original-token" },
+        payload: {
+          dispatchVersion: 2,
+          dispatchId: next.dispatchId,
+          executionId: next.executionId,
+          workSlotId: next.workSlotId,
+          attemptOrdinal: 1,
+          requestOrdinal: next.requestOrdinal,
+          leaseId: next.leaseId,
+          leaseCapability: "original-signed-capability",
+          fencingToken: next.fencingToken.toString(),
+          preparedManifestKey: next.preparedManifestKey,
+          routeIdentityHash: next.routeIdentityHash,
+          providerRequestEnvelopeHash: next.providerRequestEnvelopeHash,
+          requestBytes: next.requestBytes,
+          maxOutputTokens: next.maxOutputTokens,
+          retryOfDispatchId: original.dispatchId,
+        },
+      });
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toEqual({
+        code: "model_dispatch_retry_denied",
+      });
+      expect(
+        await f.prisma.reviewRunCompanionDispatchV1.count({
+          where: { authorizationId: original.authorizationId },
+        }),
+      ).toBe(1);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it.each([1, 3])(
+    "keeps the auxiliary role in slot %i outside native retry",
+    async (index) => {
+      const f = await fixture(4, "account_gateway", true, true, true);
+      const target = index === 1 ? "lifecycle-1" : "description";
+      await f.prisma.reviewExecutionWorkSlotV2.updateMany({
+        where: { executionId: f.executionId, workSlotId: { not: target } },
+        data: { state: "exhausted" },
+      });
+      const original = claim(await f.acquireClaim(index), f);
+      const reservation = await reservedNative(f, original);
+      expect(reservation.dispatch.role).toBe(
+        index === 1 ? "lifecycle_verification" : "pr_description",
+      );
+      await expect(
+        f.repository.recordNativeRejection(
+          original.authorizationId,
+          original.dispatchId,
+          nativeProof(reservation.dispatch.nativeRequestRef),
+        ),
+      ).rejects.toMatchObject({ code: "model_dispatch_retry_denied" });
+      await expect(
+        f.repository.settleReceipt(
+          original.dispatchId,
+          reservation.receiptToken!,
+          nativeSettlement,
+        ),
+      ).rejects.toMatchObject({ code: "model_dispatch_native_proof_required" });
+      expect(
+        await f.repository.readReceipt(
+          original.dispatchId,
+          reservation.receiptToken!,
+        ),
+      ).not.toHaveProperty("nativeRetryProof");
+    },
+  );
+
   it("fences further paid work when terminal output usage is unknown or exceeds its accepted ceiling", async () => {
     const f = await fixture();
     const base = await f.acquireClaim(0);
@@ -732,6 +1380,7 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
         },
       );
     }
+
     expect(
       (await f.repository.readReceipt(c.dispatchId, reservation.receiptToken!))
         ?.state,

@@ -1,10 +1,12 @@
-# Production review failure fixes and bounded accepted-source recovery
+# Review failure fixes, accepted-source recovery and attested request retry
 
 - Task ID: `2026-11-27-production-review-failure-fixes`
 - Goal: respect GitHub retry boundaries, identify the failed companion settlement
   operation and preserve finite incomplete-review causes through evidence and
   publication; recover an exact accepted original finding result within its
   original authority, without replaying provider work or changing coverage.
+  Permit one fresh successor for an individually attested native admission
+  conflict within the same original model request authority and spent budget.
 - Affected services/targets: ReviewRouter API, workers and evidence readers,
   consumers of its GitHub revision-read adapter, and the public Action.
 - Implementation PR: [#1028](https://github.com/777genius/review-router-ai/pull/1028).
@@ -20,8 +22,9 @@
   and paired qualification of the later cold fixture remain pending.
   [Native #8](https://github.com/agent-teams-ai/sub2api-standalone/pull/8) and
   [Gateway #125](https://github.com/agent-teams-ai/account-gateway/pull/125) have
-  qualified the active non-entry proof producer. The corresponding RR/Action
-  retry consumer remains unpublished and must not be activated by this record.
+  qualified the active non-entry proof producer. The RR/Action consumer
+  checkpoint adds the bounded retry path; its joined compiled qualification and
+  separate ordinary producer activation remain required.
 - Last updated: `2026-11-27`.
 
 ## Environment status
@@ -39,9 +42,9 @@ not grant deployment permission.
 The release must contain the rate-wait correction and companion diagnostic
 changes from this PR. Reconcile fleet version and existing unfinished tasks
 before an authorized rollout. The published RR corrections and accepted-source
-recovery need no SQL migration, new feature flag or budget increase. Any later
-native-retry consumer checkpoint must update this record with its own additive
-migration and exact dependency/qualification order before rollout. The existing
+recovery need no SQL migration, new feature flag or budget increase. The native
+retry checkpoint additionally needs migration `000165_attested_model_request_retry`
+and the ordered dependency/qualification steps below. The existing
 quality-flags field gains three accepted values;
 this semantic contract extension requires compatible API and worker readers
 before the corresponding Action producer is activated.
@@ -82,10 +85,25 @@ Draft CI aggregation with skipped lanes is not runtime qualification.
    adopt the exact accepted source with no new provider request, dispatch,
    preparation, execution start or provider lease; the existing adoption term
    is allowed. The real old-reader compatibility gate must remain passing.
-8. Use the official protocol generator/check/export and Action bundle gates.
+8. For native retry, qualify the exact Native/Gateway proof producer and packed
+   SDK, then apply the additive migration before deploying RR readers. It adds
+   only nullable `nativeRetryProofJson` and `retryOfDispatchId` to the existing
+   dispatch table, a unique predecessor-use index and a bounded scope check.
+   Deploy the compatible RR claim/receipt/relay consumer before registering or
+   selecting `model-dispatch-policy.native-retry.v1`. Preserve the legacy and
+   capacity128 release identities and their complete contract tuples.
+9. Use the official protocol generator/check/export and Action bundle gates.
    Activate the qualified Action only after the reader-first prerequisite,
    through the separately authorized release process. Confirm healthy and
    partial reviews retain their existing progress outcomes before completion.
+10. Execute the existing joined native consumer oracle with the official Action
+    bundle and real PostgreSQL. Preserve a prior paid turn, hold the original
+    rejected request's actual close acknowledgement, and require zero RR proof
+    reads before closure. After closure require one authenticated proof read,
+    exactly one fresh successor with identical bytes/route and three charged
+    requests total. Negative proof, lost original custody, unknown effect,
+    expired authority, exhausted budget, changed body/route and further retry
+    must produce no additional native request or preparation.
 
 ## Accepted incomplete-review causes
 
@@ -113,7 +131,7 @@ Preserve secret-free evidence and actual versions separately per environment.
 
 This correction improves RR behavior and attribution. It does not prove the
 root cause of every historical 502, eliminate long GitHub quotas, qualify the
-unpublished native-retry consumer or release unknown native custody. Action
+native-retry consumer without its joined oracle or release unknown native custody. Action
 source corrections do not activate a new runtime until its generated bundle
 and release prerequisites are complete.
 
@@ -122,12 +140,36 @@ and release prerequisites are complete.
 Ordinary code rollback follows the release runbook. Once the new cause values
 are persisted, every retained API/worker rollback image must decode them; an
 older reader that rejects these values is not a compatible rollback. There is
-no SQL schema or destructive data rollback. Preserve spent dispatch claims,
+no destructive data rollback. Keep the additive retry columns/index and preserve
+immutable proof, lineage, spent dispatch claims,
 unknown effects, retained native custody, partial findings and their causes.
 
 Do not replay customer reviews or model requests to verify this change.
-A retry of the original rejected native request remains prohibited by its
-existing contract. Reconcile any partially installed fleet before resuming.
+The original rejected native request remains spent and keeps `retry.never`.
+Only a separately admitted successor may use the new immutable capability.
+Before activating it, record a rollback floor that understands the new profile
+and its receipt fields. An older server can reject a new profile; nullable SQL
+columns do not make that server a compatible reader. Roll back producers to a
+qualified old profile before removing new readers, preserve/drain original
+in-flight authority, and never translate retained native proof into legacy
+`local_before_forward`. Reconcile a partially installed fleet before resuming.
+
+## Attested request retry scope
+
+The consumer is limited to `finding_discovery` on the existing V3 single
+prepared `account_gateway` route. Other transport declarations remain available
+with their existing capacity policy; V4 allocations and auxiliary roles do not
+gain a retry. The same original prepared ExecutionClient supplies the pinned
+origin and execution bearer. Gateway enforces consumer scope; RR binds exact
+execution/request identities and stores the finite returned consumer ID only
+as provenance. No new consumer configuration, client reconstruction, authority
+renewal, preparation or scheduled wakeup is introduced for a successor.
+
+Current RR authority, original lease/fence and retained Gateway custody are
+required at receipt visibility, successor claim and forwarding. A rejected
+root cannot be relabeled as an ordinary next turn by omitting lineage. The
+original proof stays immutable, and a successor cannot acquire another retry.
+Both runner and native unknown effects remain fenced.
 
 ## Accepted original result: rollout boundary
 

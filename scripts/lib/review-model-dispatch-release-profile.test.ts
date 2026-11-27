@@ -12,6 +12,13 @@ const legacyFiles = {
   "review-agent-profile.ts":
     "6da405b0a67d717010f012ba114864a9dc1f69534062a9bb98e4729742ffa190",
 };
+const capacityFiles = {
+  "review-model-dispatch-contract.ts":
+    "0b89d16e3c7f8049a42f114b9984730264be69745081f2ee1eef29c39a13728e",
+  "review-model-route-policy.ts":
+    "1b240b3662714b03445092c74bdd31028a3360331ad95848573bf724c5aad115",
+  "review-agent-profile.ts": legacyFiles["review-agent-profile.ts"],
+};
 const generatedFiles = Object.fromEntries(
   Object.keys(legacyFiles).map((name) => [
     name,
@@ -62,6 +69,12 @@ const capacityProfile = {
   policyVersion: "model-dispatch-policy.capacity128.v1",
   limits: { ...legacyProfile.limits, maxRequests: 128 },
 };
+const nativeProfile = {
+  ...capacityProfile,
+  descriptorDigest:
+    "sha256:00bde3897762c23761f76c8ea9e7b8ef9fb97e4299d31d47b5acbaf3ad1fa530",
+  policyVersion: "model-dispatch-policy.native-retry.v1",
+};
 
 describe("complete policy-bound model dispatch release source tuples", () => {
   it("preserves legacy bytes only for their original policy and 32 allowance", () => {
@@ -88,7 +101,7 @@ describe("complete policy-bound model dispatch release source tuples", () => {
     ).toThrow();
   });
 
-  it.each([legacyProfile, capacityProfile])(
+  it.each([legacyProfile, capacityProfile, nativeProfile])(
     "accepts a known policy only with the complete reviewed new generated tuple: $policyVersion",
     (profile) => {
       expect(
@@ -96,6 +109,23 @@ describe("complete policy-bound model dispatch release source tuples", () => {
       ).toEqual(profile);
     },
   );
+
+  it("never gives retained legacy/capacity128 contract bytes native retry authority", () => {
+    for (const files of [legacyFiles, capacityFiles])
+      expect(() =>
+        bindModelDispatchReleaseProfile(nativeProfile, files, agentProfiles),
+      ).toThrow("no reviewed contract binding");
+    expect(
+      bindModelDispatchReleaseProfile(
+        capacityProfile,
+        capacityFiles,
+        agentProfiles,
+      ),
+    ).toEqual(capacityProfile);
+    expect(generatedFiles["review-model-dispatch-contract.ts"]).toBe(
+      "73e6f7803369d141e53d257757859784783f2886d43c2acdbe9c8802b61c27af",
+    );
+  });
 
   it("rejects legacy/new file mixing rather than independently allowlisting files", () => {
     const differing = (

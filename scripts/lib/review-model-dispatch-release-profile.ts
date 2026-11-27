@@ -3,6 +3,7 @@ import {
   parseReviewModelDispatchProfile,
   reviewModelDispatchContract,
   reviewModelDispatchCapacity128Contract,
+  reviewModelDispatchNativeRetryContract,
 } from "../../packages/shared/dist/review-model-dispatch-contract.js";
 import { assertReviewModelDispatchDefaultAgents } from "../../packages/shared/dist/review-model-dispatch-default-agents.js";
 
@@ -26,6 +27,15 @@ const capacity128ContractDigests = Object.freeze({
   "review-agent-profile.ts":
     "6da405b0a67d717010f012ba114864a9dc1f69534062a9bb98e4729742ffa190",
 });
+// Exact official generated/exported tuple for the additive native proof.
+const nativeRetryContractDigests = Object.freeze({
+  "review-model-dispatch-contract.ts":
+    "73e6f7803369d141e53d257757859784783f2886d43c2acdbe9c8802b61c27af",
+  "review-model-route-policy.ts":
+    "1b240b3662714b03445092c74bdd31028a3360331ad95848573bf724c5aad115",
+  "review-agent-profile.ts":
+    "6da405b0a67d717010f012ba114864a9dc1f69534062a9bb98e4729742ffa190",
+});
 const supportedBindings = [
   {
     files: legacyContractDigests,
@@ -36,6 +46,14 @@ const supportedBindings = [
     policies: [
       reviewModelDispatchContract.policyVersion,
       reviewModelDispatchCapacity128Contract.policyVersion,
+    ],
+  },
+  {
+    files: nativeRetryContractDigests,
+    policies: [
+      reviewModelDispatchContract.policyVersion,
+      reviewModelDispatchCapacity128Contract.policyVersion,
+      reviewModelDispatchNativeRetryContract.policyVersion,
     ],
   },
 ] as const;
