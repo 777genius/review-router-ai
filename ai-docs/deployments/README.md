@@ -104,6 +104,7 @@ Repositories page without a reload after setup confirmations: [the repository ro
 
 - [Relay stale close capability recovery](2026-11-27-relay-stale-close-capability.md): exact pre-expiry retry after a definite 401; production installed on `6271ebe1`, live recovery verification and staging pending.
 - [PostgreSQL automatic restart deferral](2026-11-27-postgresql-maintenance-deferral.md): production override installed; actual unattended-upgrade observation and staging pending.
+- [Unconfirmed webhook acknowledgement](2026-11-27-webhook-unconfirmed-delivery.md): do not acknowledge an unfinished delivery as successfully processed; staging and production pending.
 - [Relay close and pressure-batch diagnostics](2026-11-22-relay-close-diagnostics.md): #962 preparation observations plus an aggregate continuation; API observability is pending staging and production rollout.
 
 Bound close-authority database work and drain restored closes on shutdown: [relay close authority bounds](2026-11-23-relay-close-authority-bounds.md) - API-only, depends on #970 and #988; staging `pending`, production `installed` on `f20a75ed`, with live verification pending. Limits close-authority phases, not all DB traffic or tenant fairness.
