@@ -65,7 +65,7 @@ Observed from live GitHub on 2026-11-27, not inferred from old conversation stat
 | #1017, `42d2cf28`                                 | Merged during qualification | Preserve the Gateway management ingress and deployment evidence from current main; no duplicate implementation.                                                                                                                                         |
 | #1022, `ef062a48`                                 | Merged during final review  | Preserve the bounded stale-close capability recovery from main; qualify its interaction with catalog outages without replaying inference or extending expired authority.                                                                                |
 | #1026, `78ed993e8603aa254ee5022b43564845aa11e540` | Open                        | Adapt only its exact-processed acknowledgement semantics to our conflict-safe transactional repository. Keep `createMany(skipDuplicates)` and exact failed reclaim; no takeover or old `create`/P2002 path.                                             |
-| #1027, `ec6f66a1fe0063e8bca0263486cc76457c9324a2` | Draft                       | Incomplete owner/generation/lease recovery remains excluded. Its separate `000165_webhook_effect_fence` would change our checksum-bound checkout172 tail; no migration or handler integration is absorbed.                                              |
+| #1027, `7b536d6cd8ba4defad94035c42068abd3c5cd8fc` | Draft                       | Incomplete owner/generation/lease recovery remains excluded. Its separate `000165_webhook_effect_fence` would change our checksum-bound checkout172 tail; no migration or handler integration is absorbed.                                              |
 | #1010, `c31ab0b8`                                 | Draft                       | Shared Identity/SCM plans own future identity/session/account migration.                                                                                                                                                                                |
 | #474, `f4523cae`                                  | Draft                       | Offline custody envelope rebind and PG17 cutover remain separately owned.                                                                                                                                                                               |
 | #1002, `021c7828`                                 | Draft                       | Full-root Markdown-reference adoption is not part of this PR.                                                                                                                                                                                           |
@@ -84,12 +84,13 @@ for this Draft. PR #1021 had zero reviews, inline comments and review threads;
 its two discussion comments reported Draft-review skipping and runner waiting,
 not code findings. No bot action or unrelated merge follows from those comments.
 
-The later live read confirmed unchanged main and #1026. Draft #1027 advanced to
-`ec6f66a1fe0063e8bca0263486cc76457c9324a2`: five commits after `e906d08c`,
-20 changed paths and eight overlapping transaction-adapter/export paths. Its new
-installation/repository/setup/composite prototypes are not route-wired; composite
-finalization and failure recovery remain incomplete. The fencing protocol and its
-migration stay excluded. This observation changes neither our source nor rollout.
+The 09:15 UTC read found main and #1026 unchanged. Draft #1027 had advanced to
+`7b536d6cd8ba4defad94035c42068abd3c5cd8fc`. Its later changes route several
+installation, personal-workspace, repository/GitLab inventory and workspace-setting
+writers through its new epoch protocol; subsequent work adds retry-budget and
+App-identity binding. That protocol and its colliding migration165 remain excluded.
+They are neither imported nor qualified by this Draft. No source integration or
+rollout follows from this overlap observation.
 
 ## 3. Source findings and acceptance contracts
 
@@ -652,16 +653,16 @@ The peer's 181 isolated tests and reported production installation of `6271ebe1`
 remain attributed in the unchanged peer record. They are not qualification or
 deployment of this Draft. No production operation was performed in this task.
 
-| Qualification                              | Actual result and source                                                                                                                                                                                                            | Remaining boundary                                                                                                                                                                             |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Public catalog HTTP and provider-key route | On `e6095e3e`, 18/18 passed, zero skips, including the corrected unfinished ServerResponse close assertion.                                                                                                                         | Real loopback response ownership and the existing 256 KiB route envelope.                                                                                                                      |
-| Migration source admission                 | 382/382 cumulatively across seven complete files, zero skips: six files/252 cases on `e6095e3e`, then the unchanged private-rehearsal unit file/130 cases on `f1ccb8cb`.                                                            | Source/catalog validation only; this is not a live PostgreSQL upgrade, Docker rehearsal or release approval. Earlier 14 reader/partition and three syntax checks are separate evidence.        |
-| Native relay / snapshot                    | On `f1ccb8cb`, full relay189 plus snapshot91 passed: 280/280, zero skips.                                                                                                                                                           | Includes the main binding guard and combined catalog-outage/401 close case; no production model inference was needed.                                                                          |
-| Webhook unit/HTTP/adapters                 | On the late acknowledgement source, all ten complete files passed 122/122, zero skips, including all 13 repository cases.                                                                                                           | Fresh/retry paths avoid the extra read; only exact processed duplicates acknowledge.                                                                                                           |
-| Actual webhook database boundaries         | On the same late source, PostgreSQL 17.10 applied all 172 migrations and passed 27 atomicity plus one COMMIT-loss case: 28/28, zero skips.                                                                                          | Real signed HTTP, unchanged receipt/effect transactions, historical uncertainty, identity rejection and exact processed duplicates. No takeover or production redelivery.                      |
-| Installer fixture cleanup                  | On `f1ccb8cb` plus the cleanup patch, all 63 original cases passed, zero skips, in 46.724s. A separate forced shlock exit17 produced the expected original assertion failure; its child was already dead before supervisor cleanup. | Local Node 24.22.3/Vitest 4.1.10 with original forks configuration. The diagnostic selected one case; the other 62 were deliberately not selected. This does not resolve the older CI timeout. |
-| Late source checks                         | On `e6095e3e`, 12 late JS/TS files passed ESLint/Prettier and incoming shell passed `bash -n`. The five late acknowledgement/fixture files also passed canonical formatting and ESLint.                                             | No lint warnings/errors; complete original strict projects and authoritative CI remain separate.                                                                                               |
-| Usage fixture correction                   | On unchanged `f1ccb8cb` Usage/DB sources, all 20 tests passed against disposable PostgreSQL 17.10, zero skips, in 32.027s. The opt-in SQL qualification passed its six bounded-plan scenarios.                                      | Those six scenarios are included in the 20 tests, not additional tests. Full report equality and the exact four-line #1015 correction remain intact; the CI PostgreSQL 17.5 gate is separate.  |
+| Qualification                              | Actual result and source                                                                                                                                                                                                                                                                                                            | Remaining boundary                                                                                                                                                                                                                                              |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Public catalog HTTP and provider-key route | On `e6095e3e`, 18/18 passed, zero skips, including the corrected unfinished ServerResponse close assertion.                                                                                                                                                                                                                         | Real loopback response ownership and the existing 256 KiB route envelope.                                                                                                                                                                                       |
+| Migration source admission                 | 382/382 cumulatively across seven complete files, zero skips: six files/252 cases on `e6095e3e`, then the unchanged private-rehearsal unit file/130 cases on `f1ccb8cb`.                                                                                                                                                            | Source/catalog validation only; this is not a live PostgreSQL upgrade, Docker rehearsal or release approval. Earlier 14 reader/partition and three syntax checks are separate evidence.                                                                         |
+| Native relay / snapshot                    | On `f1ccb8cb`, full relay189 plus snapshot91 passed: 280/280, zero skips.                                                                                                                                                                                                                                                           | Includes the main binding guard and combined catalog-outage/401 close case; no production model inference was needed.                                                                                                                                           |
+| Webhook unit/HTTP/adapters                 | On the late acknowledgement source, all ten complete files passed 122/122, zero skips, including all 13 repository cases.                                                                                                                                                                                                           | Fresh/retry paths avoid the extra read; only exact processed duplicates acknowledge.                                                                                                                                                                            |
+| Actual webhook database boundaries         | On the same late source, PostgreSQL 17.10 applied all 172 migrations and passed 27 atomicity plus one COMMIT-loss case: 28/28, zero skips.                                                                                                                                                                                          | Real signed HTTP, unchanged receipt/effect transactions, historical uncertainty, identity rejection and exact processed duplicates. No takeover or production redelivery.                                                                                       |
+| Installer fixture cleanup                  | On `f1ccb8cb` plus the cleanup patch, all 63 original cases passed, zero skips, in 46.724s. A separate forced shlock exit17 produced the expected original assertion failure; its child was already dead before supervisor cleanup. The same whole file passed 63/63 on clean `474b599b` under Node 26.11.1 in 49.578s, zero skips. | Original cleanup/fault proof: Node 24.22.3/Vitest 4.1.10; repeat on clean `474b599b`: Node 26.11.1. Original forks configuration and deadlines remain unchanged. The diagnostic selected only one case; it does not diagnose or pass the historical CI timeout. |
+| Late source checks                         | On `e6095e3e`, 12 late JS/TS files passed ESLint/Prettier and incoming shell passed `bash -n`. The five late acknowledgement/fixture files also passed canonical formatting and ESLint.                                                                                                                                             | No lint warnings/errors; complete original strict projects and authoritative CI remain separate.                                                                                                                                                                |
+| Usage fixture correction                   | On unchanged `f1ccb8cb` Usage/DB sources, all 20 tests passed against disposable PostgreSQL 17.10, zero skips, in 32.027s. The opt-in SQL qualification passed its six bounded-plan scenarios.                                                                                                                                      | Those six scenarios are included in the 20 tests, not additional tests. Full report equality and the exact four-line #1015 correction remain intact; the CI PostgreSQL 17.5 gate is separate.                                                                   |
 
 The first actual webhook run on `f1ccb8cb` passed 23/24 cases, including COMMIT
 loss, but failed while inserting an invalid fixture requirement
@@ -722,9 +723,13 @@ Two full Web strict attempts were killed by SIGKILL without a TypeScript
 diagnostic. The second used the native runtime's supported `GOGC=25` scheduling
 and retained the same complete project and single checker. Its GC trace recorded
 1,833 MB of live heap before termination; this does not establish the external
-signal's cause. Local Web profile trials stopped. Complete Web strict and the
-final fresh 60-configuration graph remain pending authoritative qualification.
-No include set, type-checking option, assertion or deadline was weakened.
+signal's cause. Those attempts remain unsuccessful. The complete original
+strict graph subsequently passed all 60 configurations, including full Web, on
+clean `474b599b611b32edf79f099dcce00b7fd7a8787b` in 256.006s. The 56 Turbo tasks
+all executed with zero cache hits; the three trailing configurations and shared
+build also passed. All 4,502 tracked non-Markdown inputs were unchanged. Native
+TypeScript remained 7.0.2; no include set, checking option, assertion or deadline
+was weakened. See `full-typecheck-474-recovery-20261127-coverage.json`.
 
 Whole-repository ESLint passed on the source recorded in
 `qualification-final-static.json`. Foundation's existing ownership map now
@@ -740,8 +745,11 @@ The complete architecture command then passed every boundary stage, including
 layout, before its final metadata typecheck found two missing React type hoists
 in the relocated environment. Restoring the two existing private bindings from
 the frozen install metadata preserved all package versions and configuration;
-the unchanged `metadata:typecheck` passed. A clean complete architecture command
-remains to be recorded. Whole-repository Prettier subsequently passed with a
+the unchanged `metadata:typecheck` passed. The full original architecture command
+subsequently passed in 193.896s on clean `1adc3da5`, whose tree is identical to
+published `474b599b611b32edf79f099dcce00b7fd7a8787b`. Its command log survives;
+the original receipt JSON was lost during the executor reset. This complete
+command result is separate from the earlier component-only successes. Whole-repository Prettier subsequently passed with a
 512 MiB formatter heap, and both final worker/Web files passed ESLint. The earlier
 formatter attempt at 192 MiB exhausted its artificial heap limit and is not a pass.
 
@@ -759,19 +767,62 @@ Manual full CI `45937669312` (`29cbbe54`), `45940187687` (`e6095e3e`) and
 The older Linux installer job `140316711863` reached Vitest and exceeded its
 10-minute job limit; the official annotation confirms that boundary, not a
 testcase or narrower cause. The local precollection SIGKILL did not reproduce
-that timeout, and the later 63-case pass qualifies the cleanup patch locally,
-not the historical job or CI Node 26.11.1. Workflow conditions and deadlines are
-unchanged. Full CI and dedicated PG17 qualification on the corrected published
-source remain required, separately from any aggregate status.
+that timeout. The later clean-`474b599b` Node 26.11.1 run passed all 63 cases in
+49.578s, with zero skips, unchanged source hashes and no remaining child process.
+Neither it nor the earlier cleanup-patch run changes the historical job's
+cancelled outcome. Earlier runs bind only to their recorded older heads.
+Full CI `45963536826` and Native `45963033128` bind to `474b599b` and must be
+reported from their own actual results. Workflow conditions and deadlines remain
+unchanged. Final-source full CI, dedicated PG17 and Native qualification remain
+required, separately from any aggregate status.
+
+### Canonical Action artifact correction
+
+Source/Certification job `140316712053` on old `29cbbe54` exposed a real stale
+`conflict-runtime.cjs`. The unchanged byte-parity check reproduced that failure
+on `474b599b`. Rebuilding in the external local pnpm layout also exposed an
+environment-only Codex wrapper-path difference; that output was discarded.
+A first isolated dependency copy stopped with SIGKILL before building and remains
+an unsuccessful preparation attempt. A fresh normal frozen install on the same
+filesystem as the pnpm store used ordinary hard links and completed successfully.
+
+On an isolated checkout of exact `474b599b`, with normal `node_modules/.pnpm`,
+the original `pnpm action:build` passed in 9.433s and
+`pnpm action:artifact:check:smoke` passed in 10.317s under Node 26.11.1. The pinned
+SDK's 3,136 dist files were verified in both consumers; Prisma 7.9.0 was generated
+through the unchanged offline guard in a verified network namespace without
+egress. All 5,034 tracked files remained unchanged except `conflict-runtime.cjs`.
+Codex `index.cjs`, its archive/manifest, dependency pins, builders and checkers
+are byte-identical to the published source.
+
+The corrected artifact is SHA256
+`9123033425b72b4e9df8a6b5352c2e4dd7cc0e3d83c93ed2c8fd462226505dab`.
+Independent review found only 88 changed bytes in 71 unused minified declaration
+identifiers: restoring those tokens recovers the preceding artifact byte for byte.
+No string, operation, branch, request, error or authorization behavior changed.
+Both complete CLI/workflow test files passed 5/5 with zero skips in 3.427s. The CLI
+test actually executes the standalone bundle without workspace dependencies and
+checks fail-closed preflight and intentional stale-byte rejection. Evidence is
+`action-canonical-qualification-474.json` and `action-canonical-behavior-474.json`.
+This generated correction requires its own published-source CI; the local smoke
+does not claim a binary release or replace the complete Source/Certification job.
+
+An additional independent review of the ten late runtime/type/fixture files found
+no critical regression. It specifically preserved child exit/error ownership,
+the timer's original deadline, raw-query typing, exact processed acknowledgement,
+bounded transaction retry, and the original fixture assertions. The generated
+artifact received the separate review above. Remaining CI findings are evaluated
+against their actual source; older already-corrected diagnostics are not new bugs.
 
 ### Remaining qualification and review gates
 
 1. Preserve the executed G280, I28/122, Usage20, installer63 and migration382
    source bindings when publishing the late patch. Rerun affected boundaries if
    those sources change; earlier counts do not qualify a different implementation.
-2. Run original strict TS7 owner projects, changed-file preflight and the applicable
-   lint/architecture/format gates. Use one heavy process at a time within the local
-   environment. Resource-killed processes and skipped tests are not passes.
+2. Preserve the clean-`474b599b` full-60 result and same-tree whole architecture
+   result; finish each still-unqualified required boundary and rerun affected
+   checks when its source or inputs change. Use one heavy local process at a time.
+   Resource-killed processes and skipped tests remain unsuccessful attempts.
 3. Repeat independent implementation review, resolve concrete critical findings
    and rerun the affected tests. Preserve unknown commit/effect and replay fences.
 4. Reconcile live main/open PRs and wait for authoritative checks on the final

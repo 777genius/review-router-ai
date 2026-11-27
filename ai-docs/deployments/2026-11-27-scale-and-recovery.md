@@ -10,9 +10,11 @@
   latest-row readers `d86e501a7c63e748596f4983d336d86868fe5f3f`;
   native catalog and webhook `dc9f0cd8cae93fff46044a4a8e2c4b2ac4b1c222`.
   The published integration checkpoint is
-  `f1ccb8cb60f3ee9aaf11a49cbb793fcaf62de60f`; later local results below identify
-  their additional fixture/acknowledgement source. These references establish
-  source only; no merge of this Draft into main, release or installation is claimed.
+  `474b599b611b32edf79f099dcce00b7fd7a8787b`, tree
+  `d7639a12a99dd61367a4bc05a4ca28ed0fc0b846`; the generated artifact correction
+  below is qualified separately. Earlier checkpoint and patch-source results
+  retain their original bindings. This Draft has not been merged into main,
+  released or installed.
 - Final main dependency: preserve the merged stale-close capability correction
   `ef062a4828ab96aa8199ca2710328c9644da96af` and its
   [separate deployment record](2026-11-27-relay-stale-close-capability.md).
@@ -23,11 +25,12 @@
 - Later overlap review: adapt only acknowledgement semantics from open
   [#1026](https://github.com/777genius/review-router-ai/pull/1026) at
   `78ed993e8603aa254ee5022b43564845aa11e540`, preserving our conflict-safe
-  transaction. Draft #1027 now has head
-  `ec6f66a1fe0063e8bca0263486cc76457c9324a2`; its five later commits overlap eight
-  transaction-adapter/export paths, but the new composite prototypes remain
-  unrouted and incomplete. Its fencing/takeover and separate migration165 stay
-  excluded. Main `fa690ad6ffc7769cbaa0ee80a5e18414eef1249d` adds only three
+  transaction. At 09:15 UTC Draft #1027 had head
+  `7b536d6cd8ba4defad94035c42068abd3c5cd8fc`; its later changes route existing
+  installation, personal-workspace, repository/GitLab inventory and workspace-setting
+  writers through its new epoch protocol, with retry-budget and App-identity
+  binding work. That protocol and its separate migration165 remain excluded;
+  this Draft neither imports nor qualifies them. Main `fa690ad6ffc7769cbaa0ee80a5e18414eef1249d` adds only three
   operations/deployment documents and a PostgreSQL needrestart override after
   `d84feba7`; no application/migration/CI integration is needed for those changes.
 - Dependencies: preserve the already merged
@@ -62,9 +65,11 @@ flag, provider protocol, customer configuration or credential migration.
 | Accounts/HTTP                       | Optional enrichment shares a bounded window before final authorization; rejected body resources close.                                      | Three-second optional remote window, four row enrichments per page; neither a total render SLA nor a process-wide cap. Provider-key envelope remains 256 KiB.        |
 
 Read the [implementation plan](../plans/2026-11-27-scale-and-recovery.md) for
-acceptance contracts and the excluded open-PR ownership. Local failure/recovery
-qualification is recorded below; complete original strict projects and full CI
-remain unfinished. Do not infer release approval from a local checkpoint.
+acceptance contracts and the excluded open-PR ownership. All 60 original strict
+configurations passed on clean `474b599b` in 256.006s; the whole architecture
+command passed in 193.896s on the identical `1adc3da5` tree. Authoritative CI and
+Native E2E retain their separate source requirements. Local qualification is not
+release approval.
 
 ## Additive database migrations
 
@@ -108,21 +113,21 @@ the earlier fresh-cluster migration pass alone does not qualify every release ga
 
 ## Verification and completion
 
-| Local evidence                                      | Observed result                                                                                                                                                                                                                      | Exact limit of the evidence                                                                                                                                                                                             |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Worker ownership, shutdown, completion, GitHub HTTP | 227 focused tests passed after one duplicate-ID fixture correction.                                                                                                                                                                  | Local transport/process fixtures, no customer GitHub mutations.                                                                                                                                                         |
-| Runtime SQL plus worker/SQL integration             | 9 actual PostgreSQL 17.10 tests passed.                                                                                                                                                                                              | Server cancellation, lock wait, disconnect and subsequent pool recovery; no throughput SLA.                                                                                                                             |
-| Accounts enrichment and final fences                | After the timer correction, all 11 complete files passed again: 155/155, zero skips, in 9.511s; actual SDK/HTTP 100-account stall/recovery remains covered.                                                                          | Fresh source-bound receipt preserves identical before/after hashes. Final local authorization remains mandatory beyond the optional remote budget.                                                                      |
-| Latest-row readers and migrations                   | 16 tests passed; full 172 migrations applied, including both new indexes.                                                                                                                                                            | Driver SQL/rows, tenant and empty cases, ordering and real concurrent snapshot. Timings are synthetic.                                                                                                                  |
-| Migration source admission                          | 382/382 cumulatively across seven complete files, zero skips: 252 on `e6095e3e` plus unchanged private-rehearsal unit file130 on `f1ccb8cb`.                                                                                         | Source/catalog validation, not a live PG upgrade or private Docker rehearsal. Full release gates remain separate; original assertions/configs retained.                                                                 |
-| HTTP catalog body and provider-key envelope         | On `e6095e3e`, all 18 tests passed without skips, including the corrected unfinished-response close assertion.                                                                                                                       | Real loopback transport recovery and the existing 256 KiB request limit.                                                                                                                                                |
-| Native catalog                                      | On `f1ccb8cb`, both complete files passed: relay189 plus snapshot91, 280/280 with zero skips.                                                                                                                                        | Includes the main binding guard and catalog-outage/401 close interaction; no paid-model or production inference qualification is claimed.                                                                               |
-| Atomic webhook and exact acknowledgement            | On the late source, 122/122 unit/HTTP/adapter cases in ten files passed, including repository13; PostgreSQL 17.10 passed atomicity27 plus COMMIT-loss1, 28/28 with zero skips.                                                       | Full 172-migration schema; historical uncertainty and mismatched identity are rejected, exact processed duplicates acknowledge without repeated effects. No recovery lease or production redelivery.                    |
-| Usage fixture correction                            | On unchanged `f1ccb8cb` Usage/DB source, all 20 tests passed on PostgreSQL 17.10, zero skips; opt-in SQL qualification passed six bounded-plan scenarios.                                                                            | The six scenarios are included in those 20 tests. Exact four-line #1015 correction and full report equality retained; CI PG17.5 remains separate.                                                                       |
-| Installer fixture cleanup                           | On `f1ccb8cb` plus the cleanup patch, the original full file passed 63/63, zero skips, in 46.724s. Forced shlock exit17 separately failed the original assertion as expected, with the child already dead before supervisor cleanup. | Node 24.22.3/Vitest 4.1.10, original forks configuration and deadlines. The diagnostic deliberately selected only one case; no remaining child in either run. This is not a diagnosis or pass for the older CI timeout. |
-| Late source checks                                  | On `e6095e3e`, 12 late JS/TS files passed ESLint/Prettier and shell syntax passed. The five later acknowledgement/fixture files also passed canonical formatting and ESLint.                                                         | Zero lint warnings/errors; complete original strict projects and CI remain separate.                                                                                                                                    |
-| Late strict corrections and affected regressions    | Original GitHub-installations, review-config and worker strict projects passed; the corrected snapshot file passed 91/91 again and all three shutdown cases passed.                                                                  | Repeated affected cases are not additional totals. Full Web strict was interrupted by SIGKILL; complete Web strict and the final fresh 60-configuration graph remain pending.                                           |
-| Native browser and authoritative CI                 | Native run45937901453 failed at full Web TypeScript preflight; every browser/screenshot/flow/visibility step was skipped. Three full CI runs remain pending.                                                                         | No browser E2E result exists from that run. Queued/running/skipped or resource-killed checks are not successful completion.                                                                                             |
+| Local evidence                                      | Observed result                                                                                                                                                                                                                                                                                                                      | Exact limit of the evidence                                                                                                                                                                                                                                     |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Worker ownership, shutdown, completion, GitHub HTTP | 227 focused tests passed after one duplicate-ID fixture correction.                                                                                                                                                                                                                                                                  | Local transport/process fixtures, no customer GitHub mutations.                                                                                                                                                                                                 |
+| Runtime SQL plus worker/SQL integration             | 9 actual PostgreSQL 17.10 tests passed.                                                                                                                                                                                                                                                                                              | Server cancellation, lock wait, disconnect and subsequent pool recovery; no throughput SLA.                                                                                                                                                                     |
+| Accounts enrichment and final fences                | After the timer correction, all 11 complete files passed again: 155/155, zero skips, in 9.511s; actual SDK/HTTP 100-account stall/recovery remains covered.                                                                                                                                                                          | Fresh source-bound receipt preserves identical before/after hashes. Final local authorization remains mandatory beyond the optional remote budget.                                                                                                              |
+| Latest-row readers and migrations                   | 16 tests passed; full 172 migrations applied, including both new indexes.                                                                                                                                                                                                                                                            | Driver SQL/rows, tenant and empty cases, ordering and real concurrent snapshot. Timings are synthetic.                                                                                                                                                          |
+| Migration source admission                          | 382/382 cumulatively across seven complete files, zero skips: 252 on `e6095e3e` plus unchanged private-rehearsal unit file130 on `f1ccb8cb`.                                                                                                                                                                                         | Source/catalog validation, not a live PG upgrade or private Docker rehearsal. Full release gates remain separate; original assertions/configs retained.                                                                                                         |
+| HTTP catalog body and provider-key envelope         | On `e6095e3e`, all 18 tests passed without skips, including the corrected unfinished-response close assertion.                                                                                                                                                                                                                       | Real loopback transport recovery and the existing 256 KiB request limit.                                                                                                                                                                                        |
+| Native catalog                                      | On `f1ccb8cb`, both complete files passed: relay189 plus snapshot91, 280/280 with zero skips.                                                                                                                                                                                                                                        | Includes the main binding guard and catalog-outage/401 close interaction; no paid-model or production inference qualification is claimed.                                                                                                                       |
+| Atomic webhook and exact acknowledgement            | On the late source, 122/122 unit/HTTP/adapter cases in ten files passed, including repository13; PostgreSQL 17.10 passed atomicity27 plus COMMIT-loss1, 28/28 with zero skips.                                                                                                                                                       | Full 172-migration schema; historical uncertainty and mismatched identity are rejected, exact processed duplicates acknowledge without repeated effects. No recovery lease or production redelivery.                                                            |
+| Usage fixture correction                            | On unchanged `f1ccb8cb` Usage/DB source, all 20 tests passed on PostgreSQL 17.10, zero skips; opt-in SQL qualification passed six bounded-plan scenarios.                                                                                                                                                                            | The six scenarios are included in those 20 tests. Exact four-line #1015 correction and full report equality retained; CI PG17.5 remains separate.                                                                                                               |
+| Installer fixture cleanup                           | On `f1ccb8cb` plus the cleanup patch, the original full file passed 63/63, zero skips, in 46.724s. Forced shlock exit17 separately failed the original assertion as expected, with the child already dead before supervisor cleanup. The same whole file passed 63/63 on clean `474b599b` under Node 26.11.1 in 49.578s, zero skips. | Original cleanup/fault proof: Node 24.22.3/Vitest 4.1.10; repeat on clean `474b599b`: Node 26.11.1. Original forks configuration and deadlines remain unchanged. The diagnostic selected only one case; it does not diagnose or pass the historical CI timeout. |
+| Late source checks                                  | On `e6095e3e`, 12 late JS/TS files passed ESLint/Prettier and shell syntax passed. The five later acknowledgement/fixture files also passed canonical formatting and ESLint.                                                                                                                                                         | Zero lint warnings/errors; complete original strict projects and CI remain separate.                                                                                                                                                                            |
+| Late strict corrections and affected regressions    | Original GitHub-installations, review-config and worker strict projects passed; the corrected snapshot file passed 91/91 again and all three shutdown cases passed.                                                                                                                                                                  | All 60 original strict configurations, including full Web, subsequently passed on clean `474b599b` in 256.006s. Earlier failed/killed attempts remain separate; repeated snapshot/shutdown cases are not additional totals.                                     |
+| Native browser and authoritative CI                 | Native run45937901453 failed Web preflight on old `29cbbe54`; every browser/flow/visibility step was skipped. Full CI45963536826 and Native45963033128 bind separately to `474b599b`; the artifact correction needs its own final-source checks.                                                                                     | No browser E2E result exists from that run. Queued/running/skipped or resource-killed checks are not successful completion.                                                                                                                                     |
 
 The first real webhook run passed 23/24, including COMMIT loss, but rejected an
 invalid fixture requirement `account_gateway+codex` under the unchanged database
@@ -159,9 +164,12 @@ Snapshot91 repeated successfully on reader blob
 `f431f9f6a02506a8b8fff158768290187daca48f`. Web timer blob
 `f72c9c83545020ff816374fb7d4b908576d2f43c` has independent source review and a fresh
 155/155 pass across all 11 Accounts files in 9.511s, with zero skips and unchanged
-source hashes in `qualification-j-account-enrichment-f1.json`. The first full Web
-strict attempt was interrupted by SIGKILL without a TypeScript diagnostic;
-complete Web strict and the fresh full graph remain pending.
+source hashes in `qualification-j-account-enrichment-f1.json`. Earlier full Web
+attempts were interrupted by SIGKILL without a TypeScript diagnostic. The complete
+original 60-configuration strict graph subsequently passed on clean
+`474b599b611b32edf79f099dcce00b7fd7a8787b` in 256.006s, including full Web.
+It used native TypeScript 7.0.2, zero cache hits and unchanged 4,502 tracked
+non-Markdown inputs. The successful run does not change the earlier outcomes.
 
 Whole-repository ESLint passed on the recorded late source. Foundation and
 DEV_ONLY checks passed after classifying the adjacent public-catalog HTTP test
@@ -173,8 +181,10 @@ passed at 07:38:21 UTC. No guard, pin or local-mode policy changed. The complete
 architecture command subsequently passed all boundary phases, including the
 23 Memory and six Statistics cases. Its final metadata typecheck exposed two
 missing declared React type hoists in the relocated environment. After restoring
-those exact bindings, the unchanged metadata typecheck passed. A clean complete
-architecture invocation remains pending. Whole-repository Prettier and the final
+those exact bindings, the unchanged metadata typecheck passed. The full original
+architecture command subsequently passed in 193.896s on clean `1adc3da5`, with the
+same tree as published `474b599b`. Its command log survives, but the original JSON
+receipt was lost during the executor reset. Whole-repository Prettier and the final
 worker/Web ESLint checks passed; the earlier formatter run at a 192 MiB heap
 limit exhausted that artificial bound and remains unsuccessful.
 
@@ -186,12 +196,25 @@ preflight also depends on API types, so unchanged route/harness bytes do not
 justify reusing a nonexistent browser pass. Corrected source requires its own
 successful Native qualification.
 
-Full CI runs `45937669312` (`29cbbe54`), `45940187687` (`e6095e3e`) and
-`45948041513` (`f1ccb8cb`) still lack final completion evidence. The earlier Linux
-installer job `140316711863` reached Vitest and exceeded its 10-minute job limit;
-its narrower cause remains unconfirmed. Neither the local precollection SIGKILL
-nor the later 63-case pass resolves that historical CI outcome. CI Node 26.11.1
-and the final corrected published source remain separate qualification boundaries.
+Earlier full CI runs `45937669312`, `45940187687` and `45948041513` belong to
+`29cbbe54`, `e6095e3e` and `f1ccb8cb` respectively; none qualifies `474b599b`.
+The older Linux installer job `140316711863` reached Vitest and exceeded its
+10-minute limit; its narrower cause remains unconfirmed. The original installer
+file subsequently passed 63/63 with zero skips on clean `474b599b` under Node
+26.11.1 in 49.578s, without changing source or leaving a child process. That local
+result does not convert the cancelled CI job into a pass. Full CI `45963536826`
+and Native `45963033128` bind to `474b599b` and require their own actual results.
+The later artifact correction requires qualification on its final published head.
+
+The stale conflict bundle was reproduced using the original parity assertion.
+An isolated normal frozen installation of `474b599b` then completed the original
+Action build (9.433s), smoke/parity gate (10.317s), and both whole CLI/workflow test
+files (5/5, zero skips, 3.427s) under Node 26.11.1. The corrected artifact SHA256 is
+`9123033425b72b4e9df8a6b5352c2e4dd7cc0e3d83c93ed2c8fd462226505dab`.
+Independent review confirmed only minified unused declaration names changed;
+the Codex bundle/archive/manifest and all source, pins and guards remained exact.
+See the plan's canonical artifact correction for preparation failures and receipts.
+This is smoke/CLI evidence, not the complete Source/Certification or binary gate.
 
 The synthetic 20-repository fixture changed health/diagnostics child hydration
 from 4,000 to 20 rows and policy from 2,000 to 20. The installation reader returns
@@ -247,14 +270,16 @@ inference or establish why historical production bearers were rejected.
 
 ## Execution log
 
-| Time (UTC)   | Environment                 | Operator      | Source                                 | Step and observed result                                                                                                                                             | Next action                                                                 |
-| ------------ | --------------------------- | ------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| 2026-11-27   | Local qualification         | Coding agent  | `3cb28a1`, corrected test `c9659a4`    | Initial HTTP suites passed 18 tests; response-close observation strengthened in review.                                                                              | Corrected suite subsequently passed on `e6095e3e`.                          |
-| 2026-11-27   | Local qualification         | Coding agents | `b63ff68`                              | Worker 227 and actual PostgreSQL/worker 9 passed.                                                                                                                    | Finish original strict projects.                                            |
-| 2026-11-27   | Local qualification         | Coding agent  | `bdb4ac8`                              | Accounts 155 passed, including real SDK/HTTP recovery.                                                                                                               | Final cross-owner review.                                                   |
-| 2026-11-27   | Disposable PostgreSQL 17.10 | Coding agent  | F candidate on the same branch         | 172 actual migrations; 16 latest-reader tests passed.                                                                                                                | Publish source and finish strict checks.                                    |
-| 2026-11-27   | Local qualification         | Coding agent  | `e6095e3e`                             | HTTP18 and six migration suites252 passed, zero skips; late ESLint/Prettier12 and shell syntax passed.                                                               | Complete strict/PG/full API/browser CI.                                     |
-| 2026-11-27   | Local preparation           | Coding agents | `f1ccb8cb`, runtime `c7543bc7`         | After earlier unavailable/killed attempts, verified isolated offline Prisma generation and complete pinned SDK build succeeded; no source or dependency pin changed. | Continue original strict projects.                                          |
-| 2026-11-27   | Local qualification         | Coding agents | `f1ccb8cb` plus identified late source | Full G, source-admission, installer, Usage and corrected webhook results recorded above; the initial invalid webhook fixture failure remains explicit.               | Publish the qualified source and complete full CI.                          |
-| 2026-11-27   | GitHub CI                   | Coding agent  | `29cbbe54`                             | Installer job140316711863 cancelled at the 10-minute limit; narrower cause unconfirmed. Local diagnostic was killed before Vitest collection.                        | Await current counterpart and remaining jobs; preserve timeouts/assertions. |
-| Not executed | staging / production        | Unassigned    | Not verified                           | No rollout of this Draft attempted. The separate peer installation record remains attributed to its owner.                                                           | Complete qualification before separately authorized release.                |
+| Time (UTC)   | Environment                 | Operator      | Source                                              | Step and observed result                                                                                                                                             | Next action                                                                 |
+| ------------ | --------------------------- | ------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| 2026-11-27   | Local qualification         | Coding agent  | `3cb28a1`, corrected test `c9659a4`                 | Initial HTTP suites passed 18 tests; response-close observation strengthened in review.                                                                              | Corrected suite subsequently passed on `e6095e3e`.                          |
+| 2026-11-27   | Local qualification         | Coding agents | `b63ff68`                                           | Worker 227 and actual PostgreSQL/worker 9 passed.                                                                                                                    | Finish original strict projects.                                            |
+| 2026-11-27   | Local qualification         | Coding agent  | `bdb4ac8`                                           | Accounts 155 passed, including real SDK/HTTP recovery.                                                                                                               | Final cross-owner review.                                                   |
+| 2026-11-27   | Disposable PostgreSQL 17.10 | Coding agent  | F candidate on the same branch                      | 172 actual migrations; 16 latest-reader tests passed.                                                                                                                | Publish source and finish strict checks.                                    |
+| 2026-11-27   | Local qualification         | Coding agent  | `e6095e3e`                                          | HTTP18 and six migration suites252 passed, zero skips; late ESLint/Prettier12 and shell syntax passed.                                                               | Complete strict/PG/full API/browser CI.                                     |
+| 2026-11-27   | Local preparation           | Coding agents | `f1ccb8cb`, runtime `c7543bc7`                      | After earlier unavailable/killed attempts, verified isolated offline Prisma generation and complete pinned SDK build succeeded; no source or dependency pin changed. | Continue original strict projects.                                          |
+| 2026-11-27   | Local qualification         | Coding agents | `f1ccb8cb` plus identified late source              | Full G, source-admission, installer, Usage and corrected webhook results recorded above; the initial invalid webhook fixture failure remains explicit.               | Publish the qualified source and complete full CI.                          |
+| 2026-11-27   | GitHub CI                   | Coding agent  | `29cbbe54`                                          | Installer job140316711863 cancelled at the 10-minute limit; narrower cause unconfirmed. Local diagnostic was killed before Vitest collection.                        | Await current counterpart and remaining jobs; preserve timeouts/assertions. |
+| 2026-11-27   | Local qualification         | Coding agents | Clean `474b599b`, architecture same-tree `1adc3da5` | Complete strict60, whole architecture and exact-Node26 installer63 passed; failed attempts remain separately recorded.                                               | Await final-source CI/Native and immutable-reader evidence.                 |
+| 2026-11-27   | Canonical isolated build    | Coding agent  | `474b599b` plus the recorded artifact SHA256        | Action build/smoke and both complete CLI/workflow test files passed; independent generated-delta review found no critical issue.                                     | Publish the artifact correction and qualify that head.                      |
+| Not executed | staging / production        | Unassigned    | Not verified                                        | No rollout of this Draft attempted. The separate peer installation record remains attributed to its owner.                                                           | Complete qualification before separately authorized release.                |
