@@ -23,3 +23,5 @@ export {
 } from "./infrastructure/prisma/webhook-effect-fence";
 export type { FencedDelivery } from "./infrastructure/prisma/webhook-effect-fence";
 export * from "./interface/http/register-github-webhook-routes";
+
+export { handleFencedInstallationWebhook } from "./infrastructure/prisma/fenced-installation-webhook";

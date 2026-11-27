@@ -18,106 +18,119 @@ export class PrismaGitHubInstallationRepository implements GitHubInstallationRep
   async upsertInstallation(
     snapshot: GitHubInstallationSnapshot,
   ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      // Installation IDs have no current-scope key. Repository membership can
-      // span workspaces and change during inventory transfers; an unprotected
-      // fanout query cannot predeclare the union. Fence globally before reads.
-      await acquireCurrentScopeGuards(tx, [
-        { scope: "global", mode: "exclusive" },
-      ]);
-      const existingInstallation = await tx.gitHubInstallation.findUnique({
-        where: { githubInstallationId: BigInt(snapshot.githubInstallationId) },
-        select: { id: true, workspaceId: true, status: true },
+    await this.prisma.$transaction((tx) =>
+      this.upsertInstallationInTransaction(tx, snapshot),
+    );
+  }
+
+  /** WIP: caller must own the transaction and effect fence. */
+  async upsertInstallationInTransaction(
+    tx: Prisma.TransactionClient,
+    snapshot: GitHubInstallationSnapshot,
+  ): Promise<void> {
+    // Installation IDs have no current-scope key. Repository membership can
+    // span workspaces and change during inventory transfers; an unprotected
+    // fanout query cannot predeclare the union. Fence globally before reads.
+    await acquireCurrentScopeGuards(tx, [
+      { scope: "global", mode: "exclusive" },
+    ]);
+    const existingInstallation = await tx.gitHubInstallation.findUnique({
+      where: { githubInstallationId: BigInt(snapshot.githubInstallationId) },
+      select: { id: true, workspaceId: true, status: true },
+    });
+    const workspaceId = existingInstallation
+      ? existingInstallation.workspaceId
+      : (
+          await tx.workspace.upsert({
+            where: { slug: workspaceSlugForInstallation(snapshot) },
+            update: { name: snapshot.accountLogin },
+            create: {
+              slug: workspaceSlugForInstallation(snapshot),
+              name: snapshot.accountLogin,
+            },
+          })
+        ).id;
+
+    if (existingInstallation) {
+      await tx.workspace.update({
+        where: { id: workspaceId },
+        data: { name: snapshot.accountLogin },
       });
-      const workspaceId = existingInstallation
-        ? existingInstallation.workspaceId
-        : (
-            await tx.workspace.upsert({
-              where: { slug: workspaceSlugForInstallation(snapshot) },
-              update: { name: snapshot.accountLogin },
-              create: {
-                slug: workspaceSlugForInstallation(snapshot),
-                name: snapshot.accountLogin,
-              },
-            })
-          ).id;
+    }
 
-      if (existingInstallation) {
-        await tx.workspace.update({
-          where: { id: workspaceId },
-          data: { name: snapshot.accountLogin },
-        });
-      }
+    await tx.gitHubInstallation.upsert({
+      where: { githubInstallationId: BigInt(snapshot.githubInstallationId) },
+      update: {
+        workspaceId,
+        accountLogin: snapshot.accountLogin,
+        accountType: snapshot.accountType,
+        accountAvatarUrl: snapshot.accountAvatarUrl ?? null,
+        repositorySelection: snapshot.repositorySelection,
+        status: snapshot.status,
+      },
+      create: {
+        workspaceId,
+        githubInstallationId: BigInt(snapshot.githubInstallationId),
+        accountLogin: snapshot.accountLogin,
+        accountType: snapshot.accountType,
+        accountAvatarUrl: snapshot.accountAvatarUrl ?? null,
+        repositorySelection: snapshot.repositorySelection,
+        status: snapshot.status,
+      },
+    });
 
-      await tx.gitHubInstallation.upsert({
-        where: { githubInstallationId: BigInt(snapshot.githubInstallationId) },
-        update: {
-          workspaceId,
-          accountLogin: snapshot.accountLogin,
-          accountType: snapshot.accountType,
-          accountAvatarUrl: snapshot.accountAvatarUrl ?? null,
-          repositorySelection: snapshot.repositorySelection,
-          status: snapshot.status,
-        },
-        create: {
-          workspaceId,
-          githubInstallationId: BigInt(snapshot.githubInstallationId),
-          accountLogin: snapshot.accountLogin,
-          accountType: snapshot.accountType,
-          accountAvatarUrl: snapshot.accountAvatarUrl ?? null,
-          repositorySelection: snapshot.repositorySelection,
-          status: snapshot.status,
-        },
-      });
+    if (
+      existingInstallation &&
+      existingInstallation.status !== snapshot.status &&
+      (snapshot.status === "active" || snapshot.status === "suspended")
+    ) {
+      await rotateInstallationRepositoryIdentities(tx, existingInstallation.id);
+    }
 
-      if (
-        existingInstallation &&
-        existingInstallation.status !== snapshot.status &&
-        (snapshot.status === "active" || snapshot.status === "suspended")
-      ) {
-        await rotateInstallationRepositoryIdentities(
-          tx,
-          existingInstallation.id,
-        );
-      }
-
-      await tx.repositoryPermissionCache.deleteMany({
-        where: {
-          githubInstallationId: BigInt(snapshot.githubInstallationId),
-        },
-      });
+    await tx.repositoryPermissionCache.deleteMany({
+      where: {
+        githubInstallationId: BigInt(snapshot.githubInstallationId),
+      },
     });
   }
 
   async markInstallationRemoved(githubInstallationId: string): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      // Installation IDs have no current-scope key. Repository membership can
-      // span workspaces and change during inventory transfers; an unprotected
-      // fanout query cannot predeclare the union. Fence globally before reads.
-      await acquireCurrentScopeGuards(tx, [
-        { scope: "global", mode: "exclusive" },
-      ]);
-      const installation = await tx.gitHubInstallation.findUnique({
-        where: { githubInstallationId: BigInt(githubInstallationId) },
-        select: { id: true },
-      });
-      if (!installation) {
-        return;
-      }
+    await this.prisma.$transaction((tx) =>
+      this.markInstallationRemovedInTransaction(tx, githubInstallationId),
+    );
+  }
 
-      await rotateInstallationRepositoryIdentities(tx, installation.id);
+  /** WIP: caller must own the transaction and effect fence. */
+  async markInstallationRemovedInTransaction(
+    tx: Prisma.TransactionClient,
+    githubInstallationId: string,
+  ): Promise<void> {
+    // Installation IDs have no current-scope key. Repository membership can
+    // span workspaces and change during inventory transfers; an unprotected
+    // fanout query cannot predeclare the union. Fence globally before reads.
+    await acquireCurrentScopeGuards(tx, [
+      { scope: "global", mode: "exclusive" },
+    ]);
+    const installation = await tx.gitHubInstallation.findUnique({
+      where: { githubInstallationId: BigInt(githubInstallationId) },
+      select: { id: true },
+    });
+    if (!installation) {
+      return;
+    }
 
-      await tx.gitHubInstallation.update({
-        where: { id: installation.id },
-        data: { status: "removed" },
-      });
-      await tx.repositoryConnection.updateMany({
-        where: { installationId: installation.id },
-        data: { selected: false },
-      });
-      await tx.repositoryPermissionCache.deleteMany({
-        where: { githubInstallationId: BigInt(githubInstallationId) },
-      });
+    await rotateInstallationRepositoryIdentities(tx, installation.id);
+
+    await tx.gitHubInstallation.update({
+      where: { id: installation.id },
+      data: { status: "removed" },
+    });
+    await tx.repositoryConnection.updateMany({
+      where: { installationId: installation.id },
+      data: { selected: false },
+    });
+    await tx.repositoryPermissionCache.deleteMany({
+      where: { githubInstallationId: BigInt(githubInstallationId) },
     });
   }
 }
