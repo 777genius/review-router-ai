@@ -63,6 +63,7 @@ Observed from live GitHub on 2026-11-27, not inferred from old conversation stat
 | #1008, `7681003e` | Draft | Do not edit worker `review-v2-projection-envelope.ts` or `review-v2-publication-payloads.ts` and its test. |
 | #1020, `46e20e3d` | Open | Do not duplicate `apps/web/src/features/provider-setup/setup-provider.ts` selector fix or its test. |
 | #1017, `42d2cf28` | Merged during qualification | Preserve the Gateway management ingress and deployment evidence from current main; no duplicate implementation. |
+| #1022, `ef062a48` | Merged during final review | Preserve the bounded stale-close capability recovery from main; qualify its interaction with catalog outages without replaying inference or extending expired authority. |
 | #1010, `c31ab0b8` | Draft | Shared Identity/SCM plans own future identity/session/account migration. |
 | #474, `f4523cae` | Draft | Offline custody envelope rebind and PG17 cutover remain separately owned. |
 | #1002, `021c7828` | Draft | Full-root Markdown-reference adoption is not part of this PR. |
@@ -576,6 +577,45 @@ effects survive restart and rollback. Never delete pending work to recover healt
   jobs; actual quality, static and PostgreSQL jobs were skipped. That green
   aggregate is not full qualification. Keep Draft status and require the actual
   manual full-tier jobs to finish successfully; no workflow condition is weakened.
+- The environment returned with the checkout intact but without the temporary
+  dependency store. On clean `29cbbe54`, the three changed legacy migration
+  modules passed `node --check`, and 14 checks of their actual exported readers
+  and partition functions passed using Node 24.22.3. These prove the new catalog,
+  raw SQL checksums, unchanged historical catalogs and rejected partial or altered
+  tails. They do not substitute for Vitest, strict TypeScript or PostgreSQL gates.
+  The three legacy `.mjs` corrections remain local to existing catalog admission;
+  migrating their full historical policy/rehearsal modules would expand this fix.
+  Their JavaScript type-coverage gap remains explicit; new test code is TypeScript.
+
+### Final main integration: stale close capability
+
+The live PR recheck found #1022 after the initial audit. Its source demonstrated
+a separate pre-existing cleanup liveness defect: a retained client can keep
+receiving a definite no-effect 401, while recovery refuses to replace an existing
+session. Repeated cleanup then retains capacity. Catalog discovery is independent
+of that failure, so the original G guarantee alone did not fix it.
+
+Main now includes the reviewed `ef062a4828ab96aa8199ca2710328c9644da96af`.
+Two independent source reviews approved the bounded recovery: only a parsed
+401 `unauthenticated` / `not_dispatched` permits proving and reissuing the exact
+original capability before the original deadlines. The same close ID and first
+reason are retried once. Failed proof, an unknown effect and expired authority
+retain their existing custody rules; no inference, new identity or general retry
+is introduced. The original commit and deployment record are preserved by a
+normal merge from main. The author's external fixtures are not our test results.
+
+One additional integration case combines a native catalog outage with a single
+definite 401, then uses the ordinary close fixture for the successful retry.
+It must prove no extra catalog read or inference, unchanged preparation/close
+identity and a closed native execution. The combined relay suite now expects
+188 cases. This does not promise recovery of already expired capabilities or
+establish the cause of the author's reported historical bearer refusals.
+
+Manual CI `45937669312` and Native Accounts browser `45937901453` were accepted
+for `29cbbe54` and remain pending at this checkpoint. They are allowed to finish.
+The merged API source needs its own full qualification; the web/browser inputs
+are unchanged by this API-only main integration and retain their original source
+binding. No queued run is treated as a blocker or a successful test.
 
 ### Remaining qualification and review gates
 

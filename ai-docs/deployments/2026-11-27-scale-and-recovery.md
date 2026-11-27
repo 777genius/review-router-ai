@@ -12,6 +12,10 @@
   Main was integrated into the Draft branch by
   `bff69a97f559b345bfc8e770235a2adbc1c3851b`. These references establish
   source only; no merge of this Draft into main, release or installation is claimed.
+- Final main dependency: preserve the merged stale-close capability correction
+  `ef062a4828ab96aa8199ca2710328c9644da96af` and its
+  [separate deployment record](2026-11-27-relay-stale-close-capability.md).
+  The combined API source and catalog-outage/401 interaction require qualification.
 - Dependencies: preserve the already merged
   [multi-tenant reliability work](2026-11-25-multi-tenant-reliability.md);
   complete exact-head qualification before release selection.
@@ -39,6 +43,7 @@ flag, provider protocol, customer configuration or credential migration.
 | Runtime PostgreSQL | Explicit runtime clients use server statement and lock timeouts. | 30-second statements and 5-second lock waits; administrative and injected clients retain their existing policy. |
 | Dashboard reads | Latest-per-parent SQL avoids historical child hydration and installation N+1. | Tenant filters and stable latest-row ordering remain explicit; no retention deletion. |
 | Native catalog | One recoverable source serves new admission, settings and relay. | 30-second success TTL, one-second failure cooldown, existing ten-second SDK transport; captured admission identity/policy stays immutable. |
+| Retained close capability from main | A definite no-effect 401 can refresh only the original capability and retry the same close identity. | Existing operation/binding proof and deadlines remain mandatory; expired or uncertain effects are not released by a timeout. |
 | Webhook receipts | Receipt, local authority effects and outbox commit together. | Independent preadmission stays outside; historical uncertain processing receipts are preserved. |
 | Accounts/HTTP | Optional enrichment shares a bounded window before final authorization; rejected body resources close. | Three-second optional remote window, four row enrichments per page; neither a total render SLA nor a process-wide cap. Provider-key envelope remains 256 KiB. |
 
@@ -94,6 +99,7 @@ the earlier fresh-cluster migration pass alone does not qualify every release ga
 | Runtime SQL plus worker/SQL integration | 9 actual PostgreSQL 17.10 tests passed. | Server cancellation, lock wait, disconnect and subsequent pool recovery; no throughput SLA. |
 | Accounts enrichment and final fences | 155 tests in 11 suites passed; actual SDK/HTTP 100-account stalled body followed by successful recovery. | Final local authorization remains mandatory beyond the optional remote budget. |
 | Latest-row readers and migrations | 16 tests passed; full 172 migrations applied, including both new indexes. | Driver SQL/rows, tenant and empty cases, ordering and real concurrent snapshot. Timings are synthetic. |
+| Migration source admission on `29cbbe54` | Three legacy modules passed syntax checks; 14 checks of actual exported readers and partition functions passed. | Node 24.22.3 without dependency substitutions; not Vitest, strict TypeScript or PostgreSQL qualification. |
 | Native catalog, atomic webhook, corrected catalog body assertion | Qualification in progress. | Source changes or an interrupted run are not passing evidence. |
 | Strict projects and authoritative CI | In progress. | Queued/running/skipped or resource-killed checks are not successful completion. |
 
@@ -130,6 +136,11 @@ The event transaction isolation is deliberate: installation/auth/push preserve
 ReadCommitted, and PR/repository workflow authority retains Serializable retries.
 Retries exclude external preadmission and HTTP response delivery. Do not turn
 all handler failures or ambiguous commits into generic automatic retry.
+
+The close-capability correction inherited from main retries only a definite
+401 `unauthenticated` / `not_dispatched` refusal after proving the original
+operation and exact binding. It does not extend expired admission, replay
+inference or establish why historical production bearers were rejected.
 
 ## Related links
 
