@@ -36,6 +36,28 @@ const repo = (
 });
 
 describe("current scope transaction guards", () => {
+  it("plans all source scopes before workspaces and rejects a later source", async () => {
+    const { tx, calls } = transaction();
+    await acquireCurrentScopeGuards(tx, [
+      repo("w", "r", "exclusive"),
+      { scope: "accountSource", sourceId: "source-b", mode: "shared" },
+      { scope: "accountSource", sourceId: "source-a", mode: "exclusive" },
+    ]);
+    expect(calls.map((sql) => sql.values)).toEqual(
+      [
+        "global",
+        "account-source:source-a",
+        "account-source:source-b",
+        "workspace:w",
+        'repository:["w","r"]',
+      ].map((key) => [digest(key)]),
+    );
+    await expect(
+      acquireCurrentScopeGuards(tx, [
+        { scope: "accountSource", sourceId: "source-c", mode: "shared" },
+      ]),
+    ).rejects.toThrow("plan_extension");
+  });
   it("admits the real Prisma interactive proxy and rejects the real root before driver I/O", async () => {
     // Supported driver-adapter boundary: Prisma itself constructs the callback
     // client and executes its query pipeline. No mocked Prisma client/proxy.

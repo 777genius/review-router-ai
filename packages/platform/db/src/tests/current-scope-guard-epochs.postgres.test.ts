@@ -512,6 +512,109 @@ test("experimental current scope epoch on isolated PostgreSQL", () => {
       time.mockRestore();
     }
   });
+  it("retries a stale multi-workspace source reader after a source writer", async () => {
+    await pool.query('UPDATE "authority" SET version=10');
+    const sourceId = "synthetic-shared-source";
+    let entered!: () => void;
+    let release!: () => void;
+    const ready = new Promise<void>((r) => {
+      entered = r;
+    });
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const writer = prisma.$transaction(
+      async (tx) => {
+        await acquireCurrentScopeGuardsWithEpoch(tx, [
+          { scope: "accountSource", sourceId, mode: "exclusive" },
+        ]);
+        await tx.$executeRaw(Prisma.sql`UPDATE "authority" SET version=11`);
+        entered();
+        await gate;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+    await ready;
+    let attempts = 0;
+    const counting = {
+      $transaction: (
+        fn: (tx: Prisma.TransactionClient) => Promise<unknown>,
+        options: { isolationLevel: Prisma.TransactionIsolationLevel },
+      ) => {
+        attempts++;
+        return prisma.$transaction(fn, options);
+      },
+    } as unknown as PrismaClient;
+    const reader = runScopeEpochSerializableTransaction(
+      counting,
+      [
+        { scope: "accountSource", sourceId, mode: "shared" },
+        { scope: "workspace", workspaceId: "consumer-a", mode: "shared" },
+        { scope: "workspace", workspaceId: "consumer-b", mode: "shared" },
+      ],
+      (tx) =>
+        tx.$queryRaw<Array<{ version: number }>>(
+          Prisma.sql`SELECT version FROM "authority"`,
+        ),
+    );
+    let waiting = false;
+    try {
+      for (let i = 0; i < 80 && !waiting; i++) {
+        waiting =
+          (
+            await pool.query(
+              "SELECT count(*)::int AS n FROM pg_locks WHERE locktype='advisory' AND NOT granted",
+            )
+          ).rows[0].n > 0;
+        if (!waiting) await new Promise((r) => setTimeout(r, 25));
+      }
+      expect(waiting).toBe(true);
+    } finally {
+      release();
+    }
+    await writer;
+    expect((await reader)[0]?.version).toBe(11);
+    expect(attempts).toBeGreaterThan(1);
+  });
+
+  it("keeps independent account source writers concurrent", async () => {
+    for (const id of ["source-a", "source-b"]) {
+      const key = createHash("sha256")
+        .update(`review-current-scope-v1\0account-source:${id}`)
+        .digest("hex");
+      await pool.query(
+        'INSERT INTO "CurrentScopeEpoch" ("keyHash") VALUES($1)',
+        [key],
+      );
+    }
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let entered = 0;
+    const run = (sourceId: string) =>
+      prisma.$transaction(
+        async (tx) => {
+          await acquireCurrentScopeGuardsWithEpoch(tx, [
+            { scope: "accountSource", sourceId, mode: "exclusive" },
+          ]);
+          entered++;
+          await gate;
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    const a = run("source-a"),
+      b = run("source-b");
+    try {
+      for (let i = 0; i < 80 && entered < 2; i++)
+        await new Promise((r) => setTimeout(r, 25));
+      expect(entered).toBe(2);
+    } finally {
+      release();
+    }
+    await Promise.all([a, b]);
+  });
+
   it("keeps different workspace writers concurrent under the shared global epoch", async () => {
     for (const workspaceId of ["workspace-a", "workspace-b"]) {
       const key = createHash("sha256")
