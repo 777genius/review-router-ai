@@ -146,9 +146,7 @@ export class GitHubAppWebhookRedeliveryClient implements AppWebhookRedeliveryCli
    * and the digest of an available original signature are returned. Missing
    * or redacted signature headers fail closed; no payload is retained.
    */
-  async inspectUnreceivedDelivery(
-    githubDeliveryId: bigint,
-  ): Promise<Readonly<{
+  async inspectUnreceivedDelivery(githubDeliveryId: bigint): Promise<Readonly<{
     appIdentityHash: string;
     deliveryGuid: string;
     githubDeliveryId: bigint;
@@ -338,6 +336,8 @@ export class GitHubAppWebhookRedeliveryClient implements AppWebhookRedeliveryCli
         matchingAttempts++;
       }
       const next = nextDeliveryCursor(response.headers.get("link"));
+      if (next === null && parsed.length === 100)
+        return { state: "incomplete", pages, matchingAttempts };
       if (next === null)
         return {
           state: matchingAttempts ? "observed" : "not_observed",
@@ -394,6 +394,11 @@ function nextDeliveryCursor(link: string | null): string | null | false {
       [...url.searchParams.keys()].some(
         (key) => key !== "cursor" && key !== "per_page",
       )
+    )
+      return false;
+    if (
+      url.searchParams.getAll("cursor").length !== 1 ||
+      url.searchParams.getAll("per_page").length > 1
     )
       return false;
     const cursor = url.searchParams.get("cursor");

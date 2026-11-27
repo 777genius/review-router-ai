@@ -43,6 +43,18 @@ describe("GitHub App redelivery client with synthetic local server", () => {
         );
         return;
       }
+      if (scanMode === "full-no-link") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify(
+            Array.from({ length: 100 }, (_, id) => ({
+              guid: `other-${id}`,
+              redelivery: false,
+            })),
+          ),
+        );
+        return;
+      }
       if (scanMode === "rate") {
         res.writeHead(429);
         res.end();
@@ -185,6 +197,8 @@ describe("GitHub App redelivery client with synthetic local server", () => {
     expect(requests.length - before).toBe(1);
     scanMode = "two";
     expect((await c.scanAttempts(identity, 1)).state).toBe("incomplete");
+    scanMode = "full-no-link";
+    expect((await c.scanAttempts(identity, 2)).state).toBe("incomplete");
     scanMode = "rate";
     expect((await c.scanAttempts(identity, 2)).state).toBe("rate_limited");
     await expect(
