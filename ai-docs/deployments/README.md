@@ -36,6 +36,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+[Gateway management ingress](2026-11-27-gateway-management-ingress.md): production `installed`; native V2/V3 routes restored and read-only account metadata verified. Browser enrollment and connection mutations remain unverified.
+
 Production relay update 2026-11-26: RR `f20a75ed` and compatible Gateway/native installed, fleet readiness passed; task-specific verification remains pending. Approximately 2.4 GiB remained on production disk; see [installation](2026-11-22-relay-completed-close-recovery.md#production-installation--2026-11-26).
 
 Multi-tenant reliability: [authorization, bounded recovery/maintenance, inventory and ruleset concurrency, usage pagination, workspace selection and Action streaming](2026-11-25-multi-tenant-reliability.md), [PR #1007](https://github.com/777genius/review-router-ai/pull/1007) — Web/API/worker, four additive migrations and the ordinary public Action runtime release; staging and production `pending`. Old writers must be drained for the revised guarantees; unknown external-effect evidence is retained. No deployment is claimed.
