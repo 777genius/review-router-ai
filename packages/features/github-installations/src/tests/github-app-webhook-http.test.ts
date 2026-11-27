@@ -49,6 +49,14 @@ describe("experimental signed GitHub App HTTP boundary", () => {
       expect(first.statusCode).toBe(200);
       expect(spoof.statusCode).toBe(200);
       expect(first.json()).toEqual(spoof.json());
+      // GitHub HMAC does not cover delivery/event headers. This fixture records
+      // the limitation: callers must not treat this context as header proof.
+      const headerReplay = await request({
+        "x-github-delivery": "different-guid",
+        "x-github-event": "repository",
+      });
+      expect(headerReplay.statusCode).toBe(200);
+      expect(headerReplay.json()).toEqual(first.json());
       expect((await request({}, '{"action":"closed"}')).statusCode).toBe(401);
       expect(
         (await request({ "x-hub-signature-256": "sha256=bad" })).statusCode,
