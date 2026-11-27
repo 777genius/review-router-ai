@@ -14,6 +14,11 @@ export * from "./infrastructure/prisma/prisma-github-installation-repository";
 export * from "./infrastructure/prisma/prisma-installation-workspace-owner-grant";
 export * from "./infrastructure/prisma/prisma-webhook-delivery-repository";
 // Internal building block for the WIP fenced protocol; no takeover is wired.
-export { runWebhookFencedDatabaseEffect } from "./infrastructure/prisma/webhook-effect-fence";
+export {
+  beginFencedWebhookDelivery,
+  reclaimWebhookFence,
+  renewWebhookFence,
+  runWebhookFencedDatabaseEffect,
+} from "./infrastructure/prisma/webhook-effect-fence";
 export type { FencedDelivery } from "./infrastructure/prisma/webhook-effect-fence";
 export * from "./interface/http/register-github-webhook-routes";

@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { Prisma } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -26,6 +27,9 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
   const a = "a".repeat(64);
   const b = "b".repeat(64);
   const deliveryId = "synthetic-delivery";
+  const realPrisma = new PrismaClient({
+    adapter: new PrismaPg(pool, { schema }),
+  });
   // This adapter exercises the implementation's SQL and transaction boundary
   // on real PostgreSQL. It is not a generated Prisma integration test.
   const prisma = {
@@ -77,8 +81,19 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
       throw new Error("disposable_test_database_required");
     await pool.query(`CREATE SCHEMA "${schema}"`);
     await pool.query(
-      'CREATE TABLE "GitHubWebhookDelivery" ("deliveryId" TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT \'processing\')',
+      "CREATE TYPE \"WebhookDeliveryStatus\" AS ENUM ('received','processing','processed','failed')",
     );
+    await pool.query(`CREATE TABLE "GitHubWebhookDelivery" (
+      id TEXT PRIMARY KEY DEFAULT 'synthetic-' || md5(random()::text),
+      "deliveryId" TEXT UNIQUE NOT NULL,
+      "eventName" TEXT NOT NULL DEFAULT 'pull_request',
+      action TEXT, "installationId" BIGINT, "payloadHash" TEXT, "normalizedEvent" JSONB,
+      status "WebhookDeliveryStatus" NOT NULL DEFAULT 'processing',
+      "errorSummary" TEXT, "processedAt" TIMESTAMP(3),
+      "receivedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`);
     const migration = await readFile(
       new URL(
         "../../../../platform/db/prisma/migrations/000165_webhook_effect_fence/migration.sql",
@@ -98,8 +113,74 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
     );
   });
   afterAll(async () => {
+    await realPrisma.$disconnect();
     await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     await pool.end();
+  });
+
+  it("creates and guards a delivery using the generated Prisma client", async () => {
+    const identity = {
+      deliveryId: "real-prisma-delivery",
+      eventName: "pull_request",
+    };
+    const claim = await beginFencedWebhookDelivery(
+      realPrisma,
+      identity,
+      a,
+      10000,
+    );
+    expect(await renewWebhookFence(realPrisma, claim, 10000)).toBe(true);
+    await runWebhookFencedDatabaseEffect(realPrisma, claim, async (tx) => {
+      await tx.$queryRaw(
+        Prisma.sql`INSERT INTO "effect" VALUES (5) RETURNING generation`,
+      );
+    });
+    expect(
+      (
+        await pool.query(
+          'SELECT count(*)::int AS n FROM "effect" WHERE generation=5',
+        )
+      ).rows[0].n,
+    ).toBe(1);
+  });
+
+  it("uses real Prisma to fence a stale owner after concurrent takeover", async () => {
+    const identity = {
+      deliveryId: "real-prisma-race",
+      eventName: "pull_request",
+    };
+    const previous = await beginFencedWebhookDelivery(
+      realPrisma,
+      identity,
+      a,
+      10000,
+    );
+    await pool.query(
+      'UPDATE "GitHubWebhookFence" SET "leaseUntil"=clock_timestamp()-interval \'1 second\' WHERE "deliveryId"=$1',
+      [identity.deliveryId],
+    );
+    const candidates = await Promise.all([
+      reclaimWebhookFence(realPrisma, previous, "e".repeat(64), 10000),
+      reclaimWebhookFence(realPrisma, previous, "f".repeat(64), 10000),
+    ]);
+    expect(candidates.filter(Boolean)).toHaveLength(1);
+    const winner = candidates.find((candidate) => candidate !== null)!;
+    await expect(
+      runWebhookFencedDatabaseEffect(realPrisma, previous, async (tx) => {
+        await tx.$queryRaw(
+          Prisma.sql`INSERT INTO "effect" VALUES (6) RETURNING generation`,
+        );
+      }),
+    ).rejects.toThrow("webhook_fence_stale");
+    await runWebhookFencedDatabaseEffect(realPrisma, winner, async (tx) => {
+      await tx.$queryRaw(
+        Prisma.sql`INSERT INTO "effect" VALUES (7) RETURNING generation`,
+      );
+    });
+    const { rows } = await pool.query(
+      'SELECT generation FROM "effect" WHERE generation IN (6,7)',
+    );
+    expect(rows.map((row) => row.generation)).toEqual(["7"]);
   });
 
   it("rejects missing fences, live takeovers and invalid claims", async () => {
@@ -208,7 +289,9 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
     );
     expect(
       (
-        await pool.query('SELECT generation FROM "effect" ORDER BY generation')
+        await pool.query(
+          'SELECT generation FROM "effect" WHERE generation IN (1,2,3) ORDER BY generation',
+        )
       ).rows.map((row) => row.generation),
     ).toEqual(["1", "2"]);
   });
