@@ -447,6 +447,12 @@ export function createReviewRunGatewayPreparation(input: {
       runtimeSnapshotCanonicalJson: canonical,
     };
     const saved = await bindings.readForCleanup(owner);
+    if (
+      stale &&
+      (stale.canonical !== canonical ||
+        (saved && canonicalJson(saved) !== canonicalJson(stale.binding)))
+    )
+      return;
     // Consumer-control proves the ORIGINAL operation before any run-access call.
     // The run-control credential cannot query operations and is never widened.
     const proof = await input.readPreparationOperation(
@@ -463,6 +469,12 @@ export function createReviewRunGatewayPreparation(input: {
       operation.result.deadline !== snapshot.deadline ||
       (saved && operation.result.executionRef !== saved.executionRef) ||
       (stale && operation.result.executionRef !== stale.binding.executionRef) ||
+      (stale &&
+        (stale.binding.operationId !== original.operationId ||
+          stale.binding.accountRef !== operation.result.accountRef ||
+          stale.binding.authorizationEpoch !==
+            operation.result.authorizationEpoch ||
+          stale.binding.deadline !== operation.result.deadline)) ||
       !reviewRunGatewayEpochMatches(
         snapshot,
         operation.result.authorizationEpoch,
