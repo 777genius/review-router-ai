@@ -16,6 +16,12 @@ export async function runScopeEpochSerializableTransaction<T>(
   work: (transaction: Prisma.TransactionClient) => Promise<T>,
   options?: Readonly<{ timeoutMs: number }>,
 ): Promise<T> {
+  if (
+    options &&
+    (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1)
+  )
+    throw new Error("current_scope_epoch_timeout_invalid");
+  const deadline = options ? performance.now() + options.timeoutMs : undefined;
   for (let attempt = 0; ; attempt++) {
     try {
       return await prisma.$transaction(
@@ -25,11 +31,18 @@ export async function runScopeEpochSerializableTransaction<T>(
         },
         {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-          ...(options ? { timeout: options.timeoutMs } : {}),
+          ...(deadline !== undefined
+            ? { timeout: Math.max(1, deadline - performance.now()) }
+            : {}),
         },
       );
     } catch (error) {
-      if (attempt >= 2 || !isSerializationFailure(error)) throw error;
+      if (
+        attempt >= 2 ||
+        !isSerializationFailure(error) ||
+        (deadline !== undefined && performance.now() >= deadline)
+      )
+        throw error;
     }
   }
 }

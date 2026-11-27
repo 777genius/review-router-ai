@@ -383,6 +383,33 @@ test("experimental current scope epoch on isolated PostgreSQL", () => {
     ).rejects.toBe(modelConflict);
     expect(modelRun).toHaveBeenCalledTimes(3);
   });
+  it("bounds retry time across attempts when a timeout is supplied", async () => {
+    let now = 0;
+    const time = vi.spyOn(performance, "now").mockImplementation(() => now);
+    const conflict = new Prisma.PrismaClientKnownRequestError("retry", {
+      code: "P2034",
+      clientVersion: "7.9.0",
+    });
+    const run = vi.fn(async (_work: unknown, _options: unknown) => {
+      now += 6;
+      throw conflict;
+    });
+    try {
+      await expect(
+        runScopeEpochSerializableTransaction(
+          { $transaction: run } as never,
+          [{ scope: "global", mode: "shared" }],
+          async () => undefined,
+          { timeoutMs: 10 },
+        ),
+      ).rejects.toBe(conflict);
+      expect(run).toHaveBeenCalledTimes(2);
+      expect(run.mock.calls[0]?.[1]).toMatchObject({ timeout: 10 });
+      expect(run.mock.calls[1]?.[1]).toMatchObject({ timeout: 4 });
+    } finally {
+      time.mockRestore();
+    }
+  });
   it("keeps different workspace writers concurrent under the shared global epoch", async () => {
     for (const workspaceId of ["workspace-a", "workspace-b"]) {
       const key = createHash("sha256")
