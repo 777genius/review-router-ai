@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
+import { runScopeEpochSerializableTransaction } from "@reviewrouter/platform-db";
+import { PrismaWorkspaceReviewSettings } from "@reviewrouter/features-review-config";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PrismaWorkspaceMembershipRepository } from "@reviewrouter/features-auth";
@@ -198,5 +200,114 @@ test("personal workspace scoped epochs on isolated PostgreSQL", () => {
       blocker.release();
     }
     expect((await waiting).workspaceId).toBe("w1");
+  });
+  it("review setting writer and fenced reader agree after a real lock wait", async () => {
+    await pool.query(
+      `CREATE FUNCTION synthetic_hold_settings() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock(87892145); RETURN NEW; END $$`,
+    );
+    await pool.query(
+      `CREATE TRIGGER synthetic_settings BEFORE UPDATE ON "Workspace" FOR EACH ROW EXECUTE FUNCTION synthetic_hold_settings()`,
+    );
+    const blocker = await pool.connect();
+    await blocker.query("SELECT pg_advisory_lock(87892145)");
+    const writer = new PrismaWorkspaceReviewSettings(prisma).save("w1", false);
+    let reader: Promise<boolean> | undefined;
+    let attempts = 0;
+    try {
+      let waiting = 0;
+      for (let i = 0; i < 80 && waiting < 1; i++) {
+        waiting = (
+          await pool.query(
+            "SELECT count(*)::int n FROM pg_locks WHERE locktype='advisory' AND NOT granted",
+          )
+        ).rows[0].n;
+        if (waiting < 1) await new Promise((r) => setTimeout(r, 25));
+      }
+      expect(waiting).toBeGreaterThanOrEqual(1);
+      reader = runScopeEpochSerializableTransaction(
+        prisma,
+        [{ scope: "workspace", workspaceId: "w1", mode: "shared" }],
+        (tx) => new PrismaWorkspaceReviewSettings(tx).reviewDrafts("w1"),
+      );
+      for (let i = 0; i < 80 && waiting < 2; i++) {
+        waiting = (
+          await pool.query(
+            "SELECT count(*)::int n FROM pg_locks WHERE locktype='advisory' AND NOT granted",
+          )
+        ).rows[0].n;
+        if (waiting < 2) await new Promise((r) => setTimeout(r, 25));
+      }
+      expect(waiting).toBeGreaterThanOrEqual(2);
+    } finally {
+      await blocker.query("SELECT pg_advisory_unlock(87892145)");
+      blocker.release();
+    }
+    await writer;
+    expect(await reader).toBe(false);
+    await pool.query('DROP TRIGGER synthetic_settings ON "Workspace"');
+  });
+
+  it("retries global reader after a converted workspace writer", async () => {
+    await pool.query(
+      `CREATE FUNCTION synthetic_hold_global_reader() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock(87892146); RETURN NEW; END $$`,
+    );
+    await pool.query(
+      `CREATE TRIGGER synthetic_global_reader BEFORE UPDATE ON "Workspace" FOR EACH ROW EXECUTE FUNCTION synthetic_hold_global_reader()`,
+    );
+    const blocker = await pool.connect();
+    await blocker.query("SELECT pg_advisory_lock(87892146)");
+    const writer = new PrismaWorkspaceReviewSettings(prisma).save("w1", true);
+    let reader: Promise<boolean> | undefined;
+    let attempts = 0;
+    try {
+      let waiting = 0;
+      for (let i = 0; i < 80 && waiting < 1; i++) {
+        waiting = (
+          await pool.query(
+            "SELECT count(*)::int n FROM pg_locks WHERE locktype='advisory' AND NOT granted",
+          )
+        ).rows[0].n;
+        if (waiting < 1) await new Promise((r) => setTimeout(r, 25));
+      }
+      expect(waiting).toBeGreaterThanOrEqual(1);
+      const counting = {
+        $transaction: (
+          fn: (tx: Prisma.TransactionClient) => Promise<boolean>,
+          options: { isolationLevel: Prisma.TransactionIsolationLevel },
+        ) => {
+          attempts++;
+          return prisma.$transaction(fn, options);
+        },
+      } as unknown as PrismaClient;
+      reader = runScopeEpochSerializableTransaction(
+        counting,
+        [{ scope: "global", mode: "exclusive" }],
+        (tx) => new PrismaWorkspaceReviewSettings(tx).reviewDrafts("w1"),
+      );
+      for (let i = 0; i < 80 && waiting < 2; i++) {
+        waiting = (
+          await pool.query(
+            "SELECT count(*)::int n FROM pg_locks WHERE locktype='advisory' AND NOT granted",
+          )
+        ).rows[0].n;
+        if (waiting < 2) await new Promise((r) => setTimeout(r, 25));
+      }
+      expect(waiting).toBeGreaterThanOrEqual(2);
+    } finally {
+      await blocker.query("SELECT pg_advisory_unlock(87892146)");
+      blocker.release();
+    }
+    await writer;
+    expect(await reader).toBe(true);
+    expect(attempts).toBeGreaterThan(1);
+    expect(
+      (
+        await prisma.workspace.findUniqueOrThrow({
+          where: { id: "w1" },
+          select: { reviewDraftPullRequests: true },
+        })
+      ).reviewDraftPullRequests,
+    ).toBe(true);
+    await pool.query('DROP TRIGGER synthetic_global_reader ON "Workspace"');
   });
 });
