@@ -75,7 +75,8 @@ const url = process.env.REVIEW_ROUTER_EPOCH_TEST_DATABASE_URL;
         >`SELECT revision FROM "CurrentScopeEpoch" WHERE "keyHash" = ${hash}`
       )[0]?.revision ?? 0n;
     const before = await epoch();
-    await new PrismaAccountLifecycleOperations(prisma).reserve({
+    const store = new PrismaAccountLifecycleOperations(prisma);
+    const receipt = await store.reserve({
       actorUserId: actor,
       clientOperationId: `${id}-operation`,
       sourceId: id,
@@ -101,5 +102,66 @@ const url = process.env.REVIEW_ROUTER_EPOCH_TEST_DATABASE_URL;
         })
       ).map((b) => b.policyRevision),
     ).toEqual([2, 2]);
+    // Only this disposable fixture simulates the already-submitted gateway phase.
+    await prisma.personalAccountOperation.update({
+      where: { id: receipt.id },
+      data: { phase: "submitted" },
+    });
+    const result = {
+      accountRef: `${id}-gateway`,
+      profileId: `${id}-profile`,
+      displayName: "Synthetic",
+      state: "suspended",
+      metadataRevision: 2,
+      authorizationEpoch: 2,
+    };
+    await expect(
+      store.finalize(
+        actor,
+        receipt.id,
+        { ...result, metadataRevision: 1 },
+        null,
+        null,
+      ),
+    ).rejects.toThrow();
+    expect(await epoch()).toBe(before + 1n);
+    expect(
+      (await store.finalize(actor, receipt.id, result, null, null)).phase,
+    ).toBe("applied");
+    expect(await epoch()).toBe(before + 2n);
+    expect(
+      (
+        await prisma.providerAccountConnection.findUniqueOrThrow({
+          where: { id },
+        })
+      ).state,
+    ).toBe("suspended");
+    const resume = await store.reserve({
+      actorUserId: actor,
+      clientOperationId: `${id}-resume`,
+      sourceId: id,
+      personalWorkspaceId: null,
+      owningWorkspaceId: owner,
+      expectedSourceMetadataRevision: 3,
+      expectedGatewayRevision: 2,
+      expectedAuthorizationEpoch: 2,
+      action: "resume",
+    });
+    await prisma.personalAccountOperation.update({
+      where: { id: resume.id },
+      data: { phase: "submitted" },
+    });
+    expect(
+      (await store.reject(actor, resume.id, result, `${id}-no-effect-proof`))
+        .phase,
+    ).toBe("rejected");
+    expect(await epoch()).toBe(before + 4n);
+    expect(
+      (
+        await prisma.providerAccountConnection.findUniqueOrThrow({
+          where: { id },
+        })
+      ).state,
+    ).toBe("suspended");
   });
 });

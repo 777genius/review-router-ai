@@ -66,6 +66,40 @@ export class PrismaAccountLifecycleOperations implements AccountLifecycleOperati
       return fail("operation_conflict");
     return row;
   }
+  private async withSourceEpoch<T>(
+    operationId: string,
+    work: (tx: Tx) => Promise<T>,
+  ): Promise<T> {
+    // Discovery is not authority. Re-read the complete immutable intent under
+    // the declared scopes before taking User/Workspace/Source row locks.
+    const discovered = intentOf(await this.load(this.prisma, operationId));
+    const expected = accountLifecycleIntentHash(discovered);
+    return runScopeEpochSerializableTransaction(
+      this.prisma,
+      [
+        {
+          scope: "accountSource",
+          sourceId: discovered.sourceId,
+          mode: "exclusive",
+        },
+        {
+          scope: "workspace",
+          workspaceId:
+            discovered.personalWorkspaceId ?? discovered.owningWorkspaceId!,
+          mode: "shared",
+        },
+      ],
+      async (tx) => {
+        if (
+          accountLifecycleIntentHash(
+            intentOf(await this.load(tx, operationId)),
+          ) !== expected
+        )
+          return fail("operation_conflict");
+        return work(tx);
+      },
+    );
+  }
   private async lockSource(
     tx: Tx,
     actor: string,
@@ -465,7 +499,7 @@ export class PrismaAccountLifecycleOperations implements AccountLifecycleOperati
   ) {
     const account = Object.freeze({ ...requestAccount });
     assertOpaqueReference(noEffectProofRef);
-    return this.prisma.$transaction(async (tx) => {
+    return this.withSourceEpoch(operationId, async (tx) => {
       const { row, source } = await this.locked(tx, actor, operationId);
       const intent = intentOf(row);
       if (row.phase === "rejected") return this.receipt(row, source);
@@ -524,7 +558,7 @@ export class PrismaAccountLifecycleOperations implements AccountLifecycleOperati
     const closure = requestClosure
       ? Object.freeze({ ...requestClosure })
       : null;
-    return this.prisma.$transaction(async (tx) => {
+    return this.withSourceEpoch(operationId, async (tx) => {
       const { row, source } = await this.locked(tx, actor, operationId);
       const intent = intentOf(row);
       if (row.phase === "applied") return this.receipt(row, source);
