@@ -1306,6 +1306,7 @@ export function createReviewRunGatewayRelay(input: {
       const reader = stream.body.getReader();
       let received = 0;
       let completed = false;
+      let settlementStarted = false;
       const abort = () => {
         dispose();
         void stream.cancel().catch(() => {});
@@ -1338,7 +1339,9 @@ export function createReviewRunGatewayRelay(input: {
                 phase = "cancelled";
                 if (signal.aborted) throw new Error("companion_cancelled");
                 if (chunk.done) {
+                  // EOF owns its status read and both settlement writes.
                   // EOF alone is not native no-dispatch/completion evidence.
+                  settlementStarted = true;
                   phase = "native_status";
                   const status = await session.preparation.status(
                     requestRef,
@@ -1398,7 +1401,7 @@ export function createReviewRunGatewayRelay(input: {
               }
             },
             async cancel() {
-              if (!completed) await unknown();
+              if (!completed && !settlementStarted) await unknown();
               cleanup();
               await stream.cancel();
             },
@@ -1406,7 +1409,7 @@ export function createReviewRunGatewayRelay(input: {
           { highWaterMark: 0 },
         ),
         cancel: async () => {
-          if (!completed) await unknown();
+          if (!completed && !settlementStarted) await unknown();
           cleanup();
           await stream.cancel();
         },
@@ -2112,7 +2115,10 @@ export function createReviewRunGatewayRelay(input: {
         !!auth &&
         auth.runtimeSnapshotCanonicalJson === session.canonical &&
         (await input.checkAuthority(auth, "local")) &&
-        (await session.preparation.hasLiveNativeRetryAuthority())
+        (await session.preparation.hasLiveNativeRetryAuthority()) &&
+        !stopping &&
+        !closing.has(dispatch.authorizationId) &&
+        !session.closed
       );
     },
     policy,
