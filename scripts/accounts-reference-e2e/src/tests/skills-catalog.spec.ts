@@ -192,11 +192,15 @@ async function loseCommittedReply(
       }
       lost = true;
     } catch (error) {
+      const errors = [error];
       try {
         await route.abort("failed");
       } catch (abortError) {
+        errors.push(abortError);
+      }
+      if (errors.length > 1) {
         throw new AggregateError(
-          [error, abortError],
+          errors,
           "Skill catalog reply probe failed and could not abort the browser request",
           { cause: error },
         );
