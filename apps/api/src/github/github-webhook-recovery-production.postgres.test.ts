@@ -564,11 +564,14 @@ test("known delivery recovery through the production receiver and migrated Postg
       });
       // Preserve native queries and results, adding only the scheduling barrier.
       const nativeTransaction = gated.$transaction.bind(gated);
+      const transaction = new Proxy(isolated.$transaction, {
+        apply(_target, _receiver, args) {
+          return Reflect.apply(nativeTransaction, gated, args);
+        },
+      });
       const transactionSpy = vi
         .spyOn(isolated, "$transaction")
-        .mockImplementation((callback, options) =>
-          nativeTransaction(callback, options),
-        );
+        .mockImplementation(transaction);
       restoreTransaction = () => transactionSpy.mockRestore();
       expect(
         await runKnownWebhookRecovery(command(delivery, "inspect"), {
