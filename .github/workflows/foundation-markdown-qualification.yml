@@ -1,0 +1,185 @@
+# Temporary qualification only; removed when the generated lock is adopted.
+name: Foundation Markdown qualification
+on:
+  push:
+    branches: [arch/foundation-default-adoption-20261125]
+    paths: [.github/workflows/foundation-markdown-qualification.yml]
+permissions:
+  contents: read
+concurrency:
+  group: foundation-markdown-qualification
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      QUALIFICATION_DIR: ${{ runner.temp }}/foundation-markdown
+      FOUNDATION_PROBE_DIR: ${{ runner.temp }}/foundation-markdown-probe
+      NODE_OPTIONS: --max-old-space-size=2048 --max-semi-space-size=8
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: 2d0dc642b1d2ba07c21c7c63fe7f8ecf769ebab3
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.11.1
+      - name: Pin the resolver and record both source identities
+        run: |
+          set -euo pipefail
+          npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+          test "$(node --version)" = v26.11.1
+          test "$(pnpm --version)" = 11.28.7
+          test "$(git rev-parse HEAD)" = 2d0dc642b1d2ba07c21c7c63fe7f8ecf769ebab3
+          test "$(git rev-parse 'HEAD^{tree}')" = 4e1d1bdd949ee2ca96cc2963cf7d94fff3ce7aac
+          mkdir -p "$QUALIFICATION_DIR" "$FOUNDATION_PROBE_DIR"
+          git rev-parse HEAD > "$QUALIFICATION_DIR/source-revision.txt"
+          git rev-parse 'HEAD^{tree}' > "$QUALIFICATION_DIR/source-tree.txt"
+          printf '%s\n' "$GITHUB_SHA" > "$QUALIFICATION_DIR/workflow-revision.txt"
+          node --version > "$QUALIFICATION_DIR/node-version.txt"
+          pnpm --version > "$QUALIFICATION_DIR/pnpm-version.txt"
+      - name: Generate the root lock with the real pinned resolver
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          node scripts/install-private-dependencies.mjs --lockfile-only --ignore-scripts --no-frozen-lockfile
+          git diff --exit-code -- . ':!pnpm-lock.yaml'
+          git diff --check
+          cp pnpm-lock.yaml "$QUALIFICATION_DIR/pnpm-lock.yaml"
+          git diff -- pnpm-lock.yaml > "$QUALIFICATION_DIR/pnpm-lock.diff"
+          sha256sum pnpm-lock.yaml > "$QUALIFICATION_DIR/pnpm-lock.sha256"
+          git hash-object pnpm-lock.yaml > "$QUALIFICATION_DIR/pnpm-lock.git-blob"
+      - name: Prove the generated lock supports a frozen tooling install
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          node scripts/install-private-dependencies.mjs --ignore-scripts --frozen-lockfile
+          cmp pnpm-lock.yaml "$QUALIFICATION_DIR/pnpm-lock.yaml"
+          git diff --exit-code -- . ':!pnpm-lock.yaml'
+          pnpm foundation:assert-dev-only
+          pnpm foundation:assert-registry
+      - name: Qualify the published CLI and disposable negative probes
+        env:
+          NODE_OPTIONS: --max-old-space-size=1024 --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/foundation-markdown/foundation-native-audit.ndjson
+        run: |
+          set -euo pipefail
+          cli="$PWD/node_modules/@agent-teams/engineering-foundation/dist/cli.js"
+          artifact=docs/release-evidence/activation-catalog-policy-v29-schema-v5-independent-review.md
+          policy=architecture/foundation/documentation-local-references.yaml
+          artifact_digest=7abaefccd0fa7771c6594824df794415801771f68f14bf0521d2d2461b360528
+          test "$(wc -c < "$artifact")" -eq 12600
+          printf '%s  %s\n' "$artifact_digest" "$artifact" | sha256sum -c -
+          jq -e '.version == "4.1.0"' node_modules/@agent-teams/engineering-foundation/package.json
+          jq -e '.version == "7.0.2"' node_modules/typescript/package.json
+          node "$cli" check --consumer "$PWD" --json > "$QUALIFICATION_DIR/foundation-baseline.json"
+          jq -e '
+            .foundationVersion == "4.1.0" and .coverage == "full" and .outcome == "passed" and
+            .summary == {errors: 0, warnings: 0, infos: 21} and
+            ([.capabilities[].capabilityId] | sort) == [
+              "architecture.source-dependencies",
+              "documentation.local-references",
+              "quality.suppression-governance",
+              "repository.agent-workflow"
+            ] and
+            ([.capabilities[].diagnostics[]] | length == 21 and all(.[];
+              .ruleId == "documentation.local-references.historical-absolute-reference" and .severity == "info"
+            ))
+          ' "$QUALIFICATION_DIR/foundation-baseline.json"
+
+          git archive HEAD | tar -x -C "$FOUNDATION_PROBE_DIR"
+          expect_violation() {
+            set +e
+            node "$cli" check documentation.local-references --consumer "$FOUNDATION_PROBE_DIR" --json > "$QUALIFICATION_DIR/$1.json"
+            probe_status=$?
+            set -e
+            test "$probe_status" -eq 1
+            jq -e '.outcome == "violations"' "$QUALIFICATION_DIR/$1.json"
+          }
+          expect_historical_rejection() {
+            jq -e --arg reason "$2" '
+              .summary == {errors: 22, warnings: 0, infos: 0} and
+              ([.capabilities[].diagnostics[] | select(.ruleId == "documentation.local-references.invalid-reference")] | length == 21) and
+              ([.capabilities[].diagnostics[] | select(
+                .ruleId == "documentation.local-references.historical-artifact-invalid" and
+                any(.evidence[]; .kind == "historical-artifact-rejection" and .value == $reason)
+              )] | length == 1)
+            ' "$QUALIFICATION_DIR/$1.json"
+          }
+          expect_clean_fixture() {
+            node "$cli" check documentation.local-references --consumer "$FOUNDATION_PROBE_DIR" --json > "$QUALIFICATION_DIR/$1.json"
+            jq -e '.outcome == "passed" and .summary == {errors: 0, warnings: 0, infos: 21}' "$QUALIFICATION_DIR/$1.json"
+          }
+
+          printf '\n' >> "$FOUNDATION_PROBE_DIR/$artifact"
+          expect_violation negative-byte-drift
+          expect_historical_rejection negative-byte-drift source-digest-mismatch
+          cp "$artifact" "$FOUNDATION_PROBE_DIR/$artifact"
+          expect_clean_fixture restored-byte-drift
+
+          test "$(grep -c '^      - kind: link$' "$policy")" -eq 21
+          sed '0,/^      - kind: link$/{
+            /^      - kind: link$/{
+              N
+              N
+              N
+              d
+            }
+          }' "$policy" > "$FOUNDATION_PROBE_DIR/$policy"
+          test "$(grep -c '^      - kind: link$' "$FOUNDATION_PROBE_DIR/$policy")" -eq 20
+          expect_violation negative-incomplete-inventory
+          expect_historical_rejection negative-incomplete-inventory reference-set-mismatch
+          cp "$policy" "$FOUNDATION_PROBE_DIR/$policy"
+          expect_clean_fixture restored-inventory
+
+          probe_doc="$FOUNDATION_PROBE_DIR/docs/foundation-markdown-negative-probe.md"
+          test ! -e "$probe_doc"
+          test ! -e "$FOUNDATION_PROBE_DIR/docs/__foundation_missing_probe__.md"
+          printf '# Probe\n\n[Missing](./__foundation_missing_probe__.md)\n' > "$probe_doc"
+          expect_violation negative-ordinary-link
+          jq -e '
+            .summary == {errors: 1, warnings: 0, infos: 21} and
+            ([.capabilities[].diagnostics[] | select(
+              .ruleId == "documentation.local-references.broken-link" and
+              .location.path == "docs/foundation-markdown-negative-probe.md"
+            )] | length == 1) and
+            ([.capabilities[].diagnostics[] | select(.ruleId == "documentation.local-references.historical-absolute-reference")] | length == 21)
+          ' "$QUALIFICATION_DIR/negative-ordinary-link.json"
+          rm "$probe_doc"
+          expect_clean_fixture restored-all-probes
+          cmp "$artifact" "$FOUNDATION_PROBE_DIR/$artifact"
+          cmp "$policy" "$FOUNDATION_PROBE_DIR/$policy"
+          printf '%s  %s\n' "$artifact_digest" "$artifact" | sha256sum -c -
+      - name: Run the focused integrity tests with the native load guard
+        env:
+          NODE_OPTIONS: --max-old-space-size=1024 --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/foundation-markdown/tests-native-audit.ndjson
+        run: |
+          set -euo pipefail
+          node node_modules/vitest/vitest.mjs run --no-file-parallelism --maxWorkers=1 --reporter=json --outputFile="$QUALIFICATION_DIR/focused-tests.json" scripts/install-private-dependencies.test.ts scripts/promote-private-pg17-activation-catalog-policy.test.ts
+          jq -e '.success == true and .numTotalTests == 52 and .numPassedTests == 52 and .numFailedTests == 0 and .numPendingTests == 0' "$QUALIFICATION_DIR/focused-tests.json"
+      - name: Check the complete adoption delta format and tracked-byte integrity
+        env:
+          NODE_OPTIONS: --max-old-space-size=1024 --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/foundation-markdown/format-native-audit.ndjson
+        run: |
+          set -euo pipefail
+          node node_modules/prettier/bin/prettier.cjs --check package.json pnpm-lock.yaml pnpm-workspace.yaml scripts/install-private-dependencies.mjs foundation.config.yaml architecture/foundation/documentation-local-references.yaml architecture/foundation/README.md ai-docs/architecture/84-foundation-default-adoption.md ai-docs/design/archive/README.md ai-docs/design/memory/README.md
+          cmp pnpm-lock.yaml "$QUALIFICATION_DIR/pnpm-lock.yaml"
+          git diff --exit-code -- . ':!pnpm-lock.yaml'
+          git diff --check
+      - name: Preserve the public resolver output for executor-independent retrieval
+        run: |
+          set -euo pipefail
+          printf '%s\n' RR1002_LOCKFILE_BASE64_BEGIN
+          base64 -w 76 "$QUALIFICATION_DIR/pnpm-lock.yaml"
+          printf '%s\n' RR1002_LOCKFILE_BASE64_END
+          cat "$QUALIFICATION_DIR/pnpm-lock.sha256" "$QUALIFICATION_DIR/pnpm-lock.git-blob"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: foundation-markdown-qualification-${{ github.sha }}
+          path: ${{ runner.temp }}/foundation-markdown/
+          retention-days: 7
+          if-no-files-found: error
