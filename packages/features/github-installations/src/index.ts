@@ -39,3 +39,19 @@ export {
 } from "./infrastructure/crypto/github-app-webhook-verifier";
 export type { VerifiedGitHubAppWebhook } from "./infrastructure/crypto/github-app-webhook-verifier";
 export { verifyGitHubAppWebhookRequest } from "./interface/http/verify-github-app-webhook-request";
+export { requestWebhookRedeliveryOnce } from "./application/use-cases/request-webhook-redelivery-once";
+export type {
+  AppWebhookRedeliveryClient,
+  WebhookRedeliveryCustody,
+  WebhookRedeliveryAuthority,
+  RedeliveryRequestOutcome,
+} from "./application/use-cases/request-webhook-redelivery-once";
+
+export { githubAppIdentityHash } from "./infrastructure/crypto/github-app-identity";
+export { pollWebhookRecovery } from "./application/use-cases/poll-webhook-recovery";
+export type {
+  WebhookAttemptObservation,
+  WebhookRecoveryObservationClient,
+  WebhookRecoveryConfirmation,
+  WebhookRecoveryPollOutcome,
+} from "./application/use-cases/poll-webhook-recovery";

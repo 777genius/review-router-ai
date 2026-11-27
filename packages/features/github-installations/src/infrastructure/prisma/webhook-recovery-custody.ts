@@ -1,15 +1,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
-/** WIP only: caller must authenticate GitHub App and bind all observed identity. */
-export type WebhookRecoveryIdentity = Readonly<{
-  appIdentityHash: string;
-  deliveryGuid: string;
-  githubDeliveryId: bigint;
-  eventName: string;
-  action: string | null;
-  installationId: bigint | null;
-  payloadHash: string;
-}>;
+import type { WebhookRecoveryIdentity } from "../../application/ports/webhook-recovery-identity";
+export type { WebhookRecoveryIdentity } from "../../application/ports/webhook-recovery-identity";
 
 type RecoveryRow = WebhookRecoveryIdentity & {
   state: "prepared" | "issued_unknown" | "accepted" | "confirmed";
@@ -76,6 +68,13 @@ export async function reserveWebhookRedeliveryOnce(
       AND "githubDeliveryId"=${identity.githubDeliveryId} AND "eventName"=${identity.eventName}
       AND "action" IS NOT DISTINCT FROM ${identity.action} AND "installationId" IS NOT DISTINCT FROM ${identity.installationId}
       AND "payloadHash"=${identity.payloadHash} AND "state"='prepared'
+      AND EXISTS (SELECT 1 FROM "GitHubWebhookDelivery" d JOIN "GitHubWebhookFence" f USING ("deliveryId")
+        WHERE d."deliveryId" = "GitHubWebhookRecoveryIntent"."deliveryGuid"
+          AND f."appIdentityHash" = "GitHubWebhookRecoveryIntent"."appIdentityHash"
+          AND d."eventName" = "GitHubWebhookRecoveryIntent"."eventName"
+          AND d."action" IS NOT DISTINCT FROM "GitHubWebhookRecoveryIntent"."action"
+          AND d."installationId" IS NOT DISTINCT FROM "GitHubWebhookRecoveryIntent"."installationId"
+          AND d."payloadHash" = "GitHubWebhookRecoveryIntent"."payloadHash" AND d.status = 'failed')
     RETURNING "deliveryGuid"
   `);
   return rows.length === 1;
@@ -116,7 +115,7 @@ export async function confirmWebhookRecovery(
     WHERE r."appIdentityHash"=${identity.appIdentityHash} AND r."deliveryGuid"=${identity.deliveryGuid}
       AND r."githubDeliveryId"=${identity.githubDeliveryId} AND r."eventName"=${identity.eventName}
       AND r."action" IS NOT DISTINCT FROM ${identity.action} AND r."installationId" IS NOT DISTINCT FROM ${identity.installationId}
-      AND r."payloadHash"=${identity.payloadHash} AND r."state" IN ('prepared','issued_unknown','accepted')
+      AND r."payloadHash"=${identity.payloadHash} AND r."state" IN ('prepared','issued_unknown','accepted','confirmed')
       AND EXISTS (SELECT 1 FROM "GitHubWebhookDelivery" d JOIN "GitHubWebhookFence" f USING ("deliveryId")
         WHERE d."deliveryId"=r."deliveryGuid" AND f."appIdentityHash"=r."appIdentityHash"
           AND d."eventName"=r."eventName" AND d."action" IS NOT DISTINCT FROM r."action"

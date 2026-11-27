@@ -7,7 +7,8 @@ import { readFile } from "node:fs/promises";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import { Pool } from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { requestWebhookRedeliveryOnce } from "../application/use-cases/request-webhook-redelivery-once";
 import {
   beginFencedWebhookDelivery,
   beginVerifiedFencedWebhookDelivery,
@@ -146,9 +147,30 @@ test("webhook recovery custody on isolated PostgreSQL", () => {
     }
   });
 
+  async function seedFailed(i: ReturnType<typeof identity>) {
+    await beginFencedWebhookDelivery(
+      prisma,
+      {
+        deliveryId: i.deliveryGuid,
+        eventName: i.eventName,
+        action: i.action,
+        installationId: String(i.installationId),
+        payloadHash: i.payloadHash,
+      },
+      "b".repeat(64),
+      10000,
+      i.appIdentityHash,
+    );
+    await pool.query(
+      'UPDATE "GitHubWebhookDelivery" SET status=\'failed\' WHERE "deliveryId"=$1',
+      [i.deliveryGuid],
+    );
+  }
+
   it("concurrent reservations grant at most one POST and 202 is not completion", async () => {
     const i = identity("reservation");
     await prepareWebhookRecovery(prisma, i);
+    await seedFailed(i);
     const reservations = await Promise.all([
       reserveWebhookRedeliveryOnce(prisma, i, "1".repeat(64)),
       reserveWebhookRedeliveryOnce(prisma, i, "2".repeat(64)),
@@ -170,6 +192,22 @@ test("webhook recovery custody on isolated PostgreSQL", () => {
       ).rows[0].state,
     ).toBe("accepted");
   });
+  it("reserves only while exact fenced receiver evidence is failed", async () => {
+    const i = identity("missing-receiver");
+    await prepareWebhookRecovery(prisma, i);
+    expect(await reserveWebhookRedeliveryOnce(prisma, i, "1".repeat(64))).toBe(
+      false,
+    );
+    await seedFailed(i);
+    await pool.query(
+      'UPDATE "GitHubWebhookDelivery" SET status=\'processed\' WHERE "deliveryId"=$1',
+      [i.deliveryGuid],
+    );
+    expect(await reserveWebhookRedeliveryOnce(prisma, i, "1".repeat(64))).toBe(
+      false,
+    );
+  });
+
   it("requires a valid owner token and rejects an unfenced issued row", async () => {
     const i = identity("invalid-owner");
     await prepareWebhookRecovery(prisma, i);
@@ -183,9 +221,75 @@ test("webhook recovery custody on isolated PostgreSQL", () => {
       ),
     ).rejects.toMatchObject({ code: "23514" });
   });
+  it("two orchestrators cause one synthetic POST after durable reservation", async () => {
+    const i = identity("orchestrated");
+    await prepareWebhookRecovery(prisma, i);
+    await seedFailed(i);
+    const client = {
+      appIdentityHash: i.appIdentityHash,
+      redeliver: vi.fn().mockResolvedValue({ status: 202 }),
+    };
+    const custody = {
+      reserve: (value: typeof i, attempt: string) =>
+        reserveWebhookRedeliveryOnce(prisma, value, attempt),
+      accepted: (value: typeof i, attempt: string) =>
+        recordWebhookRedeliveryAccepted(prisma, value, attempt),
+    };
+    const result = await Promise.all([
+      requestWebhookRedeliveryOnce(i, {
+        client,
+        custody,
+        authority: { authorize: async () => true },
+      }),
+      requestWebhookRedeliveryOnce(i, {
+        client,
+        custody,
+        authority: { authorize: async () => true },
+      }),
+    ]);
+    expect(result.sort()).toEqual(["accepted_unconfirmed", "not_reserved"]);
+    expect(client.redeliver).toHaveBeenCalledExactlyOnceWith(
+      i.githubDeliveryId,
+    );
+    expect(await confirmWebhookRecovery(prisma, i)).toBe(false);
+  });
+  it("lost synthetic POST response is never retried on a new invocation", async () => {
+    const i = identity("orchestrated-unknown");
+    await prepareWebhookRecovery(prisma, i);
+    await seedFailed(i);
+    const client = {
+      appIdentityHash: i.appIdentityHash,
+      redeliver: vi.fn().mockRejectedValue(new Error("synthetic network loss")),
+    };
+    const custody = {
+      reserve: (value: typeof i, attempt: string) =>
+        reserveWebhookRedeliveryOnce(prisma, value, attempt),
+      accepted: (value: typeof i, attempt: string) =>
+        recordWebhookRedeliveryAccepted(prisma, value, attempt),
+    };
+    expect(
+      await requestWebhookRedeliveryOnce(i, {
+        client,
+        custody,
+        authority: { authorize: async () => true },
+      }),
+    ).toBe("unknown");
+    expect(
+      await requestWebhookRedeliveryOnce(i, {
+        client,
+        custody,
+        authority: { authorize: async () => true },
+      }),
+    ).toBe("not_reserved");
+    expect(client.redeliver).toHaveBeenCalledOnce();
+    expect((await prepareWebhookRecovery(prisma, i)).state).toBe(
+      "issued_unknown",
+    );
+  });
   it("retains unknown outcome and rejects conflicting immutable identity", async () => {
     const i = identity("unknown");
     await prepareWebhookRecovery(prisma, i);
+    await seedFailed(i);
     expect(await reserveWebhookRedeliveryOnce(prisma, i, "1".repeat(64))).toBe(
       true,
     );
@@ -212,20 +316,8 @@ test("webhook recovery custody on isolated PostgreSQL", () => {
   it("confirms only the exact fenced App, event, installation and payload after receiver terminal", async () => {
     const i = identity("receiver");
     await prepareWebhookRecovery(prisma, i);
+    await seedFailed(i);
     await reserveWebhookRedeliveryOnce(prisma, i, "1".repeat(64));
-    await beginFencedWebhookDelivery(
-      prisma,
-      {
-        deliveryId: i.deliveryGuid,
-        eventName: i.eventName,
-        action: i.action,
-        installationId: String(i.installationId),
-        payloadHash: i.payloadHash,
-      },
-      "b".repeat(64),
-      10000,
-      i.appIdentityHash,
-    );
     expect(await confirmWebhookRecovery(prisma, i)).toBe(false);
     await pool.query(
       'UPDATE "GitHubWebhookDelivery" SET status=\'processed\' WHERE "deliveryId"=$1',
@@ -243,6 +335,7 @@ test("webhook recovery custody on isolated PostgreSQL", () => {
         payloadHash: "b".repeat(64),
       }),
     ).toBe(false);
+    expect(await confirmWebhookRecovery(prisma, i)).toBe(true);
     expect(await confirmWebhookRecovery(prisma, i)).toBe(true);
     expect(await reserveWebhookRedeliveryOnce(prisma, i, "1".repeat(64))).toBe(
       false,

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { githubAppIdentityHash } from "./github-app-identity";
 import { verifyGitHubWebhookSignature } from "./github-webhook-signature";
 
 const verifiedContexts = new WeakSet<object>();
@@ -23,29 +24,9 @@ export function createGitHubAppWebhookVerifier(
 ): (
   input: Readonly<{ rawPayload: Buffer; signatureHeader?: string }>,
 ) => VerifiedGitHubAppWebhook | null {
-  if (!/^[1-9][0-9]*$/.test(config.appId) || !config.webhookSecret)
+  if (!config.webhookSecret)
     throw new Error("github_app_webhook_config_invalid");
-  let url: URL;
-  try {
-    url = new URL(config.apiBaseUrl);
-  } catch {
-    throw new Error("github_app_webhook_config_invalid");
-  }
-  if (
-    url.protocol !== "https:" ||
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash
-  )
-    throw new Error("github_app_webhook_config_invalid");
-  const canonicalBase = url.href.replace(/\/+$/, "");
-  const appIdentityHash = createHash("sha256")
-    .update("reviewrouter-github-app-v1\0")
-    .update(canonicalBase)
-    .update("\0")
-    .update(config.appId)
-    .digest("hex");
+  const appIdentityHash = githubAppIdentityHash(config);
   const secret = config.webhookSecret;
   return ({ rawPayload, signatureHeader }) => {
     if (
