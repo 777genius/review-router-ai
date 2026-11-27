@@ -1599,8 +1599,7 @@ export function WorkspaceCard({
           />
         ) : null}
         <WorkspaceActionNotice params={params} orgRuleset={orgRuleset} />
-        {hasWorkspaceWideAccess &&
-        selectedSection === "policy" ? (
+        {hasWorkspaceWideAccess && selectedSection === "policy" ? (
           <a
             className="inline-block text-sm text-cyan-200 underline"
             href={`/dashboard/context-tools?workspaceId=${encodeURIComponent(workspace.id)}`}
