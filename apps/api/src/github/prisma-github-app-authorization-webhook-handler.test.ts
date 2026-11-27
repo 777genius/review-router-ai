@@ -11,15 +11,16 @@ describe("PrismaGitHubAppAuthorizationWebhookHandler", () => {
     vi.stubEnv("GITHUB_APP_SLUG", "reviewrouter-test");
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const deleteMany = vi.fn().mockResolvedValue({ count: 2 });
-    const prisma = {
+    const transaction = {
       user: {
         findMany: vi.fn().mockResolvedValue([{ id: "user_1" }]),
       },
       gitHubUserAuthorization: { updateMany },
       repositoryPermissionCache: { deleteMany },
-      $transaction: vi
-        .fn()
-        .mockImplementation((operations) => Promise.all(operations)),
+    };
+    const prisma = {
+      ...transaction,
+      $transaction: vi.fn().mockImplementation((fn) => fn(transaction)),
     } as unknown as PrismaClient;
 
     await expect(
@@ -58,5 +59,66 @@ describe("PrismaGitHubAppAuthorizationWebhookHandler", () => {
         authorizationAppSlug: "reviewrouter-test",
       },
     });
+  });
+
+  it("binds the fenced revocation and delivery completion in one transaction", async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const deleteMany = vi.fn().mockResolvedValue({ count: 1 });
+    const finish = vi.fn().mockResolvedValue({});
+    const transaction = {
+      $queryRaw: vi
+        .fn()
+        .mockImplementation(async (sql: { text: string }) =>
+          sql.text.includes("FOR UPDATE")
+            ? [{ deliveryId: "delivery_1" }]
+            : [{ valid: true }],
+        ),
+      user: { findMany: vi.fn().mockResolvedValue([{ id: "user_1" }]) },
+      gitHubUserAuthorization: { updateMany },
+      repositoryPermissionCache: { deleteMany },
+      gitHubWebhookDelivery: {
+        findUnique: vi.fn().mockResolvedValue({
+          eventName: "github_app_authorization",
+          action: "revoked",
+          payloadHash: "hash",
+        }),
+        update: finish,
+      },
+    };
+    const prisma = {
+      $transaction: vi.fn().mockImplementation((fn) => fn(transaction)),
+    } as unknown as PrismaClient;
+    const handler = new PrismaGitHubAppAuthorizationWebhookHandler(prisma);
+    const envelope = {
+      deliveryId: "delivery_1",
+      eventName: "github_app_authorization" as const,
+      payloadHash: "hash",
+      payload: {
+        action: "revoked" as const,
+        sender: { id: 123, login: "maintainer" },
+      },
+    };
+    const claim = {
+      deliveryId: "delivery_1",
+      ownerHash: "a".repeat(64),
+      generation: 1n,
+    };
+    await handler.handleFencedGitHubAppAuthorizationWebhook(envelope, claim);
+    expect(updateMany).toHaveBeenCalledOnce();
+    expect(deleteMany).toHaveBeenCalledOnce();
+    expect(finish).toHaveBeenCalledWith({
+      where: { deliveryId: "delivery_1" },
+      data: { status: "processed", processedAt: expect.any(Date) },
+    });
+    transaction.gitHubWebhookDelivery.findUnique.mockResolvedValueOnce({
+      eventName: "github_app_authorization",
+      action: "revoked",
+      payloadHash: "different",
+    });
+    await expect(
+      handler.handleFencedGitHubAppAuthorizationWebhook(envelope, claim),
+    ).rejects.toThrow("webhook_fence_identity_mismatch");
+    expect(updateMany).toHaveBeenCalledOnce();
+    expect(finish).toHaveBeenCalledOnce();
   });
 });

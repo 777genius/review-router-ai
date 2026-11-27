@@ -1,4 +1,9 @@
-import type { GitHubAppAuthorizationWebhookEnvelope } from "@reviewrouter/features-github-installations";
+import {
+  runWebhookFencedDatabaseEffect,
+  type FencedDelivery,
+  type GitHubAppAuthorizationWebhookEnvelope,
+} from "@reviewrouter/features-github-installations";
+import type { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 
 export class PrismaGitHubAppAuthorizationWebhookHandler {
@@ -7,8 +12,49 @@ export class PrismaGitHubAppAuthorizationWebhookHandler {
   async handleGitHubAppAuthorizationWebhook(
     envelope: GitHubAppAuthorizationWebhookEnvelope,
   ): Promise<Record<string, unknown>> {
+    return this.prisma.$transaction((transaction) =>
+      this.applyRevocation(transaction, envelope),
+    );
+  }
+
+  /** WIP: not selected by production routes or eligible for takeover yet. */
+  async handleFencedGitHubAppAuthorizationWebhook(
+    envelope: GitHubAppAuthorizationWebhookEnvelope,
+    claim: FencedDelivery,
+  ): Promise<Record<string, unknown>> {
+    if (claim.deliveryId !== envelope.deliveryId || !envelope.payloadHash)
+      throw new Error("webhook_fence_identity_mismatch");
+    return runWebhookFencedDatabaseEffect(
+      this.prisma,
+      claim,
+      async (transaction) => {
+        const delivery = await transaction.gitHubWebhookDelivery.findUnique({
+          where: { deliveryId: claim.deliveryId },
+          select: { eventName: true, action: true, payloadHash: true },
+        });
+        if (
+          delivery?.eventName !== envelope.eventName ||
+          delivery.action !== envelope.payload.action ||
+          delivery.payloadHash !== envelope.payloadHash
+        )
+          throw new Error("webhook_fence_identity_mismatch");
+        const result = await this.applyRevocation(transaction, envelope);
+        await transaction.gitHubWebhookDelivery.update({
+          where: { deliveryId: claim.deliveryId },
+          data: { status: "processed", processedAt: new Date() },
+        });
+        return result;
+      },
+      "processed",
+    );
+  }
+
+  private async applyRevocation(
+    transaction: Prisma.TransactionClient,
+    envelope: GitHubAppAuthorizationWebhookEnvelope,
+  ): Promise<Record<string, unknown>> {
     const githubUserId = BigInt(envelope.payload.sender.id);
-    const users = await this.prisma.user.findMany({
+    const users = await transaction.user.findMany({
       where: { githubUserId },
       select: { id: true },
     });
@@ -23,24 +69,22 @@ export class PrismaGitHubAppAuthorizationWebhookHandler {
 
     const userIds = users.map((user) => user.id);
     const appSlug = resolveGitHubAppSlug();
-    await this.prisma.$transaction([
-      this.prisma.gitHubUserAuthorization.updateMany({
-        where: {
-          appSlug,
-          userId: { in: userIds },
-          revokedAt: null,
-        },
-        data: {
-          revision: { increment: 1 },
-          refreshAttemptId: null,
-          revokedAt: new Date(),
-          lastErrorCode: "github_app_authorization_revoked",
-        },
-      }),
-      this.prisma.repositoryPermissionCache.deleteMany({
-        where: { userId: { in: userIds }, authorizationAppSlug: appSlug },
-      }),
-    ]);
+    await transaction.gitHubUserAuthorization.updateMany({
+      where: {
+        appSlug,
+        userId: { in: userIds },
+        revokedAt: null,
+      },
+      data: {
+        revision: { increment: 1 },
+        refreshAttemptId: null,
+        revokedAt: new Date(),
+        lastErrorCode: "github_app_authorization_revoked",
+      },
+    });
+    await transaction.repositoryPermissionCache.deleteMany({
+      where: { userId: { in: userIds }, authorizationAppSlug: appSlug },
+    });
 
     return {
       processed: true,

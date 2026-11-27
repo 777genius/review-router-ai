@@ -2,7 +2,7 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import type { WebhookDeliveryRecord } from "../../application/ports/webhook-delivery-repository-port";
 
 /** An unexported building block: no handler or takeover is enabled yet. */
-type FencedDelivery = Readonly<{
+export type FencedDelivery = Readonly<{
   deliveryId: string;
   ownerHash: string;
   generation: bigint;
