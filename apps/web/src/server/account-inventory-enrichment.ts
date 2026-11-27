@@ -20,12 +20,12 @@ export function createAccountInventoryEnrichment() {
         controller.abort();
         reject(unavailable());
       };
+      timer = setTimeout(expire, 3000);
+      timer.unref?.();
     });
     // The shared deadline may outlive a fast read before another phase starts.
     // Observe it independently of individual races as well.
     void expired.catch(() => {});
-    timer = setTimeout(expire, 3000);
-    timer.unref?.();
     return deadlineAt;
   }
   const read: AccountInventoryRead = async (request) => {

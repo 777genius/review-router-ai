@@ -14,6 +14,7 @@ export type WebhookDeliveryRecord = {
 };
 
 export interface WebhookDeliveryRepositoryPort {
+  /** False means the exact delivery is already processed; uncertain claims reject. */
   tryStartProcessing(delivery: WebhookDeliveryRecord): Promise<boolean>;
   markProcessed(deliveryId: string): Promise<void>;
   markFailed(input: {

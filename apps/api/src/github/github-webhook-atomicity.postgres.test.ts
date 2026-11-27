@@ -360,9 +360,9 @@ describe.skipIf(!adminUrl)("atomic signed webhook HTTP on PostgreSQL", () => {
     expect(await state(fixture)).toEqual(complete);
   });
 
-  it("reclaims an exact historical failed receipt but leaves old processing uncertainty untouched", async () => {
+  it("reclaims an exact historical failed receipt but rejects unconfirmed receipts without mutation", async () => {
     const origin = await listen(dependencies());
-    for (const status of ["failed", "processing"] as const) {
+    for (const status of ["failed", "received", "processing"] as const) {
       const fixture = installationFixture();
       const existing = await prisma.gitHubWebhookDelivery.create({
         data: {
@@ -376,8 +376,8 @@ describe.skipIf(!adminUrl)("atomic signed webhook HTTP on PostgreSQL", () => {
         },
       });
       const result = await send(origin, fixture.deliveryId, fixture.body);
-      expect(result.status).toBe(200);
       if (status === "failed") {
+        expect(result.status).toBe(200);
         expect(result.body).toEqual({ processed: true, status: "active" });
         expect(await state(fixture)).toEqual(complete);
         expect(
@@ -386,10 +386,13 @@ describe.skipIf(!adminUrl)("atomic signed webhook HTTP on PostgreSQL", () => {
           }),
         ).toMatchObject({ id: existing.id, errorSummary: null });
       } else {
-        expect(result.body).toEqual({ processed: false });
+        expect(result).toEqual({
+          status: 500,
+          body: { error: "github_webhook_processing_failed" },
+        });
         expect(await state(fixture)).toEqual({
           ...absent,
-          receipt: "processing",
+          receipt: status,
         });
         expect(
           await prisma.gitHubWebhookDelivery.findUnique({
@@ -400,9 +403,18 @@ describe.skipIf(!adminUrl)("atomic signed webhook HTTP on PostgreSQL", () => {
     }
   });
 
-  it.each(["eventName", "action", "installationId", "payloadHash"] as const)(
-    "does not reclaim a failed receipt with a different %s",
-    async (field) => {
+  it.each([
+    ["failed", "eventName"],
+    ["failed", "action"],
+    ["failed", "installationId"],
+    ["failed", "payloadHash"],
+    ["processed", "eventName"],
+    ["processed", "action"],
+    ["processed", "installationId"],
+    ["processed", "payloadHash"],
+  ] as const)(
+    "rejects a %s receipt with a different %s without mutation",
+    async (status, field) => {
       const fixture = installationFixture();
       const identity = {
         eventName: "installation",
@@ -421,15 +433,15 @@ describe.skipIf(!adminUrl)("atomic signed webhook HTTP on PostgreSQL", () => {
           ...identity,
           [field]: mismatches[field],
           deliveryId: fixture.deliveryId,
-          status: "failed",
+          status,
         },
       });
       const origin = await listen(dependencies());
       expect(await send(origin, fixture.deliveryId, fixture.body)).toEqual({
-        status: 200,
-        body: { processed: false },
+        status: 500,
+        body: { error: "github_webhook_processing_failed" },
       });
-      expect(await state(fixture)).toEqual({ ...absent, receipt: "failed" });
+      expect(await state(fixture)).toEqual({ ...absent, receipt: status });
       expect(
         await prisma.gitHubWebhookDelivery.findUnique({
           where: { deliveryId: fixture.deliveryId },
@@ -820,7 +832,7 @@ describe.skipIf(!adminUrl)("atomic signed webhook HTTP on PostgreSQL", () => {
         actionVersion: "fixture-v1",
         pullRequestHeadSha: "b".repeat(40),
         pullRequestUrl: `https://github.com/${fixture.repository.fullName}/pull/42`,
-        attemptWorkflowRequirement: "account_gateway+codex",
+        attemptWorkflowRequirement: "gateway",
         revision: 3,
       },
     });
@@ -852,7 +864,7 @@ describe.skipIf(!adminUrl)("atomic signed webhook HTTP on PostgreSQL", () => {
     ).toMatchObject({
       status: "configured",
       revision: 4,
-      installedWorkflowRequirement: "account_gateway+codex",
+      installedWorkflowRequirement: "gateway",
     });
     expect((await send(origin, deliveryId, body, "pull_request")).body).toEqual(
       { processed: false },

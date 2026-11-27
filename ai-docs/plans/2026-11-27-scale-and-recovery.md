@@ -54,26 +54,42 @@ not needed. No in-memory mutex becomes distributed correctness authority.
 
 Observed from live GitHub on 2026-11-27, not inferred from old conversation state.
 
-| Existing PR | Observed status | Boundary retained in this work |
-| --- | --- | --- |
-| #1007, `7f038195` | Merged | OAuth/cache fencing, GitLab credential separation, bounded HTTP bodies, observation recovery, stable inventory quota, ruleset/outbox atomicity, pool acquisition deadline, Usage SQL/retention, workspace selection and Action streaming already exist. |
-| #1003, #960, #920 | Merged | Preserve exact observation retries/deadlines, uncertain dispatch handling and progress pagination. |
-| #998, #977 | Merged | Preserve owner extraction, current Foundation/Get Modular adoption and source boundaries. |
-| #959 | Merged | Preserve native provider contracts; ReviewRouter does not copy native provider logic. |
-| #1008, `7681003e` | Draft | Do not edit worker `review-v2-projection-envelope.ts` or `review-v2-publication-payloads.ts` and its test. |
-| #1020, `46e20e3d` | Open | Do not duplicate `apps/web/src/features/provider-setup/setup-provider.ts` selector fix or its test. |
-| #1017, `42d2cf28` | Merged during qualification | Preserve the Gateway management ingress and deployment evidence from current main; no duplicate implementation. |
-| #1022, `ef062a48` | Merged during final review | Preserve the bounded stale-close capability recovery from main; qualify its interaction with catalog outages without replaying inference or extending expired authority. |
-| #1010, `c31ab0b8` | Draft | Shared Identity/SCM plans own future identity/session/account migration. |
-| #474, `f4523cae` | Draft | Offline custody envelope rebind and PG17 cutover remain separately owned. |
-| #1002, `021c7828` | Draft | Full-root Markdown-reference adoption is not part of this PR. |
-| #1015, `907bb607` | Open | Main already includes its original formatting correction. Reuse only the independently checked four-line Usage fixture correction below, with attribution; do not merge the other PR or change report semantics. |
-| #1013, #1014, #1019 | Open/Draft | Deployment records retain their own observed facts; merge index additions additively. |
-| #869, #870, #864, #872 | Draft | Homepage and video work excluded. |
+| Existing PR                                       | Observed status             | Boundary retained in this work                                                                                                                                                                                                                          |
+| ------------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #1007, `7f038195`                                 | Merged                      | OAuth/cache fencing, GitLab credential separation, bounded HTTP bodies, observation recovery, stable inventory quota, ruleset/outbox atomicity, pool acquisition deadline, Usage SQL/retention, workspace selection and Action streaming already exist. |
+| #1003, #960, #920                                 | Merged                      | Preserve exact observation retries/deadlines, uncertain dispatch handling and progress pagination.                                                                                                                                                      |
+| #998, #977                                        | Merged                      | Preserve owner extraction, current Foundation/Get Modular adoption and source boundaries.                                                                                                                                                               |
+| #959                                              | Merged                      | Preserve native provider contracts; ReviewRouter does not copy native provider logic.                                                                                                                                                                   |
+| #1008, `7681003e`                                 | Draft                       | Do not edit worker `review-v2-projection-envelope.ts` or `review-v2-publication-payloads.ts` and its test.                                                                                                                                              |
+| #1020, `46e20e3d`                                 | Open                        | Do not duplicate `apps/web/src/features/provider-setup/setup-provider.ts` selector fix or its test.                                                                                                                                                     |
+| #1017, `42d2cf28`                                 | Merged during qualification | Preserve the Gateway management ingress and deployment evidence from current main; no duplicate implementation.                                                                                                                                         |
+| #1022, `ef062a48`                                 | Merged during final review  | Preserve the bounded stale-close capability recovery from main; qualify its interaction with catalog outages without replaying inference or extending expired authority.                                                                                |
+| #1026, `78ed993e8603aa254ee5022b43564845aa11e540` | Open                        | Adapt only its exact-processed acknowledgement semantics to our conflict-safe transactional repository. Keep `createMany(skipDuplicates)` and exact failed reclaim; no takeover or old `create`/P2002 path.                                             |
+| #1027, `ec6f66a1fe0063e8bca0263486cc76457c9324a2` | Draft                       | Incomplete owner/generation/lease recovery remains excluded. Its separate `000165_webhook_effect_fence` would change our checksum-bound checkout172 tail; no migration or handler integration is absorbed.                                              |
+| #1010, `c31ab0b8`                                 | Draft                       | Shared Identity/SCM plans own future identity/session/account migration.                                                                                                                                                                                |
+| #474, `f4523cae`                                  | Draft                       | Offline custody envelope rebind and PG17 cutover remain separately owned.                                                                                                                                                                               |
+| #1002, `021c7828`                                 | Draft                       | Full-root Markdown-reference adoption is not part of this PR.                                                                                                                                                                                           |
+| #1015, `907bb607`                                 | Open                        | Main already includes its original formatting correction. Reuse only the independently checked four-line Usage fixture correction below, with attribution; do not merge the other PR or change report semantics.                                        |
+| #869, #870, #864, #872                            | Draft                       | Homepage and video work excluded.                                                                                                                                                                                                                       |
 
 Recheck open PRs and main before final integration. Normal additive index conflicts
 do not justify absorbing other PRs. A later merge is not permission to overwrite
 its semantics with the audited baseline.
+
+The 06:38 UTC recheck found main at `fa690ad6ffc7769cbaa0ee80a5e18414eef1249d`:
+four paths after integrated `d84feba7`, comprising three operations/deployment
+documents and a three-line PostgreSQL needrestart override. No application,
+migration or CI source changed; these host-maintenance additions are not required
+for this Draft. PR #1021 had zero reviews, inline comments and review threads;
+its two discussion comments reported Draft-review skipping and runner waiting,
+not code findings. No bot action or unrelated merge follows from those comments.
+
+The later live read confirmed unchanged main and #1026. Draft #1027 advanced to
+`ec6f66a1fe0063e8bca0263486cc76457c9324a2`: five commits after `e906d08c`,
+20 changed paths and eight overlapping transaction-adapter/export paths. Its new
+installation/repository/setup/composite prototypes are not route-wired; composite
+finalization and failure recovery remain incomplete. The fencing protocol and its
+migration stay excluded. This observation changes neither our source nor rollout.
 
 ## 3. Source findings and acceptance contracts
 
@@ -83,18 +99,18 @@ Handwritten production/integration LOC P and tests/fixtures LOC T exclude vendor
 generated bundles, lockfiles and documentation. Changed/deleted surrounding code
 is reported separately in the final diff to avoid double-counting estimates.
 
-| Workstream | Observed failure and intended correction | P LOC | T LOC | C/R/U |
-| --- | --- | ---: | ---: | --- |
-| A. Worker owner isolation | `runWorkerBatch` is sequential: catching rejection does not release a permanently pending phase. Give known owners finite observation windows while retaining at most one real invocation per owner until settlement; healthy owners can run again. | 500–900 | 800–1,300 | 6/9/10 |
-| B. Stop and claim lifetime | The shutdown signal only gates the next outer batch; outbox continues claiming, and worker signal handlers use `once`. Stop new claims/phases on shutdown, drain already owned effects and keep repeated signals from restoring immediate termination. | 250–500 | 450–750 | 4/9/10 |
-| C. GitHub progress/inventory | A never-settling cached `GET /app` promise and unbounded installation/client/request pagination can hold the serial worker. Bound the real transport and whole pass; preserve incomplete inventory and uncertain mutation semantics. | 500–950 | 950–1,500 | 5/9/10 |
-| D. Completion batch ownership | `ScanDueReviewCompletionProcesses` uses fail-fast `Promise.all`; one rejection releases the caller while claimed siblings still execute. Await all owned settlements and report failures honestly, preserving exact claims and admission bounds. | 120–300 | 300–550 | 4/9/10 |
-| E. Runtime database execution | Pool acquisition is bounded, but acquired SQL has no server execution/lock budget. A locked query can occupy every connection indefinitely. Apply runtime-specific PostgreSQL budgets and narrow unavailable classification; prove recovery after timeout/disconnect. | 250–500 | 600–1,000 | 5/9/9 |
-| F. Dashboard query scaling | Installation sync status issues one query per installation. Replace it with a bounded latest-per-installation SQL read. Measure multi-parent nested latest-row reads and change only paths whose SQL actually hydrates unbounded history. | 380–810 | 700–1,350 | 5/9/8 |
-| G. Native catalog recovery | Startup discovery failure is caught, but three consumers freeze the empty catalog forever: relay, runtime snapshot and model-settings reader. Share a bounded refresh source for new admission, preserve pinned in-flight facts and local allowances. | 650–1,200 | 1,000–1,700 | 6/9/10 |
-| H. Integrated failure qualification | Exercise concurrent tenants, dependency loss/restore, delayed completion, stop and process recovery through the actual changed composition, reusing existing harnesses. Wire relevant strict/CI coverage and operational evidence. | 150–350 | 650–1,200 | 5/9/8 |
-| I. Atomic webhook receipts | Delivery is committed as `processing` before separate effects; interruption leaves an unretryable receipt forever. Commit claim, local effects/outbox and processed receipt in one transaction, keeping external preadmission outside it. | 800–1,400 | 1,200–2,000 | 6/9/10 |
-| J. Accounts/HTTP resource boundaries | Optional metadata awaits after the final inventory authorization fence; account enrichment can start 100 remote reads; one key route still reads unbounded JSON; non-2xx public-catalog bodies are left open. Fix these existing seams without extra auth layers. | 250–500 | 650–1,100 | 5/9/10 |
+| Workstream                           | Observed failure and intended correction                                                                                                                                                                                                                              |     P LOC |       T LOC | C/R/U  |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------: | ----------: | ------ |
+| A. Worker owner isolation            | `runWorkerBatch` is sequential: catching rejection does not release a permanently pending phase. Give known owners finite observation windows while retaining at most one real invocation per owner until settlement; healthy owners can run again.                   |   500–900 |   800–1,300 | 6/9/10 |
+| B. Stop and claim lifetime           | The shutdown signal only gates the next outer batch; outbox continues claiming, and worker signal handlers use `once`. Stop new claims/phases on shutdown, drain already owned effects and keep repeated signals from restoring immediate termination.                |   250–500 |     450–750 | 4/9/10 |
+| C. GitHub progress/inventory         | A never-settling cached `GET /app` promise and unbounded installation/client/request pagination can hold the serial worker. Bound the real transport and whole pass; preserve incomplete inventory and uncertain mutation semantics.                                  |   500–950 |   950–1,500 | 5/9/10 |
+| D. Completion batch ownership        | `ScanDueReviewCompletionProcesses` uses fail-fast `Promise.all`; one rejection releases the caller while claimed siblings still execute. Await all owned settlements and report failures honestly, preserving exact claims and admission bounds.                      |   120–300 |     300–550 | 4/9/10 |
+| E. Runtime database execution        | Pool acquisition is bounded, but acquired SQL has no server execution/lock budget. A locked query can occupy every connection indefinitely. Apply runtime-specific PostgreSQL budgets and narrow unavailable classification; prove recovery after timeout/disconnect. |   250–500 |   600–1,000 | 5/9/9  |
+| F. Dashboard query scaling           | Installation sync status issues one query per installation. Replace it with a bounded latest-per-installation SQL read. Measure multi-parent nested latest-row reads and change only paths whose SQL actually hydrates unbounded history.                             |   380–810 |   700–1,350 | 5/9/8  |
+| G. Native catalog recovery           | Startup discovery failure is caught, but three consumers freeze the empty catalog forever: relay, runtime snapshot and model-settings reader. Share a bounded refresh source for new admission, preserve pinned in-flight facts and local allowances.                 | 650–1,200 | 1,000–1,700 | 6/9/10 |
+| H. Integrated failure qualification  | Exercise concurrent tenants, dependency loss/restore, delayed completion, stop and process recovery through the actual changed composition, reusing existing harnesses. Wire relevant strict/CI coverage and operational evidence.                                    |   150–350 |   650–1,200 | 5/9/8  |
+| I. Atomic webhook receipts           | Delivery is committed as `processing` before separate effects; interruption leaves an unretryable receipt forever. Commit claim, local effects/outbox and processed receipt in one transaction, keeping external preadmission outside it.                             | 800–1,400 | 1,200–2,000 | 6/9/10 |
+| J. Accounts/HTTP resource boundaries | Optional metadata awaits after the final inventory authorization fence; account enrichment can start 100 remote reads; one key route still reads unbounded JSON; non-2xx public-catalog bodies are left open. Fix these existing seams without extra auth layers.     |   250–500 |   650–1,100 | 5/9/10 |
 
 Envelope: roughly 3,850–7,400 handwritten production/integration lines and
 7,300–12,450 test/fixture lines before rejecting disproved conditional changes or
@@ -326,6 +342,17 @@ repository, authorization revocation, push and PR/setup handling. Preserve the
 documented special preadmission ordering. Do not reset historical `processing`
 rows automatically: they predate atomicity and may have partial effects. Record
 their operator recovery separately instead of turning uncertainty into replay.
+Only an exact already-processed receipt permits duplicate HTTP acknowledgement.
+Historical processing, missing or mismatched receipts return the existing safe
+processing error without changing their state; a successful response must not
+hide unfinished work. This adopts the narrow #1026 correction without a new
+lease/fencing protocol or a read on the successful fresh/retry path.
+
+An error response does not schedule a GitHub retry: [GitHub does not automatically
+redeliver failed webhooks](https://docs.github.com/en/webhooks/testing-and-troubleshooting-webhooks/redelivering-webhooks).
+The atomicity guarantee makes a new failed local transaction safe to redeliver
+through the existing GitHub App delivery controls. Historical uncertain receipts
+still require effect investigation; this change does not introduce a replay worker.
 
 Acceptance: injected interruption after each local effect leaves no half-applied
 state; redelivery then completes exactly once; concurrent duplicates produce one
@@ -378,17 +405,17 @@ transactions and is not repeated with a different policy inside one admission.
 
 ## 4. Implementation order and file ownership
 
-| Stage | Owner | Deliverable / dependency |
-| --- | --- | --- |
-| 0. Audit | Root + three read-only auditors | Current source, open-PR matrix, concrete failures and test seams. Complete before plan review. |
-| 1. Plan rounds | All reviewers | Challenge scope, uncertainty, resource/claim custody, security and integration. Root revises after each actual round. |
-| 2A. Worker isolation/adapters/drain | Runtime owner | A/B/C/D in existing worker/outbox/repositories/review-progress/review-processes owners, including worker root wiring. |
-| 2B. Database and reads | Data owner | E/F in platform-db and selected existing read adapters; propose schema/index changes to root before mutation. |
-| 2C. Catalog and HTTP consumers | Gateway consumer owner | G/J in API native catalog/relay/composition/model-settings and Accounts/HTTP seams; coordinate app.ts wiring with root, no open-PR-owned selector edits. |
-| 2D. Webhook atomicity/integration | Root | I, shared composition integration, plan/deployment records and publication. |
-| 3. Fault integration | Root + each owner | H using real loopback dependencies and a fresh isolated PostgreSQL cluster; strict source projects and focused checks. |
-| 4. Cross review | Different owner than implementer | Review implementation/evidence, fix critical findings, repeat affected tests. |
-| 5. Final qualification | Root | Main reconciliation, relevant complete CI/E2E, accurate Draft PR evidence and unresolved limitations. |
+| Stage                               | Owner                            | Deliverable / dependency                                                                                                                                 |
+| ----------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0. Audit                            | Root + three read-only auditors  | Current source, open-PR matrix, concrete failures and test seams. Complete before plan review.                                                           |
+| 1. Plan rounds                      | All reviewers                    | Challenge scope, uncertainty, resource/claim custody, security and integration. Root revises after each actual round.                                    |
+| 2A. Worker isolation/adapters/drain | Runtime owner                    | A/B/C/D in existing worker/outbox/repositories/review-progress/review-processes owners, including worker root wiring.                                    |
+| 2B. Database and reads              | Data owner                       | E/F in platform-db and selected existing read adapters; propose schema/index changes to root before mutation.                                            |
+| 2C. Catalog and HTTP consumers      | Gateway consumer owner           | G/J in API native catalog/relay/composition/model-settings and Accounts/HTTP seams; coordinate app.ts wiring with root, no open-PR-owned selector edits. |
+| 2D. Webhook atomicity/integration   | Root                             | I, shared composition integration, plan/deployment records and publication.                                                                              |
+| 3. Fault integration                | Root + each owner                | H using real loopback dependencies and a fresh isolated PostgreSQL cluster; strict source projects and focused checks.                                   |
+| 4. Cross review                     | Different owner than implementer | Review implementation/evidence, fix critical findings, repeat affected tests.                                                                            |
+| 5. Final qualification              | Root                             | Main reconciliation, relevant complete CI/E2E, accurate Draft PR evidence and unresolved limitations.                                                    |
 
 Agents work in the same checkout only on explicitly disjoint files. Root owns
 root package/config changes, shared schema/migration numbering, deployment index,
@@ -467,7 +494,7 @@ effects survive restart and rollback. Never delete pending work to recover healt
 - Initial published HTTP checkpoint: `3cb28a1456d110215cf6ae0a35fc58e1881ae98d`
   bounds provider-key requests and public-catalog response cleanup. Independent
   review corrected its response-close test in `c9659a4`; the stronger assertion
-  still needs its final rerun. The earlier 18 passes do not prove that correction.
+  subsequently passed with all 18 HTTP cases on `e6095e3e`.
 - Environment recovery: the interrupted checkout and every owner's source were
   recovered intact. The pinned dependency graph and Prisma client were restored.
   The exact optional subscription-runtime source `c7543bc716411a5f899a790a735d09ed2530f779`
@@ -503,10 +530,8 @@ effects survive restart and rollback. Never delete pending work to recover healt
   passed 90, adjacent authorization suites 37, and the final repository admission
   suite 11. The final suite proves rollback after later authority SQL, authorization
   insertion and outbox insertion cross the catalog TTL. Seven new relay recovery
-  cases and one original HTTP case passed separately. The pre-main-integration 182-case relay
-  suite and the extended 91-case snapshot suite still needed successful completion
-  at that checkpoint;
-  interrupted runs supply no evidence for their remaining cases.
+  cases and one original HTTP case passed separately. The later complete relay189
+  and snapshot91 result is recorded below; interrupted earlier runs are not passes.
 - Cross-owner G review found TTL could expire during SQL after the first runtime
   fence. The existing authorization repository now checks a synchronous native
   freshness predicate after all new authorization/outbox writes. Expiry throws
@@ -533,9 +558,9 @@ effects survive restart and rollback. Never delete pending work to recover healt
 - I failure qualification covers actual signed HTTP, PostgreSQL rollback after
   each local stage, duplicate wait/abort, historical receipt identity, server lock
   cancellation, backend termination, scope-lock creation/removal and response loss.
-  A separate PostgreSQL protocol proxy will distinguish a committed transaction
-  whose acknowledgment was lost from a transaction that rolled back. These tests
-  remain pending until their recorded successful execution.
+  A separate PostgreSQL protocol proxy distinguishes a committed transaction whose
+  acknowledgment was lost from one that rolled back. Executed results and the
+  later acknowledgement correction are recorded below.
 
 - Open-PR recheck: #1008 and #1020 retain their audited source and ownership.
   #1017 was merged into main at `42d2cf2850d4de525aea16a96ceb1a444e2e2e34`;
@@ -547,7 +572,8 @@ effects survive restart and rollback. Never delete pending work to recover healt
   SQL/builder review and byte-for-byte comparison approved reusing exactly that
   deletion to remove the known baseline qualification failure. All 20 PostgreSQL
   test bodies and complete report equality assertions remain unchanged; their
-  rerun is pending. No production Usage change or merge of another PR is included.
+  successful real-PG rerun is recorded below. No production Usage change or merge
+  of another PR is included.
 
 ### Final integration and migration admission review
 
@@ -568,12 +594,9 @@ effects survive restart and rollback. Never delete pending work to recover healt
   predecessor170 and native-less169 coverage. Missing or altered index, incomplete
   171-row native-less catalog, unknown future migration and transactional-index
   admission all have negative assertions. No historical SQL or checksum changed.
-  The ten-file patch is subject to the existing full CI; preparing it remotely
-  and checking literal replacements is not an executed test result.
-- The execution environment disconnected again after all production work was
-  published. Existing local results remain recorded above. Further qualification
-  uses the repository's normal CI dispatch on this branch, with the dedicated
-  PostgreSQL 17 contract and current main as its exact immutable baseline.
+  Initial remote preparation and literal comparison were source review only.
+  The seven complete local suites are now recorded below; full CI and the
+  dedicated PostgreSQL 17 release contract remain separate gates.
 - Previous Draft PR run `45933520011` passed only the impact/aggregate control
   jobs; actual quality, static and PostgreSQL jobs were skipped. That green
   aggregate is not full qualification. Keep Draft status and require the actual
@@ -612,12 +635,6 @@ identity and a closed native execution. The combined relay suite at that checkpo
 188 cases. This does not promise recovery of already expired capabilities or
 establish the cause of the author's reported historical bearer refusals.
 
-Manual CI `45937669312` and Native Accounts browser `45937901453` were accepted
-for `29cbbe54` and remain pending at this checkpoint. They are allowed to finish.
-The merged API source needs its own full qualification; the web/browser inputs
-are unchanged by this API-only main integration and retain their original source
-binding. No queued run is treated as a blocker or a successful test.
-
 ### Follow-up binding guard and qualification checkpoint
 
 Main advanced to `d84feba7ae08cf477f5b0584e526971f38458c04`, preserving the
@@ -628,50 +645,130 @@ binding mismatch is rejected before consumer-control readback or reprepare;
 the original operation, execution, account, epoch and deadline must agree.
 This narrows stale refresh, preserves custody on refusal, and adds no catalog
 dependency to cleanup. Our existing outage/401 case covers the positive path;
-the incoming mismatch case covers the negative path. The combined suite now
-contains 189 cases and requires its own successful execution.
+the incoming mismatch case covers the negative path. The combined suite contains
+189 cases; its complete execution is recorded below.
 
 The peer's 181 isolated tests and reported production installation of `6271ebe1`
 remain attributed in the unchanged peer record. They are not qualification or
 deployment of this Draft. No production operation was performed in this task.
 
-| Qualification on exact `e6095e3e` | Actual result | Remaining boundary |
-| --- | --- | --- |
-| Public catalog HTTP and provider-key route | 18/18 passed, zero skips. The corrected unfinished ServerResponse close assertion executed successfully. | Real loopback response ownership and the existing 256 KiB route envelope. |
-| Migration source admission | 252/252 passed across six complete suites, zero skips. | The seventh private-rehearsal suite still requires generated Prisma. Earlier 14 reader/partition checks and three syntax checks remain separate evidence. |
-| Late source integration | All 12 JS/TS files since `dc9f0cd8` passed original ESLint 10.3.0 and Prettier 3.8.3; zero lint warnings/errors. Incoming shell passed `bash -n`. | This does not replace the complete original strict TypeScript projects or qualify the later 12-line main guard. |
-| Native relay / snapshot | Full relay188 and extended snapshot91 remained pending on this source. | After the follow-up main guard, require relay189; no interrupted process counts as a completed case. |
-| Actual webhook database boundaries | 23 atomicity cases plus one COMMIT-acknowledgement-loss case remain pending. | Require all 24 through the real signed HTTP/PostgreSQL composition. |
-| Usage fixture correction | All 20 actual PostgreSQL cases remain pending. | Preserve complete report equality and the exact four-line correction from #1015. |
+| Qualification                              | Actual result and source                                                                                                                                                                                                            | Remaining boundary                                                                                                                                                                             |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Public catalog HTTP and provider-key route | On `e6095e3e`, 18/18 passed, zero skips, including the corrected unfinished ServerResponse close assertion.                                                                                                                         | Real loopback response ownership and the existing 256 KiB route envelope.                                                                                                                      |
+| Migration source admission                 | 382/382 cumulatively across seven complete files, zero skips: six files/252 cases on `e6095e3e`, then the unchanged private-rehearsal unit file/130 cases on `f1ccb8cb`.                                                            | Source/catalog validation only; this is not a live PostgreSQL upgrade, Docker rehearsal or release approval. Earlier 14 reader/partition and three syntax checks are separate evidence.        |
+| Native relay / snapshot                    | On `f1ccb8cb`, full relay189 plus snapshot91 passed: 280/280, zero skips.                                                                                                                                                           | Includes the main binding guard and combined catalog-outage/401 close case; no production model inference was needed.                                                                          |
+| Webhook unit/HTTP/adapters                 | On the late acknowledgement source, all ten complete files passed 122/122, zero skips, including all 13 repository cases.                                                                                                           | Fresh/retry paths avoid the extra read; only exact processed duplicates acknowledge.                                                                                                           |
+| Actual webhook database boundaries         | On the same late source, PostgreSQL 17.10 applied all 172 migrations and passed 27 atomicity plus one COMMIT-loss case: 28/28, zero skips.                                                                                          | Real signed HTTP, unchanged receipt/effect transactions, historical uncertainty, identity rejection and exact processed duplicates. No takeover or production redelivery.                      |
+| Installer fixture cleanup                  | On `f1ccb8cb` plus the cleanup patch, all 63 original cases passed, zero skips, in 46.724s. A separate forced shlock exit17 produced the expected original assertion failure; its child was already dead before supervisor cleanup. | Local Node 24.22.3/Vitest 4.1.10 with original forks configuration. The diagnostic selected one case; the other 62 were deliberately not selected. This does not resolve the older CI timeout. |
+| Late source checks                         | On `e6095e3e`, 12 late JS/TS files passed ESLint/Prettier and incoming shell passed `bash -n`. The five late acknowledgement/fixture files also passed canonical formatting and ESLint.                                             | No lint warnings/errors; complete original strict projects and authoritative CI remain separate.                                                                                               |
+| Usage fixture correction                   | On unchanged `f1ccb8cb` Usage/DB sources, all 20 tests passed against disposable PostgreSQL 17.10, zero skips, in 32.027s. The opt-in SQL qualification passed its six bounded-plan scenarios.                                      | Those six scenarios are included in the 20 tests, not additional tests. Full report equality and the exact four-line #1015 correction remain intact; the CI PostgreSQL 17.5 gate is separate.  |
 
-Frozen dependency restoration succeeded with the pinned toolchain. The subsequent
-ordinary offline Prisma probe could not create its network namespace, and the
-canonical pinned runtime build was killed before root exports existed; no partial
-runtime was installed. A later legitimate rootless user/network namespace probe
-succeeded with distinct network identity and no egress. The executor disconnected
-before canonical generation could start inside it. This is preparation evidence
-only; the required offline guard and environment whitelist remain unchanged.
+The first actual webhook run on `f1ccb8cb` passed 23/24 cases, including COMMIT
+loss, but failed while inserting an invalid fixture requirement
+`account_gateway+codex` under the unchanged `WorkflowProvisioning_workflow_requirement`
+constraint. Only the attempt and installed expectation were corrected to the
+domain's canonical `gateway`; rollback, revision and duplicate assertions stayed
+intact. Independent review then identified the retained baseline false-200
+behaviour for historical processing/mismatched receipts. The narrow semantics
+from #1026 at `78ed993e8603aa254ee5022b43564845aa11e540` were adapted to our
+transaction-safe repository, and four additional real-HTTP/PG acknowledgement
+cases joined the complete successful 28-case run above.
 
-Manual full CI `45937669312` (`29cbbe54`), full CI `45940187687` (`e6095e3e`)
-and Native Accounts browser `45937901453` (`29cbbe54`) remain independently
-source-bound. The older Linux installer job `140316711863` reached Vitest and
-was cancelled by its 10-minute job limit, confirmed by the official job
-annotation. No testcase failure or narrower cause was available. One exact local
-diagnostic was killed before Vitest collection; it does not reproduce that CI
-timeout. Workflow deadlines, installer assertions and routing were not changed.
-The current installer counterpart and the other jobs continue normally.
+Late webhook results bind to `f1ccb8cb` plus the five working-tree source blobs in
+`qualification-webhook-ack-checks.json` and `qualification-webhook-ack-postgres.json`,
+including repository `1a12148f8d7d724bc1fc39d6af64a8eeb47e2c8d` and atomicity test
+`a40722892b8d7d5c6a8c455b9889f9e0041848b7`; they are not clean-`f1ccb8cb` results.
+Installer evidence binds to executed test blob `0543fe71d0b6b728c305ae54dd4af692668b909a`;
+formatted candidate `d418d160861ff5bce083082dfcee72f43252cc4d` differs only by a
+verified whitespace wrap. No assertion, test timeout or installer behaviour
+changed. The new finally owns the spawned lock-holder even when setup assertions
+fail, and no child remained after either diagnostic or normal run.
 
-The Web, browser harness, database and dependency inputs are unchanged by both
-API-only main integrations, so the older browser run remains applicable to J
-with its original source binding. The new merged API still requires exact-source
-full CI and its dedicated PG17 job, separately from the aggregate status.
+The restored pinned toolchain now completed canonical offline Prisma 7.9.0
+generation inside a verified distinct rootless network namespace with no egress;
+schema, lockfile, generation script and environment whitelist were unchanged.
+The exact subscription-runtime `c7543bc716411a5f899a790a735d09ed2530f779` also
+completed its canonical full build with TypeScript 7.0.2: all 3,136 dist files
+were copied identically into both consumer contexts, with 64 export references
+verified in each. Earlier isolation failures, SIGKILL and interrupted preparation
+remain unsuccessful attempts; they are not retroactively passes or the evidence
+for the later successful restoration.
+
+### Strict corrections and current gate state
+
+The first complete strict attempt stopped at 42 configurations passed, one failed
+and 17 not run, with zero cache hits. The installation webhook discriminator was
+split into its two existing literal members to fix TS2379 without a cast or runtime
+change. Later strict checks required the runtime reader's existing `$queryRaw`
+method in its type and a throwing implementation in the shared snapshot fixture.
+A fresh graph reached 55 passed, one failed and four not run before finding the
+worker child fixture's incomplete maintenance-result cast. That fixture now
+returns the complete zero/empty disabled result with contextual typing. These
+are separate attempts; their counts are not cumulative completion of all 60.
+
+The original GitHub-installations, review-config and worker strict projects
+passed after their corrections. The complete snapshot file passed 91/91 again
+on runtime-reader blob `802722a0b0d741d3d375cd54778735d6e17dc8a2` and fixture
+`e6957905be519430330b28c08db34fc684532abc`; this repeats the snapshot portion of
+G280 rather than adding 91 distinct cases. All three original shutdown cases
+passed with worker fixture `f431f9f6a02506a8b8fff158768290187daca48f`.
+The Web timer now schedules the same callback immediately after its assignment
+inside the synchronous Promise executor, fixing its optional-function type
+without an assertion or changed deadline. That source is
+`f72c9c83545020ff816374fb7d4b908576d2f43c`. On that corrected source, all 11
+complete Accounts files passed again: 155/155, zero skips, in 9.511s, with unchanged
+before/after source hashes in `qualification-j-account-enrichment-f1.json`.
+Two full Web strict attempts were killed by SIGKILL without a TypeScript
+diagnostic. The second used the native runtime's supported `GOGC=25` scheduling
+and retained the same complete project and single checker. Its GC trace recorded
+1,833 MB of live heap before termination; this does not establish the external
+signal's cause. Local Web profile trials stopped. Complete Web strict and the
+final fresh 60-configuration graph remain pending authoritative qualification.
+No include set, type-checking option, assertion or deadline was weakened.
+
+Whole-repository ESLint passed on the source recorded in
+`qualification-final-static.json`. Foundation's existing ownership map now
+classifies the new adjacent public-catalog HTTP test; no allowed edge or exclusion
+was broadened. Foundation and DEV_ONLY checks passed, while registry assertion
+correctly rejected the environment's external package location. The exact locked
+Foundation 3.1.0 was materialized inside consumer `node_modules`, with all 2,905
+files and 12 dependency bindings verified against the frozen store. The unchanged
+`foundation:assert-registry` then passed at 07:38:21 UTC. This restores the normal
+environment layout; it changes no package bytes, lock, guard or local-mode policy.
+The complete architecture command then passed every boundary stage, including
+23 Memory positive/negative cases, six Statistics cases, history and metadata
+layout, before its final metadata typecheck found two missing React type hoists
+in the relocated environment. Restoring the two existing private bindings from
+the frozen install metadata preserved all package versions and configuration;
+the unchanged `metadata:typecheck` passed. A clean complete architecture command
+remains to be recorded. Whole-repository Prettier subsequently passed with a
+512 MiB formatter heap, and both final worker/Web files passed ESLint. The earlier
+formatter attempt at 192 MiB exhausted its artificial heap limit and is not a pass.
+
+Native Accounts run `45937901453` on `29cbbe54` finished with **failure** at
+07:30 UTC. Step 8, the full Web TypeScript check, reported the webhook
+discriminator, runtime-reader `$queryRaw` and optional timer callback diagnostics
+above. All browser, Chromium, 40-screenshot, flow and role-visibility steps were
+skipped. There is **no browser E2E evidence** from that run. An unchanged route or
+browser harness cannot make this failed preflight a browser pass; the Web strict
+project also reaches API types. The corrected source requires a new successful
+Native qualification with its own exact-source binding.
+
+Manual full CI `45937669312` (`29cbbe54`), `45940187687` (`e6095e3e`) and
+`45948041513` (`f1ccb8cb`) still lack final completion evidence at this checkpoint.
+The older Linux installer job `140316711863` reached Vitest and exceeded its
+10-minute job limit; the official annotation confirms that boundary, not a
+testcase or narrower cause. The local precollection SIGKILL did not reproduce
+that timeout, and the later 63-case pass qualifies the cleanup patch locally,
+not the historical job or CI Node 26.11.1. Workflow conditions and deadlines are
+unchanged. Full CI and dedicated PG17 qualification on the corrected published
+source remain required, separately from any aggregate status.
 
 ### Remaining qualification and review gates
 
-1. Finish G and I focused real-boundary suites. The corrected HTTP assertion
-   and provider-key route already passed all 18 cases on `e6095e3e`.
-   Restore valid test fixture composition when strict production roots require it;
-   do not add production fallbacks solely for incomplete mocks.
+1. Preserve the executed G280, I28/122, Usage20, installer63 and migration382
+   source bindings when publishing the late patch. Rerun affected boundaries if
+   those sources change; earlier counts do not qualify a different implementation.
 2. Run original strict TS7 owner projects, changed-file preflight and the applicable
    lint/architecture/format gates. Use one heavy process at a time within the local
    environment. Resource-killed processes and skipped tests are not passes.

@@ -14,7 +14,10 @@ import { handleGitHubInstallationWebhook } from "./handle-github-installation-we
 
 export type SupportedGitHubWebhookEnvelope =
   | (GitHubWebhookEnvelope & {
-      readonly eventName: "installation" | "installation_repositories";
+      readonly eventName: "installation";
+    })
+  | (GitHubWebhookEnvelope & {
+      readonly eventName: "installation_repositories";
     })
   | GitHubAppAuthorizationWebhookEnvelope
   | GitHubPullRequestWebhookEnvelope

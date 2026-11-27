@@ -85,7 +85,10 @@ import {
 
 type RuntimeReader = Pick<
   PrismaClient,
-  "reviewConfiguration" | "workspaceProviderProfile" | "workspaceAccountBinding"
+  | "$queryRaw"
+  | "reviewConfiguration"
+  | "workspaceProviderProfile"
+  | "workspaceAccountBinding"
 > &
   Partial<Pick<PrismaClient, "reviewContextConnection" | "producerRelease">> &
   Partial<HostedReviewBindingReader>;

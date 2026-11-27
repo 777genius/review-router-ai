@@ -43,10 +43,29 @@ const operations: WorkerBatchOperations = {
   memoryMaintenance: noop,
   pruneMemoryUsageTelemetry: noop,
   // This fixture isolates the real host lifecycle, not the V2 application.
-  reviewV2Maintenance: async () =>
-    ({ failures: [] }) as Awaited<
-      ReturnType<WorkerBatchOperations["reviewV2Maintenance"]>
-    >,
+  reviewV2Maintenance: async () => ({
+    intentsScanned: 0,
+    intentsDispatched: 0,
+    intentsRecovered: 0,
+    intentDispatchFailures: 0,
+    recovered: 0,
+    advanced: 0,
+    publicationProcessed: 0,
+    publicationManualRequired: 0,
+    publicationTerminalUnknown: 0,
+    progressPromoted: 0,
+    progressClaimed: 0,
+    progressPublished: 0,
+    progressDeferred: 0,
+    progressSuppressed: 0,
+    progressFailed: 0,
+    expiredExecutionsScanned: 0,
+    expiredExecutionsRecovered: 0,
+    expiredExecutionConflicts: 0,
+    expiredExecutionFailures: 0,
+    failures: [],
+    blockedPhases: [],
+  }),
 };
 const logger = { info() {}, warn() {}, error() {} };
 try {

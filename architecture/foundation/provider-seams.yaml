@@ -234,6 +234,7 @@ boundaries:
       - packages/features/review-providers/src/tests
       - packages/features/review-providers/src/composition/index.test.ts
       - packages/features/review-providers/src/infrastructure/catalog/public-model-catalog.test.ts
+      - packages/features/review-providers/src/infrastructure/catalog/public-model-catalog.http.test.ts
       - packages/features/review-providers/src/infrastructure/openrouter/openrouter-model-catalog.test.ts
     entrypoints: []
     allow:

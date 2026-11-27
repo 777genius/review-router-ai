@@ -172,6 +172,9 @@ function fakeRuntimeReader(input: {
   readonly profileRows?: readonly unknown[];
 }) {
   return {
+    $queryRaw: async () => {
+      throw new Error("unexpected_runtime_snapshot_raw_query");
+    },
     workspaceProviderProfile: {
       findMany: async () => input.profileRows ?? [],
     },
@@ -219,6 +222,7 @@ function fakeRuntimeReader(input: {
     },
   } as unknown as Pick<
     PrismaClient,
+    | "$queryRaw"
     | "reviewConfiguration"
     | "workspaceProviderProfile"
     | "workspaceAccountBinding"
