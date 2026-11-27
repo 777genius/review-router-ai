@@ -45,7 +45,9 @@ export class InMemoryReviewObservationStore
   }
 
   async findSourceSlotCandidates(
-    input: Parameters<ReviewObservationQueryPort["findSourceSlotCandidates"]>[0],
+    input: Parameters<
+      ReviewObservationQueryPort["findSourceSlotCandidates"]
+    >[0],
   ): Promise<readonly ReviewObservation[]> {
     return [...this.observations.values()]
       .filter(

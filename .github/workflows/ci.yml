@@ -1573,6 +1573,8 @@ jobs:
 
       - name: Build the qualified Gateway fixture dependencies
         run: |
+          test "$(node --version)" = v26.11.1
+          echo "REVIEW_ROUTER_NATIVE_RETRY_NODE26=$(node -p 'process.execPath')" >> "$GITHUB_ENV"
           test "$(git -C .paired/native-request-retry rev-parse HEAD)" = f6e05bf458fc447fb641b786d3ec911c592a18ec
           test "$(git -C .paired/gateway-request-retry rev-parse HEAD)" = 90739814c9e85fcf3ac9e9e6a0b2ea68b3131d28
           test "$(go env GOVERSION)" = go1.27.4
@@ -1582,6 +1584,12 @@ jobs:
           node "$RUNNER_TEMP/native-retry-pnpm/node_modules/pnpm/bin/pnpm.cjs" --dir .paired/gateway-request-retry install --frozen-lockfile
           node "$RUNNER_TEMP/native-retry-pnpm/node_modules/pnpm/bin/pnpm.cjs" --dir .paired/gateway-request-retry run build
 
+      - name: Set up Node 24 for joined request-retry qualification
+        id: paired_native_retry_node24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.21.0"
+
       - name: Compiled Action to RR, Gateway and actual Native request-retry E2E
         id: paired_native_retry
         timeout-minutes: 20
@@ -1590,32 +1598,66 @@ jobs:
           GOTOOLCHAIN: local
         run: |
           set -euo pipefail
-          pg_name="rr-native-retry-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          docker run -d --rm --name "$pg_name" -e POSTGRES_PASSWORD=postgres -p 127.0.0.1::5432 \
-            postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
-          trap 'docker rm -f "$pg_name" >/dev/null' EXIT
-          for attempt in $(seq 1 30); do
-            if docker exec "$pg_name" pg_isready -U postgres; then break; fi
-            sleep 1
-          done
-          docker exec "$pg_name" pg_isready -U postgres
-          pg_port="$(docker inspect --format '{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}' "$pg_name")"
-          for db in review_router_native_retry_ci native_non_entry_rr_private_ci native_non_entry_rr_public_ci ag_kernel_test_rr_retry_private_ci ag_kernel_test_rr_retry_public_ci; do
-            docker exec "$pg_name" psql -U postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE $db"
-          done
-          export REVIEW_ROUTER_TEST_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:$pg_port/review_router_native_retry_ci"
-          DATABASE_URL="$REVIEW_ROUTER_TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy
+          pg_name=""
+          trap 'if [[ -n "$pg_name" ]]; then docker rm -f "$pg_name" >/dev/null; fi' EXIT
           export REVIEW_ROUTER_ACTION_SOURCE_DIR="$GITHUB_WORKSPACE/.paired/review-router-action"
           export REVIEW_ROUTER_NATIVE_RETRY_NATIVE_SOURCE="$GITHUB_WORKSPACE/.paired/native-request-retry"
           export REVIEW_ROUTER_NATIVE_RETRY_GATEWAY_SOURCE="$GITHUB_WORKSPACE/.paired/gateway-request-retry"
+          node24="$(node -p 'process.execPath')"
+          test "$("$node24" --version)" = v24.21.0
+          node26="$REVIEW_ROUTER_NATIVE_RETRY_NODE26"
+          test "$("$node26" --version)" = v26.11.1
+          original_path="$PATH"
           rm -rf tmp/native-retry-paired
           mkdir -p tmp/native-retry-paired
-          pnpm exec vitest run apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts \
-            --testNamePattern "joins the compiled Action with real native attested retry" \
-            --reporter=default --reporter=json --outputFile=tmp/native-retry-paired/results.json
-          jq -e '[.testResults[].assertionResults[] | select(.fullName | contains("joins the compiled Action with real native attested retry through "))] | length == 2 and all(.status == "passed")' tmp/native-retry-paired/results.json
-          for mode in private public; do
-            jq -e '.contract == "native-non-entry-consumer/v1" and .spentDispatches == 3 and .completedProviderTurns == 2 and .originalGatewayGrants == 1 and .heldAckDeniedSuccessor and .oneIdenticalSuccessor and .originalPaidTurnPreserved and .publications == 1' "tmp/native-retry-paired/$mode.json"
+          for node_executable in "$node24" "$node26"; do
+            export PATH="$(dirname "$node_executable"):$original_path"
+            test "$(node -p 'process.execPath')" = "$node_executable"
+            node_version="$(node --version)"
+            node --version
+            pg_name="rr-native-retry-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$node_version"
+            docker run -d --rm --name "$pg_name" -e POSTGRES_PASSWORD=postgres -p 127.0.0.1::5432 \
+              postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+            for attempt in $(seq 1 30); do
+              if docker exec "$pg_name" pg_isready -U postgres; then break; fi
+              sleep 1
+            done
+            docker exec "$pg_name" pg_isready -U postgres
+            pg_port="$(docker inspect --format '{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}' "$pg_name")"
+            export REVIEW_ROUTER_TEST_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:$pg_port/review_router_native_retry_ci"
+            for db in review_router_native_retry_ci native_non_entry_rr_private_ci native_non_entry_rr_public_ci ag_kernel_test_non_entry_rr_retry_private_ci ag_kernel_test_non_entry_rr_retry_public_ci; do
+              docker exec "$pg_name" psql -U postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE $db"
+            done
+            DATABASE_URL="$REVIEW_ROUTER_TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy
+            rm -f tmp/native-retry-paired/{private,public}.json \
+              tmp/native-retry-paired/{private,public}-action.log \
+              tmp/native-retry-paired/{private,public}-native.log \
+              tmp/native-retry-paired/results.json
+            lane_dir="tmp/native-retry-paired/node-$node_version"
+            rm -rf "$lane_dir"
+            mkdir -p "$lane_dir"
+            pnpm exec vitest run apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts \
+              --testNamePattern "joins the compiled Action with real native attested retry" \
+              --reporter=default --reporter=json --outputFile=tmp/native-retry-paired/results.json
+            jq -e \
+              --arg private "joins the compiled Action with real native attested retry through private ingress" \
+              --arg public "joins the compiled Action with real native attested retry through public ingress" \
+              '.success == true and .numFailedTests == 0 and .numPassedTests == 2 and
+                ([.testResults[].assertionResults[] | select(.fullName == $private or .fullName == $public)] |
+                  length == 2 and all(.status == "passed") and
+                  (map(.fullName) | sort) == ([$private, $public] | sort))' \
+              tmp/native-retry-paired/results.json
+            for mode in private public; do
+              jq -e --arg node "$node_version" --arg mode "$mode" \
+                '.contract == "native-non-entry-consumer/v1" and .nodeVersion == $node and .mode == $mode and .spentDispatches == 3 and .completedProviderTurns == 2 and .originalGatewayGrants == 1 and .heldAckDeniedSuccessor and .oneIdenticalSuccessor and .originalPaidTurnPreserved and .publications == 1' \
+                "tmp/native-retry-paired/$mode.json"
+            done
+            mv tmp/native-retry-paired/{private,public}.json \
+              tmp/native-retry-paired/{private,public}-action.log \
+              tmp/native-retry-paired/{private,public}-native.log \
+              tmp/native-retry-paired/results.json "$lane_dir/"
+            docker rm -f "$pg_name" >/dev/null
+            pg_name=""
           done
 
       - name: Preserve joined Native request-retry proof
@@ -1626,6 +1668,12 @@ jobs:
           path: tmp/native-retry-paired/
           if-no-files-found: error
           retention-days: 30
+
+      - name: Restore Node 26 after joined request-retry qualification
+        if: always() && steps.paired_native_retry_node24.outcome != 'skipped'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Captured Skills control plane to paired runtime HTTP proof
         env:

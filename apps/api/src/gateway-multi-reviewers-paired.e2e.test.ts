@@ -1933,10 +1933,14 @@ if (
       });
       await mkdir(path.resolve("tmp/native-retry-paired"), { recursive: true });
       const nativeDsn = new URL(databaseUrl!);
+      const databasePassword = decodeURIComponent(nativeDsn.password);
+      nativeDsn.password = "";
       nativeDsn.pathname = "/native_non_entry_rr_" + mode + "_ci";
       nativeDsn.search = "?sslmode=disable";
       const gatewayDsn = new URL(nativeDsn);
-      gatewayDsn.pathname = "/ag_kernel_test_rr_retry_" + mode + "_ci";
+      gatewayDsn.pathname =
+        "/ag_kernel_test_non_entry_rr_retry_" + mode + "_ci";
+      gatewayDsn.search = "";
       const native = await exec(
         "go",
         [
@@ -1961,6 +1965,7 @@ if (
           env: {
             ...process.env,
             GOTOOLCHAIN: "local",
+            PGPASSWORD: databasePassword || process.env.PGPASSWORD,
             GATEWAY_NATIVE_NON_ENTRY_JOINED_NODE: process.execPath,
             GATEWAY_NATIVE_NON_ENTRY_JOINED_RUNNER: joinedRunner,
             GATEWAY_NATIVE_NON_ENTRY_JOINED_RUNNER_SHA256: runnerDigest,
@@ -1994,6 +1999,7 @@ if (
           {
             contract: "native-non-entry-consumer/v1",
             mode,
+            nodeVersion: process.version,
             artifactDigest,
             runnerDigest,
             spentDispatches: 3,

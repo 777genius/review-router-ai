@@ -40,19 +40,81 @@
 
 ## Current integration status
 
-The batch is ready for review and is being integrated with PRs #1026, #1027,
-#1028 and #1030. The current default webhook implementation is the durable fenced
+The batch is ready for review and includes owner integration
+`1572026b30d4403e9161f308712404b09ed34b85` of PRs #1026, #1027, #1028 and #1030. The current default webhook implementation is the durable fenced
 processor from PR #1027. It supersedes this PR's unreleased generic webhook
 transaction-port prototype and its old default-composition test harness.
 
-The distinct interruption, cancellation, HTTP-response-loss and lock-visibility
-invariants are retained in four focused cases against the fenced production
+The distinct interruption, cancellation, HTTP-response-loss, lock-visibility and
+supersession invariants are retained in five focused cases against the production
 composition. Existing fenced and actual COMMIT-loss suites remain present.
 Historical passes below stay bound to their recorded source and are not passes
 for the combined tree.
 
+The follow-up checks supersession before first-generation installation and
+repository effects as well as lease takeovers. Claim and effect commit separately,
+so a newer deletion must prevent an already admitted older creation from
+recreating local state. Initial GitHub App authorization retains its separate
+grant-revision rules. The added production HTTP/PostgreSQL regression pauses after
+the first claim commits, completes a newer signed deletion, then resumes the older
+creation and verifies that no installation, workspace, actor, owner or sync job
+was created. Existing fault cases keep their cleanup and assertions intact.
+
+The companion-stream follow-up preserves a successfully settled result when the
+downstream reader cancels while settlement is finishing. Once both settlement
+writes complete, a subsequent stream-close failure must not append another
+unknown outcome. The one-line guard and strengthened existing cancellation case
+are already present in the owner integration, including the bounded correction
+from peer commit `f314ce865a2e367721a04476d501063fea57fb77`. The owner's separate
+SDK, retry-protocol and migration additions remain intact. Their runtime
+qualification is required on the published combined source.
+
+The Skills browser preparation now drains the already selected setup client
+scripts before authenticated database-backed rendering, inside the same existing
+120-second warmup deadline. Authentication, HTTP readiness checks, browser cases
+and scenario timeouts are unchanged. The earlier
+[c40 Skills job](https://github.com/777genius/review-router-ai/actions/runs/46047996280/job/140671979594)
+failed during warmup before executing any browser cases; that run is not a
+browser pass and does not prove the follow-up works.
+
+### Local webhook follow-up qualification
+
+The local follow-up was checked against parent
+`ef1dae17ece4c1d702c50a0711b83236205f5284`, with runtime blob
+`bd6c78f7ed91b1fd38abb66ede03b2d25e3434d0`, production-test blob
+`a7319b61c89511d253c026dbb3a4b6148ba0fb5e` and repository-fixture blob
+`0bc61aed7184ee1313294ec81ff23c9a634709ba`.
+
+- Whole production HTTP/PostgreSQL file: **46/46 passed**, zero skips/todo,
+  Vitest duration 17.00 seconds.
+- Whole repository PostgreSQL file: **5/5 passed**, zero skips/todo,
+  Vitest duration 1.42 seconds.
+- Original runtime negative control: the new race case failed with HTTP 200
+  instead of the required 500. The other 45 cases were intentionally filtered
+  from that diagnostic run; it is not a successful whole-file qualification.
+- Node 24.22.3, pnpm 11.28.7, Vitest 4.1.10 and PostgreSQL 17.10. The green run
+  used a fresh cluster, real Asia/Tokyo sessions, all 175 finished migrations and
+  the production fixture's comparison of every migration name/checksum.
+  Both owned TCP clusters stopped normally and the corrected source was restored.
+- Guarded Prettier checked the original four follow-up files; baseline ESLint
+  checked all three TypeScript files with zero warnings. The later owner integration and this follow-up require their own combined CI.
+
+The first Unix-socket startup and reuse of one cluster for a second fresh
+database were failed setup attempts. The latter was rejected by the unchanged
+`000079` partial-role guard; the passing run used a new cluster without altering
+SQL or authority roles. Two interrupted dependency restores also remain failed
+attempts; the subsequent frozen installation completed with unchanged manifests.
+An independent reviewer verified the raw test reports, log hashes, code blobs
+and cleanup. Local receipt SHA256:
+`f1f286bb1433b04f81864c8f9685da32c5d0d901fc8ec86fe44d58e8f96a6750`.
+
+These isolated HTTP/SQL results use synthetic GitHub events. They do not replace
+the full combined-source CI, native/browser checks or a separately authorized
+deployment. The PR's current qualification record owns subsequent CI results.
+
 Both latest-row indexes remain in the application catalog together with all three
-webhook migrations: 175 ordinary migrations in total. The additive receipt-order
+webhook migrations and `000165_attested_model_request_retry`: 176 ordinary
+migrations in total. The additive receipt-order
 indexes from `000168` are included without modifying earlier SQL or managed92 and
 historical96 manifests. Only the exact complete earlier groups and their complete
 extensions/unions are admitted; the new index alone is rejected. The conflict-safe
@@ -64,9 +126,32 @@ The bounded Link parser and indexed receipt-floor lookup from PR #1027 at
 part of the required combined-source PostgreSQL gate; no runtime pass is inferred
 from this source integration.
 
+The owner integration also pins Action
+`b222791515278dc92af6cb0eaa982afd73d0332d`, Native
+`f6e05bf458fc447fb641b786d3ec911c592a18ec` and Gateway
+`90739814c9e85fcf3ac9e9e6a0b2ea68b3131d28` for the bounded attested request
+retry. The final review must preserve authority, lease, attempt and no-duplicate
+effect boundaries across those exact producers and the consumer. The existing
+Statistics followthrough browser gate is now selected as well. Earlier
+175-migration and older-producer passes retain their original source bindings.
+
+Source review also found that the new joined Native fixture supplied a password
+in URLs rejected by the pinned producers, and a Gateway database name/query that
+did not meet its fixture contract. The correction keeps the password-authenticated
+disposable PostgreSQL service, passes its credential through standard
+`PGPASSWORD`, and uses the producers' existing passwordless URL and database-name
+contracts. Producer guards, images, pins, timeouts and acceptance assertions are
+unchanged. The private/public joined qualification still must execute on this
+corrected source.
+
+The new webhook case is ported unchanged onto the owner's updated production
+fixture, preserving its initialized deferred-request cleanup. The published
+production-test blob therefore differs from the earlier local `a7319b61`
+fixture; current combined-source PostgreSQL qualification remains mandatory.
+
 Combined-source native checks and ordinary protected CI remain required. The
-local executor became unavailable during preparation; source review and retained
-historical evidence do not replace current runtime qualification. See the
+source reviews and retained historical evidence below do not replace current
+runtime qualification. See the
 [updated integration plan](../plans/2026-11-27-scale-and-recovery.md#combined-webhook-and-recovery-integration)
 for the invariant and test mapping.
 
