@@ -282,22 +282,6 @@ test("full migration webhook fencing compatibility", () => {
       adapter: new PrismaPg(observedPool),
     });
     const floorQueries: Array<{ text: string; values: unknown[] }> = [];
-    const observed = baseClient.$extends({
-      query: {
-        async $queryRaw({ args, query }) {
-          // Keep the native PostgreSQL placeholders and original bigint/Date values.
-          const captured = { text: args.text, values: [...args.values] };
-          const result: unknown = await query(args);
-          if (
-            /^\s*SELECT\s+GREATEST\s*\(/iu.test(captured.text) &&
-            captured.text.includes('"GitHubWebhookDelivery"') &&
-            captured.text.includes('AS "receivedAt"')
-          )
-            floorQueries.push(captured);
-          return result;
-        },
-      },
-    });
     onTestFinished(async () => {
       try {
         const remaining = await pool.query(
@@ -309,7 +293,7 @@ test("full migration webhook fencing compatibility", () => {
         expect(remaining.rows[0]).toEqual({ deliveries: 0, fences: 0 });
       } finally {
         try {
-          await observed.$disconnect();
+          await baseClient.$disconnect();
         } finally {
           await observedPool.end();
         }
@@ -319,8 +303,32 @@ test("full migration webhook fencing compatibility", () => {
     try {
       // This transaction also owns the bounded seed, ANALYZE and EXPLAIN work;
       // its fixture budget does not change the receiver's transaction timeout.
-      await observed.$transaction(
+      await baseClient.$transaction(
         async (transaction) => {
+          const queryRaw: Prisma.TransactionClient["$queryRaw"] = <T = unknown>(
+            args: TemplateStringsArray | Prisma.Sql,
+            ...values: unknown[]
+          ): Prisma.PrismaPromise<T> => {
+            const result = transaction.$queryRaw<T>(args, ...values);
+            if (
+              "text" in args &&
+              /^\s*SELECT\s+GREATEST\s*\(/iu.test(args.text) &&
+              args.text.includes('"GitHubWebhookDelivery"') &&
+              args.text.includes('AS "receivedAt"')
+            ) {
+              // Preserve native placeholders and values; the awaited claim and
+              // exact receipt below prove this query completed before EXPLAIN.
+              floorQueries.push({ text: args.text, values: [...args.values] });
+            }
+            return result;
+          };
+          const claimTransaction = new Proxy(transaction, {
+            get(target, property) {
+              return property === "$queryRaw"
+                ? queryRaw
+                : Reflect.get(target, property);
+            },
+          });
           const indexes = await transaction.$queryRaw<
             Array<{ name: string; valid: boolean; ready: boolean }>
           >`
@@ -366,7 +374,7 @@ test("full migration webhook fencing compatibility", () => {
                   ELSE 'repository'
                 END,
                 CASE WHEN n > 55000 AND n <= 97500
-                  THEN ${BigInt(installationId)} ELSE 1000000 + n END,
+                  THEN ${BigInt(installationId)}::bigint ELSE 1000000 + n END,
                 jsonb_build_object('repositoryId',
                   CASE WHEN n > 97500
                     THEN CASE WHEN n % 2 = 0 THEN ${repositoryIds[0]} ELSE ${repositoryIds[1]} END
@@ -538,7 +546,7 @@ test("full migration webhook fencing compatibility", () => {
             if (!context) throw new Error("receipt_plan_signature_invalid");
             const before = floorQueries.length;
             const claim = await claimVerifiedFencedWebhookDeliveryInTransaction(
-              transaction,
+              claimTransaction,
               context,
               {
                 deliveryId,
