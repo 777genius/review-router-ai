@@ -1294,7 +1294,14 @@ export function createReviewRunGatewayRelay(input: {
       requestStage = "post_request_authority";
       await fresh();
       if (upstream.kind === "status") {
-        await settle(upstream.status.effect);
+        // Public native 202 may retain its pre-settlement status. The SDK has
+        // fully drained it; only the separate proof can attest closed non-entry.
+        if (
+          upstream.status.effect !== "completed" &&
+          (await attestNativeRejection())
+        )
+          await outcome("rejected_before_dispatch");
+        else await settle(upstream.status.effect);
         dispose();
         return upstream;
       }
