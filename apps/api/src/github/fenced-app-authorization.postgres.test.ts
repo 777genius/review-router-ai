@@ -7,7 +7,9 @@ import { readFile } from "node:fs/promises";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import { Pool } from "pg";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import Fastify from "fastify";
+import { encryptServerToken } from "@reviewrouter/features-auth";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   beginFencedWebhookDelivery,
   reclaimWebhookFence,
@@ -22,6 +24,26 @@ test("fenced app revocation on isolated PostgreSQL", () => {
     options: `-c search_path=${schema}`,
   });
   const prisma = new PrismaClient({ adapter: new PrismaPg(pool, { schema }) });
+  const env = {
+    GITHUB_APP_SLUG: "synthetic-app",
+    REVIEW_ROUTER_TOKEN_ENCRYPTION_KEY:
+      "synthetic-app-revocation-encryption-key",
+  };
+  const github = Fastify({ logger: false });
+  let githubOrigin = "";
+  const token = encryptServerToken("synthetic-current-token", env);
+  const handler = () =>
+    new PrismaGitHubAppAuthorizationWebhookHandler(
+      prisma,
+      env.GITHUB_APP_SLUG,
+      {
+        env,
+        fetch: async (resource, options) => {
+          expect(String(resource)).toBe("https://api.github.com/user");
+          return fetch(githubOrigin + "/user", options);
+        },
+      },
+    );
   const owner = "a".repeat(64);
   const envelope = (deliveryId: string) => ({
     deliveryId,
@@ -59,23 +81,31 @@ test("fenced app revocation on isolated PostgreSQL", () => {
       'CREATE TABLE "User" (id TEXT PRIMARY KEY, "githubUserId" BIGINT)',
     );
     await pool.query(
-      'CREATE TABLE "GitHubUserAuthorization" ("userId" TEXT, "appSlug" TEXT, revision INT NOT NULL DEFAULT 1, "refreshAttemptId" TEXT, "revokedAt" TIMESTAMP(3), "lastErrorCode" TEXT, "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP)',
+      `CREATE TABLE "GitHubUserAuthorization" (id TEXT PRIMARY KEY DEFAULT 'authorization', "userId" TEXT, "appSlug" TEXT, "githubUserId" BIGINT NOT NULL DEFAULT 123, revision INT NOT NULL DEFAULT 1, "encryptedAccessToken" TEXT NOT NULL, "accessTokenExpiresAt" TIMESTAMP(3), "refreshAttemptId" TEXT, "revokedAt" TIMESTAMP(3), "lastErrorCode" TEXT, "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
     );
     await pool.query(
       'CREATE TABLE "RepositoryPermissionCache" ("userId" TEXT, "authorizationAppSlug" TEXT)',
     );
     await pool.query("INSERT INTO \"User\" VALUES ('u1',123)");
-    vi.stubEnv("GITHUB_APP_SLUG", "synthetic-app");
+    github.get("/user", async (request, reply) => {
+      expect(request.headers.authorization).toBe(
+        "Bearer synthetic-current-token",
+      );
+      return reply.code(401).send({});
+    });
+    githubOrigin = await github.listen({ host: "127.0.0.1", port: 0 });
   });
   afterAll(async () => {
-    vi.unstubAllEnvs();
+    await github.close();
     await prisma.$disconnect();
     await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     await pool.end();
   });
   it("commits revocation, cache removal and terminal status together", async () => {
     await pool.query(
-      'INSERT INTO "GitHubUserAuthorization" ("userId","appSlug") VALUES (\'u1\',\'synthetic-app\')',
+      `INSERT INTO "GitHubUserAuthorization" ("userId","appSlug","encryptedAccessToken","accessTokenExpiresAt")
+        VALUES ('u1','synthetic-app',$1,clock_timestamp()+interval '1 hour')`,
+      [token],
     );
     await pool.query(
       "INSERT INTO \"RepositoryPermissionCache\" VALUES ('u1','synthetic-app')",
@@ -93,9 +123,7 @@ test("fenced app revocation on isolated PostgreSQL", () => {
       10000,
       "d".repeat(64),
     );
-    await new PrismaGitHubAppAuthorizationWebhookHandler(
-      prisma,
-    ).handleFencedGitHubAppAuthorizationWebhook(e, claim);
+    await handler().handleFencedGitHubAppAuthorizationWebhook(e, claim);
     expect(
       (
         await pool.query(
@@ -143,9 +171,7 @@ test("fenced app revocation on isolated PostgreSQL", () => {
       "ALTER TABLE \"GitHubWebhookDelivery\" ADD CONSTRAINT synthetic_completion_failure CHECK (\"deliveryId\" <> 'app-rollback' OR status <> 'processed')",
     );
     await expect(
-      new PrismaGitHubAppAuthorizationWebhookHandler(
-        prisma,
-      ).handleFencedGitHubAppAuthorizationWebhook(e, claim),
+      handler().handleFencedGitHubAppAuthorizationWebhook(e, claim),
     ).rejects.toThrow();
     expect(
       (
@@ -204,9 +230,7 @@ test("fenced app revocation on isolated PostgreSQL", () => {
       ).rows[0],
     ).toEqual({ generation: "1", ownerHash: owner });
     await expect(
-      new PrismaGitHubAppAuthorizationWebhookHandler(
-        prisma,
-      ).handleFencedGitHubAppAuthorizationWebhook(e, previous),
+      handler().handleFencedGitHubAppAuthorizationWebhook(e, previous),
     ).rejects.toThrow("webhook_fence_stale");
     expect(
       (

@@ -18,16 +18,16 @@ test("full migration webhook fencing compatibility", () => {
   const pool = new Pool(webhookFencePostgres.connection);
   const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
   const role = `webhook_fence_test_${randomBytes(6).toString("hex")}`;
-  let roleCreated = false;
+  const createdRoles: string[] = [];
   beforeAll(async () => {
     await assertWebhookFenceTestDatabase(pool);
   });
   afterAll(async () => {
     await prisma.$disconnect();
     try {
-      if (roleCreated) {
-        await pool.query(`DROP OWNED BY "${role}"`);
-        await pool.query(`DROP ROLE "${role}"`);
+      for (const createdRole of createdRoles) {
+        await pool.query(`DROP OWNED BY "${createdRole}"`);
+        await pool.query(`DROP ROLE "${createdRole}"`);
       }
     } finally {
       await pool.end();
@@ -121,7 +121,7 @@ test("full migration webhook fencing compatibility", () => {
     await pool.query(
       `CREATE ROLE "${role}" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD '${password}'`,
     );
-    roleCreated = true;
+    createdRoles.push(role);
     await pool.query(`GRANT USAGE ON SCHEMA public TO "${role}"`);
     await pool.query(
       `GRANT SELECT, INSERT, UPDATE ON "GitHubWebhookDelivery", "GitHubWebhookFence" TO "${role}"`,
@@ -179,6 +179,64 @@ test("full migration webhook fencing compatibility", () => {
     } finally {
       await limited.$disconnect();
       await limitedPool.end();
+    }
+  });
+  it("requires a retained fence read grant for a legacy rollback writer", async () => {
+    const legacyRole = `legacy_${role}`;
+    await pool.query(
+      `CREATE ROLE "${legacyRole}" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT`,
+    );
+    createdRoles.push(legacyRole);
+    await pool.query(`GRANT USAGE ON SCHEMA public TO "${legacyRole}"`);
+    await pool.query(
+      `GRANT SELECT, UPDATE ON "GitHubWebhookDelivery" TO "${legacyRole}"`,
+    );
+    const legacyId = `rollback-legacy-${randomBytes(6).toString("hex")}`;
+    const fencedId = `rollback-fenced-${randomBytes(6).toString("hex")}`;
+    await prisma.gitHubWebhookDelivery.create({
+      data: { deliveryId: legacyId, eventName: "push" },
+    });
+    await beginFencedWebhookDelivery(
+      prisma,
+      { deliveryId: fencedId, eventName: "push" },
+      "a".repeat(64),
+      30_000,
+      "d".repeat(64),
+    );
+    const connection = await pool.connect();
+    try {
+      await connection.query(`SET ROLE "${legacyRole}"`);
+      await expect(
+        connection.query(
+          'UPDATE "GitHubWebhookDelivery" SET status=\'processed\' WHERE "deliveryId"=$1',
+          [legacyId],
+        ),
+      ).rejects.toMatchObject({ code: "42501" });
+      await connection.query("RESET ROLE");
+      await pool.query(
+        `GRANT SELECT ON "GitHubWebhookFence" TO "${legacyRole}"`,
+      );
+      await connection.query(`SET ROLE "${legacyRole}"`);
+      expect(
+        (
+          await connection.query(
+            'UPDATE "GitHubWebhookDelivery" SET status=\'processed\' WHERE "deliveryId"=$1',
+            [legacyId],
+          )
+        ).rowCount,
+      ).toBe(1);
+      await expect(
+        connection.query(
+          'UPDATE "GitHubWebhookDelivery" SET status=\'failed\' WHERE "deliveryId"=$1',
+          [fencedId],
+        ),
+      ).rejects.toMatchObject({ code: "23514" });
+    } finally {
+      try {
+        await connection.query("RESET ROLE");
+      } finally {
+        connection.release();
+      }
     }
   });
 });

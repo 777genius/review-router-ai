@@ -88,8 +88,9 @@ repository-wide authority scanner or new architectural framework is required.
 ## Delivery invariants
 
 - App identity comes from trusted App ID/API origin paired with the webhook secret.
-  Raw-body HMAC verification precedes parsing and all writes. The full receipt binds
-  App, GUID, event, action, installation and exact authenticated body hash.
+  Raw-body HMAC verification precedes parsing and all writes. Lifecycle actions are
+  checked against their event family before admission. The full receipt binds App,
+  GUID, event, action, installation and exact authenticated body hash.
 - New delivery and fence creation are atomic. Never add a fence to a legacy row.
   A matching fenced processed receipt is the only successful duplicate acknowledgement;
   legacy processing/failed/unknown and identity mismatches remain fail closed.
@@ -125,9 +126,10 @@ Recovery accepts only already-ingressed fenced deliveries. Trusted GitHub delive
 metadata and the retained verified signature digest must match the local exact body
 identity. Missing/redacted signatures, secret-rotation ambiguity, unknown originals
 and never-ingressed deliveries fail closed. An authorization preflight failure,
-including an unavailable GitHub detail response, reports `not_authorized`. HMAC authenticates the body, not event
-headers or network provenance. A captured identical signed body arriving first must
-still produce at most the same already-authorized local effect.
+including an unavailable GitHub detail response, reports `not_authorized`. HMAC
+authenticates the body, not event headers, delivery age, GUID or network provenance.
+Action-family validation prevents a lifecycle body from changing meaning through a
+relabeled event header; it does not establish global provider chronology.
 
 The durable intent is reserved before POST. A lost reservation/POST response remains
 unknown and never authorizes a second POST. HTTP 202 means accepted, not processed.
@@ -146,13 +148,26 @@ for the same canonical repository, blocks replay; an unknown legacy App identity
 is treated conservatively. Repository retry also checks installation lifecycle
 receipts and rejects missing canonical identity. The check runs during acquisition
 and again under effect scopes/row locks, with advisory preflight before redelivery.
+Admission of installation/repository receipts takes the same exclusive scope before
+insertion, so a newer receipt cannot commit between the replay check and effect.
 `receivedAt` is immutable on fenced receipts. This is local observation order, not
 a claim about GitHub event chronology or arbitrary first-delivery ordering.
 
-Authorization-revocation retry is explicitly unsupported without the original grant
-revision: automatic generation replacement and redelivery fail closed so a later
-reconnect is not revoked. Keep the receipt for separately authorized reconciliation;
-do not synthesize a new GUID, reset custody, or rewrite history to force replay.
+An authorization-revocation body has no original grant revision, and a new GUID
+does not make it fresh. Before any destructive change, the adapter reads one current
+token/revision/expiry snapshot and performs a bounded read-only GitHub `/user`
+request outside the transaction. A valid response for the expected user preserves
+the grant. A `401` can revoke only that exact unrefreshed snapshot under the auth
+owner's row lock, using a fresh database clock and the existing five-minute expiry
+skew. Reconnect, refresh, near/unknown expiry, other HTTP outcomes and unavailable
+evidence require reconciliation without changing the grant or its permission cache.
+This prevents an unsupported destructive revocation; existing authorization/cache
+policy still governs subsequent requests and is not claimed to be globally denied.
+
+Automatic authorization generation replacement and redelivery remain unsupported.
+Keep the receipt for separately authorized reconciliation; do not synthesize a new
+GUID, reset custody, or rewrite history to force replay. Old receivers do not acquire
+this token check from the schema migration: the controlled fleet drain is mandatory.
 
 ## Qualification plan
 
@@ -182,19 +197,25 @@ The earlier isolated fence tests and 170-baseline → 172-final migration rehear
 were partial checkpoints before the final replay guard, production HTTP suites and
 operator composition. They are not a passing result for the final source.
 
-For `6735c26d30a595874fcdc48172db405029680c5b`, the frozen root/API install,
-exact pinned subscription-runtime artifact verification, isolated Prisma 7.9.0
-client generation and all 11 harness qualification unit tests passed with zero
-skips. This used Node 26.11.1, pnpm 11.28.7, TypeScript 7.0.2 and Vitest 4.1.10.
-The runtime source is unchanged from `882dee1b`; its 69-file formatting check
-passed. The later CI/docs edits received static review only.
+Checkpoint `3e017ec226842c7fb7fb62bf4dc882b87aaa3786` completed all 13 native
+PostgreSQL suites: 106 tests passed, zero failed or skipped. The runner applied the
+actual 170-migration baseline, seeded a legacy receipt and expanded to all 172
+migrations. The suites exercised signed HTTP/default composition, Prisma/outbox,
+concurrent ownership, real COMMIT-response loss and bounded recovery.
 
-The feature typecheck was stopped by the resource watchdog before compiler
-diagnostics; it is neither a source failure nor a pass. Shared memory continued
-to fall after our heavy processes stopped, and the executor disconnected again.
-Final type/lint/architecture checks, the remaining unit suites and all 13 native
-PostgreSQL suites therefore remain unverified. Compact completed-check evidence
-was retained; earlier isolated PostgreSQL results do not qualify this source.
+On the same checkpoint, 78 focused unit tests, ESLint for 66 changed TypeScript
+files, the changed-file format check, the architecture check over 705 domain and
+application files, the installations feature typecheck and scoped webhook tooling
+typecheck passed. All 11 harness unit tests had already passed on unchanged runner
+inputs. The pinned toolchain was Node 26.11.1, pnpm 11.28.7, TypeScript 7.0.2,
+Prisma 7.9.0 and Vitest 4.1.10, using the verified exact subscription-runtime artifact.
+
+Subsequent review fixes add admission serialization, action-family validation,
+current-token authorization reconciliation, recovery reporting/cancellation and
+legacy-role/CI isolation checks. They require fresh affected qualification; the
+106-test checkpoint does not qualify changed inputs. Whole-API typecheck/build and
+compiled recovery CLI smoke have not completed: earlier attempts reached shared
+memory limits without compiler diagnostics. Ordinary GitHub CI is still pending.
 The existing CI includes the mandatory
 `scripts/webhook-fencing/run-postgres.ts` runner; it executes every required suite
 in a fresh process and rejects skipped, missing or unsuccessful results. A queued
@@ -207,8 +228,12 @@ The [deployment registry](../deployments/2026-11-27-webhook-effect-fence.md) own
 operational evidence. Quiesce ingress and stop/drain all old API/webhook and
 maintenance writers and their transactions. Expand the schema through the approved
 release path and verify role grants/checks before starting the exact qualified API
-version and reopening ingress. Do not
-infer old-writer drain from elapsed time, schema presence or green unit tests.
+version and reopening ingress. Every receipt-writing role, including legacy,
+maintenance and rollback roles, needs `SELECT` on `GitHubWebhookFence` before it
+resumes: the invoker-rights receipt trigger reads that table even for unfenced rows.
+Retain that grant through application rollback. It does not permit fence writes or
+legacy terminal overwrites. Do not infer old-writer drain from elapsed time, schema
+presence or green unit tests.
 
 Legacy unknown deliveries remain retained. The receipt trigger remains installed
 on application rollback. Stop new admission and drain all fenced work before any

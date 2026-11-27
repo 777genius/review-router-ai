@@ -4,6 +4,10 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
 import {
+  encryptServerToken,
+  saveGitHubUserAuthorizationFromAccount,
+} from "@reviewrouter/features-auth";
+import {
   claimVerifiedFencedWebhookDelivery,
   createGitHubAppWebhookVerifier,
   failWebhookFencedDelivery,
@@ -27,6 +31,7 @@ const baseEnvironment = {
   GITHUB_APP_ID: "42",
   GITHUB_APP_SLUG: appSlug,
   GITHUB_API_BASE_URL: "https://api.github.com",
+  REVIEW_ROUTER_TOKEN_ENCRYPTION_KEY: "synthetic-http-auth-encryption-key-1027",
   REVIEW_ROUTER_ENABLE_CONFLICT_REVIEW_FALLBACK: "1",
   REVIEW_ROUTER_REVIEW_V2_INTENT_INGRESS_ENABLED: "1",
   REVIEW_ROUTER_REVIEW_V2_WORKFLOW_DISPATCH_READY: "1",
@@ -47,10 +52,20 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
     adapter: new PrismaPg(pool, { schema: "public" }),
   });
   const servers: FastifyInstance[] = [];
+  type TokenProbe = {
+    status: number;
+    body: unknown;
+    requests: number;
+    disconnect?: boolean;
+    beforeResponse?: () => Promise<void>;
+  };
+  const tokenProbes = new Map<string, TokenProbe>();
+  let githubOrigin = "";
   let address: string;
   let otherAppAddress: string;
   let ingressDisabledAddress: string;
   let fallbackDisabledAddress: string;
+  let malformedFallbackAddress: string;
 
   async function startServer(
     overrides: Readonly<Record<string, string>> = {},
@@ -63,6 +78,11 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
         prisma,
         webhookSecret,
         env: { ...baseEnvironment, ...overrides },
+        githubUserAuthorizationFetch: async (resource, options) => {
+          expect(String(resource)).toBe("https://api.github.com/user");
+          expect(options?.method).toBe("GET");
+          return fetch(githubOrigin + "/user", options);
+        },
       }),
     );
     return app.listen({ host: "127.0.0.1", port: 0 });
@@ -95,6 +115,21 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
         "WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL ORDER BY migration_name",
     );
     expect(applied.rows).toEqual(expected);
+    const github = Fastify({ logger: false });
+    servers.push(github);
+    github.get("/user", async (request, reply) => {
+      const probe = tokenProbes.get(request.headers.authorization ?? "");
+      if (!probe) throw new Error("unexpected_synthetic_user_token");
+      probe.requests++;
+      await probe.beforeResponse?.();
+      if (probe.disconnect) {
+        reply.hijack();
+        reply.raw.destroy();
+        return reply;
+      }
+      return reply.code(probe.status).send(probe.body);
+    });
+    githubOrigin = await github.listen({ host: "127.0.0.1", port: 0 });
     address = await startServer();
     otherAppAddress = await startServer({ GITHUB_APP_ID: "43" });
     ingressDisabledAddress = await startServer({
@@ -102,6 +137,9 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
     });
     fallbackDisabledAddress = await startServer({
       REVIEW_ROUTER_ENABLE_CONFLICT_REVIEW_FALLBACK: "0",
+    });
+    malformedFallbackAddress = await startServer({
+      REVIEW_ROUTER_CONFLICT_REVIEW_FALLBACK_REPOSITORIES: "not-a-repository",
     });
   }, 30_000);
 
@@ -157,11 +195,101 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
 
   type Fixture = Awaited<ReturnType<typeof fixture>>;
 
+  async function seedPermissionCache(
+    value: Fixture,
+    userId: string,
+    revision: number,
+  ) {
+    return prisma.repositoryPermissionCache.create({
+      data: {
+        userId,
+        repositoryId: value.repository.id,
+        githubInstallationId: BigInt(value.githubInstallationId),
+        authorizationAppSlug: appSlug,
+        authorizationRevision: revision,
+        canManage: true,
+        checkedAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+  }
+
+  async function authorizationFixture(expiresIn: number | null = 3_600) {
+    const value = await fixture();
+    const githubUserId = BigInt(
+      Number.parseInt(randomBytes(6).toString("hex"), 16) + 1,
+    );
+    const user = await prisma.user.create({ data: { githubUserId } });
+    const token = "synthetic-current-token-" + randomUUID();
+    const principal = {
+      userId: user.id,
+      provider: "github" as const,
+      externalUserId: String(githubUserId),
+      login: "synthetic-user",
+      githubUserId: String(githubUserId),
+    };
+    expect(
+      await saveGitHubUserAuthorizationFromAccount({
+        prisma,
+        principal,
+        env: baseEnvironment,
+        account: {
+          access_token: token,
+          ...(expiresIn === null
+            ? {}
+            : expiresIn < 0
+              ? { expires_at: Math.floor(Date.now() / 1_000) + expiresIn }
+              : { expires_in: expiresIn }),
+        },
+      }),
+    ).toBe("saved");
+    const authorization =
+      await prisma.gitHubUserAuthorization.findUniqueOrThrow({
+        where: { userId_appSlug: { userId: user.id, appSlug } },
+      });
+    const cache = await seedPermissionCache(
+      value,
+      user.id,
+      authorization.revision,
+    );
+    const probe: TokenProbe = {
+      status: 401,
+      body: { id: Number(githubUserId) },
+      requests: 0,
+    };
+    tokenProbes.set("Bearer " + token, probe);
+    const payload = {
+      action: "revoked",
+      sender: { id: Number(githubUserId), login: principal.login },
+    };
+    return {
+      value,
+      user,
+      authorization,
+      cache,
+      token,
+      probe,
+      payload,
+      principal,
+    };
+  }
+
   function repositoryPayload(value: Fixture) {
     return {
       id: value.githubRepositoryId,
       name: value.repository.name,
       full_name: value.repository.fullName,
+    };
+  }
+
+  function installationPayload(value: Fixture, action: string) {
+    return {
+      action,
+      installation: {
+        id: value.githubInstallationId,
+        account: { login: value.account, type: "Organization" },
+        repository_selection: "selected",
+      },
     };
   }
 
@@ -341,6 +469,118 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
     });
   });
 
+  it.each([
+    { eventName: "installation", action: "created", status: "active" },
+    { eventName: "installation", action: "deleted", status: "removed" },
+    {
+      eventName: "installation",
+      action: "new_permissions_accepted",
+      status: "active",
+    },
+    { eventName: "installation", action: "suspend", status: "suspended" },
+    { eventName: "installation", action: "unsuspend", status: "active" },
+    {
+      eventName: "installation_repositories",
+      action: "added",
+      status: "active",
+    },
+    {
+      eventName: "installation_repositories",
+      action: "removed",
+      status: "active",
+    },
+  ] as const)(
+    "binds signed $eventName.$action to its event family before claiming",
+    async ({ eventName, action, status }) => {
+      const value = await fixture();
+      const before = await prisma.gitHubInstallation.update({
+        where: { id: value.installation.id },
+        data: { status: "suspended" },
+      });
+      const payload = installationPayload(value, action);
+      const forgedDeliveryId = randomUUID();
+      const forgedEventName =
+        eventName === "installation"
+          ? "installation_repositories"
+          : "installation";
+      // The body and its valid HMAC are unchanged; only the unsigned event
+      // header attempts to route it through a different lifecycle handler.
+      expect(await post(forgedEventName, forgedDeliveryId, payload)).toEqual({
+        status: 400,
+        body: { error: "invalid_webhook_payload" },
+      });
+      expect(await receipt(forgedDeliveryId)).toBeNull();
+      expect(
+        await prisma.gitHubWebhookFence.findUnique({
+          where: { deliveryId: forgedDeliveryId },
+        }),
+      ).toBeNull();
+      expect(
+        await prisma.gitHubInstallation.findUniqueOrThrow({
+          where: { id: value.installation.id },
+        }),
+      ).toEqual(before);
+      expect(
+        await prisma.repositoryConnection.findUniqueOrThrow({
+          where: { id: value.repository.id },
+        }),
+      ).toEqual(value.repository);
+      expect(
+        await outbox(
+          "installation:" +
+            value.githubInstallationId +
+            ":sync:" +
+            forgedDeliveryId,
+        ),
+      ).toBeNull();
+
+      const deliveryId = randomUUID();
+      expect((await post(eventName, deliveryId, payload)).status).toBe(200);
+      expect(await receipt(deliveryId)).toMatchObject({
+        status: "processed",
+        eventName,
+        action,
+      });
+      expect(
+        await prisma.gitHubInstallation.findUniqueOrThrow({
+          where: { id: value.installation.id },
+        }),
+      ).toMatchObject({ status });
+      const sync = await outbox(
+        "installation:" + value.githubInstallationId + ":sync:" + deliveryId,
+      );
+      if (status === "active")
+        expect(sync).toMatchObject({ type: "installation.sync_requested" });
+      else expect(sync).toBeNull();
+    },
+  );
+
+  it.each(["installation", "installation_repositories"] as const)(
+    "refuses unknown signed %s actions before claiming",
+    async (eventName) => {
+      const value = await fixture();
+      const deliveryId = randomUUID();
+      expect(
+        await post(
+          eventName,
+          deliveryId,
+          installationPayload(value, "unexpected"),
+        ),
+      ).toEqual({ status: 400, body: { error: "invalid_webhook_payload" } });
+      expect(await receipt(deliveryId)).toBeNull();
+      expect(
+        await prisma.gitHubInstallation.findUniqueOrThrow({
+          where: { id: value.installation.id },
+        }),
+      ).toEqual(value.installation);
+      expect(
+        await outbox(
+          "installation:" + value.githubInstallationId + ":sync:" + deliveryId,
+        ),
+      ).toBeNull();
+    },
+  );
+
   it("routes repository metadata changes through the current repository binding", async () => {
     const value = await fixture();
     const deliveryId = randomUUID();
@@ -377,43 +617,71 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
     });
   });
 
-  it("persists PR ingress before completing the matched setup workflow", async () => {
+  it.each(["default", "malformed_allowlist"] as const)(
+    "persists PR ingress and completes the matched setup with %s fallback configuration",
+    async (configuration) => {
+      const value = await fixture();
+      const deliveryId = randomUUID();
+      const payload = pullRequestPayload(value, true);
+      await prisma.workflowProvisioning.create({
+        data: {
+          workspaceId: value.workspace.id,
+          repositoryId: value.repository.id,
+          installationId: value.installation.id,
+          status: "setup_pr_open",
+          branch: payload.pull_request.head.ref,
+          workflowPath: ".github/workflows/reviewrouter-review.yml",
+          workflowStyle: "reusable",
+          actionVersion: "workflow-v1",
+          pullRequestHeadSha: headSha,
+          pullRequestUrl: payload.pull_request.html_url,
+          attemptWorkflowRequirement: "ci_secrets",
+        },
+      });
+      expect(
+        (
+          await post("pull_request", deliveryId, payload, {
+            address:
+              configuration === "default" ? address : malformedFallbackAddress,
+          })
+        ).status,
+      ).toBe(200);
+      expect(await outbox(ingressKey(deliveryId))).toMatchObject({
+        status: "pending",
+        payload: { commandKind: "cancel" },
+      });
+      expect(
+        await prisma.workflowProvisioning.findUniqueOrThrow({
+          where: { repositoryId: value.repository.id },
+        }),
+      ).toMatchObject({
+        status: "configured",
+        revision: 1,
+        installedWorkflowRequirement: "ci_secrets",
+      });
+      expect(await receipt(deliveryId)).toMatchObject({
+        status: "processed",
+        eventName: "pull_request",
+      });
+    },
+  );
+
+  it("evaluates the fallback allowlist when an open PR requests conflict work", async () => {
     const value = await fixture();
     const deliveryId = randomUUID();
-    const payload = pullRequestPayload(value, true);
-    await prisma.workflowProvisioning.create({
-      data: {
-        workspaceId: value.workspace.id,
-        repositoryId: value.repository.id,
-        installationId: value.installation.id,
-        status: "setup_pr_open",
-        branch: payload.pull_request.head.ref,
-        workflowPath: ".github/workflows/reviewrouter-review.yml",
-        workflowStyle: "reusable",
-        actionVersion: "workflow-v1",
-        pullRequestHeadSha: headSha,
-        pullRequestUrl: payload.pull_request.html_url,
-        attemptWorkflowRequirement: "ci_secrets",
-      },
-    });
-    expect((await post("pull_request", deliveryId, payload)).status).toBe(200);
-    expect(await outbox(ingressKey(deliveryId))).toMatchObject({
-      status: "pending",
-      payload: { commandKind: "cancel" },
-    });
     expect(
-      await prisma.workflowProvisioning.findUniqueOrThrow({
-        where: { repositoryId: value.repository.id },
+      await post("pull_request", deliveryId, pullRequestPayload(value), {
+        address: malformedFallbackAddress,
       }),
-    ).toMatchObject({
-      status: "configured",
-      revision: 1,
-      installedWorkflowRequirement: "ci_secrets",
+    ).toEqual({
+      status: 500,
+      body: { error: "github_webhook_processing_failed" },
     });
-    expect(await receipt(deliveryId)).toMatchObject({
-      status: "processed",
-      eventName: "pull_request",
+    expect(await receipt(deliveryId)).toMatchObject({ status: "failed" });
+    expect(await outbox(ingressKey(deliveryId))).toMatchObject({
+      payload: { commandKind: "request" },
     });
+    expect(await outbox(conflictKey(deliveryId))).toBeNull();
   });
 
   it("routes push to exactly one existing conflict outbox command", async () => {
@@ -434,51 +702,25 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
   });
 
   it("revokes only the configured App authorization and removes its permission cache", async () => {
-    const value = await fixture();
+    const f = await authorizationFixture();
     const deliveryId = randomUUID();
-    const githubUserId = BigInt(
-      Number.parseInt(randomBytes(6).toString("hex"), 16) + 1,
-    );
-    const user = await prisma.user.create({ data: { githubUserId } });
-    const authorization = await prisma.gitHubUserAuthorization.create({
-      data: {
-        userId: user.id,
-        githubUserId,
-        appSlug,
-        encryptedAccessToken: "synthetic-encrypted-token",
-      },
-    });
     const unrelated = await prisma.gitHubUserAuthorization.create({
       data: {
-        userId: user.id,
-        githubUserId,
+        userId: f.user.id,
+        githubUserId: f.authorization.githubUserId,
         appSlug: "other-app",
-        encryptedAccessToken: "synthetic-other-token",
-      },
-    });
-    await prisma.repositoryPermissionCache.create({
-      data: {
-        userId: user.id,
-        repositoryId: value.repository.id,
-        githubInstallationId: BigInt(value.githubInstallationId),
-        authorizationAppSlug: appSlug,
-        authorizationRevision: 0,
-        canManage: true,
-        checkedAt: new Date(),
-        expiresAt: new Date(Date.now() + 60_000),
+        encryptedAccessToken: encryptServerToken(
+          "synthetic-other-token",
+          baseEnvironment,
+        ),
       },
     });
     expect(
-      (
-        await post("github_app_authorization", deliveryId, {
-          action: "revoked",
-          sender: { id: Number(githubUserId), login: "synthetic-user" },
-        })
-      ).status,
+      (await post("github_app_authorization", deliveryId, f.payload)).status,
     ).toBe(200);
     expect(
       await prisma.gitHubUserAuthorization.findUniqueOrThrow({
-        where: { id: authorization.id },
+        where: { id: f.authorization.id },
       }),
     ).toMatchObject({ revokedAt: expect.any(Date), revision: 1 });
     expect(
@@ -488,13 +730,277 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
     ).toMatchObject({ revokedAt: null, revision: 0 });
     expect(
       await prisma.repositoryPermissionCache.count({
-        where: { userId: user.id },
+        where: { userId: f.user.id },
       }),
     ).toBe(0);
+    expect(f.probe.requests).toBe(1);
     expect(await receipt(deliveryId)).toMatchObject({
       status: "processed",
       eventName: "github_app_authorization",
     });
+  });
+
+  it("preserves a reconnected authorization when a captured signed body arrives with a fresh GUID", async () => {
+    const f = await authorizationFixture();
+    expect(
+      (await post("github_app_authorization", randomUUID(), f.payload)).status,
+    ).toBe(200);
+    const freshToken = "synthetic-reconnected-" + randomUUID();
+    expect(
+      await saveGitHubUserAuthorizationFromAccount({
+        prisma,
+        principal: f.principal,
+        env: baseEnvironment,
+        account: { access_token: freshToken, expires_in: 3_600 },
+      }),
+    ).toBe("saved");
+    const current = await prisma.gitHubUserAuthorization.findUniqueOrThrow({
+      where: { id: f.authorization.id },
+    });
+    expect(current).toMatchObject({ revokedAt: null, revision: 2 });
+    const cache = await seedPermissionCache(
+      f.value,
+      f.user.id,
+      current.revision,
+    );
+    const probe: TokenProbe = {
+      status: 200,
+      body: { id: Number(current.githubUserId) },
+      requests: 0,
+    };
+    tokenProbes.set("Bearer " + freshToken, probe);
+    const deliveryId = randomUUID();
+    expect(
+      await post("github_app_authorization", deliveryId, f.payload),
+    ).toMatchObject({
+      status: 200,
+      body: { ignored: true, reason: "authorization_still_valid" },
+    });
+    expect(
+      await prisma.gitHubUserAuthorization.findUniqueOrThrow({
+        where: { id: current.id },
+      }),
+    ).toEqual(current);
+    expect(
+      await prisma.repositoryPermissionCache.findUniqueOrThrow({
+        where: { id: cache.id },
+      }),
+    ).toEqual(cache);
+    expect(probe.requests).toBe(1);
+    expect(
+      await prisma.gitHubWebhookFence.findUniqueOrThrow({
+        where: { deliveryId },
+      }),
+    ).toMatchObject({ generation: 1n });
+    expect(await receipt(deliveryId)).toMatchObject({ status: "processed" });
+  });
+
+  it.each(["reconnect", "refresh_admission"] as const)(
+    "refuses a delayed token rejection after %s advances current authority",
+    async (change) => {
+      const f = await authorizationFixture();
+      const deliveryId = randomUUID();
+      let observed!: () => void;
+      let release!: () => void;
+      const entered = new Promise<void>((resolve) => {
+        observed = resolve;
+      });
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      f.probe.beforeResponse = async () => {
+        observed();
+        await gate;
+      };
+      const pending = post("github_app_authorization", deliveryId, f.payload);
+      let current = f.authorization;
+      let cache = f.cache;
+      let result: Awaited<typeof pending> | undefined;
+      try {
+        await Promise.race([
+          entered,
+          pending.then(() => {
+            throw new Error("synthetic_probe_not_observed");
+          }),
+        ]);
+        if (change === "reconnect") {
+          expect(
+            await saveGitHubUserAuthorizationFromAccount({
+              prisma,
+              principal: f.principal,
+              env: baseEnvironment,
+              account: {
+                access_token: "synthetic-reconnected-" + randomUUID(),
+                expires_in: 3_600,
+              },
+            }),
+          ).toBe("saved");
+        } else {
+          // The existing refresh owner advances revision before its external POST.
+          await prisma.gitHubUserAuthorization.update({
+            where: { id: f.authorization.id },
+            data: {
+              revision: { increment: 1 },
+              refreshAttemptId: randomUUID(),
+              lastErrorCode: "github_user_token_refresh_in_progress",
+            },
+          });
+        }
+        current = await prisma.gitHubUserAuthorization.findUniqueOrThrow({
+          where: { id: f.authorization.id },
+        });
+        cache = await prisma.repositoryPermissionCache.update({
+          where: { id: f.cache.id },
+          data: {
+            authorizationRevision: current.revision,
+            checkedAt: new Date(),
+          },
+        });
+      } finally {
+        release();
+        result = await pending;
+      }
+      expect(result).toEqual({
+        status: 500,
+        body: { error: "github_webhook_processing_failed" },
+      });
+      expect(
+        await prisma.gitHubUserAuthorization.findUniqueOrThrow({
+          where: { id: current.id },
+        }),
+      ).toEqual(current);
+      expect(
+        await prisma.repositoryPermissionCache.findUniqueOrThrow({
+          where: { id: cache.id },
+        }),
+      ).toEqual(cache);
+      expect(f.probe.requests).toBe(1);
+      expect(await receipt(deliveryId)).toMatchObject({ status: "failed" });
+    },
+  );
+
+  it("rechecks database expiry after waiting for the authorization row lock", async () => {
+    const f = await authorizationFixture(304);
+    const deliveryId = randomUUID();
+    let locked!: () => void;
+    let observed!: () => void;
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    const entered = new Promise<void>((resolve) => {
+      observed = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    f.probe.beforeResponse = async () => {
+      observed();
+    };
+    const blocker = prisma.$transaction(
+      async (transaction) => {
+        await transaction.$queryRaw`SELECT id FROM "GitHubUserAuthorization"
+          WHERE id = ${f.authorization.id} FOR UPDATE`;
+        locked();
+        await gate;
+      },
+      { isolationLevel: "ReadCommitted", timeout: 10_000 },
+    );
+    await ready;
+    const pending = post("github_app_authorization", deliveryId, f.payload);
+    let result: Awaited<typeof pending> | undefined;
+    try {
+      await Promise.race([
+        entered,
+        pending.then(() => {
+          throw new Error("synthetic_probe_not_observed");
+        }),
+      ]);
+      // Cross the real database's refresh threshold without changing any row.
+      await pool.query(
+        "SELECT pg_sleep(GREATEST(0, EXTRACT(EPOCH FROM ($1::timestamp - interval '5 minutes' - clock_timestamp()))) + 0.05)",
+        [f.authorization.accessTokenExpiresAt],
+      );
+    } finally {
+      release();
+      await blocker;
+      result = await pending;
+    }
+    expect(result).toEqual({
+      status: 500,
+      body: { error: "github_webhook_processing_failed" },
+    });
+    expect(f.probe.requests).toBe(1);
+    expect(
+      await prisma.gitHubUserAuthorization.findUniqueOrThrow({
+        where: { id: f.authorization.id },
+      }),
+    ).toEqual(f.authorization);
+    expect(
+      await prisma.repositoryPermissionCache.findUniqueOrThrow({
+        where: { id: f.cache.id },
+      }),
+    ).toEqual(f.cache);
+    expect(await receipt(deliveryId)).toMatchObject({ status: "failed" });
+  });
+
+  it.each([
+    { name: "forbidden", status: 403, body: {} },
+    { name: "server error", status: 500, body: {} },
+    { name: "malformed user", status: 200, body: "invalid-json" },
+    { name: "another user", status: 200, body: { id: 1 } },
+    { name: "transport failure", status: 200, body: {}, disconnect: true },
+  ])("preserves the current grant and cache on $name", async (response) => {
+    const f = await authorizationFixture();
+    Object.assign(f.probe, response);
+    if (response.name === "another user")
+      f.probe.body = { id: Number(f.authorization.githubUserId) + 1 };
+    const deliveryId = randomUUID();
+    expect(
+      await post("github_app_authorization", deliveryId, f.payload),
+    ).toEqual({
+      status: 500,
+      body: { error: "github_webhook_processing_failed" },
+    });
+    expect(f.probe.requests).toBeGreaterThan(0);
+    expect(
+      await prisma.gitHubUserAuthorization.findUniqueOrThrow({
+        where: { id: f.authorization.id },
+      }),
+    ).toEqual(f.authorization);
+    expect(
+      await prisma.repositoryPermissionCache.findUniqueOrThrow({
+        where: { id: f.cache.id },
+      }),
+    ).toEqual(f.cache);
+    expect(await receipt(deliveryId)).toMatchObject({ status: "failed" });
+  });
+
+  it.each([
+    { name: "unknown expiry", expiresIn: null },
+    { name: "near expiry", expiresIn: 299 },
+    { name: "expired token", expiresIn: -60 },
+  ])("requires reconciliation without probing $name", async ({ expiresIn }) => {
+    const f = await authorizationFixture(expiresIn);
+    const deliveryId = randomUUID();
+    expect(
+      await post("github_app_authorization", deliveryId, f.payload),
+    ).toEqual({
+      status: 500,
+      body: { error: "github_webhook_processing_failed" },
+    });
+    expect(f.probe.requests).toBe(0);
+    expect(
+      await prisma.gitHubUserAuthorization.findUniqueOrThrow({
+        where: { id: f.authorization.id },
+      }),
+    ).toEqual(f.authorization);
+    expect(
+      await prisma.repositoryPermissionCache.findUniqueOrThrow({
+        where: { id: f.cache.id },
+      }),
+    ).toEqual(f.cache);
+    expect(await receipt(deliveryId)).toMatchObject({ status: "failed" });
   });
 
   it("rejects invalid signatures and signed invalid payloads before creating a receipt", async () => {

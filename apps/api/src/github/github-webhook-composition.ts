@@ -35,6 +35,7 @@ export function createDefaultGitHubWebhookDependencies(input: {
   readonly webhookSecret: string;
   readonly prisma: PrismaClient;
   readonly env: Readonly<Record<string, string | undefined>>;
+  readonly githubUserAuthorizationFetch?: typeof fetch;
 }): RegisterGitHubWebhookRoutesDependencies {
   const verify = createGitHubAppWebhookVerifier({
     appId: input.env.GITHUB_APP_ID ?? "",
@@ -65,6 +66,12 @@ export function createDefaultGitHubWebhookDependencies(input: {
           input.env.GITHUB_APP_SLUG?.trim() ||
             input.env.GITHUB_APP_CLIENT_ID?.trim() ||
             "github-app",
+          {
+            env: input.env,
+            ...(input.githubUserAuthorizationFetch
+              ? { fetch: input.githubUserAuthorizationFetch }
+              : {}),
+          },
         ).handleFencedGitHubAppAuthorizationWebhook(envelope, claim);
       case "repository":
         return new PrismaRepositoryWebhookHandler(
@@ -75,9 +82,10 @@ export function createDefaultGitHubWebhookDependencies(input: {
           // Initial ingress already committed with the durable claim below.
           reviewIngressEnabled: false,
           conflictFallbackEnabled,
-          conflictFallbackAllowed: fallbackAllowed(
-            envelope.payload.repository.full_name,
-          ),
+          conflictFallbackPolicy: {
+            isConflictReviewFallbackAllowed: ({ repositoryFullName }) =>
+              fallbackAllowed(repositoryFullName),
+          },
         });
       case "push":
         if (conflictFallbackEnabled)

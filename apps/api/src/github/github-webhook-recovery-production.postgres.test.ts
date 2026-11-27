@@ -408,12 +408,125 @@ test("known delivery recovery through the production receiver and migrated Postg
       ),
     ).toBe(true);
     expect(outcomes.some((result) => result.state === "confirmed")).toBe(true);
+    for (const outcome of outcomes) {
+      if (outcome.recoveryState === "confirmed")
+        expect(outcome.state).toBe("confirmed");
+    }
     expect(await run(delivery, "reconcile")).toMatchObject({
       state: "confirmed",
     });
     expect(delivery.posts).toBe(1);
     expect(await outboxCount(delivery)).toBe(1);
   });
+
+  it("reports confirmation committed by a peer after the last pending poll", async () => {
+    const delivery = await failedDelivery("accept_without_delivery");
+    expect(await run(delivery, "request")).toMatchObject({
+      state: "pending",
+      recoveryState: "accepted",
+    });
+    const isolated = new PrismaClient({ adapter: new PrismaPg(pool) });
+    const failures: unknown[] = [];
+    try {
+      let emptyConfirmations = 0;
+      let lateReceiverStatus: number | undefined;
+      let peer: Awaited<ReturnType<typeof runKnownWebhookRecovery>> | undefined;
+      const gated = isolated.$extends({
+        query: {
+          async $queryRaw({ args, query }) {
+            const result: unknown = await query(args);
+            if (
+              args.sql.includes(
+                'UPDATE "GitHubWebhookRecoveryIntent" r SET "state"=\'confirmed\'',
+              ) &&
+              args.values.includes(delivery.guid)
+            ) {
+              if (!Array.isArray(result) || result.length !== 0)
+                throw new Error("expected_unconfirmed_native_result");
+              emptyConfirmations++;
+              if (emptyConfirmations === 6) {
+                // All three polls saw two real empty confirmation UPDATEs.
+                // Keep the last result unchanged while a separate receiver and
+                // operator commit confirmation before the final summary read.
+                lateReceiverStatus = await sendReceiver(delivery);
+                peer = await run(delivery, "reconcile");
+              }
+            }
+            return result;
+          },
+        },
+      });
+      // Use a real client and native extension solely as a scheduling barrier.
+      // No rows, query arguments or result statuses are substituted.
+      isolated.$queryRaw = gated.$queryRaw.bind(gated);
+      const result = await runKnownWebhookRecovery(
+        command(delivery, "reconcile"),
+        { prisma: isolated, client: client() },
+      );
+      expect(emptyConfirmations).toBe(6);
+      expect(lateReceiverStatus).toBe(200);
+      expect(peer).toMatchObject({
+        state: "confirmed",
+        recoveryState: "confirmed",
+      });
+      expect(result).toMatchObject({
+        state: "confirmed",
+        recoveryState: "confirmed",
+        deliveryStatus: "processed",
+        polls: 3,
+        observedAttempts: 1,
+        requestOutcome: null,
+      });
+      expect((await intent(delivery))?.state).toBe("confirmed");
+      expect((await receipt(delivery)).status).toBe("processed");
+      expect(delivery.posts).toBe(1);
+      expect(await outboxCount(delivery)).toBe(1);
+    } catch (error) {
+      failures.push(error);
+    } finally {
+      await isolated.$disconnect().catch((error: unknown) => {
+        failures.push(error);
+      });
+    }
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1)
+      throw new AggregateError(failures, "recovery_barrier_cleanup_failed", {
+        cause: failures[0],
+      });
+  }, 15_000);
+
+  it.each(["eventName", "action", "installationId", "payloadHash"] as const)(
+    "rejects existing custody with mismatched %s before any remote request",
+    async (field) => {
+      const delivery = await failedDelivery("accept_without_delivery");
+      const stored = await receipt(delivery);
+      if (!stored.payloadHash)
+        throw new Error("synthetic_payload_hash_missing");
+      await prisma.gitHubWebhookRecoveryIntent.create({
+        data: {
+          appIdentityHash: client().appIdentityHash,
+          deliveryGuid: delivery.guid,
+          githubDeliveryId: delivery.id,
+          eventName: field === "eventName" ? "repository" : stored.eventName,
+          action: field === "action" ? null : stored.action,
+          installationId:
+            field === "installationId" ? null : stored.installationId,
+          payloadHash:
+            field === "payloadHash" ? "e".repeat(64) : stored.payloadHash,
+        },
+      });
+      const reads = githubReads;
+      for (const mode of ["inspect", "request", "reconcile"] as const) {
+        await expect(run(delivery, mode)).rejects.toThrow(
+          "webhook_recovery_identity_conflict",
+        );
+      }
+      expect(githubReads).toBe(reads);
+      expect(delivery.posts).toBe(0);
+      expect((await intent(delivery))?.state).toBe("prepared");
+      expect(await outboxCount(delivery)).toBe(0);
+    },
+  );
 
   it.each(["signature", "guid"] as const)(
     "rejects mismatched GitHub %s before custody or POST",

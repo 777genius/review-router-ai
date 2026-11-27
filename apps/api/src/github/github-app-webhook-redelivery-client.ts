@@ -81,7 +81,9 @@ export class GitHubAppWebhookRedeliveryClient implements AppWebhookRedeliveryCli
         },
       },
     );
-    return { status: response.status };
+    const status = response.status;
+    await cancelUnusedResponseBody(response);
+    return { status };
   }
   /** Fetch the exact App delivery from GitHub without retaining its payload. */
   async verifyOriginalDelivery(
@@ -113,7 +115,10 @@ export class GitHubAppWebhookRedeliveryClient implements AppWebhookRedeliveryCli
           },
         },
       );
-      if (response.status !== 200) return false;
+      if (response.status !== 200) {
+        await cancelUnusedResponseBody(response);
+        return false;
+      }
       const value: unknown = JSON.parse(
         await readBoundedText(response, 30_000_000),
       );
@@ -195,14 +200,19 @@ export class GitHubAppWebhookRedeliveryClient implements AppWebhookRedeliveryCli
       } catch {
         return { state: "incomplete", pages, matchingAttempts };
       }
-      if (
-        response.status === 429 ||
-        (response.status === 403 &&
-          response.headers.get("x-ratelimit-remaining") === "0")
-      )
-        return { state: "rate_limited", pages, matchingAttempts };
-      if (response.status !== 200)
-        return { state: "incomplete", pages, matchingAttempts };
+      if (response.status !== 200) {
+        const rateLimited =
+          response.status === 429 ||
+          (response.status === 403 &&
+            (response.headers.get("x-ratelimit-remaining") === "0" ||
+              response.headers.has("retry-after")));
+        await cancelUnusedResponseBody(response);
+        return {
+          state: rateLimited ? "rate_limited" : "incomplete",
+          pages,
+          matchingAttempts,
+        };
+      }
       let parsed: unknown;
       try {
         parsed = JSON.parse(await readBoundedText(response, 1_000_000));
@@ -246,8 +256,6 @@ export class GitHubAppWebhookRedeliveryClient implements AppWebhookRedeliveryCli
         matchingAttempts++;
       }
       const next = nextDeliveryCursor(response.headers.get("link"));
-      if (next === null && parsed.length === 100)
-        return { state: "incomplete", pages, matchingAttempts };
       if (next === null)
         return {
           state: matchingAttempts ? "observed" : "not_observed",
@@ -261,6 +269,11 @@ export class GitHubAppWebhookRedeliveryClient implements AppWebhookRedeliveryCli
     }
     return { state: "incomplete", pages, matchingAttempts };
   }
+}
+
+async function cancelUnusedResponseBody(response: Response): Promise<void> {
+  // A cleanup failure must not discard an already received HTTP status.
+  await response.body?.cancel().catch(() => undefined);
 }
 
 async function readBoundedText(

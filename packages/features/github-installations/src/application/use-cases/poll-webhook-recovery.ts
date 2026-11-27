@@ -58,8 +58,14 @@ export async function pollWebhookRecovery(
       if (await dependencies.custody.confirm(identity))
         return { state: "confirmed", polls, observedAttempts };
     } catch {
-      return { state: "incomplete", polls, observedAttempts };
+      return {
+        state: options.signal?.aborted ? "cancelled" : "incomplete",
+        polls,
+        observedAttempts,
+      };
     }
+    if (options.signal?.aborted)
+      return { state: "cancelled", polls, observedAttempts };
     let observation: WebhookAttemptObservation;
     try {
       observation = await dependencies.client.scanAttempts(
@@ -67,16 +73,28 @@ export async function pollWebhookRecovery(
         options.maxPages,
       );
     } catch {
-      return { state: "incomplete", polls, observedAttempts };
+      return {
+        state: options.signal?.aborted ? "cancelled" : "incomplete",
+        polls,
+        observedAttempts,
+      };
     }
     polls++;
     observedAttempts = Math.max(observedAttempts, observation.matchingAttempts);
+    if (options.signal?.aborted)
+      return { state: "cancelled", polls, observedAttempts };
     try {
       if (await dependencies.custody.confirm(identity))
         return { state: "confirmed", polls, observedAttempts };
     } catch {
-      return { state: "incomplete", polls, observedAttempts };
+      return {
+        state: options.signal?.aborted ? "cancelled" : "incomplete",
+        polls,
+        observedAttempts,
+      };
     }
+    if (options.signal?.aborted)
+      return { state: "cancelled", polls, observedAttempts };
     if (
       observation.state === "incomplete" ||
       observation.state === "rate_limited"

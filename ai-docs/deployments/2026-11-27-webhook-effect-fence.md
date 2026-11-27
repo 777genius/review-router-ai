@@ -35,24 +35,23 @@ been removed; existing authority owners and scope/row locks remain.
 
 | Evidence                                                                   | Current status                                                                                                                          |
 | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Default route wiring, claim/failure protocol and explicit operator command | Implemented; final runtime proof pending                                                                                                |
+| Default route wiring, claim/failure protocol and explicit operator command | Implemented; 13 native suites passed on checkpoint `3e017ec2`; subsequent fixes require renewed checks                                  |
 | Full migration catalog                                                     | 172 directories, including `000165_webhook_effect_fence` and `000167_webhook_recovery_intent`; no experimental `000166` epoch migration |
-| Prior 170 → 172 migration rehearsal and isolated fence tests               | Partial earlier-source results; not evidence for the final replay guard/HTTP suite                                                      |
-| Full signed HTTP/Prisma/PostgreSQL/outbox and recovery matrix              | Checked in and mandatory in the existing CI; final execution pending                                                                    |
-| TypeScript 7.0.2, lint/format, architecture and ordinary CI                | Pending; executor unavailable; final type/lint/architecture/CI remain unverified                                                        |
+| Full signed HTTP/Prisma/PostgreSQL/outbox and recovery matrix              | 106/106 tests, zero skips, on `3e017ec2`; actual 170 → 172 migration rehearsal                                                          |
+| Focused unit/lint/architecture and scoped strict types                     | Passed on `3e017ec2`; changed inputs need requalification                                                                               |
+| Whole-API typecheck/build, compiled CLI and ordinary CI                    | Pending; earlier compiler attempts hit shared-memory limits without diagnostics; CI queued                                              |
 | Production replay or fleet qualification                                   | Not executed; separately authorized operational work                                                                                    |
 
 Historical prototype/shim-based checks at `783409f2a21edc182df216d63c1f3cb4b84785bf`
 do not qualify this implementation. Do not treat queued/skipped CI as passing.
 
-Fresh code-check evidence at `6735c26d30a595874fcdc48172db405029680c5b`: frozen
-root/API dependency installation, verification of the exact pinned runtime in both
-installed peer contexts, isolated Prisma 7.9.0 client generation and all 11 harness
-unit tests passed with zero skips. These harness tests validate the runner and its
-result checks; the 13 PostgreSQL suites themselves have not completed on this source.
-The feature typecheck was stopped by its memory watchdog before diagnostics. The
-executor then disconnected under shared-memory pressure; final type/lint/runtime
-qualification and ordinary GitHub CI are still required. No deployment status changed.
+The `3e017ec226842c7fb7fb62bf4dc882b87aaa3786` checkpoint used the frozen root/API
+dependency graph, verified exact pinned runtime artifact, isolated Prisma 7.9.0
+client generation, PostgreSQL 17.10, Node 26.11.1, pnpm 11.28.7, TypeScript 7.0.2
+and Vitest 4.1.10. Besides the 106 native tests, 78 focused units, lint on 66 changed
+TypeScript files, formatting, the 705-file core architecture check and scoped types
+passed; the 11 unchanged harness units had already passed. Later review changes
+require a new result tied to their final source. No deployment status changed.
 
 ## Applicability and prerequisites
 
@@ -64,7 +63,12 @@ qualification and ordinary GitHub CI are still required. No deployment status ch
 - Apply the two additive migrations through that approved path. Verify checks,
   primary/foreign keys, receipt trigger and exact checksums. Verify the real API
   and recovery roles have the required privileges on the new tables; a synthetic
-  limited-role test is not proof of production grants.
+  limited-role test is not proof of production grants. Every role that can update or
+  delete `GitHubWebhookDelivery`, including legacy API, maintenance and rollback
+  roles, must retain `SELECT` on `GitHubWebhookFence`. The receipt trigger runs
+  with the caller's privileges and reads the fence even for an unfenced receipt.
+  Apply this grant after expansion and before any writer resumes; retain it through
+  application rollback. It grants neither fence writes nor a terminal-write bypass.
 - Confirm trusted `GITHUB_APP_ID`, matching webhook secret/API origin and
   `GITHUB_APP_SLUG`. Existing review-ingress/conflict settings still apply.
   Recovery additionally requires the configured App private key and database URL;
@@ -79,8 +83,9 @@ qualification and ordinary GitHub CI are still required. No deployment status ch
    required CI. Quiesce ingress and inventory/drain every old API/webhook writer,
    maintenance writer and open transaction before takeover-capable code starts.
    A lease timeout or receipt trigger does not prove an old effect stopped.
-2. Perform the approved schema expansion and privilege verification before the
-   new API serves requests. Record actual migration checksums and role evidence.
+2. Perform the approved schema expansion and privilege verification before any
+   writer resumes. Include the fence read grant for legacy and rollback roles, then
+   record actual migration checksums and role evidence before the new API serves.
 3. Install the qualified API version and verify all relevant processes use it.
    Fenced processing is the default composition; there is no new activation flag.
 4. Reopen ingress only after the writer drain/version checks. Use an authorized
@@ -117,8 +122,13 @@ identity confirms recovery. A local `processed` result with
 A later/equal locally received lifecycle/same-repository event blocks an older
 installation/repository retry. Missing identity is conservative. This compares local
 receipt order, not GitHub chronology. Authorization revocation has no retained
-original grant revision, so its retry requires separate reconciliation to avoid
-revoking a reconnect. Never-ingressed and unfenced legacy deliveries are unsupported.
+original grant revision. Its first delivery checks the current token with a bounded
+read-only GitHub request, then permits revocation only for a refused, still-current,
+unrefreshed and sufficiently unexpired snapshot under the auth owner's row lock.
+A valid current token is retained; ambiguous outcomes require reconciliation and
+leave existing authorization/cache policy in place. A replacement GUID is not proof
+of a fresh revocation. Automatic authorization retry remains unsupported.
+Never-ingressed and unfenced legacy deliveries are unsupported.
 
 ## Verification and completion
 
@@ -140,8 +150,9 @@ process versions. Unknown reservation/POST outcomes remain unknown; use reconcil
 Do not issue a replacement GUID or delete state to bypass the retained decision.
 
 On application rollback, close admission and drain fenced work before any legacy
-binary returns. Keep the receipt trigger, fences, custody and terminal records;
-do not roll back by dropping additive data or restoring an unsafe old writer.
+binary returns. Keep the receipt trigger, fences, custody, terminal records and
+`SELECT` on `GitHubWebhookFence` for every receipt-writing role. Do not roll back
+by dropping additive data or restoring an unsafe old writer.
 The trigger rejects old terminal overwrites, but does not undo their earlier
 unguarded effects. If the drain cannot be proved, keep admission closed.
 

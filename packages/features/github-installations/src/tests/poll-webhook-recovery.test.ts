@@ -54,6 +54,77 @@ describe("bounded webhook recovery polling", () => {
     );
     expect(f.client.scanAttempts).toHaveBeenCalledOnce();
   });
+  it("does not start a scan when cancellation arrives during confirmation", async () => {
+    const f = fixture();
+    const controller = new AbortController();
+    f.custody.confirm.mockImplementation(async () => {
+      controller.abort();
+      return false;
+    });
+    expect(
+      await pollWebhookRecovery(identity, f, {
+        ...options,
+        signal: controller.signal,
+      }),
+    ).toEqual({ state: "cancelled", polls: 0, observedAttempts: 0 });
+    expect(f.client.scanAttempts).not.toHaveBeenCalled();
+  });
+  it("reports cancellation during the final scan without another confirmation", async () => {
+    const f = fixture();
+    const controller = new AbortController();
+    f.client.scanAttempts.mockImplementation(async () => {
+      controller.abort();
+      return { state: "observed", pages: 1, matchingAttempts: 1 };
+    });
+    expect(
+      await pollWebhookRecovery(identity, f, {
+        ...options,
+        maxPolls: 1,
+        signal: controller.signal,
+      }),
+    ).toEqual({ state: "cancelled", polls: 1, observedAttempts: 1 });
+    expect(f.custody.confirm).toHaveBeenCalledOnce();
+  });
+  it.each(["confirmation", "scan"] as const)(
+    "reports cancellation when %s rejects after abort",
+    async (operation) => {
+      const f = fixture();
+      const controller = new AbortController();
+      const rejectingOperation =
+        operation === "confirmation"
+          ? f.custody.confirm
+          : f.client.scanAttempts;
+      rejectingOperation.mockImplementation(async () => {
+        controller.abort();
+        throw new Error("synthetic aborted operation");
+      });
+      expect(
+        await pollWebhookRecovery(identity, f, {
+          ...options,
+          signal: controller.signal,
+        }),
+      ).toEqual({ state: "cancelled", polls: 0, observedAttempts: 0 });
+      expect(f.custody.confirm).toHaveBeenCalledOnce();
+      expect(f.client.scanAttempts).toHaveBeenCalledTimes(
+        operation === "confirmation" ? 0 : 1,
+      );
+    },
+  );
+  it("preserves proven completion when cancellation arrives during confirmation", async () => {
+    const f = fixture();
+    const controller = new AbortController();
+    f.custody.confirm.mockImplementation(async () => {
+      controller.abort();
+      return true;
+    });
+    expect(
+      await pollWebhookRecovery(identity, f, {
+        ...options,
+        signal: controller.signal,
+      }),
+    ).toEqual({ state: "confirmed", polls: 0, observedAttempts: 0 });
+    expect(f.client.scanAttempts).not.toHaveBeenCalled();
+  });
   it("fails closed on wrong App, unavailable evidence and cancellation", async () => {
     const f = fixture();
     await expect(

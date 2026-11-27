@@ -1,5 +1,6 @@
 import { requireVerifiedGitHubAppWebhook } from "../crypto/github-app-webhook-verifier";
 import { Prisma, type PrismaClient } from "@prisma/client";
+import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
 import type { WebhookDeliveryRecord } from "../../application/ports/webhook-delivery-repository-port";
 import { isWebhookReplayEligible } from "./webhook-replay-eligibility";
 
@@ -55,6 +56,17 @@ export async function claimVerifiedFencedWebhookDeliveryInTransaction(
     generation: 1n,
   });
   validateLease(leaseMs);
+  // Replay checks include unprocessed receipts. Serialize their admission with
+  // lifecycle/repository effects before taking any delivery or fence row lock.
+  if (
+    delivery.eventName === "installation" ||
+    delivery.eventName === "installation_repositories" ||
+    delivery.eventName === "repository"
+  ) {
+    await acquireCurrentScopeGuards(transaction, [
+      { scope: "global", mode: "exclusive" },
+    ]);
+  }
   const inserted = await transaction.gitHubWebhookDelivery.createMany({
     data: [deliveryData(delivery)],
     skipDuplicates: true,

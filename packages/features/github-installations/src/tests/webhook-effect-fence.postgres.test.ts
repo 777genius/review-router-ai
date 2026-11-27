@@ -7,6 +7,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { createGitHubAppWebhookVerifier } from "../infrastructure/crypto/github-app-webhook-verifier";
 import { readFile } from "node:fs/promises";
 import { Prisma, PrismaClient } from "@prisma/client";
+import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -416,6 +417,230 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
           })
         ).status,
       ).toBe("failed");
+    },
+  );
+
+  it.each([
+    ["installation", "suspend", "90501"],
+    ["installation_repositories", "removed", "90502"],
+    ["repository", "deleted", "90503"],
+  ] as const)(
+    "orders new %s admission after a retry that has passed its replay check",
+    async (eventName, action, installationId) => {
+      const { context, delivery: original } = verifiedEvent(
+        `admission-wait-${eventName}`,
+        "123",
+        JSON.stringify({ action }),
+      );
+      const delivery = {
+        ...original,
+        eventName,
+        action,
+        installationId,
+        ...(eventName === "repository"
+          ? { normalizedEvent: { repositoryId: "80503" } }
+          : {}),
+      };
+      const first = await claimVerifiedFencedWebhookDelivery(
+        realPrisma,
+        context,
+        delivery,
+        a,
+        30000,
+      );
+      if (first.kind !== "claimed") throw new Error("claim_required");
+      expect(
+        await failWebhookFencedDelivery(
+          realPrisma,
+          first.claim,
+          "synthetic_failure",
+        ),
+      ).toBe(true);
+      const retry = await claimVerifiedFencedWebhookDelivery(
+        realPrisma,
+        context,
+        delivery,
+        b,
+        30000,
+      );
+      if (retry.kind !== "claimed") throw new Error("claim_required");
+      expect(retry.claim.generation).toBe(2n);
+      let entered!: (backendPid: number) => void;
+      let release!: () => void;
+      const ready = new Promise<number>((resolve) => {
+        entered = resolve;
+      });
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const terminal = runWebhookFencedDatabaseEffect(
+        realPrisma,
+        retry.claim,
+        async (tx) => {
+          const rows = await tx.$queryRaw<Array<{ pid: number }>>(
+            Prisma.sql`SELECT pg_backend_pid() AS pid`,
+          );
+          if (!rows[0]) throw new Error("effect_backend_missing");
+          // The replay check has passed and the scope stays held through COMMIT.
+          entered(rows[0].pid);
+          await held;
+          await tx.$executeRaw(
+            Prisma.sql`INSERT INTO "effect" (generation) VALUES (${BigInt(installationId)})`,
+          );
+          await tx.gitHubWebhookDelivery.update({
+            where: { deliveryId: delivery.deliveryId },
+            data: { status: "processed" },
+          });
+        },
+        "processed",
+        (tx) =>
+          acquireCurrentScopeGuards(tx, [
+            { scope: "global", mode: "exclusive" },
+          ]),
+      ).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      const newer = { ...delivery, deliveryId: `newer-${delivery.deliveryId}` };
+      let admission: Promise<unknown> = Promise.resolve();
+      try {
+        const ownerPid = await Promise.race([
+          ready,
+          terminal.then((error) => {
+            throw error ?? new Error("effect_barrier_not_reached");
+          }),
+        ]);
+        admission = claimVerifiedFencedWebhookDelivery(
+          realPrisma,
+          context,
+          newer,
+          a,
+          30000,
+        ).catch((error: unknown) => error);
+        let blocked = false;
+        for (let attempt = 0; attempt < 80 && !blocked; attempt++) {
+          const result = await pool.query<{ blocked: boolean }>(
+            "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND $1 = ANY(pg_blocking_pids(pid))) AS blocked",
+            [ownerPid],
+          );
+          blocked = result.rows[0]?.blocked === true;
+          if (!blocked) await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(blocked).toBe(true);
+        expect(
+          await realPrisma.gitHubWebhookDelivery.findUnique({
+            where: { deliveryId: newer.deliveryId },
+          }),
+        ).toBeNull();
+        release();
+        expect(await terminal).toBeNull();
+        expect(await admission).toMatchObject({
+          kind: "claimed",
+          claim: { deliveryId: newer.deliveryId, generation: 1n },
+        });
+        expect(
+          (
+            await realPrisma.gitHubWebhookDelivery.findUniqueOrThrow({
+              where: { deliveryId: delivery.deliveryId },
+            })
+          ).status,
+        ).toBe("processed");
+        expect(
+          (
+            await pool.query<{ n: number }>(
+              'SELECT count(*)::int AS n FROM "effect" WHERE generation = $1',
+              [installationId],
+            )
+          ).rows[0]?.n,
+        ).toBe(1);
+      } finally {
+        release();
+        await terminal;
+        await admission;
+      }
+    },
+  );
+
+  it.each([
+    ["installation", "suspend", "90601"],
+    ["installation_repositories", "removed", "90602"],
+    ["repository", "deleted", "90603"],
+  ] as const)(
+    "rejects a %s retry effect after a newer authenticated receipt committed",
+    async (eventName, action, installationId) => {
+      const { context, delivery: original } = verifiedEvent(
+        `admission-before-retry-${eventName}`,
+        "123",
+        JSON.stringify({ action }),
+      );
+      const delivery = {
+        ...original,
+        eventName,
+        action,
+        installationId,
+        ...(eventName === "repository"
+          ? { normalizedEvent: { repositoryId: "80603" } }
+          : {}),
+      };
+      const first = await claimVerifiedFencedWebhookDelivery(
+        realPrisma,
+        context,
+        delivery,
+        a,
+        30000,
+      );
+      if (first.kind !== "claimed") throw new Error("claim_required");
+      await failWebhookFencedDelivery(
+        realPrisma,
+        first.claim,
+        "synthetic_failure",
+      );
+      const retry = await claimVerifiedFencedWebhookDelivery(
+        realPrisma,
+        context,
+        delivery,
+        b,
+        30000,
+      );
+      if (retry.kind !== "claimed") throw new Error("claim_required");
+      const newer = await claimVerifiedFencedWebhookDelivery(
+        realPrisma,
+        context,
+        { ...delivery, deliveryId: `newer-${delivery.deliveryId}` },
+        a,
+        30000,
+      );
+      expect(newer.kind).toBe("claimed");
+      let effectRan = false;
+      await expect(
+        runWebhookFencedDatabaseEffect(
+          realPrisma,
+          retry.claim,
+          async () => {
+            effectRan = true;
+          },
+          "processing",
+          (tx) =>
+            acquireCurrentScopeGuards(tx, [
+              { scope: "global", mode: "exclusive" },
+            ]),
+        ),
+      ).rejects.toThrow("webhook_fence_reconciliation_required");
+      expect(effectRan).toBe(false);
+      expect(
+        (
+          await realPrisma.gitHubWebhookDelivery.findUniqueOrThrow({
+            where: { deliveryId: delivery.deliveryId },
+          })
+        ).status,
+      ).toBe("processing");
+      expect(
+        (
+          await realPrisma.gitHubWebhookFence.findUniqueOrThrow({
+            where: { deliveryId: delivery.deliveryId },
+          })
+        ).generation,
+      ).toBe(2n);
     },
   );
 

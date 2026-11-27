@@ -1,4 +1,7 @@
-import { ConflictReviewPullRequestWebhookHandler } from "@reviewrouter/features-conflict-review";
+import {
+  ConflictReviewPullRequestWebhookHandler,
+  type ConflictReviewRolloutPolicyPort,
+} from "@reviewrouter/features-conflict-review";
 import { writePrismaOutboxEvent } from "@reviewrouter/features-outbox";
 import {
   runWebhookFencedDatabaseEffect,
@@ -23,15 +26,15 @@ export async function handleFencedPullRequestComposite(
   options: {
     readonly reviewIngressEnabled: boolean;
     readonly conflictFallbackEnabled: boolean;
-    readonly conflictFallbackAllowed?: boolean;
+    readonly conflictFallbackPolicy?: ConflictReviewRolloutPolicyPort;
   },
 ): Promise<Record<string, unknown>> {
   if (claim.deliveryId !== envelope.deliveryId || !envelope.payloadHash)
     throw new Error("webhook_fence_identity_mismatch");
-  // The caller must evaluate the existing repository rollout policy before entry.
+  // The conflict use case consults policy only for actions it handles.
   if (
     options.conflictFallbackEnabled &&
-    options.conflictFallbackAllowed === undefined
+    options.conflictFallbackPolicy === undefined
   )
     throw new Error("webhook_fence_conflict_policy_missing");
   return runWebhookFencedDatabaseEffect(
@@ -65,10 +68,7 @@ export async function handleFencedPullRequestComposite(
             outbox: {
               enqueue: (event) => writePrismaOutboxEvent(transaction, event),
             },
-            rolloutPolicy: {
-              isConflictReviewFallbackAllowed: () =>
-                options.conflictFallbackAllowed!,
-            },
+            rolloutPolicy: options.conflictFallbackPolicy,
             clock: { now: () => new Date() },
           }).handleGitHubPullRequestWebhook(envelope)
         : null;

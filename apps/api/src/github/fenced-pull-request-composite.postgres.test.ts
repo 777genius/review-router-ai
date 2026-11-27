@@ -189,7 +189,9 @@ test("fenced PR composite on isolated PostgreSQL", () => {
     const result = await handleFencedPullRequestComposite(prisma, e, claim, {
       reviewIngressEnabled: true,
       conflictFallbackEnabled: true,
-      conflictFallbackAllowed: true,
+      conflictFallbackPolicy: {
+        isConflictReviewFallbackAllowed: () => true,
+      },
     });
     expect(result.conflict).toMatchObject({ processed: true, queued: true });
     expect(
@@ -221,7 +223,9 @@ test("fenced PR composite on isolated PostgreSQL", () => {
     const result = await handleFencedPullRequestComposite(prisma, e, claim, {
       reviewIngressEnabled: true,
       conflictFallbackEnabled: true,
-      conflictFallbackAllowed: false,
+      conflictFallbackPolicy: {
+        isConflictReviewFallbackAllowed: () => false,
+      },
     });
     expect(result.conflict).toMatchObject({
       processed: false,
@@ -265,7 +269,9 @@ test("fenced PR composite on isolated PostgreSQL", () => {
       handleFencedPullRequestComposite(prisma, e, claim, {
         reviewIngressEnabled: true,
         conflictFallbackEnabled: true,
-        conflictFallbackAllowed: true,
+        conflictFallbackPolicy: {
+          isConflictReviewFallbackAllowed: () => true,
+        },
       }),
     ).rejects.toThrow();
     expect(
@@ -299,7 +305,9 @@ test("fenced PR composite on isolated PostgreSQL", () => {
       handleFencedPullRequestComposite(prisma, e, claim, {
         reviewIngressEnabled: true,
         conflictFallbackEnabled: true,
-        conflictFallbackAllowed: true,
+        conflictFallbackPolicy: {
+          isConflictReviewFallbackAllowed: () => true,
+        },
       }),
     ).rejects.toThrow();
     expect(
@@ -360,7 +368,9 @@ test("fenced PR composite on isolated PostgreSQL", () => {
     const oldHandler = handleFencedPullRequestComposite(prisma, e, old, {
       reviewIngressEnabled: true,
       conflictFallbackEnabled: true,
-      conflictFallbackAllowed: true,
+      conflictFallbackPolicy: {
+        isConflictReviewFallbackAllowed: () => true,
+      },
     }).then(
       () => null,
       (error: unknown) => error,

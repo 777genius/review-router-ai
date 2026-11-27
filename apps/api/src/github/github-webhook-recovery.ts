@@ -27,6 +27,7 @@ type ReceiverRow = {
   appIdentityHash: string | null;
   recoveryState: string | null;
   githubDeliveryId: bigint | null;
+  recoveryIdentityMatches: boolean;
 };
 
 export function validateWebhookRecoveryCommand(
@@ -60,7 +61,10 @@ export async function runKnownWebhookRecovery(
   const readReceiver = async () => {
     const rows = await prisma.$queryRaw<ReceiverRow[]>(Prisma.sql`
       SELECT d."eventName", d.action, d."installationId", d."payloadHash", d.status,
-        f."appIdentityHash", r.state AS "recoveryState", r."githubDeliveryId"
+        f."appIdentityHash", r.state AS "recoveryState", r."githubDeliveryId",
+        COALESCE(r."eventName"=d."eventName" AND r.action IS NOT DISTINCT FROM d.action
+          AND r."installationId" IS NOT DISTINCT FROM d."installationId"
+          AND r."payloadHash"=d."payloadHash", FALSE) AS "recoveryIdentityMatches"
       FROM "GitHubWebhookDelivery" d
       LEFT JOIN "GitHubWebhookFence" f USING ("deliveryId")
       LEFT JOIN "GitHubWebhookRecoveryIntent" r
@@ -73,6 +77,8 @@ export async function runKnownWebhookRecovery(
       throw new Error("webhook_recovery_authenticated_fence_required");
     if (row.appIdentityHash !== client.appIdentityHash)
       throw new Error("webhook_recovery_app_identity_mismatch");
+    if (row.recoveryState !== null && !row.recoveryIdentityMatches)
+      throw new Error("webhook_recovery_identity_conflict");
     if (
       row.githubDeliveryId !== null &&
       row.githubDeliveryId !== command.githubDeliveryId
@@ -160,5 +166,11 @@ export async function runKnownWebhookRecovery(
     },
     { maxPolls: 3, maxPages: 5, delayMs: 1_000 },
   );
-  return { ...summary(await readReceiver()), ...result, requestOutcome };
+  const current = await readReceiver();
+  return {
+    ...summary(current),
+    ...result,
+    state: current.recoveryState === "confirmed" ? "confirmed" : result.state,
+    requestOutcome,
+  };
 }

@@ -1,22 +1,41 @@
 import { createHash } from "node:crypto";
-import { createServer } from "node:http";
+import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { GitHubAppWebhookRedeliveryClient } from "./github-app-webhook-redelivery-client";
 
 describe("GitHub App redelivery client with synthetic local server", () => {
   let scanMode = "normal";
   const requests: Array<{
-    method?: string;
-    url?: string;
-    authorization?: string;
+    method: string | undefined;
+    url: string | undefined;
+    authorization: string | undefined;
   }> = [];
+  const attemptedUrls: string[] = [];
+  let unusedBody:
+    | { response: ServerResponse; closed: Promise<void> }
+    | undefined;
   const server = createServer((req, res) => {
     requests.push({
       method: req.method,
       url: req.url,
       authorization: req.headers.authorization,
     });
+    if (scanMode.startsWith("unused-body-")) {
+      const closed = new Promise<void>((resolve) => {
+        res.once("close", resolve);
+      });
+      unusedBody = { response: res, closed };
+      const status =
+        scanMode === "unused-body-accepted" || scanMode === "unused-body-broken"
+          ? 202
+          : scanMode === "unused-body-rate"
+            ? 429
+            : 503;
+      res.writeHead(status, { "content-type": "text/plain" });
+      res.write("unused response body");
+      return;
+    }
     if (req.method === "GET") {
       if (req.url === "/app/hook/deliveries/42") {
         res.writeHead(200, { "content-type": "application/json" });
@@ -44,20 +63,37 @@ describe("GitHub App redelivery client with synthetic local server", () => {
         );
         return;
       }
-      if (scanMode === "full-no-link") {
+      if (scanMode === "full-no-link" || scanMode === "full-no-link-match") {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify(
-            Array.from({ length: 100 }, (_, id) => ({
-              guid: `other-${id}`,
-              redelivery: false,
-            })),
+            Array.from({ length: 100 }, (_, id) =>
+              scanMode === "full-no-link-match" && id === 99
+                ? {
+                    id: 45,
+                    guid: "synthetic-guid",
+                    event: "push",
+                    action: null,
+                    redelivery: true,
+                    installation_id: 123,
+                    status_code: 200,
+                  }
+                : { guid: `other-${id}`, redelivery: false },
+            ),
           ),
         );
         return;
       }
-      if (scanMode === "rate") {
-        res.writeHead(429);
+      if (
+        scanMode === "rate" ||
+        scanMode === "primary-rate" ||
+        scanMode === "secondary-rate" ||
+        scanMode === "forbidden"
+      ) {
+        res.writeHead(scanMode === "rate" ? 429 : 403, {
+          "x-ratelimit-remaining": scanMode === "primary-rate" ? "0" : "100",
+          ...(scanMode === "secondary-rate" ? { "retry-after": "60" } : {}),
+        });
         res.end();
         return;
       }
@@ -112,21 +148,40 @@ describe("GitHub App redelivery client with synthetic local server", () => {
     );
     origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   });
+  afterEach(() => {
+    unusedBody?.response.destroy();
+    unusedBody = undefined;
+    scanMode = "normal";
+  });
   afterAll(async () => {
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
     );
   });
+  const sendToLocal: typeof fetch = async (resource, options) => {
+    // Record attempts before assertions: the client catches transport failures.
+    attemptedUrls.push(String(resource));
+    const url = new URL(String(resource));
+    expect(url.origin).toBe("https://api.github.com");
+    return fetch(`${origin}${url.pathname}${url.search}`, options);
+  };
   const client = () =>
     GitHubAppWebhookRedeliveryClient.forSyntheticTest(
       "123",
       async () => "synthetic-jwt",
-      async (resource, options) => {
-        const url = new URL(String(resource));
-        expect(url.origin).toBe("https://api.github.com");
-        return fetch(`${origin}${url.pathname}${url.search}`, options);
-      },
+      sendToLocal,
     );
+  function identityFor(c: GitHubAppWebhookRedeliveryClient) {
+    return {
+      appIdentityHash: c.appIdentityHash,
+      deliveryGuid: "synthetic-guid",
+      githubDeliveryId: 42n,
+      eventName: "push",
+      action: null,
+      installationId: 123n,
+      payloadHash: "a".repeat(64),
+    };
+  }
   it("sends one App-authenticated POST to the exact scoped endpoint", async () => {
     const before = requests.length;
     expect(await client().redeliver(42n)).toEqual({ status: 202 });
@@ -164,15 +219,7 @@ describe("GitHub App redelivery client with synthetic local server", () => {
   it("scans only bounded App delivery pages and reports remote observation, not completion", async () => {
     scanMode = "two";
     const c = client();
-    const identity = {
-      appIdentityHash: c.appIdentityHash,
-      deliveryGuid: "synthetic-guid",
-      githubDeliveryId: 42n,
-      eventName: "push",
-      action: null,
-      installationId: 123n,
-      payloadHash: "a".repeat(64),
-    };
+    const identity = identityFor(c);
     const result = await c.scanAttempts(identity, 2);
     expect(result).toEqual({
       state: "observed",
@@ -183,23 +230,17 @@ describe("GitHub App redelivery client with synthetic local server", () => {
   });
   it("fails closed on foreign pagination links, limits, and rate limits", async () => {
     const c = client();
-    const identity = {
-      appIdentityHash: c.appIdentityHash,
-      deliveryGuid: "synthetic-guid",
-      githubDeliveryId: 42n,
-      eventName: "push",
-      action: null,
-      installationId: 123n,
-      payloadHash: "a".repeat(64),
-    };
+    const identity = identityFor(c);
     scanMode = "evil";
     const before = requests.length;
+    const beforeTransport = attemptedUrls.length;
     expect((await c.scanAttempts(identity, 5)).state).toBe("incomplete");
     expect(requests.length - before).toBe(1);
+    expect(attemptedUrls.slice(beforeTransport)).toEqual([
+      "https://api.github.com/app/hook/deliveries?per_page=100",
+    ]);
     scanMode = "two";
     expect((await c.scanAttempts(identity, 1)).state).toBe("incomplete");
-    scanMode = "full-no-link";
-    expect((await c.scanAttempts(identity, 2)).state).toBe("incomplete");
     scanMode = "rate";
     expect((await c.scanAttempts(identity, 2)).state).toBe("rate_limited");
     await expect(
@@ -207,17 +248,115 @@ describe("GitHub App redelivery client with synthetic local server", () => {
     ).rejects.toThrow("github_app_recovery_scan_invalid");
   });
 
+  it.each([
+    ["full-no-link", "not_observed", 0],
+    ["full-no-link-match", "observed", 1],
+  ] as const)(
+    "finishes a full final page without a next link in %s mode",
+    async (mode, state, matchingAttempts) => {
+      scanMode = mode;
+      const c = client();
+      const before = attemptedUrls.length;
+      expect(await c.scanAttempts(identityFor(c), 2)).toEqual({
+        state,
+        pages: 1,
+        matchingAttempts,
+      });
+      expect(attemptedUrls.slice(before)).toHaveLength(1);
+    },
+  );
+
+  it.each([
+    ["primary-rate", "rate_limited"],
+    ["secondary-rate", "rate_limited"],
+    ["forbidden", "incomplete"],
+  ] as const)(
+    "classifies a 403 %s response without retrying",
+    async (mode, state) => {
+      scanMode = mode;
+      const c = client();
+      const before = attemptedUrls.length;
+      expect(await c.scanAttempts(identityFor(c), 2)).toEqual({
+        state,
+        pages: 0,
+        matchingAttempts: 0,
+      });
+      expect(attemptedUrls.slice(before)).toHaveLength(1);
+    },
+  );
+
+  it.each([
+    ["accepted", "post", 202],
+    ["rejected", "post", 503],
+    ["rejected", "detail", 503],
+    ["rejected", "scan", 503],
+    ["rate", "scan", 429],
+  ] as const)(
+    "cancels the unused %s %s response body",
+    async (mode, operation, status) => {
+      scanMode = `unused-body-${mode}`;
+      const c = client();
+      if (operation === "post") {
+        expect(await c.redeliver(42n)).toEqual({ status });
+      } else if (operation === "detail") {
+        expect(
+          await c.verifyOriginalDelivery(identityFor(c), "a".repeat(64)),
+        ).toBe(false);
+      } else {
+        expect(await c.scanAttempts(identityFor(c), 2)).toEqual({
+          state: mode === "rate" ? "rate_limited" : "incomplete",
+          pages: 0,
+          matchingAttempts: 0,
+        });
+      }
+      const pending = unusedBody;
+      if (!pending) throw new Error("unused_response_not_received");
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          pending.closed,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error("unused_response_not_cancelled")),
+              2000,
+            );
+          }),
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    },
+  );
+
+  it("preserves the received status when cancellation encounters a broken body", async () => {
+    scanMode = "unused-body-broken";
+    let bodyFailed = false;
+    const c = GitHubAppWebhookRedeliveryClient.forSyntheticTest(
+      "123",
+      async () => "synthetic-jwt",
+      async (resource, options) => {
+        const response = await sendToLocal(resource, options);
+        if (!response.body || !unusedBody)
+          throw new Error("unused_response_not_received");
+        const reader = response.body.getReader();
+        unusedBody.response.destroy();
+        try {
+          await reader.closed;
+        } catch {
+          bodyFailed = true;
+        } finally {
+          reader.releaseLock();
+        }
+        return response;
+      },
+    );
+    expect(await c.redeliver(42n)).toEqual({ status: 202 });
+    expect(bodyFailed).toBe(true);
+  });
+
   it("checks exact original App delivery without exposing its payload", async () => {
     const c = client();
-    const identity = {
-      appIdentityHash: c.appIdentityHash,
-      deliveryGuid: "synthetic-guid",
-      githubDeliveryId: 42n,
-      eventName: "push",
-      action: null,
-      installationId: 123n,
-      payloadHash: "a".repeat(64),
-    };
+    const identity = identityFor(c);
     scanMode = "normal";
     const signatureHash = createHash("sha256")
       .update(`sha256=${"a".repeat(64)}`)

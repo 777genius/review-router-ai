@@ -639,6 +639,17 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      postgres-webhook-test:
+        image: postgres:17.5-bookworm@sha256:fbcea1bd13b6a882cd6caa6b58db3ae5c102efe50ec625b3e2a5cbc50db5bfe4
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5435:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout
@@ -713,7 +724,7 @@ jobs:
 
       - name: Webhook fencing PostgreSQL acceptance
         env:
-          WEBHOOK_FENCE_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5433/postgres
+          WEBHOOK_FENCE_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5435/postgres
         run: node scripts/webhook-fencing/run-postgres.ts
 
       # Keep one idle snapshot before application suites open concurrent sessions.
@@ -844,7 +855,9 @@ jobs:
           GITHUB_APP_SLUG: reviewrouter-ci
         run: |
           pnpm runtime:smoke
-          pnpm webhook:recover --help
+          webhook_recovery_help_output=$(pnpm webhook:recover --help)
+          printf '%s\n' "$webhook_recovery_help_output"
+          [[ "$webhook_recovery_help_output" == *"Usage: pnpm webhook:recover"* ]]
 
       - name: Web page smoke
         run: pnpm web:smoke

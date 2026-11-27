@@ -1,3 +1,4 @@
+import { installationStatusForAction } from "../../domain/github-installation";
 import {
   githubAppAuthorizationWebhookPayloadSchema,
   githubInstallationWebhookPayloadSchema,
@@ -66,9 +67,17 @@ export function parseGitHubWebhook(
     case "installation":
     case "installation_repositories": {
       const parsed = githubInstallationWebhookPayloadSchema.safeParse(body);
-      return parsed.success
-        ? { ...receipt, eventName, payload: parsed.data }
-        : null;
+      if (!parsed.success) return null;
+      // The event header is outside the body HMAC. Bind the signed action to
+      // its event family before establishing any durable delivery custody.
+      const action = parsed.data.action;
+      if (
+        eventName === "installation"
+          ? installationStatusForAction(action) === null
+          : action !== "added" && action !== "removed"
+      )
+        return null;
+      return { ...receipt, eventName, payload: parsed.data };
     }
     default:
       return null;
