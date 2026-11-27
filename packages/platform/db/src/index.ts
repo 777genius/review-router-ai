@@ -110,6 +110,8 @@ export {
   CURRENT_SCOPE_GUARD_NAMESPACE,
   type CurrentScopeGuard,
 } from "./current-scope-guards.js";
+// WIP: not sufficient for mixed-version rollout or unfenced writers.
+export { runScopeEpochSerializableTransaction } from "./current-scope-guard-epochs.js";
 export {
   rotateRemovedScmRepositoryIdentityEpoch,
   rotateScmRepositoryIdentityEpoch,

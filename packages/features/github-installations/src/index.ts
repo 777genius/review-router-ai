@@ -19,6 +19,7 @@ export {
   reclaimWebhookFence,
   renewWebhookFence,
   runWebhookFencedDatabaseEffect,
+  runWebhookFencedEffectInTransaction,
 } from "./infrastructure/prisma/webhook-effect-fence";
 export type { FencedDelivery } from "./infrastructure/prisma/webhook-effect-fence";
 export * from "./interface/http/register-github-webhook-routes";

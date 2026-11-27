@@ -136,31 +136,51 @@ export async function runWebhookFencedDatabaseEffect<T>(
   expectedFinalStatus: "processing" | "processed" | "failed" = "processing",
   beforeFence?: (transaction: Prisma.TransactionClient) => Promise<void>,
 ): Promise<T> {
+  return prisma.$transaction(
+    async (transaction) => {
+      await beforeFence?.(transaction);
+      return runWebhookFencedEffectInTransaction(
+        transaction,
+        claim,
+        effect,
+        expectedFinalStatus,
+      );
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  );
+}
+
+/** WIP: caller must provide the same interactive transaction for all effects. */
+export async function runWebhookFencedEffectInTransaction<T>(
+  transaction: Prisma.TransactionClient,
+  claim: FencedDelivery,
+  effect: (transaction: Prisma.TransactionClient) => Promise<T>,
+  expectedFinalStatus: "processing" | "processed" | "failed" = "processing",
+): Promise<T> {
   if (
+    !transaction ||
+    typeof transaction.$queryRaw !== "function" ||
+    Reflect.get(transaction, "$connect") !== undefined ||
+    Reflect.get(transaction, "$disconnect") !== undefined ||
     !claim.deliveryId ||
     !/^[0-9a-f]{64}$/.test(claim.ownerHash) ||
     claim.generation < 1n ||
     !["processing", "processed", "failed"].includes(expectedFinalStatus)
   )
     throw new Error("webhook_fence_invalid");
-  return prisma.$transaction(
-    async (transaction) => {
-      // Some existing authorities have an established lock order. This hook
-      // may acquire those locks, but must not perform mutations or external I/O.
-      await beforeFence?.(transaction);
-      // The locking query and the DB effect must use the same connection and
-      // transaction. Check wall-clock time *after* waiting for the row lock.
-      const rows = await transaction.$queryRaw<
-        Array<{ deliveryId: string }>
-      >(Prisma.sql`
+  // The locking query and the DB effect must use the same connection and
+  // transaction. Check wall-clock time *after* waiting for the row lock.
+  const rows = await transaction.$queryRaw<
+    Array<{ deliveryId: string }>
+  >(Prisma.sql`
       SELECT "deliveryId" FROM "GitHubWebhookFence"
       WHERE "deliveryId" = ${claim.deliveryId}
       FOR UPDATE
     `);
-      if (rows.length !== 1) throw new Error("webhook_fence_missing");
-      const valid = await transaction.$queryRaw<
-        Array<{ valid: boolean }>
-      >(Prisma.sql`
+  if (rows.length !== 1) throw new Error("webhook_fence_missing");
+  const valid = await transaction.$queryRaw<
+    Array<{ valid: boolean }>
+  >(Prisma.sql`
       SELECT (f."ownerHash" = ${claim.ownerHash}
           AND f."generation" = ${claim.generation}
           AND f."leaseUntil" > clock_timestamp()
@@ -168,11 +188,11 @@ export async function runWebhookFencedDatabaseEffect<T>(
       FROM "GitHubWebhookFence" f JOIN "GitHubWebhookDelivery" d USING ("deliveryId")
       WHERE f."deliveryId" = ${claim.deliveryId}
     `);
-      if (valid[0]?.valid !== true) throw new Error("webhook_fence_stale");
-      const result = await effect(transaction);
-      const stillValid = await transaction.$queryRaw<
-        Array<{ valid: boolean }>
-      >(Prisma.sql`
+  if (valid[0]?.valid !== true) throw new Error("webhook_fence_stale");
+  const result = await effect(transaction);
+  const stillValid = await transaction.$queryRaw<
+    Array<{ valid: boolean }>
+  >(Prisma.sql`
       SELECT (f."ownerHash" = ${claim.ownerHash}
           AND f."generation" = ${claim.generation}
           AND f."leaseUntil" > clock_timestamp()
@@ -180,10 +200,6 @@ export async function runWebhookFencedDatabaseEffect<T>(
       FROM "GitHubWebhookFence" f JOIN "GitHubWebhookDelivery" d USING ("deliveryId")
       WHERE f."deliveryId" = ${claim.deliveryId}
     `);
-      if (stillValid[0]?.valid !== true)
-        throw new Error("webhook_fence_expired");
-      return result;
-    },
-    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-  );
+  if (stillValid[0]?.valid !== true) throw new Error("webhook_fence_expired");
+  return result;
 }

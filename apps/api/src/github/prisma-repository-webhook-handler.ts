@@ -1,9 +1,14 @@
-import type { GitHubRepositoryWebhookEnvelope } from "@reviewrouter/features-github-installations";
+import {
+  runWebhookFencedEffectInTransaction,
+  type FencedDelivery,
+  type GitHubRepositoryWebhookEnvelope,
+} from "@reviewrouter/features-github-installations";
 import { workflowProvisioningTransaction } from "@reviewrouter/features-workflow-provisioning/composition";
 import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import {
   acquireCurrentScopeGuards,
+  runScopeEpochSerializableTransaction,
   rotateRemovedScmRepositoryIdentityEpoch,
   rotateScmRepositoryIdentityEpoch,
 } from "@reviewrouter/platform-db";
@@ -17,196 +22,255 @@ export class PrismaRepositoryWebhookHandler {
   async handleGitHubRepositoryWebhook(
     envelope: GitHubRepositoryWebhookEnvelope,
   ): Promise<Record<string, unknown>> {
+    const handled = await workflowProvisioningTransaction(this.prisma, (tx) =>
+      this.applyRepositoryWebhook(tx, envelope),
+    );
+    return repositoryWebhookResult(
+      handled,
+      envelope.payload.repository.full_name,
+    );
+  }
+
+  /** WIP: not selected by production routes or eligible for takeover yet. */
+  async handleFencedGitHubRepositoryWebhook(
+    envelope: GitHubRepositoryWebhookEnvelope,
+    claim: FencedDelivery,
+  ): Promise<Record<string, unknown>> {
+    if (claim.deliveryId !== envelope.deliveryId || !envelope.payloadHash)
+      throw new Error("webhook_fence_identity_mismatch");
+    return runScopeEpochSerializableTransaction(
+      this.prisma,
+      [{ scope: "global", mode: "exclusive" }],
+      (tx) =>
+        runWebhookFencedEffectInTransaction(
+          tx,
+          claim,
+          async (transaction) => {
+            const delivery = await transaction.gitHubWebhookDelivery.findUnique(
+              {
+                where: { deliveryId: claim.deliveryId },
+                select: {
+                  eventName: true,
+                  action: true,
+                  installationId: true,
+                  payloadHash: true,
+                },
+              },
+            );
+            if (
+              delivery?.eventName !== envelope.eventName ||
+              delivery.action !== envelope.payload.action ||
+              delivery.installationId !==
+                BigInt(envelope.payload.installation.id) ||
+              delivery.payloadHash !== envelope.payloadHash
+            )
+              throw new Error("webhook_fence_identity_mismatch");
+            const handled = await this.applyRepositoryWebhook(
+              transaction,
+              envelope,
+            );
+            await transaction.gitHubWebhookDelivery.update({
+              where: { deliveryId: claim.deliveryId },
+              data: { status: "processed", processedAt: new Date() },
+            });
+            return repositoryWebhookResult(
+              handled,
+              envelope.payload.repository.full_name,
+            );
+          },
+          "processed",
+        ),
+    );
+  }
+
+  private async applyRepositoryWebhook(
+    tx: Prisma.TransactionClient,
+    envelope: GitHubRepositoryWebhookEnvelope,
+  ): Promise<{ repository: string; status: string } | null> {
     const payload = envelope.payload;
     const repository = payload.repository;
-    const handled = await workflowProvisioningTransaction(
-      this.prisma,
-      async (tx) => {
-        // Fence discovery and every mutation against concurrent scope changes.
-        await acquireCurrentScopeGuards(tx, [
-          { scope: "global", mode: "exclusive" },
-        ]);
-        const existing = await tx.repositoryConnection.findUnique({
-          where: { githubRepositoryId: BigInt(repository.id) },
-          select: {
-            id: true,
-            workspaceId: true,
-            installationId: true,
-            defaultBranch: true,
-            fullName: true,
-            lastSyncedAt: true,
-            selected: true,
-            scmRepositoryIdentityId: true,
-            installation: { select: { githubInstallationId: true } },
-          },
-        });
-
-        if (!existing) return null;
-        const installationChanged =
-          existing.installation?.githubInstallationId !==
-          BigInt(payload.installation.id);
-        const syncedAt = new Date();
-
-        if (installationChanged) {
-          await fenceRepositoryAuthority(tx, {
-            repositoryId: existing.id,
-            workspaceId: existing.workspaceId,
-            wasSelected: existing.selected,
-            scmRepositoryIdentityId: existing.scmRepositoryIdentityId,
-            fencedAt: syncedAt,
-          });
-          return {
-            repository: existing.fullName,
-            status: "reconnect_reselection_required",
-          };
-        }
-
-        if (payload.action === "deleted") {
-          const removed = await tx.repositoryConnection.updateMany({
-            where: { id: existing.id, selected: true },
-            data: {
-              selected: false,
-              lastSyncedAt: syncedAt,
-            },
-          });
-          if (removed.count === 1 && existing.scmRepositoryIdentityId) {
-            await rotateRemovedScmRepositoryIdentityEpoch(tx, {
-              scmRepositoryIdentityId: existing.scmRepositoryIdentityId,
-              repositoryConnectionId: existing.id,
-              currentWorkspaceId: existing.workspaceId,
-              removedAt: syncedAt,
-            });
-          }
-          return { repository: existing.fullName, status: "unselected" };
-        }
-
-        if (payload.action === "transferred") {
-          await fenceRepositoryAuthority(tx, {
-            repositoryId: existing.id,
-            workspaceId: existing.workspaceId,
-            wasSelected: existing.selected,
-            scmRepositoryIdentityId: existing.scmRepositoryIdentityId,
-            fencedAt: syncedAt,
-          });
-          return {
-            repository: existing.fullName,
-            status: "reconnect_reselection_required",
-          };
-        }
-        const metadataTimestamp = parseRepositoryUpdatedAt(
-          repository.updated_at,
-        );
-        const sameSecondChange =
-          metadataTimestamp &&
-          existing.lastSyncedAt &&
-          startOfSecond(metadataTimestamp) ===
-            startOfSecond(existing.lastSyncedAt)
-            ? resolveSameSecondRepositoryChange({
-                action: payload.action,
-                changes: payload.changes,
-                repository,
-                existing,
-              })
-            : null;
-        if (
-          metadataTimestamp === null ||
-          (existing.lastSyncedAt !== null &&
-            startOfSecond(metadataTimestamp) <
-              startOfSecond(existing.lastSyncedAt))
-        ) {
-          return { repository: existing.fullName, status: "stale_ignored" };
-        }
-        if (
-          existing.lastSyncedAt !== null &&
-          startOfSecond(metadataTimestamp) ===
-            startOfSecond(existing.lastSyncedAt) &&
-          sameSecondChange === null
-        ) {
-          if (!hasRepositoryMetadataPreimage(payload.action, payload.changes)) {
-            return { repository: existing.fullName, status: "stale_ignored" };
-          }
-          await fenceRepositoryAuthority(tx, {
-            repositoryId: existing.id,
-            workspaceId: existing.workspaceId,
-            wasSelected: existing.selected,
-            scmRepositoryIdentityId: existing.scmRepositoryIdentityId,
-            fencedAt: syncedAt,
-          });
-          return {
-            repository: existing.fullName,
-            status: "reconnect_reselection_required",
-          };
-        }
-        const storedTimestamp =
-          existing.lastSyncedAt && metadataTimestamp < existing.lastSyncedAt
-            ? existing.lastSyncedAt
-            : metadataTimestamp;
-        const metadataUpdate =
-          sameSecondChange === "renamed"
-            ? {
-                owner: repository.owner.login,
-                name: repository.name,
-                fullName: repository.full_name,
-                lastSyncedAt: storedTimestamp,
-              }
-            : sameSecondChange === "default_branch"
-              ? {
-                  defaultBranch: repository.default_branch!,
-                  lastSyncedAt: storedTimestamp,
-                }
-              : {
-                  owner: repository.owner.login,
-                  name: repository.name,
-                  fullName: repository.full_name,
-                  defaultBranch:
-                    repository.default_branch ?? existing.defaultBranch,
-                  visibility: normalizeRepositoryVisibility(repository),
-                  archived: repository.archived,
-                  stargazersCount:
-                    repository.stargazers_count ??
-                    repository.watchers_count ??
-                    0,
-                  lastSyncedAt: storedTimestamp,
-                };
-        const updated = await tx.repositoryConnection.updateMany({
-          where: {
-            id: existing.id,
-            workspaceId: existing.workspaceId,
-            installationId: existing.installationId,
-            scmRepositoryIdentityId: existing.scmRepositoryIdentityId,
-            lastSyncedAt: existing.lastSyncedAt,
-          },
-          data: metadataUpdate,
-        });
-        if (updated.count !== 1) {
-          throw new Error("repository_webhook_binding_cas_failed");
-        }
-        const repositoryIdentityChanged =
-          existing.fullName !== repository.full_name ||
-          (repository.default_branch !== null &&
-            repository.default_branch !== undefined &&
-            existing.defaultBranch !== repository.default_branch);
-        if (repositoryIdentityChanged && existing.scmRepositoryIdentityId) {
-          await rotateScmRepositoryIdentityEpoch(tx, {
-            scmRepositoryIdentityId: existing.scmRepositoryIdentityId,
-            repositoryConnectionId: existing.id,
-            currentWorkspaceId: existing.workspaceId,
-            boundAt: storedTimestamp,
-          });
-        }
-        return { repository: repository.full_name, status: "synced" };
+    // Fence discovery and every mutation against concurrent scope changes.
+    await acquireCurrentScopeGuards(tx, [
+      { scope: "global", mode: "exclusive" },
+    ]);
+    const existing = await tx.repositoryConnection.findUnique({
+      where: { githubRepositoryId: BigInt(repository.id) },
+      select: {
+        id: true,
+        workspaceId: true,
+        installationId: true,
+        defaultBranch: true,
+        fullName: true,
+        lastSyncedAt: true,
+        selected: true,
+        scmRepositoryIdentityId: true,
+        installation: { select: { githubInstallationId: true } },
       },
-    );
+    });
 
-    return handled
-      ? { processed: true, ...handled }
-      : {
-          processed: false,
-          ignored: true,
-          reason: "repository_not_synced",
-          repository: repository.full_name,
-        };
+    if (!existing) return null;
+    const installationChanged =
+      existing.installation?.githubInstallationId !==
+      BigInt(payload.installation.id);
+    const syncedAt = new Date();
+
+    if (installationChanged) {
+      await fenceRepositoryAuthority(tx, {
+        repositoryId: existing.id,
+        workspaceId: existing.workspaceId,
+        wasSelected: existing.selected,
+        scmRepositoryIdentityId: existing.scmRepositoryIdentityId,
+        fencedAt: syncedAt,
+      });
+      return {
+        repository: existing.fullName,
+        status: "reconnect_reselection_required",
+      };
+    }
+
+    if (payload.action === "deleted") {
+      const removed = await tx.repositoryConnection.updateMany({
+        where: { id: existing.id, selected: true },
+        data: {
+          selected: false,
+          lastSyncedAt: syncedAt,
+        },
+      });
+      if (removed.count === 1 && existing.scmRepositoryIdentityId) {
+        await rotateRemovedScmRepositoryIdentityEpoch(tx, {
+          scmRepositoryIdentityId: existing.scmRepositoryIdentityId,
+          repositoryConnectionId: existing.id,
+          currentWorkspaceId: existing.workspaceId,
+          removedAt: syncedAt,
+        });
+      }
+      return { repository: existing.fullName, status: "unselected" };
+    }
+
+    if (payload.action === "transferred") {
+      await fenceRepositoryAuthority(tx, {
+        repositoryId: existing.id,
+        workspaceId: existing.workspaceId,
+        wasSelected: existing.selected,
+        scmRepositoryIdentityId: existing.scmRepositoryIdentityId,
+        fencedAt: syncedAt,
+      });
+      return {
+        repository: existing.fullName,
+        status: "reconnect_reselection_required",
+      };
+    }
+    const metadataTimestamp = parseRepositoryUpdatedAt(repository.updated_at);
+    const sameSecondChange =
+      metadataTimestamp &&
+      existing.lastSyncedAt &&
+      startOfSecond(metadataTimestamp) === startOfSecond(existing.lastSyncedAt)
+        ? resolveSameSecondRepositoryChange({
+            action: payload.action,
+            changes: payload.changes,
+            repository,
+            existing,
+          })
+        : null;
+    if (
+      metadataTimestamp === null ||
+      (existing.lastSyncedAt !== null &&
+        startOfSecond(metadataTimestamp) < startOfSecond(existing.lastSyncedAt))
+    ) {
+      return { repository: existing.fullName, status: "stale_ignored" };
+    }
+    if (
+      existing.lastSyncedAt !== null &&
+      startOfSecond(metadataTimestamp) ===
+        startOfSecond(existing.lastSyncedAt) &&
+      sameSecondChange === null
+    ) {
+      if (!hasRepositoryMetadataPreimage(payload.action, payload.changes)) {
+        return { repository: existing.fullName, status: "stale_ignored" };
+      }
+      await fenceRepositoryAuthority(tx, {
+        repositoryId: existing.id,
+        workspaceId: existing.workspaceId,
+        wasSelected: existing.selected,
+        scmRepositoryIdentityId: existing.scmRepositoryIdentityId,
+        fencedAt: syncedAt,
+      });
+      return {
+        repository: existing.fullName,
+        status: "reconnect_reselection_required",
+      };
+    }
+    const storedTimestamp =
+      existing.lastSyncedAt && metadataTimestamp < existing.lastSyncedAt
+        ? existing.lastSyncedAt
+        : metadataTimestamp;
+    const metadataUpdate =
+      sameSecondChange === "renamed"
+        ? {
+            owner: repository.owner.login,
+            name: repository.name,
+            fullName: repository.full_name,
+            lastSyncedAt: storedTimestamp,
+          }
+        : sameSecondChange === "default_branch"
+          ? {
+              defaultBranch: repository.default_branch!,
+              lastSyncedAt: storedTimestamp,
+            }
+          : {
+              owner: repository.owner.login,
+              name: repository.name,
+              fullName: repository.full_name,
+              defaultBranch:
+                repository.default_branch ?? existing.defaultBranch,
+              visibility: normalizeRepositoryVisibility(repository),
+              archived: repository.archived,
+              stargazersCount:
+                repository.stargazers_count ?? repository.watchers_count ?? 0,
+              lastSyncedAt: storedTimestamp,
+            };
+    const updated = await tx.repositoryConnection.updateMany({
+      where: {
+        id: existing.id,
+        workspaceId: existing.workspaceId,
+        installationId: existing.installationId,
+        scmRepositoryIdentityId: existing.scmRepositoryIdentityId,
+        lastSyncedAt: existing.lastSyncedAt,
+      },
+      data: metadataUpdate,
+    });
+    if (updated.count !== 1) {
+      throw new Error("repository_webhook_binding_cas_failed");
+    }
+    const repositoryIdentityChanged =
+      existing.fullName !== repository.full_name ||
+      (repository.default_branch !== null &&
+        repository.default_branch !== undefined &&
+        existing.defaultBranch !== repository.default_branch);
+    if (repositoryIdentityChanged && existing.scmRepositoryIdentityId) {
+      await rotateScmRepositoryIdentityEpoch(tx, {
+        scmRepositoryIdentityId: existing.scmRepositoryIdentityId,
+        repositoryConnectionId: existing.id,
+        currentWorkspaceId: existing.workspaceId,
+        boundAt: storedTimestamp,
+      });
+    }
+    return { repository: repository.full_name, status: "synced" };
   }
+}
+
+function repositoryWebhookResult(
+  handled: { repository: string; status: string } | null,
+  fullName: string,
+): Record<string, unknown> {
+  return handled
+    ? { processed: true, ...handled }
+    : {
+        processed: false,
+        ignored: true,
+        reason: "repository_not_synced",
+        repository: fullName,
+      };
 }
 
 type SameSecondRepositoryChange = "renamed" | "default_branch";
