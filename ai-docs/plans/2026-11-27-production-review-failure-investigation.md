@@ -85,3 +85,11 @@ Use a disposable repository and isolated infrastructure for end-to-end tests; do
 - Public Action `src/review-orchestration/infrastructure/production-t0-review-runner.ts` selects one OCR attempt for model dispatch; `stable-review-work-plan.ts` binds the plan; `ocr-review-managed-run.ts` rejects ambiguous effects; `account-gateway-model-transport.ts` retries only the closed unreferenced saturation envelope. `prepared-model-dispatch.ts` reserves request ordinals and fences forwarded uncertain tickets.
 - ReviewRouter `apps/api/src/review-run-gateway-relay.ts` binds dispatch/native request and currently maps native rejected status to unknown; `packages/features/review-run-control/src/infrastructure/prisma/prisma-review-run-companion-dispatch-repository.ts` serializes claims and stores native effect; `packages/shared/src/review-model-dispatch-contract.ts` defines the strict settlement proof.
 - Gateway `services/account-gateway/src/native-transport.ts` and `postgres.ts` persist exact non-entry and separately acknowledge physical transport closure. `packages/account-gateway/src/features/facade-client/contracts/core.ts` currently advertises `retry.kind=never` for the original rejected request. A new request must not reuse that terminal reference.
+
+## Implementation tracking
+
+The [reviewed implementation plan](2026-11-27-production-review-failure-implementation.md)
+tracks the bounded ReviewRouter corrections, test evidence and external
+Gateway/Action dependencies in PR #1028. Historical observations above remain
+unchanged; diagnostics and RR GitHub wait corrections do not prove every
+incident resolved or enable native request retry.

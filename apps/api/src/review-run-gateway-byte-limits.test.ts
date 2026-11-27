@@ -732,6 +732,166 @@ it("keeps oversized companion streams unknown and logs a safe failure phase", as
   }
 });
 
+it.each([
+  { phase: "native_status", loggerThrows: false },
+  { phase: "native_status", loggerThrows: true },
+  { phase: "usage_outcome", loggerThrows: false },
+  { phase: "usage_outcome", loggerThrows: true },
+  { phase: "companion_settlement", loggerThrows: false },
+  { phase: "companion_settlement", loggerThrows: true },
+] as const)(
+  "attributes companion EOF failure to $phase without terminal delivery or replay (logger throws=$loggerThrows)",
+  async ({ phase, loggerThrows }) => {
+    const state = companionReservation();
+    const eof = deferred();
+    const getter = vi.fn(() => {
+      throw new Error("secret-getter");
+    });
+    const failure = Object.defineProperties(
+      new TypeError("secret-persistence-message"),
+      {
+        stack: { value: "secret-stack" },
+        code: { get: getter },
+        httpStatus:
+          phase === "companion_settlement" ? { get: getter } : { value: 503 },
+        status:
+          phase === "companion_settlement" ? { value: 503 } : { get: getter },
+        statusCode: { get: getter },
+        meta: { value: { detail: "secret-database-detail" } },
+      },
+    );
+    if (phase === "companion_settlement")
+      Object.defineProperty(failure, "message", { get: getter });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {
+      if (loggerThrows) throw new Error("secret-log-sink");
+    });
+    const requestStatus = vi.fn((requestRef: string) => ({
+      statusCode: 503,
+      body: {
+        code: "upstream_failure",
+        traceRef: "secret-trace",
+        requestRef,
+        effect: "effect_unknown",
+        retry: { kind: "readback" },
+      },
+    }));
+    const f = await fixture(
+      32768,
+      0,
+      2,
+      5000,
+      async (upstream) => {
+        upstream.write(progressFrame);
+        await eof.promise;
+        upstream.end(completedFrame);
+      },
+      {
+        admission: state.admission,
+        ...(phase === "native_status" ? { requestStatus } : {}),
+      },
+    );
+    const recordOutcome = f.usage!.outcome;
+    const usage = vi
+      .spyOn(f.usage!, "outcome")
+      .mockImplementation(async (input) => {
+        if (phase === "usage_outcome" && input.effect === "completed")
+          throw failure;
+        return recordOutcome(input);
+      });
+    const recordSettlement = state.admission.settle;
+    const settlement = vi
+      .spyOn(state.admission, "settle")
+      .mockImplementation(async (authorizationId, dispatchId, effect) => {
+        if (phase === "companion_settlement" && effect === "completed")
+          throw failure;
+        return recordSettlement(authorizationId, dispatchId, effect);
+      });
+    const http = await serveRelay({
+      ...f.relay,
+      responses: (token, _raw, controller, diagnostic) =>
+        f.relay.responses(
+          token,
+          companionEnvelope(),
+          controller,
+          diagnostic,
+          companionContext,
+        ),
+    });
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    let appClosed = false;
+    try {
+      const response = await http.request();
+      expect(response.status).toBe(200);
+      reader = response.body!.getReader();
+      await readExactFrame(reader, progressFrame);
+      eof.resolve();
+      let tail = "";
+      await expect(
+        (async () => {
+          for (;;) {
+            const part = await reader!.read();
+            if (part.done) return;
+            tail += Buffer.from(part.value).toString();
+          }
+        })(),
+      ).rejects.toBeDefined();
+      expect(tail).toBe("");
+      expect(
+        log.mock.calls
+          .map(([event]) => event)
+          .filter(
+            (event) => event?.event === "review_run_companion_stream_failure",
+          ),
+      ).toEqual([
+        {
+          event: "review_run_companion_stream_failure",
+          phase,
+          requestRef: "stored-companion-native-ref",
+          receivedBytes: Buffer.byteLength(progressFrame + completedFrame),
+          maxStreamBytes: 32768,
+          signalAborted: false,
+          errorCategory: phase === "native_status" ? "Error" : "TypeError",
+          httpStatus: 503,
+          ...(phase === "native_status" ? { sdkCode: "safe_error" } : {}),
+        },
+      ]);
+      expect(getter).not.toHaveBeenCalled();
+      expect(JSON.stringify(log.mock.calls)).not.toContain("secret");
+      expect(requestStatus).toHaveBeenCalledTimes(
+        phase === "native_status" ? 1 : 0,
+      );
+      expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+        "effect_unknown",
+      );
+      expect(f.effects.at(-1)?.effect).toBe("effect_unknown");
+      await expect(
+        f.relay.responses(
+          "authorization-1",
+          companionEnvelope(),
+          new AbortController(),
+          undefined,
+          companionContext,
+        ),
+      ).rejects.toMatchObject({ code: "companion_dispatch_already_claimed" });
+      expect(f.requestRefs).toEqual(["stored-companion-native-ref"]);
+      expect(f.admissions).toHaveLength(1);
+      reader.releaseLock();
+      reader = undefined;
+      await http.app.close();
+      appClosed = true;
+      expect([...f.nativeExecutions.values()]).toEqual(["closed"]);
+    } finally {
+      eof.resolve();
+      await reader?.cancel().catch(() => {});
+      reader?.releaseLock();
+      if (!appClosed) await http.app.close();
+      usage.mockRestore();
+      settlement.mockRestore();
+      log.mockRestore();
+    }
+  },
+);
+
 it("companion chunks use local authority while phase and EOF status retain full freshness", async () => {
   const state = companionReservation();
   const eof = deferred();
@@ -1504,6 +1664,9 @@ async function fixture(
       resetAt: string;
     };
     refusalStatus?: number;
+    requestStatus?: (
+      requestRef: string,
+    ) => { statusCode: number; body: unknown };
     failUsageOutcome?: boolean;
     modelDispatchV2?: boolean;
     modelDispatchCapacity128?: boolean;
@@ -1974,13 +2137,21 @@ async function fixture(
       req.url?.includes("/requests/") &&
       requestRefs.includes(req.url.split("/").at(-1)!)
     ) {
-      res.writeHead(200, { "content-type": "application/json" }).end(
-        JSON.stringify({
-          requestRef: req.url.split("/").at(-1),
-          effect: "completed",
-          status: "completed",
-        }),
-      );
+      const requestRef = req.url.split("/").at(-1)!;
+      const response = companionOptions?.requestStatus?.(requestRef);
+      res
+        .writeHead(response?.statusCode ?? 200, {
+          "content-type": "application/json",
+        })
+        .end(
+          JSON.stringify(
+            response?.body ?? {
+              requestRef,
+              effect: "completed",
+              status: "completed",
+            },
+          ),
+        );
       return;
     }
     if (execution?.[2] === "close") {

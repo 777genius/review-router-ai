@@ -1,6 +1,6 @@
 # PR #1028: production review failure fixes and qualification
 
-Status: implementation plan; runtime changes and E2E are not yet completed.
+Status: reviewed plan; scoped runtime corrections implemented, qualification pending.
 Owner request: fix the issues tracked by [PR #1028](https://github.com/777genius/review-router-ai/pull/1028), review and improve this plan before implementation, keep the ReviewRouter changes in this PR, and push each commit immediately.
 
 ## Source and outcome
@@ -18,7 +18,7 @@ existing request budgets, lease/fence admission and physical resource custody.
 ## Exact scope
 
 1. Correct the existing GitHub revision-read adapter's wait calculation:
-   valid HTTP-date Retry-After, strict numeric/header validation, and the later
+   all three HTTP-date forms in Retry-After, strict numeric/header validation, and the later
    applicable Retry-After/primary-quota reset. Preserve its single 15-second
    deadline, finite attempts, read-only operations and fail-closed revision guard.
 2. Attribute companion EOF failures to native status readback, usage outcome
@@ -42,14 +42,14 @@ their current owners.
 
 ## Verified findings and counterevidence
 
-| Area | Verified source finding | Consequence |
-| --- | --- | --- |
-| RR GitHub revision reads | retryAfterMs parses Number(header); rateLimitWaitMs returns Retry-After before considering exhausted primary reset | Valid HTTP dates are missed; a short Retry-After can cause an early retry while primary quota remains exhausted |
-| Companion EOF | phase remains native_status through usage.outcome and companionDispatches.settle | Different failed boundaries are indistinguishable in the diagnostic |
-| Stream diagnostics | SDK httpStatus is omitted; companion log discards existing safe HTTP/category/cancellation detail | Operators cannot distinguish the safe HTTP failure class already available |
-| Coverage | Accepted progress policy deliberately distinguishes completed execution from incomplete source coverage | Do not change deriveCoverageState or falsely make partial coverage complete |
-| Native retry | Gateway non-entry and transport closure ACK are separate facts; ordinary rejected status says retry.kind=never | RR cannot safely convert rejection into the existing local_before_forward proof |
-| Observed revision-guard incident | The recorded review_action_v2_revision_guard_unavailable is emitted by the separate public Action client | An RR adapter correction alone does not prove that incident fixed |
+| Area                             | Verified source finding                                                                                            | Consequence                                                                                                     |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| RR GitHub revision reads         | retryAfterMs parses Number(header); rateLimitWaitMs returns Retry-After before considering exhausted primary reset | Valid HTTP dates are missed; a short Retry-After can cause an early retry while primary quota remains exhausted |
+| Companion EOF                    | phase remains native_status through usage.outcome and companionDispatches.settle                                   | Different failed boundaries are indistinguishable in the diagnostic                                             |
+| Stream diagnostics               | SDK httpStatus is omitted; companion log discards existing safe HTTP/category/cancellation detail                  | Operators cannot distinguish the safe HTTP failure class already available                                      |
+| Coverage                         | Accepted progress policy deliberately distinguishes completed execution from incomplete source coverage            | Do not change deriveCoverageState or falsely make partial coverage complete                                     |
+| Native retry                     | Gateway non-entry and transport closure ACK are separate facts; ordinary rejected status says retry.kind=never     | RR cannot safely convert rejection into the existing local_before_forward proof                                 |
+| Observed revision-guard incident | The recorded review_action_v2_revision_guard_unavailable is emitted by the separate public Action client           | An RR adapter correction alone does not prove that incident fixed                                               |
 
 The reference worker GitHub policy already parses HTTP dates and combines quota
 boundaries. Use its parsing semantics as evidence, while keeping the revision
@@ -64,9 +64,12 @@ Change
 `packages/features/review-run-control/src/infrastructure/github/octokit-github-review-revision-source.ts`
 and its existing transport test.
 
-- Parse trimmed decimal delta-seconds and canonical HTTP dates deliberately.
-  Blank, negative, hexadecimal, exponential, nonfinite, overflow and malformed
-  values are not an immediate retry instruction.
+- Parse trimmed decimal delta-seconds and all three HTTP-date forms from
+  [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html#section-5.6.7), with a
+  calendar round-trip check and the two-digit-year interpretation. A valid
+  excessive delay or reset must exceed the deadline rather than become absent.
+  Blank, negative, hexadecimal, exponential and malformed values are not an
+  immediate retry instruction.
 - Use the later valid Retry-After and exhausted-primary reset boundaries.
 - A rate-limited answer with no usable wait retains the conservative one-minute
   fallback; it cannot fit the existing 15-second read deadline.
@@ -123,20 +126,31 @@ until a working runtime is available; remote CI is a separate execution path.
 
 ## Acceptance matrix
 
-| Boundary | Required observation |
-| --- | --- |
-| HTTP-date within read deadline | Read resumes after the announced boundary and returns the current revision |
-| HTTP-date or exhausted reset beyond deadline | One request, no early retry |
-| Conflicting Retry-After and primary reset | Later boundary wins |
-| Invalid/missing wait, ordinary permission 403 | Conservative refusal; no unauthorized retry |
-| Revision changes during wait | RevisionMoved/fail-closed remains effective |
-| Gateway status failure after EOF | native_status, safe HTTP detail, no successful terminal or replay |
-| Completed usage write fails | usage_outcome; unknown outcome retained; one model POST |
-| Completed dispatch settlement fails | companion_settlement; unknown fallback retained; one model POST |
-| Throwing logger or secret-bearing exception | Same failure/cleanup; no raw secret output or accessor invocation |
-| Healthy stream / client cancellation / retained close | Existing positive and negative transport tests remain valid |
-| Finished execution with partial producer coverage | Review remains incomplete, useful findings preserved, baseline not advanced |
-| Old Gateway/producer | Existing strict proof and no-retry semantics unchanged |
+| Boundary                                              | Required observation                                                        |
+| ----------------------------------------------------- | --------------------------------------------------------------------------- |
+| HTTP-date within read deadline                        | Read resumes after the announced boundary and returns the current revision  |
+| HTTP-date or exhausted reset beyond deadline          | One request, no early retry                                                 |
+| Conflicting Retry-After and primary reset             | Later boundary wins                                                         |
+| Invalid/missing wait, ordinary permission 403         | Conservative refusal; no unauthorized retry                                 |
+| Revision changes during wait                          | RevisionMoved/fail-closed remains effective                                 |
+| Gateway status failure after EOF                      | native_status, safe HTTP detail, no successful terminal or replay           |
+| Completed usage write fails                           | usage_outcome; unknown outcome retained; one model POST                     |
+| Completed dispatch settlement fails                   | companion_settlement; unknown fallback retained; one model POST             |
+| Throwing logger or secret-bearing exception           | Same failure/cleanup; no raw secret output or accessor invocation           |
+| Healthy stream / client cancellation / retained close | Existing positive and negative transport tests remain valid                 |
+| Finished execution with partial producer coverage     | Review remains incomplete, useful findings preserved, baseline not advanced |
+| Old Gateway/producer                                  | Existing strict proof and no-retry semantics unchanged                      |
+
+## Additional investigation received during implementation
+
+Concurrent commits `3a7d20f5` and `3cb53583` expanded the historical incident
+record while this implementation was being reviewed. Preserve both additions.
+The green workflow / later failed execution observation and the bounded close
+retry lifetime need exact owner/outcome tracing; neither is a proven root cause
+or fixed by this patch. Independent read-only analysis is continuing. Do not
+reuse the after-expiry proof proposal rejected by automatic safety review, infer
+released custody from expiry, or change cancellation/supersession semantics from
+a GitHub conclusion alone.
 
 ## External dependencies still required for the full incident goal
 
@@ -182,15 +196,19 @@ not measured availability or a claim that all historical incidents are solved.
   SDK own-data httpStatus; tests assert no replay and unknown custody even when
   logging fails. Coverage change rejected after tracing accepted downstream
   partial projection.
-- Round 3: implementation and final-source qualification pending.
+- Round 3: independent implementation review accepted the diagnostics patch.
+  Rate review found two additional P2 cases: obsolete HTTP dates and excessive
+  valid numeric waits could become absent on 503. Corrected both, added
+  rejecting transport cases and re-reviewed. Runtime qualification remains
+  pending; static review does not establish test success.
 
 ## Progress
 
 - [x] Inspect initial PR source, instructions, incident evidence and ownership.
 - [x] Write the bounded plan and incorporate initial independent criticism.
-- [ ] Implement GitHub wait correction and transport regressions.
-- [ ] Implement settlement diagnostics and failure-injection regressions.
-- [ ] Review complete diff and correct critical findings.
+- [x] Implement GitHub wait correction and transport regressions.
+- [x] Implement settlement diagnostics and failure-injection regressions.
+- [x] Review complete diff and correct critical findings.
 - [ ] Run exact-source static, PostgreSQL and E2E qualification.
 - [ ] Record actual validation and deployment applicability.
 - [ ] Complete external native retry/public Action dependencies.

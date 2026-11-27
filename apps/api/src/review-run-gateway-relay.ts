@@ -1176,8 +1176,13 @@ export function createReviewRunGatewayRelay(input: {
           effect,
         });
     };
-    const settle = async (effect: c.RequestStatus["effect"]) => {
+    const settle = async (
+      effect: c.RequestStatus["effect"],
+      observePhase?: (phase: "usage_outcome" | "companion_settlement") => void,
+    ) => {
+      observePhase?.("usage_outcome");
       await outcome(effect);
+      observePhase?.("companion_settlement");
       await input.companionDispatches!.settle(
         auth.authorizationId,
         dispatch.dispatchId,
@@ -1283,6 +1288,8 @@ export function createReviewRunGatewayRelay(input: {
                 | "authority_recheck"
                 | "cancelled"
                 | "native_status"
+                | "usage_outcome"
+                | "companion_settlement"
                 | "stream_byte_limit"
                 | "downstream" = "upstream_read";
               try {
@@ -1299,7 +1306,9 @@ export function createReviewRunGatewayRelay(input: {
                     { signal },
                     fresh,
                   );
-                  await settle(status.effect);
+                  await settle(status.effect, (settlementPhase) => {
+                    phase = settlementPhase;
+                  });
                   completed = true;
                   cleanup();
                   target.close();
@@ -1325,6 +1334,11 @@ export function createReviewRunGatewayRelay(input: {
                     requestRef,
                     receivedBytes: received,
                     maxStreamBytes: maxResponseBytes,
+                    signalAborted: signal.aborted,
+                    ...(detail ? { errorCategory: detail.errorCategory } : {}),
+                    ...(detail?.httpStatus === undefined
+                      ? {}
+                      : { httpStatus: detail.httpStatus }),
                     ...(detail?.sdkCode ? { sdkCode: detail.sdkCode } : {}),
                   });
                 } catch {
@@ -2672,7 +2686,8 @@ function captureStreamFailureDiagnostic(
         ? code
         : undefined;
     const status: unknown = object
-      ? (Object.getOwnPropertyDescriptor(object, "status")?.value ??
+      ? (Object.getOwnPropertyDescriptor(object, "httpStatus")?.value ??
+        Object.getOwnPropertyDescriptor(object, "status")?.value ??
         Object.getOwnPropertyDescriptor(object, "statusCode")?.value)
       : undefined;
     const message: unknown = object

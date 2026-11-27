@@ -16,6 +16,11 @@ are in [PR #1003](https://github.com/777genius/review-router-ai/pull/1003) under
 qualification, including precise database-time publication expiry; ordinary API
 rollout pending, with no migration or configuration change.
 
+PR #1028: [production review failure diagnostics and GitHub read waits](2026-11-27-production-review-failure-fixes.md)
+are under implementation and qualification. Staging and production remain
+`pending`; native attested retry and public Action changes remain separate
+unfinished dependencies.
+
 <a id="current-coordinated-rollout-reconciliation-2026-11-14"></a>
 
 ## Current coordinated rollout reconciliation (2026-11-15)
