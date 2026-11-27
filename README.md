@@ -102,27 +102,37 @@ Availability varies by provider, installed workflows and deployment. See
 
 ## Supported AI providers
 
-Choose a supported subscription or bring an API key. The ways to connect
-depend on the provider and on your deployment.
+Find your provider and choose the connection method supported by your account.
+These options are available through managed native accounts **when enabled
+by your deployment**; direct GitHub Actions setup supports a smaller subset.
 
-| Provider                                                  | Ways to connect                                                                         |
-| --------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| **Claude / Anthropic**                                    | API key, account sign-in (OAuth), session-assisted sign-in, setup token                 |
-| **Claude via AWS / Google Cloud**                         | Bedrock API key or AWS credentials; Vertex AI service account                           |
-| **Gemini / Google**                                       | API key, Google One / Code Assist / AI Studio sign-in, Vertex AI credentials            |
-| **OpenAI / Codex**                                        | OpenAI API key; Codex sign-in, token / session import, `auth.json`, Agent Identity, PAT |
-| **Grok / Antigravity**                                    | Account sign-in, imported token, API key where supported; Grok SSO                      |
-| **Kimi / GLM / MiniMax**                                  | API keys for pay-as-you-go or supported coding/subscription plans                       |
-| **DeepSeek / OpenCode Go and Zen / Command Code / Cline** | API key                                                                                 |
-| **OpenRouter / NVIDIA Build**                             | API key                                                                                 |
-| **MiMo Token Plan**                                       | Token Plan API key (existing ReviewRouter connection)                                   |
+| AI provider                                                                                                              | How to connect                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| <img src="./apps/web/public/provider-logos/claude.svg" width="20" height="20" alt="" /> **Claude (Anthropic)**           | API key; account sign-in (OAuth); setup token or session-assisted sign-in        |
+| <img src="./apps/web/public/provider-logos/bedrock.svg" width="20" height="20" alt="" /> **Claude on Amazon Bedrock**    | AWS credentials; Bedrock API key                                                 |
+| <img src="./apps/web/public/provider-logos/vertexai.svg" width="20" height="20" alt="" /> **Claude on Google Vertex AI** | Google Cloud service account                                                     |
+| <img src="./apps/web/public/provider-logos/gemini.svg" width="20" height="20" alt="" /> **Gemini (Google)**              | API key; Google One, Code Assist or AI Studio sign-in                            |
+| <img src="./apps/web/public/provider-logos/vertexai.svg" width="20" height="20" alt="" /> **Gemini on Vertex AI**        | Google Cloud service account; Vertex API key                                     |
+| <img src="./apps/web/public/provider-logos/openai.svg" width="20" height="20" alt="" /> **OpenAI API**                   | OpenAI API key                                                                   |
+| <img src="./apps/web/public/provider-logos/codex.svg" width="20" height="20" alt="" /> **Codex**                         | Browser/device sign-in; import tokens, session or auth.json; Agent Identity; PAT |
+| <img src="./apps/web/public/provider-logos/grok.svg" width="20" height="20" alt="" /> **Grok**                           | API key; browser sign-in; token or SSO import                                    |
+| <img src="./apps/web/public/provider-logos/antigravity.svg" width="20" height="20" alt="" /> **Antigravity**             | Browser sign-in; token import; approved-target API key                           |
+| <img src="./apps/web/public/provider-logos/kimi.svg" width="20" height="20" alt="" /> **Kimi**                           | Pay-as-you-go API key; Kimi Code plan key                                        |
+| <img src="./apps/web/public/provider-logos/glm.svg" width="20" height="20" alt="" /> **GLM**                             | Pay-as-you-go API key; Coding Plan key                                           |
+| <img src="./apps/web/public/provider-logos/minimax.svg" width="20" height="20" alt="" /> **MiniMax**                     | Pay-as-you-go API key; M Plan key                                                |
+| <img src="./apps/web/public/provider-logos/deepseek.svg" width="20" height="20" alt="" /> **DeepSeek**                   | API key                                                                          |
+| <img src="./apps/web/public/provider-logos/opencode.svg" width="20" height="20" alt="" /> **OpenCode Go / Zen**          | Go API key; Zen API key                                                          |
+| <img src="./apps/web/public/provider-logos/commandcode.svg" width="20" height="20" alt="" /> **Command Code**            | API key                                                                          |
+| <img src="./apps/web/public/provider-logos/cline.svg" width="20" height="20" alt="" /> **Cline**                         | API key                                                                          |
+| <img src="./apps/web/public/provider-logos/openrouter.svg" width="20" height="20" alt="" /> **OpenRouter**               | API key                                                                          |
+| <img src="./apps/web/public/provider-logos/nvidia.svg" width="20" height="20" alt="" /> **NVIDIA Build**                 | API key                                                                          |
+| <img src="./apps/web/public/provider-logos/mimo.svg" width="20" height="20" alt="" /> **MiMo Token Plan**                | Token Plan API key (existing ReviewRouter path)                                  |
 
-**Important:** Not all options are enabled in every deployment, and not all
-managed-account methods work as direct GitHub Actions secrets. See the
-[full provider-by-provider table](./docs/provider-connections.md) or the
-[public providers page](https://reviewrouter.org/providers) for exact methods
-and requirements. Our controlled integration tests do not substitute for a
-live paid-provider review.
+See the [full provider guide](./docs/provider-connections.md) and
+[public website table](https://reviewrouter.org/providers) for account-specific
+requirements. Provider logos identify their respective brands; they do not
+imply endorsement. Controlled integration tests do not guarantee that a
+live paid account or model is available in every deployment.
 
 ## PR comment commands
 
