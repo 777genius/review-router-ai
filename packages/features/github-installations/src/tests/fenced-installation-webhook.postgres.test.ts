@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
+import { runScopeEpochSerializableTransaction } from "@reviewrouter/platform-db";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { beginFencedWebhookDelivery } from "../infrastructure/prisma/webhook-effect-fence";
@@ -51,6 +52,8 @@ test("fenced installation webhook on isolated PostgreSQL", () => {
       CREATE TABLE "Workspace" (id TEXT PRIMARY KEY, slug TEXT UNIQUE, name TEXT, "reviewDraftPullRequests" BOOLEAN DEFAULT true, "providerManagementAdminOnly" BOOLEAN DEFAULT false, "deletionState" "WorkspaceDeletionState" DEFAULT 'active', "deletionRevision" INT DEFAULT 1, "deletionTombstonedAt" TIMESTAMP(3), "personalOwnerUserId" TEXT, "createdAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP);
       CREATE TABLE "GitHubInstallation" (id TEXT PRIMARY KEY, "workspaceId" TEXT NOT NULL, "githubInstallationId" BIGINT UNIQUE NOT NULL, "accountLogin" TEXT NOT NULL, "accountType" TEXT NOT NULL, "accountAvatarUrl" TEXT, "repositorySelection" TEXT NOT NULL, "inventoryGeneration" BIGINT DEFAULT 0, status "GitHubInstallationStatus" DEFAULT 'active', "createdAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP);
       CREATE TABLE "RepositoryPermissionCache" ("githubInstallationId" BIGINT);
+      CREATE TABLE "RepositoryConnection" (id TEXT PRIMARY KEY, "workspaceId" TEXT, "installationId" TEXT, "scmRepositoryIdentityId" TEXT, selected BOOLEAN, "updatedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP);
+      INSERT INTO "RepositoryConnection" (id,"workspaceId","installationId",selected) VALUES ('r','w','i',true);
       CREATE TABLE "OutboxEvent" (id TEXT PRIMARY KEY, type TEXT NOT NULL, version INT NOT NULL, "idempotencyKey" TEXT UNIQUE NOT NULL, "workspaceId" TEXT, "repositoryId" TEXT, "aggregateId" TEXT, payload JSONB NOT NULL, status "OutboxEventStatus" DEFAULT 'pending', attempts INT DEFAULT 0, "maxAttempts" INT DEFAULT 5, "nextAttemptAt" TIMESTAMP(3), "claimId" TEXT, "claimVersion" BIGINT, "claimOwnerHash" TEXT, "claimUntil" TIMESTAMP(3), "processedAt" TIMESTAMP(3), "deadLetteredAt" TIMESTAMP(3), "lastErrorCode" TEXT, "safeLastErrorSummary" TEXT, "occurredAt" TIMESTAMP(3) NOT NULL, "createdAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP);
       INSERT INTO "Workspace" (id,slug,name) VALUES ('w','synthetic','old-team');
       INSERT INTO "GitHubInstallation" (id,"workspaceId","githubInstallationId","accountLogin","accountType","repositorySelection") VALUES ('i','w',42,'old-team','Organization','selected');
@@ -189,6 +192,94 @@ test("fenced installation webhook on isolated PostgreSQL", () => {
         )
       ).rows[0].accountLogin,
     ).toBe("writer-team");
+    expect(
+      (
+        await pool.query(
+          'SELECT COALESCE(sum(revision),0)::int n FROM "CurrentScopeEpoch"',
+        )
+      ).rows[0].n,
+    ).toBe(before + 1);
+  });
+  it("retries a reader waiting for the real installation writer", async () => {
+    await pool.query(
+      `CREATE FUNCTION synthetic_hold_writer() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock(87892144); RETURN NEW; END $$`,
+    );
+    await pool.query(
+      `CREATE TRIGGER synthetic_hold BEFORE UPDATE ON "GitHubInstallation" FOR EACH ROW EXECUTE FUNCTION synthetic_hold_writer()`,
+    );
+    const blocker = await pool.connect();
+    await blocker.query("SELECT pg_advisory_lock(87892144)");
+    const writer = new PrismaGitHubInstallationRepository(
+      prisma,
+    ).upsertInstallation({
+      githubInstallationId: "42",
+      accountLogin: "race-team",
+      accountType: "Organization",
+      accountAvatarUrl: null,
+      repositorySelection: "selected",
+      status: "active",
+    });
+    let reader: Promise<Array<{ accountLogin: string }>> | undefined;
+    try {
+      let waiting = 0;
+      for (let i = 0; i < 80 && waiting < 1; i++) {
+        waiting = (
+          await pool.query(
+            "SELECT count(*)::int n FROM pg_locks WHERE locktype='advisory' AND NOT granted",
+          )
+        ).rows[0].n;
+        if (waiting < 1) await new Promise((r) => setTimeout(r, 25));
+      }
+      expect(waiting).toBeGreaterThanOrEqual(1);
+      reader = runScopeEpochSerializableTransaction(
+        prisma,
+        [{ scope: "global", mode: "shared" }],
+        (tx) =>
+          tx.$queryRaw<Array<{ accountLogin: string }>>(
+            Prisma.sql`SELECT "accountLogin" FROM "GitHubInstallation" WHERE id='i'`,
+          ),
+      );
+      for (let i = 0; i < 80 && waiting < 2; i++) {
+        waiting = (
+          await pool.query(
+            "SELECT count(*)::int n FROM pg_locks WHERE locktype='advisory' AND NOT granted",
+          )
+        ).rows[0].n;
+        if (waiting < 2) await new Promise((r) => setTimeout(r, 25));
+      }
+      expect(waiting).toBeGreaterThanOrEqual(2);
+    } finally {
+      await blocker.query("SELECT pg_advisory_unlock(87892144)");
+      blocker.release();
+    }
+    await writer;
+    expect((await reader!)[0]?.accountLogin).toBe("race-team");
+    await pool.query('DROP TRIGGER synthetic_hold ON "GitHubInstallation"');
+  });
+
+  it("ordinary installation removal participates in global epoch", async () => {
+    const before = (
+      await pool.query(
+        'SELECT COALESCE(sum(revision),0)::int n FROM "CurrentScopeEpoch"',
+      )
+    ).rows[0].n;
+    await new PrismaGitHubInstallationRepository(
+      prisma,
+    ).markInstallationRemoved("42");
+    expect(
+      (
+        await pool.query(
+          "SELECT status::text FROM \"GitHubInstallation\" WHERE id='i'",
+        )
+      ).rows[0].status,
+    ).toBe("removed");
+    expect(
+      (
+        await pool.query(
+          "SELECT selected FROM \"RepositoryConnection\" WHERE id='r'",
+        )
+      ).rows[0].selected,
+    ).toBe(false);
     expect(
       (
         await pool.query(
