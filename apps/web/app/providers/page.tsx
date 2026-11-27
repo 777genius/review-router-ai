@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import { createPublicPageMetadata } from "../seo";
 
 export const metadata: Metadata = createPublicPageMetadata({
@@ -10,6 +11,7 @@ export const metadata: Metadata = createPublicPageMetadata({
 
 type ProviderRow = {
   readonly name: string;
+  readonly logo: string;
   readonly methods: readonly string[];
   readonly note?: string;
 };
@@ -29,6 +31,7 @@ const providerGroups: readonly ProviderGroup[] = [
     "rows": [
       {
         "name": "Claude (Anthropic)",
+        "logo": "claude",
         "methods": [
           "API key",
           "Sign in (OAuth)",
@@ -38,6 +41,7 @@ const providerGroups: readonly ProviderGroup[] = [
       },
       {
         "name": "Claude on Amazon Bedrock",
+        "logo": "bedrock",
         "methods": [
           "AWS credentials",
           "Bedrock API key"
@@ -46,6 +50,7 @@ const providerGroups: readonly ProviderGroup[] = [
       },
       {
         "name": "Claude on Google Vertex AI",
+        "logo": "vertexai",
         "methods": [
           "Google Cloud service account"
         ],
@@ -53,6 +58,7 @@ const providerGroups: readonly ProviderGroup[] = [
       },
       {
         "name": "Gemini (Google)",
+        "logo": "gemini",
         "methods": [
           "API key",
           "Google One sign-in",
@@ -63,6 +69,7 @@ const providerGroups: readonly ProviderGroup[] = [
       },
       {
         "name": "Gemini on Vertex AI",
+        "logo": "vertexai",
         "methods": [
           "Google Cloud service account",
           "Vertex API key"
@@ -77,6 +84,7 @@ const providerGroups: readonly ProviderGroup[] = [
     "rows": [
       {
         "name": "OpenAI API",
+        "logo": "openai",
         "methods": [
           "OpenAI API key"
         ],
@@ -84,6 +92,7 @@ const providerGroups: readonly ProviderGroup[] = [
       },
       {
         "name": "Codex",
+        "logo": "codex",
         "methods": [
           "Browser or device sign-in",
           "Import refresh token",
@@ -96,6 +105,7 @@ const providerGroups: readonly ProviderGroup[] = [
       },
       {
         "name": "Grok",
+        "logo": "grok",
         "methods": [
           "API key",
           "Browser sign-in",
@@ -105,6 +115,7 @@ const providerGroups: readonly ProviderGroup[] = [
       },
       {
         "name": "Antigravity",
+        "logo": "antigravity",
         "methods": [
           "Browser sign-in",
           "Import refresh token",
@@ -114,6 +125,7 @@ const providerGroups: readonly ProviderGroup[] = [
       },
       {
         "name": "Kimi",
+        "logo": "kimi",
         "methods": [
           "Pay-as-you-go API key",
           "Kimi Code plan key"
@@ -121,6 +133,7 @@ const providerGroups: readonly ProviderGroup[] = [
       },
       {
         "name": "GLM",
+        "logo": "glm",
         "methods": [
           "Pay-as-you-go API key",
           "GLM Coding Plan key"
@@ -128,6 +141,7 @@ const providerGroups: readonly ProviderGroup[] = [
       },
       {
         "name": "MiniMax",
+        "logo": "minimax",
         "methods": [
           "Pay-as-you-go API key",
           "MiniMax M Plan key"
@@ -141,12 +155,14 @@ const providerGroups: readonly ProviderGroup[] = [
     "rows": [
       {
         "name": "DeepSeek",
+        "logo": "deepseek",
         "methods": [
           "API key"
         ]
       },
       {
         "name": "OpenCode Go / Zen",
+        "logo": "opencode",
         "methods": [
           "Go API key",
           "Zen API key"
@@ -154,24 +170,28 @@ const providerGroups: readonly ProviderGroup[] = [
       },
       {
         "name": "Command Code",
+        "logo": "commandcode",
         "methods": [
           "API key"
         ]
       },
       {
         "name": "Cline",
+        "logo": "cline",
         "methods": [
           "API key"
         ]
       },
       {
         "name": "OpenRouter",
+        "logo": "openrouter",
         "methods": [
           "API key"
         ]
       },
       {
         "name": "NVIDIA Build",
+        "logo": "nvidia",
         "methods": [
           "API key"
         ]
@@ -229,7 +249,20 @@ export default function ProvidersPage(): React.ReactElement {
                     {group.rows.map((row) => (
                       <tr key={row.name}>
                         <th scope="row" className="break-words px-3 py-4 align-top font-semibold text-cyan-50 sm:px-5">
-                          {row.name}
+                          <span className="inline-flex items-start gap-2">
+                            <span className="grid size-7 shrink-0 place-items-center rounded-md bg-white p-1">
+                              <Image
+                                src={`/provider-logos/${row.logo}.svg`}
+                                alt=""
+                                aria-hidden="true"
+                                width={20}
+                                height={20}
+                                unoptimized
+                                className="size-5 object-contain"
+                              />
+                            </span>
+                            <span>{row.name}</span>
+                          </span>
                         </th>
                         <td className="px-3 py-4 align-top sm:px-5">
                           <ul className="flex flex-wrap gap-2" aria-label={`${row.name} connection options`}>
@@ -260,8 +293,22 @@ export default function ProvidersPage(): React.ReactElement {
             A few things to know
           </h2>
           <p>
-            <strong>MiMo Token Plan</strong> also connects with a Token Plan API
-            key using an existing ReviewRouter setup path.
+            <span className="inline-flex items-center gap-2">
+              <span className="grid size-7 shrink-0 place-items-center rounded-md bg-white p-1">
+                <Image
+                  src="/provider-logos/mimo.svg"
+                  alt=""
+                  aria-hidden="true"
+                  width={20}
+                  height={20}
+                  unoptimized
+                  className="size-5 object-contain"
+                />
+              </span>
+              <strong>MiMo Token Plan</strong>
+            </span>{" "}
+            also connects with a Token Plan API key using an existing
+            ReviewRouter setup path.
           </p>
           <p>
             The native integration passed 52 controlled connection-and-review
