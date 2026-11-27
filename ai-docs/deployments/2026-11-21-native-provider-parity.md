@@ -166,3 +166,36 @@ by this deployment task.
 RR `f20a75edbc7eff11be4f2423fb2e723f6e484223` / `sha256:2a601d6bffaebea0c2cdd4e1cf82c95a10312136b173f56e837f15a09aa0d810`, Gateway `c6d73002ac28bb11c3d2e88d135a05c7f2f06bd6`, and native `9fc45a440eefcad815e16775200407b839419313` launcher `sha256:5a3e6b93e2d96f639188ee28cacfe92a985d079265de30db838173786a3c17b8` were installed. RR migration 000161, native 260–266 and Gateway 013 applied. Four RR roles and API readiness passed; native process identity and Gateway service readiness passed, admission reopened. New native-method enrollment was not enabled; the 52-scenario acceptance, live account/recovery/reconnect/model/usage qualification and backup restore remain pending. Do not treat service readiness as complete product acceptance.
 
 Initial producer starts failed because the staged executable was the private engine rather than the foreground `cmd/account-gateway` launcher. Old service/admission were restored between attempts; a synthetic fullstack smoke with the corrected launcher passed before installation. Durable evidence: `/srv/platform/projects/review-router/account-gateway/rr959-prepared-20261126/v7-ready-fenced.json`, `/srv/platform/projects/review-router/releases/fleet-overlay-f20a75ed-oLiXCpng`, and `/srv/platform/projects/review-router/account-gateway/backup-rr959-20261126-v7`. Free production disk was approximately 2.4 GiB after rollout.
+
+## Production Anthropic and Gemini API availability — 2026-11-27
+
+At 01:23 UTC, `anthropic-messages-apikey-v1` and
+`gemini-openai-chat-apikey-v1` were added to the production native connection
+configuration. The Gateway was restarted under a fenced admission window;
+management and consumer-control V3 catalog reads both returned HTTP 200 with
+all ten configured profiles, including both new API-key methods. Admission was
+reopened, the Gateway was active, and the API readiness endpoint returned 200.
+The owner requested availability without extended live-provider testing; no real
+provider connection or model call was made, and the 52-scenario acceptance
+remains pending. The activation does not establish browser or review success.
+
+The first attempted candidate set `providerTokenUpperBound` to 100000, above
+the native validator's 65536 limit. Its start was denied; the old bootstrap and
+service configuration were restored, the Gateway became active, and admission
+was reopened before diagnosis. A corrected candidate with bound 65536 passed a
+synthetic native bootstrap validator and the Gateway configuration loader before
+the successful second window. Both attempts and their recovery evidence are
+retained; no prior failure is reclassified as success.
+
+The successful configuration hashes are bootstrap
+`adac77c17afc93b7cb574cb1693b7c3eb4bd18f9178fc603ebc6b571562e0f42`
+and service
+`b3221c6c867e1b4c727917eb0713519c2dfb899acbaf404c26a4c35558d2b9cf`.
+The production backup is retained at
+`/srv/platform/projects/review-router/account-gateway/backup-api-profiles-20261127-v2`;
+the fenced catalog receipt is
+`/srv/platform/projects/review-router/account-gateway/rr124-prepared-20261126/api-profiles-catalog-fenced-v2.json`,
+and gate evidence is under
+`/srv/platform/projects/review-router/releases/gate-api-profiles-v2-20261127`.
+The backup was decoded but restore was not verified. Once new native selections
+exist, preserve the compatible reader and journal during any rollback.
