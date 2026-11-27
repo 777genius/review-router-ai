@@ -35,27 +35,27 @@ owns that evidence. Shared findings were reconciled in both documents.
 
 ## Material corrections retained in the plan
 
-| Concern | Resulting requirement |
-| --- | --- |
-| GitHub App scope string mistaken for repository authority | Validate actual App/user/installation permissions; preserve product-owned credentials and existing repository checks |
-| GitLab login assumed to grant setup access | Separate `read_user` sign-in from explicit product API permission and setup/review credential purposes |
-| Permanent migration from an old cookie | Require recent proof of both exact owners in one bounded, purpose-bound intent; no email/hint merge |
-| GitLab native user ID treated as global | Instance-qualified identity and evidence-based backfill; ambiguous historical rows are quarantined |
-| Lost suspend/enable events or delayed active response | Immutable issued security epoch, actual authentication cutoff and source/request-start-bound expiry; no receipt-time TTL renewal |
-| Generic service token used for arbitrary account status | Dedicated workload client and user-proven ConsumerAttachment; both self and batch deny usable evidence after detach |
-| Global logout equated with provider notification | Canonical account-wide epoch/cutoff; distinguish local/all-RR, canonical global and provider-native session scopes |
-| OIDC session persistence assumed to implement refresh concurrency | Durable per-session claim/generation, revoke-wins semantics and explicit response-loss recovery; separate from SCM custody |
-| Central PKCE described as optional | Mandatory S256 without downgrade, verified against the actual pinned session adapter |
-| Broad Stack/version language | Compiler/linter/formatter authority only; product dependency versions belong to manifests/lock; Prisma range and resolution are distinct |
-| Unsafe rollback to the untouched old binary | Define and qualify a compatible rollback release that retains binding/session guards and central suspension |
-| Reimplementing active credential reliability work | Reuse accepted #1007 authority mechanisms; refresh overlapping PR state before implementation |
+| Concern                                                           | Resulting requirement                                                                                                                    |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| GitHub App scope string mistaken for repository authority         | Validate actual App/user/installation permissions; preserve product-owned credentials and existing repository checks                     |
+| GitLab login assumed to grant setup access                        | Separate `read_user` sign-in from explicit product API permission and setup/review credential purposes                                   |
+| Permanent migration from an old cookie                            | Require recent proof of both exact owners in one bounded, purpose-bound intent; no email/hint merge                                      |
+| GitLab native user ID treated as global                           | Instance-qualified identity and evidence-based backfill; ambiguous historical rows are quarantined                                       |
+| Lost suspend/enable events or delayed active response             | Immutable issued security epoch, actual authentication cutoff and source/request-start-bound expiry; no receipt-time TTL renewal         |
+| Generic service token used for arbitrary account status           | Dedicated workload client and user-proven ConsumerAttachment; both self and batch deny usable evidence after detach                      |
+| Global logout equated with provider notification                  | Canonical account-wide epoch/cutoff; distinguish local/all-RR, canonical global and provider-native session scopes                       |
+| OIDC session persistence assumed to implement refresh concurrency | Durable per-session claim/generation, revoke-wins semantics and explicit response-loss recovery; separate from SCM custody               |
+| Central PKCE described as optional                                | Mandatory S256 without downgrade, verified against the actual pinned session adapter                                                     |
+| Broad Stack/version language                                      | Compiler/linter/formatter authority only; product dependency versions belong to manifests/lock; Prisma range and resolution are distinct |
+| Unsafe rollback to the untouched old binary                       | Define and qualify a compatible rollback release that retains binding/session guards and central suspension                              |
+| Reimplementing active credential reliability work                 | Reuse accepted #1007 authority mechanisms; refresh overlapping PR state before implementation                                            |
 
 ## Final reviewed bytes and result
 
-| Document | SHA-256 |
-| --- | --- |
-| Review Router plan | `dfd7cec89a266024c3424dfd9b8aebb8818a02edd3648cdd834e1e53d1b9fa24` |
-| Identity architecture after second-round closure | `d4de28a235be00f17b1994e31c2d331eda46ae7044520274ace186b8c8b630c2` |
+| Document                                                                                | SHA-256                                                            |
+| --------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Review Router plan                                                                      | `dfd7cec89a266024c3424dfd9b8aebb8818a02edd3648cdd834e1e53d1b9fa24` |
+| Identity architecture after second-round closure                                        | `d4de28a235be00f17b1994e31c2d331eda46ae7044520274ace186b8c8b630c2` |
 | Identity final plan after the independently checked GetTok source-provenance correction | `10fda9097aa22c1aa92e585ac965e61fd615b4fe960041d39f6de95ec579996e` |
 
 The final Identity-only correction distinguishes the actual GetTok fork main
@@ -111,18 +111,18 @@ human approval nor a GitHub APPROVED review.
 
 ### Findings and corrections
 
-| Priority | Counterexample or inconsistency | Corrected requirement |
-| --- | --- | --- |
-| P1 | Fresh broker/OAuth timestamp was treated as recent factor authentication | Two qualified proof classes and explicit ordinary migration versus incident recovery policies |
-| P1 | Detach/reattach could revive old product sessions | Immutable issued attachment generation in session/status/cache/late-response fences, separate from account epoch |
-| P1 | Closed central owner could be treated as an unbound legacy user | Never-centrally-bound predicate, retained history and repair/transfer-required conflict |
-| P1/P2 | Closure lacked a bounded participant and late-write protocol | Existing account operation freezes manifest; own scoped receipts and a committed product terminal fence precede completion |
-| P2 | GetOperation authority after closure was undefined | Operator-only detailed progress by default; bounded user receipt is optional, ordinary sessions remain closed |
-| P2 | P1/R0/P5 publication requirements formed a cycle | Versioned packed TEST candidate, consumer qualification, then published production artifact |
-| P2 | Absolute post-cutoff promise contradicted bounded staleness | Pin accepted snapshot; known newer state wins, original source/request-start deadline bounds older evidence |
-| P2 | Generic scaffolding was assumed to generate DDD features | Package-boundary recipe only; real feature/composition/FMS/CMS source authored under the gates |
-| P2 | CMS and resource-close semantics were underspecified | Forbid own public contracts in inner layers; close callbacks/waiter state do not prove physical release |
-| P2 | Source/package observations had advanced | Foundation4.0.2/FMS0.4.3; RR f20a75ed/Prisma7.9.0; preserve historical evidence and unresolved bootstrap admission gaps |
+| Priority | Counterexample or inconsistency                                          | Corrected requirement                                                                                                      |
+| -------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| P1       | Fresh broker/OAuth timestamp was treated as recent factor authentication | Two qualified proof classes and explicit ordinary migration versus incident recovery policies                              |
+| P1       | Detach/reattach could revive old product sessions                        | Immutable issued attachment generation in session/status/cache/late-response fences, separate from account epoch           |
+| P1       | Closed central owner could be treated as an unbound legacy user          | Never-centrally-bound predicate, retained history and repair/transfer-required conflict                                    |
+| P1/P2    | Closure lacked a bounded participant and late-write protocol             | Existing account operation freezes manifest; own scoped receipts and a committed product terminal fence precede completion |
+| P2       | GetOperation authority after closure was undefined                       | Operator-only detailed progress by default; bounded user receipt is optional, ordinary sessions remain closed              |
+| P2       | P1/R0/P5 publication requirements formed a cycle                         | Versioned packed TEST candidate, consumer qualification, then published production artifact                                |
+| P2       | Absolute post-cutoff promise contradicted bounded staleness              | Pin accepted snapshot; known newer state wins, original source/request-start deadline bounds older evidence                |
+| P2       | Generic scaffolding was assumed to generate DDD features                 | Package-boundary recipe only; real feature/composition/FMS/CMS source authored under the gates                             |
+| P2       | CMS and resource-close semantics were underspecified                     | Forbid own public contracts in inner layers; close callbacks/waiter state do not prove physical release                    |
+| P2       | Source/package observations had advanced                                 | Foundation4.0.2/FMS0.4.3; RR f20a75ed/Prisma7.9.0; preserve historical evidence and unresolved bootstrap admission gaps    |
 
 Second-pass residual corrections:
 
@@ -152,12 +152,12 @@ runtime qualification from reviewer agreement.
 
 ### Corrected document identities
 
-| Document | SHA-256 |
-| --- | --- |
+| Document                                      | SHA-256                                                            |
+| --------------------------------------------- | ------------------------------------------------------------------ |
 | Identity architecture and implementation plan | `600d2e8448069dc5de821c38bc38e8c1d09c3001e686e2c261ae920d3a741f36` |
-| ReviewRouter integration plan | `e79ea56d0a94e98e68cbf1a32f584280b6d89b8ad0f0dd4208f531ba798fd335` |
-| Identity BOOTSTRAP | `58904cf6a4d5f1ae1fc21a9a721d9405df2e8a863cf4686ab59254c1d42ee129` |
-| Identity dated source-freshness record | `a405c140b11cf2091287f20b931b1fe7f6e47cd511639278e005f394339b758c` |
+| ReviewRouter integration plan                 | `e79ea56d0a94e98e68cbf1a32f584280b6d89b8ad0f0dd4208f531ba798fd335` |
+| Identity BOOTSTRAP                            | `58904cf6a4d5f1ae1fc21a9a721d9405df2e8a863cf4686ab59254c1d42ee129` |
+| Identity dated source-freshness record        | `a405c140b11cf2091287f20b931b1fe7f6e47cd511639278e005f394339b758c` |
 
 ### Verification method and limits
 
@@ -194,12 +194,12 @@ The [shared research](https://github.com/agent-teams-ai/engineering-research/blo
 preserves the earlier 18-question alternatives and the owner's newly endorsed
 directions. It is not provider qualification or implementation authorization.
 
-| ID | Disposition |
-| --- | --- |
-| IAM-N26-01 | Open P0/P2 trust-profile choice, now explicit: social-root custody can change after enrollment; unknown custody is not proof of neutral recovery. D3 contains three scoped options and the A-to-B negative experiment. |
+| ID         | Disposition                                                                                                                                                                                                                                     |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| IAM-N26-01 | Open P0/P2 trust-profile choice, now explicit: social-root custody can change after enrollment; unknown custody is not proof of neutral recovery. D3 contains three scoped options and the A-to-B negative experiment.                          |
 | IAM-N26-02 | Clarified in both plans: first attachment/history registration and closure participant capture serialize through the same Account lifecycle gate. The consumer is included or the new admission loses; test both orders with delayed responses. |
-| IAM-N26-03 | Corrected consumer wording: only operations with the same proven native identity promise convergence. A deliberate central-only new user may later hit a safe native-identity ownership conflict; no automatic merge. |
-| IAM-N26-04 | Open P0/R0 session-control contract, now explicit in D8 and consumer behavior: account-status renewal does not prove a native SSO/client session remains active after lost logout delivery. Three finite-scope alternatives are recorded. |
+| IAM-N26-03 | Corrected consumer wording: only operations with the same proven native identity promise convergence. A deliberate central-only new user may later hit a safe native-identity ownership conflict; no automatic merge.                           |
+| IAM-N26-04 | Open P0/R0 session-control contract, now explicit in D8 and consumer behavior: account-status renewal does not prove a native SSO/client session remains active after lost logout delivery. Three finite-scope alternatives are recorded.       |
 
 These are two precise plan fixes and two retained admission choices, not four
 demonstrated vulnerabilities. The earlier generation, proof-strength, bootstrap,
@@ -209,9 +209,9 @@ separate confirmed defect.
 
 Updated substantive document SHA-256 values:
 
-| Document | SHA-256 |
-| --- | --- |
-| Identity plan | `14e3d84985af996e4e4ed0d429e4ab636394cd74fc97712c0750f945b6641903` |
+| Document          | SHA-256                                                            |
+| ----------------- | ------------------------------------------------------------------ |
+| Identity plan     | `14e3d84985af996e4e4ed0d429e4ab636394cd74fc97712c0750f945b6641903` |
 | ReviewRouter plan | `99866dedddc77121f7fa231612fc460f7a8236fcbc722013593fba54c26d3695` |
 
 This pass changes Markdown only. The future transaction, provider and browser
@@ -249,9 +249,9 @@ counting D3's overlapping cross-product estimate twice.
 
 Current substantive document SHA-256 values:
 
-| Document | SHA-256 |
-| --- | --- |
-| Identity plan | `572e55379f7137b74c76e71114ec4ab7a5a7b6cfde061c47e547f591a74453ab` |
+| Document          | SHA-256                                                            |
+| ----------------- | ------------------------------------------------------------------ |
+| Identity plan     | `572e55379f7137b74c76e71114ec4ab7a5a7b6cfde061c47e547f591a74453ab` |
 | ReviewRouter plan | `37c8acf8261360698f35862a828eca158ad31ba2e39be0e3de927b3dd326eac5` |
 
 The coordinator checked UTF-8 contents, final newlines, trailing whitespace,
