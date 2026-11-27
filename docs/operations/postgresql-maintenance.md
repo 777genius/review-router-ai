@@ -10,7 +10,7 @@ After unattended upgrades, an operator can inspect the current library scan with
 sudo needrestart -b -r l -l
 ```
 
-Check the command's exit status and look for `NEEDRESTART-SVC: postgresql@17-reviewrouter.service`. Batch/list mode is read-only. A missing line is only the current scanner result, not proof that all patches are active. Also inspect the unattended-upgrade log and `/var/run/reboot-required`; the latter is host-wide, not proof that this particular PostgreSQL service needs a restart. Record the package/update, first detection time, owner and planned maintenance; resolve overdue security restarts rather than deferring them indefinitely. No dedicated alert or timer for this deferral was established by the 2026-11-27 audit: do not assume someone will be notified automatically.
+Check the command's exit status and look for `NEEDRESTART-SVC: postgresql@17-reviewrouter.service`. Batch/list mode is read-only. Batch output reports detected services before applying `override_rc` selection: a listed service may be deferred, and the listing alone does not verify the override. A missing line is only the current scanner result, not proof that all patches are active. Also inspect the unattended-upgrade log and `/var/run/reboot-required`; the latter is host-wide, not proof that this particular PostgreSQL service needs a restart. Record the package/update, first detection time, owner and planned maintenance; resolve overdue security restarts rather than deferring them indefinitely. No dedicated alert or timer for this deferral was established by the 2026-11-27 audit: do not assume someone will be notified automatically.
 
 ## Prepare a maintenance window
 
