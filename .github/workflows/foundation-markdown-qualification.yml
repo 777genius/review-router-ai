@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   qualify:
-    runs-on: ${{ vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.CI_STATIC_CHECKS_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 20
     env:
       NODE_OPTIONS: --max-old-space-size=2048 --max-semi-space-size=8
