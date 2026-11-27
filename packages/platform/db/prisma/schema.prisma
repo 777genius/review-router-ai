@@ -3314,6 +3314,12 @@ model GitHubWebhookFence {
   delivery   GitHubWebhookDelivery @relation(fields: [deliveryId], references: [deliveryId], onDelete: Cascade)
 }
 
+// WIP: scope epoch rows are inert until all authority writers participate.
+model CurrentScopeEpoch {
+  keyHash  String @id
+  revision BigInt @default(0)
+}
+
 model OutboxEvent {
   id                   String            @id @default(cuid())
   type                 String

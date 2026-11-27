@@ -110,6 +110,9 @@ function plan(scopes: readonly CurrentScopeGuard[]): Lock[] {
   );
 }
 
+// Shared with the experimental MVCC epoch adapter. Not a rollout signal.
+export { plan as planCurrentScopeGuards };
+
 function validateId(id: string) {
   if (typeof id !== "string" || !id || id.includes("\0"))
     throw new Error("current_scope_guard_invalid_id");
