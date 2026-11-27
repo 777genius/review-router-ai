@@ -192,17 +192,14 @@ describe("worker owner scheduling", () => {
     const subscriptions = new Map<Promise<unknown>, number>();
     let tracking = false;
     const then = Promise.prototype.then;
-    const observe = vi
-      .spyOn(Promise.prototype, "then")
-      .mockImplementation(function (
-        this: Promise<unknown>,
-        fulfilled,
-        rejected,
-      ) {
+    // A Vitest spy on `then` recurses when it tracks its returned Promise.
+    Promise.prototype.then = new Proxy(then, {
+      apply(target, receiver: Promise<unknown>, args) {
         if (tracking)
-          subscriptions.set(this, (subscriptions.get(this) ?? 0) + 1);
-        return then.call(this, fulfilled, rejected);
-      });
+          subscriptions.set(receiver, (subscriptions.get(receiver) ?? 0) + 1);
+        return Reflect.apply(target, receiver, args);
+      },
+    });
     try {
       for (let pass = 0; pass < 100; pass += 1) {
         // Track subscriptions made by the processor, excluding timer/test I/O.
@@ -226,7 +223,7 @@ describe("worker owner scheduling", () => {
       );
       expect(Math.max(0, ...subscriptions.values())).toBe(1);
     } finally {
-      observe.mockRestore();
+      Promise.prototype.then = then;
       held.resolve({ linked: 0, failed: 0 });
       await processor.drain();
     }
