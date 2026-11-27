@@ -105,7 +105,11 @@ parallel owners reducing elapsed implementation time, not the verification work.
 
 ### A. Independent worker progress with retained ownership
 
-1. Keep the known phase list explicit in worker composition. No plugin registry,
+1. Keep the known outer-owner phase list explicit in worker composition. Retain
+   V2 publication -> terminal promotion -> progress ordering inside that owner,
+   plus existing SDK/outbox durable enqueue-before-claim ordering: hung SDK
+   recovery does not block unrelated already-durable outbox work. Do not schedule every helper.
+   No plugin registry,
    global service locator, persistent scheduling layer or second queue.
 2. A phase is idle, running, or settled. A deadline may stop waiting for it but
    cannot release its running slot, pretend it failed safely, or invoke it again.
@@ -113,11 +117,16 @@ parallel owners reducing elapsed implementation time, not the verification work.
    each result once. A late success must not be logged repeatedly or counted twice.
 4. Subsequent passes skip an occupied phase and continue healthy owners. Keep
    bounded phase concurrency and the existing owner-local locks/transactions.
+   One overall pass observation budget bounds waiting across all owners; do not
+   multiply a full per-phase timeout by the number of owners.
 5. Preserve dependencies within one owner; do not parallelize dependent state
    transitions or claim more work than can receive a live lease heartbeat.
 6. Propagate a cooperative signal only where the existing boundary can use it.
    Never assert cancellation of an uncooperative promise. Drain retained work
    before disconnecting the database; unresolved native custody stays explicit.
+   Before a late read continues into a subsequent effect, check its operation
+   signal/deadline or retain the owner's existing durable reconciliation rule.
+   An arbitrary effectful promise race alone is not safe continuation fencing.
 7. Report completed, failed and still-running work separately. A timeout must not
    become an empty successful result. Logs contain only bounded safe metadata.
 
@@ -125,6 +134,8 @@ Acceptance: hold one phase across multiple passes; a healthy phase completes
 twice, the held phase starts once, late rejection is observed, then a fresh pass
 recovers it. Repeat with normal HTTP abort and database timeout to demonstrate
 real recovery without restarting worker.
+One-shot execution awaits actual retained settlements and preserves failure exit
+status; only the continuous host uses bounded pass observation.
 
 ### B. Graceful shutdown and claim boundaries
 
@@ -146,11 +157,15 @@ a retained effect; connection disconnect happens after true drain.
 
 ### C. Bounded GitHub operations without mutation retry
 
-- Bound App identity lookup, installation-client acquisition and each actual HTTP
+- Bound App identity lookup and each actual HTTP
   request. Ensure timeout reaches the underlying fetch, including body reads.
-- Inspect the pinned Octokit transport defaults before claiming a request has no
-  finite boundary; qualify the missing whole-operation and retained-work bounds
-  separately from any existing transport timeout.
+- Pinned Octokit inspection: request 10.0.9 uses `request.signal`, ignores a
+  `request.timeout` option and awaits body consumption. App 16.1.2/core 7.0.6 add
+  no default deadline. Installation-client construction is local; the actual
+  installation-token POST happens in auth-app 8.2.0's request hook and does not
+  inherit a visible route's signal. Configure the supported common transport so
+  authentication and route/body IO both receive the real bound. Qualify existing
+  fresh-token 401 retry behavior before claiming one wire attempt for writes.
 - Single-flight App identity discovery has a finite caller wait and retains
   ownership of the real operation. Reset after genuine rejection/settlement;
   late completion may not poison a newer attempt or bypass current authority.
@@ -163,7 +178,7 @@ a retained effect; connection disconnect happens after true drain.
 - Bound any retained ignored-abort operation count. A caller timeout is not
   permission to create an unlimited stream of abandoned requests.
 
-Acceptance: hanging App discovery, hanging installation client, endless/slow
+Acceptance: hanging App discovery, hanging installation token request, endless/slow
 pagination, body stall, abort-ignored late result, second-page failure, restored
 GitHub and repeated delivery. Verify no partial removal or duplicate publication.
 
@@ -171,7 +186,8 @@ GitHub and repeated delivery. Verify no partial removal or duplicate publication
 
 After claiming a bounded set, keep ownership until every started execution
 settles. Preserve actual successful results and surface failures; do not return
-zero advanced work after a partial failure. If adjusting concurrency, claim only
+zero advanced work after a partial failure. Return successful values plus bounded
+safe per-item failure summaries, never raw AggregateError causes. If adjusting concurrency, claim only
 capacity immediately serviced, retaining durable fencing and existing lease
 durations. Do not add retry around the whole batch or advance a durable recovery
 cursor past unrecorded failed candidates. First correct the proven early-return
@@ -188,6 +204,17 @@ server cancels the actual statement and releases its connection. A JavaScript
 race alone is insufficient. Choose defaults against current endpoint/report
 budgets and identify every caller before changing factory defaults.
 
+Chosen integration: optional programmatic execution budget on createPrismaClient,
+with one exported runtime budget (initially 30s statement / 5s lock, qualified by
+PG tests). Explicitly apply it to API main/effect-authority/comment-custody
+clients, Web main/effect-authority clients, ordinary worker and skill worker.
+The generic factory's administrative default and injected caller-owned clients
+retain their semantics. Release-control's four clients, release-witness's three
+clients and operator/restore/migration/rehearsal clients are unchanged. No new
+environment knobs. Preserve owner-local SET LOCAL budgets and the 15s Usage
+report transaction; acquisition, statement, transaction and endpoint budgets
+are distinct guarantees.
+
 Separate ordinary runtime clients from migration, restore, release authority,
 operator and explicitly long-running rehearsal clients. Preserve their reviewed
 budgets. URL startup options cannot silently disable an enforced runtime budget.
@@ -196,6 +223,9 @@ execution timeout to the existing acquisition-timeout predicate.
 
 Qualify actual Prisma/adapter-pg error shapes for both model and raw queries;
 map only recognized temporary availability failures to stable safe responses.
+Do not classify blanket P2028/P2010/all SQLSTATE failures as temporary. Record
+the allowed actual error shapes from qualification. Connection loss around
+commit is unknown, not proof of rollback; receipt readback determines replay.
 Database cancellation inside a transaction rolls back that transaction; no
 application code can report a commit that did not occur. Preserve SQL injection
 protection and current transaction authority.
@@ -227,6 +257,10 @@ Acceptance: many installations/parents and much more history than response size;
 constant query count for the chosen read, no cross-tenant rows, deterministic
 latest row and no change in public DTOs. Record query/row evidence, not a guessed
 users-per-second promise.
+Empty input performs no broad query, duplicate IDs do not duplicate rows and
+returned rows cannot exceed unique requested parents. EXPLAIN must use the actual
+production SQL. Add any migration through current strict history/admission gates;
+never rewrite old checksums or frozen evidence to admit a new migration.
 
 ### G. Native catalog recovery and policy snapshots
 
@@ -236,10 +270,16 @@ allowed origins. Discovery cannot add local permission or silently fall back to
 legacy protocol semantics. No native provider logic is copied into ReviewRouter.
 
 Use on-demand bounded refresh with coalesced callers and a short retry/cache
-policy; do not introduce a periodic daemon. An initial failure denies only new
+policy: positive TTL 30s, failed-attempt cooldown 1s, existing 10s SDK transport
+deadline/response-byte cap. No stale admission after expiry and no periodic daemon.
+An initial failure denies only new
 affected model admission, then a later successful read makes those models usable
 in the same API process. Resolve external capabilities before entering a DB
 transaction. All decisions within one admission use one immutable snapshot.
+Initial capture and transactional matchesAdmission reuse that observation or
+reject generation change; matchesAdmission never performs Gateway HTTP. A new
+durable admission rejects an observation whose TTL expires before transactional
+revalidation; exact persisted replay is exempt from current discovery.
 
 Explicitly decide and test expiry/revocation behavior: never use a known disabled
 profile to admit new work, never expand local permissions from stale data, and
@@ -247,12 +287,17 @@ do not mutate the captured provider identity of an in-flight durable run. Close,
 recovery and cleanup endpoints remain usable during catalog outage. Transport
 timeouts keep bounded retained ownership, and late results cannot overwrite a
 newer successful snapshot. Existing static/legacy policy still behaves as before.
+The durable snapshot stores selected native identity/route/limits, not the entire
+catalog. A newly observed disabled profile denies new inference, including in an
+existing run, while exact persisted replay, close/readback/cleanup stay available.
+Identity drift for a captured profile denies fresh inference; it never substitutes
+another provider/product/protocol into the durable authorization.
 
 Acceptance: unavailable at boot -> temporary admission denial -> dependency
 restored -> new review admission, runtime snapshot and relay agree without API
 restart; concurrent callers make bounded discovery calls; disabled/removed
 profile is denied; malformed/oversized catalog is rejected; existing admitted
-work retains its captured policy and recovery remains available.
+work retains its captured identity, route and local limits and recovery remains available.
 
 ### I. Atomic webhook processing without abandoned receipts
 
@@ -269,6 +314,11 @@ and application code must not import Prisma. Preserve exact delivery identity,
 payload hash and duplicate behavior. Use conflict-safe SQL acquisition inside a
 transaction: catching PostgreSQL unique violation and continuing would leave the
 transaction aborted. Roll back incomplete local effects on every failure.
+All bound adapters use that same transaction client, never a nested independent
+transaction. A failure receipt may roll back with the failed effects; safe logging
+records the local error and redelivery may then acquire a fresh receipt. If commit
+succeeded but the HTTP response was lost, the existing receipt prevents replay.
+When a concurrent winner aborts, the waiting duplicate must be able to finish.
 
 Trace every receipt-based handler before wiring the unit of work: installation,
 repository, authorization revocation, push and PR/setup handling. Preserve the
@@ -295,17 +345,35 @@ signals. Preserve authorized local inventory with honest unknown/unavailable liv
 state after optional enrichment times out. Keep page order/cursor and mandatory
 authorization intact. Capacity is retained until actual underlying IO settles;
 deadline expiry stops starting additional remote reads.
+Start the budget before remote catalog/capability discovery in personal-account
+composition, not only before per-row reads. Mandatory local authorization queries
+are outside this optional-remote deadline. The initial concurrency guarantee is
+per page; do not claim a process-wide cap or add a queued global semaphore without
+an experiment showing the need. Every started promise is observed and late results
+cannot mutate a returned response. Read cancellation does not apply to enrollment,
+explicit quota refresh or lifecycle mutations.
 
 Use the existing bounded JSON reader for provider-key apply. Size the ceiling
-against the valid escaped key plus 100 repository IDs; enforce streamed bytes,
+against a full 16 KiB key with worst-case JSON escaping plus 100 supported real
+repository IDs (the old schema has no finite maximum ID length); document a
+256 KiB envelope ceiling and enforce streamed bytes,
 not only Content-Length. Cancel/abort rejected and oversized public-catalog
 response bodies before clearing their request timeout. Preserve public error
 codes and cache fallback behavior; do not invent another reader or fetch layer.
+Do not await an uncooperative body cancel forever. Abort owned transport, observe
+cancellation rejection and preserve the original source error.
 
 Acceptance: revocation during held metadata removes the row; a 100-row page
 against a stalled/recovering Gateway stays within the measured in-flight cap and
 budget; non-2xx streaming response closes its socket; chunked oversized ingress
-stops early while a maximum valid envelope remains accepted.
+stops early while the documented realistic maximum envelope remains accepted.
+
+Cross-owner fault case: worker observation expires while a real SQL lock still
+holds its phase; no second invocation starts, healthy owners continue, then actual
+server cancellation/rollback releases the phase. For an atomic webhook canceled
+on that lock, redelivery commits one effect/outbox. Connection loss at commit is
+unknown until receipt readback. Catalog discovery stays outside all those SQL
+transactions and is not repeated with a different policy inside one admission.
 
 ## 4. Implementation order and file ownership
 
@@ -378,7 +446,21 @@ effects survive restart and rollback. Never delete pending work to recover healt
   usage-redrive authority; webhook receipts and outbox rows contain replay
   barriers. Blanket age-based deletion is explicitly rejected. Health-report
   retention is not needed for the confirmed correction set and is left separate.
-- Plan review round 1: pending.
-- Plan review round 2: pending.
-- Plan review round 3: pending.
+- Plan review round 1: three independent critiques completed. Accepted: explicit
+  outer-owner topology and whole-pass budget; late-continuation fencing; pinned
+  Octokit auth/body transport behavior; truthful settled partial results; runtime-
+  only SQL budgets and client inventory; real production SQL/index evidence;
+  same-client atomic webhook/commit uncertainty; immutable catalog observations
+  and known-disabled inference policy; optional enrichment budget from the first
+  remote read; per-page concurrency claim; realistic request envelope; bounded
+  rejected-body cleanup. No new workstream or infrastructure was added.
+- Plan review round 2: all three independent reviewers approved the revised
+  guarantees. Clarified durable SDK/outbox ordering, actual installation-token
+  transport, one-shot settlement, captured identity rather than full catalog,
+  and rejection when discovery TTL expires before new transactional admission.
+- Plan review round 3: three independent cross-owner reviewers approved. They
+  checked webhook atomicity against worker custody, runtime SQL against phase
+  retention, and catalog freshness against transactional admission. No blocking
+  design finding remained. Implementation authorized by the existing user task
+  and assigned to the four disjoint owners above.
 - Implementation, real failure qualification and final CI: pending.
