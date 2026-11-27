@@ -1,5 +1,17 @@
 # Attested request-level retry
 
+Status: historical pre-implementation design record (27 November 2026).
+
+The baseline observations and “current” or “unimplemented” statements below
+refer to that earlier design review. For the implementation, remaining
+qualification, and rollout status, see the
+[owning implementation plan](./2026-11-27-production-review-failure-implementation.md)
+and [PR #1028 checks](https://github.com/777genius/review-router-ai/pull/1028/checks).
+This historical record does not establish current runtime qualification or
+production activation.
+
+## Original design record
+
 Status: design only; no production retry is enabled. Incident examples: [45965433783](https://github.com/777genius/social-monitor/actions/runs/45965433783), [45942092660](https://github.com/agent-teams-ai/.github/actions/runs/45942092660). Their OCR work slots have a single attempt; that slot may contain earlier, successful model requests, so replaying the entire slot is unsafe.
 
 ## Evidence and boundaries

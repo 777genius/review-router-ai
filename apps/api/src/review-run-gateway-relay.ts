@@ -2514,7 +2514,10 @@ export async function registerReviewRunGatewayRelayRoutes(
             reviewerSelector(request),
           );
           if (upstream.kind === "status")
-            return reply.code(202).send(upstream.status);
+            return reply
+              .code(202)
+              .header("x-reviewrouter-request-ref", upstream.status.requestRef)
+              .send(upstream.status);
           diagnostic.stage = "http_headers";
           try {
             diagnostic.bodyLocked = upstream.body.locked === true;
@@ -2566,6 +2569,12 @@ export async function registerReviewRunGatewayRelayRoutes(
           if (reply.raw.headersSent) reply.raw.destroy();
           else {
             const failure = safeFailure(error);
+            const requestRef = c.reference.safeParse(failure.requestRef);
+            if (
+              failure.effect === "rejected_before_dispatch" &&
+              requestRef.success
+            )
+              reply.header("x-reviewrouter-request-ref", requestRef.data);
             reply.code(failure.statusCode).send({
               error: {
                 code: failure.code,

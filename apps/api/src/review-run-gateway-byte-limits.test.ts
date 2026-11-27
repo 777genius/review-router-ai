@@ -534,6 +534,172 @@ it.each([
   10_000,
 );
 
+it.each([
+  { mode: "private", proofDenied: false },
+  { mode: "public", proofDenied: false },
+  { mode: "private", proofDenied: true },
+] as const)(
+  "projects HTTP $mode references (proof denied=$proofDenied)",
+  async ({ mode, proofDenied }) => {
+    const state = companionReservation("finding_discovery");
+    const forward = vi.fn(
+      async (
+        ...args: Parameters<ReviewRunModelDispatchAdmission["forward"]>
+      ) => ({
+        ...(await state.admission.claim(...args)),
+        status: "claimed" as const,
+      }),
+    );
+    const recordNativeRejection = vi.fn(
+      async (
+        ...args: Parameters<
+          ReviewRunModelDispatchAdmission["recordNativeRejection"]
+        >
+      ) => {
+        const row = state.rows.get(args[1])!;
+        expect(args[2].requestRef).toBe(row.nativeRequestRef);
+        expect(row.state).toBe("dispatch_may_have_started");
+        state.rows.set(args[1], {
+          ...row,
+          state: "not_dispatched",
+          nativeRetryProof: {
+            kind: "native_rejection_after_forward",
+            reason: "admission_storage_conflict",
+          },
+        });
+      },
+    );
+    const f = await fixture(32768, 0, 2, 5000, undefined, {
+      admission: { ...state.admission, forward, recordNativeRejection },
+      modelDispatchV2: true,
+      modelDispatchCapacity128: true,
+      nativeRetry: true,
+      ...(mode === "private"
+        ? { nativeRejection: true }
+        : {
+            nativeStatusResponse: async (
+              response: ServerResponse,
+              requestRef: string,
+            ) => {
+              response.writeHead(202, { "content-type": "application/json" });
+              response.end(
+                JSON.stringify({
+                  requestRef,
+                  effect: "dispatch_started",
+                  status: "pending",
+                }),
+              );
+            },
+          }),
+      retryProofStatus: proofDenied ? 403 : 200,
+      retryProof: (requestRef, executionRef) =>
+        proofDenied
+          ? {
+              code: "forbidden",
+              traceRef: "denied-native-proof-fixture",
+              requestRef,
+              effect: "effect_unknown",
+              retry: { kind: "never" },
+            }
+          : {
+              kind: "request-retry-proof/v1",
+              consumerId: "fixture-consumer",
+              executionRef,
+              requestRef,
+              nonEntryReason: "admission_storage_conflict",
+              transportClosed: true,
+            },
+    });
+    const bytes = companionEnvelope();
+    const context = {
+      ...companionContext,
+      dispatchVersion: 2 as const,
+      requestOrdinal: 1,
+      routeIdentityHash: "e".repeat(64),
+    };
+    const original = await state.admission.claim(
+      f.authorization(),
+      context,
+      createHash("sha256").update(bytes).digest("hex"),
+    );
+    state.rows.set(context.dispatchId, {
+      ...original.dispatch,
+      dispatchVersion: 2,
+      requestOrdinal: 1,
+      routeIdentityHash: context.routeIdentityHash,
+      requestBytes: bytes.byteLength,
+      maxOutputTokens: 4096,
+    });
+    const app = Fastify({ logger: false });
+    await registerReviewRunGatewayRelayRoutes(app, f.relay);
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    try {
+      const response = await fetch(
+        "http://127.0.0.1:" +
+          (app.server.address() as AddressInfo).port +
+          "/api/action/v2/account-gateway/responses",
+        {
+          method: "POST",
+          headers: {
+            ...modelForwardHeaders(1),
+            "x-reviewrouter-request-ref": "unowned-client-reference",
+          },
+          body: bytes,
+        },
+      );
+      const body: unknown = await response.json();
+      expect(response.status).toBe(mode === "private" ? 502 : 202);
+      expect(response.headers.get("x-reviewrouter-request-ref")).toBe(
+        proofDenied ? null : original.dispatch.nativeRequestRef,
+      );
+      expect(response.headers.get("x-reviewrouter-request-ref")).not.toBe(
+        "unowned-client-reference",
+      );
+      expect(body).toMatchObject(
+        mode === "private"
+          ? {
+              error: {
+                code: "companion_request_failed",
+                effect: proofDenied
+                  ? "effect_unknown"
+                  : "rejected_before_dispatch",
+                requestRef: original.dispatch.nativeRequestRef,
+                cause: "upstream_failure",
+              },
+            }
+          : {
+              requestRef: original.dispatch.nativeRequestRef,
+              effect: "dispatch_started",
+              status: "pending",
+            },
+      );
+      const recorded = state.rows.get(context.dispatchId);
+      expect(recorded).toMatchObject({
+        state: proofDenied ? "effect_unknown" : "not_dispatched",
+        nativeRequestRef: original.dispatch.nativeRequestRef,
+      });
+      if (proofDenied) expect(recorded).not.toHaveProperty("nativeRetryProof");
+      else
+        expect(recorded).toHaveProperty("nativeRetryProof", {
+          kind: "native_rejection_after_forward",
+          reason: "admission_storage_conflict",
+        });
+      expect(recordNativeRejection).toHaveBeenCalledTimes(proofDenied ? 0 : 1);
+      expect(f.retryProofCalls).toHaveLength(1);
+      expect(f.retryProofCalls[0]?.requestRef).toBe(
+        original.dispatch.nativeRequestRef,
+      );
+      expect(forward).toHaveBeenCalledTimes(1);
+      expect(f.intents).toHaveLength(1);
+      expect(f.requestRefs).toEqual([original.dispatch.nativeRequestRef]);
+      expect(f.requestBodies).toEqual([bytes.toString()]);
+    } finally {
+      await app.close();
+      await f.relay.shutdown();
+    }
+  },
+);
+
 it("refuses a successor before preparation when the original Gateway client was lost", async () => {
   const state = companionReservation("finding_discovery");
   const forward = vi.fn(
@@ -3734,6 +3900,7 @@ it("throwing reclaim logger preserves HTTP refusal and unknown native custody", 
         headers: {
           authorization: "Bearer authorization-2",
           "content-type": "application/json",
+          "x-reviewrouter-request-ref": "unowned-client-reference",
         },
         body: JSON.stringify({
           model: "gpt-5.6-sol",
@@ -3744,6 +3911,7 @@ it("throwing reclaim logger preserves HTTP refusal and unknown native custody", 
       },
     );
     expect(response.status).toBe(503);
+    expect(response.headers.get("x-reviewrouter-request-ref")).toBeNull();
     expect(await response.json()).toMatchObject({
       error: { code: "relay_saturated", effect: "not_dispatched" },
     });
