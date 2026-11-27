@@ -4,6 +4,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { acquireCurrentScopeGuards } from "../current-scope-guards";
 import {
   acquireCurrentScopeGuardsWithEpoch,
   runScopeEpochSerializableTransaction,
@@ -51,6 +52,67 @@ test("experimental current scope epoch on isolated PostgreSQL", () => {
     await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     await pool.end();
   });
+  it("documents unsafe stale effect when a legacy writer omits the epoch", async () => {
+    await pool.query('CREATE TABLE "legacy_effect" (version int NOT NULL)');
+    await pool.query('UPDATE "authority" SET version=10');
+    let entered!: () => void;
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const writer = prisma.$transaction(
+      async (tx) => {
+        await acquireCurrentScopeGuards(tx, [
+          { scope: "global", mode: "exclusive" },
+        ]);
+        await tx.$executeRaw(Prisma.sql`UPDATE "authority" SET version=11`);
+        entered();
+        await gate;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+    await ready;
+    const reader = runScopeEpochSerializableTransaction(
+      prisma,
+      [{ scope: "global", mode: "shared" }],
+      async (tx) => {
+        const rows = await tx.$queryRaw<Array<{ version: number }>>(
+          Prisma.sql`SELECT version FROM "authority"`,
+        );
+        await tx.$executeRaw(
+          Prisma.sql`INSERT INTO "legacy_effect" (version) VALUES (${rows[0]!.version})`,
+        );
+        return rows[0]!.version;
+      },
+    );
+    try {
+      let waiting = false;
+      for (let i = 0; i < 80 && !waiting; i++) {
+        waiting =
+          (
+            await pool.query(
+              "SELECT count(*)::int n FROM pg_locks WHERE locktype='advisory' AND NOT granted",
+            )
+          ).rows[0].n > 0;
+        if (!waiting) await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(waiting).toBe(true);
+    } finally {
+      release();
+    }
+    await writer;
+    expect(await reader).toBe(10);
+    expect(
+      (await pool.query('SELECT version FROM "authority"')).rows[0].version,
+    ).toBe(11);
+    expect(
+      (await pool.query('SELECT version FROM "legacy_effect"')).rows[0].version,
+    ).toBe(10);
+  });
+
   it("rejects a serializable snapshot from before the authority writer commits", async () => {
     let entered!: () => void;
     let release!: () => void;
