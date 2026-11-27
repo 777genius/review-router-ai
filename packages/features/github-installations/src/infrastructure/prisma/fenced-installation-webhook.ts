@@ -26,65 +26,62 @@ export async function handleFencedInstallationWebhook(
   return runWebhookFencedDatabaseEffect(
     prisma,
     claim,
-        async (transaction) => {
-          const delivery = await transaction.gitHubWebhookDelivery.findUnique({
-            where: { deliveryId: claim.deliveryId },
-            select: {
-              eventName: true,
-              action: true,
-              installationId: true,
-              payloadHash: true,
-            },
-          });
-          if (
-            delivery?.eventName !== envelope.eventName ||
-            delivery.action !== envelope.payload.action ||
-            delivery.installationId !==
-              BigInt(envelope.payload.installation.id) ||
-            delivery.payloadHash !== envelope.payloadHash
-          )
-            throw new Error("webhook_fence_identity_mismatch");
-          const installations = new PrismaGitHubInstallationRepository(prisma);
-          const ownerGrants = new PrismaInstallationWorkspaceOwnerGrant(prisma);
-          return handleGitHubInstallationWebhook(envelope, {
-            clock,
-            installations: {
-              upsertInstallation: (snapshot) =>
-                installations.upsertInstallationInTransaction(
-                  transaction,
-                  snapshot,
-                ),
-              markInstallationRemoved: (id) =>
-                installations.markInstallationRemovedInTransaction(
-                  transaction,
-                  id,
-                ),
-            },
-            ownerGrants: {
-              grantInstallationActorOwner: (grant) =>
-                ownerGrants.grantInstallationActorOwnerInTransaction(
-                  transaction,
-                  grant,
-                ),
-            },
-            syncRequests: new OutboxInstallationSyncRequester({
-              enqueue: (event) => writePrismaOutboxEvent(transaction, event),
-            }),
-            deliveries: {
-              tryStartProcessing: async () => true,
-              markProcessed: async (deliveryId) => {
-                await transaction.gitHubWebhookDelivery.update({
-                  where: { deliveryId },
-                  data: { status: "processed", processedAt: clock.now() },
-                });
-              },
-              // The transaction rolls back on failure. The outer coordinator records
-              // a fenced failure only after that rollback has completed.
-              markFailed: async () => {},
-            },
-          });
+    async (transaction) => {
+      const delivery = await transaction.gitHubWebhookDelivery.findUnique({
+        where: { deliveryId: claim.deliveryId },
+        select: {
+          eventName: true,
+          action: true,
+          installationId: true,
+          payloadHash: true,
         },
+      });
+      if (
+        delivery?.eventName !== envelope.eventName ||
+        delivery.action !== envelope.payload.action ||
+        delivery.installationId !== BigInt(envelope.payload.installation.id) ||
+        delivery.payloadHash !== envelope.payloadHash
+      )
+        throw new Error("webhook_fence_identity_mismatch");
+      const installations = new PrismaGitHubInstallationRepository(prisma);
+      const ownerGrants = new PrismaInstallationWorkspaceOwnerGrant(prisma);
+      return handleGitHubInstallationWebhook(envelope, {
+        clock,
+        installations: {
+          upsertInstallation: (snapshot) =>
+            installations.upsertInstallationInTransaction(
+              transaction,
+              snapshot,
+            ),
+          markInstallationRemoved: (id) =>
+            installations.markInstallationRemovedInTransaction(transaction, id),
+        },
+        ownerGrants: {
+          grantInstallationActorOwner: (grant) =>
+            ownerGrants.grantInstallationActorOwnerInTransaction(
+              transaction,
+              grant,
+            ),
+        },
+        syncRequests: new OutboxInstallationSyncRequester({
+          enqueue: (event) => writePrismaOutboxEvent(transaction, event),
+        }),
+        deliveries: {
+          tryStartProcessing: async () => true,
+          markProcessed: async (deliveryId) => {
+            await transaction.gitHubWebhookDelivery.update({
+              where: { deliveryId },
+              data: { status: "processed", processedAt: clock.now() },
+            });
+          },
+          // The transaction rolls back on failure. The outer coordinator records
+          // a fenced failure only after that rollback has completed.
+          markFailed: async () => {},
+        },
+      });
+    },
     "processed",
-    (tx) => acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "exclusive" }]),
+    (tx) =>
+      acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "exclusive" }]),
   );
 }

@@ -1,4 +1,7 @@
-import { webhookFencePostgres, assertWebhookFenceTestDatabase } from "../../../../scripts/webhook-fencing/postgres-fixture";
+import {
+  webhookFencePostgres,
+  assertWebhookFenceTestDatabase,
+} from "../../../../scripts/webhook-fencing/postgres-fixture";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -6,9 +9,7 @@ import { PrismaClient } from "@prisma/client";
 import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  beginFencedWebhookDelivery,
-} from "@reviewrouter/features-github-installations";
+import { beginFencedWebhookDelivery } from "@reviewrouter/features-github-installations";
 import { handleFencedPushWebhook } from "./fenced-push-webhook";
 const test = webhookFencePostgres.enabled ? describe : describe.skip;
 test("fenced push on isolated PostgreSQL", () => {
@@ -151,20 +152,32 @@ test("fenced push on isolated PostgreSQL", () => {
     const { e, claim } = await begin("push-independent");
     let entered!: () => void;
     let release!: () => void;
-    const ready = new Promise<void>((resolve) => { entered = resolve; });
-    const gate = new Promise<void>((resolve) => { release = resolve; });
-    const writer = prisma.$transaction(async (tx) => {
-      await acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "exclusive" }]);
-      entered();
-      await gate;
-    }, { isolationLevel: "ReadCommitted" });
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const writer = prisma.$transaction(
+      async (tx) => {
+        await acquireCurrentScopeGuards(tx, [
+          { scope: "global", mode: "exclusive" },
+        ]);
+        entered();
+        await gate;
+      },
+      { isolationLevel: "ReadCommitted" },
+    );
     await ready;
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
       const result = await Promise.race([
         handleFencedPushWebhook(prisma, e, claim, true),
         new Promise<never>((_resolve, reject) => {
-          timeout = setTimeout(() => reject(new Error("push_waited_for_unrelated_scope")), 2000);
+          timeout = setTimeout(
+            () => reject(new Error("push_waited_for_unrelated_scope")),
+            2000,
+          );
         }),
       ]);
       expect(result).toMatchObject({ processed: true, queued: true });

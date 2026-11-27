@@ -16,10 +16,10 @@
 
 ## Environment status
 
-| Environment / target | Status | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker |
-| --- | --- | --- | --- | --- |
-| staging | `pending` | Not verified | Not verified | Final-source checks, migration/grant review and controlled fleet cutover remain. |
-| production | `pending` | Not verified | Not verified | No production migration, replay, deployment or activation was performed by this workstream. |
+| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                                                              |
+| -------------------- | --------- | ------------------------------- | ------------------- | ------------------------------------------------------------------------------------------- |
+| staging              | `pending` | Not verified                    | Not verified        | Final-source checks, migration/grant review and controlled fleet cutover remain.            |
+| production           | `pending` | Not verified                    | Not verified        | No production migration, replay, deployment or activation was performed by this workstream. |
 
 `pending` means no verified completion is recorded; it is not evidence that code
 is absent. A merge or passing CI does not change deployment status.
@@ -33,14 +33,14 @@ Later generations never recreate that ingress. Other local effects/outbox and
 terminal receipt commit together. Unrelated account/auth/config epoch changes have
 been removed; existing authority owners and scope/row locks remain.
 
-| Evidence | Current status |
-| --- | --- |
-| Default route wiring, claim/failure protocol and explicit operator command | Implemented; final runtime proof pending |
-| Full migration catalog | 172 directories, including `000165_webhook_effect_fence` and `000167_webhook_recovery_intent`; no experimental `000166` epoch migration |
-| Prior 170 → 172 migration rehearsal and isolated fence tests | Partial earlier-source results; not evidence for the final replay guard/HTTP suite |
-| Full signed HTTP/Prisma/PostgreSQL/outbox and recovery matrix | Checked in and mandatory in the existing CI; final execution pending |
-| TypeScript 7.0.2, lint/format, architecture and ordinary CI | Pending; local executor unavailable after resource-killed pinned dependency build |
-| Production replay or fleet qualification | Not executed; separately authorized operational work |
+| Evidence                                                                   | Current status                                                                                                                          |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Default route wiring, claim/failure protocol and explicit operator command | Implemented; final runtime proof pending                                                                                                |
+| Full migration catalog                                                     | 172 directories, including `000165_webhook_effect_fence` and `000167_webhook_recovery_intent`; no experimental `000166` epoch migration |
+| Prior 170 → 172 migration rehearsal and isolated fence tests               | Partial earlier-source results; not evidence for the final replay guard/HTTP suite                                                      |
+| Full signed HTTP/Prisma/PostgreSQL/outbox and recovery matrix              | Checked in and mandatory in the existing CI; final execution pending                                                                    |
+| TypeScript 7.0.2, lint/format, architecture and ordinary CI                | Pending; local executor unavailable after resource-killed pinned dependency build                                                       |
+| Production replay or fleet qualification                                   | Not executed; separately authorized operational work                                                                                    |
 
 Historical prototype/shim-based checks at `783409f2a21edc182df216d63c1f3cb4b84785bf`
 do not qualify this implementation. Do not treat queued/skipped CI as passing.
@@ -147,6 +147,6 @@ unguarded effects. If the drain cannot be proved, keep admission closed.
 
 ## Execution log
 
-| Time (UTC) | Environment | Operator | Actual version / image | Step and observed result | Evidence | Next action |
-| --- | --- | --- | --- | --- | --- | --- |
-| Not executed | staging / production | Unassigned | Not verified | Source/test implementation only; no operational rollout or recovery | PR #1027 source and pending qualification | Finish final-source gates, then a separately authorized controlled rollout |
+| Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result                                            | Evidence                                  | Next action                                                                |
+| ------------ | -------------------- | ---------- | ---------------------- | ------------------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------- |
+| Not executed | staging / production | Unassigned | Not verified           | Source/test implementation only; no operational rollout or recovery | PR #1027 source and pending qualification | Finish final-source gates, then a separately authorized controlled rollout |

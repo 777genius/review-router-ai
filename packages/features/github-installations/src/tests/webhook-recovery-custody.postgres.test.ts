@@ -1,4 +1,7 @@
-import { webhookFencePostgres, assertWebhookFenceTestDatabase } from "../../../../../scripts/webhook-fencing/postgres-fixture";
+import {
+  webhookFencePostgres,
+  assertWebhookFenceTestDatabase,
+} from "../../../../../scripts/webhook-fencing/postgres-fixture";
 import { createHmac, randomBytes } from "node:crypto";
 import Fastify from "fastify";
 import rawBody from "fastify-raw-body";
@@ -32,7 +35,11 @@ test("webhook recovery custody on isolated PostgreSQL", () => {
   });
   const prisma = new PrismaClient({ adapter: new PrismaPg(pool, { schema }) });
   const raw = Buffer.from('{"action":"opened"}');
-  const verified = createGitHubAppWebhookVerifier({ appId: "123", apiBaseUrl: "https://api.github.com", webhookSecret: "synthetic-secret" })({
+  const verified = createGitHubAppWebhookVerifier({
+    appId: "123",
+    apiBaseUrl: "https://api.github.com",
+    webhookSecret: "synthetic-secret",
+  })({
     rawPayload: raw,
     signatureHeader: `sha256=${createHmac("sha256", "synthetic-secret").update(raw).digest("hex")}`,
   })!;
@@ -166,14 +173,31 @@ test("webhook recovery custody on isolated PostgreSQL", () => {
   }
 
   async function completeFailed(i: ReturnType<typeof identity>) {
-    const result = await claimVerifiedFencedWebhookDelivery(prisma, verified, {
-      deliveryId: i.deliveryGuid, eventName: i.eventName, action: i.action,
-      installationId: String(i.installationId), payloadHash: i.payloadHash,
-    }, "c".repeat(64), 10000);
+    const result = await claimVerifiedFencedWebhookDelivery(
+      prisma,
+      verified,
+      {
+        deliveryId: i.deliveryGuid,
+        eventName: i.eventName,
+        action: i.action,
+        installationId: String(i.installationId),
+        payloadHash: i.payloadHash,
+      },
+      "c".repeat(64),
+      10000,
+    );
     if (result.kind !== "claimed") throw new Error("claim_required");
-    await runWebhookFencedDatabaseEffect(prisma, result.claim, async (tx) => {
-      await tx.gitHubWebhookDelivery.update({ where: { deliveryId: i.deliveryGuid }, data: { status: "processed" } });
-    }, "processed");
+    await runWebhookFencedDatabaseEffect(
+      prisma,
+      result.claim,
+      async (tx) => {
+        await tx.gitHubWebhookDelivery.update({
+          where: { deliveryId: i.deliveryGuid },
+          data: { status: "processed" },
+        });
+      },
+      "processed",
+    );
   }
 
   it("concurrent reservations grant at most one POST and 202 is not completion", async () => {
@@ -216,7 +240,9 @@ test("webhook recovery custody on isolated PostgreSQL", () => {
 
   it("does not reserve redelivery after the installation has newer local authority", async () => {
     const i = {
-      ...identity("superseded-recovery"), eventName: "installation", action: "created",
+      ...identity("superseded-recovery"),
+      eventName: "installation",
+      action: "created",
       installationId: 90501n,
     };
     await prepareWebhookRecovery(prisma, i);
@@ -226,7 +252,9 @@ test("webhook recovery custody on isolated PostgreSQL", () => {
       'INSERT INTO "GitHubWebhookDelivery" ("deliveryId","eventName","action","installationId","receivedAt") SELECT \'superseding-recovery\', \'installation\', \'deleted\', "installationId", "receivedAt" FROM "GitHubWebhookDelivery" WHERE "deliveryId"=$1',
       [i.deliveryGuid],
     );
-    expect(await reserveWebhookRedeliveryOnce(prisma, i, "1".repeat(64))).toBe(false);
+    expect(await reserveWebhookRedeliveryOnce(prisma, i, "1".repeat(64))).toBe(
+      false,
+    );
     expect((await prepareWebhookRecovery(prisma, i)).state).toBe("prepared");
   });
 

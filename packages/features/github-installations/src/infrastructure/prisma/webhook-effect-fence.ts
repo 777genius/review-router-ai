@@ -24,7 +24,14 @@ export async function claimVerifiedFencedWebhookDelivery(
   leaseMs: number,
 ): Promise<FencedWebhookClaim> {
   return prisma.$transaction(
-    (transaction) => claimVerifiedFencedWebhookDeliveryInTransaction(transaction, context, delivery, ownerHash, leaseMs),
+    (transaction) =>
+      claimVerifiedFencedWebhookDeliveryInTransaction(
+        transaction,
+        context,
+        delivery,
+        ownerHash,
+        leaseMs,
+      ),
     { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
   );
 }
@@ -41,21 +48,50 @@ export async function claimVerifiedFencedWebhookDeliveryInTransaction(
   const verified = requireVerifiedGitHubAppWebhook(context);
   if (!delivery.payloadHash || delivery.payloadHash !== verified.payloadHash)
     throw new Error("webhook_fence_payload_mismatch");
-  validateClaim({ deliveryId: delivery.deliveryId, ownerHash, appIdentityHash: verified.appIdentityHash, generation: 1n });
+  validateClaim({
+    deliveryId: delivery.deliveryId,
+    ownerHash,
+    appIdentityHash: verified.appIdentityHash,
+    generation: 1n,
+  });
   validateLease(leaseMs);
   const inserted = await transaction.gitHubWebhookDelivery.createMany({
-    data: [deliveryData(delivery)], skipDuplicates: true,
+    data: [deliveryData(delivery)],
+    skipDuplicates: true,
   });
   if (inserted.count === 1) {
-    await insertFence(transaction, delivery.deliveryId, ownerHash, verified.appIdentityHash, leaseMs, verified.signatureHash);
-    return { kind: "claimed", claim: { deliveryId: delivery.deliveryId, ownerHash, appIdentityHash: verified.appIdentityHash, generation: 1n } };
+    await insertFence(
+      transaction,
+      delivery.deliveryId,
+      ownerHash,
+      verified.appIdentityHash,
+      leaseMs,
+      verified.signatureHash,
+    );
+    return {
+      kind: "claimed",
+      claim: {
+        deliveryId: delivery.deliveryId,
+        ownerHash,
+        appIdentityHash: verified.appIdentityHash,
+        generation: 1n,
+      },
+    };
   }
   await lockDeliveryAndFence(transaction, delivery.deliveryId);
-  const rows = await transaction.$queryRaw<Array<{
-    eventName: string; action: string | null; installationId: bigint | null;
-    payloadHash: string | null; status: string; ownerHash: string;
-    appIdentityHash: string; generation: bigint; expired: boolean;
-  }>>(Prisma.sql`
+  const rows = await transaction.$queryRaw<
+    Array<{
+      eventName: string;
+      action: string | null;
+      installationId: bigint | null;
+      payloadHash: string | null;
+      status: string;
+      ownerHash: string;
+      appIdentityHash: string;
+      generation: bigint;
+      expired: boolean;
+    }>
+  >(Prisma.sql`
     SELECT d."eventName", d."action", d."installationId", d."payloadHash", d.status,
       f."ownerHash", f."appIdentityHash", f."generation",
       f."leaseUntil" <= clock_timestamp() AS expired
@@ -64,19 +100,33 @@ export async function claimVerifiedFencedWebhookDeliveryInTransaction(
   `);
   const row = rows[0];
   if (!row) throw new Error("webhook_fence_legacy_delivery");
-  if (row.eventName !== delivery.eventName || row.action !== (delivery.action ?? null) ||
-      row.installationId !== (delivery.installationId ? BigInt(delivery.installationId) : null) ||
-      row.payloadHash !== delivery.payloadHash || row.appIdentityHash !== verified.appIdentityHash)
+  if (
+    row.eventName !== delivery.eventName ||
+    row.action !== (delivery.action ?? null) ||
+    row.installationId !==
+      (delivery.installationId ? BigInt(delivery.installationId) : null) ||
+    row.payloadHash !== delivery.payloadHash ||
+    row.appIdentityHash !== verified.appIdentityHash
+  )
     throw new Error("webhook_fence_identity_mismatch");
   if (row.status === "processed") return { kind: "processed" };
   const previous: FencedDelivery = {
-    deliveryId: delivery.deliveryId, ownerHash: row.ownerHash,
-    appIdentityHash: row.appIdentityHash, generation: BigInt(row.generation),
+    deliveryId: delivery.deliveryId,
+    ownerHash: row.ownerHash,
+    appIdentityHash: row.appIdentityHash,
+    generation: BigInt(row.generation),
   };
   // A caller that lost its own claim response may reconcile that same claim.
-  if (row.status === "processing" && !row.expired && row.ownerHash === ownerHash)
+  if (
+    row.status === "processing" &&
+    !row.expired &&
+    row.ownerHash === ownerHash
+  )
     return { kind: "claimed", claim: previous };
-  if (row.ownerHash === ownerHash || !(row.status === "failed" || (row.status === "processing" && row.expired)))
+  if (
+    row.ownerHash === ownerHash ||
+    !(row.status === "failed" || (row.status === "processing" && row.expired))
+  )
     throw new Error("webhook_fence_delivery_unconfirmed");
   if (!(await isWebhookReplayEligible(transaction, delivery.deliveryId)))
     throw new Error("webhook_fence_reconciliation_required");
@@ -92,16 +142,28 @@ export async function claimVerifiedFencedWebhookDeliveryInTransaction(
 
 function deliveryData(delivery: WebhookDeliveryRecord) {
   return {
-    deliveryId: delivery.deliveryId, eventName: delivery.eventName,
+    deliveryId: delivery.deliveryId,
+    eventName: delivery.eventName,
     action: delivery.action ?? null,
-    installationId: delivery.installationId ? BigInt(delivery.installationId) : null,
+    installationId: delivery.installationId
+      ? BigInt(delivery.installationId)
+      : null,
     status: "processing" as const,
     ...(delivery.payloadHash ? { payloadHash: delivery.payloadHash } : {}),
-    ...(delivery.normalizedEvent ? { normalizedEvent: delivery.normalizedEvent } : {}),
+    ...(delivery.normalizedEvent
+      ? { normalizedEvent: delivery.normalizedEvent }
+      : {}),
   };
 }
 
-async function insertFence(transaction: Prisma.TransactionClient, deliveryId: string, ownerHash: string, appIdentityHash: string, leaseMs: number, signatureHash: string | null = null) {
+async function insertFence(
+  transaction: Prisma.TransactionClient,
+  deliveryId: string,
+  ownerHash: string,
+  appIdentityHash: string,
+  leaseMs: number,
+  signatureHash: string | null = null,
+) {
   await transaction.$executeRaw(Prisma.sql`
     INSERT INTO "GitHubWebhookFence" ("deliveryId", "ownerHash", "appIdentityHash", "generation", "leaseUntil", "signatureHash")
     VALUES (${deliveryId}, ${ownerHash}, ${appIdentityHash}, 1,
@@ -110,8 +172,13 @@ async function insertFence(transaction: Prisma.TransactionClient, deliveryId: st
 }
 
 function validateClaim(claim: FencedDelivery) {
-  if (!claim.deliveryId || !/^[0-9a-f]{64}$/.test(claim.ownerHash) ||
-      !/^[0-9a-f]{64}$/.test(claim.appIdentityHash) || typeof claim.generation !== "bigint" || claim.generation < 1n)
+  if (
+    !claim.deliveryId ||
+    !/^[0-9a-f]{64}$/.test(claim.ownerHash) ||
+    !/^[0-9a-f]{64}$/.test(claim.appIdentityHash) ||
+    typeof claim.generation !== "bigint" ||
+    claim.generation < 1n
+  )
     throw new Error("webhook_fence_invalid");
 }
 function validateLease(leaseMs: number) {
@@ -119,13 +186,20 @@ function validateLease(leaseMs: number) {
     throw new Error("webhook_fence_invalid");
 }
 function assertTransaction(transaction: Prisma.TransactionClient) {
-  if (!transaction || typeof transaction.$queryRaw !== "function" ||
-      Reflect.get(transaction, "$connect") !== undefined || Reflect.get(transaction, "$disconnect") !== undefined)
+  if (
+    !transaction ||
+    typeof transaction.$queryRaw !== "function" ||
+    Reflect.get(transaction, "$connect") !== undefined ||
+    Reflect.get(transaction, "$disconnect") !== undefined
+  )
     throw new Error("webhook_fence_transaction_required");
 }
 
 /** All participants take delivery before fence, including status triggers. */
-async function lockDeliveryAndFence(transaction: Prisma.TransactionClient, deliveryId: string) {
+async function lockDeliveryAndFence(
+  transaction: Prisma.TransactionClient,
+  deliveryId: string,
+) {
   await transaction.$queryRaw(Prisma.sql`
     SELECT "deliveryId" FROM "GitHubWebhookDelivery" WHERE "deliveryId" = ${deliveryId} FOR UPDATE
   `);
@@ -134,8 +208,15 @@ async function lockDeliveryAndFence(transaction: Prisma.TransactionClient, deliv
   `);
 }
 
-async function replaceOwner(transaction: Prisma.TransactionClient, previous: FencedDelivery, ownerHash: string, leaseMs: number): Promise<FencedDelivery> {
-  const rows = await transaction.$queryRaw<Array<{ generation: bigint }>>(Prisma.sql`
+async function replaceOwner(
+  transaction: Prisma.TransactionClient,
+  previous: FencedDelivery,
+  ownerHash: string,
+  leaseMs: number,
+): Promise<FencedDelivery> {
+  const rows = await transaction.$queryRaw<
+    Array<{ generation: bigint }>
+  >(Prisma.sql`
     UPDATE "GitHubWebhookFence"
     SET "ownerHash" = ${ownerHash}, "generation" = "generation" + 1,
       "leaseUntil" = clock_timestamp() + ${leaseMs} * interval '1 millisecond',
@@ -150,106 +231,189 @@ async function replaceOwner(transaction: Prisma.TransactionClient, previous: Fen
 
 /** Strict first-insert helper used by isolated protocol fixtures. */
 export async function beginVerifiedFencedWebhookDelivery(
-  prisma: PrismaClient, context: unknown, delivery: WebhookDeliveryRecord, ownerHash: string, leaseMs: number,
+  prisma: PrismaClient,
+  context: unknown,
+  delivery: WebhookDeliveryRecord,
+  ownerHash: string,
+  leaseMs: number,
 ): Promise<FencedDelivery> {
   const verified = requireVerifiedGitHubAppWebhook(context);
   if (!delivery.payloadHash || delivery.payloadHash !== verified.payloadHash)
     throw new Error("webhook_fence_payload_mismatch");
-  return beginFencedWebhookDelivery(prisma, delivery, ownerHash, leaseMs, verified.appIdentityHash, verified.signatureHash);
+  return beginFencedWebhookDelivery(
+    prisma,
+    delivery,
+    ownerHash,
+    leaseMs,
+    verified.appIdentityHash,
+    verified.signatureHash,
+  );
 }
 
 /** Internal fixture primitive; live ingress uses the verified claim function. */
 export async function beginFencedWebhookDelivery(
-  prisma: PrismaClient, delivery: WebhookDeliveryRecord, ownerHash: string, leaseMs: number,
-  appIdentityHash: string, signatureHash: string | null = null,
+  prisma: PrismaClient,
+  delivery: WebhookDeliveryRecord,
+  ownerHash: string,
+  leaseMs: number,
+  appIdentityHash: string,
+  signatureHash: string | null = null,
 ): Promise<FencedDelivery> {
-  validateClaim({ deliveryId: delivery.deliveryId, ownerHash, appIdentityHash, generation: 1n });
+  validateClaim({
+    deliveryId: delivery.deliveryId,
+    ownerHash,
+    appIdentityHash,
+    generation: 1n,
+  });
   validateLease(leaseMs);
   if (signatureHash !== null && !/^[0-9a-f]{64}$/.test(signatureHash))
     throw new Error("webhook_fence_signature_invalid");
   return prisma.$transaction(async (transaction) => {
-    await transaction.gitHubWebhookDelivery.create({ data: deliveryData(delivery) });
-    await insertFence(transaction, delivery.deliveryId, ownerHash, appIdentityHash, leaseMs, signatureHash);
-    return { deliveryId: delivery.deliveryId, ownerHash, appIdentityHash, generation: 1n };
+    await transaction.gitHubWebhookDelivery.create({
+      data: deliveryData(delivery),
+    });
+    await insertFence(
+      transaction,
+      delivery.deliveryId,
+      ownerHash,
+      appIdentityHash,
+      leaseMs,
+      signatureHash,
+    );
+    return {
+      deliveryId: delivery.deliveryId,
+      ownerHash,
+      appIdentityHash,
+      generation: 1n,
+    };
   });
 }
 
 /** A live owner may extend only its exact, still-valid generation. */
-export async function renewWebhookFence(prisma: PrismaClient, claim: FencedDelivery, leaseMs: number): Promise<boolean> {
+export async function renewWebhookFence(
+  prisma: PrismaClient,
+  claim: FencedDelivery,
+  leaseMs: number,
+): Promise<boolean> {
   validateClaim(claim);
   validateLease(leaseMs);
-  const rows = await prisma.$queryRaw<Array<{ generation: bigint }>>(Prisma.sql`
-    UPDATE "GitHubWebhookFence"
-    SET "leaseUntil" = clock_timestamp() + ${leaseMs} * interval '1 millisecond'
-    WHERE "deliveryId" = ${claim.deliveryId} AND "ownerHash" = ${claim.ownerHash}
-      AND "appIdentityHash" = ${claim.appIdentityHash} AND "generation" = ${claim.generation}
-      AND "leaseUntil" > clock_timestamp()
-      AND EXISTS (SELECT 1 FROM "GitHubWebhookDelivery" d
-        WHERE d."deliveryId" = "GitHubWebhookFence"."deliveryId" AND d.status = 'processing')
-    RETURNING "generation"
-  `);
-  return rows.length === 1;
+  return prisma.$transaction(
+    async (transaction) => {
+      // A terminal writer may hold these rows. Read its committed status in a
+      // fresh statement after the wait, rather than the UPDATE's earlier snapshot.
+      await lockDeliveryAndFence(transaction, claim.deliveryId);
+      const rows = await transaction.$queryRaw<
+        Array<{ generation: bigint }>
+      >(Prisma.sql`
+      UPDATE "GitHubWebhookFence"
+      SET "leaseUntil" = clock_timestamp() + ${leaseMs} * interval '1 millisecond'
+      WHERE "deliveryId" = ${claim.deliveryId} AND "ownerHash" = ${claim.ownerHash}
+        AND "appIdentityHash" = ${claim.appIdentityHash} AND "generation" = ${claim.generation}
+        AND "leaseUntil" > clock_timestamp()
+        AND EXISTS (SELECT 1 FROM "GitHubWebhookDelivery" d
+          WHERE d."deliveryId" = "GitHubWebhookFence"."deliveryId" AND d.status = 'processing')
+      RETURNING "generation"
+    `);
+      return rows.length === 1;
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
+  );
 }
 
 /** Internal takeover primitive; live claims also verify the complete event identity. */
 export async function reclaimWebhookFence(
-  prisma: PrismaClient, previous: FencedDelivery, nextOwnerHash: string, leaseMs: number,
+  prisma: PrismaClient,
+  previous: FencedDelivery,
+  nextOwnerHash: string,
+  leaseMs: number,
 ): Promise<FencedDelivery | null> {
   validateClaim(previous);
   validateLease(leaseMs);
-  if (!/^[0-9a-f]{64}$/.test(nextOwnerHash) || previous.ownerHash === nextOwnerHash)
+  if (
+    !/^[0-9a-f]{64}$/.test(nextOwnerHash) ||
+    previous.ownerHash === nextOwnerHash
+  )
     throw new Error("webhook_fence_invalid");
-  return prisma.$transaction(async (transaction) => {
-    await lockDeliveryAndFence(transaction, previous.deliveryId);
-    const rows = await transaction.$queryRaw<Array<{ valid: boolean }>>(Prisma.sql`
+  return prisma.$transaction(
+    async (transaction) => {
+      await lockDeliveryAndFence(transaction, previous.deliveryId);
+      const rows = await transaction.$queryRaw<
+        Array<{ valid: boolean }>
+      >(Prisma.sql`
       SELECT (f."ownerHash" = ${previous.ownerHash} AND f."appIdentityHash" = ${previous.appIdentityHash}
         AND f."generation" = ${previous.generation} AND f."leaseUntil" <= clock_timestamp()
         AND d.status = 'processing') AS valid
       FROM "GitHubWebhookFence" f JOIN "GitHubWebhookDelivery" d USING ("deliveryId")
       WHERE f."deliveryId" = ${previous.deliveryId}
     `);
-    if (rows[0]?.valid !== true || !(await isWebhookReplayEligible(transaction, previous.deliveryId)))
-      return null;
-    return replaceOwner(transaction, previous, nextOwnerHash, leaseMs);
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+      if (
+        rows[0]?.valid !== true ||
+        !(await isWebhookReplayEligible(transaction, previous.deliveryId))
+      )
+        return null;
+      return replaceOwner(transaction, previous, nextOwnerHash, leaseMs);
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
+  );
 }
 
 /** Record failure only after the effect transaction has rolled back. */
-export async function failWebhookFencedDelivery(prisma: PrismaClient, claim: FencedDelivery, errorSummary: string): Promise<boolean> {
+export async function failWebhookFencedDelivery(
+  prisma: PrismaClient,
+  claim: FencedDelivery,
+  errorSummary: string,
+): Promise<boolean> {
   validateClaim(claim);
-  return prisma.$transaction(async (transaction) => {
-    await lockDeliveryAndFence(transaction, claim.deliveryId);
-    const authorized = await transaction.$executeRaw(Prisma.sql`
+  return prisma.$transaction(
+    async (transaction) => {
+      await lockDeliveryAndFence(transaction, claim.deliveryId);
+      const authorized = await transaction.$executeRaw(Prisma.sql`
       UPDATE "GitHubWebhookFence" f SET "effectTransactionId" = txid_current()
       WHERE f."deliveryId" = ${claim.deliveryId} AND f."ownerHash" = ${claim.ownerHash}
         AND f."appIdentityHash" = ${claim.appIdentityHash} AND f."generation" = ${claim.generation}
         AND EXISTS (SELECT 1 FROM "GitHubWebhookDelivery" d WHERE d."deliveryId" = f."deliveryId" AND d.status = 'processing')
     `);
-    if (authorized !== 1) return false;
-    await transaction.gitHubWebhookDelivery.update({
-      where: { deliveryId: claim.deliveryId },
-      data: { status: "failed", processedAt: null, errorSummary: errorSummary.slice(0, 500) },
-    });
-    return true;
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+      if (authorized !== 1) return false;
+      await transaction.gitHubWebhookDelivery.update({
+        where: { deliveryId: claim.deliveryId },
+        data: {
+          status: "failed",
+          processedAt: null,
+          errorSummary: errorSummary.slice(0, 500),
+        },
+      });
+      return true;
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
+  );
 }
 
 /** DB-only effects: complete scope locks precede the delivery/fence row locks. */
 export async function runWebhookFencedDatabaseEffect<T>(
-  prisma: PrismaClient, claim: FencedDelivery,
+  prisma: PrismaClient,
+  claim: FencedDelivery,
   effect: (transaction: Prisma.TransactionClient) => Promise<T>,
   expectedFinalStatus: "processing" | "processed" | "failed" = "processing",
   beforeFence?: (transaction: Prisma.TransactionClient) => Promise<void>,
 ): Promise<T> {
-  return prisma.$transaction(async (transaction) => {
-    await beforeFence?.(transaction);
-    return runWebhookFencedEffectInTransaction(transaction, claim, effect, expectedFinalStatus);
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+  return prisma.$transaction(
+    async (transaction) => {
+      await beforeFence?.(transaction);
+      return runWebhookFencedEffectInTransaction(
+        transaction,
+        claim,
+        effect,
+        expectedFinalStatus,
+      );
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
+  );
 }
 
 /** Every effect and terminal transition must use this same interactive transaction. */
 export async function runWebhookFencedEffectInTransaction<T>(
-  transaction: Prisma.TransactionClient, claim: FencedDelivery,
+  transaction: Prisma.TransactionClient,
+  claim: FencedDelivery,
   effect: (transaction: Prisma.TransactionClient) => Promise<T>,
   expectedFinalStatus: "processing" | "processed" | "failed" = "processing",
 ): Promise<T> {
@@ -259,7 +423,9 @@ export async function runWebhookFencedEffectInTransaction<T>(
     throw new Error("webhook_fence_invalid");
   const rows = await lockDeliveryAndFence(transaction, claim.deliveryId);
   if (rows.length !== 1) throw new Error("webhook_fence_missing");
-  const valid = await transaction.$queryRaw<Array<{ valid: boolean }>>(Prisma.sql`
+  const valid = await transaction.$queryRaw<
+    Array<{ valid: boolean }>
+  >(Prisma.sql`
     SELECT (f."ownerHash" = ${claim.ownerHash} AND f."appIdentityHash" = ${claim.appIdentityHash}
       AND f."generation" = ${claim.generation} AND f."leaseUntil" > clock_timestamp()
       AND d.status = 'processing') AS valid
@@ -267,14 +433,19 @@ export async function runWebhookFencedEffectInTransaction<T>(
     WHERE f."deliveryId" = ${claim.deliveryId}
   `);
   if (valid[0]?.valid !== true) throw new Error("webhook_fence_stale");
-  if (claim.generation > 1n && !(await isWebhookReplayEligible(transaction, claim.deliveryId)))
+  if (
+    claim.generation > 1n &&
+    !(await isWebhookReplayEligible(transaction, claim.deliveryId))
+  )
     throw new Error("webhook_fence_reconciliation_required");
   await transaction.$executeRaw(Prisma.sql`
     UPDATE "GitHubWebhookFence" SET "effectTransactionId" = txid_current()
     WHERE "deliveryId" = ${claim.deliveryId}
   `);
   const result = await effect(transaction);
-  const stillValid = await transaction.$queryRaw<Array<{ valid: boolean }>>(Prisma.sql`
+  const stillValid = await transaction.$queryRaw<
+    Array<{ valid: boolean }>
+  >(Prisma.sql`
     SELECT (f."ownerHash" = ${claim.ownerHash} AND f."appIdentityHash" = ${claim.appIdentityHash}
       AND f."generation" = ${claim.generation} AND f."leaseUntil" > clock_timestamp()
       AND d.status::text = ${expectedFinalStatus}) AS valid

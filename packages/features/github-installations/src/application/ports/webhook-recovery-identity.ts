@@ -1,4 +1,4 @@
-/** WIP only: caller must authenticate GitHub App and bind all observed identity. */
+/** The caller authenticates the GitHub App and binds the complete observed identity. */
 export type WebhookRecoveryIdentity = Readonly<{
   appIdentityHash: string;
   deliveryGuid: string;

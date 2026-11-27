@@ -14,13 +14,11 @@ function fixture() {
   return {
     client: {
       appIdentityHash: identity.appIdentityHash,
-      scanAttempts: vi
-        .fn()
-        .mockResolvedValue({
-          state: "observed",
-          pages: 1,
-          matchingAttempts: 1,
-        }),
+      scanAttempts: vi.fn().mockResolvedValue({
+        state: "observed",
+        pages: 1,
+        matchingAttempts: 1,
+      }),
     },
     custody: { confirm: vi.fn().mockResolvedValue(false) },
   };

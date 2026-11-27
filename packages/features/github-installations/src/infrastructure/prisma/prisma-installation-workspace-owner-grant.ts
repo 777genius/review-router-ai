@@ -22,7 +22,9 @@ export class PrismaInstallationWorkspaceOwnerGrant implements InstallationWorksp
     tx: Prisma.TransactionClient,
     grant: InstallationWorkspaceOwnerGrant,
   ): Promise<void> {
-    await acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "exclusive" }]);
+    await acquireCurrentScopeGuards(tx, [
+      { scope: "global", mode: "exclusive" },
+    ]);
     const installation = await tx.gitHubInstallation.findUnique({
       where: {
         githubInstallationId: BigInt(grant.githubInstallationId),

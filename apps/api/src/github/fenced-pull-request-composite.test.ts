@@ -20,9 +20,16 @@ vi.mock("@reviewrouter/platform-db", () => ({
 }));
 vi.mock("@reviewrouter/features-github-installations", () => ({
   runWebhookFencedDatabaseEffect: async (
-    _prisma: unknown, _claim: unknown, fn: (tx: unknown) => unknown,
-    status: string, beforeFence: (tx: unknown) => Promise<void>,
-  ) => { expect(status).toBe("processed"); await beforeFence(m.tx); return fn(m.tx); },
+    _prisma: unknown,
+    _claim: unknown,
+    fn: (tx: unknown) => unknown,
+    status: string,
+    beforeFence: (tx: unknown) => Promise<void>,
+  ) => {
+    expect(status).toBe("processed");
+    await beforeFence(m.tx);
+    return fn(m.tx);
+  },
 }));
 vi.mock("./fenced-pull-request-ingress.js", () => ({
   writePullRequestIngressInTransaction: m.ingress,

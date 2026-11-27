@@ -58,13 +58,13 @@ a controlled writer drain. These findings are implementation requirements below.
 
 ## Exact local-effect inventory
 
-| Event / owner                                                      | Local effects and existing command owner                                             | Scope / row order                                                                                |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| `installation`, `installation_repositories` — GitHub installations | Installation/workspace membership and repository authority; installation-sync outbox | Existing global exclusive scope → delivery → fence → installation and dependent rows             |
-| `repository` — repository webhook adapter                          | Repository selection/metadata, SCM identity invalidation, workflow state             | Existing global exclusive scope → delivery → fence → repository rows                             |
-| `pull_request` — ingress/setup/conflict composite | First-generation ingress outbox; then setup CAS, optional conflict outbox and terminal status | Both phases: global shared → delivery → fence. Ingress policy: installation → workspace shared rows. Setup: installation → repository shared rows → workflow CAS |
-| `push` — conflict handler                                          | Optional existing conflict outbox                                                    | Delivery → fence → outbox; no global exclusive lock                                              |
-| `github_app_authorization` — authorization adapter                 | GitHub authorization revocation and its permission cache                             | Delivery → fence → authorization/cache rows                                                      |
+| Event / owner                                                      | Local effects and existing command owner                                                      | Scope / row order                                                                                                                                                |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `installation`, `installation_repositories` — GitHub installations | Installation/workspace membership and repository authority; installation-sync outbox          | Existing global exclusive scope → delivery → fence → installation and dependent rows                                                                             |
+| `repository` — repository webhook adapter                          | Repository selection/metadata, SCM identity invalidation, workflow state                      | Existing global exclusive scope → delivery → fence → repository rows                                                                                             |
+| `pull_request` — ingress/setup/conflict composite                  | First-generation ingress outbox; then setup CAS, optional conflict outbox and terminal status | Both phases: global shared → delivery → fence. Ingress policy: installation → workspace shared rows. Setup: installation → repository shared rows → workflow CAS |
+| `push` — conflict handler                                          | Optional existing conflict outbox                                                             | Delivery → fence → outbox; no global exclusive lock                                                                                                              |
+| `github_app_authorization` — authorization adapter                 | GitHub authorization revocation and its permission cache                                      | Delivery → fence → authorization/cache rows                                                                                                                      |
 
 `PrismaGitHubInstallationRepository` and `PrismaInstallationWorkspaceOwnerGrant`
 expose transaction-bound operations reused by the installation adapter. Existing
@@ -182,9 +182,11 @@ The earlier isolated fence tests and 170-baseline → 172-final migration rehear
 were partial checkpoints before the final replay guard, production HTTP suites and
 operator composition. They are not a passing result for the final source.
 
-The executor became unavailable during the pinned subscription-runtime build after
-several resource-killed attempts. Final TypeScript, lint/format, full migration/HTTP
-matrix and ordinary CI remain unverified. The existing CI includes the mandatory
+The executor restarted during resource-killed dependency builds. The exact pinned
+subscription-runtime build subsequently passed with one CPU and bounded memory;
+its verified build artifact was retained. Changed-source formatting passed. Final
+TypeScript, lint, full migration/HTTP matrix and ordinary CI remain unverified.
+The existing CI includes the mandatory
 `scripts/webhook-fencing/run-postgres.ts` runner; it executes every required suite
 in a fresh process and rejects skipped, missing or unsuccessful results. A queued
 or skipped job is not qualification. Keep the PR draft until actual gates pass.
@@ -192,9 +194,10 @@ or skipped job is not qualification. Keep the PR draft until actual gates pass.
 ## Rollout and rollback
 
 The [deployment registry](../deployments/2026-11-27-webhook-effect-fence.md) owns
-operational evidence. Expand schema first; verify role
-grants and checks. Quiesce ingress, stop/drain all old API/webhook writers and their
-transactions, then start the exact qualified API version and reopen ingress. Do not
+operational evidence. Quiesce ingress and stop/drain all old API/webhook and
+maintenance writers and their transactions. Expand the schema through the approved
+release path and verify role grants/checks before starting the exact qualified API
+version and reopening ingress. Do not
 infer old-writer drain from elapsed time, schema presence or green unit tests.
 
 Legacy unknown deliveries remain retained. The receipt trigger remains installed

@@ -1,4 +1,7 @@
-import { webhookFencePostgres, assertWebhookFenceTestDatabase } from "../../../../scripts/webhook-fencing/postgres-fixture";
+import {
+  webhookFencePostgres,
+  assertWebhookFenceTestDatabase,
+} from "../../../../scripts/webhook-fencing/postgres-fixture";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { PrismaPg } from "@prisma/adapter-pg";

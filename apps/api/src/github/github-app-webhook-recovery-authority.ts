@@ -27,7 +27,8 @@ export class GitHubAppWebhookRecoveryAuthority implements WebhookRedeliveryAutho
     `);
     const signatureHash = rows[0]?.signatureHash;
     if (!signatureHash) return false;
-    if (!(await isWebhookReplayEligible(this.prisma, identity.deliveryGuid))) return false;
+    if (!(await isWebhookReplayEligible(this.prisma, identity.deliveryGuid)))
+      return false;
     return this.client.verifyOriginalDelivery(identity, signatureHash);
   }
 }

@@ -1,4 +1,7 @@
-import { webhookFencePostgres, assertWebhookFenceTestDatabase } from "../../../../../scripts/webhook-fencing/postgres-fixture";
+import {
+  webhookFencePostgres,
+  assertWebhookFenceTestDatabase,
+} from "../../../../../scripts/webhook-fencing/postgres-fixture";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -55,9 +58,7 @@ test("fenced installation webhook on isolated PostgreSQL", () => {
       INSERT INTO "Workspace" (id,slug,name) VALUES ('w','synthetic','old-team');
       INSERT INTO "GitHubInstallation" (id,"workspaceId","githubInstallationId","accountLogin","accountType","repositorySelection") VALUES ('i','w',42,'old-team','Organization','selected');
       INSERT INTO "RepositoryPermissionCache" VALUES (42);`);
-    for (const migration of [
-      "000165_webhook_effect_fence",
-    ])
+    for (const migration of ["000165_webhook_effect_fence"])
       await pool.query(
         await readFile(
           new URL(
@@ -218,7 +219,9 @@ test("fenced installation webhook on isolated PostgreSQL", () => {
       expect(waiting).toBeGreaterThanOrEqual(1);
       reader = prisma.$transaction(
         async (tx) => {
-          await acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "shared" }]);
+          await acquireCurrentScopeGuards(tx, [
+            { scope: "global", mode: "shared" },
+          ]);
           return tx.$queryRaw<Array<{ accountLogin: string }>>(
             Prisma.sql`SELECT "accountLogin" FROM "GitHubInstallation" WHERE id='i'`,
           );

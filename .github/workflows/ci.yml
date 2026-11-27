@@ -839,6 +839,9 @@ jobs:
         run: pnpm codex-rotating:secret-write-boundary
 
       - name: Compiled runtime smoke
+        env:
+          GITHUB_APP_ID: "1"
+          GITHUB_APP_SLUG: reviewrouter-ci
         run: pnpm runtime:smoke
 
       - name: Web page smoke

@@ -26,7 +26,10 @@ import type { InstallationSyncRequestPort } from "../../application/ports/instal
 import { verifyGitHubWebhookSignature } from "../../infrastructure/crypto/github-webhook-signature";
 import type { Clock } from "@reviewrouter/shared";
 import { safeGitHubWebhookFailureSummary } from "../../domain/github-webhook-failure";
-import { parseGitHubWebhook, type GitHubWebhookProcessor } from "./github-webhook-processor";
+import {
+  parseGitHubWebhook,
+  type GitHubWebhookProcessor,
+} from "./github-webhook-processor";
 
 type LegacyWebhookDependencies = {
   readonly webhookSecret: string;
@@ -116,16 +119,18 @@ export async function registerGitHubWebhookRoutes(
       }
       const verification = dependencies.processor?.verify({
         rawPayload,
-        ...(typeof signature === "string" ? { signatureHeader: signature } : {}),
+        ...(typeof signature === "string"
+          ? { signatureHeader: signature }
+          : {}),
       });
       const signatureValid = dependencies.processor
         ? verification !== null
         : verifyGitHubWebhookSignature({
-          payload: rawPayload,
-          signatureHeader:
-            typeof signature === "string" ? signature : undefined,
-          secret: dependencies.webhookSecret,
-        });
+            payload: rawPayload,
+            signatureHeader:
+              typeof signature === "string" ? signature : undefined,
+            secret: dependencies.webhookSecret,
+          });
       if (!signatureValid) {
         return reply.code(401).send({ error: "invalid_signature" });
       }
@@ -138,10 +143,14 @@ export async function registerGitHubWebhookRoutes(
       if (dependencies.processor) {
         if (!verification) throw new Error("github_app_webhook_unverified");
         const envelope = parseGitHubWebhook(eventName, request.body, {
-          deliveryId, payloadHash: verification.payloadHash,
+          deliveryId,
+          payloadHash: verification.payloadHash,
         });
-        if (!envelope) return reply.code(400).send({ error: "invalid_webhook_payload" });
-        return reply.send(await dependencies.processor.process(envelope, verification));
+        if (!envelope)
+          return reply.code(400).send({ error: "invalid_webhook_payload" });
+        return reply.send(
+          await dependencies.processor.process(envelope, verification),
+        );
       }
 
       if (eventName === "github_app_authorization") {

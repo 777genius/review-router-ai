@@ -29,7 +29,9 @@ type ReceiverRow = {
   githubDeliveryId: bigint | null;
 };
 
-export function validateWebhookRecoveryCommand(command: WebhookRecoveryCommand): void {
+export function validateWebhookRecoveryCommand(
+  command: WebhookRecoveryCommand,
+): void {
   if (
     !["inspect", "request", "reconcile"].includes(command.mode) ||
     !command.deliveryGuid ||
@@ -38,7 +40,8 @@ export function validateWebhookRecoveryCommand(command: WebhookRecoveryCommand):
     typeof command.githubDeliveryId !== "bigint" ||
     command.githubDeliveryId < 1n ||
     command.githubDeliveryId > BigInt(Number.MAX_SAFE_INTEGER)
-  ) throw new Error("webhook_recovery_command_invalid");
+  )
+    throw new Error("webhook_recovery_command_invalid");
 }
 
 /** Explicit recovery of one known, authenticated receipt; never discovery or bulk replay. */
@@ -67,9 +70,16 @@ export async function runKnownWebhookRecovery(
       throw new Error("webhook_recovery_authenticated_fence_required");
     if (row.appIdentityHash !== client.appIdentityHash)
       throw new Error("webhook_recovery_app_identity_mismatch");
-    if (row.githubDeliveryId !== null && row.githubDeliveryId !== command.githubDeliveryId)
+    if (
+      row.githubDeliveryId !== null &&
+      row.githubDeliveryId !== command.githubDeliveryId
+    )
       throw new Error("webhook_recovery_identity_conflict");
-    return { ...row, payloadHash: row.payloadHash, appIdentityHash: row.appIdentityHash };
+    return {
+      ...row,
+      payloadHash: row.payloadHash,
+      appIdentityHash: row.appIdentityHash,
+    };
   };
   const receiver = await readReceiver();
   const identity: WebhookRecoveryIdentity = {
@@ -91,15 +101,22 @@ export async function runKnownWebhookRecovery(
   const authority = new GitHubAppWebhookRecoveryAuthority(prisma, client);
 
   if (command.mode === "inspect") {
-    const state = receiver.status === "processed"
-      ? "processed"
-      : receiver.recoveryState !== null && receiver.recoveryState !== "prepared"
-        ? "reconciliation_required"
-        : await authority.authorize(identity) ? "eligible" : "not_authorized";
+    const state =
+      receiver.status === "processed"
+        ? "processed"
+        : receiver.recoveryState !== null &&
+            receiver.recoveryState !== "prepared"
+          ? "reconciliation_required"
+          : (await authority.authorize(identity))
+            ? "eligible"
+            : "not_authorized";
     return { ...summary(receiver), state };
   }
   if (command.mode === "reconcile" && receiver.recoveryState === null)
-    return { ...summary(receiver), state: receiver.status === "processed" ? "processed" : "not_requested" };
+    return {
+      ...summary(receiver),
+      state: receiver.status === "processed" ? "processed" : "not_requested",
+    };
   if (receiver.status === "processed" && receiver.recoveryState === null)
     return { ...summary(receiver), state: "processed" };
 
@@ -109,25 +126,36 @@ export async function runKnownWebhookRecovery(
       if (!(await authority.authorize(identity))) {
         const current = await readReceiver();
         if (current.recoveryState === null)
-          return { ...summary(current), state: current.status === "processed" ? "processed" : "not_authorized" };
+          return {
+            ...summary(current),
+            state:
+              current.status === "processed" ? "processed" : "not_authorized",
+          };
         // Another operator may have reserved or completed while authorization was in flight.
         requestOutcome = "not_authorized";
       } else {
         await prepareWebhookRecovery(prisma, identity);
       }
     }
-    if (requestOutcome === null) requestOutcome = await requestWebhookRedeliveryOnce(identity, {
-      authority,
-      client,
-      custody: {
-        reserve: (value, attempt) => reserveWebhookRedeliveryOnce(prisma, value, attempt),
-        accepted: (value, attempt) => recordWebhookRedeliveryAccepted(prisma, value, attempt),
-      },
-    });
+    if (requestOutcome === null)
+      requestOutcome = await requestWebhookRedeliveryOnce(identity, {
+        authority,
+        client,
+        custody: {
+          reserve: (value, attempt) =>
+            reserveWebhookRedeliveryOnce(prisma, value, attempt),
+          accepted: (value, attempt) =>
+            recordWebhookRedeliveryAccepted(prisma, value, attempt),
+        },
+      });
   }
-  const result = await pollWebhookRecovery(identity, {
-    client,
-    custody: { confirm: (value) => confirmWebhookRecovery(prisma, value) },
-  }, { maxPolls: 3, maxPages: 5, delayMs: 1_000 });
+  const result = await pollWebhookRecovery(
+    identity,
+    {
+      client,
+      custody: { confirm: (value) => confirmWebhookRecovery(prisma, value) },
+    },
+    { maxPolls: 3, maxPages: 5, delayMs: 1_000 },
+  );
   return { ...summary(await readReceiver()), ...result, requestOutcome };
 }

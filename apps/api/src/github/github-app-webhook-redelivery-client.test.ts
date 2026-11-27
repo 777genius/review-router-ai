@@ -219,18 +219,28 @@ describe("GitHub App redelivery client with synthetic local server", () => {
       payloadHash: "a".repeat(64),
     };
     scanMode = "normal";
-    const signatureHash = createHash("sha256").update(`sha256=${"a".repeat(64)}`).digest("hex");
+    const signatureHash = createHash("sha256")
+      .update(`sha256=${"a".repeat(64)}`)
+      .digest("hex");
     expect(await c.verifyOriginalDelivery(identity, signatureHash)).toBe(true);
-    expect(await c.verifyOriginalDelivery(identity, "e".repeat(64))).toBe(false);
+    expect(await c.verifyOriginalDelivery(identity, "e".repeat(64))).toBe(
+      false,
+    );
     expect(
-      await c.verifyOriginalDelivery({ ...identity, deliveryGuid: "other" }, signatureHash),
+      await c.verifyOriginalDelivery(
+        { ...identity, deliveryGuid: "other" },
+        signatureHash,
+      ),
     ).toBe(false);
     const before = requests.length;
     expect(
-      await c.verifyOriginalDelivery({
-        ...identity,
-        appIdentityHash: "e".repeat(64),
-      }, signatureHash),
+      await c.verifyOriginalDelivery(
+        {
+          ...identity,
+          appIdentityHash: "e".repeat(64),
+        },
+        signatureHash,
+      ),
     ).toBe(false);
     expect(requests.length).toBe(before);
     scanMode = "redacted";

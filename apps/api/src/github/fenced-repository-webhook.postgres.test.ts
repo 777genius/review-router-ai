@@ -1,4 +1,7 @@
-import { webhookFencePostgres, assertWebhookFenceTestDatabase } from "../../../../scripts/webhook-fencing/postgres-fixture";
+import {
+  webhookFencePostgres,
+  assertWebhookFenceTestDatabase,
+} from "../../../../scripts/webhook-fencing/postgres-fixture";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -214,7 +217,9 @@ test("fenced repository webhook on isolated PostgreSQL", () => {
     });
     const authorityWriter = prisma.$transaction(
       async (tx) => {
-        await acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "exclusive" }]);
+        await acquireCurrentScopeGuards(tx, [
+          { scope: "global", mode: "exclusive" },
+        ]);
         await tx.$executeRaw(
           Prisma.sql`UPDATE "RepositoryConnection" SET "fullName" = 'test/new' WHERE id = 'repo'`,
         );

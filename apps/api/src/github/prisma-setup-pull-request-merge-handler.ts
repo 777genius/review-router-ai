@@ -86,27 +86,28 @@ export class PrismaSetupPullRequestMergeHandler {
       this.prisma,
       claim,
       async (transaction) => {
-          const delivery = await transaction.gitHubWebhookDelivery.findUnique({
-            where: { deliveryId: claim.deliveryId },
-            select: {
-              eventName: true,
-              action: true,
-              installationId: true,
-              payloadHash: true,
-            },
-          });
-          if (
-            delivery?.eventName !== envelope.eventName ||
-            delivery.action !== envelope.payload.action ||
-            delivery.installationId !==
-              BigInt(envelope.payload.installation.id) ||
-            delivery.payloadHash !== envelope.payloadHash
-          )
-            throw new Error("webhook_fence_identity_mismatch");
-          return this.handlePullRequestInTransaction(transaction, envelope);
+        const delivery = await transaction.gitHubWebhookDelivery.findUnique({
+          where: { deliveryId: claim.deliveryId },
+          select: {
+            eventName: true,
+            action: true,
+            installationId: true,
+            payloadHash: true,
+          },
+        });
+        if (
+          delivery?.eventName !== envelope.eventName ||
+          delivery.action !== envelope.payload.action ||
+          delivery.installationId !==
+            BigInt(envelope.payload.installation.id) ||
+          delivery.payloadHash !== envelope.payloadHash
+        )
+          throw new Error("webhook_fence_identity_mismatch");
+        return this.handlePullRequestInTransaction(transaction, envelope);
       },
       "processing",
-      (tx) => acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "shared" }]),
+      (tx) =>
+        acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "shared" }]),
     );
   }
 
@@ -123,22 +124,32 @@ export class PrismaSetupPullRequestMergeHandler {
         reason: "pull_request_not_merged",
       };
 
-    await acquireCurrentScopeGuards(transaction, [{ scope: "global", mode: "shared" }]);
+    await acquireCurrentScopeGuards(transaction, [
+      { scope: "global", mode: "shared" },
+    ]);
     // Match the inventory writer's Installation -> Repository order. Ordinary
     // row updates also honor these locks, including older compatible writers.
     // READ COMMITTED rechecks the predicate after a lock wait.
-    const installations = await transaction.$queryRaw<Array<{id: string}>>(
+    const installations = await transaction.$queryRaw<Array<{ id: string }>>(
       Prisma.sql`SELECT "id" FROM "GitHubInstallation"
         WHERE "githubInstallationId" = ${BigInt(payload.installation.id)}
           AND "status" = 'active' FOR SHARE`,
     );
     const installation = installations[0];
     const repositories = installation
-      ? await transaction.$queryRaw<Array<{id: string; workspaceId: string; installationId: string; fullName: string}>>(
+      ? await transaction.$queryRaw<
+          Array<{
+            id: string;
+            workspaceId: string;
+            installationId: string;
+            fullName: string;
+          }>
+        >(
           Prisma.sql`SELECT "id","workspaceId","installationId","fullName" FROM "RepositoryConnection"
             WHERE "githubRepositoryId" = ${BigInt(payload.repository.id)}
               AND "installationId" = ${installation.id}
-              AND "selected" = true AND "archived" = false FOR SHARE`)
+              AND "selected" = true AND "archived" = false FOR SHARE`,
+        )
       : [];
     const repository = repositories[0];
     if (!repository?.installationId)

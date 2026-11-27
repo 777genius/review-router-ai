@@ -138,7 +138,10 @@ export class GitHubAppWebhookRedeliveryClient implements AppWebhookRedeliveryCli
         row.installation_id === null
           ? null
           : BigInt(row.installation_id as number);
-      return installation === identity.installationId && signatureDigest(row.request) === expectedSignatureHash;
+      return (
+        installation === identity.installationId &&
+        signatureDigest(row.request) === expectedSignatureHash
+      );
     } catch {
       return false;
     }
@@ -216,7 +219,10 @@ export class GitHubAppWebhookRedeliveryClient implements AppWebhookRedeliveryCli
         if (typeof row.guid !== "string" || typeof row.redelivery !== "boolean")
           return { state: "incomplete", pages, matchingAttempts };
         if (row.guid !== identity.deliveryGuid) continue;
-        if (row.event !== identity.eventName || row.action !== githubDeliveryAction(identity))
+        if (
+          row.event !== identity.eventName ||
+          row.action !== githubDeliveryAction(identity)
+        )
           return { state: "incomplete", pages, matchingAttempts };
         if (row.redelivery !== true) continue;
         if (
@@ -313,17 +319,28 @@ function nextDeliveryCursor(link: string | null): string | null | false {
 }
 
 function signatureDigest(request: unknown): string | null {
-  if (!request || typeof request !== "object" || !("headers" in request)) return null;
+  if (!request || typeof request !== "object" || !("headers" in request))
+    return null;
   const headers = request.headers;
-  if (!headers || typeof headers !== "object" || Array.isArray(headers)) return null;
+  if (!headers || typeof headers !== "object" || Array.isArray(headers))
+    return null;
   const signatures = Object.entries(headers)
     .filter(([name]) => name.toLowerCase() === "x-hub-signature-256")
     .map(([, value]) => value);
-  if (signatures.length !== 1 || typeof signatures[0] !== "string" || !/^sha256=[a-f0-9]{64}$/.test(signatures[0])) return null;
+  if (
+    signatures.length !== 1 ||
+    typeof signatures[0] !== "string" ||
+    !/^sha256=[a-f0-9]{64}$/.test(signatures[0])
+  )
+    return null;
   return createHash("sha256").update(signatures[0]).digest("hex");
 }
 
-function githubDeliveryAction(identity: WebhookRecoveryIdentity): string | null {
+function githubDeliveryAction(
+  identity: WebhookRecoveryIdentity,
+): string | null {
   // The receiver historically records push as an action; GitHub returns null.
-  return identity.eventName === "push" && identity.action === "push" ? null : identity.action;
+  return identity.eventName === "push" && identity.action === "push"
+    ? null
+    : identity.action;
 }

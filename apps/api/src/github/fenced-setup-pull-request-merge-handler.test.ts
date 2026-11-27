@@ -18,14 +18,23 @@ describe("fenced setup pull request", () => {
         }
         if (sql.text.includes('"GitHubInstallation"')) {
           events.push("installation");
-          return [{id: initialCandidate.installationId}];
+          return [{ id: initialCandidate.installationId }];
         }
         if (sql.text.includes('"RepositoryConnection"')) {
           events.push("repository");
-          return [{id: initialCandidate.repositoryId, workspaceId: initialCandidate.workspaceId, installationId: initialCandidate.installationId, fullName: "acme/widget"}];
+          return [
+            {
+              id: initialCandidate.repositoryId,
+              workspaceId: initialCandidate.workspaceId,
+              installationId: initialCandidate.installationId,
+              fullName: "acme/widget",
+            },
+          ];
         }
         if (sql.text.includes("FOR UPDATE")) {
-          events.push(sql.text.includes('"GitHubWebhookFence"') ? "fence" : "delivery");
+          events.push(
+            sql.text.includes('"GitHubWebhookFence"') ? "fence" : "delivery",
+          );
           return [{ deliveryId: "delivery_1" }];
         }
         return [{ valid: true }];
@@ -93,7 +102,11 @@ describe("fenced setup pull request", () => {
     expect(state.workflowProvisioning.updateMany).toHaveBeenCalledOnce();
     expect(transaction.gitHubWebhookDelivery.update).not.toHaveBeenCalled();
     expect(events[0]).toBe("scope");
-    expect(events.indexOf("installation")).toBeGreaterThan(events.indexOf("fence"));
-    expect(events.indexOf("repository")).toBeGreaterThan(events.indexOf("installation"));
+    expect(events.indexOf("installation")).toBeGreaterThan(
+      events.indexOf("fence"),
+    );
+    expect(events.indexOf("repository")).toBeGreaterThan(
+      events.indexOf("installation"),
+    );
   });
 });

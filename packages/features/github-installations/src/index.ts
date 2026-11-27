@@ -28,7 +28,10 @@ export type { FencedDelivery } from "./infrastructure/prisma/webhook-effect-fenc
 export { isWebhookReplayEligible } from "./infrastructure/prisma/webhook-replay-eligibility";
 export * from "./interface/http/register-github-webhook-routes";
 export { parseGitHubWebhook } from "./interface/http/github-webhook-processor";
-export type { GitHubWebhookProcessor, ParsedGitHubWebhook } from "./interface/http/github-webhook-processor";
+export type {
+  GitHubWebhookProcessor,
+  ParsedGitHubWebhook,
+} from "./interface/http/github-webhook-processor";
 
 export { handleFencedInstallationWebhook } from "./infrastructure/prisma/fenced-installation-webhook";
 export {

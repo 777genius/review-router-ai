@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import { acquireCurrentScopeGuards, type PrismaClient } from "@reviewrouter/platform-db";
+import {
+  acquireCurrentScopeGuards,
+  type PrismaClient,
+} from "@reviewrouter/platform-db";
 import { Prisma } from "@prisma/client";
 import {
   runWebhookFencedDatabaseEffect,
@@ -21,26 +24,33 @@ export async function writeFencedPullRequestIngress(
 ): Promise<Record<string, unknown>> {
   if (claim.deliveryId !== envelope.deliveryId || !envelope.payloadHash)
     throw new Error("webhook_fence_identity_mismatch");
-  return runWebhookFencedDatabaseEffect(prisma, claim, async (transaction) => {
-    const delivery = await transaction.gitHubWebhookDelivery.findUnique({
-      where: { deliveryId: claim.deliveryId },
-      select: {
-        eventName: true,
-        action: true,
-        installationId: true,
-        payloadHash: true,
-      },
-    });
-    if (
-      delivery?.eventName !== envelope.eventName ||
-      delivery.action !== envelope.payload.action ||
-      delivery.installationId !== BigInt(envelope.payload.installation.id) ||
-      delivery.payloadHash !== envelope.payloadHash
-    )
-      throw new Error("webhook_fence_identity_mismatch");
+  return runWebhookFencedDatabaseEffect(
+    prisma,
+    claim,
+    async (transaction) => {
+      const delivery = await transaction.gitHubWebhookDelivery.findUnique({
+        where: { deliveryId: claim.deliveryId },
+        select: {
+          eventName: true,
+          action: true,
+          installationId: true,
+          payloadHash: true,
+        },
+      });
+      if (
+        delivery?.eventName !== envelope.eventName ||
+        delivery.action !== envelope.payload.action ||
+        delivery.installationId !== BigInt(envelope.payload.installation.id) ||
+        delivery.payloadHash !== envelope.payloadHash
+      )
+        throw new Error("webhook_fence_identity_mismatch");
 
-    return writePullRequestIngressInTransaction(transaction, envelope);
-  }, "processing", (tx) => acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "shared" }]));
+      return writePullRequestIngressInTransaction(transaction, envelope);
+    },
+    "processing",
+    (tx) =>
+      acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "shared" }]),
+  );
 }
 
 /** DB-only effect; caller must acquire scope and delivery fences first. */
@@ -79,17 +89,23 @@ export async function writePullRequestIngressInTransaction(
   return handler.handleGitHubPullRequestWebhook(envelope);
 }
 
-
-async function readCurrentDraftPolicy(transaction: Prisma.TransactionClient, githubInstallationId: string): Promise<boolean> {
+async function readCurrentDraftPolicy(
+  transaction: Prisma.TransactionClient,
+  githubInstallationId: string,
+): Promise<boolean> {
   // Ordinary settings writers update Workspace directly. Row locks keep that
   // policy stable through outbox commit without requiring a new writer protocol.
-  const installations = await transaction.$queryRaw<Array<{workspaceId: string}>>(
+  const installations = await transaction.$queryRaw<
+    Array<{ workspaceId: string }>
+  >(
     Prisma.sql`SELECT "workspaceId" FROM "GitHubInstallation"
       WHERE "githubInstallationId" = ${BigInt(githubInstallationId)} FOR SHARE`,
   );
   const workspaceId = installations[0]?.workspaceId;
   if (!workspaceId) return false;
-  const settings = await transaction.$queryRaw<Array<{reviewDraftPullRequests: boolean}>>(
+  const settings = await transaction.$queryRaw<
+    Array<{ reviewDraftPullRequests: boolean }>
+  >(
     Prisma.sql`SELECT "reviewDraftPullRequests" FROM "Workspace"
       WHERE "id" = ${workspaceId} FOR SHARE`,
   );

@@ -61,7 +61,8 @@ export async function reserveWebhookRedeliveryOnce(
   validate(identity);
   if (!/^[a-f0-9]{64}$/.test(attemptHash))
     throw new Error("webhook_recovery_attempt_invalid");
-  if (!(await isWebhookReplayEligible(prisma, identity.deliveryGuid))) return false;
+  if (!(await isWebhookReplayEligible(prisma, identity.deliveryGuid)))
+    return false;
   const rows = await prisma.$queryRaw<
     Array<{ deliveryGuid: string }>
   >(Prisma.sql`

@@ -40,41 +40,40 @@ export class PrismaRepositoryWebhookHandler {
     return runWebhookFencedDatabaseEffect(
       this.prisma,
       claim,
-          async (transaction) => {
-            const delivery = await transaction.gitHubWebhookDelivery.findUnique(
-              {
-                where: { deliveryId: claim.deliveryId },
-                select: {
-                  eventName: true,
-                  action: true,
-                  installationId: true,
-                  payloadHash: true,
-                },
-              },
-            );
-            if (
-              delivery?.eventName !== envelope.eventName ||
-              delivery.action !== envelope.payload.action ||
-              delivery.installationId !==
-                BigInt(envelope.payload.installation.id) ||
-              delivery.payloadHash !== envelope.payloadHash
-            )
-              throw new Error("webhook_fence_identity_mismatch");
-            const handled = await this.applyRepositoryWebhook(
-              transaction,
-              envelope,
-            );
-            await transaction.gitHubWebhookDelivery.update({
-              where: { deliveryId: claim.deliveryId },
-              data: { status: "processed", processedAt: new Date() },
-            });
-            return repositoryWebhookResult(
-              handled,
-              envelope.payload.repository.full_name,
-            );
+      async (transaction) => {
+        const delivery = await transaction.gitHubWebhookDelivery.findUnique({
+          where: { deliveryId: claim.deliveryId },
+          select: {
+            eventName: true,
+            action: true,
+            installationId: true,
+            payloadHash: true,
           },
+        });
+        if (
+          delivery?.eventName !== envelope.eventName ||
+          delivery.action !== envelope.payload.action ||
+          delivery.installationId !==
+            BigInt(envelope.payload.installation.id) ||
+          delivery.payloadHash !== envelope.payloadHash
+        )
+          throw new Error("webhook_fence_identity_mismatch");
+        const handled = await this.applyRepositoryWebhook(
+          transaction,
+          envelope,
+        );
+        await transaction.gitHubWebhookDelivery.update({
+          where: { deliveryId: claim.deliveryId },
+          data: { status: "processed", processedAt: new Date() },
+        });
+        return repositoryWebhookResult(
+          handled,
+          envelope.payload.repository.full_name,
+        );
+      },
       "processed",
-      (tx) => acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "exclusive" }]),
+      (tx) =>
+        acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "exclusive" }]),
     );
   }
 

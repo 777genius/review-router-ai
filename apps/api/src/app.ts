@@ -89,9 +89,7 @@ import {
   type RegisterReviewRunControlV2RoutesDependencies,
   type RegisterReviewSnapshotReadV2RoutesDependencies,
 } from "@reviewrouter/features-action-control-plane/v2";
-import {
-  PrismaConflictReviewRepository,
-} from "@reviewrouter/features-conflict-review";
+import { PrismaConflictReviewRepository } from "@reviewrouter/features-conflict-review";
 import {
   registerGitHubWebhookRoutes,
   type RegisterGitHubWebhookRoutesDependencies,
@@ -179,9 +177,7 @@ import {
   composeReviewActionV2RunControlRoutes,
   type ReviewActionV2RunControlHandlerDependencies,
 } from "./review-action-v2-run-control-composition.js";
-import {
-  composeReviewActionV2ProductionRoutes,
-} from "./review-action-v2-production-composition.js";
+import { composeReviewActionV2ProductionRoutes } from "./review-action-v2-production-composition.js";
 import {
   composePrismaReviewInvestigationOperations,
   type ReviewInvestigationTerminalTelemetrySamplePort,

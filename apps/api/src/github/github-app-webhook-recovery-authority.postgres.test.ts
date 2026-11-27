@@ -1,4 +1,7 @@
-import { webhookFencePostgres, assertWebhookFenceTestDatabase } from "../../../../scripts/webhook-fencing/postgres-fixture";
+import {
+  webhookFencePostgres,
+  assertWebhookFenceTestDatabase,
+} from "../../../../scripts/webhook-fencing/postgres-fixture";
 import { createHmac, randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -32,7 +35,11 @@ test("recovery authority with synthetic GitHub and isolated PostgreSQL", () => {
   const prisma = new PrismaClient({ adapter: new PrismaPg(pool, { schema }) });
   const raw = Buffer.from('{"synthetic":true}');
   const signature = `sha256=${createHmac("sha256", "synthetic-secret").update(raw).digest("hex")}`;
-  const verified = createGitHubAppWebhookVerifier({ appId: "123", apiBaseUrl: "https://api.github.com", webhookSecret: "synthetic-secret" })({ rawPayload: raw, signatureHeader: signature })!;
+  const verified = createGitHubAppWebhookVerifier({
+    appId: "123",
+    apiBaseUrl: "https://api.github.com",
+    webhookSecret: "synthetic-secret",
+  })({ rawPayload: raw, signatureHeader: signature })!;
   let calls = 0,
     posts = 0,
     guid = "synthetic";
@@ -69,7 +76,10 @@ test("recovery authority with synthetic GitHub and isolated PostgreSQL", () => {
         event: "push",
         action: null,
         installation_id: 123,
-        request: { headers: { "X-Hub-Signature-256": signature }, payload: { synthetic: "never-return" } },
+        request: {
+          headers: { "X-Hub-Signature-256": signature },
+          payload: { synthetic: "never-return" },
+        },
       }),
     );
   });
@@ -116,15 +126,37 @@ test("recovery authority with synthetic GitHub and isolated PostgreSQL", () => {
       server.close((error) => (error ? reject(error) : resolve())),
     );
   });
-  async function completeFailed(identity: { deliveryGuid: string; eventName: string; action: string; payloadHash: string }) {
-    const result = await claimVerifiedFencedWebhookDelivery(prisma, verified, {
-      deliveryId: identity.deliveryGuid, eventName: identity.eventName, action: identity.action,
-      installationId: "123", payloadHash: identity.payloadHash,
-    }, "c".repeat(64), 10000);
+  async function completeFailed(identity: {
+    deliveryGuid: string;
+    eventName: string;
+    action: string;
+    payloadHash: string;
+  }) {
+    const result = await claimVerifiedFencedWebhookDelivery(
+      prisma,
+      verified,
+      {
+        deliveryId: identity.deliveryGuid,
+        eventName: identity.eventName,
+        action: identity.action,
+        installationId: "123",
+        payloadHash: identity.payloadHash,
+      },
+      "c".repeat(64),
+      10000,
+    );
     if (result.kind !== "claimed") throw new Error("claim_required");
-    await runWebhookFencedDatabaseEffect(prisma, result.claim, async (tx) => {
-      await tx.gitHubWebhookDelivery.update({ where: { deliveryId: identity.deliveryGuid }, data: { status: "processed" } });
-    }, "processed");
+    await runWebhookFencedDatabaseEffect(
+      prisma,
+      result.claim,
+      async (tx) => {
+        await tx.gitHubWebhookDelivery.update({
+          where: { deliveryId: identity.deliveryGuid },
+          data: { status: "processed" },
+        });
+      },
+      "processed",
+    );
   }
 
   it("requires exact failed receiver evidence and exact GitHub App delivery, then rechecks at reserve", async () => {
@@ -177,18 +209,31 @@ test("recovery authority with synthetic GitHub and isolated PostgreSQL", () => {
       installationId: null,
       payloadHash: verified.payloadHash,
     };
-    const claim = await beginFencedWebhookDelivery(prisma, {
-      deliveryId: identity.deliveryGuid, eventName: identity.eventName,
-      action: identity.action, payloadHash: identity.payloadHash,
-    }, "b".repeat(64), 10000, identity.appIdentityHash, verified.signatureHash);
+    const claim = await beginFencedWebhookDelivery(
+      prisma,
+      {
+        deliveryId: identity.deliveryGuid,
+        eventName: identity.eventName,
+        action: identity.action,
+        payloadHash: identity.payloadHash,
+      },
+      "b".repeat(64),
+      10000,
+      identity.appIdentityHash,
+      verified.signatureHash,
+    );
     await failWebhookFencedDelivery(prisma, claim, "synthetic_failure");
     await prepareWebhookRecovery(prisma, identity);
     const before = calls;
     const authority = new GitHubAppWebhookRecoveryAuthority(prisma, client);
     expect(await authority.authorize(identity)).toBe(false);
     expect(calls).toBe(before);
-    expect(await reserveWebhookRedeliveryOnce(prisma, identity, "c".repeat(64))).toBe(false);
-    expect((await prepareWebhookRecovery(prisma, identity)).state).toBe("prepared");
+    expect(
+      await reserveWebhookRedeliveryOnce(prisma, identity, "c".repeat(64)),
+    ).toBe(false);
+    expect((await prepareWebhookRecovery(prisma, identity)).state).toBe(
+      "prepared",
+    );
   });
 
   it("runs scoped synthetic POST once and confirms only receiver terminal", async () => {

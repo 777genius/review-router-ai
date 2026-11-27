@@ -12,7 +12,9 @@ describe("fenced repository webhook", () => {
           return [{ locked: 1 }];
         }
         if (sql.text.includes("FOR UPDATE")) {
-          events.push(sql.text.includes('"GitHubWebhookFence"') ? "fence" : "delivery");
+          events.push(
+            sql.text.includes('"GitHubWebhookFence"') ? "fence" : "delivery",
+          );
           return [{ deliveryId: "delivery" }];
         }
         return [{ valid: true }];
@@ -77,8 +79,12 @@ describe("fenced repository webhook", () => {
     });
     expect(events[0]).toBe("scope");
     expect(events.indexOf("fence")).toBeGreaterThan(0);
-    expect(events.indexOf("repository")).toBeGreaterThan(events.indexOf("fence"));
+    expect(events.indexOf("repository")).toBeGreaterThan(
+      events.indexOf("fence"),
+    );
     expect(events.at(-1)).toBe("complete");
-    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "ReadCommitted" });
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: "ReadCommitted",
+    });
   });
 });

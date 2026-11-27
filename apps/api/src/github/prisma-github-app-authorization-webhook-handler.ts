@@ -7,7 +7,10 @@ import type { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 
 export class PrismaGitHubAppAuthorizationWebhookHandler {
-  constructor(private readonly prisma: PrismaClient, private readonly appSlug = resolveGitHubAppSlug()) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly appSlug = resolveGitHubAppSlug(),
+  ) {}
 
   async handleGitHubAppAuthorizationWebhook(
     envelope: GitHubAppAuthorizationWebhookEnvelope,
@@ -17,7 +20,7 @@ export class PrismaGitHubAppAuthorizationWebhookHandler {
     );
   }
 
-  /** WIP: not selected by production routes or eligible for takeover yet. */
+  /** First-generation revocation is atomic; ambiguous retries require reconciliation. */
   async handleFencedGitHubAppAuthorizationWebhook(
     envelope: GitHubAppAuthorizationWebhookEnvelope,
     claim: FencedDelivery,

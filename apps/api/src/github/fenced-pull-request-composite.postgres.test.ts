@@ -1,4 +1,7 @@
-import { webhookFencePostgres, assertWebhookFenceTestDatabase } from "../../../../scripts/webhook-fencing/postgres-fixture";
+import {
+  webhookFencePostgres,
+  assertWebhookFenceTestDatabase,
+} from "../../../../scripts/webhook-fencing/postgres-fixture";
 import { createHmac, randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -14,7 +17,10 @@ import {
   reclaimWebhookFence,
 } from "@reviewrouter/features-github-installations";
 import { handleFencedPullRequestComposite } from "./fenced-pull-request-composite";
-import { writeFencedPullRequestIngress, writePullRequestIngressInTransaction } from "./fenced-pull-request-ingress";
+import {
+  writeFencedPullRequestIngress,
+  writePullRequestIngressInTransaction,
+} from "./fenced-pull-request-ingress";
 import { PrismaWorkspaceReviewSettings } from "@reviewrouter/features-review-config/composition";
 import { PrismaWebhookDeliveryRepository } from "@reviewrouter/features-github-installations";
 const test = webhookFencePostgres.enabled ? describe : describe.skip;
@@ -339,7 +345,9 @@ test("fenced PR composite on isolated PostgreSQL", () => {
     });
     const writer = prisma.$transaction(
       async (tx) => {
-        await acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "exclusive" }]);
+        await acquireCurrentScopeGuards(tx, [
+          { scope: "global", mode: "exclusive" },
+        ]);
         await tx.$executeRaw(
           Prisma.sql`UPDATE "RepositoryConnection" SET "fullName"='new/name' WHERE id='repo'`,
         );
@@ -423,10 +431,12 @@ test("fenced PR composite on isolated PostgreSQL", () => {
       conflictFallbackEnabled: false,
     });
     const legacy = new PrismaWebhookDeliveryRepository(prisma);
-    await expect(legacy.markFailed({
-      deliveryId: e.deliveryId,
-      errorSummary: "synthetic stale handler",
-    })).rejects.toThrow();
+    await expect(
+      legacy.markFailed({
+        deliveryId: e.deliveryId,
+        errorSummary: "synthetic stale handler",
+      }),
+    ).rejects.toThrow();
     expect(
       (
         await pool.query(
@@ -453,37 +463,83 @@ test("fenced PR composite on isolated PostgreSQL", () => {
     const rawPayload = Buffer.from(JSON.stringify(e.payload));
     const webhookSecret = "isolated-webhook-fixture";
     const verified = createGitHubAppWebhookVerifier({
-      appId: "42", apiBaseUrl: "https://api.github.com", webhookSecret,
+      appId: "42",
+      apiBaseUrl: "https://api.github.com",
+      webhookSecret,
     })({
       rawPayload,
       signatureHeader: `sha256=${createHmac("sha256", webhookSecret).update(rawPayload).digest("hex")}`,
     })!;
     e.payloadHash = verified.payloadHash;
     const delivery = {
-      deliveryId: e.deliveryId, eventName: e.eventName, action: e.payload.action,
-      installationId: "123", payloadHash: e.payloadHash,
+      deliveryId: e.deliveryId,
+      eventName: e.eventName,
+      action: e.payload.action,
+      installationId: "123",
+      payloadHash: e.payloadHash,
     };
-    const before = (await pool.query('SELECT count(*)::int n FROM "OutboxEvent"')).rows[0].n;
-    const acquisition = await prisma.$transaction(async (tx) => {
-      await acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "shared" }]);
-      const claim = await claimVerifiedFencedWebhookDeliveryInTransaction(tx, verified, delivery, owner, 10000);
-      expect(claim.kind).toBe("claimed");
-      await writePullRequestIngressInTransaction(tx, e);
-      return claim;
-    }, { isolationLevel: "ReadCommitted" });
+    const before = (
+      await pool.query('SELECT count(*)::int n FROM "OutboxEvent"')
+    ).rows[0].n;
+    const acquisition = await prisma.$transaction(
+      async (tx) => {
+        await acquireCurrentScopeGuards(tx, [
+          { scope: "global", mode: "shared" },
+        ]);
+        const claim = await claimVerifiedFencedWebhookDeliveryInTransaction(
+          tx,
+          verified,
+          delivery,
+          owner,
+          10000,
+        );
+        expect(claim.kind).toBe("claimed");
+        await writePullRequestIngressInTransaction(tx, e);
+        return claim;
+      },
+      { isolationLevel: "ReadCommitted" },
+    );
     expect(acquisition.kind).toBe("claimed");
     // The initial transaction committed; no generic effect or failure callback
     // ran. This is the state left by process death at the handoff boundary.
-    expect((await pool.query('SELECT count(*)::int n FROM "OutboxEvent"')).rows[0].n).toBe(before + 1);
-    expect((await pool.query('SELECT status::text FROM "GitHubWebhookDelivery" WHERE "deliveryId"=$1', [e.deliveryId])).rows[0].status).toBe("processing");
-    await pool.query('UPDATE "GitHubWebhookFence" SET "leaseUntil"=clock_timestamp()-interval \'1 second\' WHERE "deliveryId"=$1', [e.deliveryId]);
-    const recovered = await claimVerifiedFencedWebhookDelivery(prisma, verified, delivery, "e".repeat(64), 10000);
+    expect(
+      (await pool.query('SELECT count(*)::int n FROM "OutboxEvent"')).rows[0].n,
+    ).toBe(before + 1);
+    expect(
+      (
+        await pool.query(
+          'SELECT status::text FROM "GitHubWebhookDelivery" WHERE "deliveryId"=$1',
+          [e.deliveryId],
+        )
+      ).rows[0].status,
+    ).toBe("processing");
+    await pool.query(
+      'UPDATE "GitHubWebhookFence" SET "leaseUntil"=clock_timestamp()-interval \'1 second\' WHERE "deliveryId"=$1',
+      [e.deliveryId],
+    );
+    const recovered = await claimVerifiedFencedWebhookDelivery(
+      prisma,
+      verified,
+      delivery,
+      "e".repeat(64),
+      10000,
+    );
     if (recovered.kind !== "claimed") throw new Error("recovery_claim_missing");
     await handleFencedPullRequestComposite(prisma, e, recovered.claim, {
-      reviewIngressEnabled: false, conflictFallbackEnabled: false,
+      reviewIngressEnabled: false,
+      conflictFallbackEnabled: false,
     });
-    expect((await pool.query('SELECT count(*)::int n FROM "OutboxEvent"')).rows[0].n).toBe(before + 1);
-    expect((await pool.query('SELECT status::text FROM "GitHubWebhookDelivery" WHERE "deliveryId"=$1', [e.deliveryId])).rows[0].status).toBe("processed");
+    expect(
+      (await pool.query('SELECT count(*)::int n FROM "OutboxEvent"')).rows[0].n,
+    ).toBe(before + 1);
+    expect(
+      (
+        await pool.query(
+          'SELECT status::text FROM "GitHubWebhookDelivery" WHERE "deliveryId"=$1',
+          [e.deliveryId],
+        )
+      ).rows[0].status,
+    ).toBe("processed");
   });
   it("reads the actual draft setting after waiting for its ordinary writer", async () => {
     const e = envelope("draft-policy-writer");
@@ -491,33 +547,55 @@ test("fenced PR composite on isolated PostgreSQL", () => {
     e.payload.pull_request.state = "open";
     e.payload.pull_request.merged = false;
     e.payload.pull_request.draft = true;
-    const claim = await beginFencedWebhookDelivery(prisma, {
-      deliveryId: e.deliveryId, eventName: e.eventName, action: e.payload.action,
-      installationId: "123", payloadHash: e.payloadHash,
-    }, owner, 10000, "d".repeat(64));
+    const claim = await beginFencedWebhookDelivery(
+      prisma,
+      {
+        deliveryId: e.deliveryId,
+        eventName: e.eventName,
+        action: e.payload.action,
+        installationId: "123",
+        payloadHash: e.payloadHash,
+      },
+      owner,
+      10000,
+      "d".repeat(64),
+    );
     await pool.query(`UPDATE "Workspace" SET "reviewDraftPullRequests"=true WHERE id='workspace';
       CREATE FUNCTION synthetic_hold_policy() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock(87892345); RETURN NEW; END $$;
       CREATE TRIGGER synthetic_hold_policy BEFORE UPDATE ON "Workspace" FOR EACH ROW EXECUTE FUNCTION synthetic_hold_policy();`);
     const blocker = await pool.connect();
     await blocker.query("SELECT pg_advisory_lock(87892345)");
-    const writer = new PrismaWorkspaceReviewSettings(prisma).save("workspace", false);
+    const writer = new PrismaWorkspaceReviewSettings(prisma).save(
+      "workspace",
+      false,
+    );
     let reader: Promise<Record<string, unknown>> | undefined;
     try {
       let writerWaiting = false;
-      for (let attempt=0; attempt<80 && !writerWaiting; attempt++) {
-        writerWaiting = (await pool.query(
-          "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event='advisory') waiting", [schema],
-        )).rows[0].waiting === true;
-        if (!writerWaiting) await new Promise((resolve) => setTimeout(resolve, 25));
+      for (let attempt = 0; attempt < 80 && !writerWaiting; attempt++) {
+        writerWaiting =
+          (
+            await pool.query(
+              "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event='advisory') waiting",
+              [schema],
+            )
+          ).rows[0].waiting === true;
+        if (!writerWaiting)
+          await new Promise((resolve) => setTimeout(resolve, 25));
       }
       expect(writerWaiting).toBe(true);
       reader = writeFencedPullRequestIngress(prisma, e, claim);
       let readerWaiting = false;
-      for (let attempt=0; attempt<80 && !readerWaiting; attempt++) {
-        readerWaiting = (await pool.query(
-          "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND wait_event <> 'advisory') waiting", [schema],
-        )).rows[0].waiting === true;
-        if (!readerWaiting) await new Promise((resolve) => setTimeout(resolve, 25));
+      for (let attempt = 0; attempt < 80 && !readerWaiting; attempt++) {
+        readerWaiting =
+          (
+            await pool.query(
+              "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND wait_event <> 'advisory') waiting",
+              [schema],
+            )
+          ).rows[0].waiting === true;
+        if (!readerWaiting)
+          await new Promise((resolve) => setTimeout(resolve, 25));
       }
       expect(readerWaiting).toBe(true);
     } finally {

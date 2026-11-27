@@ -12,7 +12,7 @@ export type VerifiedGitHubAppWebhook = Readonly<{
 }>;
 
 /**
- * WIP: the caller supplies trusted server configuration pairing App and secret.
+ * The caller supplies trusted server configuration pairing App and secret.
  * GitHub's HMAC proves the secret, not that this configuration names the right
  * App. No request header or payload field may supply the App identity.
  */
