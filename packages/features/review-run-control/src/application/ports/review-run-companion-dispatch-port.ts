@@ -15,7 +15,8 @@ export type ReviewRunCompanionDispatchState =
   | "completed"
   | "not_dispatched";
 
-/** Safe durable facts only; neither request/response bytes nor capabilities. */
+/** Safe dispatch facts and server-only readback metadata; no request/response
+ * bytes or capabilities. */
 export type ReviewRunCompanionDispatch = Readonly<{
   authorizationId: string;
   dispatchId: string;
@@ -38,8 +39,9 @@ export type ReviewRunCompanionDispatch = Readonly<{
   terminalReceipt?: ReviewModelDispatchTerminalReceiptV2 | null;
   retryOfDispatchId?: string;
   nativeRetryProof?: ReviewModelDispatchNativeRetryProof;
-  /** Internal authority cutoff for the final HTTP proof filter; never serialized. */
-  nativeRetryProofNotAfter?: Date;
+  /** Process-local performance.now() cutoff derived from the DB clock. Never
+   * persisted, serialized, or accepted as claim authority. */
+  nativeRetryProofNotAfter?: number;
 }>;
 
 /** Obtained only through the original authenticated Gateway execution client.

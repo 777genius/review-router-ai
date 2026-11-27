@@ -17,14 +17,17 @@
 - Dependencies: existing compatible runtime/producer and ordinary release gates.
   [Action #411](https://github.com/777genius/review-router/pull/411) contains the
   independent GitHub wait, completed-output preservation, cancellation and
-  accepted-source recovery changes. The `1e8a6835` source/build checkpoint passed;
-  generated runtime is now present in `f0fb4d4d`. Current-head reproducibility
-  and paired qualification of the later cold fixture remain pending.
+  accepted-source recovery changes. Source `ccbcabb8` passed the official
+  source, test and build steps; its exact generated artifact still needs normal
+  provenance verification and committed-runtime integration. Earlier bundle
+  `b2227915` remains the paired fixture pin until that integration is qualified.
   [Native #8](https://github.com/agent-teams-ai/sub2api-standalone/pull/8) and
   [Gateway #125](https://github.com/agent-teams-ai/account-gateway/pull/125) have
-  qualified the active non-entry proof producer. The RR/Action consumer
-  checkpoint adds the bounded retry path; its joined compiled qualification and
-  separate ordinary producer activation remain required.
+  qualified the non-entry proof producer source. The RR/Action consumer
+  checkpoint adds the bounded retry path; final joined compiled qualification
+  and separate ordinary producer activation remain required. Both producer PRs
+  were merged by their owner with source-equivalent trees and passing post-merge
+  checks. A merge does not establish deployment or active fleet configuration.
 - Last updated: `2026-11-27`.
 
 ## Environment status
@@ -98,15 +101,17 @@ Draft CI aggregation with skipped lanes is not runtime qualification.
    capacity128 release identities and their complete contract tuples.
 9. Use the official protocol generator/check/export and Action bundle gates,
    then execute the existing joined native consumer oracle with that official
-   Action bundle and real PostgreSQL. Preserve a prior paid turn, hold the
+   Action bundle and real PostgreSQL in private and public modes on each
+   pinned Node 24/26 version. Preserve a prior paid turn, hold the
    original rejected request's actual close acknowledgement, and require zero
    RR proof reads before closure. After closure require one authenticated proof
    read, exactly one fresh successor with identical bytes/route and three charged
    requests total. Negative proof, lost original custody, unknown effect,
    expired authority, exhausted budget, changed body/route and further retry
-   must produce no additional native request or preparation. Record the passing
-   receipt against the exact qualified sources and bundle.
-10. Only after the reader-first prerequisite and the passing joined receipt from
+   must produce no additional native request or preparation. Record passing
+   receipts for all four executions against the exact qualified sources and
+   bundle. Missing or skipped cases do not qualify activation.
+10. Only after the reader-first prerequisite and the passing joined receipts from
     step 9, register or select the new native-retry policy and activate the
     qualified Action through the separately authorized release process.
     Confirm healthy and partial reviews retain their existing progress outcomes
@@ -208,7 +213,32 @@ This capability needs an explicit later invocation before original Gateway
 cleanup. It adds no durable wake-up, recovery after normal transport closure or
 authority extension. Broader recovery remains with its existing owner in #1021.
 
-## Source qualification checkpoint
+## Current source qualification checkpoint
+
+- Native source `f6e05bf4` was merged as `157b07f2` with the same complete
+  tree; all 16 post-merge checks passed. Gateway source `90739814` was merged
+  as `b181fe3a` with the same complete tree; all 23 source checks and both
+  post-merge checks passed.
+- RR uses the official SDK archive from Gateway `90739814`, with its source
+  provenance and integrity recorded under `vendor/account-gateway/`. The
+  committed archive digest matches the recorded SHA-256; this does not replace
+  the final consumer gates.
+- [Action source `ccbcabb8`](https://github.com/777genius/review-router/actions/runs/46066994364)
+  passed lint, retained and strict TypeScript 7.0.2, the required test step,
+  native OCR MCP and the official build. Committed-runtime freshness failed
+  because the earlier `b2227915` bundle is still tracked. Official artifact
+  `15231463229` has archive SHA-256
+  `0c1087e9d182de9a324fd997518abbe5375cecea4f6c9d2e16656b628d4c0ecc`;
+  its normal extraction, source provenance verification and exact generated
+  file integration remain pending. The build checkout and source commit have
+  the same complete tree. The separate real-CLI qualification passed all
+  three suites and 21 tests.
+- Final RR own-repository CI, accepted-result cold recovery and the joined
+  private/public Node 24/26 consumer gates must use the qualified final Action
+  bundle. Earlier passes do not qualify later source changes. Current exact
+  heads and outstanding checks are recorded in PR #1028 and Action #411.
+
+## Historical source qualification checkpoints
 
 - [Action `1e8a6835`](https://github.com/777genius/review-router/actions/runs/46051135263)
   passed lint, retained and strict TypeScript 7.0.2, full Jest with the immutable
@@ -247,12 +277,14 @@ authority extension. Broader recovery remains with its existing owner in #1021.
 No staging or production rollout has been performed for this task. Source
 changes, code review and tests must be recorded separately from deployment.
 
-The official Action build for source `1e8a6835` was imported unchanged as
+At the earlier checkpoint, the official Action build for source `1e8a6835`
+was imported unchanged as
 `f0fb4d4dcc6871ba9a7a89b1c650c4f99a98f593` after artifact SHA-256 and complete
-source-tree provenance verification. The paired CI pin now selects this
-consumer, and the existing real PostgreSQL/compiled public-runner fixture
-includes the accepted-result crash/restore boundary. Source lint and format
-passed; final consumer CI and that new execution oracle remain pending.
+source-tree provenance verification. The paired CI pin selected that
+consumer at that checkpoint. The existing real PostgreSQL/compiled public-runner
+fixture includes the accepted-result crash/restore boundary. Source lint and format
+passed at that checkpoint. Subsequent qualification status is recorded above;
+the final consumer CI and exact execution oracles remain required.
 Detailed run, artifact and original-source bindings are retained in the
 [implementation checkpoint](../plans/2026-11-27-production-review-failure-implementation.md#compiled-consumer-qualification-checkpoint).
 No deployed version, release registration or original request authority changed.

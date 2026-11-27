@@ -555,7 +555,7 @@ ZIP SHA-256 `d541340361d10f1346fdbdd8156fe43c98066eb9d26664c461aacab6c4924a4f`.
 Its recorded merge checkout and reviewed source have the same complete tree
 `dbae9a8e464cf6501acb067b3bc1c23ca57d1706`. The three changed generated files
 were imported unchanged in Action `f0fb4d4dcc6871ba9a7a89b1c650c4f99a98f593`;
-the canonical paired CI pin now selects that exact consumer. This is no
+the canonical paired CI pin selected that exact consumer at that checkpoint. This is no
 release registration or producer activation.
 
 The existing compiled Gateway/PostgreSQL fixture now includes
@@ -667,3 +667,47 @@ Action provenance and the joined Native/Gateway/RR/Action gate. The formatted
 production patch is approximately 700 added lines plus the small migration;
 the repeated current-authority checks account for the difference from the
 pre-implementation estimate. No separate ledger or retry scheduler was added.
+
+### Final receipt, cancellation and rollout review
+
+The next review pass is limited to the implemented retry path and its existing
+qualification fixtures. It adds no retry profile, durable ledger, scheduler,
+authority renewal or provider replay.
+
+1. Transport review keeps the attested native request identity through the real
+   RR HTTP response, including cached public 202 status. Error responses expose
+   the selector only for a verified pre-dispatch rejection; quota and unknown
+   failures retain their existing behavior. The header does not grant a retry.
+2. Authority review checks every asynchronous handoff: proof preparation must
+   still be uncancelled, the retained session must still be open, and the
+   original dispatch proof cutoff must still be live when readback finishes.
+   Carry the DB-derived cutoff, including receipt retention and the original
+   Gateway deadline, internally using elapsed monotonic time; do not add a
+   public field or compare the database deadline to a skewed wall clock.
+3. Receipt review limits actionable proof visibility to the original matching
+   receipt token. Bearer-only historical readback remains available. An already
+   committed settlement remains acknowledged if optional proof enrichment
+   expires or fails; this does not make a historical receipt actionable.
+4. Stream review gives the final EOF/status/settlement path responsibility for
+   its outcome across all of its awaits. Cancellation may not race it with an
+   equal-revision unknown usage outcome. Failure still follows the existing
+   unknown path; cancellation before EOF keeps its existing behavior.
+5. Qualification review observes the actual client EOF/proof boundary, returns
+   finite refusals for bad fixture headers, verifies the real lost-custody
+   callback, and propagates upstream response errors in the public ingress.
+   Preserve all earlier paid-turn, close-ACK, immutable-body and no-replay
+   assertions.
+6. Rollout review requires exact producer/SDK/protocol/bundle qualification and
+   all four private/public Node 24/26 joined executions before activation.
+   Migration 000165 must precede every new Prisma reader. The coherent reader
+   batch precedes Action/profile activation. The owning
+   [rollout record](../deployments/2026-11-27-production-review-failure-fixes.md#ordered-rollout)
+   records the executable order and current evidence.
+
+Source review, focused regressions and full CI remain distinct. Action source
+`ccbcabb8` has passed the official source/test/build steps and real-CLI
+qualification, while its generated bundle still requires exact artifact
+integration and committed-runtime freshness. Final RR qualification must pin
+that qualified consumer and execute the existing cold recovery and joined
+oracles. This review checkpoint grants no deployment, release registration or
+customer replay.
