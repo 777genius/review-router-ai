@@ -20,6 +20,7 @@ const reader = vi.mocked(readRenderManagedCheckoutInventory);
 // Preserve old immutable-prefix fixtures through 000124 explicitly.
 // The complete current checkout is exercised separately.
 const currentFull = readRenderManagedCheckoutInventory();
+const nativeRetryMigrationName = "000165_attested_model_request_retry";
 const readScalingMigrationNames = [
   "000165_installation_sync_latest_index",
   "000166_repository_health_latest_index",
@@ -30,11 +31,15 @@ const webhookDeliveryMigrationNames = [
 ];
 const webhookReceiptOrderMigrationName = "000168_webhook_receipt_order_indexes";
 const applicationTailMigrationNames = [
+  nativeRetryMigrationName,
   ...readScalingMigrationNames,
   ...webhookDeliveryMigrationNames,
   webhookReceiptOrderMigrationName,
 ].sort();
-const checkout174 = currentFull.filter(
+const checkout175 = currentFull.filter(
+  (row) => row.migrationName !== nativeRetryMigrationName,
+);
+const checkout174 = checkout175.filter(
   (row) => row.migrationName !== webhookReceiptOrderMigrationName,
 );
 const predecessorFull = checkout174.filter(
@@ -202,9 +207,10 @@ describe("trusted historical96 checkout reader", () => {
     expect(full[96]?.migrationName).toBe(
       "000098_certified_fork_effect_archive",
     );
-    expect(currentFull).toHaveLength(175);
+    expect(currentFull).toHaveLength(176);
+    expect(checkout175).toHaveLength(175);
     expect(checkout174).toHaveLength(174);
-    expect(currentFull.slice(-5).map((row) => row.migrationName)).toEqual(
+    expect(currentFull.slice(-6).map((row) => row.migrationName)).toEqual(
       applicationTailMigrationNames,
     );
     const result = readRenderHistorical96CheckoutInventory();
@@ -248,7 +254,7 @@ describe("trusted historical96 checkout reader", () => {
   );
 
   it.each([...readScalingMigrationNames, ...webhookDeliveryMigrationNames])(
-    "rejects partial checkout175 after removing %s",
+    "rejects partial checkout176 after removing %s",
     (migrationName) => {
       reader.mockReturnValueOnce(
         currentFull.filter((row) => row.migrationName !== migrationName),
@@ -271,24 +277,12 @@ describe("trusted historical96 checkout reader", () => {
   });
 
   it.each([
-    { checkout: currentFull },
-    { checkout: checkout174 },
-    {
-      checkout: currentFull.filter(
-        (row) => !readScalingMigrationNames.includes(row.migrationName),
-      ),
-    },
-    {
-      checkout: checkout174.filter(
-        (row) => !readScalingMigrationNames.includes(row.migrationName),
-      ),
-    },
-    {
-      checkout: checkout174.filter(
-        (row) => !webhookDeliveryMigrationNames.includes(row.migrationName),
-      ),
-    },
-    { checkout: predecessorFull },
+    ...[0, 1, 10, 11, 20, 21, 30, 31, 52, 53, 62, 63].map((mask) => ({
+      checkout: currentFull.filter((row) => {
+        const index = applicationTailMigrationNames.indexOf(row.migrationName);
+        return index < 0 || (mask & (1 << index)) !== 0;
+      }),
+    })),
     {
       checkout: predecessorFull.filter(
         (row) => row.migrationName !== "000161_native_connection_intent",

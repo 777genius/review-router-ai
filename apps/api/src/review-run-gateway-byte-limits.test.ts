@@ -23,6 +23,7 @@ import {
   lifecycleVerificationDescriptorDigest,
   lifecycleVerificationDescriptorDigestV2,
   reviewModelDispatchCapacity128Contract,
+  reviewModelDispatchNativeRetryContract,
   reviewModelDispatchHeaders,
   type ReviewCompanionDispatchContextV1,
 } from "@reviewrouter/shared";
@@ -160,6 +161,205 @@ const forwardingBounds = [
   { capacity128: true, requests: 16, ordinal: 16, allowed: true },
   { capacity128: true, requests: 16, ordinal: 17, allowed: false },
 ];
+
+it.each([
+  { name: "original", enabled: true, invalidProof: undefined, accepted: true },
+  {
+    name: "legacy capacity",
+    enabled: false,
+    invalidProof: undefined,
+    accepted: false,
+  },
+  {
+    name: "foreign execution",
+    enabled: true,
+    invalidProof: "executionRef",
+    accepted: false,
+  },
+  {
+    name: "foreign request",
+    enabled: true,
+    invalidProof: "requestRef",
+    accepted: false,
+  },
+  {
+    name: "closure absent",
+    enabled: true,
+    invalidProof: "transportClosed",
+    accepted: false,
+  },
+])(
+  "records native rejection before unknown only with exact original proof: $name",
+  async ({ enabled, invalidProof, accepted }) => {
+    const state = companionReservation("finding_discovery");
+    const forward = vi.fn(
+      async (
+        ...args: Parameters<ReviewRunModelDispatchAdmission["forward"]>
+      ) => ({
+        ...(await state.admission.claim(...args)),
+        status: "claimed" as const,
+      }),
+    );
+    const recordNativeRejection = vi.fn(
+      async (_authorizationId: string, dispatchId: string) => {
+        const row = state.rows.get(dispatchId)!;
+        expect(row.state).toBe("dispatch_may_have_started");
+        state.rows.set(dispatchId, {
+          ...row,
+          state: "not_dispatched",
+          nativeRetryProof: {
+            kind: "native_rejection_after_forward",
+            reason: "admission_storage_conflict",
+          },
+        });
+      },
+    );
+    const f = await fixture(32768, 0, 2, 5000, undefined, {
+      admission: { ...state.admission, forward, recordNativeRejection },
+      modelDispatchV2: true,
+      modelDispatchCapacity128: true,
+      nativeRetry: enabled,
+      nativeRejection: true,
+      retryProof: (requestRef, executionRef) => ({
+        kind: "request-retry-proof/v1",
+        consumerId: "fixture-consumer",
+        executionRef,
+        requestRef,
+        nonEntryReason: "admission_storage_conflict",
+        transportClosed: true,
+        ...(invalidProof
+          ? {
+              [invalidProof]:
+                invalidProof === "transportClosed" ? false : "foreign",
+            }
+          : {}),
+      }),
+    });
+    const bytes = companionEnvelope();
+    const context = {
+      ...companionContext,
+      dispatchVersion: 2 as const,
+      requestOrdinal: 1,
+      routeIdentityHash: "e".repeat(64),
+    };
+    const original = await state.admission.claim(
+      f.authorization(),
+      context,
+      createHash("sha256").update(bytes).digest("hex"),
+    );
+    state.rows.set(context.dispatchId, {
+      ...original.dispatch,
+      dispatchVersion: 2,
+      requestOrdinal: 1,
+      routeIdentityHash: context.routeIdentityHash,
+      requestBytes: bytes.byteLength,
+      maxOutputTokens: 4096,
+    });
+    try {
+      await expect(
+        f.relay.responses(
+          "local-authorization-token",
+          bytes,
+          new AbortController(),
+          undefined,
+          context,
+        ),
+      ).rejects.toMatchObject({
+        effect: accepted ? "rejected_before_dispatch" : "effect_unknown",
+      });
+      expect(recordNativeRejection).toHaveBeenCalledTimes(accepted ? 1 : 0);
+      expect(state.rows.get(context.dispatchId)?.state).toBe(
+        accepted ? "not_dispatched" : "effect_unknown",
+      );
+      expect(f.retryProofCalls).toHaveLength(enabled ? 1 : 0);
+      if (accepted) {
+        expect(recordNativeRejection).toHaveBeenCalledWith(
+          f.authorization().authorizationId,
+          context.dispatchId,
+          {
+            kind: "request-retry-proof/v1",
+            consumerId: "fixture-consumer",
+            executionRef: f.retryProofCalls[0]!.executionRef,
+            requestRef: original.dispatch.nativeRequestRef,
+            nonEntryReason: "admission_storage_conflict",
+            transportClosed: true,
+          },
+        );
+        expect(
+          await f.relay.canReadNativeRetryProof(
+            state.rows.get(context.dispatchId)!,
+          ),
+        ).toBe(true);
+        f.revoke(f.authorization().authorizationId);
+        expect(
+          await f.relay.canReadNativeRetryProof(
+            state.rows.get(context.dispatchId)!,
+          ),
+        ).toBe(false);
+      }
+      expect(f.intents).toHaveLength(1);
+      expect(f.requestBodies).toEqual([bytes.toString()]);
+    } finally {
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it("refuses a successor before preparation when the original Gateway client was lost", async () => {
+  const state = companionReservation("finding_discovery");
+  const forward = vi.fn(
+    async (
+      ...args: Parameters<ReviewRunModelDispatchAdmission["forward"]>
+    ) => ({
+      ...(await state.admission.claim(...args)),
+      status: "claimed" as const,
+    }),
+  );
+  const f = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: { ...state.admission, forward },
+    modelDispatchV2: true,
+    modelDispatchCapacity128: true,
+    nativeRetry: true,
+  });
+  const bytes = companionEnvelope();
+  const context = {
+    ...companionContext,
+    dispatchVersion: 2 as const,
+    requestOrdinal: 2,
+    routeIdentityHash: "e".repeat(64),
+  };
+  const reserved = await state.admission.claim(
+    f.authorization(),
+    context,
+    createHash("sha256").update(bytes).digest("hex"),
+  );
+  state.rows.set(context.dispatchId, {
+    ...reserved.dispatch,
+    dispatchVersion: 2,
+    requestOrdinal: 2,
+    routeIdentityHash: context.routeIdentityHash,
+    requestBytes: bytes.byteLength,
+    maxOutputTokens: 4096,
+    retryOfDispatchId: `rr-model-${"b".repeat(64)}`,
+  });
+  try {
+    await expect(
+      f.relay.responses(
+        "local-authorization-token",
+        bytes,
+        new AbortController(),
+        undefined,
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "model_dispatch_retry_denied" });
+    expect(forward).not.toHaveBeenCalled();
+    expect(f.intents).toHaveLength(0);
+    expect(f.requestBodies).toHaveLength(0);
+    expect(f.retryProofCalls).toHaveLength(0);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
 
 it.each(forwardingBounds)(
   "HTTP native forwarding uses frozen capacity128=$capacity128 / clamp=$requests / ordinal=$ordinal",
@@ -960,11 +1160,18 @@ it("attributes consumer cancellation during successful companion settlement to d
       }
     })();
     void draining.catch(() => {});
-    await settlementStarted.promise;
+    await Promise.race([
+      settlementStarted.promise,
+      draining.then(() => {
+        throw new Error("stream_ended_before_companion_settlement");
+      }),
+    ]);
     expect(completedRecorded).toBe(false);
     await reader.cancel();
     await draining;
     expect(completedRecorded).toBe(false);
+    const effectsBeforeCompletion = [...f.effects];
+    const settlementsBeforeCompletion = [...settlement.mock.calls];
     releaseSettlement.resolve();
 
     await vi.waitFor(() =>
@@ -987,6 +1194,8 @@ it("attributes consumer cancellation during successful companion settlement to d
       ]),
     );
     expect(completedRecorded).toBe(true);
+    expect(f.effects).toEqual(effectsBeforeCompletion);
+    expect(settlement.mock.calls).toEqual(settlementsBeforeCompletion);
     expect(
       settlement.mock.calls.filter(([, , effect]) => effect === "completed"),
     ).toHaveLength(1);
@@ -994,9 +1203,9 @@ it("attributes consumer cancellation during successful companion settlement to d
       "completed",
     );
     expect(f.requestRefs).toEqual(["stored-companion-native-ref"]);
-    expect(
-      log.mock.calls.flat().some((value) => value instanceof Error),
-    ).toBe(false);
+    expect(log.mock.calls.flat().some((value) => value instanceof Error)).toBe(
+      false,
+    );
   } finally {
     releaseSettlement.resolve();
     await reader?.cancel().catch(() => {});
@@ -1774,7 +1983,12 @@ async function fixture(
   controlledStream?: (response: ServerResponse) => Promise<void>,
   companionOptions?: {
     admission: ReviewRunCompanionDispatchAdmission &
-      Partial<Pick<ReviewRunModelDispatchAdmission, "forward">>;
+      Partial<
+        Pick<
+          ReviewRunModelDispatchAdmission,
+          "forward" | "recordNativeRejection"
+        >
+      >;
     unpaid?: boolean;
     providerQuota?: {
       provider: "openrouter";
@@ -1790,6 +2004,9 @@ async function fixture(
     failUsageOutcome?: boolean;
     modelDispatchV2?: boolean;
     modelDispatchCapacity128?: boolean;
+    nativeRetry?: boolean;
+    nativeRejection?: boolean;
+    retryProof?: (requestRef: string, executionRef: string) => unknown;
   },
   capturedRequests = 128,
   selection: {
@@ -1815,6 +2032,7 @@ async function fixture(
       } | null>)
     | null,
 ) {
+  const retryProofCalls: { requestRef: string; executionRef: string }[] = [];
   const deadline = new Date(Date.now() + 120_000).toISOString();
   const limits = {
     requests: capturedRequests,
@@ -1877,6 +2095,12 @@ async function fixture(
     ...(companionOptions?.modelDispatchV2
       ? {
           modelDispatchCapability: {
+            ...(companionOptions.nativeRetry
+              ? {
+                  retryPolicy:
+                    reviewModelDispatchNativeRetryContract.retryPolicy,
+                }
+              : {}),
             ...(companionOptions.modelDispatchCapacity128
               ? {
                   capacityPolicy:
@@ -2167,11 +2391,44 @@ async function fixture(
     const execution = /^\/v1\/executions\/([^/]+)\/(requests|close)$/.exec(
       req.url ?? "",
     );
+    const proofRequest =
+      /^\/v1\/executions\/([^/]+)\/requests\/([^/]+)\/retry-proof$/.exec(
+        req.url ?? "",
+      );
+    if (proofRequest && req.method === "GET") {
+      expect(req.headers.authorization).toBe("Bearer local-execution-token");
+      expect(req.headers["x-account-gateway-capability"]).toBe(
+        "request-retry-proof/v1",
+      );
+      const executionRef = proofRequest[1]!,
+        requestRef = proofRequest[2]!;
+      retryProofCalls.push({ executionRef, requestRef });
+      res
+        .writeHead(200, { "content-type": "application/json" })
+        .end(
+          JSON.stringify(
+            companionOptions?.retryProof?.(requestRef, executionRef),
+          ),
+        );
+      return;
+    }
     if (execution?.[2] === "requests") {
       requestModels.push((JSON.parse(raw) as { model: string }).model);
       admissions.push(JSON.parse(String(req.headers["x-gateway-admission"])));
       requestBodies.push(raw);
       requestRefs.push(String(req.headers["x-gateway-request-id"]));
+      if (companionOptions?.nativeRejection) {
+        res.writeHead(502, { "content-type": "application/json" }).end(
+          JSON.stringify({
+            code: "upstream_failure",
+            traceRef: "native-rejection-fixture",
+            requestRef: String(req.headers["x-gateway-request-id"]),
+            effect: "rejected_before_dispatch",
+            retry: { kind: "never" },
+          }),
+        );
+        return;
+      }
       const refusalStatus =
         companionOptions?.refusalStatus ?? nativeRefusalStatus;
       if (refusalStatus) {
@@ -2492,6 +2749,7 @@ async function fixture(
     requestModels,
     requestBodies,
     requestRefs,
+    retryProofCalls,
     limits,
     effects,
     authorityChecks,
@@ -3605,6 +3863,8 @@ it.each(["pressure", "timer"] as const)(
 );
 
 it("v4 pressure still reclaims an exact retained close after all automatic retries are spent", async () => {
+  const realSetTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
   vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
   const originalFactory = preparationModule.createReviewRunGatewayPreparation;
   let localCloseCalls = 0;
@@ -3653,9 +3913,22 @@ it("v4 pressure still reclaims an exact retained close after all automatic retri
       }
       expect(Date.now()).toBeLessThan(deadline);
       expect(localCloseCalls).toBe(expected);
-      // Freeze fake time during real I/O. The held response makes this join
-      // exact, so settlement latency cannot consume the next retry's window.
-      await retryClose.started;
+      // Freeze fake time during real I/O; a local failure must not leave this
+      // arrival wait pending beyond the real-time bound.
+      let arrivalTimeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          retryClose.started,
+          new Promise<never>((_resolve, reject) => {
+            arrivalTimeout = realSetTimeout(
+              () => reject(new Error("native_close_request_not_started")),
+              2000,
+            );
+          }),
+        ]);
+      } finally {
+        if (arrivalTimeout !== undefined) realClearTimeout(arrivalTimeout);
+      }
       expect(f.nativeCloses).toHaveLength(expected);
       closing = f.relay.closeRun("authorization-1", "completed");
       retryClose.release();
