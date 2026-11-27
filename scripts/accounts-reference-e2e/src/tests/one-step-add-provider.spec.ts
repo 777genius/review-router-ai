@@ -186,9 +186,12 @@ test("Add provider signs in to Grok in place and selects the new account", async
   const code = await authorization.locator("code").innerText();
   await authorization.close();
   // The request holds the provider choice while it waits for the code.
-  await expect(
-    dialog.getByRole("combobox", { name: "Provider", exact: true }),
-  ).toBeDisabled();
+  const providers = dialog.getByRole("radiogroup", { name: "Provider" });
+  for (const name of ["Grok", "Codex"]) {
+    await expect(
+      providers.getByRole("radio", { name, exact: true }),
+    ).toBeDisabled();
+  }
   await page.screenshot({
     path: info.outputPath("one-step-grok-code-desktop.png"),
     fullPage: true,
