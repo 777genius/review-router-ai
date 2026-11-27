@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   createPrismaClient,
   type PrismaClient,
@@ -355,9 +355,13 @@ databaseTests("WorkspaceProviderProfile PostgreSQL storage", () => {
       },
       deps(),
     );
+    const hash = createHash("sha256")
+      .update("review-current-scope-v1\0workspace:")
+      .update(workspaceA)
+      .digest("hex");
     const revision = async () => {
       const rows = await prisma.$queryRaw<Array<{ revision: bigint }>>`
-        SELECT COALESCE(SUM(revision), 0)::bigint AS revision FROM "CurrentScopeEpoch"`;
+        SELECT revision FROM "CurrentScopeEpoch" WHERE "keyHash" = ${hash}`;
       return rows[0]?.revision ?? 0n;
     };
     const input = {
