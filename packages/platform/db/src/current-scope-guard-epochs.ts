@@ -14,6 +14,7 @@ export async function runScopeEpochSerializableTransaction<T>(
   prisma: PrismaClient,
   scopes: readonly CurrentScopeGuard[],
   work: (transaction: Prisma.TransactionClient) => Promise<T>,
+  options?: Readonly<{ timeoutMs: number }>,
 ): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     try {
@@ -22,7 +23,10 @@ export async function runScopeEpochSerializableTransaction<T>(
           await acquireCurrentScopeGuardsWithEpoch(transaction, scopes);
           return work(transaction);
         },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          ...(options ? { timeout: options.timeoutMs } : {}),
+        },
       );
     } catch (error) {
       if (attempt >= 2 || !isSerializationFailure(error)) throw error;

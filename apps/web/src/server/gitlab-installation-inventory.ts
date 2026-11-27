@@ -1,4 +1,7 @@
-import type { PrismaClient } from "@reviewrouter/platform-db";
+import {
+  runScopeEpochSerializableTransaction,
+  type PrismaClient,
+} from "@reviewrouter/platform-db";
 import type {
   GitLabBulkProvisionResult,
   GitLabGroupProject,
@@ -76,7 +79,15 @@ export class PrismaGitLabInstallationInventory {
       ),
     );
 
-    return this.prisma.$transaction(
+    return runScopeEpochSerializableTransaction(
+      this.prisma,
+      [
+        {
+          scope: "workspace",
+          workspaceId: input.workspaceId,
+          mode: "exclusive",
+        },
+      ],
       async (tx) => {
         await tx.$queryRaw`
           SELECT 1 AS "locked"
@@ -205,7 +216,7 @@ export class PrismaGitLabInstallationInventory {
 
         return { installationId: installation.id };
       },
-      { isolationLevel: "ReadCommitted", timeout: 15_000 },
+      { timeoutMs: 15_000 },
     );
   }
 }
