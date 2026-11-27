@@ -543,3 +543,34 @@ engineer-days. Complexity C=5/10; scoped utility U=8/10; expected reliability
 N=8/10 after all gates, with moderate estimate confidence. The source checkpoint
 does not establish runtime qualification, production deployment or a completed
 durable long-wait recovery feature.
+
+### Compiled consumer qualification checkpoint
+
+Action source `1e8a6835238709f137a0b58cb27815e5c6a650d3` passed lint,
+retained and strict TypeScript 7, the full Jest step including the actual
+unchanged pre-B decoder, native OCR MCP and the official build in
+[run 46051135263](https://github.com/777genius/review-router/actions/runs/46051135263).
+Only the stale committed-runtime check failed. Artifact `15225485338` has
+ZIP SHA-256 `d541340361d10f1346fdbdd8156fe43c98066eb9d26664c461aacab6c4924a4f`.
+Its recorded merge checkout and reviewed source have the same complete tree
+`dbae9a8e464cf6501acb067b3bc1c23ca57d1706`. The three changed generated files
+were imported unchanged in Action `f0fb4d4dcc6871ba9a7a89b1c650c4f99a98f593`;
+the canonical paired CI pin now selects that exact consumer. This is no
+release registration or producer activation.
+
+The existing compiled Gateway/PostgreSQL fixture now includes
+`accepted-result-recovery`. One ordinary reviewer finishes before a second
+commits its result and encounters an injected GitHub guard outage. The fixture
+holds only the acknowledgement of its real source-lease release, kills the
+first public Action process and cold-enters the same compiled artifact using
+a separate clean Git clone, HOME, temporary directory and output file.
+It supplies no source observation or lease IDs. The oracle requires exact
+stored evidence and provider-lease preservation, original ordinal 2, no new
+provider request or Gateway preparation, one original authorization/execution,
+and ordinary App-authored publication. Only the exact injected HTTP error is
+exempted from the existing zero-error assertion.
+
+Independent source review and pinned native lint/format passed for this fixture.
+Its strict project typecheck, actual PostgreSQL/compiled execution and the
+final Action/RR required gates remain pending; earlier source passes do not
+qualify this new consumer checkpoint.

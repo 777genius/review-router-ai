@@ -123,3 +123,13 @@ existing contract. Reconcile any partially installed fleet before resuming.
 
 No staging or production rollout has been performed for this task. Source
 changes, code review and tests must be recorded separately from deployment.
+
+The official Action build for source `1e8a6835` was imported unchanged as
+`f0fb4d4dcc6871ba9a7a89b1c650c4f99a98f593` after artifact SHA-256 and complete
+source-tree provenance verification. The paired CI pin now selects this
+consumer, and the existing real PostgreSQL/compiled public-runner fixture
+includes the accepted-result crash/restore boundary. Source lint and format
+passed; final consumer CI and that new execution oracle remain pending.
+Detailed run, artifact and original-source bindings are retained in the
+[implementation checkpoint](../plans/2026-11-27-production-review-failure-implementation.md#compiled-consumer-qualification-checkpoint).
+No deployed version, release registration or original request authority changed.

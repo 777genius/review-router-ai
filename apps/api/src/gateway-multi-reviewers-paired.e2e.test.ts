@@ -68,11 +68,13 @@ const profileId = "openrouter-openai-responses-apikey-v1";
   "mixed-engines",
   "mixed-phase-incomplete",
   "mixed-filter-preserved",
+  "accepted-result-recovery",
 ] as const)(
   "runs the compiled entrypoint through real API/SQL with %s Gateway allocations",
   async (scenario) => {
     const phaseIncomplete = scenario === "mixed-phase-incomplete";
     const filterPreserved = scenario === "mixed-filter-preserved";
+    const acceptedRecovery = scenario === "accepted-result-recovery";
     const mixed =
       scenario === "mixed-engines" || phaseIncomplete || filterPreserved;
     const sharedAllocation = scenario === "shared" || mixed;
@@ -86,6 +88,18 @@ const profileId = "openrouter-openai-responses-apikey-v1";
     let workerPass = Promise.resolve();
     let workerRunning = false;
     let workerError: unknown;
+    let failPostCommitFreshness = false;
+    let freshnessFailures = 0;
+    let committedResults = 0;
+    let releasedSources = 0;
+    let sourcesReleased!: () => void;
+    const sourceReleaseApplied = new Promise<void>((resolve) => {
+      sourcesReleased = resolve;
+    });
+    let releaseAcknowledgements!: () => void;
+    const heldAcknowledgements = new Promise<void>((resolve) => {
+      releaseAcknowledgements = resolve;
+    });
     try {
       // Synthetic executables remain CommonJS even inside an ESM checkout.
       await writeFile(
@@ -275,7 +289,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
         })),
         execution: {
           providerLimit: 2,
-          providerMaxParallel: 2,
+          providerMaxParallel: acceptedRecovery ? 1 : 2,
           inlineMinAgreement: 2,
         },
       });
@@ -378,6 +392,13 @@ const profileId = "openrouter-openai-responses-apikey-v1";
               },
             ]);
           if (request.method === "GET" && url.pathname.endsWith("/pulls/42")) {
+            if (failPostCommitFreshness) {
+              freshnessFailures++;
+              return Response.json(
+                { message: "disposable_post_commit_github_outage" },
+                { status: 503 },
+              );
+            }
             const response = await previousFetch(input, init);
             const body = (await response.json()) as Record<string, unknown>;
             return Response.json({
@@ -421,6 +442,33 @@ const profileId = "openrouter-openai-responses-apikey-v1";
         },
       });
       await registerReviewRunSkillsRoute(app, fixture.routes.reviewSkills!);
+      if (acceptedRecovery) {
+        const commit = fixture.routes.evidence.commit!;
+        const executeCommit = commit.execute;
+        vi.spyOn(commit, "execute").mockImplementation(async (request) => {
+          const result = await executeCommit(request);
+          committedResults++;
+          // Sequential reviewers leave one ordinarily satisfied slot and one
+          // accepted but unattached source. Do not fabricate persisted state.
+          if (committedResults === models.length) {
+            failPostCommitFreshness = true;
+          }
+          return result;
+        });
+        const release = fixture.routes.execution.releaseLease!;
+        const executeRelease = release.execute;
+        vi.spyOn(release, "execute").mockImplementation(async (request) => {
+          const result = await executeRelease(request);
+          if (failPostCommitFreshness) {
+            releasedSources++;
+            if (releasedSources === 1) sourcesReleased();
+            // The real transition is committed. Hold only its response so the
+            // first runner cannot enter its outer Gateway cleanup.
+            await heldAcknowledgements;
+          }
+          return result;
+        });
+      }
       await registerReviewExecutionV2Routes(app, fixture.routes.execution);
       await registerReviewEvidenceV2Routes(app, fixture.routes.evidence);
       await registerReviewSnapshotReadV2Routes(app, fixture.routes.snapshot);
@@ -528,47 +576,199 @@ const profileId = "openrouter-openai-responses-apikey-v1";
       let output: { stdout: string; stderr: string };
       let expectedCoverageFailure = false;
       try {
-        const result = await exec(process.execPath, [artifact], {
-          cwd: repository.directory,
-          timeout: 90000,
-          maxBuffer: 4 * 1024 * 1024,
-          env: {
-            PATH: `${bin}:/usr/bin:/bin`,
-            HOME: home,
-            NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${preload}`]
-              .filter(Boolean)
-              .join(" "),
-            ...(mixed ? { REVIEWROUTER_OCR_BINARY: ocr } : {}),
-            CI: "true",
-            GITHUB_ACTIONS: "true",
-            GITHUB_EVENT_NAME: "pull_request",
-            GITHUB_EVENT_PATH: event,
-            GITHUB_REPOSITORY: "reviewrouter-e2e/disposable-review-v2",
-            GITHUB_WORKSPACE: repository.directory,
-            GITHUB_OUTPUT: path.join(root, "output"),
-            RUNNER_TEMP: runnerTemp,
-            TMPDIR: runnerTemp,
-            REVIEWROUTER_ACTION_V2_MODE: "t0",
-            REVIEWROUTER_ACTION_VERSION: "a".repeat(40),
-            REVIEW_ROUTER_MODE: "account-gateway",
-            INPUT_MODE: "account-gateway",
-            INPUT_API_URL: "https://multi-paired.reviewrouter.invalid",
-            INPUT_CONTROL_PLANE_URL:
-              "https://multi-paired.reviewrouter.invalid",
-            REVIEWROUTER_API_URL: "https://multi-paired.reviewrouter.invalid",
-            REVIEWROUTER_CONTROL_PLANE_URL:
-              "https://multi-paired.reviewrouter.invalid",
-            REVIEWROUTER_OIDC_AUDIENCE:
-              fixture.env.REVIEW_ROUTER_ACTION_OIDC_AUDIENCE!,
-            INPUT_OIDC_AUDIENCE:
-              fixture.env.REVIEW_ROUTER_ACTION_OIDC_AUDIENCE!,
-            INPUT_PROVIDER_INSTANCE_ID: "codex-rotating:987654321",
-            INPUT_WORKFLOW_SCHEMA_VERSION: "2",
-            ACTIONS_ID_TOKEN_REQUEST_URL:
-              "https://token.actions.githubusercontent.com/token",
-            ACTIONS_ID_TOKEN_REQUEST_TOKEN: "disposable-request-token",
-          },
-        });
+        const coldRepository = path.join(root, "cold-repository");
+        const runAction = (cold = false) =>
+          exec(process.execPath, [artifact], {
+            cwd: cold ? coldRepository : repository.directory,
+            timeout: 90000,
+            maxBuffer: 4 * 1024 * 1024,
+            env: {
+              PATH: `${bin}:/usr/bin:/bin`,
+              HOME: cold ? path.join(root, "cold-home") : home,
+              NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${preload}`]
+                .filter(Boolean)
+                .join(" "),
+              ...(mixed ? { REVIEWROUTER_OCR_BINARY: ocr } : {}),
+              CI: "true",
+              GITHUB_ACTIONS: "true",
+              GITHUB_EVENT_NAME: "pull_request",
+              GITHUB_EVENT_PATH: event,
+              GITHUB_REPOSITORY: "reviewrouter-e2e/disposable-review-v2",
+              GITHUB_WORKSPACE: cold ? coldRepository : repository.directory,
+              GITHUB_OUTPUT: path.join(root, cold ? "cold-output" : "output"),
+              RUNNER_TEMP: cold ? path.join(root, "cold-runner") : runnerTemp,
+              TMPDIR: cold ? path.join(root, "cold-runner") : runnerTemp,
+              REVIEWROUTER_ACTION_V2_MODE: "t0",
+              REVIEWROUTER_ACTION_VERSION: "a".repeat(40),
+              REVIEW_ROUTER_MODE: "account-gateway",
+              INPUT_MODE: "account-gateway",
+              INPUT_API_URL: "https://multi-paired.reviewrouter.invalid",
+              INPUT_CONTROL_PLANE_URL:
+                "https://multi-paired.reviewrouter.invalid",
+              REVIEWROUTER_API_URL: "https://multi-paired.reviewrouter.invalid",
+              REVIEWROUTER_CONTROL_PLANE_URL:
+                "https://multi-paired.reviewrouter.invalid",
+              REVIEWROUTER_OIDC_AUDIENCE:
+                fixture.env.REVIEW_ROUTER_ACTION_OIDC_AUDIENCE!,
+              INPUT_OIDC_AUDIENCE:
+                fixture.env.REVIEW_ROUTER_ACTION_OIDC_AUDIENCE!,
+              INPUT_PROVIDER_INSTANCE_ID: "codex-rotating:987654321",
+              INPUT_WORKFLOW_SCHEMA_VERSION: "2",
+              ACTIONS_ID_TOKEN_REQUEST_URL:
+                "https://token.actions.githubusercontent.com/token",
+              ACTIONS_ID_TOKEN_REQUEST_TOKEN: "disposable-request-token",
+            },
+          });
+        let result: Awaited<ReturnType<typeof runAction>>;
+        if (acceptedRecovery) {
+          const first = runAction();
+          // Observe settlement immediately; the intentionally killed child
+          // must never create an unhandled rejection or escape cleanup.
+          const firstOutcome = first.then(
+            () => ({ stopped: false as const, signal: null }),
+            (error: unknown) => ({
+              stopped: true as const,
+              signal:
+                error instanceof Error ? Reflect.get(error, "signal") : null,
+            }),
+          );
+          let timeout: ReturnType<typeof setTimeout> | undefined;
+          try {
+            await Promise.race([
+              sourceReleaseApplied,
+              firstOutcome.then(() => {
+                throw new Error(
+                  "accepted_recovery_runner_exited_before_release",
+                );
+              }),
+              new Promise<never>((_, reject) => {
+                timeout = setTimeout(
+                  () => reject(new Error("accepted_recovery_release_timeout")),
+                  45000,
+                );
+              }),
+            ]);
+            clearTimeout(timeout);
+            expect(committedResults).toBe(models.length);
+            expect(releasedSources).toBe(1);
+            expect(freshnessFailures).toBeGreaterThan(0);
+            expect(native.closes).toEqual([]);
+            const original = await prisma.reviewExecutionV2.findFirstOrThrow({
+              where: { workspaceId },
+            });
+            expect(original.state).toBe("running");
+            const originalSlots =
+              await prisma.reviewExecutionWorkSlotV2.findMany({
+                where: {
+                  executionId: original.executionId,
+                  taskKind: "finding_discovery",
+                },
+              });
+            expect(originalSlots).toHaveLength(models.length);
+            const unattachedSlots = originalSlots.filter(
+              (slot) => slot.state === "exhausted",
+            );
+            expect(unattachedSlots).toHaveLength(1);
+            expect(unattachedSlots[0]).toMatchObject({
+              attemptBudget: 1,
+              nextAttemptOrdinal: 2,
+              activeLeaseId: null,
+              acceptedObservationRefId: null,
+            });
+            expect(
+              originalSlots.filter((slot) => slot.state === "satisfied"),
+            ).toHaveLength(1);
+            const originals = await prisma.reviewEvidenceObservation.findMany({
+              where: { sourceExecutionId: original.executionId },
+              orderBy: { observationId: "asc" },
+            });
+            expect(originals).toHaveLength(models.length);
+            const originalLeases =
+              await prisma.reviewInvocationLeaseV2.findMany({
+                where: {
+                  executionId: original.executionId,
+                  purpose: "provider_execution",
+                },
+                orderBy: { leaseId: "asc" },
+              });
+            expect(originalLeases).toHaveLength(models.length);
+            for (const lease of originalLeases)
+              expect(lease.state).toBe("released");
+            const admissionCalls = native.calls.filter((call) =>
+              /\/internal\/v1\/run-access|\/dispatch\b/.test(call),
+            );
+            const originalRequests = [...native.requests.keys()];
+            expect(first.child.kill("SIGKILL")).toBe(true);
+            expect(await firstOutcome).toEqual({
+              stopped: true,
+              signal: "SIGKILL",
+            });
+            failPostCommitFreshness = false;
+            releaseAcknowledgements();
+            await mkdir(path.join(root, "cold-home"));
+            await mkdir(path.join(root, "cold-runner"));
+            await exec("/usr/bin/git", [
+              "clone",
+              "--no-local",
+              "--no-hardlinks",
+              repository.directory,
+              coldRepository,
+            ]);
+            // No source IDs, manifests, local artifacts or restored execution
+            // are supplied to this fresh public Action process. Its separate
+            // checkout contains only the original committed Git data.
+            result = await runAction(true);
+            expect(
+              native.calls.filter((call) =>
+                /\/internal\/v1\/run-access|\/dispatch\b/.test(call),
+              ),
+            ).toEqual(admissionCalls);
+            expect([...native.requests.keys()]).toEqual(originalRequests);
+            expect(
+              await prisma.reviewInvocationLeaseV2.findMany({
+                where: {
+                  executionId: original.executionId,
+                  purpose: "provider_execution",
+                },
+                orderBy: { leaseId: "asc" },
+              }),
+            ).toEqual(originalLeases);
+            expect(
+              await prisma.reviewEvidenceObservation.findMany({
+                where: { sourceExecutionId: original.executionId },
+                orderBy: { observationId: "asc" },
+              }),
+            ).toEqual(originals);
+            const restoredSlots =
+              await prisma.reviewExecutionWorkSlotV2.findMany({
+                where: {
+                  executionId: original.executionId,
+                  taskKind: "finding_discovery",
+                },
+              });
+            for (const slot of restoredSlots) {
+              expect(slot.state).toBe("satisfied");
+              expect(slot.nextAttemptOrdinal).toBe(2);
+              expect(slot.acceptedObservationRefId).toBe(
+                originals.find(
+                  (observation) =>
+                    observation.sourceWorkSlotId === slot.workSlotId,
+                )?.observationId,
+              );
+            }
+          } finally {
+            clearTimeout(timeout);
+            if (
+              first.child.exitCode === null &&
+              first.child.signalCode === null
+            )
+              first.child.kill("SIGKILL");
+            await firstOutcome;
+            releaseAcknowledgements();
+          }
+        } else {
+          result = await runAction();
+        }
         output = {
           stdout: redact(result.stdout),
           stderr: redact(result.stderr),
@@ -699,7 +899,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
             : ["multi-account-0", "multi-account-1"],
       );
       expect(native.preparations).toHaveLength(
-        scenario === "independent" ? 2 : 1,
+        scenario === "independent" || acceptedRecovery ? 2 : 1,
       );
       expect(native.maxActive).toBe(
         scenario === "independent" || mixed ? 2 : 1,
@@ -787,7 +987,9 @@ const profileId = "openrouter-openai-responses-apikey-v1";
           expect(summary).toContain("A review phase could not be completed.");
           expect(summary).toContain("Tax percentage is added as currency.");
         } else {
-          expect(summary).not.toContain("A review phase could not be completed.");
+          expect(summary).not.toContain(
+            "A review phase could not be completed.",
+          );
         }
         expect(summary).not.toContain("review_phase_incomplete");
         expect(summary).not.toContain("private_phase_reason_923");
@@ -797,7 +999,24 @@ const profileId = "openrouter-openai-responses-apikey-v1";
           }),
         ).toBe(phaseIncomplete ? 0 : 1);
       }
-      expect(errors).toEqual([]);
+      expect(
+        acceptedRecovery
+          ? errors.filter(
+              (error) =>
+                !(
+                  typeof error === "object" &&
+                  error !== null &&
+                  Reflect.get(error, "status") === 503 &&
+                  Reflect.get(error, "path") ===
+                    "/__github/repos/reviewrouter-e2e/disposable-review-v2/pulls/42" &&
+                  Reflect.get(error, "body") ===
+                    JSON.stringify({
+                      message: "disposable_post_commit_github_outage",
+                    })
+                ),
+            )
+          : errors,
+      ).toEqual([]);
       expect(workerError).toBeUndefined();
       await mkdir(path.resolve("tmp/multi-reviewer-e2e"), { recursive: true });
       await writeFile(
@@ -819,6 +1038,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
         ),
       );
     } finally {
+      releaseAcknowledgements();
       clearInterval(workerTimer);
       await workerPass;
       await app.close();
@@ -1200,16 +1420,18 @@ function syntheticOcr(
 ) {
   const comments =
     outcome === "phase_incomplete"
-      ? [{
-          path: "tax.js",
-          content: "Tax percentage is added as currency.",
-          severity: "high",
-          category: "correctness",
-          existing_code: null,
-          suggestion_code: null,
-          start_line: null,
-          end_line: null,
-        }]
+      ? [
+          {
+            path: "tax.js",
+            content: "Tax percentage is added as currency.",
+            severity: "high",
+            category: "correctness",
+            existing_code: null,
+            suggestion_code: null,
+            start_line: null,
+            end_line: null,
+          },
+        ]
       : [];
   const phases = {
     plan:
