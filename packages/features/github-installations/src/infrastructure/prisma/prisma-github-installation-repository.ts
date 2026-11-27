@@ -1,5 +1,6 @@
 import {
   acquireCurrentScopeGuards,
+  runScopeEpochSerializableTransaction,
   rotateRemovedScmRepositoryIdentityEpoch,
 } from "@reviewrouter/platform-db";
 import type { PrismaClient, Prisma } from "@prisma/client";
@@ -18,8 +19,10 @@ export class PrismaGitHubInstallationRepository implements GitHubInstallationRep
   async upsertInstallation(
     snapshot: GitHubInstallationSnapshot,
   ): Promise<void> {
-    await this.prisma.$transaction((tx) =>
-      this.upsertInstallationInTransaction(tx, snapshot),
+    await runScopeEpochSerializableTransaction(
+      this.prisma,
+      [{ scope: "global", mode: "exclusive" }],
+      (tx) => this.upsertInstallationInTransaction(tx, snapshot),
     );
   }
 
@@ -95,8 +98,11 @@ export class PrismaGitHubInstallationRepository implements GitHubInstallationRep
   }
 
   async markInstallationRemoved(githubInstallationId: string): Promise<void> {
-    await this.prisma.$transaction((tx) =>
-      this.markInstallationRemovedInTransaction(tx, githubInstallationId),
+    await runScopeEpochSerializableTransaction(
+      this.prisma,
+      [{ scope: "global", mode: "exclusive" }],
+      (tx) =>
+        this.markInstallationRemovedInTransaction(tx, githubInstallationId),
     );
   }
 

@@ -6,6 +6,7 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { beginFencedWebhookDelivery } from "../infrastructure/prisma/webhook-effect-fence";
 import { handleFencedInstallationWebhook } from "../infrastructure/prisma/fenced-installation-webhook";
+import { PrismaGitHubInstallationRepository } from "../infrastructure/prisma/prisma-github-installation-repository";
 
 const socket = process.env.REVIEW_ROUTER_WEBHOOK_FENCE_TEST_SOCKET;
 const test = socket?.startsWith("/") ? describe : describe.skip;
@@ -166,5 +167,34 @@ test("fenced installation webhook on isolated PostgreSQL", () => {
         )
       ).rows[0].n,
     ).toBe(0);
+  });
+  it("ordinary installation writer participates in global epoch", async () => {
+    const before = (
+      await pool.query(
+        'SELECT COALESCE(sum(revision),0)::int n FROM "CurrentScopeEpoch"',
+      )
+    ).rows[0].n;
+    await new PrismaGitHubInstallationRepository(prisma).upsertInstallation({
+      githubInstallationId: "42",
+      accountLogin: "writer-team",
+      accountType: "Organization",
+      accountAvatarUrl: null,
+      repositorySelection: "selected",
+      status: "active",
+    });
+    expect(
+      (
+        await pool.query(
+          'SELECT "accountLogin" FROM "GitHubInstallation" WHERE id=\'i\'',
+        )
+      ).rows[0].accountLogin,
+    ).toBe("writer-team");
+    expect(
+      (
+        await pool.query(
+          'SELECT COALESCE(sum(revision),0)::int n FROM "CurrentScopeEpoch"',
+        )
+      ).rows[0].n,
+    ).toBe(before + 1);
   });
 });
