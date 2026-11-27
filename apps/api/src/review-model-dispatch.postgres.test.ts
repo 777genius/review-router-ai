@@ -581,9 +581,11 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
     capacity128 = false,
     frozenCapacity128 = capacity128,
     nativeRetry = false,
+    gatewayDeadline?: Date,
   ): Promise<Fixture> {
     const prefix = `model-dispatch-test-${randomUUID()}`;
     const deadline = new Date(Date.now() + 600_000).toISOString();
+    const originalDeadline = gatewayDeadline?.toISOString() ?? deadline;
     const limits = {
       maxRequests,
       maxConcurrentRequests: 1 as const,
@@ -618,7 +620,7 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
       routeIdentityHash: hash(`${prefix}-original-account-model-route`),
       providerIndex: 0,
       model: "gpt-5.5",
-      deadline,
+      deadline: originalDeadline,
     };
     const profile: ReviewModelDispatchProfile = {
       extensionId: reviewModelDispatchContract.extensionId,
@@ -675,7 +677,7 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
             }
           : workspacePolicyFixture,
       ),
-      deadline,
+      deadline: originalDeadline,
       modelDispatchCapability: budget,
       gateway: gateway
         ? {
@@ -706,6 +708,9 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
         modelDispatchProfile: profile,
         skipInitialLease: true,
         ...(nativeRetry ? { deadlineAt: new Date(deadline) } : {}),
+        ...(gatewayDeadline
+          ? { authorizationDeadlineAt: gatewayDeadline }
+          : {}),
       })),
       budget,
     };
@@ -720,7 +725,7 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
             executionRef: "original-gateway-execution",
             accountRef: "original-account",
             authorizationEpoch: 1,
-            deadline,
+            deadline: originalDeadline,
           }),
         },
       });
@@ -1287,7 +1292,17 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
   );
 
   it("bounds the DB-derived proof cutoff by the shorter original Gateway deadline despite host skew", async () => {
-    const f = await fixture(4, "account_gateway", true, true, true);
+    // The immutable original binding shares the authorization deadline; the
+    // execution and its lease may outlive that narrower admission authority.
+    const bindingDeadline = Date.now() + 30_000;
+    const f = await fixture(
+      4,
+      "account_gateway",
+      true,
+      true,
+      true,
+      new Date(bindingDeadline),
+    );
     const original = claim(await f.acquireClaim(0), f);
     const [auth, execution, lease] = await Promise.all([
       f.prisma.reviewRunAuthorization.findUniqueOrThrow({
@@ -1300,20 +1315,6 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
         where: { leaseId: original.leaseId },
       }),
     ]);
-    const bindingDeadline = lease.expiresAt.getTime() - 1_000;
-    await f.prisma.reviewRunAuthorization.update({
-      where: { authorizationId: original.authorizationId },
-      data: {
-        gatewayExecutionCanonicalJson: canonicalJson({
-          bindingVersion: 1,
-          operationId: "operation-1",
-          executionRef: "original-gateway-execution",
-          accountRef: "original-account",
-          authorizationEpoch: 1,
-          deadline: new Date(bindingDeadline).toISOString(),
-        }),
-      },
-    });
     const rejected = await reservedNative(f, original);
     await f.repository.recordNativeRejection(
       original.authorizationId,
