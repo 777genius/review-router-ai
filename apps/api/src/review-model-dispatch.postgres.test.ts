@@ -1170,6 +1170,104 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
     },
   );
 
+  it("hides retry after ownership expiry while retained reporting still accepts late ACK", async () => {
+    const f = await fixture(4, "account_gateway", true, true, true);
+    const original = claim(await f.acquireClaim(0), f);
+    const rejected = await reservedNative(f, original);
+    const proof = nativeProof(rejected.dispatch.nativeRequestRef);
+    await f.repository.recordNativeRejection(
+      original.authorizationId,
+      original.dispatchId,
+      proof,
+    );
+    expect(
+      await f.repository.readReceipt(
+        original.dispatchId,
+        rejected.receiptToken!,
+      ),
+    ).toHaveProperty("nativeRetryProof", {
+      kind: "native_rejection_after_forward",
+      reason: "admission_storage_conflict",
+    });
+    const where = {
+      authorizationId_dispatchId: {
+        authorizationId: original.authorizationId,
+        dispatchId: original.dispatchId,
+      },
+    };
+    const before =
+      await f.prisma.reviewRunCompanionDispatchV1.findUniqueOrThrow({ where });
+    const [clock] = await f.prisma.$queryRaw<readonly { now: Date }[]>`
+      SELECT (clock_timestamp() AT TIME ZONE 'UTC') AS "now"`;
+    expect(clock).toBeDefined();
+    const now = clock!.now;
+    // Keep the row active and its original reporting window open: the cutoff
+    // must come from DB-clock ownership expiry, not a released-state shortcut.
+    const expired = await f.prisma.reviewInvocationLeaseV2.update({
+      where: { leaseId: original.leaseId },
+      data: {
+        acquiredAt: new Date(now.getTime() - 60_000),
+        renewedAt: new Date(now.getTime() - 60_000),
+        expiresAt: new Date(now.getTime() - 1_000),
+      },
+    });
+    expect(expired.state).toBe("active");
+    expect(expired.expiresAt.getTime()).toBeLessThan(now.getTime());
+    expect(expired.resultReportUntil.getTime()).toBeGreaterThan(now.getTime());
+    for (const row of await Promise.all([
+      f.repository.read(original.authorizationId, original.dispatchId),
+      f.repository.readReceipt(original.dispatchId, rejected.receiptToken!),
+    ])) {
+      expect(row).toMatchObject({ state: "not_dispatched" });
+      expect(row).not.toHaveProperty("nativeRetryProof");
+    }
+    const next = successor(original, f);
+    await expect(f.repository.claim(next)).rejects.toMatchObject({
+      code: "companion_lease_not_active",
+    });
+    // Receipt retention is cleanup authority only. Late ACK and later unknown
+    // delivery cannot erase the native fact or revive a paid allowance.
+    for (const settlement of [
+      nativeSettlement,
+      { state: "effect_unknown" as const },
+      nativeSettlement,
+    ]) {
+      const row = await f.repository.settleReceipt(
+        original.dispatchId,
+        rejected.receiptToken!,
+        settlement,
+      );
+      expect(row).toMatchObject({ state: "not_dispatched" });
+      expect(row).not.toHaveProperty("nativeRetryProof");
+    }
+    await f.repository.settle(
+      original.authorizationId,
+      original.dispatchId,
+      "effect_unknown",
+    );
+    expect(
+      await f.prisma.reviewRunCompanionDispatchV1.findUniqueOrThrow({ where }),
+    ).toEqual(before);
+    expect(before).toMatchObject({
+      nativeEffectState: "not_dispatched",
+      nativeRetryProofJson: proof,
+    });
+    expect(
+      await f.repository.readReceipt(
+        original.dispatchId,
+        rejected.receiptToken!,
+      ),
+    ).not.toHaveProperty("nativeRetryProof");
+    await expect(f.repository.claim(next)).rejects.toMatchObject({
+      code: "companion_lease_not_active",
+    });
+    expect(
+      await f.prisma.reviewRunCompanionDispatchV1.count({
+        where: { authorizationId: original.authorizationId },
+      }),
+    ).toBe(1);
+  });
+
   it("cannot chain successors or bypass a failed successor with a fresh root", async () => {
     const f = await fixture(4, "account_gateway", true, true, true);
     const original = claim(await f.acquireClaim(0), f);

@@ -1994,6 +1994,7 @@ if (
           {
             contract: "native-non-entry-consumer/v1",
             mode,
+            nodeVersion: process.version,
             artifactDigest,
             runnerDigest,
             spentDispatches: 3,

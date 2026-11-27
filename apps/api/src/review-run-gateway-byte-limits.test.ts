@@ -304,6 +304,236 @@ it.each([
   },
 );
 
+it.each([
+  {
+    name: "cached pending with closed non-entry",
+    effect: "dispatch_started",
+    status: "pending",
+    nativeRetry: true,
+    role: "finding_discovery",
+    proof: "accepted",
+  },
+  {
+    name: "cached pending without a durable closure ACK",
+    effect: "dispatch_started",
+    status: "pending",
+    nativeRetry: true,
+    role: "finding_discovery",
+    proof: "denied",
+  },
+  {
+    name: "completed status",
+    effect: "completed",
+    status: "completed",
+    nativeRetry: true,
+    role: "finding_discovery",
+    proof: "unused",
+  },
+  {
+    name: "legacy cached pending",
+    effect: "dispatch_started",
+    status: "pending",
+    nativeRetry: false,
+    role: "finding_discovery",
+    proof: "unused",
+  },
+  {
+    name: "auxiliary cached pending",
+    effect: "dispatch_started",
+    status: "pending",
+    nativeRetry: true,
+    role: "lifecycle_verification",
+    proof: "unused",
+  },
+] as const)(
+  "drains native status before the single eligible proof read: $name",
+  async ({ effect, status, nativeRetry, role, proof }) => {
+    const state = companionReservation(role);
+    const events: string[] = [];
+    const statusBody = Promise.withResolvers<void>();
+    const releaseEof = Promise.withResolvers<void>();
+    const forward = vi.fn(
+      async (
+        ...args: Parameters<ReviewRunModelDispatchAdmission["forward"]>
+      ) => ({
+        ...(await state.admission.claim(...args)),
+        status: "claimed" as const,
+      }),
+    );
+    const settle = vi.fn(
+      async (
+        ...args: Parameters<ReviewRunCompanionDispatchAdmission["settle"]>
+      ) => {
+        events.push("settle:" + args[2]);
+        await state.admission.settle(...args);
+      },
+    );
+    const recordNativeRejection = vi.fn(
+      async (_authorizationId: string, dispatchId: string) => {
+        expect(events).toEqual(["status-body", "status-eof", "proof"]);
+        events.push("attested");
+        const row = state.rows.get(dispatchId)!;
+        expect(row.state).toBe("dispatch_may_have_started");
+        state.rows.set(dispatchId, {
+          ...row,
+          state: "not_dispatched",
+          nativeRetryProof: {
+            kind: "native_rejection_after_forward",
+            reason: "admission_storage_conflict",
+          },
+        });
+      },
+    );
+    const f = await fixture(32768, 0, 2, 4000, undefined, {
+      admission: {
+        ...state.admission,
+        forward,
+        settle,
+        recordNativeRejection,
+      },
+      modelDispatchV2: true,
+      modelDispatchCapacity128: true,
+      nativeRetry,
+      nativeStatusResponse: async (response, requestRef) => {
+        response.writeHead(202, { "content-type": "application/json" });
+        response.write(JSON.stringify({ requestRef, effect, status }));
+        events.push("status-body");
+        statusBody.resolve();
+        // The public native handler awaits its close ACK before returning.
+        // Sending JSON without EOF must not trigger an early RR proof read.
+        await releaseEof.promise;
+        events.push("status-eof");
+        response.end();
+      },
+      retryProofStatus: proof === "denied" ? 403 : 200,
+      retryProof: (requestRef, executionRef) => {
+        events.push("proof");
+        return proof === "denied"
+          ? {
+              code: "forbidden",
+              traceRef: "held-closure-fixture",
+              requestRef,
+              effect: "effect_unknown",
+              retry: { kind: "never" },
+            }
+          : {
+              kind: "request-retry-proof/v1",
+              consumerId: "fixture-consumer",
+              executionRef,
+              requestRef,
+              nonEntryReason: "admission_storage_conflict",
+              transportClosed: true,
+            };
+      },
+    });
+    const bytes = companionEnvelope();
+    const context = {
+      ...companionContext,
+      dispatchVersion: 2 as const,
+      requestOrdinal: 1,
+      routeIdentityHash: "e".repeat(64),
+    };
+    const original = await state.admission.claim(
+      f.authorization(),
+      context,
+      createHash("sha256").update(bytes).digest("hex"),
+    );
+    state.rows.set(context.dispatchId, {
+      ...original.dispatch,
+      dispatchVersion: 2,
+      requestOrdinal: 1,
+      routeIdentityHash: context.routeIdentityHash,
+      requestBytes: bytes.byteLength,
+      maxOutputTokens: 4096,
+    });
+    const controller = new AbortController();
+    const pending = f.relay
+      .responses(
+        "local-authorization-token",
+        bytes,
+        controller,
+        undefined,
+        context,
+      )
+      .then(
+        (response) => ({ kind: "response" as const, response }),
+        (error: unknown) => ({ kind: "error" as const, error }),
+      );
+    try {
+      await Promise.race([
+        statusBody.promise,
+        pending.then(() => {
+          throw new Error("native_status_finished_before_body_checkpoint");
+        }),
+      ]);
+      await setImmediate();
+      expect(events).toEqual(["status-body"]);
+      expect(f.retryProofCalls).toHaveLength(0);
+      expect(recordNativeRejection).not.toHaveBeenCalled();
+      expect(settle).not.toHaveBeenCalled();
+      expect(f.effects).toEqual([]);
+      expect(state.rows.get(context.dispatchId)?.state).toBe(
+        "dispatch_may_have_started",
+      );
+      releaseEof.resolve();
+      const result = await pending;
+      if (proof === "denied") {
+        expect(result.kind).toBe("error");
+        if (result.kind === "error")
+          expect(result.error).toMatchObject({ effect: "effect_unknown" });
+      } else {
+        expect(result).toMatchObject({
+          kind: "response",
+          response: {
+            kind: "status",
+            status: {
+              requestRef: original.dispatch.nativeRequestRef,
+              effect,
+              status,
+            },
+          },
+        });
+      }
+      expect(f.retryProofCalls).toHaveLength(proof === "unused" ? 0 : 1);
+      expect(recordNativeRejection).toHaveBeenCalledTimes(
+        proof === "accepted" ? 1 : 0,
+      );
+      const settledState =
+        effect === "completed" ? "completed" : "effect_unknown";
+      expect(state.rows.get(context.dispatchId)?.state).toBe(
+        proof === "accepted" ? "not_dispatched" : settledState,
+      );
+      expect(events).toEqual([
+        "status-body",
+        "status-eof",
+        ...(proof === "unused" ? [] : ["proof"]),
+        proof === "accepted" ? "attested" : "settle:" + settledState,
+      ]);
+      expect(f.effects).toEqual([
+        {
+          requestRef: original.dispatch.nativeRequestRef,
+          effect:
+            proof === "accepted"
+              ? "rejected_before_dispatch"
+              : proof === "denied"
+                ? "effect_unknown"
+                : effect,
+        },
+      ]);
+      expect(forward).toHaveBeenCalledTimes(1);
+      expect(f.intents).toHaveLength(1);
+      expect(f.requestBodies).toEqual([bytes.toString()]);
+      expect(state.rows.size).toBe(1);
+    } finally {
+      releaseEof.resolve();
+      controller.abort();
+      await pending;
+      await f.relay.shutdown();
+    }
+  },
+  10_000,
+);
+
 it("refuses a successor before preparation when the original Gateway client was lost", async () => {
   const state = companionReservation("finding_discovery");
   const forward = vi.fn(
@@ -2005,6 +2235,11 @@ async function fixture(
     modelDispatchCapacity128?: boolean;
     nativeRetry?: boolean;
     nativeRejection?: boolean;
+    nativeStatusResponse?: (
+      response: ServerResponse,
+      requestRef: string,
+    ) => Promise<void>;
+    retryProofStatus?: number;
     retryProof?: (requestRef: string, executionRef: string) => unknown;
   },
   capturedRequests = 128,
@@ -2403,7 +2638,9 @@ async function fixture(
         requestRef = proofRequest[2]!;
       retryProofCalls.push({ executionRef, requestRef });
       res
-        .writeHead(200, { "content-type": "application/json" })
+        .writeHead(companionOptions?.retryProofStatus ?? 200, {
+          "content-type": "application/json",
+        })
         .end(
           JSON.stringify(
             companionOptions?.retryProof?.(requestRef, executionRef),
@@ -2416,6 +2653,13 @@ async function fixture(
       admissions.push(JSON.parse(String(req.headers["x-gateway-admission"])));
       requestBodies.push(raw);
       requestRefs.push(String(req.headers["x-gateway-request-id"]));
+      if (companionOptions?.nativeStatusResponse) {
+        await companionOptions.nativeStatusResponse(
+          res,
+          String(req.headers["x-gateway-request-id"]),
+        );
+        return;
+      }
       if (companionOptions?.nativeRejection) {
         res.writeHead(502, { "content-type": "application/json" }).end(
           JSON.stringify({
