@@ -10,10 +10,10 @@
 
 ## Environment status
 
-| Environment | Status    | Actual deployed version          | Last verified (UTC) | Evidence / next step                                                |
-| ----------- | --------- | -------------------------------- | ------------------- | ------------------------------------------------------------------- |
-| staging     | `pending` | Not verified                     | Not verified        | Reconcile before rollout.                                           |
-| production  | `installed` | RR `5ab12e2d79a2` | 2026-11-27 03:20 UTC | Fleet applied; public Web and API readiness return HTTP 200. Authenticated UI and keyboard/mobile verification remain pending. |
+| Environment | Status      | Actual deployed version | Last verified (UTC)  | Evidence / next step                                                                                                           |
+| ----------- | ----------- | ----------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| staging     | `pending`   | Not verified            | Not verified         | Reconcile before rollout.                                                                                                      |
+| production  | `installed` | RR `5ab12e2d79a2`       | 2026-11-27 03:20 UTC | Fleet applied; public Web and API readiness return HTTP 200. Authenticated UI and keyboard/mobile verification remain pending. |
 
 ## Applicability and prerequisites
 

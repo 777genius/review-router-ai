@@ -9,10 +9,10 @@
 
 ## Environment status
 
-| Environment | Status | Actual version / image | Last verified (UTC) | Evidence / next step |
-| --- | --- | --- | --- | --- |
-| staging | `pending` | Not verified | Not verified | Reconcile staging routes before applying. |
-| production | `installed` | RR `f20a75ed`, Gateway `a3dafad` | 2026-11-27 | Targeted Caddy route repair active; browser connection and mutations remain unverified. |
+| Environment | Status      | Actual version / image           | Last verified (UTC) | Evidence / next step                                                                    |
+| ----------- | ----------- | -------------------------------- | ------------------- | --------------------------------------------------------------------------------------- |
+| staging     | `pending`   | Not verified                     | Not verified        | Reconcile staging routes before applying.                                               |
+| production  | `installed` | RR `f20a75ed`, Gateway `a3dafad` | 2026-11-27          | Targeted Caddy route repair active; browser connection and mutations remain unverified. |
 
 ## Cause and rollout
 

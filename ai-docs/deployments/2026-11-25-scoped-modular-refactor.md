@@ -10,10 +10,10 @@
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                                                       |
-| -------------------- | --------- | ------------------------------- | ------------------- | ------------------------------------------------------------------------------------------ |
-| staging              | `pending` | Not verified                    | Not verified        | Qualify the exact merged source, then select it in an authorized ordinary rollout.         |
-| production | `installed` | RR `6271ebe1f5e98bb376b4c7269394f806cb73041f` | 2026-11-27 | Source is included in the running fleet; task-specific verification remains pending. |
+| Environment / target | Status      | Actual deployed version / image               | Last verified (UTC) | Evidence / next step                                                                 |
+| -------------------- | ----------- | --------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------ |
+| staging              | `pending`   | Not verified                                  | Not verified        | Qualify the exact merged source, then select it in an authorized ordinary rollout.   |
+| production           | `installed` | RR `6271ebe1f5e98bb376b4c7269394f806cb73041f` | 2026-11-27          | Source is included in the running fleet; task-specific verification remains pending. |
 
 This record does not authorize deployment. A pending status records an absence
 of verified completion, not an observation that the code is absent.
