@@ -366,7 +366,7 @@ test("full migration webhook fencing compatibility", () => {
                   ELSE 'repository'
                 END,
                 CASE WHEN n > 55000 AND n <= 97500
-                  THEN ${BigInt(installationId)} ELSE 1000000 + n END,
+                  THEN ${BigInt(installationId)}::bigint ELSE 1000000 + n END,
                 jsonb_build_object('repositoryId',
                   CASE WHEN n > 97500
                     THEN CASE WHEN n % 2 = 0 THEN ${repositoryIds[0]} ELSE ${repositoryIds[1]} END
