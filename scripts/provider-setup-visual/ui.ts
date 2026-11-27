@@ -166,9 +166,9 @@ export async function chooseSource(
     .waitFor({ state: "attached" });
 }
 
-/** Source titles as `sourceTitle` renders them. */
+/** Visible provider-card titles; a vendor name can identify another provider. */
 export const SOURCE = {
-  claudeSecret: /^(?:Claude Code(?: · GitHub Secrets)?|Anthropic)$/,
+  claudeSecret: /^Claude Code$/,
   mimoSecret: /^MiMo Token Plan/,
   openRouterKey: /^OpenRouter/,
   mimoKey: /^MiMo Token Plan/,
