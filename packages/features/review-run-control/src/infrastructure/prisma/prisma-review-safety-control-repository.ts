@@ -1,5 +1,5 @@
 import {
-  acquireCurrentScopeGuards,
+  runScopeEpochSerializableTransaction,
   type CurrentScopeGuard,
 } from "@reviewrouter/platform-db";
 import type { Prisma, PrismaClient } from "@prisma/client";
@@ -135,71 +135,72 @@ export class PrismaReviewSafetyControlRepository
     readonly policy: ReviewSafetyPolicy;
   }) {
     const key = reviewSafetyPolicyKey(input.policy);
-    return this.prisma.$transaction(async (transaction) => {
-      await acquireCurrentScopeGuards(transaction, [
-        safetyCurrentScope(input.policy.scope),
-      ]);
-      await lockReviewRunControlKey(transaction, "review-safety-policy", key);
-      const currentRow = await transaction.reviewSafetyPolicy.findFirst({
-        where: {
-          ...reviewSafetyScopeColumns(input.policy.scope),
-          capability: safetyCapabilityToPersistence(input.policy.capability),
-        },
-      });
-      const currentSelectors = currentRow
-        ? await transaction.reviewSafetyPolicySelector.findMany({
-            where: { policyId: currentRow.policyId },
-            orderBy: { selectorOrdinal: "asc" },
-          })
-        : [];
-      const current = currentRow
-        ? reviewSafetyPolicyToDomain(currentRow, currentSelectors)
-        : null;
-      if (current && equivalentPolicy(current, input.policy)) {
-        return {
-          status: ReviewSafetyControlWriteStatus.Restored,
-          policy: current,
-        } as const;
-      }
-      if (
-        (current?.version ?? 0) !== input.expectedVersion ||
-        input.policy.version !== input.expectedVersion + 1 ||
-        (current !== null && current.policyId !== input.policy.policyId)
-      ) {
-        return { status: ReviewSafetyControlWriteStatus.Conflict } as const;
-      }
-      if (!current) {
-        const created = await transaction.reviewSafetyPolicy.create({
+    return runScopeEpochSerializableTransaction(
+      this.prisma,
+      [safetyCurrentScope(input.policy.scope)],
+      async (transaction) => {
+        await lockReviewRunControlKey(transaction, "review-safety-policy", key);
+        const currentRow = await transaction.reviewSafetyPolicy.findFirst({
+          where: {
+            ...reviewSafetyScopeColumns(input.policy.scope),
+            capability: safetyCapabilityToPersistence(input.policy.capability),
+          },
+        });
+        const currentSelectors = currentRow
+          ? await transaction.reviewSafetyPolicySelector.findMany({
+              where: { policyId: currentRow.policyId },
+              orderBy: { selectorOrdinal: "asc" },
+            })
+          : [];
+        const current = currentRow
+          ? reviewSafetyPolicyToDomain(currentRow, currentSelectors)
+          : null;
+        if (current && equivalentPolicy(current, input.policy)) {
+          return {
+            status: ReviewSafetyControlWriteStatus.Restored,
+            policy: current,
+          } as const;
+        }
+        if (
+          (current?.version ?? 0) !== input.expectedVersion ||
+          input.policy.version !== input.expectedVersion + 1 ||
+          (current !== null && current.policyId !== input.policy.policyId)
+        ) {
+          return { status: ReviewSafetyControlWriteStatus.Conflict } as const;
+        }
+        if (!current) {
+          const created = await transaction.reviewSafetyPolicy.create({
+            data: policyData(input.policy),
+          });
+          await replaceSelectors(transaction, input.policy);
+          return {
+            status: ReviewSafetyControlWriteStatus.Created,
+            policy: reviewSafetyPolicyToDomain(
+              created,
+              await transaction.reviewSafetyPolicySelector.findMany({
+                where: { policyId: created.policyId },
+                orderBy: { selectorOrdinal: "asc" },
+              }),
+            ),
+          } as const;
+        }
+        const updated = await transaction.reviewSafetyPolicy.updateMany({
+          where: {
+            policyId: current.policyId,
+            version: input.expectedVersion,
+          },
           data: policyData(input.policy),
         });
+        if (updated.count !== 1) {
+          return { status: ReviewSafetyControlWriteStatus.Conflict } as const;
+        }
         await replaceSelectors(transaction, input.policy);
         return {
-          status: ReviewSafetyControlWriteStatus.Created,
-          policy: reviewSafetyPolicyToDomain(
-            created,
-            await transaction.reviewSafetyPolicySelector.findMany({
-              where: { policyId: created.policyId },
-              orderBy: { selectorOrdinal: "asc" },
-            }),
-          ),
+          status: ReviewSafetyControlWriteStatus.Updated,
+          policy: input.policy,
         } as const;
-      }
-      const updated = await transaction.reviewSafetyPolicy.updateMany({
-        where: {
-          policyId: current.policyId,
-          version: input.expectedVersion,
-        },
-        data: policyData(input.policy),
-      });
-      if (updated.count !== 1) {
-        return { status: ReviewSafetyControlWriteStatus.Conflict } as const;
-      }
-      await replaceSelectors(transaction, input.policy);
-      return {
-        status: ReviewSafetyControlWriteStatus.Updated,
-        policy: input.policy,
-      } as const;
-    });
+      },
+    );
   }
 
   async putReviewSafetyEmergencyControl(input: {
@@ -207,62 +208,64 @@ export class PrismaReviewSafetyControlRepository
     readonly control: ReviewSafetyEmergencyControl;
   }) {
     const key = reviewSafetyScopeKey(input.control.scope);
-    return this.prisma.$transaction(async (transaction) => {
-      await acquireCurrentScopeGuards(transaction, [
-        safetyCurrentScope(input.control.scope),
-      ]);
-      await lockReviewRunControlKey(
-        transaction,
-        "review-safety-emergency",
-        key,
-      );
-      const currentRow =
-        await transaction.reviewSafetyEmergencyControl.findFirst({
-          where: reviewSafetyScopeColumns(input.control.scope),
-        });
-      const current = currentRow
-        ? reviewSafetyEmergencyControlToDomain(currentRow)
-        : null;
-      if (current && equivalentEmergency(current, input.control)) {
+    return runScopeEpochSerializableTransaction(
+      this.prisma,
+      [safetyCurrentScope(input.control.scope)],
+      async (transaction) => {
+        await lockReviewRunControlKey(
+          transaction,
+          "review-safety-emergency",
+          key,
+        );
+        const currentRow =
+          await transaction.reviewSafetyEmergencyControl.findFirst({
+            where: reviewSafetyScopeColumns(input.control.scope),
+          });
+        const current = currentRow
+          ? reviewSafetyEmergencyControlToDomain(currentRow)
+          : null;
+        if (current && equivalentEmergency(current, input.control)) {
+          return {
+            status: ReviewSafetyControlWriteStatus.Restored,
+            control: current,
+          } as const;
+        }
+        if (
+          (current?.version ?? 0) !== input.expectedVersion ||
+          input.control.version !== input.expectedVersion + 1 ||
+          (current !== null &&
+            current.emergencyControlId !== input.control.emergencyControlId)
+        ) {
+          return { status: ReviewSafetyControlWriteStatus.Conflict } as const;
+        }
+        if (!current) {
+          const created = await transaction.reviewSafetyEmergencyControl.create(
+            {
+              data: emergencyData(input.control),
+            },
+          );
+          return {
+            status: ReviewSafetyControlWriteStatus.Created,
+            control: reviewSafetyEmergencyControlToDomain(created),
+          } as const;
+        }
+        const updated =
+          await transaction.reviewSafetyEmergencyControl.updateMany({
+            where: {
+              emergencyControlId: current.emergencyControlId,
+              version: input.expectedVersion,
+            },
+            data: emergencyData(input.control),
+          });
+        if (updated.count !== 1) {
+          return { status: ReviewSafetyControlWriteStatus.Conflict } as const;
+        }
         return {
-          status: ReviewSafetyControlWriteStatus.Restored,
-          control: current,
+          status: ReviewSafetyControlWriteStatus.Updated,
+          control: input.control,
         } as const;
-      }
-      if (
-        (current?.version ?? 0) !== input.expectedVersion ||
-        input.control.version !== input.expectedVersion + 1 ||
-        (current !== null &&
-          current.emergencyControlId !== input.control.emergencyControlId)
-      ) {
-        return { status: ReviewSafetyControlWriteStatus.Conflict } as const;
-      }
-      if (!current) {
-        const created = await transaction.reviewSafetyEmergencyControl.create({
-          data: emergencyData(input.control),
-        });
-        return {
-          status: ReviewSafetyControlWriteStatus.Created,
-          control: reviewSafetyEmergencyControlToDomain(created),
-        } as const;
-      }
-      const updated = await transaction.reviewSafetyEmergencyControl.updateMany(
-        {
-          where: {
-            emergencyControlId: current.emergencyControlId,
-            version: input.expectedVersion,
-          },
-          data: emergencyData(input.control),
-        },
-      );
-      if (updated.count !== 1) {
-        return { status: ReviewSafetyControlWriteStatus.Conflict } as const;
-      }
-      return {
-        status: ReviewSafetyControlWriteStatus.Updated,
-        control: input.control,
-      } as const;
-    });
+      },
+    );
   }
 }
 
