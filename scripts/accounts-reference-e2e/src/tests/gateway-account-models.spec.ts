@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
+  chooseSetupOption,
   openNewProvider,
   expectNoHorizontalOverflow,
 } from "./provider-setup-support.ts";
@@ -40,6 +41,10 @@ async function fixture(phase?: string) {
   };
 }
 async function choose(page: Page, label: string, value: string) {
+  if (label === "Provider") {
+    await chooseSetupOption(page, label, value);
+    return;
+  }
   const control = page.getByRole("dialog").getByRole("combobox", {
     name: label === "Account" ? /^Account\b/ : label,
     exact: true,
