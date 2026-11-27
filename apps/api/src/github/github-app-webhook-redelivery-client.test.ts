@@ -6,6 +6,7 @@ import { GitHubAppWebhookRedeliveryClient } from "./github-app-webhook-redeliver
 
 describe("GitHub App redelivery client with synthetic local server", () => {
   let scanMode = "normal";
+  let nextLink: string | undefined;
   const requests: Array<{
     method: string | undefined;
     url: string | undefined;
@@ -46,7 +47,7 @@ describe("GitHub App redelivery client with synthetic local server", () => {
           "content-type": "application/json",
           link: "<https://api.github.com/app/hook/deliveries?cursor=page2>; rel=next",
         });
-        res.write("[");
+        res.flushHeaders();
         return;
       }
       if (req.url === "/app/hook/deliveries/42") {
@@ -118,12 +119,16 @@ describe("GitHub App redelivery client with synthetic local server", () => {
         return;
       }
       if (
-        (scanMode === "two" || scanMode === "two-unquoted") &&
+        (scanMode === "two" ||
+          scanMode === "two-unquoted" ||
+          nextLink !== undefined) &&
         !req.url?.includes("cursor=")
       ) {
         res.writeHead(200, {
           "content-type": "application/json",
-          link: `<https://api.github.com/app/hook/deliveries?per_page=100&cursor=page2>; rel=${scanMode === "two" ? '"next"' : "next"}`,
+          link:
+            nextLink ??
+            `<https://api.github.com/app/hook/deliveries?per_page=100&cursor=page2>; rel=${scanMode === "two" ? '"next"' : "next"}`,
         });
         res.end("[]");
         return;
@@ -167,6 +172,7 @@ describe("GitHub App redelivery client with synthetic local server", () => {
     unusedBody?.response.destroy();
     unusedBody = undefined;
     scanMode = "normal";
+    nextLink = undefined;
   });
   afterAll(async () => {
     await new Promise<void>((resolve, reject) =>
@@ -256,6 +262,52 @@ describe("GitHub App redelivery client with synthetic local server", () => {
     ]);
   });
 
+  it.each([
+    '<https://api.github.com/app/hook/deliveries?cursor=page2>; type="application/json"; rel="next"',
+    '<https://api.github.com/app/hook/deliveries?cursor=page2>; type="application/json"; rel=next',
+    '<https://api.github.com/app/hook/deliveries?cursor=page2>; title="a,b; rel=prev"; rel="last next"',
+    '<https://api.github.com/app/hook/deliveries?cursor=page0>; rel="prev", <https://api.github.com/app/hook/deliveries?cursor=page2>; type="application/json"; rel="next"',
+  ])("follows reordered relation parameters and lists: %s", async (link) => {
+    nextLink = link;
+    const c = client();
+    const before = attemptedUrls.length;
+    expect(await c.scanAttempts(identityFor(c), 2)).toEqual({
+      state: "observed",
+      pages: 2,
+      matchingAttempts: 1,
+    });
+    expect(attemptedUrls.slice(before)).toEqual([
+      "https://api.github.com/app/hook/deliveries?per_page=100",
+      "https://api.github.com/app/hook/deliveries?per_page=100&cursor=page2",
+    ]);
+  });
+
+  it.each([
+    '<https://api.github.com/app/hook/deliveries?cursor=page2>; title="x; rel=next',
+    '<https://attacker.invalid/app/hook/deliveries?cursor=page2>; type="application/json"; rel="next"',
+    '<https://api.github.com/app/hook/deliveries?cursor=page2>; rel="next"; anchor="https://attacker.invalid"',
+    '<https://api.github.com/app/hook/deliveries?cursor=page2>; rel="next", <https://api.github.com/app/hook/deliveries?cursor=page3>; rel="next"',
+  ])("rejects unsafe or ambiguous reordered pagination: %s", async (link) => {
+    nextLink = link;
+    const c = client();
+    const before = attemptedUrls.length;
+    expect((await c.scanAttempts(identityFor(c), 5)).state).toBe("incomplete");
+    expect(attemptedUrls.slice(before)).toHaveLength(1);
+  });
+
+  it("does not treat quoted metadata as a next relation", async () => {
+    nextLink =
+      '<https://api.github.com/app/hook/deliveries?cursor=page2>; title="a,b; rel=next"; rel="prev"';
+    const c = client();
+    const before = attemptedUrls.length;
+    expect(await c.scanAttempts(identityFor(c), 5)).toEqual({
+      state: "not_observed",
+      pages: 1,
+      matchingAttempts: 0,
+    });
+    expect(attemptedUrls.slice(before)).toHaveLength(1);
+  });
+
   it.each(["before_scan", "during_auth"] as const)(
     "does not send a page when cancelled %s",
     async (phase) => {
@@ -284,16 +336,13 @@ describe("GitHub App redelivery client with synthetic local server", () => {
   it("cancels an in-flight page body without requesting the next cursor", async () => {
     scanMode = "pending-page";
     const controller = new AbortController();
-    let receivedHeaders!: () => void;
-    const headers = new Promise<void>((resolve) => {
-      receivedHeaders = resolve;
-    });
+    let responseBody: Response["body"] = null;
     const c = GitHubAppWebhookRedeliveryClient.forSyntheticTest(
       "123",
       async () => "synthetic-jwt",
       async (resource, options) => {
         const response = await sendToLocal(resource, options);
-        receivedHeaders();
+        responseBody = response.body;
         return response;
       },
     );
@@ -311,7 +360,12 @@ describe("GitHub App redelivery client with synthetic local server", () => {
       );
     });
     try {
-      await Promise.race([headers, deadline]);
+      // The server sends no body bytes and keeps the response open. Once the
+      // real stream is locked, readBoundedText has reached its pending read.
+      await Promise.race([
+        expect.poll(() => responseBody?.locked, { timeout: 2_000 }).toBe(true),
+        deadline,
+      ]);
       controller.abort();
       expect(await Promise.race([settled, deadline])).toEqual({
         value: { state: "incomplete", pages: 0, matchingAttempts: 0 },

@@ -71,8 +71,36 @@ export async function claimVerifiedFencedWebhookDeliveryInTransaction(
       { scope: "global", mode: "exclusive" },
     ]);
     // The column default uses transaction start, before any admission wait.
-    // Sample the existing database clock only after admission is ordered.
     receivedAt = await new PostgresTransactionClock().now(transaction);
+    const normalized = delivery.normalizedEvent;
+    const repositoryId =
+      delivery.eventName === "repository" &&
+      normalized !== null &&
+      typeof normalized === "object" &&
+      "repositoryId" in normalized &&
+      typeof normalized.repositoryId === "string" &&
+      /^[1-9][0-9]*$/.test(normalized.repositoryId)
+        ? normalized.repositoryId
+        : null;
+    // A later lifecycle event can supersede earlier repository work, so its
+    // floor includes repository receipts even though its own retry predicate
+    // only checks lifecycle receipts. A transfer keeps the canonical repo floor.
+    const prior = await transaction.$queryRaw<
+      Array<{ receivedAt: Date | null }>
+    >(Prisma.sql`
+      SELECT max(d."receivedAt") AS "receivedAt"
+      FROM "GitHubWebhookDelivery" d
+      LEFT JOIN "GitHubWebhookFence" f USING ("deliveryId")
+      WHERE d."eventName" IN ('installation', 'installation_repositories', 'repository')
+        AND (f."appIdentityHash" = ${verified.appIdentityHash} OR f."deliveryId" IS NULL)
+        AND (d."installationId" = ${delivery.installationId ? BigInt(delivery.installationId) : null}
+          OR (d."eventName" = 'repository' AND d."normalizedEvent" ->> 'repositoryId' = ${repositoryId}))
+    `);
+    const previousTime = prior[0]?.receivedAt;
+    // Preserve order after wall-clock rollback and across legacy session-local
+    // timestamps without rewriting their history. Leases still use wall time.
+    if (previousTime && previousTime >= receivedAt)
+      receivedAt = new Date(previousTime.getTime() + 1);
   }
   const inserted = await transaction.gitHubWebhookDelivery.createMany({
     data: [

@@ -439,7 +439,7 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
     };
     // Vitest records cleanup errors alongside an existing body failure.
     onTestFinished(restore);
-    return restore;
+    return { constraint, restore };
   }
 
   it("rejects required ingress admission at startup even when run control is disabled", () => {
@@ -1331,10 +1331,13 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
     const value = await fixture();
     const deliveryId = randomUUID();
     const payload = pushPayload(value);
-    const restore = await rejectTerminal(deliveryId);
+    const { constraint, restore } = await rejectTerminal(deliveryId);
     expect(await post("push", deliveryId, payload)).toEqual({
       status: 500,
       body: { error: "github_webhook_processing_failed" },
+    });
+    expect(processingErrors.get(deliveryId)).toMatchObject({
+      message: expect.stringContaining(constraint),
     });
     expect(await receipt(deliveryId)).toMatchObject({ status: "failed" });
     expect(await outbox(conflictKey(deliveryId))).toBeNull();
@@ -1385,8 +1388,11 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
     const value = await fixture();
     const deliveryId = randomUUID();
     const payload = pullRequestPayload(value);
-    const restore = await rejectTerminal(deliveryId);
+    const { constraint, restore } = await rejectTerminal(deliveryId);
     expect((await post("pull_request", deliveryId, payload)).status).toBe(500);
+    expect(processingErrors.get(deliveryId)).toMatchObject({
+      message: expect.stringContaining(constraint),
+    });
     expect(await receipt(deliveryId)).toMatchObject({ status: "failed" });
     const ingress = await outbox(ingressKey(deliveryId));
     expect(ingress).toMatchObject({
@@ -1406,7 +1412,7 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
     const value = await fixture();
     const deliveryId = randomUUID();
     const payload = pullRequestPayload(value);
-    const restore = await rejectTerminal(deliveryId);
+    const { constraint, restore } = await rejectTerminal(deliveryId);
     expect(
       (
         await post("pull_request", deliveryId, payload, {
@@ -1414,6 +1420,9 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
         })
       ).status,
     ).toBe(500);
+    expect(processingErrors.get(deliveryId)).toMatchObject({
+      message: expect.stringContaining(constraint),
+    });
     expect(await receipt(deliveryId)).toMatchObject({ status: "failed" });
     expect(await outbox(ingressKey(deliveryId))).toBeNull();
     await restore();

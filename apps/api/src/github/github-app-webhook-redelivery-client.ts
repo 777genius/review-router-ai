@@ -306,13 +306,41 @@ async function readBoundedText(
 }
 
 function nextDeliveryCursor(link: string | null): string | null | false {
-  if (!link || !/rel\s*=\s*"?next"?/i.test(link)) return null;
-  const match = link.match(
-    /<([^>]+)>\s*;\s*rel\s*=\s*(?:"next"|next)(?=\s*(?:[,;]|$))/i,
-  );
-  if (!match) return false;
+  if (!link) return null;
+  let remaining = link.trim();
+  let nextUrl: string | undefined;
+  while (remaining) {
+    const target = remaining.match(/^<([^<>]+)>\s*/);
+    if (!target) return false;
+    remaining = remaining.slice(target[0].length);
+    let relation: string | undefined;
+    let anchored = false;
+    while (remaining.startsWith(";")) {
+      // Consume whole quoted values so commas and semicolons inside metadata
+      // cannot be mistaken for another link or relation parameter.
+      const parameter = remaining.match(
+        /^;\s*([-!#$%&'*+.^_`|~0-9A-Za-z]+)(?:\s*=\s*(?:"((?:[^"\\]|\\.)*)"|([-!#$%&'*+.^_`|~0-9A-Za-z]+)))?\s*/,
+      );
+      if (!parameter) return false;
+      remaining = remaining.slice(parameter[0].length);
+      const name = parameter[1]!.toLowerCase();
+      if (name === "rel" && relation === undefined)
+        relation = (parameter[2] ?? parameter[3] ?? "").replace(/\\(.)/g, "$1");
+      if (name === "anchor") anchored = true;
+    }
+    if (relation?.toLowerCase().split(/\s+/).includes("next")) {
+      // A pagination cursor is unambiguous and belongs to this response context.
+      if (anchored || nextUrl !== undefined) return false;
+      nextUrl = target[1]!;
+    }
+    if (!remaining) break;
+    if (!remaining.startsWith(",")) return false;
+    remaining = remaining.slice(1).trimStart();
+    if (!remaining) return false;
+  }
+  if (nextUrl === undefined) return null;
   try {
-    const url = new URL(match[1]!);
+    const url = new URL(nextUrl);
     if (
       url.origin !== apiOrigin ||
       url.pathname !== "/app/hook/deliveries" ||

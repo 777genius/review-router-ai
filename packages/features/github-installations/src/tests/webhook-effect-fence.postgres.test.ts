@@ -154,6 +154,43 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
     };
   }
 
+  async function seedFutureFencedReceipt(
+    event: ReturnType<typeof verifiedEvent>,
+    repositoryId: string | null = null,
+  ) {
+    const claim = {
+      deliveryId: event.delivery.deliveryId,
+      ownerHash: a,
+      appIdentityHash: event.context.appIdentityHash,
+      generation: 1n,
+    };
+    // Model a receipt retained from before a database clock rollback. Insert
+    // its identity before the fence, without altering the host clock or trigger.
+    await realPrisma.$transaction(async (tx) => {
+      await acquireCurrentScopeGuards(tx, [
+        { scope: "global", mode: "exclusive" },
+      ]);
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO "GitHubWebhookDelivery"
+          ("deliveryId", "eventName", action, "installationId", "payloadHash", "normalizedEvent", "receivedAt")
+        VALUES (${claim.deliveryId}, ${event.delivery.eventName}, ${event.delivery.action},
+          ${BigInt(event.delivery.installationId)}, ${event.context.payloadHash},
+          ${repositoryId === null ? null : JSON.stringify({ repositoryId })}::jsonb,
+          (clock_timestamp() AT TIME ZONE 'UTC') + interval '1 hour')
+      `);
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO "GitHubWebhookFence"
+          ("deliveryId", "ownerHash", "appIdentityHash", generation, "leaseUntil", "signatureHash")
+        VALUES (${claim.deliveryId}, ${a}, ${claim.appIdentityHash}, 1,
+          clock_timestamp() + interval '1 minute', ${event.context.signatureHash})
+      `);
+    });
+    expect(
+      await failWebhookFencedDelivery(realPrisma, claim, "synthetic_failure"),
+    ).toBe(true);
+    return claim;
+  }
+
   it("recovers the exact failed generation and protects its terminal receipt from legacy writers", async () => {
     const { context, delivery } = verifiedEvent("claim-failure-recovery");
     const first = await claimVerifiedFencedWebhookDelivery(
@@ -808,6 +845,314 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
         release();
         await delayedOutcome;
       }
+    },
+  );
+
+  it.each([
+    {
+      name: "installation",
+      priorEvent: "installation",
+      priorAction: "suspend",
+      priorInstallation: "90801",
+      nextEvent: "installation",
+      nextAction: "unsuspend",
+      nextInstallation: "90801",
+      repositoryId: null,
+    },
+    {
+      name: "repository-lifecycle",
+      priorEvent: "repository",
+      priorAction: "deleted",
+      priorInstallation: "90802",
+      nextEvent: "installation_repositories",
+      nextAction: "added",
+      nextInstallation: "90802",
+      repositoryId: "80802",
+    },
+    {
+      name: "repository-transfer",
+      priorEvent: "repository",
+      priorAction: "deleted",
+      priorInstallation: "90803",
+      nextEvent: "repository",
+      nextAction: "renamed",
+      nextInstallation: "90804",
+      repositoryId: "80803",
+    },
+  ] as const)(
+    "keeps $name admission ordered after a database clock rollback",
+    async (scenario) => {
+      const original = verifiedEvent(
+        `clock-prior-${scenario.name}`,
+        "123",
+        JSON.stringify({ action: scenario.priorAction }),
+      );
+      const prior = {
+        ...original,
+        delivery: {
+          ...original.delivery,
+          eventName: scenario.priorEvent,
+          action: scenario.priorAction,
+          installationId: scenario.priorInstallation,
+          ...(scenario.repositoryId === null
+            ? {}
+            : { normalizedEvent: { repositoryId: scenario.repositoryId } }),
+        },
+      };
+      await seedFutureFencedReceipt(prior, scenario.repositoryId);
+      const next = verifiedEvent(
+        `clock-next-${scenario.name}`,
+        "123",
+        JSON.stringify({ action: scenario.nextAction }),
+      );
+      const delivery = {
+        ...next.delivery,
+        eventName: scenario.nextEvent,
+        action: scenario.nextAction,
+        installationId: scenario.nextInstallation,
+        ...(scenario.nextEvent === "repository"
+          ? { normalizedEvent: { repositoryId: scenario.repositoryId } }
+          : {}),
+      };
+      const acquired = await claimVerifiedFencedWebhookDelivery(
+        realPrisma,
+        next.context,
+        delivery,
+        a,
+        30000,
+      );
+      if (acquired.kind !== "claimed") throw new Error("claim_required");
+      const order = await pool.query<{
+        ordered: boolean;
+        leaseUsesWallClock: boolean;
+      }>(
+        `SELECT next."receivedAt" > prior."receivedAt" AS ordered,
+          f."leaseUntil" < (next."receivedAt" AT TIME ZONE 'UTC') AS "leaseUsesWallClock"
+          FROM "GitHubWebhookDelivery" next
+          JOIN "GitHubWebhookFence" f ON f."deliveryId"=next."deliveryId"
+          CROSS JOIN "GitHubWebhookDelivery" prior
+          WHERE next."deliveryId"=$1 AND prior."deliveryId"=$2`,
+        [delivery.deliveryId, prior.delivery.deliveryId],
+      );
+      expect(order.rows[0]).toEqual({
+        ordered: true,
+        leaseUsesWallClock: true,
+      });
+      await runWebhookFencedDatabaseEffect(
+        realPrisma,
+        acquired.claim,
+        async (tx) => {
+          await tx.$executeRaw(
+            Prisma.sql`INSERT INTO "effect" VALUES (${BigInt(scenario.nextInstallation)})`,
+          );
+          await tx.gitHubWebhookDelivery.update({
+            where: { deliveryId: delivery.deliveryId },
+            data: { status: "processed" },
+          });
+        },
+        "processed",
+        (tx) =>
+          acquireCurrentScopeGuards(tx, [
+            { scope: "global", mode: "exclusive" },
+          ]),
+      );
+      await expect(
+        claimVerifiedFencedWebhookDelivery(
+          realPrisma,
+          prior.context,
+          prior.delivery,
+          b,
+          30000,
+        ),
+      ).rejects.toThrow("webhook_fence_reconciliation_required");
+      expect(
+        await realPrisma.gitHubWebhookFence.findUniqueOrThrow({
+          where: { deliveryId: prior.delivery.deliveryId },
+        }),
+      ).toMatchObject({ generation: 1n, ownerHash: a });
+      expect(
+        (
+          await pool.query<{ n: number }>(
+            'SELECT count(*)::int AS n FROM "effect" WHERE generation=$1',
+            [scenario.nextInstallation],
+          )
+        ).rows[0]?.n,
+      ).toBe(1);
+    },
+  );
+
+  it.each([
+    ["Asia/Tokyo", "91001", true],
+    ["Pacific/Honolulu", "91002", false],
+  ] as const)(
+    "orders fenced admission after an existing legacy default in %s without rewriting it",
+    async (timezone, installationId, legacyAhead) => {
+      const legacyId = `legacy-clock-${installationId}`;
+      const legacy = await realPrisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT set_config('TimeZone', ${timezone}, true)`;
+        // Exercise PostgreSQL's actual default in this session. The absent
+        // canonical repository identity must still contribute a floor.
+        await tx.$executeRaw(Prisma.sql`
+          INSERT INTO "GitHubWebhookDelivery"
+            ("deliveryId", "eventName", action, "installationId", status)
+          VALUES (${legacyId}, 'repository', 'deleted', ${BigInt(installationId)}, 'processing')
+        `);
+        return tx.gitHubWebhookDelivery.findUniqueOrThrow({
+          where: { deliveryId: legacyId },
+        });
+      });
+      const event = verifiedEvent(
+        `fenced-clock-${installationId}`,
+        "123",
+        '{"action":"renamed"}',
+      );
+      const delivery = {
+        ...event.delivery,
+        eventName: "repository",
+        action: "renamed",
+        installationId,
+        normalizedEvent: { repositoryId: `8${installationId}` },
+      };
+      const first = await claimVerifiedFencedWebhookDelivery(
+        realPrisma,
+        event.context,
+        delivery,
+        a,
+        30000,
+      );
+      if (first.kind !== "claimed") throw new Error("claim_required");
+      const order = await pool.query<{
+        ordered: boolean;
+        legacyAhead: boolean;
+      }>(
+        `SELECT next."receivedAt" > prior."receivedAt" AS ordered,
+          prior."receivedAt" > (clock_timestamp() AT TIME ZONE 'UTC') AS "legacyAhead"
+          FROM "GitHubWebhookDelivery" next CROSS JOIN "GitHubWebhookDelivery" prior
+          WHERE next."deliveryId"=$1 AND prior."deliveryId"=$2`,
+        [delivery.deliveryId, legacyId],
+      );
+      expect(order.rows[0]).toEqual({ ordered: true, legacyAhead });
+      const received = await realPrisma.gitHubWebhookDelivery.findUniqueOrThrow(
+        {
+          where: { deliveryId: delivery.deliveryId },
+        },
+      );
+      expect(
+        await failWebhookFencedDelivery(
+          realPrisma,
+          first.claim,
+          "synthetic_failure",
+        ),
+      ).toBe(true);
+      const retry = await claimVerifiedFencedWebhookDelivery(
+        realPrisma,
+        event.context,
+        delivery,
+        b,
+        30000,
+      );
+      if (retry.kind !== "claimed") throw new Error("claim_required");
+      expect(retry.claim.generation).toBe(2n);
+      await runWebhookFencedDatabaseEffect(
+        realPrisma,
+        retry.claim,
+        async (tx) => {
+          await tx.gitHubWebhookDelivery.update({
+            where: { deliveryId: delivery.deliveryId },
+            data: { status: "processed" },
+          });
+        },
+        "processed",
+        (tx) =>
+          acquireCurrentScopeGuards(tx, [
+            { scope: "global", mode: "exclusive" },
+          ]),
+      );
+      expect(
+        (
+          await realPrisma.gitHubWebhookDelivery.findUniqueOrThrow({
+            where: { deliveryId: delivery.deliveryId },
+          })
+        ).receivedAt,
+      ).toEqual(received.receivedAt);
+      expect(
+        await realPrisma.gitHubWebhookDelivery.findUniqueOrThrow({
+          where: { deliveryId: legacyId },
+        }),
+      ).toEqual(legacy);
+      expect(
+        await realPrisma.gitHubWebhookFence.findUnique({
+          where: { deliveryId: legacyId },
+        }),
+      ).toBeNull();
+    },
+  );
+
+  it.each([
+    ["different-app", "456", "90901", "90901"],
+    ["different-installation", "123", "90902", "90903"],
+  ] as const)(
+    "excludes a proven %s receipt from the admission floor",
+    async (name, priorApp, priorInstallation, nextInstallation) => {
+      const priorEvent = verifiedEvent(
+        `clock-isolation-prior-${name}`,
+        priorApp,
+        '{"action":"removed"}',
+      );
+      const prior = {
+        ...priorEvent,
+        delivery: {
+          ...priorEvent.delivery,
+          eventName: "installation_repositories",
+          action: "removed",
+          installationId: priorInstallation,
+        },
+      };
+      await seedFutureFencedReceipt(prior);
+      const next = verifiedEvent(
+        `clock-isolation-next-${name}`,
+        "123",
+        '{"action":"unsuspend"}',
+      );
+      const delivery = {
+        ...next.delivery,
+        eventName: "installation",
+        action: "unsuspend",
+        installationId: nextInstallation,
+      };
+      const first = await claimVerifiedFencedWebhookDelivery(
+        realPrisma,
+        next.context,
+        delivery,
+        a,
+        30000,
+      );
+      if (first.kind !== "claimed") throw new Error("claim_required");
+      const rows = await pool.query<{ isolated: boolean }>(
+        `SELECT next."receivedAt" < prior."receivedAt" AS isolated
+          FROM "GitHubWebhookDelivery" next CROSS JOIN "GitHubWebhookDelivery" prior
+          WHERE next."deliveryId"=$1 AND prior."deliveryId"=$2`,
+        [delivery.deliveryId, prior.delivery.deliveryId],
+      );
+      expect(rows.rows[0]?.isolated).toBe(true);
+      expect(
+        await failWebhookFencedDelivery(
+          realPrisma,
+          first.claim,
+          "synthetic_failure",
+        ),
+      ).toBe(true);
+      const retry = await claimVerifiedFencedWebhookDelivery(
+        realPrisma,
+        next.context,
+        delivery,
+        b,
+        30000,
+      );
+      expect(retry).toMatchObject({
+        kind: "claimed",
+        claim: { generation: 2n },
+      });
     },
   );
 

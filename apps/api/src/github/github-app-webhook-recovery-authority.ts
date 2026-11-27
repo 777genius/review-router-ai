@@ -10,11 +10,27 @@ import type { GitHubAppWebhookRedeliveryClient } from "./github-app-webhook-rede
 /** Only exact receiver evidence and trusted App delivery metadata qualify. */
 export class GitHubAppWebhookRecoveryAuthority implements WebhookRedeliveryAuthority {
   constructor(
-    private readonly prisma: PrismaClient,
+    private readonly prisma: Pick<PrismaClient, "$queryRaw">,
     private readonly client: GitHubAppWebhookRedeliveryClient,
   ) {}
   async authorize(identity: WebhookRecoveryIdentity): Promise<boolean> {
-    if (identity.appIdentityHash !== this.client.appIdentityHash) return false;
+    const signatureHash = await this.readEligibleSignatureHash(identity);
+    return signatureHash !== null
+      ? this.client.verifyOriginalDelivery(identity, signatureHash)
+      : false;
+  }
+
+  /** Refresh local evidence after external IO without repeating that IO. */
+  async isReceiverEligible(
+    identity: WebhookRecoveryIdentity,
+  ): Promise<boolean> {
+    return (await this.readEligibleSignatureHash(identity)) !== null;
+  }
+
+  private async readEligibleSignatureHash(
+    identity: WebhookRecoveryIdentity,
+  ): Promise<string | null> {
+    if (identity.appIdentityHash !== this.client.appIdentityHash) return null;
     const rows = await this.prisma.$queryRaw<
       Array<{ signatureHash: string | null }>
     >(Prisma.sql`
@@ -26,9 +42,9 @@ export class GitHubAppWebhookRecoveryAuthority implements WebhookRedeliveryAutho
           AND (d.status='failed' OR (d.status='processing' AND f."leaseUntil" <= clock_timestamp()))
     `);
     const signatureHash = rows[0]?.signatureHash;
-    if (!signatureHash) return false;
+    if (!signatureHash) return null;
     if (!(await isWebhookReplayEligible(this.prisma, identity.deliveryGuid)))
-      return false;
-    return this.client.verifyOriginalDelivery(identity, signatureHash);
+      return null;
+    return signatureHash;
   }
 }

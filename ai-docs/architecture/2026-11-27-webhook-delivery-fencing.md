@@ -1,8 +1,9 @@
 # Durable GitHub webhook delivery — completion plan
 
 Status: production composition and bounded recovery are implemented in PR #1027.
-The complete native PostgreSQL matrix has passed. Merge requires successful checks
-on the exact reviewed final head; the PR validation and checks record that status.
+Recorded native checkpoints passed the complete PostgreSQL matrix. Later changes
+require their own qualification; merge requires successful checks on the exact
+reviewed final head. The PR validation and checks record that status.
 No production migration, replay, deployment or activation has been performed.
 
 ## Outcome and scope
@@ -143,6 +144,11 @@ the supplied numeric ID has not been bound in custody. `confirmed` requires exac
 custody and receiver identity. Unknown or accepted custody is shown by `inspect` as
 `reconciliation_required`, never a fresh permission to POST.
 
+After GitHub authorization returns, `inspect` reads receiver/custody, lease and
+replay eligibility in one short local REPEATABLE READ snapshot. HTTP stays outside
+that transaction. This is an observation at that snapshot; a subsequent `request`
+still reauthorizes and reserves through the existing guarded protocol.
+
 Installation and repository retries are bounded by local receipt evidence. A newer
 or equal-time lifecycle receipt for the same installation, or repository receipt
 for the same canonical repository, blocks replay; an unknown legacy App identity
@@ -151,10 +157,20 @@ receipts and rejects missing canonical identity. The check runs during acquisiti
 and again under effect scopes/row locks, with advisory preflight before redelivery.
 Admission of installation/repository receipts takes the same exclusive scope before
 insertion, so a newer receipt cannot commit between the replay check and effect.
-Initial lifecycle/repository receipts take `receivedAt` from the existing database
-clock after acquiring the admission guard. `receivedAt` is immutable on fenced
-receipts. This is local observation order, not
-a claim about GitHub event chronology or arbitrary first-delivery ordering.
+Initial lifecycle/repository receipts sample the existing database clock after
+acquiring the admission guard. Their `receivedAt` is at least one millisecond after
+the maximum already retained receipt in the conflicting installation/repository
+scope, for the same proven App or an unfenced legacy receipt. Lifecycle admission
+includes earlier repository work; canonical repository identity preserves the floor
+across installation transfers. Unrelated proven Apps do not contribute.
+
+This keeps admission ordered after clock rollback and after retained legacy writes
+whose database default used a different session timezone. Legacy timestamps are
+neither rewritten nor converted using a guessed original timezone. The ordered
+observation key may temporarily be ahead of wall time; lease deadlines continue to
+use the current database clock. `receivedAt` remains immutable on fenced receipts.
+This is retained local observation order, not GitHub chronology. It does not make
+later unguarded legacy writers safe: the controlled writer drain remains mandatory.
 
 An authorization-revocation body has no original grant revision, and a new GUID
 does not make it fresh. Before any destructive change, the adapter reads one current
@@ -197,11 +213,11 @@ this token check from the schema migration: the controlled fleet drain is mandat
 10. Review the complete final diff independently; fix findings and repeat affected
     evidence. Reconcile PR #1026's acknowledgement contract and overlapping #1021 work.
 
-## Current execution evidence
+## Recorded execution evidence
 
-Source `76f715cb57721558a6fff1dcf87696b7e2717c96` completed all 13 mandatory
+Source `91621693550c69bd288caca760a325ec9009af09` completed all 13 mandatory
 PostgreSQL suites: **142 tests passed, zero failures, skips or todo**. Its tree
-`4d75176b436fed41e180bc052c5da4425a09e2f8` exactly matches the executed source.
+`ddac5f6abde6834a6a39beeda2192ead3fb52722` exactly matches the executed source.
 The runner applied the actual 170-migration baseline, seeded a legacy receipt and
 expanded to all 172 migrations. It exercised signed HTTP/default composition,
 Prisma/outbox, admission and ownership races, rollback, real COMMIT-response loss,
@@ -214,11 +230,17 @@ grants. Revocation timestamps must remain UTC. The expiry race observes a real
 PostgreSQL lock wait and the specific reconciliation error, so a generic transaction
 timeout cannot satisfy it.
 
-The affected unit and qualification-harness run passed **111 tests in 15 files**,
-with no skips. Changed-file formatting, the architecture check over 705
-domain/application files and scoped webhook-tooling strict types passed. ESLint
-passed for all 69 changed TypeScript files after removing two unused initial
-assignments in the production fixture. These checks use the frozen root/API graph,
+On `a505ab23473462b97c5a9e59476deee0664dde25`, affected unit and qualification-harness
+tests passed **118 tests in 15 files**, with no skips. Its 18-file batch passed
+formatting and lint for all 15 TypeScript files. The standalone architecture-boundary
+check passed over 705 domain/application files. Its PostgreSQL attempt stopped at
+the global memory floor after four passing suites; that is not a complete matrix.
+These recorded results do not qualify subsequent review fixes.
+
+The previous `91621693` checkpoint also passed installations strict types, scoped
+webhook-tooling strict types, ordinary dependency/API builds and the compiled
+recovery CLI smoke in an isolated production environment. The earlier 69-file lint
+result belongs to its earlier source checkpoint. These checks use the frozen root/API graph,
 verified exact subscription-runtime artifact, isolated Prisma client generation,
 Node 26.11.1, pnpm 11.28.7, TypeScript 7.0.2, Prisma 7.9.0 and Vitest 4.1.10.
 The local database was PostgreSQL 17.10.

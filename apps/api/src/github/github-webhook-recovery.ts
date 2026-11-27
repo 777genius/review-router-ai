@@ -58,8 +58,10 @@ export async function runKnownWebhookRecovery(
 ) {
   validateWebhookRecoveryCommand(command);
   const { prisma, client } = dependencies;
-  const readReceiver = async () => {
-    const rows = await prisma.$queryRaw<ReceiverRow[]>(Prisma.sql`
+  const readReceiver = async (
+    reader: Pick<PrismaClient, "$queryRaw"> = prisma,
+  ) => {
+    const rows = await reader.$queryRaw<ReceiverRow[]>(Prisma.sql`
       SELECT d."eventName", d.action, d."installationId", d."payloadHash", d.status,
         f."appIdentityHash", r.state AS "recoveryState", r."githubDeliveryId",
         COALESCE(r."eventName"=d."eventName" AND r.action IS NOT DISTINCT FROM d.action
@@ -117,16 +119,29 @@ export async function runKnownWebhookRecovery(
       (await authority.authorize(identity));
     // Authorization performs HTTP outside the database; another operator may
     // reserve or finish this delivery before that observation returns.
-    const current = await readReceiver();
-    const state =
-      current.status === "processed"
-        ? "processed"
-        : current.recoveryState !== null && current.recoveryState !== "prepared"
-          ? "reconciliation_required"
-          : authorized
-            ? "eligible"
-            : "not_authorized";
-    return { ...summary(current), state };
+    return prisma.$transaction(
+      async (transaction) => {
+        // Receipt, custody, lease and replay ordering share one local snapshot.
+        // The callback performs only reads; all HTTP has already completed.
+        const current = await readReceiver(transaction);
+        const localAuthority = new GitHubAppWebhookRecoveryAuthority(
+          transaction,
+          client,
+        );
+        const state =
+          current.status === "processed"
+            ? "processed"
+            : current.recoveryState !== null &&
+                current.recoveryState !== "prepared"
+              ? "reconciliation_required"
+              : authorized &&
+                  (await localAuthority.isReceiverEligible(identity))
+                ? "eligible"
+                : "not_authorized";
+        return { ...summary(current), state };
+      },
+      { isolationLevel: "RepeatableRead" },
+    );
   }
   if (command.mode === "reconcile" && receiver.recoveryState === null)
     return {

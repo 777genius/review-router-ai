@@ -9,12 +9,13 @@ import Fastify from "fastify";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import { Pool } from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   claimVerifiedFencedWebhookDelivery,
   createGitHubAppWebhookVerifier,
   failWebhookFencedDelivery,
   registerGitHubWebhookRoutes,
+  type FencedDelivery,
 } from "@reviewrouter/features-github-installations";
 import {
   assertWebhookFenceTestDatabase,
@@ -34,6 +35,9 @@ type Delivery = {
   signature: string;
   metadataSignature: string;
   metadataGuid: string;
+  eventName: "push" | "installation";
+  action: "suspend" | "unsuspend" | null;
+  installationId: number;
   behavior:
     | "deliver"
     | "lost_after_delivery"
@@ -71,7 +75,7 @@ test("known delivery recovery through the production receiver and migrated Postg
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-github-event": "push",
+        "x-github-event": delivery.eventName,
         "x-github-delivery": delivery.guid,
         "x-hub-signature-256": delivery.signature,
       },
@@ -130,9 +134,9 @@ test("known delivery recovery through the production receiver and migrated Postg
             .map((value) => ({
               id: Number(value.id) + 100_000,
               guid: value.guid,
-              event: "push",
-              action: null,
-              installation_id: 501,
+              event: value.eventName,
+              action: value.action,
+              installation_id: value.installationId,
               redelivery: true,
               status_code: 200,
             })),
@@ -155,9 +159,9 @@ test("known delivery recovery through the production receiver and migrated Postg
       JSON.stringify({
         id: Number(delivery.id),
         guid: delivery.metadataGuid,
-        event: "push",
-        action: null,
-        installation_id: 501,
+        event: delivery.eventName,
+        action: delivery.action,
+        installation_id: delivery.installationId,
         request: {
           headers: { "X-Hub-Signature-256": delivery.metadataSignature },
         },
@@ -215,44 +219,89 @@ test("known delivery recovery through the production receiver and migrated Postg
       },
     });
 
-  async function failedDelivery(
-    behavior: Delivery["behavior"] = "deliver",
-  ): Promise<Delivery> {
-    const guid = `recovery-http-${randomUUID()}`;
-    const raw = JSON.stringify({
-      ref: "refs/heads/main",
-      deleted: false,
-      installation: { id: 501 },
-      repository: { id: 601, name: "recovery", full_name: "fixture/recovery" },
-    });
-    const signature = `sha256=${createHmac("sha256", secret).update(raw).digest("hex")}`;
+  async function claimDelivery(delivery: Delivery) {
     const verified = verify({
-      rawPayload: Buffer.from(raw),
-      signatureHeader: signature,
+      rawPayload: Buffer.from(delivery.raw),
+      signatureHeader: delivery.signature,
     });
     if (!verified) throw new Error("synthetic_signature_invalid");
-    const acquisition = await claimVerifiedFencedWebhookDelivery(
+    return claimVerifiedFencedWebhookDelivery(
       prisma,
       verified,
       {
-        deliveryId: guid,
-        eventName: "push",
-        action: "push",
-        installationId: "501",
+        deliveryId: delivery.guid,
+        eventName: delivery.eventName,
+        action: delivery.action ?? "push",
+        installationId: String(delivery.installationId),
         payloadHash: verified.payloadHash,
-        normalizedEvent: {
-          type: "github.push",
-          version: 1,
-          installationId: "501",
-          repositoryId: "601",
-          repositoryFullName: "fixture/recovery",
-          ref: "refs/heads/main",
-          deleted: false,
-        },
+        normalizedEvent:
+          delivery.eventName === "push"
+            ? {
+                type: "github.push",
+                version: 1,
+                installationId: String(delivery.installationId),
+                repositoryId: "601",
+                repositoryFullName: "fixture/recovery",
+                ref: "refs/heads/main",
+                deleted: false,
+              }
+            : {
+                type: "github.installation",
+                version: 1,
+                action: delivery.action,
+                installationId: String(delivery.installationId),
+                accountLogin: "fixture",
+                accountType: "User",
+                repositorySelection: "all",
+              },
       },
       randomBytes(32).toString("hex"),
       30_000,
     );
+  }
+
+  async function failedDelivery(
+    behavior: Delivery["behavior"] = "deliver",
+    lifecycle?: { installationId: number; action: "suspend" | "unsuspend" },
+  ): Promise<Delivery> {
+    const guid = `recovery-http-${randomUUID()}`;
+    const raw = JSON.stringify(
+      lifecycle
+        ? {
+            action: lifecycle.action,
+            installation: {
+              id: lifecycle.installationId,
+              account: { login: "fixture", type: "User" },
+              repository_selection: "all",
+            },
+          }
+        : {
+            ref: "refs/heads/main",
+            deleted: false,
+            installation: { id: 501 },
+            repository: {
+              id: 601,
+              name: "recovery",
+              full_name: "fixture/recovery",
+            },
+          },
+    );
+    const signature = `sha256=${createHmac("sha256", secret).update(raw).digest("hex")}`;
+    const delivery: Delivery = {
+      id: nextId++,
+      guid,
+      raw,
+      signature,
+      metadataSignature: signature,
+      metadataGuid: guid,
+      eventName: lifecycle ? "installation" : "push",
+      action: lifecycle?.action ?? null,
+      installationId: lifecycle?.installationId ?? 501,
+      behavior,
+      posts: 0,
+      observed: false,
+    };
+    const acquisition = await claimDelivery(delivery);
     if (acquisition.kind !== "claimed")
       throw new Error("synthetic_claim_missing");
     expect(
@@ -262,17 +311,6 @@ test("known delivery recovery through the production receiver and migrated Postg
         "synthetic_stopped_handler",
       ),
     ).toBe(true);
-    const delivery: Delivery = {
-      id: nextId++,
-      guid,
-      raw,
-      signature,
-      metadataSignature: signature,
-      metadataGuid: guid,
-      behavior,
-      posts: 0,
-      observed: false,
-    };
     deliveries.set(delivery.id, delivery);
     return delivery;
   }
@@ -414,6 +452,170 @@ test("known delivery recovery through the production receiver and migrated Postg
     15_000,
   );
 
+  it.each(["lease_takeover", "newer_receipt"] as const)(
+    "refreshes local eligibility after %s during the detail request",
+    async (change) => {
+      const lifecycle =
+        change === "newer_receipt"
+          ? {
+              installationId: Number(nextId) + 900_000,
+              action: "suspend" as const,
+            }
+          : undefined;
+      const delivery = await failedDelivery(
+        "accept_without_delivery",
+        lifecycle,
+      );
+      const reads = githubReads;
+      let release!: () => void;
+      const gate = {
+        entered: false,
+        released: new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+      };
+      detailGates.set(delivery.id, gate);
+      const inspected = run(delivery, "inspect").then(
+        (value) => ({ value }),
+        (error: unknown) => ({ error }),
+      );
+      let ownedClaim: FencedDelivery | undefined;
+      const failures: unknown[] = [];
+      try {
+        await expect.poll(() => gate.entered, { timeout: 3_000 }).toBe(true);
+        if (change === "lease_takeover") {
+          const takeover = await claimDelivery(delivery);
+          if (takeover.kind !== "claimed")
+            throw new Error("inspection_takeover_not_claimed");
+          ownedClaim = takeover.claim;
+          expect(takeover.claim.generation).toBe(2n);
+        } else {
+          await failedDelivery("accept_without_delivery", {
+            installationId: delivery.installationId,
+            action: "unsuspend",
+          });
+        }
+        release();
+        const outcome = await inspected;
+        if ("error" in outcome) throw outcome.error;
+        expect(outcome.value).toMatchObject({
+          state: "not_authorized",
+          deliveryStatus: change === "lease_takeover" ? "processing" : "failed",
+          recoveryState: null,
+        });
+        expect(githubReads).toBe(reads + 1);
+        expect(delivery.posts).toBe(0);
+        expect(await intent(delivery)).toBeNull();
+      } catch (error) {
+        failures.push(error);
+      } finally {
+        release();
+        detailGates.delete(delivery.id);
+        const outcome = await inspected;
+        if ("error" in outcome && !failures.includes(outcome.error))
+          failures.push(outcome.error);
+        if (ownedClaim)
+          await failWebhookFencedDelivery(
+            prisma,
+            ownedClaim,
+            "synthetic_inspect_cleanup",
+          ).catch((error: unknown) => {
+            failures.push(error);
+          });
+      }
+      if (failures.length === 1) throw failures[0];
+      if (failures.length > 1)
+        throw new AggregateError(
+          failures,
+          "inspection_eligibility_race_failed",
+          { cause: failures[0] },
+        );
+    },
+    15_000,
+  );
+
+  it("keeps the final receipt and eligibility reads in one snapshot across a takeover", async () => {
+    const delivery = await failedDelivery();
+    const isolated = new PrismaClient({ adapter: new PrismaPg(pool) });
+    const failures: unknown[] = [];
+    let ownedClaim: FencedDelivery | undefined;
+    let snapshotReads = 0;
+    let restoreTransaction: (() => void) | undefined;
+    try {
+      const gated = isolated.$extends({
+        query: {
+          async $queryRaw({ args, query }) {
+            const result: unknown = await query(args);
+            if (
+              args.sql.includes('r.state AS "recoveryState"') &&
+              args.values.includes(delivery.guid)
+            ) {
+              snapshotReads++;
+              // A separate connection commits after the snapshot's first read,
+              // before the transaction checks its lease and replay predicates.
+              const takeover = await claimDelivery(delivery);
+              if (takeover.kind !== "claimed")
+                throw new Error("snapshot_takeover_not_claimed");
+              ownedClaim = takeover.claim;
+            }
+            return result;
+          },
+        },
+      });
+      // Preserve native queries and results, adding only the scheduling barrier.
+      const nativeTransaction = gated.$transaction.bind(gated);
+      const transactionSpy = vi
+        .spyOn(isolated, "$transaction")
+        .mockImplementation((callback, options) =>
+          nativeTransaction(callback, options),
+        );
+      restoreTransaction = () => transactionSpy.mockRestore();
+      expect(
+        await runKnownWebhookRecovery(command(delivery, "inspect"), {
+          prisma: isolated,
+          client: client(),
+        }),
+      ).toMatchObject({
+        state: "eligible",
+        deliveryStatus: "failed",
+        recoveryState: null,
+      });
+      expect(snapshotReads).toBe(1);
+      expect((await receipt(delivery)).status).toBe("processing");
+      expect(await run(delivery, "inspect")).toMatchObject({
+        state: "not_authorized",
+        deliveryStatus: "processing",
+        recoveryState: null,
+      });
+      expect(delivery.posts).toBe(0);
+      expect(await intent(delivery)).toBeNull();
+    } catch (error) {
+      failures.push(error);
+    } finally {
+      try {
+        restoreTransaction?.();
+      } catch (error) {
+        failures.push(error);
+      }
+      if (ownedClaim)
+        await failWebhookFencedDelivery(
+          prisma,
+          ownedClaim,
+          "synthetic_snapshot_cleanup",
+        ).catch((error: unknown) => {
+          failures.push(error);
+        });
+      await isolated.$disconnect().catch((error: unknown) => {
+        failures.push(error);
+      });
+    }
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1)
+      throw new AggregateError(failures, "inspection_snapshot_cleanup_failed", {
+        cause: failures[0],
+      });
+  });
+
   it("bounds a blocked confirmation and later reconciles retained custody without another POST", async () => {
     const delivery = await failedDelivery("accept_without_delivery");
     expect(await run(delivery, "request")).toMatchObject({
@@ -438,9 +640,15 @@ test("known delivery recovery through the production receiver and migrated Postg
       | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
+      await isolated.$executeRaw`SET statement_timeout = 0`;
+      await isolated.$executeRaw`SET lock_timeout = 0`;
       const initialTimeout = await isolated.$queryRaw<
-        Array<{ statement_timeout: string }>
-      >`SHOW statement_timeout`;
+        Array<{ statement_timeout: string; lock_timeout: string }>
+      >`SELECT current_setting('statement_timeout') AS statement_timeout,
+        current_setting('lock_timeout') AS lock_timeout`;
+      expect(initialTimeout).toEqual([
+        { statement_timeout: "0", lock_timeout: "0" },
+      ]);
       const waiter = await isolated.$queryRaw<
         Array<{ pid: number }>
       >`SELECT pg_backend_pid() AS pid`;
@@ -493,9 +701,10 @@ test("known delivery recovery through the production receiver and migrated Postg
       });
       expect(await intent(delivery)).toEqual(before);
       expect(githubReads).toBe(reads);
-      expect(await isolated.$queryRaw`SHOW statement_timeout`).toEqual(
-        initialTimeout,
-      );
+      expect(
+        await isolated.$queryRaw`SELECT current_setting('statement_timeout') AS statement_timeout,
+        current_setting('lock_timeout') AS lock_timeout`,
+      ).toEqual(initialTimeout);
       await blocker.query("COMMIT");
       locked = false;
       expect(await run(delivery, "reconcile")).toMatchObject({

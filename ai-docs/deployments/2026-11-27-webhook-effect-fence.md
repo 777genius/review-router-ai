@@ -6,7 +6,7 @@
 - Affected targets: API and database; existing outbox workers retain ownership of
   external commands. Their compatibility must be checked during the fleet drain.
 - Implementation: [PR #1027](https://github.com/777genius/review-router-ai/pull/1027).
-- Qualified native checkpoint: `76f715cb57721558a6fff1dcf87696b7e2717c96`
+- Qualified native checkpoint: `91621693550c69bd288caca760a325ec9009af09`
   passed the full 142-test PostgreSQL matrix. Select the exact reviewed final source
   only after its required PR checks, strict types, production build and compiled CLI
   checks pass; a local checkpoint alone is not release authorization.
@@ -33,16 +33,16 @@ Later generations never recreate that ingress. Other local effects/outbox and
 terminal receipt commit together. Unrelated account/auth/config epoch changes have
 been removed; existing authority owners and scope/row locks remain.
 
-| Evidence                                                                   | Observed result / required gate                                                                                                            |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Default route wiring, claim/failure protocol and explicit operator command | Implemented and exercised by the native matrix                                                                                             |
-| Full migration catalog                                                     | 172 directories; two additive migrations, no experimental epoch migration                                                                  |
-| Signed HTTP/Prisma/PostgreSQL/outbox and recovery matrix                   | **142/142 tests in all 13 suites, zero skips**, on `76f715cb`; actual 170 → 172 migration rehearsal                                        |
-| Focused unit and harness suites                                            | **111/111 tests in 15 files**, zero skips                                                                                                  |
-| Lint / formatting / architecture / scoped tooling types                    | 69 changed TypeScript files linted after fixture cleanup; formatting, 705-file architecture check and strict tooling types passed          |
-| Whole-API/feature strict types, production build and compiled CLI          | Required exact-source gates; consult the current PR validation and CI results                                                              |
-| Protected merge                                                            | Requires current-head `Quality Gates` and `Dedicated Release Authority PG17 contract`, an up-to-date branch and resolved blocking findings |
-| Production replay or fleet qualification                                   | Not executed; separately authorized operational work                                                                                       |
+| Evidence                                                                   | Observed result / required gate                                                                                                                    |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Default route wiring, claim/failure protocol and explicit operator command | Implemented and exercised by the native matrix                                                                                                     |
+| Full migration catalog                                                     | 172 directories; two additive migrations, no experimental epoch migration                                                                          |
+| Signed HTTP/Prisma/PostgreSQL/outbox and recovery matrix                   | **142/142 tests in all 13 suites, zero skips**, on `91621693`; actual 170 → 172 migration rehearsal                                                |
+| Focused unit and harness suites                                            | **118/118 tests in 15 files**, zero skips, on `a505ab23`; subsequent review fixes require qualification                                            |
+| Lint / formatting / architecture / scoped tooling types                    | `a505ab23`: 15 changed TypeScript files linted, 18 files formatted, standalone 705-file boundary check passed; strict tooling passed on `91621693` |
+| Whole-API/feature strict types, production build and compiled CLI          | Required exact-source gates; consult the current PR validation and CI results                                                                      |
+| Protected merge                                                            | Requires current-head `Quality Gates` and `Dedicated Release Authority PG17 contract`, an up-to-date branch and resolved blocking findings         |
+| Production replay or fleet qualification                                   | Not executed; separately authorized operational work                                                                                               |
 
 The native run used PostgreSQL 17.10, Node 26.11.1, pnpm 11.28.7, TypeScript 7.0.2,
 Prisma 7.9.0 and Vitest 4.1.10 with the frozen root/API dependency graph, verified
@@ -80,6 +80,11 @@ an operational rollout.
 - Keep old unfenced deliveries. Do not backfill fences or claim unknown legacy
   effects. Fenced processed duplicates succeed only for the exact App/body/event
   identity; unfenced legacy rows are not automatically adopted.
+- New lifecycle/repository admissions preserve order after retained conflicting
+  receipts, including legacy timestamps from non-UTC sessions. The ordered
+  `receivedAt` can be ahead of wall time after a clock correction or cutover;
+  lease deadlines still use the current database clock. Preserve the retained
+  records and drain old writers rather than rewriting their timestamps.
 
 ## Ordered rollout
 
