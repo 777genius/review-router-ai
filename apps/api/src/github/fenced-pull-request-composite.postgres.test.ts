@@ -10,6 +10,7 @@ import {
   reclaimWebhookFence,
 } from "@reviewrouter/features-github-installations";
 import { handleFencedPullRequestComposite } from "./fenced-pull-request-composite";
+import { PrismaWebhookDeliveryRepository } from "@reviewrouter/features-github-installations";
 const socket = process.env.REVIEW_ROUTER_WEBHOOK_FENCE_TEST_SOCKET;
 const test = socket?.startsWith("/") ? describe : describe.skip;
 test("fenced PR composite on isolated PostgreSQL", () => {
@@ -400,5 +401,48 @@ test("fenced PR composite on isolated PostgreSQL", () => {
         )
       ).rows[0].status,
     ).toBe("processing");
+  });
+  it("documents unsafe legacy failure after fenced terminal", async () => {
+    const e = envelope("legacy-terminal");
+    e.payload.action = "opened";
+    e.payload.pull_request.state = "open";
+    const claim = await beginFencedWebhookDelivery(
+      prisma,
+      {
+        deliveryId: e.deliveryId,
+        eventName: e.eventName,
+        action: e.payload.action,
+        installationId: "123",
+        payloadHash: e.payloadHash,
+      },
+      owner,
+      10000,
+    );
+    await handleFencedPullRequestComposite(prisma, e, claim, {
+      reviewIngressEnabled: true,
+      conflictFallbackEnabled: false,
+    });
+    const legacy = new PrismaWebhookDeliveryRepository(prisma);
+    await legacy.markFailed({
+      deliveryId: e.deliveryId,
+      errorSummary: "synthetic stale handler",
+    });
+    expect(
+      (
+        await pool.query(
+          'SELECT status::text FROM "GitHubWebhookDelivery" WHERE "deliveryId"=$1',
+          [e.deliveryId],
+        )
+      ).rows[0].status,
+    ).toBe("failed");
+    expect(
+      await legacy.tryStartProcessing({
+        deliveryId: e.deliveryId,
+        eventName: e.eventName,
+        action: e.payload.action,
+        installationId: "123",
+        payloadHash: e.payloadHash,
+      }),
+    ).toBe(true);
   });
 });
