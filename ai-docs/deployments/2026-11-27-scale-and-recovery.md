@@ -51,11 +51,18 @@ composition. Existing fenced and actual COMMIT-loss suites remain present.
 Historical passes below stay bound to their recorded source and are not passes
 for the combined tree.
 
-Both latest-row indexes remain in the application catalog together with both
-webhook migrations: 174 ordinary migrations in total. Exact complete tail groups
-are admitted without changing managed92 or historical96 manifests. The
-conflict-safe legacy receipt repository still acknowledges only an exact
-processed delivery, preserving PR #1026's unfinished-delivery behavior.
+Both latest-row indexes remain in the application catalog together with all three
+webhook migrations: 175 ordinary migrations in total. The additive receipt-order
+indexes from `000168` are included without modifying earlier SQL or managed92 and
+historical96 manifests. Only the exact complete earlier groups and their complete
+extensions/unions are admitted; the new index alone is rejected. The conflict-safe
+legacy receipt repository still acknowledges only an exact processed delivery,
+preserving PR #1026's unfinished-delivery behavior.
+
+The bounded Link parser and indexed receipt-floor lookup from PR #1027 at
+`ebf7adcc` are integrated. Its actual-query, 100,000-row plan regression remains
+part of the required combined-source PostgreSQL gate; no runtime pass is inferred
+from this source integration.
 
 Combined-source native checks and ordinary protected CI remain required. The
 local executor became unavailable during preparation; source review and retained

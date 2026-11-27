@@ -85,16 +85,30 @@ export async function claimVerifiedFencedWebhookDeliveryInTransaction(
     // A later lifecycle event can supersede earlier repository work, so its
     // floor includes repository receipts even though its own retry predicate
     // only checks lifecycle receipts. A transfer keeps the canonical repo floor.
+    // Each ordered branch filters App/legacy identity before taking its newest row.
     const prior = await transaction.$queryRaw<
       Array<{ receivedAt: Date | null }>
     >(Prisma.sql`
-      SELECT max(d."receivedAt") AS "receivedAt"
-      FROM "GitHubWebhookDelivery" d
-      LEFT JOIN "GitHubWebhookFence" f USING ("deliveryId")
-      WHERE d."eventName" IN ('installation', 'installation_repositories', 'repository')
-        AND (f."appIdentityHash" = ${verified.appIdentityHash} OR f."deliveryId" IS NULL)
-        AND (d."installationId" = ${delivery.installationId ? BigInt(delivery.installationId) : null}
-          OR (d."eventName" = 'repository' AND d."normalizedEvent" ->> 'repositoryId' = ${repositoryId}))
+      SELECT GREATEST(
+        (
+          SELECT d."receivedAt"
+          FROM "GitHubWebhookDelivery" d
+          LEFT JOIN "GitHubWebhookFence" f USING ("deliveryId")
+          WHERE d."eventName" IN ('installation', 'installation_repositories', 'repository')
+            AND (f."appIdentityHash" = ${verified.appIdentityHash} OR f."deliveryId" IS NULL)
+            AND d."installationId" = ${delivery.installationId ? BigInt(delivery.installationId) : null}
+          ORDER BY d."receivedAt" DESC LIMIT 1
+        ),
+        (
+          SELECT d."receivedAt"
+          FROM "GitHubWebhookDelivery" d
+          LEFT JOIN "GitHubWebhookFence" f USING ("deliveryId")
+          WHERE d."eventName" = 'repository'
+            AND (f."appIdentityHash" = ${verified.appIdentityHash} OR f."deliveryId" IS NULL)
+            AND d."normalizedEvent" ->> 'repositoryId' = ${repositoryId}
+          ORDER BY d."receivedAt" DESC LIMIT 1
+        )
+      ) AS "receivedAt"
     `);
     const previousTime = prior[0]?.receivedAt;
     // Preserve order after wall-clock rollback and across legacy session-local

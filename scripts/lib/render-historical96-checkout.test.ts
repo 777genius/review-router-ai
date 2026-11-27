@@ -28,11 +28,17 @@ const webhookDeliveryMigrationNames = [
   "000165_webhook_effect_fence",
   "000167_webhook_recovery_intent",
 ];
+const webhookReceiptOrderMigrationName =
+  "000168_webhook_receipt_order_indexes";
 const applicationTailMigrationNames = [
   ...readScalingMigrationNames,
   ...webhookDeliveryMigrationNames,
+  webhookReceiptOrderMigrationName,
 ].sort();
-const predecessorFull = currentFull.filter(
+const checkout174 = currentFull.filter(
+  (row) => row.migrationName !== webhookReceiptOrderMigrationName,
+);
+const predecessorFull = checkout174.filter(
   (row) => !applicationTailMigrationNames.includes(row.migrationName),
 );
 const previousFull = predecessorFull.filter(
@@ -197,8 +203,9 @@ describe("trusted historical96 checkout reader", () => {
     expect(full[96]?.migrationName).toBe(
       "000098_certified_fork_effect_archive",
     );
-    expect(currentFull).toHaveLength(174);
-    expect(currentFull.slice(-4).map((row) => row.migrationName)).toEqual(
+    expect(currentFull).toHaveLength(175);
+    expect(checkout174).toHaveLength(174);
+    expect(currentFull.slice(-5).map((row) => row.migrationName)).toEqual(
       applicationTailMigrationNames,
     );
     const result = readRenderHistorical96CheckoutInventory();
@@ -218,7 +225,7 @@ describe("trusted historical96 checkout reader", () => {
     expect(reader).toHaveBeenCalledWith();
     reader.mockReturnValue([
       ...currentFull,
-      { migrationName: "000168_unknown", checksum: "0".repeat(64) },
+      { migrationName: "000169_unknown", checksum: "0".repeat(64) },
     ]);
     expect(() => readRenderHistorical96CheckoutInventory()).toThrow(
       "render_historical96_checkout_rejected:count",
@@ -241,27 +248,44 @@ describe("trusted historical96 checkout reader", () => {
     },
   );
 
-  it.each(applicationTailMigrationNames)(
-    "rejects partial checkout174 after removing %s",
+  it.each([...readScalingMigrationNames, ...webhookDeliveryMigrationNames])(
+    "rejects partial checkout175 after removing %s",
     (migrationName) => {
       reader.mockReturnValueOnce(
         currentFull.filter((row) => row.migrationName !== migrationName),
       );
       expect(() => readRenderHistorical96CheckoutInventory()).toThrow(
-        "render_historical96_checkout_rejected:count",
+        "render_schema_handoff_rejected:checkout_extension",
       );
     },
   );
 
+  it("rejects receipt-order indexes without the complete webhook group", () => {
+    reader.mockReturnValueOnce(
+      currentFull.filter(
+        (row) => !webhookDeliveryMigrationNames.includes(row.migrationName),
+      ),
+    );
+    expect(() => readRenderHistorical96CheckoutInventory()).toThrow(
+      "render_schema_handoff_rejected:checkout_extension",
+    );
+  });
+
   it.each([
     { checkout: currentFull },
+    { checkout: checkout174 },
     {
       checkout: currentFull.filter(
         (row) => !readScalingMigrationNames.includes(row.migrationName),
       ),
     },
     {
-      checkout: currentFull.filter(
+      checkout: checkout174.filter(
+        (row) => !readScalingMigrationNames.includes(row.migrationName),
+      ),
+    },
+    {
+      checkout: checkout174.filter(
         (row) => !webhookDeliveryMigrationNames.includes(row.migrationName),
       ),
     },

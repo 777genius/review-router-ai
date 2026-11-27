@@ -47,11 +47,20 @@ part of this integration.
 
 ### Migration and qualification boundaries
 
-The application catalog contains all 174 migrations: the shared 170-migration
-baseline, both latest-row indexes and both webhook migrations. Admission accepts
-only each exact complete two-migration group or their exact four-migration union;
-partial, reordered, changed, duplicate and unknown tails fail. Managed92,
-historical96 and the other frozen historical fixtures remain unchanged.
+The application catalog contains all 175 migrations: the shared 170-migration
+baseline, both latest-row indexes and all three webhook migrations, including
+`000168_webhook_receipt_order_indexes`. Admission accepts only the exact shared
+baseline, either complete earlier two-migration group, the complete three-migration
+webhook group, or the exact four- and five-migration unions. The new index cannot
+be admitted without both preceding webhook migrations. Partial, reordered,
+changed, duplicate and unknown tails fail. Managed92, historical96 and the other
+frozen historical fixtures remain unchanged.
+
+The integration includes the bounded empty-element Link parser and indexed
+receipt-floor lookup from PR #1027 at `ebf7adcc`. Its migration suite captures the
+actual production claim SQL and parameters for the 100,000-row PostgreSQL plan
+regression. This source review does not replace execution of that final-source
+gate.
 
 The integration checkpoints received source review. The complete combined
 source still requires its native formatting, strict TypeScript, existing unit

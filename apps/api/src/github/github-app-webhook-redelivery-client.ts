@@ -309,7 +309,15 @@ function nextDeliveryCursor(link: string | null): string | null | false {
   if (!link) return null;
   let remaining = link.trim();
   let nextUrl: string | undefined;
-  while (remaining) {
+  let emptyElements = 0;
+  while (true) {
+    // RFC 9110 permits empty list elements, bounded here across the whole header.
+    if (!remaining || remaining.startsWith(",")) {
+      if (++emptyElements > 32) return false;
+      if (!remaining) break;
+      remaining = remaining.slice(1).trimStart();
+      continue;
+    }
     const target = remaining.match(/^<([^<>]+)>\s*/);
     if (!target) return false;
     remaining = remaining.slice(target[0].length);
@@ -336,7 +344,6 @@ function nextDeliveryCursor(link: string | null): string | null | false {
     if (!remaining) break;
     if (!remaining.startsWith(",")) return false;
     remaining = remaining.slice(1).trimStart();
-    if (!remaining) return false;
   }
   if (nextUrl === undefined) return null;
   try {
