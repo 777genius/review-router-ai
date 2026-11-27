@@ -54,9 +54,10 @@ and review rules in one dashboard.
   attached to the exact PR commit.
 - **Multiple reviewers.** Choose models and accounts, run reviewers in parallel
   and require agreement before publishing inline findings.
-- **AI providers and accounts.** Connect Codex, Claude Code, OpenRouter,
-  MiMo Token Plan or Kimi Code via supported subscriptions, OAuth or API keys.
-  Manage accounts and choose models from the available provider catalogs.
+- **AI providers and accounts.** Connect native Claude/Anthropic, Gemini,
+  OpenAI/Codex, Grok, Kimi, GLM, MiniMax, DeepSeek, OpenRouter, NVIDIA Build
+  and others through supported per-provider API keys, OAuth or imports.
+  Availability depends on the deployment; see the matrix below.
 - **Review settings.** Workspace defaults and per-repository overrides for models,
   reasoning effort, language, severity, comment limits and parallelism. Workspace
   admins also control automatic reviews of draft PRs.
@@ -98,6 +99,30 @@ and review rules in one dashboard.
 
 Availability varies by provider, installed workflows and deployment. See
 [capabilities and limits](./docs/capabilities.md).
+
+## Supported AI providers
+
+Choose a supported subscription or bring an API key. The ways to connect
+depend on the provider and on your deployment.
+
+| Provider                                                  | Ways to connect                                                                         |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| **Claude / Anthropic**                                    | API key, account sign-in (OAuth), session-assisted sign-in, setup token                 |
+| **Claude via AWS / Google Cloud**                         | Bedrock API key or AWS credentials; Vertex AI service account                           |
+| **Gemini / Google**                                       | API key, Google One / Code Assist / AI Studio sign-in, Vertex AI credentials            |
+| **OpenAI / Codex**                                        | OpenAI API key; Codex sign-in, token / session import, `auth.json`, Agent Identity, PAT |
+| **Grok / Antigravity**                                    | Account sign-in, imported token, API key where supported; Grok SSO                      |
+| **Kimi / GLM / MiniMax**                                  | API keys for pay-as-you-go or supported coding/subscription plans                       |
+| **DeepSeek / OpenCode Go and Zen / Command Code / Cline** | API key                                                                                 |
+| **OpenRouter / NVIDIA Build**                             | API key                                                                                 |
+| **MiMo Token Plan**                                       | Token Plan API key (existing ReviewRouter connection)                                   |
+
+**Important:** Not all options are enabled in every deployment, and not all
+managed-account methods work as direct GitHub Actions secrets. See the
+[full provider-by-provider table](./docs/provider-connections.md) or the
+[public providers page](https://reviewrouter.org/providers) for exact methods
+and requirements. Our controlled integration tests do not substitute for a
+live paid-provider review.
 
 ## PR comment commands
 

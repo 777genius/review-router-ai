@@ -19,6 +19,7 @@ type PrimaryNavItem = {
 const signedInPrimaryNav: readonly PrimaryNavItem[] = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/getting-started", label: "Guide" },
+  { href: "/providers", label: "Providers" },
   { href: "/security", label: "Security" },
   { href: "/compare", activePath: "/compare", label: "Compare" },
   { href: reviewRouterSourceCodeUrl, label: "Source code", external: true },
