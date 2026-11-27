@@ -1797,6 +1797,7 @@ async function fixture(
   const operations = new Map<string, c.Operation>();
   const operationReads: string[] = [];
   let operationReadFailure = false;
+  let operationReadHook: (() => void) | undefined;
   const intents: c.Prepare[] = [];
   const admissions: c.Admission[] = [];
   const requestModels: string[] = [];
@@ -2034,6 +2035,12 @@ async function fixture(
     authorizations: queries as never,
     snapshots,
     bindings,
+    readPreparationOperation: async (operationId) => {
+      operationReads.push(operationId);
+      if (operationReadFailure) throw Error("operation_read_failed");
+      operationReadHook?.();
+      return operations.get(operationId);
+    },
   });
   const terminalRuns = new Set<string>();
   const relayInput: Parameters<typeof createReviewRunGatewayRelay>[0] = {
@@ -2219,6 +2226,9 @@ async function fixture(
     },
     setOperationReadFailure(value = true) {
       operationReadFailure = value;
+    },
+    setOperationReadHook(value?: () => void) {
+      operationReadHook = value;
     },
     setPrepareFailure(value = true) {
       prepareFailure = value;
@@ -4968,6 +4978,190 @@ it("isolated safe close diagnostics warn when attempted execution remains uncert
     ]);
   } finally {
     warnings.mockRestore();
+    await f.relay.shutdown();
+  }
+});
+
+it("refreshes the exact retained legacy capability after a definite 401 close refusal", async () => {
+  const f = await fixture(MiB);
+  let calls = 0;
+  try {
+    await f.preparation.prepare();
+    f.setCloseResponseOverride((operationId) => {
+      calls++;
+      return calls === 1
+        ? {
+            status: 401,
+            body: {
+              code: "unauthenticated",
+              traceRef: "trace-1",
+              operationRef: operationId,
+              effect: "not_dispatched",
+              retry: { kind: "never" },
+            },
+          }
+        : {
+            status: 200,
+            body: { operationRef: operationId, state: "applied" },
+          };
+    });
+    expect(await f.preparation.close("cancelled")).toMatchObject({
+      state: "applied",
+    });
+    expect(f.intents).toHaveLength(2);
+    expect(f.intents[1]).toEqual(f.intents[0]);
+    expect(f.nativeCloseOperationIds).toHaveLength(2);
+    expect(f.nativeCloseOperationIds[1]).toBe(f.nativeCloseOperationIds[0]);
+    expect(f.operationReads).toHaveLength(1);
+    expect(f.preparation.hasSession()).toBe(false);
+  } finally {
+    f.setCloseResponseOverride();
+    await f.relay.shutdown();
+  }
+});
+
+it("refreshes a retained v4 allocation only for its exact original close", async () => {
+  const f = await fixture(MiB, 0, 2, 5000, undefined, undefined, 9, undefined, {
+    models: ["gpt-5.6-sol"],
+    independentAllocations: true,
+  });
+  const allocationId = JSON.parse(
+    f.authorization().runtimeSnapshotCanonicalJson!,
+  ).allocations[0].allocationId as string;
+  const preparation = createReviewRunGatewayPreparation({
+    authorizationId: "authorization-1",
+    allocationId,
+    identity: f.authorization(),
+    runAccess: f.relayInput.runAccess,
+    authorizations: f.queries as never,
+    snapshots: f.relayInput.snapshots,
+    bindings: f.bindings,
+    readPreparationOperation: f.relayInput.readPreparationOperation!,
+  });
+  let calls = 0;
+  try {
+    expect(await preparation.prepare()).toMatchObject({ status: "prepared" });
+    f.setCloseResponseOverride((operationId) =>
+      ++calls === 1
+        ? {
+            status: 401,
+            body: {
+              code: "unauthenticated",
+              traceRef: "trace-1",
+              operationRef: operationId,
+              effect: "not_dispatched",
+              retry: { kind: "never" },
+            },
+          }
+        : {
+            status: 200,
+            body: { operationRef: operationId, state: "applied" },
+          },
+    );
+    expect(await preparation.close("cancelled")).toMatchObject({
+      state: "applied",
+    });
+    expect(f.intents[1]).toEqual(f.intents[0]);
+    expect(new Set(f.nativeCloseOperationIds).size).toBe(1);
+    expect(preparation.hasSession()).toBe(false);
+  } finally {
+    f.setCloseResponseOverride();
+    await f.relay.shutdown();
+  }
+});
+
+it("retains the original capability when exact preparation proof is unavailable", async () => {
+  const f = await fixture(MiB);
+  try {
+    await f.preparation.prepare();
+    f.setOperationReadFailure();
+    f.setCloseResponseOverride((operationId) => ({
+      status: 401,
+      body: {
+        code: "unauthenticated",
+        traceRef: "trace-1",
+        operationRef: operationId,
+        effect: "not_dispatched",
+        retry: { kind: "never" },
+      },
+    }));
+    await expect(f.preparation.close("cancelled")).rejects.toBeDefined();
+    expect(f.intents).toHaveLength(1);
+    expect(f.preparation.canReleaseWithoutRemoteClose()).toBe(false);
+  } finally {
+    f.setOperationReadFailure(false);
+    f.setCloseResponseOverride();
+    await f.relay.shutdown();
+  }
+});
+
+it("joins concurrent stale close retries without changing the close identity", async () => {
+  const f = await fixture(MiB);
+  let calls = 0;
+  try {
+    await f.preparation.prepare();
+    f.setCloseResponseOverride((operationId) => {
+      calls++;
+      return calls <= 2
+        ? {
+            status: 401,
+            body: {
+              code: "unauthenticated",
+              traceRef: "trace-1",
+              operationRef: operationId,
+              effect: "not_dispatched",
+              retry: { kind: "never" },
+            },
+          }
+        : {
+            status: 200,
+            body: { operationRef: operationId, state: "applied" },
+          };
+    });
+    const outcomes = await Promise.allSettled([
+      f.preparation.close("cancelled"),
+      f.preparation.close("deadline"),
+    ]);
+    expect(
+      outcomes.some(
+        (result) =>
+          result.status === "fulfilled" && result.value.state === "applied",
+      ),
+    ).toBe(true);
+    expect(new Set(f.nativeCloseOperationIds).size).toBe(1);
+    expect(new Set(f.nativeCloseReasons)).toEqual(new Set(["cancelled"]));
+    expect(f.preparation.hasSession()).toBe(false);
+  } finally {
+    f.setCloseResponseOverride();
+    await f.relay.shutdown();
+  }
+});
+
+it("does not reprepare when the admission expires during operation readback", async () => {
+  const f = await fixture(MiB);
+  const realNow = Date.now();
+  const clock = vi.spyOn(Date, "now");
+  try {
+    await f.preparation.prepare();
+    f.setOperationReadHook(() => clock.mockReturnValue(realNow + 180_000));
+    f.setCloseResponseOverride((operationId) => ({
+      status: 401,
+      body: {
+        code: "unauthenticated",
+        traceRef: "trace-1",
+        operationRef: operationId,
+        effect: "not_dispatched",
+        retry: { kind: "never" },
+      },
+    }));
+    await expect(f.preparation.close("cancelled")).rejects.toBeDefined();
+    expect(f.operationReads).toHaveLength(1);
+    expect(f.intents).toHaveLength(1);
+    expect(f.preparation.canReleaseWithoutRemoteClose()).toBe(false);
+  } finally {
+    clock.mockRestore();
+    f.setOperationReadHook();
+    f.setCloseResponseOverride();
     await f.relay.shutdown();
   }
 });
