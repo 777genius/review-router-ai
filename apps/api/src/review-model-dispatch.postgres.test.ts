@@ -4,7 +4,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   canonicalJson,
   ClaimReviewRunCompanionDispatch,
+  ReviewProtocolVersion,
+  ReviewRunAuthorizationState,
+  ReviewRunAuthorizationTokenAudience,
   ReviewRunAuthorizationTokenResolutionStatus,
+  ReviewTrustDomain,
   ReviewRunCompanionDispatchFailure,
   type ReviewRunAuthorization,
   type ReviewRunCompanionDispatchClaim,
@@ -377,9 +381,24 @@ describe("authenticated frozen model dispatch capacity over HTTP", () => {
 it.each([
   { name: "live receipt", hasReceipt: true, custody: "live", expires: false },
   { name: "lost custody", hasReceipt: true, custody: "lost", expires: false },
-  { name: "run bearer only", hasReceipt: false, custody: "live", expires: false },
-  { name: "expiry during custody check", hasReceipt: true, custody: "live", expires: true },
-  { name: "custody unavailable", hasReceipt: true, custody: "failed", expires: false },
+  {
+    name: "run bearer only",
+    hasReceipt: false,
+    custody: "live",
+    expires: false,
+  },
+  {
+    name: "expiry during custody check",
+    hasReceipt: true,
+    custody: "live",
+    expires: true,
+  },
+  {
+    name: "custody unavailable",
+    hasReceipt: true,
+    custody: "failed",
+    expires: false,
+  },
 ] as const)(
   "refreshes receipt readback and gates actionable proof: $name",
   async ({ hasReceipt, custody, expires }) => {
@@ -402,6 +421,42 @@ it.each([
       requestBytes: 200,
       maxOutputTokens: 1000,
     };
+    const now = new Date();
+    const authorization: ReviewRunAuthorization = {
+      workspaceId: "original-workspace",
+      repositoryConnectionId: "original-repository",
+      scmRepositoryIdentityId: "original-scm-repository",
+      pullRequestNumber: 42,
+      baseSha: "a".repeat(40),
+      mergeBaseSha: "b".repeat(40),
+      headSha: "c".repeat(40),
+      reviewRevisionHash: "d".repeat(64),
+      authorizationId: row.authorizationId,
+      version: 1,
+      sourceRunId: "original-source-run",
+      sourceRunAttempt: "1",
+      workflowIdentityHash: "e".repeat(64),
+      trustDomain: ReviewTrustDomain.TrustedManaged,
+      producerReleaseId: "original-release",
+      selectedProtocolVersion: ReviewProtocolVersion.V2,
+      schemaDigest: "f".repeat(64),
+      protocolLimitsProfileId: "original-limits",
+      operationalSloProfileId: "original-slo",
+      mutationEpoch: 1n,
+      providerVoteLanes: [],
+      reviewInvestigationAuthorizationDescriptorCanonicalJson: null,
+      authorizationSafetyDecisionHash: "1".repeat(64),
+      protocolOfferHash: "2".repeat(64),
+      oidcReplayKeyHash: "3".repeat(64),
+      tokenSigningKeyId: "original-signing-key",
+      tokenIssuer: "reviewrouter-review-run-control",
+      tokenAudience: ReviewRunAuthorizationTokenAudience.ReviewRun,
+      state: ReviewRunAuthorizationState.Active,
+      expiresAt: new Date(now.getTime() + 120_000),
+      maxExpiresAt: new Date(now.getTime() + 120_000),
+      createdAt: now,
+      renewedAt: null,
+    };
     let reads = 0;
     let custodyChecks = 0;
     const denied = async (): Promise<never> => {
@@ -415,9 +470,7 @@ it.each([
           expect(token).toBe("original-run-token");
           return {
             status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
-            authorization: {
-              authorizationId: row.authorizationId,
-            } as ReviewRunAuthorization,
+            authorization,
           };
         },
       },
@@ -1596,7 +1649,11 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
             return f.repository.readReceipt(dispatchId, token);
           },
           settleReceipt: async (dispatchId, token, value) => {
-            const row = await f.repository.settleReceipt(dispatchId, token, value);
+            const row = await f.repository.settleReceipt(
+              dispatchId,
+              token,
+              value,
+            );
             committed = true;
             // Expire only after the real transaction committed. This is a
             // deterministic late-ACK boundary, without advancing the HTTP clock.
@@ -1618,7 +1675,8 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
           method: "POST",
           url: `${reviewModelDispatchContract.basePath}/${c.dispatchId}/settle`,
           headers: {
-            [reviewModelDispatchContract.receiptHeader]: reservation.receiptToken!,
+            [reviewModelDispatchContract.receiptHeader]:
+              reservation.receiptToken!,
           },
           payload: settlement,
         });
@@ -1648,7 +1706,10 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
         else if (settlement.state === "completed")
           expect(stored.terminalReceiptJson).toEqual(settlement.receipt);
         expect(
-          await f.repository.readReceipt(c.dispatchId, reservation.receiptToken!),
+          await f.repository.readReceipt(
+            c.dispatchId,
+            reservation.receiptToken!,
+          ),
         ).toBeNull();
       } finally {
         await app.close();

@@ -279,8 +279,7 @@ export async function registerReviewModelDispatchRoutes(
         ) {
           try {
             row =
-              (await api.admission.readReceipt(dispatchId, token)) ??
-              committed;
+              (await api.admission.readReceipt(dispatchId, token)) ?? committed;
           } catch {
             // A failed optional proof refresh cannot erase a committed ACK.
           }
