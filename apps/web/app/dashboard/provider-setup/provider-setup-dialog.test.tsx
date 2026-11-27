@@ -280,6 +280,10 @@ function singletonRosterExpectation(input: Readonly<Record<string, unknown>>) {
 }
 
 async function chooseSelect(label: string, name: string | RegExp) {
+  if (label === "Provider") {
+    fireEvent.click(await screen.findByRole("radio", { name }));
+    return;
+  }
   fireEvent.click(
     await screen.findByRole("combobox", { name: new RegExp(`^${label}\\b`) }),
   );
@@ -1004,10 +1008,7 @@ describe("ProviderSetupDialog", () => {
         { kind: "workspace" },
         { mode: "add", gatewayAccounts: fixture },
       );
-      fireEvent.click(
-        await screen.findByRole("combobox", { name: "Provider" }),
-      );
-      const option = await screen.findByRole("option", { name: /^Codex/u });
+      const option = await screen.findByRole("radio", { name: /^Codex/u });
       const allowed = scenario === "workspace" || scenario === "personal";
       expect(option.getAttribute("aria-disabled")).toBe(
         allowed ? null : "true",
@@ -1265,8 +1266,10 @@ describe("ProviderSetupDialog", () => {
     view = { ...view, target: "workspace", sources: apiSources() };
     renderDialog({ kind: "workspace" }, { mode: "add" });
     expect(
-      (await screen.findByRole("combobox", { name: "Provider" })).textContent,
-    ).toContain("Choose a provider");
+      (await screen.findByRole("radio", { name: "OpenRouter" })).getAttribute(
+        "aria-checked",
+      ),
+    ).toBe("false");
     expect(screen.queryByLabelText("Model", { exact: true })).toBeNull();
     expect(
       screen.queryByRole("radiogroup", { name: "Key storage" }),
@@ -2308,8 +2311,10 @@ describe("ProviderSetupDialog", () => {
       });
       expect(github.getAttribute("aria-checked")).toBe("true");
       expect(
-        screen.getByRole("combobox", { name: "Provider" }).textContent,
-      ).toContain(provider.label);
+        screen
+          .getByRole("radio", { name: provider.label })
+          .getAttribute("aria-checked"),
+      ).toBe("true");
       expect(screen.queryByLabelText("API key")).toBeNull();
       fireEvent.click(screen.getByRole("radio", { name: "ReviewRouter" }));
       const link = screen.getByRole("link", {
@@ -2684,9 +2689,7 @@ describe("ProviderSetupDialog", () => {
         .querySelector('[role="radio"]')!;
       // Recover explicitly; a refresh must not silently replace the choice.
       expect(add.getAttribute("aria-checked")).toBe("false");
-      expect(
-        screen.queryByRole("combobox", { name: /^Provider\b/ }),
-      ).toBeNull();
+      expect(screen.queryByRole("radio", { name: "OpenRouter" })).toBeNull();
       expect(saveProviderRosterAction).not.toHaveBeenCalled();
       expect(inheritWorkspaceDefaultProviderAction).not.toHaveBeenCalled();
 
