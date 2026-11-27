@@ -1088,7 +1088,6 @@ function fixture(
   };
   mocks.getPrisma.mockReturnValue({
     ...transaction,
-    $connect: state.prisma.$connect,
     repositoryConnection: {
       findFirst: scopedRepository,
       findUnique: vi.fn(async () => ({

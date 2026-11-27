@@ -776,20 +776,25 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
     const dispatch = toDispatch(row);
     if (row.nativeRetryProofJson === null || row.state !== "not_dispatched")
       return dispatch;
-    const live = await this.prisma.$transaction(async (tx) => {
-      if (!(await this.nativeRetryAuthority(tx, row))) return false;
-      return (
-        (await tx.reviewRunCompanionDispatchV1.count({
-          where: {
-            authorizationId: row.authorizationId,
-            retryOfDispatchId: row.dispatchId,
-          },
-        })) === 0
-      );
+    const notAfter = await this.prisma.$transaction(async (tx) => {
+      const authorityNotAfter = await this.nativeRetryAuthority(tx, row);
+      if (!authorityNotAfter) return undefined;
+      const successors = await tx.reviewRunCompanionDispatchV1.count({
+        where: {
+          authorizationId: row.authorizationId,
+          retryOfDispatchId: row.dispatchId,
+        },
+      });
+      return successors === 0
+        ? new Date(
+            Math.min(authorityNotAfter.getTime(), row.retainUntil.getTime()),
+          )
+        : undefined;
     });
-    return live
+    return notAfter
       ? {
           ...dispatch,
+          nativeRetryProofNotAfter: notAfter,
           nativeRetryProof: {
             kind: "native_rejection_after_forward" as const,
             reason: "admission_storage_conflict" as const,

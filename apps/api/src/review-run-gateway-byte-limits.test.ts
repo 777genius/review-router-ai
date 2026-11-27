@@ -162,6 +162,159 @@ const forwardingBounds = [
   { capacity128: true, requests: 16, ordinal: 17, allowed: false },
 ];
 
+it("rejects a native retry proof cancelled during its final authority check", async () => {
+  const state = companionReservation("finding_discovery");
+  const f = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: state.admission,
+    retryProof: (requestRef, executionRef) => ({
+      kind: "request-retry-proof/v1",
+      consumerId: "fixture-consumer",
+      executionRef,
+      requestRef,
+      nonEntryReason: "admission_storage_conflict",
+      transportClosed: true,
+    }),
+  });
+  const finalCheckStarted = deferred();
+  const releaseFinalCheck = deferred();
+  const controller = new AbortController();
+  let checks = 0;
+  let reading: ReturnType<typeof f.preparation.retryProof> | undefined =
+    undefined;
+  try {
+    await f.preparation.prepare();
+    reading = f.preparation.retryProof(
+      "cancelled-proof-request",
+      { signal: controller.signal },
+      async () => {
+        if (++checks === 2) {
+          finalCheckStarted.resolve();
+          await releaseFinalCheck.promise;
+        }
+      },
+    );
+    void reading.catch(() => {});
+    await Promise.race([
+      finalCheckStarted.promise,
+      reading.then(() => {
+        throw new Error("proof_returned_before_final_check");
+      }),
+    ]);
+    expect(f.retryProofCalls).toHaveLength(1);
+    controller.abort();
+    releaseFinalCheck.resolve();
+    await expect(reading).rejects.toMatchObject({
+      code: "cancelled",
+      effect: "effect_unknown",
+    });
+    expect(checks).toBe(2);
+    expect(f.retryProofCalls).toHaveLength(1);
+    expect(f.requestRefs).toHaveLength(0);
+  } finally {
+    releaseFinalCheck.resolve();
+    await reading?.catch(() => {});
+    try {
+      await f.preparation.close("cancelled");
+    } finally {
+      await f.relay.shutdown();
+    }
+  }
+});
+
+it.each(["closeRun", "shutdown"] as const)(
+  "denies native retry visibility when %s starts during the final live-authority read",
+  async (operation) => {
+    const liveReadStarted = deferred();
+    const releaseLiveRead = deferred();
+    const revokeStarted = deferred();
+    const releaseRevoke = deferred();
+    let holdLiveRead = false;
+    let originalAuthorityAllowed = false;
+    const originalFactory = preparationModule.createReviewRunGatewayPreparation;
+    const factory = vi
+      .spyOn(preparationModule, "createReviewRunGatewayPreparation")
+      .mockImplementation((input) => {
+        const preparation = originalFactory(input);
+        return {
+          ...preparation,
+          hasLiveNativeRetryAuthority: async () => {
+            const allowed = await preparation.hasLiveNativeRetryAuthority();
+            if (holdLiveRead) {
+              originalAuthorityAllowed = allowed;
+              liveReadStarted.resolve();
+              await releaseLiveRead.promise;
+            }
+            return allowed;
+          },
+        };
+      });
+    const state = companionReservation("finding_discovery");
+    const f = await fixture(32768, 0, 2, 5000, undefined, {
+      admission: state.admission,
+    });
+    const originalRevoke =
+      f.authorizations.expireOrRevokeReviewRunAuthorization;
+    const revoke = vi
+      .spyOn(f.authorizations, "expireOrRevokeReviewRunAuthorization")
+      .mockImplementation(async (input) => {
+        revokeStarted.resolve();
+        await releaseRevoke.promise;
+        return originalRevoke(input);
+      });
+    let reading:
+      | ReturnType<typeof f.relay.canReadNativeRetryProof>
+      | undefined = undefined;
+    let closing: Promise<unknown> | undefined = undefined;
+    try {
+      await streamRun(f, "authorization-1");
+      const { dispatch } = await state.admission.claim(
+        f.authorization(),
+        companionContext,
+        createHash("sha256").update(companionEnvelope()).digest("hex"),
+      );
+      expect(await f.relay.canReadNativeRetryProof(dispatch)).toBe(true);
+      holdLiveRead = true;
+      reading = f.relay.canReadNativeRetryProof(dispatch);
+      void reading.catch(() => {});
+      await Promise.race([
+        liveReadStarted.promise,
+        reading.then(() => {
+          throw new Error("visibility_returned_before_live_read");
+        }),
+      ]);
+      expect(originalAuthorityAllowed).toBe(true);
+      closing =
+        operation === "closeRun"
+          ? f.relay.closeRun("authorization-1", "cancelled")
+          : f.relay.shutdown();
+      void closing.catch(() => {});
+      await Promise.race([
+        revokeStarted.promise,
+        closing.then(() => {
+          throw new Error("close_finished_before_revocation");
+        }),
+      ]);
+      expect(f.authorization().state).toBe("active");
+      expect(f.nativeCloses).toHaveLength(0);
+      releaseLiveRead.resolve();
+      await expect(reading).resolves.toBe(false);
+      releaseRevoke.resolve();
+      await closing;
+    } finally {
+      releaseLiveRead.resolve();
+      releaseRevoke.resolve();
+      await reading?.catch(() => {});
+      await closing?.catch(() => {});
+      try {
+        await f.relay.shutdown();
+      } finally {
+        revoke.mockRestore();
+        factory.mockRestore();
+      }
+    }
+  },
+);
+
 it.each([
   { name: "original", enabled: true, invalidProof: undefined, accepted: true },
   {
@@ -272,6 +425,16 @@ it.each([
         accepted ? "not_dispatched" : "effect_unknown",
       );
       expect(f.retryProofCalls).toHaveLength(enabled ? 1 : 0);
+      expect(f.retryProofHeaders).toEqual(
+        enabled
+          ? [
+              {
+                authorization: "Bearer local-execution-token",
+                capability: "request-retry-proof/v1",
+              },
+            ]
+          : [],
+      );
       if (accepted) {
         expect(recordNativeRejection).toHaveBeenCalledWith(
           f.authorization().authorizationId,
@@ -351,8 +514,10 @@ it.each([
   async ({ effect, status, nativeRetry, role, proof }) => {
     const state = companionReservation(role);
     const events: string[] = [];
-    const statusBody = Promise.withResolvers<void>();
-    const releaseEof = Promise.withResolvers<void>();
+    const releaseEof = deferred();
+    const eofReadPending = deferred();
+    const proofCallStarted = deferred();
+    let statusBytes = 0;
     const forward = vi.fn(
       async (
         ...args: Parameters<ReviewRunModelDispatchAdmission["forward"]>
@@ -397,9 +562,10 @@ it.each([
       nativeRetry,
       nativeStatusResponse: async (response, requestRef) => {
         response.writeHead(202, { "content-type": "application/json" });
-        response.write(JSON.stringify({ requestRef, effect, status }));
+        const body = JSON.stringify({ requestRef, effect, status });
+        statusBytes = Buffer.byteLength(body);
+        response.write(body);
         events.push("status-body");
-        statusBody.resolve();
         // The public native handler awaits its close ACK before returning.
         // Sending JSON without EOF must not trigger an early RR proof read.
         await releaseEof.promise;
@@ -447,6 +613,58 @@ it.each([
       requestBytes: bytes.byteLength,
       maxOutputTokens: 4096,
     });
+    const originalFetch = globalThis.fetch;
+    let clientEofObserved = false;
+    const proofInvocations: boolean[] = [];
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input, init) => {
+        const url = new URL(input instanceof Request ? input.url : input);
+        const fixtureRequest = url.origin === f.relayInput.runAccess.origin;
+        if (fixtureRequest && url.pathname.endsWith("/retry-proof")) {
+          proofInvocations.push(clientEofObserved);
+          proofCallStarted.resolve();
+        }
+        const response = await originalFetch(input, init);
+        if (
+          !fixtureRequest ||
+          !url.pathname.endsWith("/requests") ||
+          response.status !== 202 ||
+          !response.body
+        )
+          return response;
+        const reader = response.body.getReader();
+        let consumedBytes = 0;
+        const body = new ReadableStream<Uint8Array>(
+          {
+            async pull(controller) {
+              // With no prefetch, this read is driven by the SDK's next read.
+              const pendingRead = reader.read();
+              if (consumedBytes === statusBytes && consumedBytes > 0)
+                eofReadPending.resolve();
+              try {
+                const { done, value } = await pendingRead;
+                if (done) {
+                  clientEofObserved = true;
+                  controller.close();
+                } else {
+                  consumedBytes += value.byteLength;
+                  controller.enqueue(value);
+                }
+              } catch (error) {
+                controller.error(error);
+              }
+            },
+            cancel: (reason) => reader.cancel(reason),
+          },
+          { highWaterMark: 0 },
+        );
+        return new Response(body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        });
+      });
     const controller = new AbortController();
     const pending = f.relay
       .responses(
@@ -462,12 +680,15 @@ it.each([
       );
     try {
       await Promise.race([
-        statusBody.promise,
+        eofReadPending.promise,
+        proofCallStarted.promise.then(() => {
+          throw new Error("native_proof_started_before_eof_read");
+        }),
         pending.then(() => {
-          throw new Error("native_status_finished_before_body_checkpoint");
+          throw new Error("native_status_finished_before_eof_read");
         }),
       ]);
-      await setImmediate();
+      expect(proofInvocations).toEqual([]);
       expect(events).toEqual(["status-body"]);
       expect(f.retryProofCalls).toHaveLength(0);
       expect(recordNativeRejection).not.toHaveBeenCalled();
@@ -495,7 +716,18 @@ it.each([
           },
         });
       }
+      expect(proofInvocations).toEqual(proof === "unused" ? [] : [true]);
       expect(f.retryProofCalls).toHaveLength(proof === "unused" ? 0 : 1);
+      expect(f.retryProofHeaders).toEqual(
+        proof === "unused"
+          ? []
+          : [
+              {
+                authorization: "Bearer local-execution-token",
+                capability: "request-retry-proof/v1",
+              },
+            ],
+      );
       expect(recordNativeRejection).toHaveBeenCalledTimes(
         proof === "accepted" ? 1 : 0,
       );
@@ -528,11 +760,187 @@ it.each([
     } finally {
       releaseEof.resolve();
       controller.abort();
-      await pending;
-      await f.relay.shutdown();
+      try {
+        await pending;
+        await f.relay.shutdown();
+      } finally {
+        fetchMock.mockRestore();
+      }
     }
   },
   10_000,
+);
+
+it.each([
+  { mode: "private", proofDenied: false },
+  { mode: "public", proofDenied: false },
+  { mode: "private", proofDenied: true },
+] as const)(
+  "projects HTTP $mode references (proof denied=$proofDenied)",
+  async ({ mode, proofDenied }) => {
+    const state = companionReservation("finding_discovery");
+    const forward = vi.fn(
+      async (
+        ...args: Parameters<ReviewRunModelDispatchAdmission["forward"]>
+      ) => ({
+        ...(await state.admission.claim(...args)),
+        status: "claimed" as const,
+      }),
+    );
+    const recordNativeRejection = vi.fn(
+      async (
+        ...args: Parameters<
+          ReviewRunModelDispatchAdmission["recordNativeRejection"]
+        >
+      ) => {
+        const row = state.rows.get(args[1])!;
+        expect(args[2].requestRef).toBe(row.nativeRequestRef);
+        expect(row.state).toBe("dispatch_may_have_started");
+        state.rows.set(args[1], {
+          ...row,
+          state: "not_dispatched",
+          nativeRetryProof: {
+            kind: "native_rejection_after_forward",
+            reason: "admission_storage_conflict",
+          },
+        });
+      },
+    );
+    const f = await fixture(32768, 0, 2, 5000, undefined, {
+      admission: { ...state.admission, forward, recordNativeRejection },
+      modelDispatchV2: true,
+      modelDispatchCapacity128: true,
+      nativeRetry: true,
+      ...(mode === "private"
+        ? { nativeRejection: true }
+        : {
+            nativeStatusResponse: async (
+              response: ServerResponse,
+              requestRef: string,
+            ) => {
+              response.writeHead(202, { "content-type": "application/json" });
+              response.end(
+                JSON.stringify({
+                  requestRef,
+                  effect: "dispatch_started",
+                  status: "pending",
+                }),
+              );
+            },
+          }),
+      retryProofStatus: proofDenied ? 403 : 200,
+      retryProof: (requestRef, executionRef) =>
+        proofDenied
+          ? {
+              code: "forbidden",
+              traceRef: "denied-native-proof-fixture",
+              requestRef,
+              effect: "effect_unknown",
+              retry: { kind: "never" },
+            }
+          : {
+              kind: "request-retry-proof/v1",
+              consumerId: "fixture-consumer",
+              executionRef,
+              requestRef,
+              nonEntryReason: "admission_storage_conflict",
+              transportClosed: true,
+            },
+    });
+    const bytes = companionEnvelope();
+    const context = {
+      ...companionContext,
+      dispatchVersion: 2 as const,
+      requestOrdinal: 1,
+      routeIdentityHash: "e".repeat(64),
+    };
+    const original = await state.admission.claim(
+      f.authorization(),
+      context,
+      createHash("sha256").update(bytes).digest("hex"),
+    );
+    state.rows.set(context.dispatchId, {
+      ...original.dispatch,
+      dispatchVersion: 2,
+      requestOrdinal: 1,
+      routeIdentityHash: context.routeIdentityHash,
+      requestBytes: bytes.byteLength,
+      maxOutputTokens: 4096,
+    });
+    const app = Fastify({ logger: false });
+    await registerReviewRunGatewayRelayRoutes(app, f.relay);
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    try {
+      const response = await fetch(
+        "http://127.0.0.1:" +
+          (app.server.address() as AddressInfo).port +
+          "/api/action/v2/account-gateway/responses",
+        {
+          method: "POST",
+          headers: {
+            ...modelForwardHeaders(1),
+            "x-reviewrouter-request-ref": "unowned-client-reference",
+          },
+          body: bytes,
+        },
+      );
+      const body: unknown = await response.json();
+      expect(response.status).toBe(mode === "private" ? 502 : 202);
+      expect(response.headers.get("x-reviewrouter-request-ref")).toBe(
+        proofDenied ? null : original.dispatch.nativeRequestRef,
+      );
+      expect(response.headers.get("x-reviewrouter-request-ref")).not.toBe(
+        "unowned-client-reference",
+      );
+      expect(body).toMatchObject(
+        mode === "private"
+          ? {
+              error: {
+                code: "companion_request_failed",
+                effect: proofDenied
+                  ? "effect_unknown"
+                  : "rejected_before_dispatch",
+                requestRef: original.dispatch.nativeRequestRef,
+                cause: "upstream_failure",
+              },
+            }
+          : {
+              requestRef: original.dispatch.nativeRequestRef,
+              effect: "dispatch_started",
+              status: "pending",
+            },
+      );
+      const recorded = state.rows.get(context.dispatchId);
+      expect(recorded).toMatchObject({
+        state: proofDenied ? "effect_unknown" : "not_dispatched",
+        nativeRequestRef: original.dispatch.nativeRequestRef,
+      });
+      if (proofDenied) expect(recorded).not.toHaveProperty("nativeRetryProof");
+      else
+        expect(recorded).toHaveProperty("nativeRetryProof", {
+          kind: "native_rejection_after_forward",
+          reason: "admission_storage_conflict",
+        });
+      expect(recordNativeRejection).toHaveBeenCalledTimes(proofDenied ? 0 : 1);
+      expect(f.retryProofCalls).toHaveLength(1);
+      expect(f.retryProofHeaders).toEqual([
+        {
+          authorization: "Bearer local-execution-token",
+          capability: "request-retry-proof/v1",
+        },
+      ]);
+      expect(f.retryProofCalls[0]?.requestRef).toBe(
+        original.dispatch.nativeRequestRef,
+      );
+      expect(forward).toHaveBeenCalledTimes(1);
+      expect(f.intents).toHaveLength(1);
+      expect(f.requestRefs).toEqual([original.dispatch.nativeRequestRef]);
+      expect(f.requestBodies).toEqual([bytes.toString()]);
+    } finally {
+      await app.close();
+      await f.relay.shutdown();
+    }
+  },
 );
 
 it("refuses a successor before preparation when the original Gateway client was lost", async () => {
@@ -1345,110 +1753,184 @@ it.each([
   },
 );
 
-it("attributes consumer cancellation during successful companion settlement to downstream", async () => {
-  const state = companionReservation();
-  const settlementStarted = deferred();
-  const releaseSettlement = deferred();
-  let completedRecorded = false;
-  const recordSettlement = state.admission.settle;
-  const settlement = vi
-    .spyOn(state.admission, "settle")
-    .mockImplementation(async (authorizationId, dispatchId, effect) => {
-      if (effect === "completed") {
-        settlementStarted.resolve();
-        await releaseSettlement.promise;
-      }
-      await recordSettlement(authorizationId, dispatchId, effect);
-      if (effect === "completed") completedRecorded = true;
-    });
-  const log = vi.spyOn(console, "error").mockImplementation(() => {});
-  const f = await fixture(
-    32768,
-    0,
-    2,
-    5000,
-    async (upstream) => {
-      upstream.end(progressFrame + completedFrame);
-    },
-    { admission: state.admission },
-  );
-  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
-  let draining: Promise<void> | undefined;
-  try {
-    const response = await f.relay.responses(
-      "authorization-1",
-      companionEnvelope(),
-      new AbortController(),
-      undefined,
-      companionContext,
+it.each([
+  { phase: "native_status", fail: false },
+  { phase: "usage_outcome", fail: false },
+  { phase: "companion_settlement", fail: false },
+  { phase: "native_status", fail: true },
+  { phase: "usage_outcome", fail: true },
+  { phase: "companion_settlement", fail: true },
+] as const)(
+  "keeps EOF settlement authoritative through cancellation at $phase (fails=$fail)",
+  async ({ phase, fail }) => {
+    const state = companionReservation();
+    const settlementStarted = deferred();
+    const releaseSettlement = deferred();
+    let completedRecorded = false;
+    const recordSettlement = state.admission.settle;
+    const settlement = vi
+      .spyOn(state.admission, "settle")
+      .mockImplementation(async (authorizationId, dispatchId, effect) => {
+        if (phase === "companion_settlement" && effect === "completed") {
+          settlementStarted.resolve();
+          await releaseSettlement.promise;
+          if (fail) throw new Error("fixture_settlement_failed");
+        }
+        await recordSettlement(authorizationId, dispatchId, effect);
+        if (effect === "completed") completedRecorded = true;
+      });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const f = await fixture(
+      32768,
+      0,
+      2,
+      5000,
+      async (upstream) => {
+        upstream.end(progressFrame + completedFrame);
+      },
+      {
+        admission: state.admission,
+        ...(phase === "native_status"
+          ? {
+              requestStatus: async (requestRef: string) => {
+                settlementStarted.resolve();
+                await releaseSettlement.promise;
+                return fail
+                  ? {
+                      statusCode: 503,
+                      body: {
+                        code: "upstream_failure",
+                        traceRef: "fixture-native-status-failure",
+                        requestRef,
+                        effect: "effect_unknown",
+                        retry: { kind: "readback" },
+                      },
+                    }
+                  : {
+                      statusCode: 200,
+                      body: {
+                        requestRef,
+                        effect: "completed",
+                        status: "completed",
+                      },
+                    };
+              },
+            }
+          : {}),
+      },
     );
-    if (response.kind !== "stream") throw new Error("stream_expected");
-    reader = response.body.getReader();
-    draining = (async () => {
-      while (!(await reader!.read()).done) {
-        // Drive EOF until the real companion settlement is held.
-      }
-    })();
-    void draining.catch(() => {});
-    await Promise.race([
-      settlementStarted.promise,
-      draining.then(() => {
-        throw new Error("stream_ended_before_companion_settlement");
-      }),
-    ]);
-    expect(completedRecorded).toBe(false);
-    await reader.cancel();
-    await draining;
-    expect(completedRecorded).toBe(false);
-    const effectsBeforeCompletion = [...f.effects];
-    const settlementsBeforeCompletion = [...settlement.mock.calls];
-    releaseSettlement.resolve();
-
-    await vi.waitFor(() =>
-      expect(
-        log.mock.calls.filter(
-          ([event]) => event?.event === "review_run_companion_stream_failure",
-        ),
-      ).toEqual([
-        [
-          {
-            event: "review_run_companion_stream_failure",
-            phase: "downstream",
-            requestRef: "stored-companion-native-ref",
-            receivedBytes: Buffer.byteLength(progressFrame + completedFrame),
-            maxStreamBytes: 32768,
-            signalAborted: false,
-            errorCategory: "TypeError",
-          },
-        ],
-      ]),
-    );
-    expect(completedRecorded).toBe(true);
-    expect(f.effects).toEqual(effectsBeforeCompletion);
-    expect(settlement.mock.calls).toEqual(settlementsBeforeCompletion);
-    expect(
-      settlement.mock.calls.filter(([, , effect]) => effect === "completed"),
-    ).toHaveLength(1);
-    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
-      "completed",
-    );
-    expect(f.requestRefs).toEqual(["stored-companion-native-ref"]);
-    expect(log.mock.calls.flat().some((value) => value instanceof Error)).toBe(
-      false,
-    );
-  } finally {
-    releaseSettlement.resolve();
-    await reader?.cancel().catch(() => {});
-    await draining?.catch(() => {});
-    reader?.releaseLock();
+    const recordOutcome = f.usage!.outcome;
+    const usage = vi
+      .spyOn(f.usage!, "outcome")
+      .mockImplementation(async (input) => {
+        if (phase === "usage_outcome" && input.effect === "completed") {
+          settlementStarted.resolve();
+          await releaseSettlement.promise;
+          if (fail) throw new Error("fixture_settlement_failed");
+        }
+        return recordOutcome(input);
+      });
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    let draining: Promise<void> | undefined;
     try {
-      await f.relay.shutdown();
+      const response = await f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      );
+      if (response.kind !== "stream") throw new Error("stream_expected");
+      reader = response.body.getReader();
+      draining = (async () => {
+        while (!(await reader!.read()).done) {
+          // Drive EOF until its status read or one settlement write is held.
+        }
+      })();
+      void draining.catch(() => {});
+      await Promise.race([
+        settlementStarted.promise,
+        draining.then(() => {
+          throw new Error("stream_ended_before_companion_settlement");
+        }),
+      ]);
+      expect(completedRecorded).toBe(false);
+      await reader.cancel();
+      await response.cancel();
+      await draining;
+      expect(completedRecorded).toBe(false);
+      expect(f.effects.some(({ effect }) => effect === "effect_unknown")).toBe(
+        false,
+      );
+      expect(
+        settlement.mock.calls.some(
+          ([, , effect]) => effect === "effect_unknown",
+        ),
+      ).toBe(false);
+      releaseSettlement.resolve();
+
+      await vi.waitFor(() => {
+        expect(
+          log.mock.calls.filter(
+            ([event]) => event?.event === "review_run_companion_stream_failure",
+          ),
+        ).toEqual([
+          [
+            {
+              event: "review_run_companion_stream_failure",
+              phase: fail ? phase : "downstream",
+              requestRef: "stored-companion-native-ref",
+              receivedBytes: Buffer.byteLength(progressFrame + completedFrame),
+              maxStreamBytes: 32768,
+              signalAborted: false,
+              errorCategory: fail ? "Error" : "TypeError",
+              ...(fail && phase === "native_status"
+                ? { httpStatus: 503, sdkCode: "safe_error" }
+                : {}),
+            },
+          ],
+        ]);
+        expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+          fail ? "effect_unknown" : "completed",
+        );
+        expect(f.effects.at(-1)?.effect).toBe(
+          fail ? "effect_unknown" : "completed",
+        );
+      });
+      expect(completedRecorded).toBe(!fail);
+      expect(f.effects.map(({ effect }) => effect)).toEqual(
+        !fail
+          ? ["dispatch_started", "completed"]
+          : phase !== "companion_settlement"
+            ? ["dispatch_started", "effect_unknown"]
+            : ["dispatch_started", "completed", "effect_unknown"],
+      );
+      expect(settlement.mock.calls.map(([, , effect]) => effect)).toEqual(
+        !fail
+          ? ["completed"]
+          : phase !== "companion_settlement"
+            ? ["effect_unknown"]
+            : ["completed", "effect_unknown"],
+      );
+      expect(f.requestRefs).toEqual(["stored-companion-native-ref"]);
+      expect(
+        log.mock.calls.flat().some((value) => value instanceof Error),
+      ).toBe(false);
     } finally {
-      settlement.mockRestore();
-      log.mockRestore();
+      releaseSettlement.resolve();
+      await reader?.cancel().catch(() => {});
+      await draining?.catch(() => {});
+      reader?.releaseLock();
+      try {
+        await f.relay.shutdown();
+      } finally {
+        usage.mockRestore();
+        settlement.mockRestore();
+        log.mockRestore();
+      }
     }
-  }
-});
+  },
+);
 
 it("companion chunks use local authority while phase and EOF status retain full freshness", async () => {
   const state = companionReservation();
@@ -2227,10 +2709,9 @@ async function fixture(
       resetAt: string;
     };
     refusalStatus?: number;
-    requestStatus?: (requestRef: string) => {
-      statusCode: number;
-      body: unknown;
-    };
+    requestStatus?: (requestRef: string) =>
+      | { statusCode: number; body: unknown }
+      | Promise<{ statusCode: number; body: unknown }>;
     failUsageOutcome?: boolean;
     modelDispatchV2?: boolean;
     modelDispatchCapacity128?: boolean;
@@ -2268,6 +2749,10 @@ async function fixture(
     | null,
 ) {
   const retryProofCalls: { requestRef: string; executionRef: string }[] = [];
+  const retryProofHeaders: {
+    authorization: string | undefined;
+    capability: string | string[] | undefined;
+  }[] = [];
   const deadline = new Date(Date.now() + 120_000).toISOString();
   const limits = {
     requests: capturedRequests,
@@ -2631,13 +3116,29 @@ async function fixture(
         req.url ?? "",
       );
     if (proofRequest && req.method === "GET") {
-      expect(req.headers.authorization).toBe("Bearer local-execution-token");
-      expect(req.headers["x-account-gateway-capability"]).toBe(
-        "request-retry-proof/v1",
-      );
+      const headers = {
+        authorization: req.headers.authorization,
+        capability: req.headers["x-account-gateway-capability"],
+      };
       const executionRef = proofRequest[1]!,
         requestRef = proofRequest[2]!;
       retryProofCalls.push({ executionRef, requestRef });
+      retryProofHeaders.push(headers);
+      if (
+        headers.authorization !== "Bearer local-execution-token" ||
+        headers.capability !== "request-retry-proof/v1"
+      ) {
+        res.writeHead(403, { "content-type": "application/json" }).end(
+          JSON.stringify({
+            code: "forbidden",
+            traceRef: "invalid-proof-headers-fixture",
+            requestRef,
+            effect: "effect_unknown",
+            retry: { kind: "never" },
+          }),
+        );
+        return;
+      }
       res
         .writeHead(companionOptions?.retryProofStatus ?? 200, {
           "content-type": "application/json",
@@ -2759,7 +3260,7 @@ async function fixture(
       requestRefs.includes(req.url.split("/").at(-1)!)
     ) {
       const requestRef = req.url.split("/").at(-1)!;
-      const response = companionOptions?.requestStatus?.(requestRef);
+      const response = await companionOptions?.requestStatus?.(requestRef);
       res
         .writeHead(response?.statusCode ?? 200, {
           "content-type": "application/json",
@@ -2994,6 +3495,7 @@ async function fixture(
     requestBodies,
     requestRefs,
     retryProofCalls,
+    retryProofHeaders,
     limits,
     effects,
     authorityChecks,
@@ -3735,6 +4237,7 @@ it("throwing reclaim logger preserves HTTP refusal and unknown native custody", 
         headers: {
           authorization: "Bearer authorization-2",
           "content-type": "application/json",
+          "x-reviewrouter-request-ref": "unowned-client-reference",
         },
         body: JSON.stringify({
           model: "gpt-5.6-sol",
@@ -3745,6 +4248,7 @@ it("throwing reclaim logger preserves HTTP refusal and unknown native custody", 
       },
     );
     expect(response.status).toBe(503);
+    expect(response.headers.get("x-reviewrouter-request-ref")).toBeNull();
     expect(await response.json()).toMatchObject({
       error: { code: "relay_saturated", effect: "not_dispatched" },
     });

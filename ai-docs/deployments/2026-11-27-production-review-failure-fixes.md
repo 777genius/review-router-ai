@@ -58,10 +58,17 @@ Draft CI aggregation with skipped lanes is not runtime qualification.
 
 1. Use the existing [release procedure](../operations/07-environments-and-release-management.md)
    after the normal source/review/CI gates. Record the exact source/image.
+   Qualify the exact Native/Gateway proof producer and packed SDK, then apply
+   `000165_attested_model_request_retry` through the approved migration path
+   before the reader batch below. Even with retry disabled, these Prisma readers
+   select the new nullable `nativeRetryProofJson` and `retryOfDispatchId`
+   columns. Verify those columns, the unique predecessor-use index and bounded
+   scope check before proceeding.
 2. Deploy compatible ReviewRouter API and worker/evidence readers as one
-   coherent batch. Existing producers remain compatible. Before any Action
-   activation that emits the new causes, verify all readers accept the three
-   new persisted values and record the compatible rollback floor.
+   coherent batch only after the schema expansion in step 1. Existing producers
+   remain compatible. Before any Action activation that emits the new causes,
+   verify all readers accept the three new persisted values and record the
+   compatible rollback floor.
 3. In isolated staging fixtures, verify that GitHub waits do not precede either
    announced primary/reset boundary and that a wait outside the read deadline
    refuses without another read, including valid leap-second dates.
@@ -85,25 +92,25 @@ Draft CI aggregation with skipped lanes is not runtime qualification.
    adopt the exact accepted source with no new provider request, dispatch,
    preparation, execution start or provider lease; the existing adoption term
    is allowed. The real old-reader compatibility gate must remain passing.
-8. For native retry, qualify the exact Native/Gateway proof producer and packed
-   SDK, then apply the additive migration before deploying RR readers. It adds
-   only nullable `nativeRetryProofJson` and `retryOfDispatchId` to the existing
-   dispatch table, a unique predecessor-use index and a bounded scope check.
-   Deploy the compatible RR claim/receipt/relay consumer before registering or
+8. With the migration from step 1 applied and readers from step 2 deployed,
+   verify the compatible RR claim/receipt/relay consumer before registering or
    selecting `model-dispatch-policy.native-retry.v1`. Preserve the legacy and
    capacity128 release identities and their complete contract tuples.
-9. Use the official protocol generator/check/export and Action bundle gates.
-   Activate the qualified Action only after the reader-first prerequisite,
-   through the separately authorized release process. Confirm healthy and
-   partial reviews retain their existing progress outcomes before completion.
-10. Execute the existing joined native consumer oracle with the official Action
-    bundle and real PostgreSQL. Preserve a prior paid turn, hold the original
-    rejected request's actual close acknowledgement, and require zero RR proof
-    reads before closure. After closure require one authenticated proof read,
-    exactly one fresh successor with identical bytes/route and three charged
-    requests total. Negative proof, lost original custody, unknown effect,
-    expired authority, exhausted budget, changed body/route and further retry
-    must produce no additional native request or preparation.
+9. Use the official protocol generator/check/export and Action bundle gates,
+   then execute the existing joined native consumer oracle with that official
+   Action bundle and real PostgreSQL. Preserve a prior paid turn, hold the
+   original rejected request's actual close acknowledgement, and require zero
+   RR proof reads before closure. After closure require one authenticated proof
+   read, exactly one fresh successor with identical bytes/route and three charged
+   requests total. Negative proof, lost original custody, unknown effect,
+   expired authority, exhausted budget, changed body/route and further retry
+   must produce no additional native request or preparation. Record the passing
+   receipt against the exact qualified sources and bundle.
+10. Only after the reader-first prerequisite and the passing joined receipt from
+    step 9, register or select the new native-retry policy and activate the
+    qualified Action through the separately authorized release process.
+    Confirm healthy and partial reviews retain their existing progress outcomes
+    before completion.
 
 ## Accepted incomplete-review causes
 

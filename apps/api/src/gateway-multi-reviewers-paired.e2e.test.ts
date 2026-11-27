@@ -582,6 +582,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
       try {
         const originalDeadline = String(Date.now() + 300_000);
         const coldRepository = path.join(root, "cold-repository");
+        const actionFixture = fixture;
         const runAction = (cold = false) =>
           exec(process.execPath, [artifact], {
             cwd: cold ? coldRepository : repository.directory,
@@ -617,9 +618,9 @@ const profileId = "openrouter-openai-responses-apikey-v1";
               REVIEWROUTER_CONTROL_PLANE_URL:
                 "https://multi-paired.reviewrouter.invalid",
               REVIEWROUTER_OIDC_AUDIENCE:
-                fixture.env.REVIEW_ROUTER_ACTION_OIDC_AUDIENCE!,
+                actionFixture.env.REVIEW_ROUTER_ACTION_OIDC_AUDIENCE!,
               INPUT_OIDC_AUDIENCE:
-                fixture.env.REVIEW_ROUTER_ACTION_OIDC_AUDIENCE!,
+                actionFixture.env.REVIEW_ROUTER_ACTION_OIDC_AUDIENCE!,
               INPUT_PROVIDER_INSTANCE_ID: "codex-rotating:987654321",
               INPUT_WORKFLOW_SCHEMA_VERSION: "2",
               ACTIONS_ID_TOKEN_REQUEST_URL:
@@ -1185,10 +1186,10 @@ if (
     const app = Fastify({ logger: false });
     const broker = Fastify({ logger: false, bodyLimit: 16_384 });
     const brokerToken = randomBytes(32).toString("hex");
-    const priorPaid = Promise.withResolvers<void>();
-    const currentAllowed = Promise.withResolvers<void>();
-    const currentPaid = Promise.withResolvers<void>();
-    const finishAllowed = Promise.withResolvers<void>();
+    const priorPaid = deferred();
+    const currentAllowed = deferred();
+    const currentPaid = deferred();
+    const finishAllowed = deferred();
     let fixture:
       | Awaited<ReturnType<typeof createReviewActionV2E2EHarness>>
       | undefined;
@@ -1357,6 +1358,7 @@ if (
                   response.statusCode ?? 502,
                   response.headers,
                 );
+                response.on("error", () => outgoing.destroy());
                 response.pipe(outgoing);
               },
             );
@@ -2039,6 +2041,14 @@ if (
   },
   300_000,
 );
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
 async function makeRepository(root: string) {
   const directory = path.join(root, "repository");

@@ -103,12 +103,23 @@ export async function registerReviewModelDispatchRoutes(
   ) => void,
 ) {
   const claimFailures = new WeakMap<FastifyRequest, ClaimFailureContext>();
-  const visibleReadback = async (row: ReviewRunCompanionDispatch) => {
+  const visibleReadback = async (
+    row: ReviewRunCompanionDispatch,
+    receiptAuthenticated = false,
+  ) => {
     const result = readback(row);
-    if (
-      result.nativeRetryProof &&
-      !(await api.canReadNativeRetryProof?.(row))
-    ) {
+    if (!result.nativeRetryProof) return result;
+    let live = false;
+    if (receiptAuthenticated && row.nativeRetryProofNotAfter) {
+      try {
+        live =
+          (await api.canReadNativeRetryProof?.(row)) === true &&
+          row.nativeRetryProofNotAfter.getTime() > Date.now();
+      } catch {
+        // Retry permission is optional; historical receipt facts remain readable.
+      }
+    }
+    if (!live) {
       const historical = { ...result };
       delete historical.nativeRetryProof;
       return historical;
@@ -233,7 +244,9 @@ export async function registerReviewModelDispatchRoutes(
         if (!refreshed)
           throw new DispatchRouteFailure("model_dispatch_missing", 404);
         reply.header("Cache-Control", "no-store");
-        return { dispatch: await visibleReadback(refreshed) };
+        return {
+          dispatch: await visibleReadback(refreshed, token !== undefined),
+        };
       },
     );
     scope.post(
@@ -252,12 +265,27 @@ export async function registerReviewModelDispatchRoutes(
         if (!existing)
           throw new DispatchRouteFailure("model_dispatch_receipt_denied", 401);
         await api.reconcileNativeProof?.(existing, settlement);
-        await api.admission.settleReceipt(dispatchId, token, settlement);
-        const row = await api.admission.readReceipt(dispatchId, token);
-        if (!row)
-          throw new DispatchRouteFailure("model_dispatch_receipt_denied", 401);
+        const committed = await api.admission.settleReceipt(
+          dispatchId,
+          token,
+          settlement,
+        );
+        // The accepted write owns its acknowledgement. Optional retry proof
+        // cannot deny it if retention or Gateway custody expires afterwards.
+        let row = committed;
+        if (
+          settlement.state === "not_dispatched" &&
+          settlement.proof === "native_rejection_after_forward"
+        ) {
+          try {
+            row =
+              (await api.admission.readReceipt(dispatchId, token)) ?? committed;
+          } catch {
+            // A failed optional proof refresh cannot erase a committed ACK.
+          }
+        }
         reply.header("Cache-Control", "no-store");
-        return { dispatch: await visibleReadback(row) };
+        return { dispatch: await visibleReadback(row, true) };
       },
     );
   });
