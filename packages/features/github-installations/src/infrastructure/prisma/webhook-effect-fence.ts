@@ -490,17 +490,22 @@ export async function runWebhookFencedEffectInTransaction<T>(
   const rows = await lockDeliveryAndFence(transaction, claim.deliveryId);
   if (rows.length !== 1) throw new Error("webhook_fence_missing");
   const valid = await transaction.$queryRaw<
-    Array<{ valid: boolean }>
+    Array<{ valid: boolean; eventName: string }>
   >(Prisma.sql`
-    SELECT (f."ownerHash" = ${claim.ownerHash} AND f."appIdentityHash" = ${claim.appIdentityHash}
+    SELECT d."eventName", (f."ownerHash" = ${claim.ownerHash} AND f."appIdentityHash" = ${claim.appIdentityHash}
       AND f."generation" = ${claim.generation} AND f."leaseUntil" > clock_timestamp()
       AND d.status = 'processing') AS valid
     FROM "GitHubWebhookFence" f JOIN "GitHubWebhookDelivery" d USING ("deliveryId")
     WHERE f."deliveryId" = ${claim.deliveryId}
   `);
-  if (valid[0]?.valid !== true) throw new Error("webhook_fence_stale");
+  const delivery = valid[0];
+  if (delivery?.valid !== true) throw new Error("webhook_fence_stale");
+  // Claim and effect commit separately; a first owner can also be superseded.
   if (
-    claim.generation > 1n &&
+    (claim.generation > 1n ||
+      delivery.eventName === "installation" ||
+      delivery.eventName === "installation_repositories" ||
+      delivery.eventName === "repository") &&
     !(await isWebhookReplayEligible(transaction, claim.deliveryId))
   )
     throw new Error("webhook_fence_reconciliation_required");
