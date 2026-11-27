@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { runScopeEpochSerializableTransaction } from "@reviewrouter/platform-db";
 import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log/composition";
 import {
   isReviewConfigurationWriteConflictError,
@@ -10,7 +11,6 @@ import {
   acquireReviewConfigurationWriteScope,
   isPrismaReviewConfigurationWriteConflict,
   PrismaReviewConfigurationTransactionRepository,
-  runReviewConfigurationTransaction,
 } from "@reviewrouter/features-review-config/composition";
 import { ReviewConfigurationOperatorAudit } from "./review-configuration-operator-audit.js";
 
@@ -25,8 +25,9 @@ export class PrismaReviewConfigurationOperatorMutation implements ReviewConfigur
     input: Parameters<ReviewConfigurationOperatorMutationPort["commit"]>[0],
   ) {
     try {
-      return await runReviewConfigurationTransaction(
+      return await runScopeEpochSerializableTransaction(
         this.prisma,
+        [{ ...input.target, mode: "exclusive" }],
         async (transaction) => {
           await acquireReviewConfigurationWriteScope(transaction, input.target);
           const configurations =
@@ -59,7 +60,6 @@ export class PrismaReviewConfigurationOperatorMutation implements ReviewConfigur
           });
           return saved;
         },
-        { isolationLevel: "Serializable" },
       );
     } catch (error) {
       if (
