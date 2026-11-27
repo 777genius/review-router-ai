@@ -40,8 +40,9 @@ export async function chooseSetupOption(
   page: Page,
   label: string,
   value: string,
+  providerControl: "cards" | "combobox" = "cards",
 ) {
-  if (label === "Provider") {
+  if (label === "Provider" && providerControl === "cards") {
     const providers = page
       .getByRole("dialog")
       .getByRole("radiogroup", { name: "Provider", exact: true });
@@ -52,15 +53,6 @@ export async function chooseSetupOption(
     await expect(choice).toBeChecked();
     return;
   }
-  await chooseDialogSelect(page, label, value);
-}
-
-/** Choose a select in account connection dialogs, which do not use provider cards. */
-export async function chooseDialogSelect(
-  page: Page,
-  label: string,
-  value: string,
-) {
   const control = page.getByRole("dialog").getByRole("combobox", {
     name: label === "Account" ? /^Account\b/ : label,
     exact: true,

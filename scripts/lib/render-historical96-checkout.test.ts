@@ -20,7 +20,11 @@ const reader = vi.mocked(readRenderManagedCheckoutInventory);
 // Preserve old immutable-prefix fixtures through 000124 explicitly.
 // The complete current checkout is exercised separately.
 const currentFull = readRenderManagedCheckoutInventory();
-const previousFull = currentFull.filter(
+const nativeRetryMigrationName = "000165_attested_model_request_retry";
+const predecessorFull = currentFull.filter(
+  (row) => row.migrationName !== nativeRetryMigrationName,
+);
+const previousFull = predecessorFull.filter(
   (row) =>
     row.migrationName !== "000155_usage_member_report_index" &&
     row.migrationName !== "000157_claude_code_api_key_secret" &&
@@ -100,6 +104,8 @@ afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
   it("validates the full123 source and returns only the exact immutable historical96", () => {
+    expect(currentFull).toHaveLength(171);
+    expect(predecessorFull).toHaveLength(170);
     expect(full).toHaveLength(123);
     expect(full[122]).toEqual({
       migrationName: "000124_personal_account_operations",
@@ -206,15 +212,29 @@ describe("trusted historical96 checkout reader", () => {
     );
   });
 
+  it("rejects drifted native retry before returning historical96", () => {
+    reader.mockReturnValueOnce(
+      currentFull.map((row) =>
+        row.migrationName === nativeRetryMigrationName
+          ? { ...row, checksum: "0".repeat(64) }
+          : row,
+      ),
+    );
+    expect(() => readRenderHistorical96CheckoutInventory()).toThrow(
+      "render_schema_handoff_rejected:checkout_extension",
+    );
+  });
+
   it.each([
     { checkout: currentFull },
+    { checkout: predecessorFull },
     {
-      checkout: currentFull.filter(
+      checkout: predecessorFull.filter(
         (row) => row.migrationName !== "000161_native_connection_intent",
       ),
     },
     {
-      checkout: currentFull.filter(
+      checkout: predecessorFull.filter(
         (row) =>
           row.migrationName !== "000161_github_authorization_revision" &&
           row.migrationName !== "000162_inventory_ruleset_revisions" &&

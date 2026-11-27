@@ -1294,9 +1294,10 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000161_native_connection_intent" &&
         name !== "000162_inventory_ruleset_revisions" &&
         name !== "000163_usage_retention_index" &&
-        name !== "000164_ruleset_create_uncertainty",
+        name !== "000164_ruleset_create_uncertainty" &&
+        name !== "000165_attested_model_request_retry",
     );
-    expect(migrationNames).toHaveLength(170);
+    expect(migrationNames).toHaveLength(171);
     const legacyMigrationNames = currentMigrationNames.filter(
       (name) =>
         name !== "000155_usage_member_report_index" &&
@@ -1673,6 +1674,7 @@ describe("disposable dual-version rehearsal", () => {
       "000162_inventory_ruleset_revisions",
       "000163_usage_retention_index",
       "000164_ruleset_create_uncertainty",
+      "000165_attested_model_request_retry",
       "000150_skills_catalog_security",
       "000151_review_history",
       "000152_memory_automatic_source",
@@ -1963,6 +1965,7 @@ describe("disposable dual-version rehearsal", () => {
     "000162_inventory_ruleset_revisions",
     "000163_usage_retention_index",
     "000164_ruleset_create_uncertainty",
+    "000165_attested_model_request_retry",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -2049,6 +2052,7 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000162_inventory_ruleset_revisions" &&
                 name !== "000163_usage_retention_index" &&
                 name !== "000164_ruleset_create_uncertainty" &&
+                name !== "000165_attested_model_request_retry" &&
                 name !== "000155_usage_member_report_index" &&
                 name !== "000156_verified_thread_reply" &&
                 name !== "000154_unified_model_dispatch" &&
