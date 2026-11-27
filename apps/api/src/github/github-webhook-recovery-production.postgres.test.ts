@@ -7,7 +7,7 @@ import {
 import type { AddressInfo } from "node:net";
 import Fastify from "fastify";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type Prisma } from "@prisma/client";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
@@ -567,7 +567,12 @@ test("known delivery recovery through the production receiver and migrated Postg
       const transactionSpy = vi
         .spyOn(isolated, "$transaction")
         .mockImplementation((callback, options) =>
-          nativeTransaction(callback, options),
+          nativeTransaction(
+            // This query-only extension preserves the transaction client shape;
+            // Prisma's extension type also rewrites unused nested overloads.
+            (transaction) => callback(transaction as Prisma.TransactionClient),
+            options,
+          ),
         );
       restoreTransaction = () => transactionSpy.mockRestore();
       expect(
