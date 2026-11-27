@@ -63,7 +63,7 @@ env:
   REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: ci_database_recovery_witness_not_for_production_000000000000
   REVIEW_ROUTER_DEFAULT_MODEL: gpt-5.5
   REVIEW_ROUTER_DEFAULT_EFFORT: xhigh
-  REVIEW_ROUTER_PAIRED_ACTION_REF: f0fb4d4dcc6871ba9a7a89b1c650c4f99a98f593
+  REVIEW_ROUTER_PAIRED_ACTION_REF: b222791515278dc92af6cb0eaa982afd73d0332d
   REVIEW_ROUTER_HOSTED_POOL_ACTION_TAG: v1.0.171
   REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA: 66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff
   REVIEW_ROUTER_HOSTED_POOL_ACTION_DIST_SHA256: 2a65907ac8474f805dcb23358618c9c673e6a903bf1c3c26fcdf4cfe02debe2a
@@ -1546,6 +1546,84 @@ jobs:
           path: |
             tmp/paired-review-investigation/results.json
             tmp/multi-reviewer-e2e/accepted-result-recovery.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Checkout qualified Native request-retry producer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: agent-teams-ai/sub2api-standalone
+          ref: f6e05bf458fc447fb641b786d3ec911c592a18ec
+          path: .paired/native-request-retry
+          persist-credentials: false
+
+      - name: Checkout qualified Gateway request-retry producer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: agent-teams-ai/account-gateway
+          ref: 90739814c9e85fcf3ac9e9e6a0b2ea68b3131d28
+          path: .paired/gateway-request-retry
+          persist-credentials: false
+
+      - name: Set up pinned Go for the existing joined Native fixture
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: "1.27.4"
+          cache: false
+
+      - name: Build the qualified Gateway fixture dependencies
+        run: |
+          test "$(git -C .paired/native-request-retry rev-parse HEAD)" = f6e05bf458fc447fb641b786d3ec911c592a18ec
+          test "$(git -C .paired/gateway-request-retry rev-parse HEAD)" = 90739814c9e85fcf3ac9e9e6a0b2ea68b3131d28
+          test "$(go env GOVERSION)" = go1.27.4
+          npm install --prefix "$RUNNER_TEMP/native-retry-pnpm" --ignore-scripts pnpm@11.28.2
+          export PATH="$RUNNER_TEMP/native-retry-pnpm/node_modules/.bin:$PATH"
+          test "$(pnpm --version)" = 11.28.2
+          node "$RUNNER_TEMP/native-retry-pnpm/node_modules/pnpm/bin/pnpm.cjs" --dir .paired/gateway-request-retry install --frozen-lockfile
+          node "$RUNNER_TEMP/native-retry-pnpm/node_modules/pnpm/bin/pnpm.cjs" --dir .paired/gateway-request-retry run build
+
+      - name: Compiled Action to RR, Gateway and actual Native request-retry E2E
+        id: paired_native_retry
+        timeout-minutes: 20
+        env:
+          REVIEW_ROUTER_NATIVE_RETRY_JOINED_E2E: "1"
+          GOTOOLCHAIN: local
+        run: |
+          set -euo pipefail
+          pg_name="rr-native-retry-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          docker run -d --rm --name "$pg_name" -e POSTGRES_PASSWORD=postgres -p 127.0.0.1::5432 \
+            postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+          trap 'docker rm -f "$pg_name" >/dev/null' EXIT
+          for attempt in $(seq 1 30); do
+            if docker exec "$pg_name" pg_isready -U postgres; then break; fi
+            sleep 1
+          done
+          docker exec "$pg_name" pg_isready -U postgres
+          pg_port="$(docker inspect --format '{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}' "$pg_name")"
+          for db in review_router_native_retry_ci native_non_entry_rr_private_ci native_non_entry_rr_public_ci ag_kernel_test_rr_retry_private_ci ag_kernel_test_rr_retry_public_ci; do
+            docker exec "$pg_name" psql -U postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE $db"
+          done
+          export REVIEW_ROUTER_TEST_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:$pg_port/review_router_native_retry_ci"
+          DATABASE_URL="$REVIEW_ROUTER_TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy
+          export REVIEW_ROUTER_ACTION_SOURCE_DIR="$GITHUB_WORKSPACE/.paired/review-router-action"
+          export REVIEW_ROUTER_NATIVE_RETRY_NATIVE_SOURCE="$GITHUB_WORKSPACE/.paired/native-request-retry"
+          export REVIEW_ROUTER_NATIVE_RETRY_GATEWAY_SOURCE="$GITHUB_WORKSPACE/.paired/gateway-request-retry"
+          rm -rf tmp/native-retry-paired
+          mkdir -p tmp/native-retry-paired
+          pnpm exec vitest run apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts \
+            --testNamePattern "joins the compiled Action with real native attested retry" \
+            --reporter=default --reporter=json --outputFile=tmp/native-retry-paired/results.json
+          jq -e '[.testResults[].assertionResults[] | select(.fullName | contains("joins the compiled Action with real native attested retry through "))] | length == 2 and all(.status == "passed")' tmp/native-retry-paired/results.json
+          for mode in private public; do
+            jq -e '.contract == "native-non-entry-consumer/v1" and .spentDispatches == 3 and .completedProviderTurns == 2 and .originalGatewayGrants == 1 and .heldAckDeniedSuccessor and .oneIdenticalSuccessor and .originalPaidTurnPreserved and .publications == 1' "tmp/native-retry-paired/$mode.json"
+          done
+
+      - name: Preserve joined Native request-retry proof
+        if: always() && steps.paired_native_retry.outcome != 'skipped'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-request-retry-${{ github.sha }}-${{ github.run_attempt }}
+          path: tmp/native-retry-paired/
           if-no-files-found: error
           retention-days: 30
 

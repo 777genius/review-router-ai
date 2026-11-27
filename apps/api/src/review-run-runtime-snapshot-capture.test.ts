@@ -8,6 +8,8 @@ import {
   reviewModelDispatchDescriptorDigest,
   reviewModelDispatchCapacity128Contract,
   reviewModelDispatchCapacity128DescriptorDigest,
+  reviewModelDispatchNativeRetryContract,
+  reviewModelDispatchNativeRetryDescriptorDigest,
   reviewModelTransportForAuthMode,
   lifecycleVerificationDescriptorDigestV2,
   type ReviewModelDispatchProfileV2,
@@ -716,9 +718,13 @@ describe("one prepared route for discovery and verification", () => {
       reviewSkillsVersion: 1,
     },
   ]);
-  it.each([16, 640])(
-    "freezes explicit capacity128 identity and clamps to actual Gateway requests=%i",
-    async (requests) => {
+  it.each(
+    [16, 640].flatMap((requests) =>
+      [false, true].map((nativeRetry) => ({ requests, nativeRetry })),
+    ),
+  )(
+    "freezes capacity128/nativeRetry=$nativeRetry and clamps actual Gateway requests=$requests",
+    async ({ requests, nativeRetry }) => {
       const configuration = gatewayPolicyJson({
         agentProfileRef: "ocr-unified",
       });
@@ -729,8 +735,12 @@ describe("one prepared route for discovery and verification", () => {
           agentProfiles: profiles,
           modelDispatchProfile: {
             ...profile,
-            descriptorDigest: reviewModelDispatchCapacity128DescriptorDigest,
-            policyVersion: reviewModelDispatchCapacity128Contract.policyVersion,
+            descriptorDigest: nativeRetry
+              ? reviewModelDispatchNativeRetryDescriptorDigest
+              : reviewModelDispatchCapacity128DescriptorDigest,
+            policyVersion: nativeRetry
+              ? reviewModelDispatchNativeRetryContract.policyVersion
+              : reviewModelDispatchCapacity128Contract.policyVersion,
             limits: { ...profile.limits, maxRequests: 128 },
           },
         },
@@ -748,6 +758,14 @@ describe("one prepared route for discovery and verification", () => {
           maxOutputTokens: 128,
         },
       });
+      if (nativeRetry)
+        expect(captured).toMatchObject({
+          modelDispatchCapability: { retryPolicy: "native-rejection-once.v1" },
+        });
+      else
+        expect(captured).not.toHaveProperty(
+          "modelDispatchCapability.retryPolicy",
+        );
       if (
         !captured ||
         "captureDenied" in captured ||

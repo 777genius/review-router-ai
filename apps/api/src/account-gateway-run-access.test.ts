@@ -160,6 +160,14 @@ it("posts exactly the captured prepare and returns a safe projection plus the wo
 // Bug made red: data saturation strands close/readback if the prepared client
 // keeps using data ingress, or a changed config/fallback redirects authority.
 it("captures protected control routing while prepare and request remain on data", async () => {
+  const retryProof = {
+    kind: "request-retry-proof/v1",
+    consumerId: "original-consumer",
+    executionRef: "execution-1",
+    requestRef: "request-1",
+    nonEntryReason: "admission_storage_conflict",
+    transportClosed: true,
+  };
   const status = {
     requestRef: "request-1",
     effect: "completed",
@@ -181,7 +189,11 @@ it("captures protected control routing while prepare and request remain on data"
     res.writeHead(200, { "content-type": "application/json" });
     res.end(
       JSON.stringify(
-        req.url?.includes("/requests/") ? status : wire().operation,
+        req.url?.endsWith("/retry-proof")
+          ? retryProof
+          : req.url?.includes("/requests/")
+            ? status
+            : wire().operation,
       ),
     );
   });
@@ -202,6 +214,9 @@ it("captures protected control routing while prepare and request remain on data"
   expect(
     await prepared.client.status(prepared.executionRef, "request-1"),
   ).toEqual(status);
+  expect(
+    await prepared.client.retryProof(prepared.executionRef, "request-1"),
+  ).toEqual(retryProof);
   expect(await prepared.client.operation("prepare-1")).toEqual(
     wire().operation,
   );
@@ -232,10 +247,15 @@ it("captures protected control routing while prepare and request remain on data"
       "/v1/executions/execution-1/requests/request-1",
       `Bearer ${execution}`,
     ],
+    [
+      "GET",
+      "/v1/executions/execution-1/requests/request-1/retry-proof",
+      `Bearer ${execution}`,
+    ],
     ["GET", "/v1/operations/prepare-1", `Bearer ${execution}`],
     ["POST", "/v1/executions/execution-1/close", `Bearer ${execution}`],
   ]);
-  expect(protectedControl.calls[2]?.body).toEqual({
+  expect(protectedControl.calls[3]?.body).toEqual({
     operationId: "close-1",
     reason: "cancelled",
   });

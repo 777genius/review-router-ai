@@ -267,8 +267,8 @@ describe("GitHub App redelivery client with synthetic local server", () => {
     '<https://api.github.com/app/hook/deliveries?cursor=page2>; type="application/json"; rel=next',
     '<https://api.github.com/app/hook/deliveries?cursor=page2>; title="a,b; rel=prev"; rel="last next"',
     '<https://api.github.com/app/hook/deliveries?cursor=page0>; rel="prev", <https://api.github.com/app/hook/deliveries?cursor=page2>; type="application/json"; rel="next"',
-    '<https://api.github.com/app/hook/deliveries?cursor=page2>; rel=next,',
-    ', , <https://api.github.com/app/hook/deliveries?cursor=page0>; rel=prev, , , <https://api.github.com/app/hook/deliveries?cursor=page2>; rel=next,',
+    "<https://api.github.com/app/hook/deliveries?cursor=page2>; rel=next,",
+    ", , <https://api.github.com/app/hook/deliveries?cursor=page0>; rel=prev, , , <https://api.github.com/app/hook/deliveries?cursor=page2>; rel=next,",
     `${",".repeat(32)}<https://api.github.com/app/hook/deliveries?cursor=page2>; rel=next`,
     `<https://api.github.com/app/hook/deliveries?cursor=page2>; rel=next${",".repeat(32)}`,
   ])("follows reordered relation parameters and lists: %s", async (link) => {
@@ -293,8 +293,8 @@ describe("GitHub App redelivery client with synthetic local server", () => {
     '<https://api.github.com/app/hook/deliveries?cursor=page2>; rel="next", <https://api.github.com/app/hook/deliveries?cursor=page3>; rel="next"',
     `${",".repeat(33)}<https://api.github.com/app/hook/deliveries?cursor=page2>; rel=next`,
     `${",".repeat(32)}<https://api.github.com/app/hook/deliveries?cursor=page2>; rel=next,`,
-    '<https://api.github.com/app/hook/deliveries?cursor=page2>; rel=next, , invalid',
-    '<https://api.github.com/app/hook/deliveries?cursor=page2>; rel=next, , <https://api.github.com/app/hook/deliveries?cursor=page3>; rel=next',
+    "<https://api.github.com/app/hook/deliveries?cursor=page2>; rel=next, , invalid",
+    "<https://api.github.com/app/hook/deliveries?cursor=page2>; rel=next, , <https://api.github.com/app/hook/deliveries?cursor=page3>; rel=next",
   ])("rejects unsafe or ambiguous reordered pagination: %s", async (link) => {
     nextLink = link;
     const c = client();

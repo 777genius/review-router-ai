@@ -1483,7 +1483,7 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
     const gateName = "webhook_backend_gate_" + randomBytes(6).toString("hex");
     const advisoryKey = Number.parseInt(randomBytes(3).toString("hex"), 16) + 1;
     const blocker = await pool.connect();
-    let request: ReturnType<typeof post> | undefined;
+    let request: ReturnType<typeof post> | undefined = undefined;
     let restored: Promise<void> | undefined;
     const restore = () =>
       (restored ??= (async () => {
@@ -1518,7 +1518,7 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
       'CREATE FUNCTION "' +
         gateName +
         '"() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN ' +
-        "IF NEW.\"deliveryId\" = '" +
+        'IF NEW."deliveryId" = \'' +
         deliveryId +
         "' AND NEW.status = 'processed' THEN " +
         "PERFORM pg_advisory_xact_lock(" +
@@ -1621,7 +1621,7 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
       { isolationLevel: "ReadCommitted", timeout: 10_000 },
     );
     void writer.catch(() => undefined);
-    let request: ReturnType<typeof post> | undefined;
+    let request: ReturnType<typeof post> | undefined = undefined;
     onTestFinished(async () => {
       release.resolve();
       const settled = await Promise.allSettled([

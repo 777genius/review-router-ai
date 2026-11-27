@@ -378,6 +378,22 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Native request retry is an independent, checksum-bound application tail.
+  // Validate it before reusing the exact prior checkout and historical gates.
+  const nativeRetryMigration = catalog.find(
+    (row) => row.migrationName === "000165_attested_model_request_retry",
+  );
+  if (nativeRetryMigration) {
+    if (
+      ![171, 173, 174, 175, 176].includes(catalog.length) ||
+      nativeRetryMigration.checksum !==
+        "9cff45bd76d02ae28d0936a9160c5ae4c6c0d155cbcf51d900e3e7569fe2f58a"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== nativeRetryMigration),
+    );
+  }
   // The exact optional receipt-order tail requires the complete webhook pair.
   // Retain both checkout172 groups and their checkout174 union below.
   const webhookReceiptOrderMigration = catalog.find(
@@ -391,9 +407,7 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
         "4fe16668e4bc946a9f26f59835f3e7c6072b8ce4cc4ffcd39d667c5faa68c68b" ||
       webhookDeliveryCheckoutExtension.some(
         (extension) =>
-          !catalog.some(
-            (row) => row.migrationName === extension.migrationName,
-          ),
+          !catalog.some((row) => row.migrationName === extension.migrationName),
       )
     )
       fail("checkout_extension");

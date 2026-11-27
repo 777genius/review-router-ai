@@ -49,6 +49,7 @@ export async function createReviewDispatchDatabaseFixture(
     runtimeSnapshotCanonicalJson?: string;
     modelDispatchProfile?: ReviewModelDispatchProfile;
     skipInitialLease?: boolean;
+    deadlineAt?: Date;
     sourceRunId?: string;
     reviewRevisionHash?: string;
     githubRepositoryId?: bigint;
@@ -78,7 +79,7 @@ export async function createReviewDispatchDatabaseFixture(
     },
   });
   const now = new Date();
-  const deadline = new Date(now.getTime() + 600_000);
+  const deadline = options.deadlineAt ?? new Date(now.getTime() + 600_000);
   const workspaceId = `${prefix}-workspace`;
   const repositoryConnectionId = `${prefix}-repository`;
   const scmRepositoryIdentityId = `${prefix}-scm`;
