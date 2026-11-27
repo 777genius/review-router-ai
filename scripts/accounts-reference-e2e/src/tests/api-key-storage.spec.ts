@@ -33,13 +33,13 @@ const providers = [
   },
   {
     id: "mimo",
-    label: "MiMo Token Plan",
+    label: "MiMo",
     authMode: "mimo_token_plan_api_key",
     model: "mimo-v2.6-pro",
   },
   {
     id: "kimi",
-    label: "Kimi Code",
+    label: "Kimi",
     authMode: "kimi_code_api_key",
     model: "k3-256k",
   },
@@ -89,15 +89,27 @@ async function beginProvider(page: Page, label: string) {
   return page.getByRole("dialog");
 }
 
-async function expectStorage(dialog: Locator) {
-  const choice = dialog.getByRole("radiogroup", { name: "Key storage" });
+async function expectStorage(
+  dialog: Locator,
+  storage: "reviewrouter" | "github_secrets",
+) {
+  const choice = dialog.getByRole("radiogroup", {
+    name: storage === "reviewrouter" ? "Credential storage" : "Key storage",
+    exact: true,
+  });
   await expect(choice.getByRole("radio")).toHaveCount(2);
-  await expect(choice).toContainText(
-    "Add the key to each repository on GitHub.",
-  );
-  await expect(choice).toContainText(
-    "Store the key encrypted and reuse it across repositories.",
-  );
+  if (storage === "reviewrouter") {
+    await expect(choice).toContainText(
+      "Connect this provider once and reuse the connection across repositories.",
+    );
+  } else {
+    await expect(choice).toContainText(
+      "Add the key to each repository on GitHub.",
+    );
+    await expect(choice).toContainText(
+      "Store the key encrypted and reuse it across repositories.",
+    );
+  }
   return choice;
 }
 
@@ -137,8 +149,22 @@ test("API key storage creates all three GitHub profiles and preserves identity w
   for (const provider of providers) {
     const before = await savedProfiles();
     const dialog = await beginProvider(page, provider.label);
-    const storage = await expectStorage(dialog);
-    await storage.getByRole("radio", { name: /^GitHub Secrets/ }).check();
+    const storage = await expectStorage(dialog, "reviewrouter");
+    await expect(
+      storage.getByRole("radio", { name: "ReviewRouter", exact: true }),
+    ).toBeChecked();
+    const githubSecrets = storage.getByRole("radio", {
+      name: "GitHub Secrets",
+      exact: true,
+    });
+    await expect(githubSecrets).toBeEnabled();
+    await githubSecrets.check();
+    await expect(
+      (await expectStorage(dialog, "github_secrets")).getByRole("radio", {
+        name: "GitHub Secrets",
+        exact: true,
+      }),
+    ).toBeChecked();
     await expect(dialog.locator('input[type="password"]')).toHaveCount(0);
     await expect(
       dialog.getByRole("combobox", { name: /^Account\b/ }),
@@ -208,10 +234,10 @@ test("API key storage creates all three GitHub profiles and preserves identity w
   await expect(
     replacement
       .getByRole("radiogroup", { name: "Provider" })
-      .getByRole("radio", { name: "Kimi Code", exact: true }),
+      .getByRole("radio", { name: "Kimi", exact: true }),
   ).toBeChecked();
   await expect(
-    (await expectStorage(replacement)).getByRole("radio", {
+    (await expectStorage(replacement, "reviewrouter")).getByRole("radio", {
       name: /^ReviewRouter/,
     }),
   ).toBeChecked();
@@ -219,7 +245,7 @@ test("API key storage creates all three GitHub profiles and preserves identity w
   // connection beside one an earlier step left in this workspace.
   await expect(
     replacement
-      .getByRole("region", { name: "Connect Kimi Code" })
+      .getByRole("region", { name: "Connect Kimi", exact: true })
       .or(replacement.getByRole("button", { name: "New connection" })),
   ).toBeVisible();
   expect(
