@@ -36,6 +36,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+[Scale and recovery](2026-11-27-scale-and-recovery.md), [Draft PR #1021](https://github.com/777genius/review-router-ai/pull/1021) — implementation incomplete; only bounded provider-key ingress and public-catalog response cleanup are published. Eighteen focused tests passed before an execution-environment outage; the corrected response-close assertion, full E2E and CI remain pending. Staging and production `pending`; no rollout authorized.
+
 [Provider and repository UI](2026-11-27-provider-and-repository-ui.md) — production `pending`; cards and repository-screen changes in PRs #1016 and #1018 await a selected release.
 
 Production relay update 2026-11-26: RR `f20a75ed` and compatible Gateway/native installed, fleet readiness passed; task-specific verification remains pending. Approximately 2.4 GiB remained on production disk; see [installation](2026-11-22-relay-completed-close-recovery.md#production-installation--2026-11-26).

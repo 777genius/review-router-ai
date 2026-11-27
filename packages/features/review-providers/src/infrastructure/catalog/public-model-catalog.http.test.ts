@@ -32,13 +32,15 @@ it.each([503, 200])(
     const disconnected = new Promise<void>((resolve) => {
       closed = resolve;
     });
-    const server = createServer((request, response) => {
+    const server = createServer((_request, response) => {
       if (healthy) {
         response.writeHead(200, { "content-type": "application/json" });
         response.end('{"recovered":true}');
         return;
       }
-      request.once("close", closed);
+      response.once("close", () => {
+        if (!response.writableFinished) closed();
+      });
       response.writeHead(status, { "content-type": "application/json" });
       response.write(
         status === 503 ? '{"error":"unavailable"' : "x".repeat(2048),
