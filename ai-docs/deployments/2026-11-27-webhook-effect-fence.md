@@ -6,8 +6,9 @@
 - Affected targets: API and database; existing outbox workers retain ownership of
   external commands. Their compatibility must be checked during the fleet drain.
 - Implementation: [PR #1027](https://github.com/777genius/review-router-ai/pull/1027).
-- Qualified native checkpoint: `91621693550c69bd288caca760a325ec9009af09`
-  passed the full 142-test PostgreSQL matrix. Select the exact reviewed final source
+- Qualified native checkpoint: `7bb2a59d4611e57acb847a1190bfdf7bf128637b`
+  passed all 13 PostgreSQL suites with 160 tests and zero skips. Later catalog,
+  parser and indexed-query changes require their own qualification. Select the exact reviewed final source
   only after its required PR checks, strict types, production build and compiled CLI
   checks pass; a local checkpoint alone is not release authorization.
 - Dependencies: existing release/migration authority and configuration; no new
@@ -33,16 +34,18 @@ Later generations never recreate that ingress. Other local effects/outbox and
 terminal receipt commit together. Unrelated account/auth/config epoch changes have
 been removed; existing authority owners and scope/row locks remain.
 
-| Evidence                                                                   | Observed result / required gate                                                                                                                    |
-| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Default route wiring, claim/failure protocol and explicit operator command | Implemented and exercised by the native matrix                                                                                                     |
-| Full migration catalog                                                     | 172 directories; two additive migrations, no experimental epoch migration                                                                          |
-| Signed HTTP/Prisma/PostgreSQL/outbox and recovery matrix                   | **142/142 tests in all 13 suites, zero skips**, on `91621693`; actual 170 → 172 migration rehearsal                                                |
-| Focused unit and harness suites                                            | **118/118 tests in 15 files**, zero skips, on `a505ab23`; subsequent review fixes require qualification                                            |
-| Lint / formatting / architecture / scoped tooling types                    | `a505ab23`: 15 changed TypeScript files linted, 18 files formatted, standalone 705-file boundary check passed; strict tooling passed on `91621693` |
-| Whole-API/feature strict types, production build and compiled CLI          | Required exact-source gates; consult the current PR validation and CI results                                                                      |
-| Protected merge                                                            | Requires current-head `Quality Gates` and `Dedicated Release Authority PG17 contract`, an up-to-date branch and resolved blocking findings         |
-| Production replay or fleet qualification                                   | Not executed; separately authorized operational work                                                                                               |
+| Evidence                                                          | Observed result / required gate                                                                                                                                                      |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Default route wiring, claim/failure protocol and operator command | Implemented and exercised by the recorded native matrix                                                                                                                              |
+| Full migration catalog                                            | 173 directories; three additive webhook migrations, including two receipt-order indexes in `000168`; existing SQL checksums retained                                                 |
+| Signed HTTP/Prisma/PostgreSQL/outbox and recovery matrix          | **160/160 tests in 13 suites, zero skips**, on `7bb2a59d`; recorded 170 → 172 rehearsal. Subsequent changes require the current 170 → 173 gate                                       |
+| Focused units and harness                                         | **127/127 in 15 files**, zero skips, on `10b0e513`; its only later change before `7bb2a59d` was a PostgreSQL-only seed correction                                                    |
+| Format / lint / architecture / scoped types                       | The 11-file follow-up and fixture corrections passed native format/lint; 705-file boundary check passed on `27933d3b`; feature/tooling types passed before the final seed correction |
+| Exact runbook SQL                                                 | Disposable PostgreSQL 17.10 proof passed for the unchanged documented SQL after 172 migrations: CAS, refresh/stale denial, cache isolation, UTC and repeat checks                    |
+| Whole-API types, API build and compiled CLI                       | Required exact-source gates; resource-interrupted attempts are not passes. Five dependency builds passed on `27933d3b`                                                               |
+| Receipt-order query plans                                         | Required actual-query `EXPLAIN` regression in the existing migration suite; no forced planner settings or elapsed-time assertions                                                    |
+| Protected merge                                                   | Requires current-head `Quality Gates` and `Dedicated Release Authority PG17 contract`, an up-to-date branch and resolved blocking findings                                           |
+| Production replay or fleet qualification                          | Not executed; separately authorized operational work                                                                                                                                 |
 
 The native run used PostgreSQL 17.10, Node 26.11.1, pnpm 11.28.7, TypeScript 7.0.2,
 Prisma 7.9.0 and Vitest 4.1.10 with the frozen root/API dependency graph, verified
@@ -64,8 +67,8 @@ an operational rollout.
 - Reconcile the actual fleet, migration ledger, application/maintenance roles and
   unfinished deployment tasks. Use the approved migration authority; preserve the
   existing historical-migration checksum/cutover policy.
-- Apply the two additive migrations through that approved path. Verify checks,
-  primary/foreign keys, receipt trigger and exact checksums. Verify the real API
+- Apply the three additive migrations through that approved path. Verify checks,
+  primary/foreign keys, receipt trigger, both receipt-order indexes and exact checksums. Verify the real API
   and recovery roles have the required privileges on the new tables; a synthetic
   limited-role test is not proof of production grants. Every role that can update or
   delete `GitHubWebhookDelivery`, including legacy API, maintenance and rollback
@@ -93,8 +96,11 @@ an operational rollout.
    maintenance writer and open transaction before takeover-capable code starts.
    A lease timeout or receipt trigger does not prove an old effect stopped.
 2. Perform the approved schema expansion and privilege verification before any
-   writer resumes. Include the fence read grant for legacy and rollback roles, then
-   record actual migration checksums and role evidence before the new API serves.
+   writer resumes. Build both `000168` receipt-order indexes while writers remain
+   quiesced; verify their `indisvalid` and `indisready` catalog flags. These ordinary
+   index builds belong to this drained phase. Include the fence read grant for
+   legacy and rollback roles, then record migration checksums, index and role
+   evidence before the new API serves.
 3. Install the qualified API version and verify all relevant processes use it.
    Fenced processing is the default composition; there is no new activation flag.
 4. Reopen ingress only after the writer drain/version checks. Use an authorized

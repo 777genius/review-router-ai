@@ -164,6 +164,13 @@ scope, for the same proven App or an unfenced legacy receipt. Lifecycle admissio
 includes earlier repository work; canonical repository identity preserves the floor
 across installation transfers. Unrelated proven Apps do not contribute.
 
+The floor uses separate descending installation and canonical-repository lookups,
+with App/legacy eligibility applied before each `LIMIT 1`. `GREATEST` combines the
+two eligible observations. Additive migration `000168_webhook_receipt_order_indexes`
+provides a partial ordered index for each lookup. This avoids scanning unrelated
+retained history under the admission guard; it does not impose a constant-time
+bound when many newer rows in the same scope belong to other Apps.
+
 This keeps admission ordered after clock rollback and after retained legacy writes
 whose database default used a different session timezone. Legacy timestamps are
 neither rewritten nor converted using a guessed original timezone. The ordered
@@ -215,48 +222,65 @@ this token check from the schema migration: the controlled fleet drain is mandat
 
 ## Recorded execution evidence
 
-Source `91621693550c69bd288caca760a325ec9009af09` completed all 13 mandatory
-PostgreSQL suites: **142 tests passed, zero failures, skips or todo**. Its tree
-`ddac5f6abde6834a6a39beeda2192ead3fb52722` exactly matches the executed source.
-The runner applied the actual 170-migration baseline, seeded a legacy receipt and
-expanded to all 172 migrations. It exercised signed HTTP/default composition,
-Prisma/outbox, admission and ownership races, rollback, real COMMIT-response loss,
-legacy-role compatibility and bounded one-shot recovery.
+Source `7bb2a59d4611e57acb847a1190bfdf7bf128637b`, tree
+`27933d3b0b4eb0c1b2a0d668e68f303741064e45`, completed all 13 mandatory PostgreSQL
+suites: **160 tests passed, zero failures, skips or todo**, in 71.265 seconds.
+The source guard, product runner exit and all 13 JSON reports were independently
+checked. That checkpoint applied the actual 170-migration baseline, preserved a
+legacy receipt and expanded to 172 migrations. It covered signed HTTP/default
+composition, Prisma/outbox, admission and takeover races, rollback, real
+COMMIT-response loss, legacy-role compatibility and bounded one-shot recovery.
 
-The fresh run found and corrected a UTC/session-timezone mismatch in authorization
-expiry checks. Production composition now runs in an explicit Asia/Tokyo test
-session; isolated authorization checks use Pacific/Honolulu and preserve expired
-grants. Revocation timestamps must remain UTC. The expiry race observes a real
-PostgreSQL lock wait and the specific reconciliation error, so a generic transaction
-timeout cannot satisfy it.
+Its 42 core fence cases include clock rollback, transfer scope and retained legacy
+SQL-default timestamps in Tokyo and Honolulu. The production/recovery suites
+include 41 and 22 cases respectively. They verify current receiver/custody state
+after HTTP, a coherent local inspection snapshot, the exact injected terminal
+constraint, the actual database lock wait and the confirmation statement deadline.
+UTC expiry/revocation semantics remain verified under non-UTC sessions.
 
-On `a505ab23473462b97c5a9e59476deee0664dde25`, affected unit and qualification-harness
-tests passed **118 tests in 15 files**, with no skips. Its 18-file batch passed
-formatting and lint for all 15 TypeScript files. The standalone architecture-boundary
-check passed over 705 domain/application files. Its PostgreSQL attempt stopped at
-the global memory floor after four passing suites; that is not a complete matrix.
-These recorded results do not qualify subsequent review fixes.
+The affected unit and qualification-harness run passed **127 tests in 15 files**,
+without skips, on tree `10b0e51308e81603b0c32eb2b3c4b7093b035ee0`. The only change
+from that tree to `27933d3b` corrected the PostgreSQL-only timezone seed; the unit
+inputs were unchanged. Installations and scoped tooling strict types passed before
+that final seed correction. The 11-file follow-up and its later fixture fixes
+passed native format/lint. The standalone architecture check passed over 705
+domain/application files on `27933d3b`, as did ordinary shared, database, config,
+outbox and installations builds. API compiler/build attempts stopped by resource
+guards are not passes; the current-source compiled CLI still requires its gate.
 
-The previous `91621693` checkpoint also passed installations strict types, scoped
-webhook-tooling strict types, ordinary dependency/API builds and the compiled
-recovery CLI smoke in an isolated production environment. The earlier 69-file lint
-result belongs to its earlier source checkpoint. These checks use the frozen root/API graph,
-verified exact subscription-runtime artifact, isolated Prisma client generation,
+The exact documented grant-reconciliation SQL also passed on a separate fresh
+PostgreSQL 17.10 cluster after all 172 migrations. Temporary-table fixtures verified
+stale revision and active-refresh denial, exact CAS/cache isolation, UTC writes and
+rejection of a repeated old revision. SQL SHA-256:
+`bc4290d78e8e93e5e0a48630a3fc5d3ed95909230475d4fed86bc5f36fa210b5`.
+This was a disposable proof, not an operational grant decision or production write.
+
+Subsequent catalog, Link-parser and indexed-query corrections have their own
+qualification. The current source adds migration `000168`, so the required runner
+now rehearses **170 → 173 migrations**. The existing migration suite includes a
+plan regression on retained synthetic history: it observes the actual production
+claim SQL and binds those parameters to PostgreSQL `EXPLAIN (ANALYZE, BUFFERS)`.
+It verifies scoped results and indexed work without forcing a planner setting or
+asserting elapsed milliseconds. The current PR validation and exact-head CI record
+the execution results; the earlier 160-test checkpoint does not certify these
+later changes.
+
+The previous `91621693` checkpoint passed 142 PostgreSQL tests, strict feature and
+scoped tooling types, dependency/API builds and the compiled recovery CLI in a
+clean production environment with isolated network. The `a505ab23` checkpoint
+passed 118 unit/harness tests but its PostgreSQL attempt was interrupted. Earlier
+`3e017ec2` results are historical. These checks use the frozen root/API graph,
+verified pinned subscription-runtime artifact, isolated Prisma generation,
 Node 26.11.1, pnpm 11.28.7, TypeScript 7.0.2, Prisma 7.9.0 and Vitest 4.1.10.
-The local database was PostgreSQL 17.10.
 
-Earlier `3e017ec2` results (106 PostgreSQL tests and 78 focused units) are historical.
-Local whole-API/feature compiler attempts interrupted by resource guards or
-`SIGKILL` are not passing evidence. The final PR validation records subsequent
-strict types, production build and compiled recovery CLI results; its exact-head
-required checks remain the authority for merge readiness.
-
-The existing CI runs `scripts/webhook-fencing/run-postgres.ts` on its own database
-cluster, using a fresh process per suite and rejecting missing, skipped or failed
-results. Queued or skipped jobs do not establish qualification. Independent review
-confirmed that #1026's acknowledgement contract is covered by this default fenced
-production path; its separate legacy repository changes are not imported. #1021's
-worker and transport work remains outside this PR.
+The existing CI runs `scripts/webhook-fencing/run-postgres.ts` on its own database,
+with a fresh process per suite and rejection of missing, skipped or failed results.
+Whole-API strict types, ordinary API build and actual compiled recovery CLI checks
+remain required on the final source. Queued, skipped or resource-interrupted jobs
+do not establish qualification. Independent review confirmed that #1026's
+acknowledgement contract is covered by this default fenced path. #1021's broader
+worker/transport work remains outside this PR; existing catalog tooling is updated
+only to admit the exact checked-in migrations and preserve its frozen inventories.
 
 ## Rollout and rollback
 

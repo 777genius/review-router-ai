@@ -362,6 +362,21 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Admit the exact additive receipt-order index after checkout172. The existing
+  // validator still binds every predecessor and the frozen managed92 inventory.
+  const webhookReceiptOrderMigration = catalog.find(
+    (row) => row.migrationName === "000168_webhook_receipt_order_indexes",
+  );
+  if (webhookReceiptOrderMigration) {
+    if (
+      catalog.length !== 173 ||
+      catalog.at(-1) !== webhookReceiptOrderMigration ||
+      webhookReceiptOrderMigration.checksum !==
+        "4fe16668e4bc946a9f26f59835f3e7c6072b8ce4cc4ffcd39d667c5faa68c68b"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(catalog.slice(0, -1));
+  }
   if (
     catalog.some((row) =>
       webhookDeliveryCheckoutExtension.some(

@@ -61,8 +61,14 @@ const webhookDeliveryMigrationNames = [
   "000165_webhook_effect_fence",
   "000167_webhook_recovery_intent",
 ];
-const readPreWebhookCheckoutInventory = () =>
+const webhookReceiptOrderMigrationName =
+  "000168_webhook_receipt_order_indexes";
+const readPreReceiptOrderCheckoutInventory = () =>
   readRenderManagedCheckoutInventory().filter(
+    (row) => row.migrationName !== webhookReceiptOrderMigrationName,
+  );
+const readPreWebhookCheckoutInventory = () =>
+  readPreReceiptOrderCheckoutInventory().filter(
     (row) => !webhookDeliveryMigrationNames.includes(row.migrationName),
   );
 const readPreIndexCheckoutInventory = () =>
@@ -236,6 +242,7 @@ const canonicalPrismaMigrationNames =
       name !== nativeConnectionMigrationName &&
       !reliabilityMigrationNames.includes(name) &&
       !webhookDeliveryMigrationNames.includes(name) &&
+      name !== webhookReceiptOrderMigrationName &&
       name !== usageMemberReportIndexName &&
       name !== verifiedReplyMigrationName &&
       name !== gatewayAllocationsMigrationName &&
@@ -623,8 +630,43 @@ const canonicalPrefix = (count: number) =>
   canonicalPrismaMigrationNames.slice(0, count);
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
-  it("admits only the exact webhook-delivery checkout172", () => {
+  it("admits only the exact receipt-order checkout173 and retains checkout172", () => {
     const current = readRenderManagedCheckoutInventory();
+    expect(current).toHaveLength(173);
+    expect(current.at(-1)).toEqual({
+      migrationName: webhookReceiptOrderMigrationName,
+      checksum:
+        "4fe16668e4bc946a9f26f59835f3e7c6072b8ce4cc4ffcd39d667c5faa68c68b",
+    });
+    expect(partitionRenderSchemaHandoffCheckout(current)).toEqual(catalog);
+    const predecessor = current.slice(0, -1);
+    expect(predecessor).toHaveLength(172);
+    expect(partitionRenderSchemaHandoffCheckout(predecessor)).toEqual(catalog);
+    for (const changed of [
+      current.map((row) =>
+        row.migrationName === webhookReceiptOrderMigrationName
+          ? { ...row, checksum: "0".repeat(64) }
+          : row,
+      ),
+      ...webhookDeliveryMigrationNames.map((migrationName) =>
+        current.filter((row) => row.migrationName !== migrationName),
+      ),
+      [
+        ...current,
+        { migrationName: "000169_unknown", checksum: "0".repeat(64) },
+      ],
+      [
+        ...predecessor,
+        { migrationName: "000168_unknown", checksum: "0".repeat(64) },
+      ],
+    ])
+      expect(() => partitionRenderSchemaHandoffCheckout(changed)).toThrow(
+        "checkout_extension",
+      );
+  });
+
+  it("admits only the exact webhook-delivery checkout172", () => {
+    const current = readPreReceiptOrderCheckoutInventory();
     expect(current).toHaveLength(172);
     expect(current.slice(-2)).toEqual([
       {
@@ -3098,6 +3140,9 @@ describe("complete filesystem checkout inventory", () => {
       { recursive: true },
     );
     if (count !== undefined) {
+      rmSync(join(migrations, webhookReceiptOrderMigrationName), {
+        recursive: true,
+      });
       for (const name of webhookDeliveryMigrationNames)
         rmSync(join(migrations, name), { recursive: true });
       rmSync(join(migrations, nativeConnectionMigrationName), {
@@ -3211,11 +3256,16 @@ describe("complete filesystem checkout inventory", () => {
     };
   }
 
-  it("reads merged checkout172 and every previous checkout as identical frozen92 rows", async () => {
+  it("reads merged checkout173 and every previous checkout as identical frozen92 rows", async () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(172);
+    expect(inventory).toHaveLength(173);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, webhookReceiptOrderMigrationName), {
+      recursive: true,
+    });
+    expect(readdirSync(fixture.migrations)).toHaveLength(172);
     expect(fixture.read()).toEqual(catalog);
     for (const name of webhookDeliveryMigrationNames)
       rmSync(join(fixture.migrations, name), { recursive: true });
@@ -3710,6 +3760,7 @@ describe("complete filesystem checkout inventory", () => {
       ) {
         expect(() => fixture.read()).toThrow("checkout_extension");
         const extensions = [
+          webhookReceiptOrderMigrationName,
           ...webhookDeliveryMigrationNames,
           ...(name === nativeConnectionMigrationName
             ? []
@@ -3740,6 +3791,9 @@ describe("complete filesystem checkout inventory", () => {
             extensionBytes,
           );
         }
+      } else if (name === webhookReceiptOrderMigrationName) {
+        // Removing only this additive tail restores the exact checkout172.
+        expect(fixture.read()).toEqual(catalog);
       } else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);
       writeFileSync(sql, bytes);

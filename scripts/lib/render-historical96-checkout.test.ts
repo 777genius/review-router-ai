@@ -24,7 +24,12 @@ const webhookDeliveryMigrationNames = [
   "000165_webhook_effect_fence",
   "000167_webhook_recovery_intent",
 ];
-const predecessorFull = currentFull.filter(
+const webhookReceiptOrderMigrationName =
+  "000168_webhook_receipt_order_indexes";
+const checkout172 = currentFull.filter(
+  (row) => row.migrationName !== webhookReceiptOrderMigrationName,
+);
+const predecessorFull = checkout172.filter(
   (row) => !webhookDeliveryMigrationNames.includes(row.migrationName),
 );
 const previousFull = predecessorFull.filter(
@@ -189,8 +194,12 @@ describe("trusted historical96 checkout reader", () => {
     expect(full[96]?.migrationName).toBe(
       "000098_certified_fork_effect_archive",
     );
-    expect(currentFull).toHaveLength(172);
-    expect(currentFull.slice(-2).map((row) => row.migrationName)).toEqual(
+    expect(currentFull).toHaveLength(173);
+    expect(currentFull.at(-1)?.migrationName).toBe(
+      webhookReceiptOrderMigrationName,
+    );
+    expect(checkout172).toHaveLength(172);
+    expect(checkout172.slice(-2).map((row) => row.migrationName)).toEqual(
       webhookDeliveryMigrationNames,
     );
     const result = readRenderHistorical96CheckoutInventory();
@@ -210,14 +219,14 @@ describe("trusted historical96 checkout reader", () => {
     expect(reader).toHaveBeenCalledWith();
     reader.mockReturnValue([
       ...currentFull,
-      { migrationName: "000168_unknown", checksum: "0".repeat(64) },
+      { migrationName: "000169_unknown", checksum: "0".repeat(64) },
     ]);
     expect(() => readRenderHistorical96CheckoutInventory()).toThrow(
       "render_historical96_checkout_rejected:count",
     );
   });
 
-  it.each(webhookDeliveryMigrationNames)(
+  it.each([...webhookDeliveryMigrationNames, webhookReceiptOrderMigrationName])(
     "rejects altered checkout-only webhook migration %s before returning historical96",
     (migrationName) => {
       reader.mockReturnValueOnce(
@@ -235,6 +244,7 @@ describe("trusted historical96 checkout reader", () => {
 
   it.each([
     { checkout: currentFull },
+    { checkout: checkout172 },
     { checkout: predecessorFull },
     {
       checkout: predecessorFull.filter(

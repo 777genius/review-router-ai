@@ -1296,9 +1296,10 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000163_usage_retention_index" &&
         name !== "000164_ruleset_create_uncertainty" &&
         name !== "000165_webhook_effect_fence" &&
-        name !== "000167_webhook_recovery_intent",
+        name !== "000167_webhook_recovery_intent" &&
+        name !== "000168_webhook_receipt_order_indexes",
     );
-    expect(migrationNames).toHaveLength(172);
+    expect(migrationNames).toHaveLength(173);
     const legacyMigrationNames = currentMigrationNames.filter(
       (name) =>
         name !== "000155_usage_member_report_index" &&
@@ -1677,6 +1678,7 @@ describe("disposable dual-version rehearsal", () => {
       "000164_ruleset_create_uncertainty",
       "000165_webhook_effect_fence",
       "000167_webhook_recovery_intent",
+      "000168_webhook_receipt_order_indexes",
       "000150_skills_catalog_security",
       "000151_review_history",
       "000152_memory_automatic_source",
@@ -1969,6 +1971,7 @@ describe("disposable dual-version rehearsal", () => {
     "000164_ruleset_create_uncertainty",
     "000165_webhook_effect_fence",
     "000167_webhook_recovery_intent",
+    "000168_webhook_receipt_order_indexes",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -2057,6 +2060,7 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000164_ruleset_create_uncertainty" &&
                 name !== "000165_webhook_effect_fence" &&
                 name !== "000167_webhook_recovery_intent" &&
+                name !== "000168_webhook_receipt_order_indexes" &&
                 name !== "000155_usage_member_report_index" &&
                 name !== "000156_verified_thread_reply" &&
                 name !== "000154_unified_model_dispatch" &&

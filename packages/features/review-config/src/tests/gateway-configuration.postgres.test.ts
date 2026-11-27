@@ -106,8 +106,8 @@ describe.skipIf(!enabled)(
           .sort();
         // Replay all current migrations, including credential import and the
         // native connection intent, multi-tenant recovery and webhook migrations.
-        expect(names).toHaveLength(172);
-        expect(names.slice(-33)).toEqual([
+        expect(names).toHaveLength(173);
+        expect(names.slice(-34)).toEqual([
           "000138_pr_description",
           "000139_review_context_tools",
           "000140_personal_oauth_method",
@@ -141,6 +141,7 @@ describe.skipIf(!enabled)(
           "000164_ruleset_create_uncertainty",
           "000165_webhook_effect_fence",
           "000167_webhook_recovery_intent",
+          "000168_webhook_receipt_order_indexes",
         ]);
         let legacyBefore: unknown;
         let legacyBefore146: unknown;
