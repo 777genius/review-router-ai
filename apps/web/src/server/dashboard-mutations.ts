@@ -48,9 +48,17 @@ async function readDashboardUserBySource(
         externalUserId,
       },
     },
-    select: { userId: true },
+    select: {
+      user: { select: { id: true, githubUserId: true, githubLogin: true } },
+    },
   });
-  return identity ? { id: identity.userId } : null;
+  return identity
+    ? {
+        id: identity.user.id,
+        githubUserId: identity.user.githubUserId?.toString() ?? null,
+        githubLogin: identity.user.githubLogin,
+      }
+    : null;
 }
 const findDashboardUserBySource = cache(readDashboardUserBySource);
 
@@ -67,7 +75,6 @@ export type DashboardMutationActor = {
 
 export type DashboardWorkspaceAdminActor = DashboardMutationActor;
 export type DashboardGitHubMutationActor = DashboardMutationActor & {
-  readonly sourceProvider: "github";
   readonly githubUserId: string;
   readonly githubLogin: string;
 };
@@ -313,15 +320,15 @@ export async function getDashboardSignedInActor(options?: {
   }
 
   const user = await findUserForSourceIdentity(identity, options?.prisma);
-  if (!user) return null;
+  if (!user || !localIdentityMatchesSession(identity, user)) return null;
 
   return {
     userId: user.id,
     sourceProvider: identity.sourceProvider,
     externalUserId: identity.externalUserId,
     sourceLogin: identity.sourceLogin,
-    githubUserId: githubUserIdForIdentity(identity),
-    githubLogin: githubLoginForIdentity(identity),
+    githubUserId: user.githubUserId,
+    githubLogin: user.githubLogin,
     actor: `user:${identity.sourceProvider}:${identity.sourceLogin}`,
   };
 }
@@ -412,7 +419,6 @@ export function asDashboardGitHubActor(
 ): DashboardGitHubMutationActor | null {
   if (
     !actor ||
-    actor.sourceProvider !== "github" ||
     !actor.githubUserId ||
     !actor.githubLogin
   ) {
@@ -444,7 +450,7 @@ async function readDashboardMutationActor(): Promise<DashboardMutationActor> {
   }
 
   const user = await findUserForSourceIdentity(identity);
-  if (!user) {
+  if (!user || !localIdentityMatchesSession(identity, user)) {
     throw new DashboardMutationRefusedError(
       "dashboard_mutation_requires_sign_in",
     );
@@ -455,8 +461,8 @@ async function readDashboardMutationActor(): Promise<DashboardMutationActor> {
     sourceProvider: identity.sourceProvider,
     externalUserId: identity.externalUserId,
     sourceLogin: identity.sourceLogin,
-    githubUserId: githubUserIdForIdentity(identity),
-    githubLogin: githubLoginForIdentity(identity),
+    githubUserId: user.githubUserId,
+    githubLogin: user.githubLogin,
     actor: `user:${identity.sourceProvider}:${identity.sourceLogin}`,
   };
 }
@@ -471,9 +477,10 @@ async function assertWorkspaceMutationAllowedForActor(
       userId: actor.userId,
       githubUserId: actor.githubUserId ?? "",
       githubLogin: actor.githubLogin ?? "",
-      localAdminGithubLogins: readCsvEnv(
-        "REVIEW_ROUTER_LOCAL_ADMIN_GITHUB_LOGINS",
-      ),
+      localAdminGithubLogins:
+        actor.sourceProvider === "github"
+          ? readCsvEnv("REVIEW_ROUTER_LOCAL_ADMIN_GITHUB_LOGINS")
+          : [],
     },
     {
       workspaceAccess: new PrismaWorkspaceAccessRepository(getPrisma()),
@@ -678,7 +685,7 @@ export async function assertDashboardWorkspaceAdminAllowed(
   }
 
   const user = await findUserForSourceIdentity(identity, prisma);
-  if (!user) {
+  if (!user || !localIdentityMatchesSession(identity, user)) {
     throw new Error("dashboard_admin_requires_sign_in");
   }
 
@@ -686,11 +693,12 @@ export async function assertDashboardWorkspaceAdminAllowed(
     {
       workspaceId,
       userId: user.id,
-      githubUserId: githubUserIdForIdentity(identity) ?? "",
-      githubLogin: githubLoginForIdentity(identity) ?? "",
-      localAdminGithubLogins: readCsvEnv(
-        "REVIEW_ROUTER_LOCAL_ADMIN_GITHUB_LOGINS",
-      ),
+      githubUserId: user.githubUserId ?? "",
+      githubLogin: user.githubLogin ?? "",
+      localAdminGithubLogins:
+        identity.sourceProvider === "github"
+          ? readCsvEnv("REVIEW_ROUTER_LOCAL_ADMIN_GITHUB_LOGINS")
+          : [],
     },
     {
       workspaceAccess: new PrismaWorkspaceAccessRepository(
@@ -704,8 +712,8 @@ export async function assertDashboardWorkspaceAdminAllowed(
     sourceProvider: identity.sourceProvider,
     externalUserId: identity.externalUserId,
     sourceLogin: identity.sourceLogin,
-    githubUserId: githubUserIdForIdentity(identity),
-    githubLogin: githubLoginForIdentity(identity),
+    githubUserId: user.githubUserId,
+    githubLogin: user.githubLogin,
     actor: `user:${identity.sourceProvider}:${identity.sourceLogin}`,
   };
 }
@@ -734,18 +742,19 @@ export async function getDashboardWorkspaceScope(): Promise<DashboardWorkspaceSc
     return { kind: "none", reason: "signed_out" };
   }
   const user = await findUserForSourceIdentity(identity);
-  if (!user) {
+  if (!user || !localIdentityMatchesSession(identity, user)) {
     return { kind: "none", reason: "signed_out" };
   }
 
   return listVisibleWorkspaceScope(
     {
       userId: user.id,
-      githubUserId: githubUserIdForIdentity(identity) ?? "",
-      githubLogin: githubLoginForIdentity(identity) ?? "",
-      localAdminGithubLogins: readCsvEnv(
-        "REVIEW_ROUTER_LOCAL_ADMIN_GITHUB_LOGINS",
-      ),
+      githubUserId: user.githubUserId ?? "",
+      githubLogin: user.githubLogin ?? "",
+      localAdminGithubLogins:
+        identity.sourceProvider === "github"
+          ? readCsvEnv("REVIEW_ROUTER_LOCAL_ADMIN_GITHUB_LOGINS")
+          : [],
     },
     { workspaceAccess: new PrismaWorkspaceAccessRepository(getPrisma()) },
   );
@@ -1039,20 +1048,22 @@ function isNonblankSessionIdentityField(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function githubUserIdForIdentity(
+function localIdentityMatchesSession(
   identity: SessionSourceIdentity,
-): string | null {
-  return identity.sourceProvider === "github"
-    ? (identity.githubUserId ?? identity.externalUserId)
-    : null;
-}
-
-function githubLoginForIdentity(
-  identity: SessionSourceIdentity,
-): string | null {
-  return identity.sourceProvider === "github"
-    ? (identity.githubLogin ?? identity.sourceLogin)
-    : null;
+  user: {
+    readonly githubUserId: string | null;
+    readonly githubLogin: string | null;
+  },
+): boolean {
+  if (identity.sourceProvider !== "github") {
+    return true;
+  }
+  return (
+    user.githubUserId !== null &&
+    user.githubLogin !== null &&
+    user.githubUserId === (identity.githubUserId ?? identity.externalUserId) &&
+    user.githubLogin === (identity.githubLogin ?? identity.sourceLogin)
+  );
 }
 
 async function findUserForSourceIdentity(

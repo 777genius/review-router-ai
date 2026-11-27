@@ -109,7 +109,9 @@ describe("dashboard repository mutations", () => {
     });
     mocks.getPrisma.mockReturnValue({
       userExternalIdentity: {
-        findUnique: vi.fn().mockResolvedValue({ userId: "user_1" }),
+        findUnique: vi.fn().mockResolvedValue({
+          user: { id: "user_1", githubUserId: 123n, githubLogin: "maintainer" },
+        }),
       },
     });
     mocks.assertWorkspaceMutationAllowed.mockRejectedValue(
@@ -569,10 +571,12 @@ describe("dashboard repository mutations", () => {
         return cache.get(factory) as T;
       },
     };
-    const defaultRead = vi.fn().mockResolvedValue({ userId: "default-user" });
-    const transactionRead = vi
-      .fn()
-      .mockResolvedValue({ userId: "transaction-user" });
+    const defaultRead = vi.fn().mockResolvedValue({
+      user: { id: "default-user", githubUserId: 123n, githubLogin: "maintainer" },
+    });
+    const transactionRead = vi.fn().mockResolvedValue({
+      user: { id: "transaction-user", githubUserId: 123n, githubLogin: "maintainer" },
+    });
     mocks.getPrisma.mockReturnValue({
       userExternalIdentity: { findUnique: defaultRead },
     });
@@ -601,7 +605,70 @@ describe("dashboard repository mutations", () => {
     }
   });
 
+
+  it("allows a GitLab session to reuse only its linked local user's verified GitHub grant", async () => {
+    mocks.getServerSession.mockResolvedValue({
+      user: { sourceProvider: "gitlab", externalUserId: "456", sourceLogin: "gitlab-maintainer" },
+    });
+    mocks.octokitRequest.mockResolvedValue({
+      data: { permission: "write", role_name: "write", user: { id: 123, login: "maintainer" } },
+    });
+    await expect(
+      assertDashboardRepositoryMutationAllowed("workspace_1", repository),
+    ).resolves.toMatchObject({
+      userId: "user_1",
+      sourceProvider: "gitlab",
+      githubUserId: "123",
+      githubLogin: "maintainer",
+      accessSource: { source: "repo_manager" },
+    });
+    expect(mocks.readGitHubUserAuthorizationAuthority).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "user_1" }),
+    );
+  });
+
+  it("does not inherit the legacy GitHub-login administrator override on GitLab", async () => {
+    mocks.getServerSession.mockResolvedValue({
+      user: { sourceProvider: "gitlab", externalUserId: "456", sourceLogin: "gitlab-maintainer" },
+    });
+    vi.stubEnv("REVIEW_ROUTER_LOCAL_ADMIN_GITHUB_LOGINS", "maintainer");
+    mocks.assertWorkspaceMutationAllowed.mockResolvedValue(undefined);
+    await expect(assertDashboardMutationAllowed("workspace_1")).resolves.toMatchObject({
+      sourceProvider: "gitlab",
+      userId: "user_1",
+    });
+    expect(mocks.assertWorkspaceMutationAllowed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        githubUserId: "123",
+        githubLogin: "maintainer",
+        localAdminGithubLogins: [],
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("rejects a GitHub session contradicting the bound user's immutable native identity", async () => {
+    mocks.getPrisma.mockReturnValue({
+      userExternalIdentity: {
+        findUnique: vi.fn().mockResolvedValue({
+          user: { id: "user_1", githubUserId: 999n, githubLogin: "other" },
+        }),
+      },
+    });
+    await expect(assertDashboardMutationAllowed("workspace_1")).rejects.toThrow(
+      "dashboard_mutation_requires_sign_in",
+    );
+    expect(mocks.assertWorkspaceMutationAllowed).not.toHaveBeenCalled();
+  });
+
   it("does not copy GitLab external ids into GitHub actor fields", async () => {
+    mocks.getPrisma.mockReturnValue({
+      userExternalIdentity: {
+        findUnique: vi.fn().mockResolvedValue({
+          user: { id: "user_1", githubUserId: null, githubLogin: null },
+        }),
+      },
+    });
     mocks.getServerSession.mockResolvedValue({
       user: {
         sourceProvider: "gitlab",
