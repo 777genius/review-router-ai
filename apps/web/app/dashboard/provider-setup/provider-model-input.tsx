@@ -176,6 +176,12 @@ export function ProviderModelInput({
               role="option"
               id={`${listboxId}-${index}`}
               aria-label={option.label}
+              aria-describedby={
+                option.provider === "claude" &&
+                ["sonnet", "opus", "haiku"].includes(option.value)
+                  ? `${listboxId}-${index}-alias`
+                  : undefined
+              }
               aria-disabled={option.disabled || undefined}
               aria-selected={option.value === value}
               disabled={option.disabled}
@@ -206,7 +212,10 @@ export function ProviderModelInput({
               </span>
               {option.provider === "claude" &&
               ["sonnet", "opus", "haiku"].includes(option.value) ? (
-                <span className="text-xs text-slate-500">
+                <span
+                  id={`${listboxId}-${index}-alias`}
+                  className="text-xs text-slate-500"
+                >
                   Claude Code alias · version chosen at runtime
                 </span>
               ) : option.label !== option.value ? (
