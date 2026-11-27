@@ -145,12 +145,15 @@ until a working runtime is available; remote CI is a separate execution path.
 
 Concurrent commits `3a7d20f5` and `3cb53583` expanded the historical incident
 record while this implementation was being reviewed. Preserve both additions.
-The green workflow / later failed execution observation and the bounded close
-retry lifetime need exact owner/outcome tracing; neither is a proven root cause
-or fixed by this patch. Independent read-only analysis is continuing. Do not
-reuse the after-expiry proof proposal rejected by automatic safety review, infer
-released custody from expiry, or change cancellation/supersession semantics from
-a GitHub conclusion alone.
+The follow-up source review found that the eight-attempt background close limit
+is deliberate and tested: pressure recovery and the original deadline still
+make exact-ID cleanup attempts. Neither expiry nor an unknown close releases
+custody. The public Action returns PR-closed cancellation without a corresponding
+server execution terminalization in the examined path; this is a concrete
+reproduction lead for a green workflow followed by later expiry, not proof that
+any cited run took that path. Preserve RR expiry/coverage semantics while the
+explicit Action outcome/reason and run identity are investigated. Do not reuse
+the after-expiry proof proposal rejected by automatic safety review.
 
 ## External dependencies still required for the full incident goal
 
@@ -210,5 +213,23 @@ not measured availability or a claim that all historical incidents are solved.
 - [x] Implement settlement diagnostics and failure-injection regressions.
 - [x] Review complete diff and correct critical findings.
 - [ ] Run exact-source static, PostgreSQL and E2E qualification.
-- [ ] Record actual validation and deployment applicability.
+- [ ] Record final validation and deployment applicability.
 - [ ] Complete external native retry/public Action dependencies.
+
+## Runtime evidence ledger
+
+Runtime implementation commit: `dd17dc481b7d2dadbc62be734d2858de5c51da71`.
+Source review: two independent reviewers found no remaining P0/P1/P2 in the
+scoped implementation after corrections. Supplemental pure-JavaScript parser
+probes are not Node/Vitest/typecheck/E2E evidence.
+
+The new relay cases use the existing companion V1 in-memory admission fixture
+with real loopback HTTP/SDK/Fastify streaming. They do not establish PostgreSQL
+or V2 concurrency. The existing database and paired Action CI lanes must supply
+those distinct results; no skipped or queued job counts as passed.
+
+At qualification start, the existing self-hosted impact runner had no assigned
+runner for this job, and this repository had queued runs dating to 04:23 UTC.
+The existing `ci:github-hosted` PR label selects the workflow's supported hosted
+fallback for applicable lanes; no workflow, required check or test was weakened.
+Other lanes retain their configured runners and remain subject to actual results.

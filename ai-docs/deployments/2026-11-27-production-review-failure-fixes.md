@@ -6,8 +6,8 @@
 - Affected services/targets: ReviewRouter API and consumers of its GitHub
   revision-read adapter.
 - Implementation PR: [#1028](https://github.com/777genius/review-router-ai/pull/1028).
-- Implementation reference: qualification pending; record the exact accepted
-  runtime commit from #1028 before rollout.
+- Implementation reference: `dd17dc481b7d2dadbc62be734d2858de5c51da71`.
+  This identifies runtime source, not completed qualification or deployment.
 - Dependencies: existing compatible runtime/producer, ordinary release gates.
   Native attested retry and the public Action's separate GitHubClient change are
   not part of this implementation.
