@@ -36,6 +36,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+[Provider and repository UI](2026-11-27-provider-and-repository-ui.md) — production `pending`; cards and repository-screen changes in PRs #1016 and #1018 await a selected release.
+
 Gateway close readback 2026-11-26: Gateway `a3dafad` installed; isolated joined relay/PostgreSQL/Gateway lost-ACK restart passed. Original admission expiry and bounded retries remain limitations; staging and production-observed recovery pending. Root disk approximately 1.67 GB free. See [evidence](2026-11-22-relay-completed-close-recovery.md#gateway-close-readback--2026-11-26).
 
 Production relay update 2026-11-26: RR `f20a75ed` and compatible Gateway/native installed, fleet readiness passed; task-specific verification remains pending. Approximately 2.4 GiB remained after that earlier installation; see [installation](2026-11-22-relay-completed-close-recovery.md#production-installation--2026-11-26).
