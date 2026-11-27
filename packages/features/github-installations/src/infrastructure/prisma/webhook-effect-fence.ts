@@ -134,6 +134,7 @@ export async function runWebhookFencedDatabaseEffect<T>(
   claim: FencedDelivery,
   effect: (transaction: Prisma.TransactionClient) => Promise<T>,
   expectedFinalStatus: "processing" | "processed" | "failed" = "processing",
+  beforeFence?: (transaction: Prisma.TransactionClient) => Promise<void>,
 ): Promise<T> {
   if (
     !claim.deliveryId ||
@@ -144,6 +145,9 @@ export async function runWebhookFencedDatabaseEffect<T>(
     throw new Error("webhook_fence_invalid");
   return prisma.$transaction(
     async (transaction) => {
+      // Some existing authorities have an established lock order. This hook
+      // may acquire those locks, but must not perform mutations or external I/O.
+      await beforeFence?.(transaction);
       // The locking query and the DB effect must use the same connection and
       // transaction. Check wall-clock time *after* waiting for the row lock.
       const rows = await transaction.$queryRaw<

@@ -104,6 +104,12 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
     await pool.query(migration);
     await pool.query('CREATE TABLE "effect" (generation bigint NOT NULL)');
     await pool.query(
+      'CREATE TABLE "scope_authority" (version integer NOT NULL)',
+    );
+    await pool.query('CREATE TABLE "scope_epoch" (version integer NOT NULL)');
+    await pool.query('INSERT INTO "scope_authority" VALUES (1)');
+    await pool.query('INSERT INTO "scope_epoch" VALUES (1)');
+    await pool.query(
       'INSERT INTO "GitHubWebhookDelivery" ("deliveryId") VALUES ($1)',
       [deliveryId],
     );
@@ -181,6 +187,144 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
       'SELECT generation FROM "effect" WHERE generation IN (6,7)',
     );
     expect(rows.map((row) => row.generation)).toEqual(["7"]);
+  });
+
+  it("acquires the existing authority lock before the delivery fence", async () => {
+    const identity = {
+      deliveryId: "scope-lock-race",
+      eventName: "pull_request",
+    };
+    const previous = await beginFencedWebhookDelivery(
+      realPrisma,
+      identity,
+      a,
+      10000,
+    );
+    const holder = await pool.connect();
+    try {
+      await holder.query("BEGIN");
+      await holder.query("SELECT pg_advisory_xact_lock(129981)");
+      const attempt = runWebhookFencedDatabaseEffect(
+        realPrisma,
+        previous,
+        async (tx) => {
+          await tx.$queryRaw(
+            Prisma.sql`INSERT INTO "effect" VALUES (8) RETURNING generation`,
+          );
+        },
+        "processing",
+        async (tx) => {
+          await tx.$queryRaw(
+            Prisma.sql`SELECT 1 AS locked FROM pg_advisory_xact_lock(129981)`,
+          );
+        },
+      ).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      let waiting = false;
+      for (let i = 0; i < 80 && !waiting; i++) {
+        const result = await pool.query(
+          "SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory' AND NOT granted",
+        );
+        waiting = result.rows[0].n > 0;
+        if (!waiting) await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(waiting).toBe(true);
+      // If the delivery fence were acquired first this update would block.
+      const changer = await pool.connect();
+      try {
+        await changer.query("SET statement_timeout = 1000");
+        await changer.query(
+          'UPDATE "GitHubWebhookFence" SET "ownerHash"=$1,"generation"=2 WHERE "deliveryId"=$2',
+          [b, identity.deliveryId],
+        );
+      } finally {
+        changer.release();
+      }
+      await holder.query("COMMIT");
+      expect(await attempt).toBeInstanceOf(Error);
+      expect(
+        (
+          await pool.query(
+            'SELECT count(*)::int AS n FROM "effect" WHERE generation=8',
+          )
+        ).rows[0].n,
+      ).toBe(0);
+    } finally {
+      await holder.query("ROLLBACK").catch(() => undefined);
+      holder.release();
+    }
+  });
+
+  it("reproduces that advisory lock order alone can commit a stale serializable snapshot", async () => {
+    const writer = await pool.connect();
+    const reader = await pool.connect();
+    try {
+      await writer.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
+      await writer.query("SELECT pg_advisory_xact_lock(239891)");
+      await writer.query('UPDATE "scope_authority" SET version = 2');
+      await reader.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
+      const waiting = reader.query("SELECT pg_advisory_xact_lock(239891)");
+      await waitForAdvisoryWait(pool, 239891);
+      await writer.query("COMMIT");
+      await waiting;
+      const seen = (await reader.query('SELECT version FROM "scope_authority"'))
+        .rows[0].version;
+      await reader.query('INSERT INTO "effect" VALUES ($1)', [seen + 20]);
+      await reader.query("COMMIT");
+      expect(seen).toBe(1);
+      expect(
+        (await pool.query('SELECT version FROM "scope_authority"')).rows[0]
+          .version,
+      ).toBe(2);
+      expect(
+        (
+          await pool.query(
+            'SELECT count(*)::int AS n FROM "effect" WHERE generation=21',
+          )
+        ).rows[0].n,
+      ).toBe(1);
+    } finally {
+      await writer.query("ROLLBACK").catch(() => undefined);
+      await reader.query("ROLLBACK").catch(() => undefined);
+      writer.release();
+      reader.release();
+    }
+  });
+
+  it("shows a shared MVCC epoch rejects that stale snapshot before an effect", async () => {
+    await pool.query('UPDATE "scope_authority" SET version = 1');
+    const writer = await pool.connect();
+    const reader = await pool.connect();
+    try {
+      await writer.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
+      await writer.query("SELECT pg_advisory_xact_lock(239892)");
+      await writer.query('UPDATE "scope_authority" SET version = 2');
+      await writer.query('UPDATE "scope_epoch" SET version = version + 1');
+      await reader.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
+      const waiting = reader.query("SELECT pg_advisory_xact_lock(239892)");
+      await waitForAdvisoryWait(pool, 239892);
+      await writer.query("COMMIT");
+      await waiting;
+      await expect(
+        reader.query('SELECT version FROM "scope_epoch" FOR SHARE'),
+      ).rejects.toMatchObject({ code: "40001" });
+      await reader.query("ROLLBACK");
+      await reader.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
+      await reader.query("SELECT pg_advisory_xact_lock(239892)");
+      await reader.query('SELECT version FROM "scope_epoch" FOR SHARE');
+      expect(
+        (await reader.query('SELECT version FROM "scope_authority"')).rows[0]
+          .version,
+      ).toBe(2);
+      await reader.query("COMMIT");
+    } finally {
+      await writer.query("ROLLBACK").catch(() => undefined);
+      await reader.query("ROLLBACK").catch(() => undefined);
+      writer.release();
+      reader.release();
+    }
   });
 
   it("rejects missing fences, live takeovers and invalid claims", async () => {
@@ -356,3 +500,15 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
     expect(await renewWebhookFence(prisma, winner, 10000)).toBe(false);
   });
 });
+
+async function waitForAdvisoryWait(pool: Pool, key: number): Promise<void> {
+  for (let i = 0; i < 80; i++) {
+    const result = await pool.query(
+      "SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND objid = $1",
+      [key],
+    );
+    if (result.rows[0].n > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("advisory_wait_not_observed");
+}
