@@ -62,16 +62,19 @@ export class DispatchDueReviewRequestedIntents {
   async execute(input: {
     readonly ownerIdHash: string;
     readonly limit: number;
+    readonly signal?: AbortSignal;
   }): Promise<DispatchDueReviewRequestedIntentsResult> {
     assertOwnerHash(input.ownerIdHash);
     assertLimit(input.limit);
     const excludedAtQuery = new Set(this.inFlightPreparations);
-    const due = await this.queries.listDue({
-      now: this.clock.now(),
-      limit: input.limit,
-      excludeRequestIds: [...excludedAtQuery],
-      excludeAlwaysRequestIds: [...this.inFlightBeginnings.keys()],
-    });
+    const due = input.signal?.aborted
+      ? []
+      : await this.queries.listDue({
+          now: this.clock.now(),
+          limit: input.limit,
+          excludeRequestIds: [...excludedAtQuery],
+          excludeAlwaysRequestIds: [...this.inFlightBeginnings.keys()],
+        });
     const claimedScopes = new Set<string>();
     let claimed = 0;
     let dispatched = 0;
@@ -95,6 +98,8 @@ export class DispatchDueReviewRequestedIntents {
     }> = [];
 
     for (const candidate of due) {
+      // An already issued claim is drained below; stop before the next claim.
+      if (input.signal?.aborted) break;
       if (this.inFlightBeginnings.has(candidate.requestId)) continue;
       if (this.inFlightPreparations.has(candidate.requestId)) {
         // An abandoned, still-running read cannot issue a POST. At its 24h

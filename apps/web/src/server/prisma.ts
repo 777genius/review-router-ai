@@ -1,6 +1,7 @@
 import {
   createPrismaClient,
   resolveCodexOAuthDatabaseEffectAuthorityUrl,
+  runtimeDatabaseExecutionBudget,
   type PrismaClient,
 } from "@reviewrouter/platform-db";
 
@@ -12,7 +13,9 @@ type PrismaGlobal = typeof globalThis & {
 const prismaGlobal = globalThis as PrismaGlobal;
 
 export function getPrisma(): PrismaClient {
-  const prisma = prismaGlobal.reviewRouterPrisma ?? createPrismaClient();
+  const prisma =
+    prismaGlobal.reviewRouterPrisma ??
+    createPrismaClient({ executionBudget: runtimeDatabaseExecutionBudget });
   prismaGlobal.reviewRouterPrisma = prisma;
   return prisma;
 }
@@ -27,7 +30,11 @@ export function getCodexEffectAuthorityPrisma(): PrismaClient {
   }
   const prisma =
     prismaGlobal.reviewRouterCodexEffectAuthorityPrisma ??
-    createPrismaClient({ databaseUrl, poolMax: 2 });
+    createPrismaClient({
+      databaseUrl,
+      poolMax: 2,
+      executionBudget: runtimeDatabaseExecutionBudget,
+    });
   prismaGlobal.reviewRouterCodexEffectAuthorityPrisma = prisma;
   return prisma;
 }

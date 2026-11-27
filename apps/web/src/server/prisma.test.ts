@@ -4,13 +4,12 @@ const mocks = vi.hoisted(() => ({
   createPrismaClient: vi.fn((options?: unknown) => ({ options })),
 }));
 
-vi.mock("@reviewrouter/platform-db", async () => ({
+vi.mock("@reviewrouter/platform-db", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@reviewrouter/platform-db")>()),
   createPrismaClient: mocks.createPrismaClient,
-  resolveCodexOAuthDatabaseEffectAuthorityUrl: (
-    await import("../../../../packages/platform/db/src/codex-oauth-database-effect-authority")
-  ).resolveCodexOAuthDatabaseEffectAuthorityUrl,
 }));
 
+import { runtimeDatabaseExecutionBudget } from "@reviewrouter/platform-db";
 import { getCodexEffectAuthorityPrisma, getPrisma } from "./prisma";
 
 type PrismaGlobal = typeof globalThis & {
@@ -37,7 +36,9 @@ describe("web Prisma clients", () => {
 
       expect(getPrisma()).toBe(first);
       expect(mocks.createPrismaClient).toHaveBeenCalledOnce();
-      expect(mocks.createPrismaClient).toHaveBeenCalledWith();
+      expect(mocks.createPrismaClient).toHaveBeenCalledWith({
+        executionBudget: runtimeDatabaseExecutionBudget,
+      });
     },
   );
 
@@ -59,11 +60,14 @@ describe("web Prisma clients", () => {
     expect(getPrisma()).toBe(runtime);
     expect(getCodexEffectAuthorityPrisma()).toBe(effectAuthority);
     expect(mocks.createPrismaClient).toHaveBeenCalledTimes(2);
-    expect(mocks.createPrismaClient).toHaveBeenNthCalledWith(1);
+    expect(mocks.createPrismaClient).toHaveBeenNthCalledWith(1, {
+      executionBudget: runtimeDatabaseExecutionBudget,
+    });
     expect(mocks.createPrismaClient).toHaveBeenNthCalledWith(2, {
       databaseUrl:
         "postgresql://reviewrouter_codex_effect_authority:secret@db/reviewrouter",
       poolMax: 2,
+      executionBudget: runtimeDatabaseExecutionBudget,
     });
 
     vi.stubEnv("REVIEW_ROUTER_CODEX_EFFECT_AUTHORITY_DATABASE_URL", "");

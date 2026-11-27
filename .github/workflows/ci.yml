@@ -758,7 +758,8 @@ jobs:
         env:
           AUTH_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
           GITHUB_AUTH_REQUIRE_POSTGRES: "1"
-          RELIABILITY_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+          RELIABILITY_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5433/postgres
+          RELIABILITY_TEST_POSTGRES_TEMPLATE_DATABASE: review_router_history_template
           GITLAB_INVENTORY_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
           GITLAB_INVENTORY_REQUIRE_POSTGRES: "1"
           PUBLICATION_WORK_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres

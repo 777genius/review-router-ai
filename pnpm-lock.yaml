@@ -536,6 +536,9 @@ importers:
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
+      '@octokit/core':
+        specifier: 7.0.6
+        version: 7.0.6
       '@reviewrouter/features-action-control-plane':
         specifier: workspace:*
         version: link:../../packages/features/action-control-plane
@@ -912,7 +915,6 @@ importers:
       zod:
         specifier: 4.6.7
         version: 4.6.7
-
     devDependencies:
       '@reviewrouter/platform-db':
         specifier: workspace:*
@@ -1049,6 +1051,9 @@ importers:
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
+      '@octokit/core':
+        specifier: 7.0.6
+        version: 7.0.6
       '@prisma/client':
         specifier: 7.9.0
         version: 7.9.0(prisma@7.9.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@7.0.2))(typescript@7.0.2)

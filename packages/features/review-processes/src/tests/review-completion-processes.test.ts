@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   ReviewCompletionSchedulerMode,
   composeReviewCompletionProcesses,
@@ -422,8 +422,122 @@ describe("review completion processes", () => {
       scannerA.execute({ ownerIdHash: "worker-a", limit: 10 }),
       scannerB.execute({ ownerIdHash: "worker-b", limit: 10 }),
     ]);
-    expect(left.length + right.length).toBe(1);
+    expect(left.results.length + right.results.length).toBe(1);
+    expect([...left.failures, ...right.failures]).toEqual([]);
     expect(fixture.publications.requestCalls).toBe(1);
+  });
+
+  it("owns slow siblings after an early rejection and returns actual partial success", async () => {
+    const fixture = await createFixture("slow");
+    await fixture.repository.createOrWake(createInput("failing"));
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started!: () => void;
+    const active = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    vi.spyOn(fixture.advance, "executeClaim").mockImplementation(
+      async (claim) => {
+        if (claim.executionId === "failing")
+          throw new Error("secret-token-private-payload");
+        started();
+        await held;
+        return {
+          status: AdvanceReviewCompletionProcessStatus.Advanced,
+          process: null,
+        };
+      },
+    );
+    const scanner = new ScanDueReviewCompletionProcesses(
+      fixture.repository,
+      fixture.advance,
+      fixture.clock,
+      fixture.ids,
+      10_000,
+    );
+    let returned = false;
+    const pending = scanner
+      .execute({ ownerIdHash: "worker-a", limit: 10 })
+      .then((value) => {
+        returned = true;
+        return value;
+      });
+    await active;
+    await Promise.resolve();
+    expect(returned).toBe(false);
+    release();
+    const result = await pending;
+    expect(result).toEqual({
+      results: [
+        {
+          status: AdvanceReviewCompletionProcessStatus.Advanced,
+          process: null,
+        },
+      ],
+      failures: [
+        { executionId: "failing", code: "review_completion_advance_failed" },
+      ],
+    });
+    expect(JSON.stringify(result)).not.toContain("secret-token");
+  });
+
+  it("does not acquire completion claims after stop", async () => {
+    const fixture = await createFixture("unstarted");
+    const claim = vi.spyOn(fixture.repository, "claimDue");
+    const scanner = new ScanDueReviewCompletionProcesses(
+      fixture.repository,
+      fixture.advance,
+      fixture.clock,
+      fixture.ids,
+      10_000,
+    );
+    const stop = new AbortController();
+    stop.abort();
+    expect(
+      await scanner.execute({
+        ownerIdHash: "worker-a",
+        limit: 10,
+        signal: stop.signal,
+      }),
+    ).toEqual({ results: [], failures: [] });
+    expect(claim).not.toHaveBeenCalled();
+  });
+
+  it("drains a completion claim returned by a query that raced shutdown", async () => {
+    const fixture = await createFixture("owned-before-stop");
+    const stop = new AbortController();
+    const originalClaim = fixture.repository.claimDue.bind(fixture.repository);
+    vi.spyOn(fixture.repository, "claimDue").mockImplementationOnce(
+      async (input) => {
+        const claims = await originalClaim(input);
+        stop.abort();
+        return claims;
+      },
+    );
+    const scanner = new ScanDueReviewCompletionProcesses(
+      fixture.repository,
+      fixture.advance,
+      fixture.clock,
+      fixture.ids,
+      10_000,
+    );
+    const result = await scanner.execute({
+      ownerIdHash: "worker-a",
+      limit: 10,
+      signal: stop.signal,
+    });
+    expect(result.results).toHaveLength(1);
+    expect(result.failures).toEqual([]);
+    expect(fixture.publications.requestCalls).toBe(1);
+    expect(
+      await scanner.execute({
+        ownerIdHash: "worker-a",
+        limit: 10,
+        signal: stop.signal,
+      }),
+    ).toEqual({ results: [], failures: [] });
   });
 
   it("rejects a stale worker transition after claim takeover", async () => {

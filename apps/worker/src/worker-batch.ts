@@ -7,12 +7,14 @@ import {
 } from "./worker-phase";
 
 export type WorkerBatchResult = Readonly<{
-  outbox: WorkerPhaseResult<ProcessOutboxBatchResult>;
+  outbox:
+    | WorkerPhaseResult<ProcessOutboxBatchResult>
+    | Readonly<{ status: "running" | "not_started" }>;
   failures: readonly WorkerPhaseFailure[];
+  running?: readonly string[];
 }>;
 
-/** One serial pass of the existing independent worker owners. */
-export async function runWorkerBatch(input: {
+export type WorkerBatchOperations = {
   readonly sdkGrowthMaintenance: () => Promise<unknown>;
   readonly processOutbox: () => Promise<ProcessOutboxBatchResult>;
   readonly pruneRateLimits: () => Promise<unknown>;
@@ -23,35 +25,171 @@ export async function runWorkerBatch(input: {
   readonly memoryMaintenance: () => Promise<unknown>;
   readonly pruneMemoryUsageTelemetry: () => Promise<unknown>;
   readonly reviewV2Maintenance: () => Promise<ReviewV2MaintenanceResult>;
-}): Promise<WorkerBatchResult> {
-  const failures: WorkerPhaseFailure[] = [];
-  async function run<Value>(phase: string, execute: () => Promise<Value>) {
-    const result = await captureWorkerPhase(phase, execute);
-    if (result.status === "failed") failures.push(result.failure);
-    return result;
-  }
+};
 
-  await run("sdk_growth.recovery", input.sdkGrowthMaintenance);
-  const outbox = await run("outbox", input.processOutbox);
-  await run("rate_limits.retention", input.pruneRateLimits);
-  await run("action_oidc.retention", input.pruneActionOidcReplayNonces);
-  await run("review_snapshots.retention", input.pruneReviewSnapshots);
-  await run(
-    "review_checkpoints.retention",
-    input.pruneReviewExecutionCheckpoints,
-  );
-  await run(
-    "review_investigations.retention",
-    input.reviewInvestigationMaintenance,
-  );
-  await run("memory.maintenance", input.memoryMaintenance);
-  await run("memory_usage.retention", input.pruneMemoryUsageTelemetry);
-  const reviewV2 = await run(
+/** The fixed outer owners are independent; V2 keeps its internal sequencing. */
+export function createWorkerBatchProcessor(
+  input: WorkerBatchOperations,
+  options: Readonly<{ signal: AbortSignal; observationMs?: number }>,
+) {
+  const observationMs = options.observationMs ?? 1_000;
+  if (!Number.isSafeInteger(observationMs) || observationMs < 1)
+    throw new Error("worker_observation_budget_invalid");
+  const sdk = retainOwner("sdk_growth.recovery", input.sdkGrowthMaintenance);
+  const outbox = retainOwner("outbox", input.processOutbox);
+  const reviewV2 = retainOwner(
     "review_v2.maintenance",
     input.reviewV2Maintenance,
   );
-  if (reviewV2.status === "completed")
-    failures.push(...reviewV2.value.failures);
+  // There is no configurable registry or dynamically growing work queue here.
+  const owners = [
+    sdk,
+    outbox,
+    retainOwner("rate_limits.retention", input.pruneRateLimits),
+    retainOwner("action_oidc.retention", input.pruneActionOidcReplayNonces),
+    retainOwner("review_snapshots.retention", input.pruneReviewSnapshots),
+    retainOwner(
+      "review_checkpoints.retention",
+      input.pruneReviewExecutionCheckpoints,
+    ),
+    retainOwner(
+      "review_investigations.retention",
+      input.reviewInvestigationMaintenance,
+    ),
+    retainOwner("memory.maintenance", input.memoryMaintenance),
+    retainOwner("memory_usage.retention", input.pruneMemoryUsageTelemetry),
+    reviewV2,
+  ];
+  let stopped = false;
+  let observing: Promise<WorkerBatchResult> | undefined;
+  let draining: Promise<WorkerBatchResult> | undefined;
 
-  return { outbox, failures };
+  function collect(): WorkerBatchResult {
+    const outboxResult = outbox.result();
+    const v2Result = reviewV2.result();
+    const failures: WorkerPhaseFailure[] = [];
+    const running: string[] = [];
+    for (const owner of owners) {
+      const result = owner.consume();
+      if (result?.status === "failed") failures.push(result.failure);
+      if (owner.running()) running.push(owner.name);
+    }
+    if (v2Result?.status === "completed")
+      failures.push(...v2Result.value.failures);
+    return {
+      outbox: outboxResult ?? {
+        status: outbox.running() ? "running" : "not_started",
+      },
+      failures,
+      ...(running.length > 0 ? { running } : {}),
+    };
+  }
+
+  async function observe(
+    waitForSettlement: boolean,
+  ): Promise<WorkerBatchResult> {
+    for (const owner of owners) {
+      if (stopped || options.signal.aborted) break;
+      owner.start();
+      // Preserve one-shot sequencing: SDK recovery can enqueue the outbox
+      // work this invocation is expected to drain. Continuous passes may
+      // observe already durable work while that recovery is still pending.
+      if (waitForSettlement) await owner.pending();
+    }
+    if (!waitForSettlement) {
+      const pending = Promise.all(owners.map((owner) => owner.pending()));
+      await observeUntilBudget(pending, observationMs, options.signal);
+    }
+    return collect();
+  }
+
+  return {
+    processBatch(): Promise<WorkerBatchResult> {
+      if (draining)
+        return draining.then(() => ({
+          outbox: { status: "not_started" },
+          failures: [],
+        }));
+      observing ??= observe(false).finally(() => {
+        observing = undefined;
+      });
+      return observing;
+    },
+    /** Only the one-shot host waits for every actual settlement. */
+    async processOnce(): Promise<WorkerBatchResult> {
+      if (observing || draining) throw new Error("worker_once_already_running");
+      observing = observe(true);
+      try {
+        return await observing;
+      } finally {
+        observing = undefined;
+      }
+    },
+    drain(): Promise<WorkerBatchResult> {
+      stopped = true;
+      draining ??= (async () => {
+        // Preserve the pass's consumer if a caller races observation and drain.
+        await observing;
+        await Promise.all(owners.map((owner) => owner.pending()));
+        return collect();
+      })();
+      return draining;
+    },
+  };
+}
+
+/** One-shot execution owns every started operation through actual settlement. */
+export async function runWorkerBatch(
+  input: WorkerBatchOperations,
+  options: Readonly<{ signal?: AbortSignal }> = {},
+): Promise<WorkerBatchResult> {
+  const processor = createWorkerBatchProcessor(input, {
+    signal: options.signal ?? new AbortController().signal,
+  });
+  return processor.processOnce();
+}
+
+function retainOwner<Value>(name: string, execute: () => Promise<Value>) {
+  let pending: Promise<void> | undefined;
+  let settled: WorkerPhaseResult<Value> | undefined;
+  return {
+    name,
+    start() {
+      if (pending || settled) return;
+      pending = captureWorkerPhase(name, execute).then((result) => {
+        settled = result;
+        pending = undefined;
+      });
+    },
+    pending: () => pending,
+    running: () => pending !== undefined,
+    result: () => settled,
+    consume() {
+      const result = settled;
+      settled = undefined;
+      return result;
+    },
+  };
+}
+
+/** This bounds observation only. The owned promises remain in their slots. */
+async function observeUntilBudget(
+  pending: Promise<unknown>,
+  milliseconds: number,
+  signal: AbortSignal,
+): Promise<void> {
+  if (signal.aborted) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let finish!: () => void;
+  const interrupted = new Promise<void>((resolve) => {
+    finish = resolve;
+    timer = setTimeout(resolve, milliseconds);
+    signal.addEventListener("abort", finish, { once: true });
+  });
+  try {
+    await Promise.race([pending, interrupted]);
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", finish);
+  }
 }

@@ -48,6 +48,58 @@ function harness(
 }
 
 describe("Review V2 publication maintenance", () => {
+  it("skips a new scan when admission is already stopped", async () => {
+    const stop = new AbortController();
+    stop.abort();
+    const f = harness([work("1")], async () => ({
+      status: ReviewV2PublicationExecutionStatus.Completed,
+      safeReason: "completed",
+    }));
+    await expect(
+      f.maintenance.runMaintenance({ signal: stop.signal }),
+    ).resolves.toMatchObject({ processed: 0, settledExecutionIds: [] });
+    expect(f.scan).not.toHaveBeenCalled();
+    expect(f.executor.execute).not.toHaveBeenCalled();
+  });
+
+  it("settles the active publication and stops before another executor can claim", async () => {
+    const stop = new AbortController();
+    const f = harness([work("1"), work("2")], async () => {
+      stop.abort();
+      return {
+        status: ReviewV2PublicationExecutionStatus.Completed,
+        safeReason: "completed",
+      };
+    });
+    await expect(
+      f.maintenance.runMaintenance({ signal: stop.signal }),
+    ).resolves.toMatchObject({
+      processed: 1,
+      settledExecutionIds: ["execution-1"],
+      progressSettlements: [
+        { executionId: "execution-1", outcome: "succeeded" },
+      ],
+    });
+    expect(f.executor.execute).toHaveBeenCalledTimes(1);
+    expect(f.defer).not.toHaveBeenCalled();
+  });
+
+  it("takes no claim if shutdown happens during the read-only work scan", async () => {
+    const stop = new AbortController();
+    const f = harness([work("1")], async () => ({
+      status: ReviewV2PublicationExecutionStatus.Completed,
+      safeReason: "completed",
+    }));
+    f.scan.mockImplementationOnce(async () => {
+      stop.abort();
+      return [work("1")];
+    });
+    await expect(
+      f.maintenance.runMaintenance({ signal: stop.signal }),
+    ).resolves.toMatchObject({ processed: 0 });
+    expect(f.executor.execute).not.toHaveBeenCalled();
+  });
+
   it("continues past a throwing executor without inventing its settlement", async () => {
     const calls: string[] = [];
     const f = harness([work("1"), work("2"), work("3")], async (command) => {

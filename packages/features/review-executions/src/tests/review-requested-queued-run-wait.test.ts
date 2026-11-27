@@ -214,6 +214,33 @@ describe("queued run wait (recovery)", () => {
 describe("bounded recovery observation", () => {
   afterEach(() => vi.useRealTimers());
 
+  it("takes no new recovery observations after stop, including a raced due query", async () => {
+    const fixture = await recoveryHarness(async () => queued);
+    fixture.setNow(at(28));
+    const original = fixture.intents.listDueForResolution.bind(fixture.intents);
+    const scan = vi.spyOn(fixture.intents, "listDueForResolution");
+    const stopped = new AbortController();
+    stopped.abort();
+    await expect(
+      fixture.recovery.execute({ limit: 10, signal: stopped.signal }),
+    ).resolves.toEqual({ scanned: 0, pending: 0, recovered: 0, failed: 0 });
+    expect(scan).not.toHaveBeenCalled();
+
+    const racing = new AbortController();
+    scan.mockImplementationOnce(async (input) => {
+      const candidates = await original(input);
+      racing.abort();
+      return candidates;
+    });
+    await expect(
+      fixture.recovery.execute({ limit: 10, signal: racing.signal }),
+    ).resolves.toEqual({ scanned: 1, pending: 1, recovered: 0, failed: 0 });
+    expect(fixture.inspectRunnerWait).not.toHaveBeenCalled();
+    expect(fixture.gateway.inspectKnownRun).not.toHaveBeenCalled();
+    await fixture.recovery.execute({ limit: 10 });
+    expect(fixture.inspectRunnerWait).toHaveBeenCalledTimes(1);
+  });
+
   it.each(["findByRequestIdentity", "inspectKnownRun"] as const)(
     "bounds a pass and retains an abort-ignoring %s until settlement",
     async (method) => {

@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { runWorkerBatch } from "./worker-batch";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createWorkerBatchProcessor, runWorkerBatch } from "./worker-batch";
 import { createReviewV2WorkerFeature } from "./review-v2-worker-runtime";
 
 const ownerPhases = [
@@ -74,6 +74,8 @@ async function fixture(failingOwner?: string) {
   };
 }
 
+afterEach(() => vi.useRealTimers());
+
 describe("worker owner scheduling", () => {
   it.each(ownerPhases)(
     "continues every independent owner after %s fails",
@@ -104,7 +106,7 @@ describe("worker owner scheduling", () => {
     },
   );
 
-  it("keeps serial order and actual results on a healthy pass", async () => {
+  it("starts known owners in composition order and preserves actual results", async () => {
     const { input, calls } = await fixture();
     expect(await runWorkerBatch(input)).toEqual({
       outbox: { status: "completed", value: actualOutbox },
@@ -113,7 +115,7 @@ describe("worker owner scheduling", () => {
     expect(calls).toEqual(ownerPhases.map(([name]) => name));
   });
 
-  it("waits for each owner before starting the next one", async () => {
+  it("preserves SDK enqueue-before-outbox order in a one-shot and awaits real settlement", async () => {
     const { input, calls } = await fixture();
     let release!: () => void;
     const pending = new Promise<void>((resolve) => {
@@ -126,9 +128,103 @@ describe("worker owner scheduling", () => {
     };
     const batch = runWorkerBatch(input);
     expect(calls).toEqual(["sdkGrowthMaintenance"]);
+    let finished = false;
+    void batch.then(() => {
+      finished = true;
+    });
+    await Promise.resolve();
+    expect(finished).toBe(false);
     release();
     await batch;
     expect(calls).toEqual(ownerPhases.map(([name]) => name));
+  });
+
+  it("retains a stuck owner across passes, observes its late failure once and recovers", async () => {
+    vi.useFakeTimers();
+    const { input, calls } = await fixture();
+    const held = deferred<{ linked: number; failed: number }>();
+    let attempts = 0;
+    input.sdkGrowthMaintenance = async () => {
+      attempts += 1;
+      return attempts === 1 ? held.promise : { linked: 1, failed: 0 };
+    };
+    const processor = createWorkerBatchProcessor(input, {
+      signal: new AbortController().signal,
+      observationMs: 50,
+    });
+    for (let pass = 0; pass < 2; pass += 1) {
+      const pending = processor.processBatch();
+      await vi.advanceTimersByTimeAsync(50);
+      expect(await pending).toMatchObject({
+        outbox: { status: "completed", value: actualOutbox },
+        running: ["sdk_growth.recovery"],
+        failures: [],
+      });
+    }
+    expect(attempts).toBe(1);
+    expect(calls.filter((value) => value === "processOutbox")).toHaveLength(2);
+    held.reject(new Error("late unavailable"));
+    await vi.advanceTimersByTimeAsync(0);
+    const late = await processor.processBatch();
+    expect(late.failures).toEqual([
+      { phase: "sdk_growth.recovery", safeErrorSummary: "late unavailable" },
+    ]);
+    expect(attempts).toBe(1);
+    expect(await processor.processBatch()).toMatchObject({ failures: [] });
+    expect(attempts).toBe(2);
+    expect(await processor.drain()).toEqual({
+      outbox: { status: "not_started" },
+      failures: [],
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("uses one pass budget for multiple stuck owners and drains their actual outcomes", async () => {
+    vi.useFakeTimers();
+    const { input } = await fixture();
+    const sdk = deferred<{ linked: number; failed: number }>();
+    const outbox = deferred<typeof actualOutbox>();
+    input.sdkGrowthMaintenance = () => sdk.promise;
+    input.processOutbox = () => outbox.promise;
+    const processor = createWorkerBatchProcessor(input, {
+      signal: new AbortController().signal,
+      observationMs: 40,
+    });
+    const pass = processor.processBatch();
+    await vi.advanceTimersByTimeAsync(40);
+    expect(await pass).toMatchObject({
+      outbox: { status: "running" },
+      running: ["sdk_growth.recovery", "outbox"],
+    });
+    let drained = false;
+    const stopping = processor.drain().then((result) => {
+      drained = true;
+      return result;
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(drained).toBe(false);
+    sdk.resolve({ linked: 0, failed: 0 });
+    outbox.resolve(actualOutbox);
+    expect(await stopping).toEqual({
+      outbox: { status: "completed", value: actualOutbox },
+      failures: [],
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("starts no owner after shutdown and removes its observation listener", async () => {
+    const { input, calls } = await fixture();
+    const stop = new AbortController();
+    stop.abort();
+    const processor = createWorkerBatchProcessor(input, {
+      signal: stop.signal,
+    });
+    expect(await processor.processBatch()).toEqual({
+      outbox: { status: "not_started" },
+      failures: [],
+    });
+    expect(calls).toEqual([]);
+    await processor.drain();
   });
 
   it("propagates resolved review-v2 degradation into the outer pass", async () => {
@@ -145,3 +241,13 @@ describe("worker owner scheduling", () => {
     expect(calls).toEqual(ownerPhases.map(([name]) => name));
   });
 });
+
+function deferred<Value>() {
+  let resolve!: (value: Value) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<Value>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
+}
