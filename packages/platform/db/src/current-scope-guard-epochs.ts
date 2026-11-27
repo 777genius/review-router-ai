@@ -32,6 +32,10 @@ export async function runScopeEpochSerializableTransaction<T>(
 
 function isSerializationFailure(error: unknown): boolean {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+  // Prisma reports model-level transaction write conflicts and deadlocks as
+  // P2034; the database has aborted the interactive transaction. Callbacks
+  // are DB-only, so retrying the whole transaction is safe and bounded.
+  if (error.code === "P2034") return true;
   if (error.code !== "P2010" || !error.meta) return false;
   const adapter = error.meta.driverAdapterError;
   if (!adapter || typeof adapter !== "object" || !("cause" in adapter))

@@ -52,6 +52,114 @@ test("experimental current scope epoch on isolated PostgreSQL", () => {
     await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     await pool.end();
   });
+  it("records actual Prisma model-update serialization conflict shape", async () => {
+    await pool.query(
+      'CREATE TABLE "Workspace" (id TEXT PRIMARY KEY, name TEXT NOT NULL, "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP)',
+    );
+    await pool.query(
+      "INSERT INTO \"Workspace\" (id,name) VALUES ('race','initial')",
+    );
+    let entered!: () => void;
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const first = prisma
+      .$transaction(
+        async (tx) => {
+          await tx.workspace.findUniqueOrThrow({
+            where: { id: "race" },
+            select: { name: true },
+          });
+          entered();
+          await gate;
+          await tx.workspace.updateMany({
+            where: { id: "race" },
+            data: { name: "first" },
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      )
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+    await ready;
+    try {
+      await prisma.workspace.updateMany({
+        where: { id: "race" },
+        data: { name: "second" },
+      });
+    } finally {
+      release();
+    }
+    const outcome = await first;
+    expect(outcome).toMatchObject({ code: "P2034" });
+    expect(
+      (
+        await prisma.workspace.findUniqueOrThrow({
+          where: { id: "race" },
+          select: { name: true },
+        })
+      ).name,
+    ).toBe("second");
+  });
+
+  it("retries an actual Prisma model conflict using a fresh DB-only transaction", async () => {
+    await pool.query("UPDATE \"Workspace\" SET name='initial' WHERE id='race'");
+    let entered!: () => void;
+    let release!: () => void;
+    let attempts = 0;
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const first = runScopeEpochSerializableTransaction(
+      prisma,
+      [{ scope: "global", mode: "shared" }],
+      async (tx) => {
+        attempts++;
+        const current = await tx.workspace.findUniqueOrThrow({
+          where: { id: "race" },
+          select: { name: true },
+        });
+        if (attempts === 1) {
+          entered();
+          await gate;
+        }
+        await tx.workspace.updateMany({
+          where: { id: "race" },
+          data: { name: `${current.name}-updated` },
+        });
+        return current.name;
+      },
+    );
+    await ready;
+    try {
+      await prisma.workspace.updateMany({
+        where: { id: "race" },
+        data: { name: "second" },
+      });
+    } finally {
+      release();
+    }
+    expect(await first).toBe("second");
+    expect(attempts).toBe(2);
+    expect(
+      (
+        await prisma.workspace.findUniqueOrThrow({
+          where: { id: "race" },
+          select: { name: true },
+        })
+      ).name,
+    ).toBe("second-updated");
+  });
+
   it("documents unsafe stale effect when a legacy writer omits the epoch", async () => {
     await pool.query('CREATE TABLE "legacy_effect" (version int NOT NULL)');
     await pool.query('UPDATE "authority" SET version=10');
@@ -243,11 +351,7 @@ test("experimental current scope epoch on isolated PostgreSQL", () => {
           },
         },
       });
-    for (const error of [
-      makeError("P2010", "23505"),
-      makeError("P2034", "40001"),
-      new Error("network"),
-    ]) {
+    for (const error of [makeError("P2010", "23505"), new Error("network")]) {
       const run = vi.fn().mockRejectedValue(error);
       await expect(
         runScopeEpochSerializableTransaction(
@@ -268,6 +372,16 @@ test("experimental current scope epoch on isolated PostgreSQL", () => {
       ),
     ).rejects.toBe(conflict);
     expect(run).toHaveBeenCalledTimes(3);
+    const modelConflict = makeError("P2034", "40001");
+    const modelRun = vi.fn().mockRejectedValue(modelConflict);
+    await expect(
+      runScopeEpochSerializableTransaction(
+        { $transaction: modelRun } as never,
+        [{ scope: "global", mode: "shared" }],
+        async () => undefined,
+      ),
+    ).rejects.toBe(modelConflict);
+    expect(modelRun).toHaveBeenCalledTimes(3);
   });
   it("keeps different workspace writers concurrent under the shared global epoch", async () => {
     for (const workspaceId of ["workspace-a", "workspace-b"]) {
