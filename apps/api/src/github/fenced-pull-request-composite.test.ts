@@ -51,6 +51,7 @@ describe("fenced pull request composite prototype", () => {
     vi.clearAllMocks();
     m.tx = {
       gitHubWebhookDelivery: {
+        update: vi.fn().mockResolvedValue({}),
         findUnique: vi.fn().mockResolvedValue({
           eventName: "pull_request",
           action: "closed",

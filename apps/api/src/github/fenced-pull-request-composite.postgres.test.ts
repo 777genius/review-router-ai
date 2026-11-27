@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
+import { runScopeEpochSerializableTransaction } from "@reviewrouter/platform-db";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -266,5 +267,138 @@ test("fenced PR composite on isolated PostgreSQL", () => {
     expect(
       (await pool.query('SELECT count(*)::int n FROM "OutboxEvent"')).rows[0].n,
     ).toBe(before);
+  });
+  it("rolls back every effect if terminal status cannot commit", async () => {
+    await pool.query(
+      `ALTER TABLE "GitHubWebhookDelivery" ADD CONSTRAINT synthetic_terminal_failure CHECK ("deliveryId" <> 'terminal-fail' OR status <> 'processed')`,
+    );
+    const e = envelope("terminal-fail");
+    e.payload.action = "opened";
+    e.payload.pull_request.state = "open";
+    const claim = await beginFencedWebhookDelivery(
+      prisma,
+      {
+        deliveryId: e.deliveryId,
+        eventName: e.eventName,
+        action: e.payload.action,
+        installationId: "123",
+        payloadHash: e.payloadHash,
+      },
+      owner,
+      10000,
+    );
+    const before = (
+      await pool.query('SELECT count(*)::int n FROM "OutboxEvent"')
+    ).rows[0].n;
+    await expect(
+      handleFencedPullRequestComposite(prisma, e, claim, {
+        reviewIngressEnabled: true,
+        conflictFallbackEnabled: true,
+        conflictFallbackAllowed: true,
+      }),
+    ).rejects.toThrow();
+    expect(
+      (await pool.query('SELECT count(*)::int n FROM "OutboxEvent"')).rows[0].n,
+    ).toBe(before);
+    expect(
+      (
+        await pool.query(
+          'SELECT status::text FROM "GitHubWebhookDelivery" WHERE "deliveryId"=$1',
+          [e.deliveryId],
+        )
+      ).rows[0].status,
+    ).toBe("processing");
+  });
+
+  it("rejects the prior owner after scope change and takeover race", async () => {
+    const before = (
+      await pool.query('SELECT count(*)::int n FROM "OutboxEvent"')
+    ).rows[0].n;
+    const e = envelope("composite-race");
+    e.payload.action = "opened";
+    e.payload.pull_request.state = "open";
+    const old = await beginFencedWebhookDelivery(
+      prisma,
+      {
+        deliveryId: e.deliveryId,
+        eventName: e.eventName,
+        action: e.payload.action,
+        installationId: "123",
+        payloadHash: e.payloadHash,
+      },
+      owner,
+      10000,
+    );
+    let entered!: () => void;
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const writer = runScopeEpochSerializableTransaction(
+      prisma,
+      [{ scope: "global", mode: "exclusive" }],
+      async (tx) => {
+        await tx.$executeRaw(
+          Prisma.sql`UPDATE "RepositoryConnection" SET "fullName"='new/name' WHERE id='repo'`,
+        );
+        entered();
+        await gate;
+      },
+    );
+    await ready;
+    const oldHandler = handleFencedPullRequestComposite(prisma, e, old, {
+      reviewIngressEnabled: true,
+      conflictFallbackEnabled: true,
+      conflictFallbackAllowed: true,
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    try {
+      let waiting = false;
+      for (let i = 0; i < 80 && !waiting; i++) {
+        waiting =
+          (
+            await pool.query(
+              "SELECT count(*)::int n FROM pg_locks WHERE locktype='advisory' AND NOT granted",
+            )
+          ).rows[0].n > 0;
+        if (!waiting) await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(waiting).toBe(true);
+      await pool.query(
+        'UPDATE "GitHubWebhookFence" SET "leaseUntil"=clock_timestamp()-interval \'1 second\' WHERE "deliveryId"=$1',
+        [e.deliveryId],
+      );
+      expect(
+        await reclaimWebhookFence(prisma, old, "c".repeat(64), 10000),
+      ).not.toBeNull();
+    } finally {
+      release();
+    }
+    await writer;
+    expect(await oldHandler).toBeInstanceOf(Error);
+    expect(
+      (await pool.query('SELECT count(*)::int n FROM "OutboxEvent"')).rows[0].n,
+    ).toBe(before);
+    expect(
+      (
+        await pool.query(
+          'SELECT count(*)::int n FROM "OutboxEvent" WHERE "idempotencyKey"=$1',
+          ["conflict-review:detect:delivery:composite-race"],
+        )
+      ).rows[0].n,
+    ).toBe(0);
+    expect(
+      (
+        await pool.query(
+          'SELECT status::text FROM "GitHubWebhookDelivery" WHERE "deliveryId"=$1',
+          [e.deliveryId],
+        )
+      ).rows[0].status,
+    ).toBe("processing");
   });
 });

@@ -35,44 +35,53 @@ export async function handleFencedPullRequestComposite(
     prisma,
     [{ scope: "global", mode: "exclusive" }],
     (tx) =>
-      runWebhookFencedEffectInTransaction(tx, claim, async (transaction) => {
-        const delivery = await transaction.gitHubWebhookDelivery.findUnique({
-          where: { deliveryId: claim.deliveryId },
-          select: {
-            eventName: true,
-            action: true,
-            installationId: true,
-            payloadHash: true,
-          },
-        });
-        if (
-          delivery?.eventName !== envelope.eventName ||
-          delivery.action !== envelope.payload.action ||
-          delivery.installationId !==
-            BigInt(envelope.payload.installation.id) ||
-          delivery.payloadHash !== envelope.payloadHash
-        )
-          throw new Error("webhook_fence_identity_mismatch");
-        const ingress = options.reviewIngressEnabled
-          ? await writePullRequestIngressInTransaction(transaction, envelope)
-          : null;
-        const setup = await new PrismaSetupPullRequestMergeHandler(
-          prisma,
-        ).handlePullRequestInTransaction(transaction, envelope);
-        const conflict = options.conflictFallbackEnabled
-          ? await new ConflictReviewPullRequestWebhookHandler({
-              outbox: {
-                enqueue: (event) => writePrismaOutboxEvent(transaction, event),
-              },
-              rolloutPolicy: {
-                isConflictReviewFallbackAllowed: () =>
-                  options.conflictFallbackAllowed!,
-              },
-              clock: { now: () => new Date() },
-            }).handleGitHubPullRequestWebhook(envelope)
-          : null;
-        // Deliberately leave processing; the finalization protocol is not qualified.
-        return { ingress, setup, conflict };
-      }),
+      runWebhookFencedEffectInTransaction(
+        tx,
+        claim,
+        async (transaction) => {
+          const delivery = await transaction.gitHubWebhookDelivery.findUnique({
+            where: { deliveryId: claim.deliveryId },
+            select: {
+              eventName: true,
+              action: true,
+              installationId: true,
+              payloadHash: true,
+            },
+          });
+          if (
+            delivery?.eventName !== envelope.eventName ||
+            delivery.action !== envelope.payload.action ||
+            delivery.installationId !==
+              BigInt(envelope.payload.installation.id) ||
+            delivery.payloadHash !== envelope.payloadHash
+          )
+            throw new Error("webhook_fence_identity_mismatch");
+          const ingress = options.reviewIngressEnabled
+            ? await writePullRequestIngressInTransaction(transaction, envelope)
+            : null;
+          const setup = await new PrismaSetupPullRequestMergeHandler(
+            prisma,
+          ).handlePullRequestInTransaction(transaction, envelope);
+          const conflict = options.conflictFallbackEnabled
+            ? await new ConflictReviewPullRequestWebhookHandler({
+                outbox: {
+                  enqueue: (event) =>
+                    writePrismaOutboxEvent(transaction, event),
+                },
+                rolloutPolicy: {
+                  isConflictReviewFallbackAllowed: () =>
+                    options.conflictFallbackAllowed!,
+                },
+                clock: { now: () => new Date() },
+              }).handleGitHubPullRequestWebhook(envelope)
+            : null;
+          await transaction.gitHubWebhookDelivery.update({
+            where: { deliveryId: claim.deliveryId },
+            data: { status: "processed", processedAt: new Date() },
+          });
+          return { ingress, setup, conflict };
+        },
+        "processed",
+      ),
   );
 }
