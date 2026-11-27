@@ -87,8 +87,16 @@ export class PrismaWorkspaceProviderProfileRepository implements WorkspaceProvid
 
   async changeModel(input: Input<"changeModel">) {
     try {
-      return await runReviewConfigurationTransaction(this.prisma, (tx) =>
-        this.changeModelIn(tx, input),
+      return await runScopeEpochSerializableTransaction(
+        this.prisma,
+        [
+          {
+            scope: "workspace",
+            workspaceId: input.workspaceId,
+            mode: "exclusive",
+          },
+        ],
+        (tx) => this.changeModelIn(tx, input),
       );
     } catch (error) {
       // Only a creator that bypassed the workspace lock can collide here.
@@ -99,8 +107,16 @@ export class PrismaWorkspaceProviderProfileRepository implements WorkspaceProvid
   }
 
   archive(input: Input<"archive">) {
-    return runReviewConfigurationTransaction(this.prisma, (tx) =>
-      this.archiveIn(tx, input),
+    return runScopeEpochSerializableTransaction(
+      this.prisma,
+      [
+        {
+          scope: "workspace",
+          workspaceId: input.workspaceId,
+          mode: "exclusive",
+        },
+      ],
+      (tx) => this.archiveIn(tx, input),
     );
   }
 
