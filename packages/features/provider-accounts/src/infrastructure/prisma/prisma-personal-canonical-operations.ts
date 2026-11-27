@@ -5,7 +5,6 @@ import {
   type ProviderAccountConnection,
   type WorkspaceAccountBinding,
 } from "@prisma/client";
-import { runScopeEpochSerializableTransaction } from "@reviewrouter/platform-db";
 import {
   ProviderAccountError,
   assertExpectedRevision,
@@ -76,40 +75,6 @@ export class PrismaPersonalCanonicalOperations implements PersonalCanonicalOpera
       return fail("operation_conflict");
     return row;
   }
-  private async withSourceEpoch<T>(
-    actor: string,
-    operationId: string,
-    work: (tx: Tx) => Promise<T>,
-  ): Promise<T> {
-    const discovered = intentOf(
-      await this.operation(this.prisma, actor, operationId),
-    );
-    const expected = canonicalIntentHash(discovered);
-    return runScopeEpochSerializableTransaction(
-      this.prisma,
-      [
-        {
-          scope: "accountSource",
-          sourceId: discovered.sourceId,
-          mode: "exclusive",
-        },
-        {
-          scope: "workspace",
-          workspaceId: discovered.personalWorkspaceId,
-          mode: "shared",
-        },
-      ],
-      async (tx) => {
-        if (
-          canonicalIntentHash(
-            intentOf(await this.operation(tx, actor, operationId)),
-          ) !== expected
-        )
-          return fail("operation_conflict");
-        return work(tx);
-      },
-    );
-  }
   private async receipt(
     tx: Tx,
     row: PersonalAccountOperation,
@@ -178,101 +143,83 @@ export class PrismaPersonalCanonicalOperations implements PersonalCanonicalOpera
   async reserve(request: PersonalCanonicalIntent) {
     const intent = snapshotCanonicalIntent(request);
     try {
-      return await runScopeEpochSerializableTransaction(
-        this.prisma,
-        [
-          {
-            scope: "accountSource",
-            sourceId: intent.sourceId,
-            mode: "exclusive",
+      return await this.prisma.$transaction(async (tx) => {
+        const source = await this.lockSource(tx, intent);
+        const existing = await tx.personalAccountOperation.findUnique({
+          where: key(intent.actorUserId, intent.clientOperationId),
+        });
+        if (existing) {
+          if (existing.normalizedIntentHash !== canonicalIntentHash(intent))
+            return fail("operation_conflict");
+          return this.receipt(tx, existing);
+        }
+        if (
+          source.pendingSourceOperationId ||
+          source.state === "disabled" ||
+          source.state === "suspended" ||
+          source.state === "pending" ||
+          source.state === "unknown" ||
+          source.metadataRevision !== intent.expectedSourceMetadataRevision ||
+          Number(source.authorizationEpochMirror) !==
+            intent.expectedAuthorizationEpoch ||
+          !source.profileRef
+        )
+          return fail("revision_conflict");
+        assertExpectedRevision(source.metadataRevision);
+        if (intent.action !== "rename" && source.metadataRevision >= 2147483646)
+          return fail("revision_conflict");
+        const id = personalOperationId(
+          intent.actorUserId,
+          intent.clientOperationId,
+        );
+        const row = await tx.personalAccountOperation.create({
+          data: {
+            ...intent,
+            id,
+            expectedGatewayRevision: BigInt(intent.expectedGatewayRevision),
+            expectedAuthorizationEpoch: BigInt(
+              intent.expectedAuthorizationEpoch,
+            ),
+            normalizedIntentHash: canonicalIntentHash(intent),
+            phase: intent.action === "rename" ? "reserved" : "fencing",
           },
-          {
-            scope: "workspace",
-            workspaceId: intent.personalWorkspaceId,
-            mode: "shared",
-          },
-        ],
-        async (tx) => {
-          const source = await this.lockSource(tx, intent);
-          const existing = await tx.personalAccountOperation.findUnique({
-            where: key(intent.actorUserId, intent.clientOperationId),
-          });
-          if (existing) {
-            if (existing.normalizedIntentHash !== canonicalIntentHash(intent))
-              return fail("operation_conflict");
-            return this.receipt(tx, existing);
-          }
-          if (
-            source.pendingSourceOperationId ||
-            source.state === "disabled" ||
-            source.state === "suspended" ||
-            source.state === "pending" ||
-            source.state === "unknown" ||
-            source.metadataRevision !== intent.expectedSourceMetadataRevision ||
-            Number(source.authorizationEpochMirror) !==
-              intent.expectedAuthorizationEpoch ||
-            !source.profileRef
-          )
-            return fail("revision_conflict");
-          assertExpectedRevision(source.metadataRevision);
-          if (
-            intent.action !== "rename" &&
-            source.metadataRevision >= 2147483646
-          )
-            return fail("revision_conflict");
-          const id = personalOperationId(
-            intent.actorUserId,
-            intent.clientOperationId,
-          );
-          const row = await tx.personalAccountOperation.create({
+        });
+        if (intent.action !== "rename") {
+          await tx.providerAccountConnection.update({
+            where: { id: source.id },
             data: {
-              ...intent,
-              id,
-              expectedGatewayRevision: BigInt(intent.expectedGatewayRevision),
-              expectedAuthorizationEpoch: BigInt(
-                intent.expectedAuthorizationEpoch,
-              ),
-              normalizedIntentHash: canonicalIntentHash(intent),
-              phase: intent.action === "rename" ? "reserved" : "fencing",
+              state: "pending",
+              metadataRevision: { increment: 1 },
+              pendingSourceOperationId: id,
             },
           });
-          if (intent.action !== "rename") {
-            await tx.providerAccountConnection.update({
-              where: { id: source.id },
+          const bindings = await tx.$queryRaw<
+            WorkspaceAccountBinding[]
+          >`SELECT * FROM "WorkspaceAccountBinding" WHERE "connectionId"=${source.id} AND "state"='active' ORDER BY "id" FOR UPDATE`;
+          for (const binding of bindings) {
+            // Do not overwrite an unresolved earlier fence intent.
+            if (binding.pendingFenceOperationId)
+              return fail("operation_conflict");
+            assertExpectedRevision(binding.revision);
+            assertExpectedRevision(binding.policyRevision);
+            await tx.workspaceAccountBinding.update({
+              where: { id: binding.id },
               data: {
-                state: "pending",
-                metadataRevision: { increment: 1 },
-                pendingSourceOperationId: id,
+                ...(intent.action === "retire" ? { state: "revoked" } : {}),
+                revision: { increment: 1 },
+                policyRevision: { increment: 1 },
+                pendingFenceOperationId: canonicalFenceOperationId(
+                  id,
+                  binding.id,
+                ),
+                pendingFencePolicySubject: binding.id,
+                pendingFencePolicyRevision: binding.policyRevision + 1,
               },
             });
-            const bindings = await tx.$queryRaw<
-              WorkspaceAccountBinding[]
-            >`SELECT * FROM "WorkspaceAccountBinding" WHERE "connectionId"=${source.id} AND "state"='active' ORDER BY "id" FOR UPDATE`;
-            for (const binding of bindings) {
-              // Do not overwrite an unresolved earlier fence intent.
-              if (binding.pendingFenceOperationId)
-                return fail("operation_conflict");
-              assertExpectedRevision(binding.revision);
-              assertExpectedRevision(binding.policyRevision);
-              await tx.workspaceAccountBinding.update({
-                where: { id: binding.id },
-                data: {
-                  ...(intent.action === "retire" ? { state: "revoked" } : {}),
-                  revision: { increment: 1 },
-                  policyRevision: { increment: 1 },
-                  pendingFenceOperationId: canonicalFenceOperationId(
-                    id,
-                    binding.id,
-                  ),
-                  pendingFencePolicySubject: binding.id,
-                  pendingFencePolicyRevision: binding.policyRevision + 1,
-                },
-              });
-            }
           }
-          return this.receipt(tx, row);
-        },
-      );
+        }
+        return this.receipt(tx, row);
+      });
     } catch (error) {
       // Same-nonce UNIQUE race returns its exact original; changed intent remains conflict.
       if (
@@ -449,7 +396,7 @@ export class PrismaPersonalCanonicalOperations implements PersonalCanonicalOpera
       account.authorizationEpoch,
     ])
       if (!Number.isSafeInteger(counter) || counter < 1) return fail();
-    return this.withSourceEpoch(actorUserId, clientOperationId, async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       const { row, source } = await this.lockOperation(
         tx,
         actorUserId,

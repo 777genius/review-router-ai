@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import type { PrismaClient } from "@reviewrouter/platform-db";
-import type { Prisma } from "@prisma/client";
+import { acquireCurrentScopeGuards, type PrismaClient } from "@reviewrouter/platform-db";
+import { Prisma } from "@prisma/client";
 import {
   runWebhookFencedDatabaseEffect,
   type FencedDelivery,
@@ -10,11 +10,10 @@ import {
   writePrismaOutboxEvent,
   type OutboxEventStatus,
 } from "@reviewrouter/features-outbox";
-import { PrismaWorkspaceReviewSettings } from "@reviewrouter/features-review-config";
 import { ReviewV2GitHubRequestIngressOutbox } from "../review-v2-github-request-ingress-outbox.js";
 import { ReviewV2PullRequestWebhookHandler } from "./review-v2-pull-request-webhook-handler.js";
 
-/** WIP: not selected by HTTP ingress or eligible for production takeover. */
+/** A partial ingress effect; production uses the complete PR coordinator. */
 export async function writeFencedPullRequestIngress(
   prisma: PrismaClient,
   envelope: GitHubPullRequestWebhookEnvelope,
@@ -41,7 +40,7 @@ export async function writeFencedPullRequestIngress(
       throw new Error("webhook_fence_identity_mismatch");
 
     return writePullRequestIngressInTransaction(transaction, envelope);
-  });
+  }, "processing", (tx) => acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "shared" }]));
 }
 
 /** DB-only effect; caller must acquire scope and delivery fences first. */
@@ -67,16 +66,32 @@ export async function writePullRequestIngressInTransaction(
       return createHash("sha256").update(value, "utf8").digest("hex");
     },
   });
-  const settings = new PrismaWorkspaceReviewSettings(transaction);
   const handler = new ReviewV2PullRequestWebhookHandler({
     ingress,
     clock: { now: () => new Date() },
     policy: {
       reviewDrafts: (githubInstallationId) =>
-        settings.reviewDraftsForGitHubInstallation(githubInstallationId),
+        readCurrentDraftPolicy(transaction, githubInstallationId),
     },
   });
   // Leave processing active: a later fenced generic handler must commit its
   // effects and terminal status. The outbox insertion shares this guard.
   return handler.handleGitHubPullRequestWebhook(envelope);
+}
+
+
+async function readCurrentDraftPolicy(transaction: Prisma.TransactionClient, githubInstallationId: string): Promise<boolean> {
+  // Ordinary settings writers update Workspace directly. Row locks keep that
+  // policy stable through outbox commit without requiring a new writer protocol.
+  const installations = await transaction.$queryRaw<Array<{workspaceId: string}>>(
+    Prisma.sql`SELECT "workspaceId" FROM "GitHubInstallation"
+      WHERE "githubInstallationId" = ${BigInt(githubInstallationId)} FOR SHARE`,
+  );
+  const workspaceId = installations[0]?.workspaceId;
+  if (!workspaceId) return false;
+  const settings = await transaction.$queryRaw<Array<{reviewDraftPullRequests: boolean}>>(
+    Prisma.sql`SELECT "reviewDraftPullRequests" FROM "Workspace"
+      WHERE "id" = ${workspaceId} FOR SHARE`,
+  );
+  return settings[0]?.reviewDraftPullRequests === true;
 }

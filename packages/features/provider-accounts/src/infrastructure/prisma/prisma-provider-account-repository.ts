@@ -1,8 +1,4 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
-import {
-  acquireCurrentScopeGuardsWithEpoch,
-  type CurrentScopeGuard,
-} from "@reviewrouter/platform-db";
 import { randomUUID } from "node:crypto";
 import type { WorkspaceBindingFenceRepositoryPort } from "../../application/ports/workspace-binding-fence-port";
 import type {
@@ -60,18 +56,6 @@ export class PrismaProviderAccountRepository
     try {
       return await this.prisma.$transaction(
         async (tx) => {
-          await acquireCurrentScopeGuardsWithEpoch(tx, [
-            {
-              scope: "accountSource",
-              sourceId: input.connectionId,
-              mode: "exclusive",
-            },
-            {
-              scope: "workspace",
-              workspaceId: input.workspaceId,
-              mode: "exclusive",
-            },
-          ]);
           // Same lock as interactive CAS and mirror UPDATE: absence is serialized
           // against initial bind without changing the interactive revision contract.
           const locked = await tx.$queryRaw<readonly { id: string }[]>`
@@ -232,27 +216,9 @@ export class PrismaProviderAccountRepository
     if (input.state !== "active" && input.state !== "revoked")
       throw new ProviderAccountError("invalid_input");
     assertExpectedRevision(input.expectedRevision, input.state === "active");
-    const scopes: CurrentScopeGuard[] = [
-      {
-        scope: "accountSource",
-        sourceId: input.connectionId,
-        mode: "exclusive",
-      },
-      { scope: "workspace", workspaceId: input.workspaceId, mode: "exclusive" },
-      ...(this.operatorWorkspaceId
-        ? [
-            {
-              scope: "workspace" as const,
-              workspaceId: this.operatorWorkspaceId,
-              mode: "shared" as const,
-            },
-          ]
-        : []),
-    ];
     try {
       return await this.prisma.$transaction(
         async (tx) => {
-          await acquireCurrentScopeGuardsWithEpoch(tx, scopes);
           if (operatorActor) {
             if (operatorActor.userId !== undefined)
               assertOpaqueReference(operatorActor.userId);

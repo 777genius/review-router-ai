@@ -1,3 +1,4 @@
+import { webhookFencePostgres, assertWebhookFenceTestDatabase } from "../../../../../scripts/webhook-fencing/postgres-fixture";
 import { createHmac, randomBytes } from "node:crypto";
 import Fastify from "fastify";
 import rawBody from "fastify-raw-body";
@@ -12,6 +13,9 @@ import { requestWebhookRedeliveryOnce } from "../application/use-cases/request-w
 import {
   beginFencedWebhookDelivery,
   beginVerifiedFencedWebhookDelivery,
+  claimVerifiedFencedWebhookDelivery,
+  failWebhookFencedDelivery,
+  runWebhookFencedDatabaseEffect,
 } from "../infrastructure/prisma/webhook-effect-fence";
 import {
   prepareWebhookRecovery,
@@ -19,33 +23,30 @@ import {
   recordWebhookRedeliveryAccepted,
   confirmWebhookRecovery,
 } from "../infrastructure/prisma/webhook-recovery-custody";
-const socket = process.env.REVIEW_ROUTER_WEBHOOK_FENCE_TEST_SOCKET;
-const test = socket?.startsWith("/") ? describe : describe.skip;
+const test = webhookFencePostgres.enabled ? describe : describe.skip;
 test("webhook recovery custody on isolated PostgreSQL", () => {
   const schema = `webhook_recovery_${randomBytes(8).toString("hex")}`;
   const pool = new Pool({
-    host: socket,
-    user: "postgres",
-    database: "rr_webhook_fence_test",
+    ...webhookFencePostgres.connection,
     options: `-c search_path=${schema}`,
   });
   const prisma = new PrismaClient({ adapter: new PrismaPg(pool, { schema }) });
+  const raw = Buffer.from('{"action":"opened"}');
+  const verified = createGitHubAppWebhookVerifier({ appId: "123", apiBaseUrl: "https://api.github.com", webhookSecret: "synthetic-secret" })({
+    rawPayload: raw,
+    signatureHeader: `sha256=${createHmac("sha256", "synthetic-secret").update(raw).digest("hex")}`,
+  })!;
   const identity = (deliveryGuid: string) => ({
-    appIdentityHash: "d".repeat(64),
+    appIdentityHash: verified.appIdentityHash,
     deliveryGuid,
     githubDeliveryId: 33n,
     eventName: "pull_request",
     action: "opened",
     installationId: 123n,
-    payloadHash: "a".repeat(64),
+    payloadHash: verified.payloadHash,
   });
   beforeAll(async () => {
-    if (
-      !socket?.startsWith("/") ||
-      (await pool.query("SELECT current_database() AS name")).rows[0]?.name !==
-        "rr_webhook_fence_test"
-    )
-      throw new Error("disposable_test_database_required");
+    await assertWebhookFenceTestDatabase(pool);
     await pool.query(`CREATE SCHEMA "${schema}"`);
     await pool.query(`CREATE TYPE "WebhookDeliveryStatus" AS ENUM ('received','processing','processed','failed');
       CREATE TABLE "GitHubWebhookDelivery" (id TEXT PRIMARY KEY DEFAULT 'synthetic-' || md5(random()::text), "deliveryId" TEXT UNIQUE NOT NULL, "eventName" TEXT NOT NULL, action TEXT, "installationId" BIGINT, "payloadHash" TEXT, "normalizedEvent" JSONB, status "WebhookDeliveryStatus" NOT NULL DEFAULT 'processing', "errorSummary" TEXT, "processedAt" TIMESTAMP(3), "receivedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
@@ -148,7 +149,7 @@ test("webhook recovery custody on isolated PostgreSQL", () => {
   });
 
   async function seedFailed(i: ReturnType<typeof identity>) {
-    await beginFencedWebhookDelivery(
+    const claim = await beginFencedWebhookDelivery(
       prisma,
       {
         deliveryId: i.deliveryGuid,
@@ -161,10 +162,18 @@ test("webhook recovery custody on isolated PostgreSQL", () => {
       10000,
       i.appIdentityHash,
     );
-    await pool.query(
-      'UPDATE "GitHubWebhookDelivery" SET status=\'failed\' WHERE "deliveryId"=$1',
-      [i.deliveryGuid],
-    );
+    await failWebhookFencedDelivery(prisma, claim, "synthetic_failure");
+  }
+
+  async function completeFailed(i: ReturnType<typeof identity>) {
+    const result = await claimVerifiedFencedWebhookDelivery(prisma, verified, {
+      deliveryId: i.deliveryGuid, eventName: i.eventName, action: i.action,
+      installationId: String(i.installationId), payloadHash: i.payloadHash,
+    }, "c".repeat(64), 10000);
+    if (result.kind !== "claimed") throw new Error("claim_required");
+    await runWebhookFencedDatabaseEffect(prisma, result.claim, async (tx) => {
+      await tx.gitHubWebhookDelivery.update({ where: { deliveryId: i.deliveryGuid }, data: { status: "processed" } });
+    }, "processed");
   }
 
   it("concurrent reservations grant at most one POST and 202 is not completion", async () => {
@@ -199,10 +208,7 @@ test("webhook recovery custody on isolated PostgreSQL", () => {
       false,
     );
     await seedFailed(i);
-    await pool.query(
-      'UPDATE "GitHubWebhookDelivery" SET status=\'processed\' WHERE "deliveryId"=$1',
-      [i.deliveryGuid],
-    );
+    await completeFailed(i);
     expect(await reserveWebhookRedeliveryOnce(prisma, i, "1".repeat(64))).toBe(
       false,
     );
@@ -319,10 +325,7 @@ test("webhook recovery custody on isolated PostgreSQL", () => {
     await seedFailed(i);
     await reserveWebhookRedeliveryOnce(prisma, i, "1".repeat(64));
     expect(await confirmWebhookRecovery(prisma, i)).toBe(false);
-    await pool.query(
-      'UPDATE "GitHubWebhookDelivery" SET status=\'processed\' WHERE "deliveryId"=$1',
-      [i.deliveryGuid],
-    );
+    await completeFailed(i);
     expect(
       await confirmWebhookRecovery(prisma, {
         ...i,

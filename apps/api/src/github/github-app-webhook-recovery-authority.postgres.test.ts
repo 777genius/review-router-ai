@@ -1,4 +1,5 @@
-import { randomBytes } from "node:crypto";
+import { webhookFencePostgres, assertWebhookFenceTestDatabase } from "../../../../scripts/webhook-fencing/postgres-fixture";
+import { createHmac, randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -8,6 +9,10 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   beginFencedWebhookDelivery,
+  claimVerifiedFencedWebhookDelivery,
+  failWebhookFencedDelivery,
+  runWebhookFencedDatabaseEffect,
+  createGitHubAppWebhookVerifier,
   prepareWebhookRecovery,
   reserveWebhookRedeliveryOnce,
   recordWebhookRedeliveryAccepted,
@@ -17,17 +22,17 @@ import {
 } from "@reviewrouter/features-github-installations";
 import { GitHubAppWebhookRedeliveryClient } from "./github-app-webhook-redelivery-client";
 import { GitHubAppWebhookRecoveryAuthority } from "./github-app-webhook-recovery-authority";
-const socket = process.env.REVIEW_ROUTER_WEBHOOK_FENCE_TEST_SOCKET;
-const test = socket?.startsWith("/") ? describe : describe.skip;
+const test = webhookFencePostgres.enabled ? describe : describe.skip;
 test("recovery authority with synthetic GitHub and isolated PostgreSQL", () => {
   const schema = `recovery_authority_${randomBytes(8).toString("hex")}`;
   const pool = new Pool({
-    host: socket,
-    user: "postgres",
-    database: "rr_webhook_fence_test",
+    ...webhookFencePostgres.connection,
     options: `-c search_path=${schema}`,
   });
   const prisma = new PrismaClient({ adapter: new PrismaPg(pool, { schema }) });
+  const raw = Buffer.from('{"synthetic":true}');
+  const signature = `sha256=${createHmac("sha256", "synthetic-secret").update(raw).digest("hex")}`;
+  const verified = createGitHubAppWebhookVerifier({ appId: "123", apiBaseUrl: "https://api.github.com", webhookSecret: "synthetic-secret" })({ rawPayload: raw, signatureHeader: signature })!;
   let calls = 0,
     posts = 0,
     guid = "synthetic";
@@ -64,18 +69,13 @@ test("recovery authority with synthetic GitHub and isolated PostgreSQL", () => {
         event: "push",
         action: null,
         installation_id: 123,
-        request: { payload: { synthetic: "never-return" } },
+        request: { headers: { "X-Hub-Signature-256": signature }, payload: { synthetic: "never-return" } },
       }),
     );
   });
   let client: GitHubAppWebhookRedeliveryClient;
   beforeAll(async () => {
-    if (
-      !socket?.startsWith("/") ||
-      (await pool.query("SELECT current_database() AS name")).rows[0]?.name !==
-        "rr_webhook_fence_test"
-    )
-      throw new Error("disposable_test_database_required");
+    await assertWebhookFenceTestDatabase(pool);
     await pool.query(`CREATE SCHEMA "${schema}"`);
     await pool.query(
       `CREATE TYPE "WebhookDeliveryStatus" AS ENUM ('received','processing','processed','failed'); CREATE TABLE "GitHubWebhookDelivery" (id TEXT PRIMARY KEY DEFAULT 'synthetic-' || md5(random()::text), "deliveryId" TEXT UNIQUE NOT NULL, "eventName" TEXT NOT NULL, action TEXT, "installationId" BIGINT, "payloadHash" TEXT, "normalizedEvent" JSONB, status "WebhookDeliveryStatus" NOT NULL DEFAULT 'processing', "errorSummary" TEXT, "processedAt" TIMESTAMP(3), "receivedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
@@ -116,47 +116,53 @@ test("recovery authority with synthetic GitHub and isolated PostgreSQL", () => {
       server.close((error) => (error ? reject(error) : resolve())),
     );
   });
+  async function completeFailed(identity: { deliveryGuid: string; eventName: string; action: string; payloadHash: string }) {
+    const result = await claimVerifiedFencedWebhookDelivery(prisma, verified, {
+      deliveryId: identity.deliveryGuid, eventName: identity.eventName, action: identity.action,
+      installationId: "123", payloadHash: identity.payloadHash,
+    }, "c".repeat(64), 10000);
+    if (result.kind !== "claimed") throw new Error("claim_required");
+    await runWebhookFencedDatabaseEffect(prisma, result.claim, async (tx) => {
+      await tx.gitHubWebhookDelivery.update({ where: { deliveryId: identity.deliveryGuid }, data: { status: "processed" } });
+    }, "processed");
+  }
+
   it("requires exact failed receiver evidence and exact GitHub App delivery, then rechecks at reserve", async () => {
     const identity = {
       appIdentityHash: client.appIdentityHash,
       deliveryGuid: "synthetic",
       githubDeliveryId: 42n,
       eventName: "push",
-      action: null,
+      action: "push",
       installationId: 123n,
-      payloadHash: "a".repeat(64),
+      payloadHash: verified.payloadHash,
     };
     const authority = new GitHubAppWebhookRecoveryAuthority(prisma, client);
     expect(await authority.authorize(identity)).toBe(false);
     expect(calls).toBe(0);
-    await beginFencedWebhookDelivery(
+    const claim = await beginFencedWebhookDelivery(
       prisma,
       {
         deliveryId: identity.deliveryGuid,
         eventName: identity.eventName,
-        action: null,
+        action: identity.action,
         installationId: "123",
         payloadHash: identity.payloadHash,
       },
       "b".repeat(64),
       10000,
       identity.appIdentityHash,
+      verified.signatureHash,
     );
     expect(await authority.authorize(identity)).toBe(false);
     expect(calls).toBe(0);
-    await pool.query(
-      'UPDATE "GitHubWebhookDelivery" SET status=\'failed\' WHERE "deliveryId"=$1',
-      [identity.deliveryGuid],
-    );
+    await failWebhookFencedDelivery(prisma, claim, "synthetic_failure");
     guid = "wrong";
     expect(await authority.authorize(identity)).toBe(false);
     guid = "synthetic";
     expect(await authority.authorize(identity)).toBe(true);
     await prepareWebhookRecovery(prisma, identity);
-    await pool.query(
-      'UPDATE "GitHubWebhookDelivery" SET status=\'processed\' WHERE "deliveryId"=$1',
-      [identity.deliveryGuid],
-    );
+    await completeFailed(identity);
     expect(
       await reserveWebhookRedeliveryOnce(prisma, identity, "c".repeat(64)),
     ).toBe(false);
@@ -167,28 +173,26 @@ test("recovery authority with synthetic GitHub and isolated PostgreSQL", () => {
       deliveryGuid: "synthetic-next",
       githubDeliveryId: 42n,
       eventName: "push",
-      action: null,
+      action: "push",
       installationId: 123n,
-      payloadHash: "a".repeat(64),
+      payloadHash: verified.payloadHash,
     };
     guid = identity.deliveryGuid;
-    await beginFencedWebhookDelivery(
+    const claim = await beginFencedWebhookDelivery(
       prisma,
       {
         deliveryId: identity.deliveryGuid,
         eventName: identity.eventName,
-        action: null,
+        action: identity.action,
         installationId: "123",
         payloadHash: identity.payloadHash,
       },
       "b".repeat(64),
       10000,
       identity.appIdentityHash,
+      verified.signatureHash,
     );
-    await pool.query(
-      'UPDATE "GitHubWebhookDelivery" SET status=\'failed\' WHERE "deliveryId"=$1',
-      [identity.deliveryGuid],
-    );
+    await failWebhookFencedDelivery(prisma, claim, "synthetic_failure");
     await prepareWebhookRecovery(prisma, identity);
     const custody = {
       reserve: (value: typeof identity, attempt: string) =>
@@ -217,10 +221,7 @@ test("recovery authority with synthetic GitHub and isolated PostgreSQL", () => {
         )
       ).state,
     ).toBe("pending");
-    await pool.query(
-      'UPDATE "GitHubWebhookDelivery" SET status=\'processed\' WHERE "deliveryId"=$1',
-      [identity.deliveryGuid],
-    );
+    await completeFailed(identity);
     expect(
       (
         await pollWebhookRecovery(

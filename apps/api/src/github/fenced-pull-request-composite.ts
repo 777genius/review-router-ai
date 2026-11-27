@@ -1,18 +1,18 @@
 import { ConflictReviewPullRequestWebhookHandler } from "@reviewrouter/features-conflict-review";
 import { writePrismaOutboxEvent } from "@reviewrouter/features-outbox";
 import {
-  runWebhookFencedEffectInTransaction,
+  runWebhookFencedDatabaseEffect,
   type FencedDelivery,
   type GitHubPullRequestWebhookEnvelope,
 } from "@reviewrouter/features-github-installations";
 import {
-  runScopeEpochSerializableTransaction,
+  acquireCurrentScopeGuards,
   type PrismaClient,
 } from "@reviewrouter/platform-db";
 import { writePullRequestIngressInTransaction } from "./fenced-pull-request-ingress.js";
 import { PrismaSetupPullRequestMergeHandler } from "./prisma-setup-pull-request-merge-handler.js";
 
-/** WIP: signature verification is the caller's responsibility. Not route-wired. */
+/** Signed ingress, setup and conflict outbox effects commit as one unit. */
 export async function handleFencedPullRequestComposite(
   prisma: PrismaClient,
   envelope: GitHubPullRequestWebhookEnvelope,
@@ -31,13 +31,9 @@ export async function handleFencedPullRequestComposite(
     options.conflictFallbackAllowed === undefined
   )
     throw new Error("webhook_fence_conflict_policy_missing");
-  return runScopeEpochSerializableTransaction(
+  return runWebhookFencedDatabaseEffect(
     prisma,
-    [{ scope: "global", mode: "exclusive" }],
-    (tx) =>
-      runWebhookFencedEffectInTransaction(
-        tx,
-        claim,
+    claim,
         async (transaction) => {
           const delivery = await transaction.gitHubWebhookDelivery.findUnique({
             where: { deliveryId: claim.deliveryId },
@@ -81,7 +77,7 @@ export async function handleFencedPullRequestComposite(
           });
           return { ingress, setup, conflict };
         },
-        "processed",
-      ),
+    "processed",
+    (tx) => acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "shared" }]),
   );
 }

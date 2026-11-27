@@ -1,3 +1,5 @@
+import { webhookFencePostgres, assertWebhookFenceTestDatabase } from "../../../../../scripts/webhook-fencing/postgres-fixture";
+import { PrismaWebhookDeliveryRepository } from "../infrastructure/prisma/prisma-webhook-delivery-repository";
 import { createHmac, randomBytes } from "node:crypto";
 import { createGitHubAppWebhookVerifier } from "../infrastructure/crypto/github-app-webhook-verifier";
 import { readFile } from "node:fs/promises";
@@ -8,6 +10,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   beginFencedWebhookDelivery,
   beginVerifiedFencedWebhookDelivery,
+  claimVerifiedFencedWebhookDelivery,
+  failWebhookFencedDelivery,
   reclaimWebhookFence,
   renewWebhookFence,
   runWebhookFencedDatabaseEffect,
@@ -15,15 +19,12 @@ import {
 
 // Explicitly opt into a disposable Unix-socket database. This test never
 // connects to an application's configured DATABASE_URL.
-const socket = process.env.REVIEW_ROUTER_WEBHOOK_FENCE_TEST_SOCKET;
-const test = socket?.startsWith("/") ? describe : describe.skip;
+const test = webhookFencePostgres.enabled ? describe : describe.skip;
 
 test("webhook database-effect fencing in isolated PostgreSQL", () => {
   const schema = `webhook_fence_${randomBytes(8).toString("hex")}`;
   const pool = new Pool({
-    host: socket,
-    user: "postgres",
-    database: "rr_webhook_fence_test",
+    ...webhookFencePostgres.connection,
     options: `-c search_path=${schema}`,
   });
   const a = "a".repeat(64);
@@ -77,10 +78,7 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
   } as never;
 
   beforeAll(async () => {
-    if (!socket?.startsWith("/")) throw new Error("test_socket_required");
-    const { rows } = await pool.query("SELECT current_database() AS name");
-    if (rows[0]?.name !== "rr_webhook_fence_test")
-      throw new Error("disposable_test_database_required");
+    await assertWebhookFenceTestDatabase(pool);
     await pool.query(`CREATE SCHEMA "${schema}"`);
     await pool.query(
       "CREATE TYPE \"WebhookDeliveryStatus\" AS ENUM ('received','processing','processed','failed')",
@@ -108,15 +106,13 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
     await pool.query(
       'CREATE TABLE "scope_authority" (version integer NOT NULL)',
     );
-    await pool.query('CREATE TABLE "scope_epoch" (version integer NOT NULL)');
     await pool.query('INSERT INTO "scope_authority" VALUES (1)');
-    await pool.query('INSERT INTO "scope_epoch" VALUES (1)');
     await pool.query(
       'INSERT INTO "GitHubWebhookDelivery" ("deliveryId") VALUES ($1)',
       [deliveryId],
     );
     await pool.query(
-      "INSERT INTO \"GitHubWebhookFence\" VALUES ($1,$2,$3,1,clock_timestamp()+interval '1 minute')",
+      "INSERT INTO \"GitHubWebhookFence\" (\"deliveryId\",\"ownerHash\",\"appIdentityHash\",\"generation\",\"leaseUntil\") VALUES ($1,$2,$3,1,clock_timestamp()+interval '1 minute')",
       [deliveryId, a, "d".repeat(64)],
     );
   });
@@ -124,6 +120,78 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
     await realPrisma.$disconnect();
     await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     await pool.end();
+  });
+
+  function verifiedEvent(id: string, appId = "123", body = '{"action":"opened"}') {
+    const secret = "synthetic-secret";
+    const rawPayload = Buffer.from(body);
+    const context = createGitHubAppWebhookVerifier({ appId, apiBaseUrl: "https://api.github.com", webhookSecret: secret })({
+      rawPayload, signatureHeader: `sha256=${createHmac("sha256", secret).update(rawPayload).digest("hex")}`,
+    })!;
+    return { context, delivery: { deliveryId: id, eventName: "pull_request", action: "opened", installationId: "123", payloadHash: context.payloadHash } };
+  }
+
+  it("recovers the exact failed generation and protects its terminal receipt from legacy writers", async () => {
+    const { context, delivery } = verifiedEvent("claim-failure-recovery");
+    const first = await claimVerifiedFencedWebhookDelivery(realPrisma, context, delivery, a, 10000);
+    if (first.kind !== "claimed") throw new Error("claim_required");
+    await expect(claimVerifiedFencedWebhookDelivery(realPrisma, context, delivery, b, 10000)).rejects.toThrow("webhook_fence_delivery_unconfirmed");
+    await expect(runWebhookFencedDatabaseEffect(realPrisma, first.claim, async (tx) => {
+      await tx.$executeRaw(Prisma.sql`INSERT INTO "effect" VALUES (91)`);
+      throw new Error("synthetic_rollback");
+    })).rejects.toThrow("synthetic_rollback");
+    expect(await failWebhookFencedDelivery(realPrisma, first.claim, "synthetic_rollback")).toBe(true);
+    const second = await claimVerifiedFencedWebhookDelivery(realPrisma, context, delivery, b, 10000);
+    if (second.kind !== "claimed") throw new Error("claim_required");
+    expect(second.claim.generation).toBe(2n);
+    expect(await failWebhookFencedDelivery(realPrisma, first.claim, "stale failure")).toBe(false);
+    await runWebhookFencedDatabaseEffect(realPrisma, second.claim, async (tx) => {
+      await tx.$executeRaw(Prisma.sql`INSERT INTO "effect" VALUES (92)`);
+      await tx.gitHubWebhookDelivery.update({ where: { deliveryId: delivery.deliveryId }, data: { status: "processed" } });
+    }, "processed");
+    expect(await claimVerifiedFencedWebhookDelivery(realPrisma, context, delivery, "c".repeat(64), 10000)).toEqual({ kind: "processed" });
+    const legacy = new PrismaWebhookDeliveryRepository(realPrisma);
+    await expect(legacy.markFailed({ deliveryId: delivery.deliveryId, errorSummary: "late legacy failure" })).rejects.toThrow();
+    await expect(legacy.markProcessed(delivery.deliveryId)).rejects.toThrow();
+    await expect(realPrisma.gitHubWebhookDelivery.delete({ where: { deliveryId: delivery.deliveryId } })).rejects.toThrow();
+    expect(await failWebhookFencedDelivery(realPrisma, second.claim, "late failure")).toBe(false);
+    expect((await pool.query('SELECT generation FROM "effect" WHERE generation IN (91,92) ORDER BY generation')).rows.map((row) => row.generation)).toEqual(["92"]);
+  });
+
+  it("compares App, raw body and event identity after a successful delivery", async () => {
+    const { context, delivery } = verifiedEvent("exact-terminal-identity");
+    const first = await claimVerifiedFencedWebhookDelivery(realPrisma, context, delivery, a, 10000);
+    if (first.kind !== "claimed") throw new Error("claim_required");
+    await runWebhookFencedDatabaseEffect(realPrisma, first.claim, async (tx) => {
+      await tx.gitHubWebhookDelivery.update({ where: { deliveryId: delivery.deliveryId }, data: { status: "processed" } });
+    }, "processed");
+    for (const changes of [{ eventName: "repository" }, { action: "closed" }, { installationId: "456" }]) {
+      await expect(claimVerifiedFencedWebhookDelivery(realPrisma, context, { ...delivery, ...changes }, b, 10000)).rejects.toThrow("webhook_fence_identity_mismatch");
+    }
+    for (const alternative of [verifiedEvent(delivery.deliveryId, "456"), verifiedEvent(delivery.deliveryId, "123", '{"action":"changed"}')]) {
+      await expect(claimVerifiedFencedWebhookDelivery(realPrisma, alternative.context, alternative.delivery, b, 10000)).rejects.toThrow("webhook_fence_identity_mismatch");
+    }
+  });
+
+  it.each(["processing", "failed"] as const)("never takes over a legacy %s row", async (status) => {
+    const { context, delivery } = verifiedEvent(`legacy-${status}`);
+    await realPrisma.gitHubWebhookDelivery.create({ data: { ...delivery, installationId: 123n, status } });
+    await expect(claimVerifiedFencedWebhookDelivery(realPrisma, context, delivery, a, 10000)).rejects.toThrow("webhook_fence_legacy_delivery");
+    expect((await pool.query('SELECT count(*)::int n FROM "GitHubWebhookFence" WHERE "deliveryId"=$1', [delivery.deliveryId])).rows[0].n).toBe(0);
+  });
+
+  it("lets exactly one authenticated duplicate recover an expired owner", async () => {
+    const { context, delivery } = verifiedEvent("authenticated-takeover");
+    const first = await claimVerifiedFencedWebhookDelivery(realPrisma, context, delivery, a, 10000);
+    if (first.kind !== "claimed") throw new Error("claim_required");
+    await pool.query('UPDATE "GitHubWebhookFence" SET "leaseUntil"=clock_timestamp()-interval \'1 second\' WHERE "deliveryId"=$1', [delivery.deliveryId]);
+    const results = await Promise.allSettled([
+      claimVerifiedFencedWebhookDelivery(realPrisma, context, delivery, b, 10000),
+      claimVerifiedFencedWebhookDelivery(realPrisma, context, delivery, "c".repeat(64), 10000),
+    ]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(await failWebhookFencedDelivery(realPrisma, first.claim, "stale failure")).toBe(false);
+    await expect(runWebhookFencedDatabaseEffect(realPrisma, first.claim, async () => { throw new Error("must_not_run"); })).rejects.toThrow("webhook_fence_stale");
   });
 
   it("binds creation to the verified body and trusted App configuration", async () => {
@@ -379,7 +447,7 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
     }
   });
 
-  it("shows a shared MVCC epoch rejects that stale snapshot before an effect", async () => {
+  it("reads current authority after a lock wait with ReadCommitted", async () => {
     await pool.query('UPDATE "scope_authority" SET version = 1');
     const writer = await pool.connect();
     const reader = await pool.connect();
@@ -387,19 +455,11 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
       await writer.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
       await writer.query("SELECT pg_advisory_xact_lock(239892)");
       await writer.query('UPDATE "scope_authority" SET version = 2');
-      await writer.query('UPDATE "scope_epoch" SET version = version + 1');
-      await reader.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
+      await reader.query("BEGIN ISOLATION LEVEL READ COMMITTED");
       const waiting = reader.query("SELECT pg_advisory_xact_lock(239892)");
       await waitForAdvisoryWait(pool, 239892);
       await writer.query("COMMIT");
       await waiting;
-      await expect(
-        reader.query('SELECT version FROM "scope_epoch" FOR SHARE'),
-      ).rejects.toMatchObject({ code: "40001" });
-      await reader.query("ROLLBACK");
-      await reader.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
-      await reader.query("SELECT pg_advisory_xact_lock(239892)");
-      await reader.query('SELECT version FROM "scope_epoch" FOR SHARE');
       expect(
         (await reader.query('SELECT version FROM "scope_authority"')).rows[0]
           .version,

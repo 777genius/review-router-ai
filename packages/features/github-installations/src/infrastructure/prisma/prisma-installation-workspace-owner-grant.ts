@@ -1,4 +1,4 @@
-import { runScopeEpochSerializableTransaction } from "@reviewrouter/platform-db";
+import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import type {
   InstallationWorkspaceOwnerGrant,
@@ -11,18 +11,18 @@ export class PrismaInstallationWorkspaceOwnerGrant implements InstallationWorksp
   async grantInstallationActorOwner(
     grant: InstallationWorkspaceOwnerGrant,
   ): Promise<void> {
-    await runScopeEpochSerializableTransaction(
-      this.prisma,
-      [{ scope: "global", mode: "exclusive" }],
+    await this.prisma.$transaction(
       (tx) => this.grantInstallationActorOwnerInTransaction(tx, grant),
+      { isolationLevel: "ReadCommitted" },
     );
   }
 
-  /** WIP: caller must own the transaction and effect fence. */
+  /** The caller owns the transaction, including the installation mutation. */
   async grantInstallationActorOwnerInTransaction(
     tx: Prisma.TransactionClient,
     grant: InstallationWorkspaceOwnerGrant,
   ): Promise<void> {
+    await acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "exclusive" }]);
     const installation = await tx.gitHubInstallation.findUnique({
       where: {
         githubInstallationId: BigInt(grant.githubInstallationId),

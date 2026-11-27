@@ -2,8 +2,8 @@ import type { Prisma } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
 import { PrismaRepositoryWebhookHandler } from "./prisma-repository-webhook-handler";
 
-describe("epoch-fenced repository webhook prototype (not wired)", () => {
-  it("takes scope and epoch locks before the delivery fence and completes atomically", async () => {
+describe("fenced repository webhook", () => {
+  it("takes scope locks before the delivery fence and completes atomically", async () => {
     const events: string[] = [];
     const transaction = {
       $queryRaw: vi.fn(async (sql: Prisma.Sql) => {
@@ -11,20 +11,13 @@ describe("epoch-fenced repository webhook prototype (not wired)", () => {
           events.push("scope");
           return [{ locked: 1 }];
         }
-        if (sql.text.includes('"CurrentScopeEpoch"')) {
-          events.push("epoch-read");
-          return [{ revision: 1n }];
-        }
         if (sql.text.includes("FOR UPDATE")) {
-          events.push("fence");
+          events.push(sql.text.includes('"GitHubWebhookFence"') ? "fence" : "delivery");
           return [{ deliveryId: "delivery" }];
         }
         return [{ valid: true }];
       }),
-      $executeRaw: vi.fn(async () => {
-        events.push("epoch-write");
-        return 1;
-      }),
+      $executeRaw: vi.fn(async () => 1),
       gitHubWebhookDelivery: {
         findUnique: vi.fn(async () => ({
           eventName: "repository",
@@ -82,13 +75,10 @@ describe("epoch-fenced repository webhook prototype (not wired)", () => {
       processed: false,
       reason: "repository_not_synced",
     });
-    expect(events).toEqual([
-      "scope",
-      "epoch-read",
-      "epoch-write",
-      "fence",
-      "repository",
-      "complete",
-    ]);
+    expect(events[0]).toBe("scope");
+    expect(events.indexOf("fence")).toBeGreaterThan(0);
+    expect(events.indexOf("repository")).toBeGreaterThan(events.indexOf("fence"));
+    expect(events.at(-1)).toBe("complete");
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "ReadCommitted" });
   });
 });

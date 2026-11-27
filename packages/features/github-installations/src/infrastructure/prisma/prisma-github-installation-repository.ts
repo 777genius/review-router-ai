@@ -1,6 +1,5 @@
 import {
   acquireCurrentScopeGuards,
-  runScopeEpochSerializableTransaction,
   rotateRemovedScmRepositoryIdentityEpoch,
 } from "@reviewrouter/platform-db";
 import type { PrismaClient, Prisma } from "@prisma/client";
@@ -19,14 +18,13 @@ export class PrismaGitHubInstallationRepository implements GitHubInstallationRep
   async upsertInstallation(
     snapshot: GitHubInstallationSnapshot,
   ): Promise<void> {
-    await runScopeEpochSerializableTransaction(
-      this.prisma,
-      [{ scope: "global", mode: "exclusive" }],
+    await this.prisma.$transaction(
       (tx) => this.upsertInstallationInTransaction(tx, snapshot),
+      { isolationLevel: "ReadCommitted" },
     );
   }
 
-  /** WIP: caller must own the transaction and effect fence. */
+  /** The caller owns the transaction; authority is read after the scope lock. */
   async upsertInstallationInTransaction(
     tx: Prisma.TransactionClient,
     snapshot: GitHubInstallationSnapshot,
@@ -98,15 +96,14 @@ export class PrismaGitHubInstallationRepository implements GitHubInstallationRep
   }
 
   async markInstallationRemoved(githubInstallationId: string): Promise<void> {
-    await runScopeEpochSerializableTransaction(
-      this.prisma,
-      [{ scope: "global", mode: "exclusive" }],
+    await this.prisma.$transaction(
       (tx) =>
         this.markInstallationRemovedInTransaction(tx, githubInstallationId),
+      { isolationLevel: "ReadCommitted" },
     );
   }
 
-  /** WIP: caller must own the transaction and effect fence. */
+  /** The caller owns the transaction; authority is read after the scope lock. */
   async markInstallationRemovedInTransaction(
     tx: Prisma.TransactionClient,
     githubInstallationId: string,

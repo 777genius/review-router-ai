@@ -1,6 +1,6 @@
 import { writePrismaOutboxEvent } from "@reviewrouter/features-outbox";
 import {
-  runScopeEpochSerializableTransaction,
+  acquireCurrentScopeGuards,
   type PrismaClient,
 } from "@reviewrouter/platform-db";
 import type { Clock } from "@reviewrouter/shared";
@@ -10,11 +10,11 @@ import { OutboxInstallationSyncRequester } from "../outbox/outbox-installation-s
 import { PrismaGitHubInstallationRepository } from "./prisma-github-installation-repository";
 import { PrismaInstallationWorkspaceOwnerGrant } from "./prisma-installation-workspace-owner-grant";
 import {
-  runWebhookFencedEffectInTransaction,
+  runWebhookFencedDatabaseEffect,
   type FencedDelivery,
 } from "./webhook-effect-fence";
 
-/** WIP only: callers must verify the signature; no production route uses this. */
+/** Signed installation effects, sync outbox and completion commit together. */
 export async function handleFencedInstallationWebhook(
   prisma: PrismaClient,
   envelope: GitHubWebhookEnvelope,
@@ -23,13 +23,9 @@ export async function handleFencedInstallationWebhook(
 ) {
   if (claim.deliveryId !== envelope.deliveryId || !envelope.payloadHash)
     throw new Error("webhook_fence_identity_mismatch");
-  return runScopeEpochSerializableTransaction(
+  return runWebhookFencedDatabaseEffect(
     prisma,
-    [{ scope: "global", mode: "exclusive" }],
-    (tx) =>
-      runWebhookFencedEffectInTransaction(
-        tx,
-        claim,
+    claim,
         async (transaction) => {
           const delivery = await transaction.gitHubWebhookDelivery.findUnique({
             where: { deliveryId: claim.deliveryId },
@@ -82,13 +78,13 @@ export async function handleFencedInstallationWebhook(
                   data: { status: "processed", processedAt: clock.now() },
                 });
               },
-              // The outer transaction rolls back on failure. Recording a failed state
-              // requires a separate fenced transition, which is not implemented yet.
+              // The transaction rolls back on failure. The outer coordinator records
+              // a fenced failure only after that rollback has completed.
               markFailed: async () => {},
             },
           });
         },
-        "processed",
-      ),
+    "processed",
+    (tx) => acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "exclusive" }]),
   );
 }

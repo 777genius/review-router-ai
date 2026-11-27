@@ -11,7 +11,7 @@ import {
   workspacePolicyFixture,
   workspaceProviderFixture,
 } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
-import { Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { ReviewConfigurationWriteConflictError } from "@reviewrouter/features-review-config";
 import { describe, expect, it } from "vitest";
 import { PrismaReviewConfigurationOperatorMutation } from "./prisma-review-configuration-operator-mutation.js";
@@ -166,7 +166,6 @@ function createTransactionClient(state: State, events: string[]) {
     // Guards pass a Prisma.Sql; the profile lock is a tagged template.
     async $queryRaw(sql: Prisma.Sql | TemplateStringsArray) {
       const text = "text" in sql ? sql.text : sql.join("?");
-      if (text.includes('"CurrentScopeEpoch"')) return [{ revision: 0n }];
       events.push(
         text.includes("WorkspaceProviderProfile")
           ? "profile-lock"
@@ -175,9 +174,6 @@ function createTransactionClient(state: State, events: string[]) {
             : "exclusive",
       );
       return [];
-    },
-    async $executeRaw() {
-      return 1;
     },
     workspaceProviderProfile: {
       async findMany() {
@@ -459,12 +455,7 @@ describe("Prisma review configuration operator mutation", () => {
 
   it("retries a serialization conflict without duplicating state", async () => {
     const stub = createPrismaStub();
-    stub.queueTransactionFailure(
-      new Prisma.PrismaClientKnownRequestError("transaction rolled back", {
-        code: "P2034",
-        clientVersion: "test",
-      }),
-    );
+    stub.queueTransactionFailure({ code: "P2034" });
     const mutation = new PrismaReviewConfigurationOperatorMutation(
       stub.prisma as never,
     );

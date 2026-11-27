@@ -1,12 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-vi.mock("@reviewrouter/platform-db", () => ({
-  isPersonalWorkspaceOwnerConflict: () => false,
-  runScopeEpochSerializableTransaction: (
-    prisma: any,
-    _scopes: unknown,
-    work: (tx: unknown) => unknown,
-  ) => prisma.$transaction(work),
-}));
 import type { PrismaClient } from "@prisma/client";
 import type { AuthenticatedPrincipal } from "../domain/authenticated-principal";
 import { PrismaWorkspaceMembershipRepository } from "../infrastructure/prisma/prisma-workspace-membership-repository";
@@ -116,24 +108,5 @@ describe("PrismaWorkspaceMembershipRepository", () => {
       source: "personal",
     });
     expect(prisma.workspace.create).not.toHaveBeenCalled();
-  });
-  it("rediscovers when the personal workspace binding changed before the guard", async () => {
-    const prisma = createPrismaMock();
-    prisma.workspace.findUnique
-      .mockResolvedValueOnce({ id: "old", slug: "old" })
-      .mockResolvedValueOnce({ id: "new", slug: "new" })
-      .mockResolvedValueOnce({ id: "new", slug: "new" })
-      .mockResolvedValueOnce({ id: "new", slug: "new" });
-    prisma.workspace.update.mockResolvedValue({ id: "new", slug: "new" });
-    const repo = new PrismaWorkspaceMembershipRepository(
-      prisma as unknown as PrismaClient,
-    );
-    expect(
-      (await repo.ensurePersonalWorkspaceOwner(principal({}))).workspaceId,
-    ).toBe("new");
-    expect(prisma.workspace.update).toHaveBeenCalledTimes(1);
-    expect(prisma.workspace.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "new" } }),
-    );
   });
 });

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -217,39 +218,24 @@ describe("GitHub App redelivery client with synthetic local server", () => {
       installationId: 123n,
       payloadHash: "a".repeat(64),
     };
-    expect(await c.verifyOriginalDelivery(identity)).toBe(true);
+    scanMode = "normal";
+    const signatureHash = createHash("sha256").update(`sha256=${"a".repeat(64)}`).digest("hex");
+    expect(await c.verifyOriginalDelivery(identity, signatureHash)).toBe(true);
+    expect(await c.verifyOriginalDelivery(identity, "e".repeat(64))).toBe(false);
     expect(
-      await c.verifyOriginalDelivery({ ...identity, deliveryGuid: "other" }),
+      await c.verifyOriginalDelivery({ ...identity, deliveryGuid: "other" }, signatureHash),
     ).toBe(false);
     const before = requests.length;
     expect(
       await c.verifyOriginalDelivery({
         ...identity,
         appIdentityHash: "e".repeat(64),
-      }),
+      }, signatureHash),
     ).toBe(false);
     expect(requests.length).toBe(before);
-  });
-  it("extracts only a failed delivery signature digest and refuses missing or ambiguous headers", async () => {
-    const c = client();
-    scanMode = "normal";
-    const evidence = await c.inspectUnreceivedDelivery(42n);
-    expect(evidence).toMatchObject({
-      appIdentityHash: c.appIdentityHash,
-      deliveryGuid: "synthetic-guid",
-      githubDeliveryId: 42n,
-      signatureHash: expect.stringMatching(/^[a-f0-9]{64}$/),
-    });
-    expect(
-      JSON.stringify(evidence, (_key, value) =>
-        typeof value === "bigint" ? String(value) : value,
-      ),
-    ).not.toContain("never-return-this");
     scanMode = "redacted";
-    expect(await c.inspectUnreceivedDelivery(42n)).toBeNull();
+    expect(await c.verifyOriginalDelivery(identity, signatureHash)).toBe(false);
     scanMode = "duplicate";
-    expect(await c.inspectUnreceivedDelivery(42n)).toBeNull();
-    scanMode = "success-detail";
-    expect(await c.inspectUnreceivedDelivery(42n)).toBeNull();
+    expect(await c.verifyOriginalDelivery(identity, signatureHash)).toBe(false);
   });
 });

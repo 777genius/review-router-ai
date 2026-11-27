@@ -1,4 +1,3 @@
-import { runScopeEpochSerializableTransaction } from "@reviewrouter/platform-db";
 import type { Prisma, PrismaClient } from "@prisma/client";
 
 type SettingsClient = Pick<
@@ -58,19 +57,9 @@ export class PrismaWorkspaceReviewSettings {
     workspaceId: string,
     reviewDraftPullRequests: boolean,
   ): Promise<void> {
-    // Reads can use an existing transaction; writes require a root client so
-    // the scope guard is always acquired before the transaction's first read.
-    if (typeof Reflect.get(this.prisma, "$connect") !== "function")
-      throw new Error("workspace_review_settings_requires_root_client");
-    await runScopeEpochSerializableTransaction(
-      this.prisma as PrismaClient,
-      [{ scope: "workspace", workspaceId, mode: "exclusive" }],
-      async (tx) => {
-        await tx.workspace.update({
-          where: { id: workspaceId },
-          data: { reviewDraftPullRequests },
-        });
-      },
-    );
+    await this.prisma.workspace.update({
+      where: { id: workspaceId },
+      data: { reviewDraftPullRequests },
+    });
   }
 }

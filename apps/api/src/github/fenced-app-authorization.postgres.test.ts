@@ -1,3 +1,4 @@
+import { webhookFencePostgres, assertWebhookFenceTestDatabase } from "../../../../scripts/webhook-fencing/postgres-fixture";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -10,14 +11,11 @@ import {
 } from "@reviewrouter/features-github-installations";
 import { PrismaGitHubAppAuthorizationWebhookHandler } from "./prisma-github-app-authorization-webhook-handler";
 
-const socket = process.env.REVIEW_ROUTER_WEBHOOK_FENCE_TEST_SOCKET;
-const test = socket?.startsWith("/") ? describe : describe.skip;
+const test = webhookFencePostgres.enabled ? describe : describe.skip;
 test("fenced app revocation on isolated PostgreSQL", () => {
   const schema = `webhook_app_${randomBytes(8).toString("hex")}`;
   const pool = new Pool({
-    host: socket,
-    user: "postgres",
-    database: "rr_webhook_fence_test",
+    ...webhookFencePostgres.connection,
     options: `-c search_path=${schema}`,
   });
   const prisma = new PrismaClient({ adapter: new PrismaPg(pool, { schema }) });
@@ -32,7 +30,7 @@ test("fenced app revocation on isolated PostgreSQL", () => {
     },
   });
   beforeAll(async () => {
-    if (!socket?.startsWith("/")) throw new Error("test_socket_required");
+    await assertWebhookFenceTestDatabase(pool);
     if (
       (await pool.query("SELECT current_database() AS name")).rows[0]?.name !==
       "rr_webhook_fence_test"

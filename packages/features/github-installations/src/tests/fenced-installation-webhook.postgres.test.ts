@@ -1,8 +1,9 @@
+import { webhookFencePostgres, assertWebhookFenceTestDatabase } from "../../../../../scripts/webhook-fencing/postgres-fixture";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Prisma, PrismaClient } from "@prisma/client";
-import { runScopeEpochSerializableTransaction } from "@reviewrouter/platform-db";
+import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { beginFencedWebhookDelivery } from "../infrastructure/prisma/webhook-effect-fence";
@@ -10,14 +11,11 @@ import { handleFencedInstallationWebhook } from "../infrastructure/prisma/fenced
 import { PrismaGitHubInstallationRepository } from "../infrastructure/prisma/prisma-github-installation-repository";
 import { PrismaInstallationWorkspaceOwnerGrant } from "../infrastructure/prisma/prisma-installation-workspace-owner-grant";
 
-const socket = process.env.REVIEW_ROUTER_WEBHOOK_FENCE_TEST_SOCKET;
-const test = socket?.startsWith("/") ? describe : describe.skip;
+const test = webhookFencePostgres.enabled ? describe : describe.skip;
 test("fenced installation webhook on isolated PostgreSQL", () => {
   const schema = `webhook_install_${randomBytes(8).toString("hex")}`;
   const pool = new Pool({
-    host: socket,
-    user: "postgres",
-    database: "rr_webhook_fence_test",
+    ...webhookFencePostgres.connection,
     options: `-c search_path=${schema}`,
   });
   const prisma = new PrismaClient({ adapter: new PrismaPg(pool, { schema }) });
@@ -38,12 +36,7 @@ test("fenced installation webhook on isolated PostgreSQL", () => {
     },
   });
   beforeAll(async () => {
-    if (
-      !socket?.startsWith("/") ||
-      (await pool.query("SELECT current_database() AS name")).rows[0]?.name !==
-        "rr_webhook_fence_test"
-    )
-      throw new Error("disposable_test_database_required");
+    await assertWebhookFenceTestDatabase(pool);
     await pool.query(`CREATE SCHEMA "${schema}"`);
     await pool.query(`CREATE TYPE "WebhookDeliveryStatus" AS ENUM ('received','processing','processed','failed');
       CREATE TYPE "GitHubInstallationStatus" AS ENUM ('pending','active','suspended','removed','permission_error','sync_error');
@@ -64,7 +57,6 @@ test("fenced installation webhook on isolated PostgreSQL", () => {
       INSERT INTO "RepositoryPermissionCache" VALUES (42);`);
     for (const migration of [
       "000165_webhook_effect_fence",
-      "000166_current_scope_epoch",
     ])
       await pool.query(
         await readFile(
@@ -176,12 +168,7 @@ test("fenced installation webhook on isolated PostgreSQL", () => {
       ).rows[0].n,
     ).toBe(0);
   });
-  it("ordinary installation writer participates in global epoch", async () => {
-    const before = (
-      await pool.query(
-        'SELECT COALESCE(sum(revision),0)::int n FROM "CurrentScopeEpoch"',
-      )
-    ).rows[0].n;
+  it("preserves ordinary installation metadata updates", async () => {
     await new PrismaGitHubInstallationRepository(prisma).upsertInstallation({
       githubInstallationId: "42",
       accountLogin: "writer-team",
@@ -197,15 +184,8 @@ test("fenced installation webhook on isolated PostgreSQL", () => {
         )
       ).rows[0].accountLogin,
     ).toBe("writer-team");
-    expect(
-      (
-        await pool.query(
-          'SELECT COALESCE(sum(revision),0)::int n FROM "CurrentScopeEpoch"',
-        )
-      ).rows[0].n,
-    ).toBe(before + 1);
   });
-  it("retries a reader waiting for the real installation writer", async () => {
+  it("reads fresh authority after waiting for the real installation writer", async () => {
     await pool.query(
       `CREATE FUNCTION synthetic_hold_writer() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock(87892144); RETURN NEW; END $$`,
     );
@@ -236,13 +216,14 @@ test("fenced installation webhook on isolated PostgreSQL", () => {
         if (waiting < 1) await new Promise((r) => setTimeout(r, 25));
       }
       expect(waiting).toBeGreaterThanOrEqual(1);
-      reader = runScopeEpochSerializableTransaction(
-        prisma,
-        [{ scope: "global", mode: "shared" }],
-        (tx) =>
-          tx.$queryRaw<Array<{ accountLogin: string }>>(
+      reader = prisma.$transaction(
+        async (tx) => {
+          await acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "shared" }]);
+          return tx.$queryRaw<Array<{ accountLogin: string }>>(
             Prisma.sql`SELECT "accountLogin" FROM "GitHubInstallation" WHERE id='i'`,
-          ),
+          );
+        },
+        { isolationLevel: "ReadCommitted" },
       );
       for (let i = 0; i < 80 && waiting < 2; i++) {
         waiting = (
@@ -262,12 +243,7 @@ test("fenced installation webhook on isolated PostgreSQL", () => {
     await pool.query('DROP TRIGGER synthetic_hold ON "GitHubInstallation"');
   });
 
-  it("owner grant commits alongside a global epoch update", async () => {
-    const before = (
-      await pool.query(
-        'SELECT COALESCE(sum(revision),0)::int n FROM "CurrentScopeEpoch"',
-      )
-    ).rows[0].n;
+  it("enrolls the installation actor without changing existing roles", async () => {
     await new PrismaInstallationWorkspaceOwnerGrant(
       prisma,
     ).grantInstallationActorOwner({
@@ -283,21 +259,9 @@ test("fenced installation webhook on isolated PostgreSQL", () => {
         )
       ).rows[0].role,
     ).toBe("owner");
-    expect(
-      (
-        await pool.query(
-          'SELECT COALESCE(sum(revision),0)::int n FROM "CurrentScopeEpoch"',
-        )
-      ).rows[0].n,
-    ).toBe(before + 1);
   });
 
-  it("ordinary installation removal participates in global epoch", async () => {
-    const before = (
-      await pool.query(
-        'SELECT COALESCE(sum(revision),0)::int n FROM "CurrentScopeEpoch"',
-      )
-    ).rows[0].n;
+  it("removes installation access and repository selection together", async () => {
     await new PrismaGitHubInstallationRepository(
       prisma,
     ).markInstallationRemoved("42");
@@ -315,12 +279,5 @@ test("fenced installation webhook on isolated PostgreSQL", () => {
         )
       ).rows[0].selected,
     ).toBe(false);
-    expect(
-      (
-        await pool.query(
-          'SELECT COALESCE(sum(revision),0)::int n FROM "CurrentScopeEpoch"',
-        )
-      ).rows[0].n,
-    ).toBe(before + 1);
   });
 });

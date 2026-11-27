@@ -1,3 +1,4 @@
+import { webhookFencePostgres, assertWebhookFenceTestDatabase } from "../../../../scripts/webhook-fencing/postgres-fixture";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -9,16 +10,13 @@ import {
   reclaimWebhookFence,
 } from "@reviewrouter/features-github-installations";
 import { PrismaRepositoryWebhookHandler } from "./prisma-repository-webhook-handler";
-import { runScopeEpochSerializableTransaction } from "@reviewrouter/platform-db";
+import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
 
-const socket = process.env.REVIEW_ROUTER_WEBHOOK_FENCE_TEST_SOCKET;
-const test = socket?.startsWith("/") ? describe : describe.skip;
+const test = webhookFencePostgres.enabled ? describe : describe.skip;
 test("fenced repository webhook on isolated PostgreSQL", () => {
   const schema = `webhook_repo_${randomBytes(8).toString("hex")}`;
   const pool = new Pool({
-    host: socket,
-    user: "postgres",
-    database: "rr_webhook_fence_test",
+    ...webhookFencePostgres.connection,
     options: `-c search_path=${schema}`,
   });
   const prisma = new PrismaClient({ adapter: new PrismaPg(pool, { schema }) });
@@ -44,12 +42,7 @@ test("fenced repository webhook on isolated PostgreSQL", () => {
     },
   });
   beforeAll(async () => {
-    if (
-      !socket?.startsWith("/") ||
-      (await pool.query("SELECT current_database() AS name")).rows[0]?.name !==
-        "rr_webhook_fence_test"
-    )
-      throw new Error("disposable_test_database_required");
+    await assertWebhookFenceTestDatabase(pool);
     await pool.query(`CREATE SCHEMA "${schema}"`);
     await pool.query(
       "CREATE TYPE \"WebhookDeliveryStatus\" AS ENUM ('received','processing','processed','failed')",
@@ -61,15 +54,6 @@ test("fenced repository webhook on isolated PostgreSQL", () => {
       await readFile(
         new URL(
           "../../../../packages/platform/db/prisma/migrations/000165_webhook_effect_fence/migration.sql",
-          import.meta.url,
-        ),
-        "utf8",
-      ),
-    );
-    await pool.query(
-      await readFile(
-        new URL(
-          "../../../../packages/platform/db/prisma/migrations/000166_current_scope_epoch/migration.sql",
           import.meta.url,
         ),
         "utf8",
@@ -206,16 +190,16 @@ test("fenced repository webhook on isolated PostgreSQL", () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const authorityWriter = runScopeEpochSerializableTransaction(
-      prisma,
-      [{ scope: "global", mode: "exclusive" }],
+    const authorityWriter = prisma.$transaction(
       async (tx) => {
+        await acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "exclusive" }]);
         await tx.$executeRaw(
           Prisma.sql`UPDATE "RepositoryConnection" SET "fullName" = 'test/new' WHERE id = 'repo'`,
         );
         entered();
         await gate;
       },
+      { isolationLevel: "ReadCommitted" },
     );
     await enteredPromise;
     const oldHandler = new PrismaRepositoryWebhookHandler(prisma)
@@ -264,12 +248,7 @@ test("fenced repository webhook on isolated PostgreSQL", () => {
       ).rows[0].status,
     ).toBe("processing");
   });
-  it("ordinary repository webhook mutates authority and its epoch together", async () => {
-    const before = (
-      await pool.query(
-        'SELECT COALESCE(sum(revision),0)::int n FROM "CurrentScopeEpoch"',
-      )
-    ).rows[0].n;
+  it("preserves ordinary repository removal", async () => {
     await new PrismaRepositoryWebhookHandler(
       prisma,
     ).handleGitHubRepositoryWebhook(envelope("ordinary-writer"));
@@ -280,12 +259,5 @@ test("fenced repository webhook on isolated PostgreSQL", () => {
         )
       ).rows[0].selected,
     ).toBe(false);
-    expect(
-      (
-        await pool.query(
-          'SELECT COALESCE(sum(revision),0)::int n FROM "CurrentScopeEpoch"',
-        )
-      ).rows[0].n,
-    ).toBe(before + 1);
   });
 });

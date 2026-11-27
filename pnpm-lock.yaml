@@ -695,9 +695,6 @@ importers:
       '@prisma/client':
         specifier: 7.9.0
         version: 7.9.0(prisma@7.9.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@7.0.2))(typescript@7.0.2)
-      '@reviewrouter/platform-db':
-        specifier: workspace:*
-        version: link:../../platform/db
       '@reviewrouter/shared':
         specifier: workspace:*
         version: link:../../shared
@@ -836,9 +833,6 @@ importers:
       '@prisma/client':
         specifier: 7.9.0
         version: 7.9.0(prisma@7.9.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@7.0.2))(typescript@7.0.2)
-      '@reviewrouter/platform-db':
-        specifier: workspace:*
-        version: link:../../platform/db
       '@smithy/node-http-handler':
         specifier: 4.11.3
         version: 4.11.3
@@ -957,9 +951,6 @@ importers:
       '@reviewrouter/features-auth':
         specifier: workspace:*
         version: link:../auth
-      '@reviewrouter/platform-db':
-        specifier: workspace:*
-        version: link:../../platform/db
     devDependencies:
       '@get-modular/conformance':
         specifier: 0.5.2

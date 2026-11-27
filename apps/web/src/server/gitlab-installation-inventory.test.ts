@@ -1,17 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-// Effect mocks do not model epoch SQL; integration tests cover it on PG.
-vi.mock("@reviewrouter/platform-db", () => ({
-  runScopeEpochSerializableTransaction: (
-    prisma: any,
-    _scopes: unknown,
-    work: (tx: unknown) => unknown,
-    options: { timeoutMs: number },
-  ) =>
-    prisma.$transaction(work, {
-      isolationLevel: "Serializable",
-      timeout: options.timeoutMs,
-    }),
-}));
 import type {
   GitLabBulkProvisionResult,
   GitLabGroupProject,

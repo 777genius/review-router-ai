@@ -1,9 +1,9 @@
 import type { FastifyRequest } from "fastify";
 import type { VerifiedGitHubAppWebhook } from "../../infrastructure/crypto/github-app-webhook-verifier";
 
-/** WIP ingress adapter; App config is captured in the supplied trusted verifier. */
+/** Ingress adapter; App config is captured in the supplied trusted verifier. */
 export function verifyGitHubAppWebhookRequest(
-  request: FastifyRequest & { readonly rawBody?: Buffer },
+  request: FastifyRequest,
   verify: (
     input: Readonly<{ rawPayload: Buffer; signatureHeader?: string }>,
   ) => VerifiedGitHubAppWebhook | null,

@@ -446,60 +446,6 @@ describe("Prisma hosted pool admin adapters", () => {
     expect(transactionRunner).not.toHaveBeenCalled();
   });
 
-  it("acquires the repository epoch before reading or switching the binding", async () => {
-    const events: string[] = [];
-    const transaction = {
-      $queryRaw: async (sql: { text: string }) => {
-        if (sql.text.includes('"CurrentScopeEpoch"')) return [{ revision: 0n }];
-        events.push("guard");
-        return [];
-      },
-      $executeRaw: async () => {
-        events.push("epoch");
-        return 1;
-      },
-      hostedCodexRepositoryBinding: {
-        findFirst: async () => {
-          events.push("binding");
-          return { id: "binding-1", poolId: "pool-1", stateVersion: 1n };
-        },
-        updateMany: async () => ({ count: 1 }),
-      },
-      repositoryConnection: { findFirst: async () => ({ id: "repository-1" }) },
-      hostedCodexPool: { findFirst: async () => ({ id: "pool-1" }) },
-    };
-    const authority = {
-      switchToRepositoryOwnedRotating: async () => {
-        events.push("switch");
-        return true;
-      },
-    };
-    const store = new PrismaRepositoryAuthModeSwitch(
-      {
-        $transaction: async (callback: (tx: unknown) => unknown) =>
-          callback(transaction),
-      } as unknown as PrismaClient,
-      authority,
-    );
-    await expect(
-      store.switchToRepositoryOwnedRotating({
-        repositoryId: repositoryId("repository-1"),
-        workspaceId: workspace,
-        expectedBindingRevision: 2,
-        nextBindingRevision: 3,
-        switchedAt: now,
-      }),
-    ).resolves.toBe(true);
-    expect(events).toEqual([
-      "guard",
-      "guard",
-      "guard",
-      "epoch",
-      "binding",
-      "switch",
-    ]);
-  });
-
   it("requires healthVersion to advance by exactly one before availability CAS", async () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const accounts = new PrismaHostedAccountRepository({

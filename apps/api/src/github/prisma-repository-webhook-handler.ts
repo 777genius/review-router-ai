@@ -1,5 +1,5 @@
 import {
-  runWebhookFencedEffectInTransaction,
+  runWebhookFencedDatabaseEffect,
   type FencedDelivery,
   type GitHubRepositoryWebhookEnvelope,
 } from "@reviewrouter/features-github-installations";
@@ -7,7 +7,6 @@ import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import {
   acquireCurrentScopeGuards,
-  runScopeEpochSerializableTransaction,
   rotateRemovedScmRepositoryIdentityEpoch,
   rotateScmRepositoryIdentityEpoch,
 } from "@reviewrouter/platform-db";
@@ -21,10 +20,9 @@ export class PrismaRepositoryWebhookHandler {
   async handleGitHubRepositoryWebhook(
     envelope: GitHubRepositoryWebhookEnvelope,
   ): Promise<Record<string, unknown>> {
-    const handled = await runScopeEpochSerializableTransaction(
-      this.prisma,
-      [{ scope: "global", mode: "exclusive" }],
+    const handled = await this.prisma.$transaction(
       (tx) => this.applyRepositoryWebhook(tx, envelope),
+      { isolationLevel: "ReadCommitted" },
     );
     return repositoryWebhookResult(
       handled,
@@ -32,20 +30,16 @@ export class PrismaRepositoryWebhookHandler {
     );
   }
 
-  /** WIP: not selected by production routes or eligible for takeover yet. */
+  /** All repository mutations and terminal delivery share one transaction. */
   async handleFencedGitHubRepositoryWebhook(
     envelope: GitHubRepositoryWebhookEnvelope,
     claim: FencedDelivery,
   ): Promise<Record<string, unknown>> {
     if (claim.deliveryId !== envelope.deliveryId || !envelope.payloadHash)
       throw new Error("webhook_fence_identity_mismatch");
-    return runScopeEpochSerializableTransaction(
+    return runWebhookFencedDatabaseEffect(
       this.prisma,
-      [{ scope: "global", mode: "exclusive" }],
-      (tx) =>
-        runWebhookFencedEffectInTransaction(
-          tx,
-          claim,
+      claim,
           async (transaction) => {
             const delivery = await transaction.gitHubWebhookDelivery.findUnique(
               {
@@ -79,8 +73,8 @@ export class PrismaRepositoryWebhookHandler {
               envelope.payload.repository.full_name,
             );
           },
-          "processed",
-        ),
+      "processed",
+      (tx) => acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "exclusive" }]),
     );
   }
 

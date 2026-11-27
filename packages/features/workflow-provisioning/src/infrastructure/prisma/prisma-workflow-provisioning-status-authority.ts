@@ -268,7 +268,7 @@ export class PrismaWorkflowProvisioningStatusAuthority {
     );
   }
 
-  /** WIP: the caller owns the transaction and all effect fences. */
+  /** The caller owns the transaction and locks its repository authority first. */
   async markConfiguredInTransaction(
     tx: Prisma.TransactionClient,
     input: WorkflowProvisioningPullRequestIdentity & {

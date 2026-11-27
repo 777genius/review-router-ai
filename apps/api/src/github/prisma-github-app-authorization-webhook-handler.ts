@@ -7,7 +7,7 @@ import type { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 
 export class PrismaGitHubAppAuthorizationWebhookHandler {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaClient, private readonly appSlug = resolveGitHubAppSlug()) {}
 
   async handleGitHubAppAuthorizationWebhook(
     envelope: GitHubAppAuthorizationWebhookEnvelope,
@@ -68,7 +68,7 @@ export class PrismaGitHubAppAuthorizationWebhookHandler {
     }
 
     const userIds = users.map((user) => user.id);
-    const appSlug = resolveGitHubAppSlug();
+    const appSlug = this.appSlug;
     await transaction.gitHubUserAuthorization.updateMany({
       where: {
         appSlug,

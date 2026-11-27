@@ -1,3 +1,4 @@
+import { webhookFencePostgres, assertWebhookFenceTestDatabase } from "../../../../scripts/webhook-fencing/postgres-fixture";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -9,14 +10,12 @@ import {
   reclaimWebhookFence,
 } from "@reviewrouter/features-github-installations";
 import { PrismaSetupPullRequestMergeHandler } from "./prisma-setup-pull-request-merge-handler";
-const socket = process.env.REVIEW_ROUTER_WEBHOOK_FENCE_TEST_SOCKET;
-const test = socket?.startsWith("/") ? describe : describe.skip;
+const test = webhookFencePostgres.enabled ? describe : describe.skip;
 test("fenced setup merge on isolated PostgreSQL", () => {
   const schema = `webhook_setup_${randomBytes(8).toString("hex")}`;
   const pool = new Pool({
-    host: socket,
-    user: "postgres",
-    database: "rr_webhook_fence_test",
+    application_name: schema,
+    ...webhookFencePostgres.connection,
     options: `-c search_path=${schema}`,
   });
   const prisma = new PrismaClient({ adapter: new PrismaPg(pool, { schema }) });
@@ -42,12 +41,7 @@ test("fenced setup merge on isolated PostgreSQL", () => {
     },
   });
   beforeAll(async () => {
-    if (
-      !socket?.startsWith("/") ||
-      (await pool.query("SELECT current_database() AS name")).rows[0]?.name !==
-        "rr_webhook_fence_test"
-    )
-      throw new Error("disposable_test_database_required");
+    await assertWebhookFenceTestDatabase(pool);
     await pool.query(`CREATE SCHEMA "${schema}"`);
     await pool.query(
       "CREATE TYPE \"WebhookDeliveryStatus\" AS ENUM ('received','processing','processed','failed')",
@@ -66,15 +60,6 @@ test("fenced setup merge on isolated PostgreSQL", () => {
       await readFile(
         new URL(
           "../../../../packages/platform/db/prisma/migrations/000165_webhook_effect_fence/migration.sql",
-          import.meta.url,
-        ),
-        "utf8",
-      ),
-    );
-    await pool.query(
-      await readFile(
-        new URL(
-          "../../../../packages/platform/db/prisma/migrations/000166_current_scope_epoch/migration.sql",
           import.meta.url,
         ),
         "utf8",
@@ -174,6 +159,43 @@ test("fenced setup merge on isolated PostgreSQL", () => {
         )
       ).rows[0],
     ).toEqual({ status: "setup_pr_open", revision: 1 });
+  });
+  it.each([
+    { name: "installation suspension", change: `UPDATE "GitHubInstallation" SET status='suspended' WHERE id='inst'` },
+    { name: "repository removal", change: `UPDATE "RepositoryConnection" SET selected=false WHERE id='repo'` },
+    { name: "repository base branch change", change: `UPDATE "RepositoryConnection" SET "defaultBranch"='next' WHERE id='repo'` },
+  ])("revalidates $name after an ordinary row writer commits", async ({ name, change }) => {
+    await pool.query(`UPDATE "GitHubInstallation" SET status='active';
+      UPDATE "RepositoryConnection" SET selected=true,"defaultBranch"='main';
+      UPDATE "WorkflowProvisioning" SET status='setup_pr_open',revision=1;`);
+    const e = envelope(`setup-wait-${name}`);
+    const claim = await beginFencedWebhookDelivery(prisma, {
+      deliveryId: e.deliveryId, eventName: e.eventName, action: e.payload.action,
+      installationId: "123", payloadHash: e.payloadHash,
+    }, owner, 10000, "d".repeat(64));
+    const writer = await pool.connect();
+    await writer.query("BEGIN");
+    await writer.query(change);
+    const result = new PrismaSetupPullRequestMergeHandler(prisma).handleFencedGitHubPullRequestWebhook(e, claim);
+    try {
+      let waiting = false;
+      for (let attempt = 0; attempt < 80 && !waiting; attempt++) {
+        waiting = (await pool.query(
+          "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock') waiting",
+          [schema],
+        )).rows[0].waiting === true;
+        if (!waiting) await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(waiting).toBe(true);
+    } finally {
+      await writer.query("COMMIT");
+      writer.release();
+    }
+    await expect(result).resolves.toMatchObject({ processed: false });
+    expect((await pool.query('SELECT status::text,revision FROM "WorkflowProvisioning"')).rows[0])
+      .toEqual({ status: "setup_pr_open", revision: 1 });
+    await pool.query(`UPDATE "GitHubInstallation" SET status='active';
+      UPDATE "RepositoryConnection" SET selected=true,"defaultBranch"='main';`);
   });
   it("rolls back the setup update if its fence expires during the write", async () => {
     await pool.query(

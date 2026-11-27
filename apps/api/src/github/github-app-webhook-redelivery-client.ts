@@ -11,8 +11,8 @@ type AppJwt = () => Promise<string>;
 const apiOrigin = "https://api.github.com";
 
 /**
- * Draft only. Uses App JWT, fixed GitHub origin and a single non-redirecting
- * POST. Construction and invocation are not wired to production routes/jobs.
+ * Uses App JWT, a fixed GitHub origin and one non-redirecting POST.
+ * Called by the explicit operational recovery command after authorization.
  */
 export class GitHubAppWebhookRedeliveryClient implements AppWebhookRedeliveryClient {
   readonly appIdentityHash: string;
@@ -86,8 +86,10 @@ export class GitHubAppWebhookRedeliveryClient implements AppWebhookRedeliveryCli
   /** Fetch the exact App delivery from GitHub without retaining its payload. */
   async verifyOriginalDelivery(
     identity: WebhookRecoveryIdentity,
+    expectedSignatureHash: string,
   ): Promise<boolean> {
     if (
+      !/^[a-f0-9]{64}$/.test(expectedSignatureHash) ||
       identity.appIdentityHash !== this.appIdentityHash ||
       identity.githubDeliveryId < 1n ||
       identity.githubDeliveryId > BigInt(Number.MAX_SAFE_INTEGER)
@@ -123,7 +125,7 @@ export class GitHubAppWebhookRedeliveryClient implements AppWebhookRedeliveryCli
         BigInt(row.id as number) !== identity.githubDeliveryId ||
         row.guid !== identity.deliveryGuid ||
         row.event !== identity.eventName ||
-        row.action !== identity.action
+        row.action !== githubDeliveryAction(identity)
       )
         return false;
       if (
@@ -136,109 +138,11 @@ export class GitHubAppWebhookRedeliveryClient implements AppWebhookRedeliveryCli
         row.installation_id === null
           ? null
           : BigInt(row.installation_id as number);
-      return installation === identity.installationId;
+      return installation === identity.installationId && signatureDigest(row.request) === expectedSignatureHash;
     } catch {
       return false;
     }
   }
-  /**
-   * Draft discovery for an unreceived body: only immutable App API metadata
-   * and the digest of an available original signature are returned. Missing
-   * or redacted signature headers fail closed; no payload is retained.
-   */
-  async inspectUnreceivedDelivery(githubDeliveryId: bigint): Promise<Readonly<{
-    appIdentityHash: string;
-    deliveryGuid: string;
-    githubDeliveryId: bigint;
-    eventName: string;
-    action: string | null;
-    installationId: bigint | null;
-    signatureHash: string;
-  }> | null> {
-    if (
-      typeof githubDeliveryId !== "bigint" ||
-      githubDeliveryId < 1n ||
-      githubDeliveryId > BigInt(Number.MAX_SAFE_INTEGER)
-    )
-      return null;
-    try {
-      const token = await this.jwt();
-      if (typeof token !== "string" || !token || /[\r\n]/.test(token))
-        return null;
-      const response = await this.send(
-        `${apiOrigin}/app/hook/deliveries/${githubDeliveryId}`,
-        {
-          method: "GET",
-          redirect: "error",
-          cache: "no-store",
-          signal: AbortSignal.timeout(15_000),
-          headers: {
-            Accept: "application/vnd.github+json",
-            Authorization: `Bearer ${token}`,
-            "X-GitHub-Api-Version": "2022-11-28",
-          },
-        },
-      );
-      if (response.status !== 200) return null;
-      const value: unknown = JSON.parse(
-        await readBoundedText(response, 30_000_000),
-      );
-      if (!value || typeof value !== "object" || Array.isArray(value))
-        return null;
-      const row = value as Record<string, unknown>;
-      if (
-        !Number.isSafeInteger(row.id) ||
-        BigInt(row.id as number) !== githubDeliveryId ||
-        typeof row.guid !== "string" ||
-        !row.guid ||
-        row.guid.length > 200 ||
-        typeof row.event !== "string" ||
-        !row.event ||
-        row.event.length > 100 ||
-        !(row.action === null || typeof row.action === "string") ||
-        !Number.isInteger(row.status_code)
-      )
-        return null;
-      const status = row.status_code as number;
-      if (!(status === 0 || (status >= 400 && status <= 599))) return null;
-      if (
-        row.installation_id !== null &&
-        (!Number.isSafeInteger(row.installation_id) ||
-          (row.installation_id as number) < 1)
-      )
-        return null;
-      const request = row.request;
-      if (!request || typeof request !== "object" || !("headers" in request))
-        return null;
-      const headers = request.headers;
-      if (!headers || typeof headers !== "object" || Array.isArray(headers))
-        return null;
-      const signatures = Object.entries(headers)
-        .filter(([name]) => name.toLowerCase() === "x-hub-signature-256")
-        .map(([, value]) => value);
-      if (
-        signatures.length !== 1 ||
-        typeof signatures[0] !== "string" ||
-        !/^sha256=[a-f0-9]{64}$/.test(signatures[0])
-      )
-        return null;
-      return {
-        appIdentityHash: this.appIdentityHash,
-        deliveryGuid: row.guid,
-        githubDeliveryId,
-        eventName: row.event,
-        action: row.action as string | null,
-        installationId:
-          row.installation_id === null
-            ? null
-            : BigInt(row.installation_id as number),
-        signatureHash: createHash("sha256").update(signatures[0]).digest("hex"),
-      };
-    } catch {
-      return null;
-    }
-  }
-
   /** Read-only bounded list of App webhook attempts, never a success proof. */
   async scanAttempts(
     identity: WebhookRecoveryIdentity,
@@ -312,7 +216,7 @@ export class GitHubAppWebhookRedeliveryClient implements AppWebhookRedeliveryCli
         if (typeof row.guid !== "string" || typeof row.redelivery !== "boolean")
           return { state: "incomplete", pages, matchingAttempts };
         if (row.guid !== identity.deliveryGuid) continue;
-        if (row.event !== identity.eventName || row.action !== identity.action)
+        if (row.event !== identity.eventName || row.action !== githubDeliveryAction(identity))
           return { state: "incomplete", pages, matchingAttempts };
         if (row.redelivery !== true) continue;
         if (
@@ -406,4 +310,20 @@ function nextDeliveryCursor(link: string | null): string | null | false {
   } catch {
     return false;
   }
+}
+
+function signatureDigest(request: unknown): string | null {
+  if (!request || typeof request !== "object" || !("headers" in request)) return null;
+  const headers = request.headers;
+  if (!headers || typeof headers !== "object" || Array.isArray(headers)) return null;
+  const signatures = Object.entries(headers)
+    .filter(([name]) => name.toLowerCase() === "x-hub-signature-256")
+    .map(([, value]) => value);
+  if (signatures.length !== 1 || typeof signatures[0] !== "string" || !/^sha256=[a-f0-9]{64}$/.test(signatures[0])) return null;
+  return createHash("sha256").update(signatures[0]).digest("hex");
+}
+
+function githubDeliveryAction(identity: WebhookRecoveryIdentity): string | null {
+  // The receiver historically records push as an action; GitHub returns null.
+  return identity.eventName === "push" && identity.action === "push" ? null : identity.action;
 }

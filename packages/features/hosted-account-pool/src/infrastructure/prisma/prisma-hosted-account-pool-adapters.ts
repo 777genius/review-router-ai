@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { acquireCurrentScopeGuardsWithEpoch } from "@reviewrouter/platform-db";
 import {
   readCodexAuthJsonFreshness,
   sessionArtifactFromCodexAuthJson,
@@ -738,14 +737,6 @@ export class PrismaRepositoryAuthModeSwitch implements RepositoryAuthModeSwitchP
     if (!configurationAuthority) return false;
     try {
       return await this.prisma.$transaction(async (transaction) => {
-        await acquireCurrentScopeGuardsWithEpoch(transaction, [
-          {
-            scope: "repository",
-            workspaceId: input.workspaceId,
-            repositoryId: input.repositoryId,
-            mode: "exclusive",
-          },
-        ]);
         const binding =
           await transaction.hostedCodexRepositoryBinding.findFirst({
             where: {

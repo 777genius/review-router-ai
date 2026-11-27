@@ -1,9 +1,6 @@
 import { recordAuditEvent } from "@reviewrouter/features-audit-log";
 import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log/composition";
-import {
-  acquireCurrentScopeGuards,
-  runScopeEpochSerializableTransaction,
-} from "@reviewrouter/platform-db";
+import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import type { WorkspacePolicyHeads } from "../../application/ports/review-configuration-repository-port";
 import type {
@@ -87,16 +84,8 @@ export class PrismaWorkspaceProviderProfileRepository implements WorkspaceProvid
 
   async changeModel(input: Input<"changeModel">) {
     try {
-      return await runScopeEpochSerializableTransaction(
-        this.prisma,
-        [
-          {
-            scope: "workspace",
-            workspaceId: input.workspaceId,
-            mode: "exclusive",
-          },
-        ],
-        (tx) => this.changeModelIn(tx, input),
+      return await runReviewConfigurationTransaction(this.prisma, (tx) =>
+        this.changeModelIn(tx, input),
       );
     } catch (error) {
       // Only a creator that bypassed the workspace lock can collide here.
@@ -107,16 +96,8 @@ export class PrismaWorkspaceProviderProfileRepository implements WorkspaceProvid
   }
 
   archive(input: Input<"archive">) {
-    return runScopeEpochSerializableTransaction(
-      this.prisma,
-      [
-        {
-          scope: "workspace",
-          workspaceId: input.workspaceId,
-          mode: "exclusive",
-        },
-      ],
-      (tx) => this.archiveIn(tx, input),
+    return runReviewConfigurationTransaction(this.prisma, (tx) =>
+      this.archiveIn(tx, input),
     );
   }
 
@@ -125,47 +106,37 @@ export class PrismaWorkspaceProviderProfileRepository implements WorkspaceProvid
       WorkspaceProviderProfileRepositoryPort["changeAccessRights"]
     >[0],
   ) {
-    return runScopeEpochSerializableTransaction(
-      this.prisma,
-      [
+    return runReviewConfigurationTransaction(this.prisma, async (tx) => {
+      // Refuses a deleted or deleting workspace before any write.
+      const authority = await lockProviderAuthority(
+        tx,
+        input.workspaceId,
+        input.actor,
+      );
+      input.authorize(authority);
+      const previous = authority.workspace.providerManagementAdminOnly;
+      if (previous !== input.adminOnly)
+        await tx.workspace.update({
+          where: { id: input.workspaceId },
+          data: { providerManagementAdminOnly: input.adminOnly },
+        });
+      await recordAuditEvent(
         {
-          scope: "workspace",
           workspaceId: input.workspaceId,
-          mode: "exclusive",
-        },
-      ],
-      async (tx) => {
-        // Refuses a deleted or deleting workspace before any write.
-        const authority = await lockProviderAuthority(
-          tx,
-          input.workspaceId,
-          input.actor,
-        );
-        input.authorize(authority);
-        const previous = authority.workspace.providerManagementAdminOnly;
-        if (previous !== input.adminOnly)
-          await tx.workspace.update({
-            where: { id: input.workspaceId },
-            data: { providerManagementAdminOnly: input.adminOnly },
-          });
-        await recordAuditEvent(
-          {
-            workspaceId: input.workspaceId,
-            actor: input.actor.auditActor,
-            action: "workspace.access_rights_saved",
-            targetType: "workspace",
-            targetId: input.workspaceId,
-            metadata: {
-              providerManagementAdminOnly: input.adminOnly,
-              previous,
-              ...input.auditMetadata,
-            },
+          actor: input.actor.auditActor,
+          action: "workspace.access_rights_saved",
+          targetType: "workspace",
+          targetId: input.workspaceId,
+          metadata: {
+            providerManagementAdminOnly: input.adminOnly,
+            previous,
+            ...input.auditMetadata,
           },
-          { auditLog: new PrismaAuditLogRepository(tx) },
-        );
-        return { adminOnly: input.adminOnly, previous };
-      },
-    );
+        },
+        { auditLog: new PrismaAuditLogRepository(tx) },
+      );
+      return { adminOnly: input.adminOnly, previous };
+    });
   }
 
   async list(workspaceId: string) {

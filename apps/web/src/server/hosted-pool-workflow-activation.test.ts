@@ -38,22 +38,6 @@ const workflow = renderCanonicalHostedPoolWorkflowV2({
 describe("activateConfirmedHostedPoolBindingAfterWorkflowMerge", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("does not switch configuration if the scope epoch is unavailable", async () => {
-    const fixture = createFixture();
-    fixture.transaction.mockImplementation(async (callback) =>
-      callback({
-        $queryRaw: async () => {
-          throw new Error("epoch unavailable");
-        },
-      }),
-    );
-    await expect(
-      activateConfirmedHostedPoolBindingAfterWorkflowMerge(fixture.input),
-    ).rejects.toThrow("epoch unavailable");
-    expect(mocks.switchConfiguration).not.toHaveBeenCalled();
-    expect(fixture.updateMany).not.toHaveBeenCalled();
-  });
-
   it("persists exact default-branch evidence and preserves binding revision", async () => {
     const fixture = createFixture();
     await expect(
@@ -142,12 +126,7 @@ function createFixture(finalHead = commitSha, source = workflow) {
   updateMany.mockResolvedValue({ count: 1 });
   const transaction = vi.fn(
     async (callback: (transaction: unknown) => unknown) =>
-      callback({
-        $queryRaw: async (sql: { text: string }) =>
-          sql.text.includes('"CurrentScopeEpoch"') ? [{ revision: 0n }] : [],
-        $executeRaw: async () => 1,
-        hostedCodexRepositoryBinding: { updateMany },
-      }),
+      callback({ hostedCodexRepositoryBinding: { updateMany } }),
   );
   const request = vi
     .fn()

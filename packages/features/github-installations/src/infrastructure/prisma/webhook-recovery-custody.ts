@@ -74,7 +74,8 @@ export async function reserveWebhookRedeliveryOnce(
           AND d."eventName" = "GitHubWebhookRecoveryIntent"."eventName"
           AND d."action" IS NOT DISTINCT FROM "GitHubWebhookRecoveryIntent"."action"
           AND d."installationId" IS NOT DISTINCT FROM "GitHubWebhookRecoveryIntent"."installationId"
-          AND d."payloadHash" = "GitHubWebhookRecoveryIntent"."payloadHash" AND d.status = 'failed')
+          AND d."payloadHash" = "GitHubWebhookRecoveryIntent"."payloadHash"
+          AND (d.status = 'failed' OR (d.status = 'processing' AND f."leaseUntil" <= clock_timestamp())))
     RETURNING "deliveryGuid"
   `);
   return rows.length === 1;

@@ -1,68 +1,29 @@
+import { webhookFencePostgres, assertWebhookFenceTestDatabase } from "../../../../scripts/webhook-fencing/postgres-fixture";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { Prisma, PrismaClient } from "@prisma/client";
-import { runScopeEpochSerializableTransaction } from "@reviewrouter/platform-db";
+import { PrismaClient } from "@prisma/client";
+import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   beginFencedWebhookDelivery,
-  reclaimWebhookFence,
 } from "@reviewrouter/features-github-installations";
 import { handleFencedPushWebhook } from "./fenced-push-webhook";
-const socket = process.env.REVIEW_ROUTER_WEBHOOK_FENCE_TEST_SOCKET;
-const test = socket?.startsWith("/") ? describe : describe.skip;
+const test = webhookFencePostgres.enabled ? describe : describe.skip;
 test("fenced push on isolated PostgreSQL", () => {
   const schema = `webhook_push_${randomBytes(8).toString("hex")}`;
   const pool = new Pool({
-    host: socket,
-    user: "postgres",
-    database: "rr_webhook_fence_test",
+    ...webhookFencePostgres.connection,
     options: `-c search_path=${schema}`,
   });
   const prisma = new PrismaClient({ adapter: new PrismaPg(pool, { schema }) });
-  const owner = "a".repeat(64),
-    sha = "b".repeat(40);
-  const envelope = (deliveryId: string) => ({
-    deliveryId,
-    eventName: "pull_request" as const,
-    payloadHash: "hash",
-    payload: {
-      action: "closed",
-      installation: { id: 123 },
-      repository: { id: 456, name: "widget", full_name: "acme/widget" },
-      pull_request: {
-        number: 7,
-        html_url: "https://github.com/acme/widget/pull/7",
-        state: "closed",
-        merged: true,
-        draft: false,
-        base: { ref: "main", sha },
-        head: {
-          ref: "reviewrouter/setup",
-          sha,
-          repo: { full_name: "acme/widget" },
-        },
-      },
-    },
-  });
+  const owner = "a".repeat(64);
   beforeAll(async () => {
-    if (
-      !socket?.startsWith("/") ||
-      (await pool.query("SELECT current_database() AS name")).rows[0]?.name !==
-        "rr_webhook_fence_test"
-    )
-      throw new Error("disposable_test_database_required");
+    await assertWebhookFenceTestDatabase(pool);
     await pool.query(`CREATE SCHEMA "${schema}"`);
     await pool.query(
       "CREATE TYPE \"WebhookDeliveryStatus\" AS ENUM ('received','processing','processed','failed')",
-    );
-    await pool.query(
-      "CREATE TYPE \"WorkflowProvisioningStatus\" AS ENUM ('not_started','setup_pr_open','failed','configured')",
-    );
-    await pool.query("CREATE TYPE \"ScmProvider\" AS ENUM ('github','gitlab')");
-    await pool.query(
-      "CREATE TYPE \"GitHubInstallationStatus\" AS ENUM ('active','suspended','removed')",
     );
     await pool.query(
       `CREATE TABLE "GitHubWebhookDelivery" (id TEXT PRIMARY KEY DEFAULT 'synthetic-' || md5(random()::text), "deliveryId" TEXT UNIQUE NOT NULL, "eventName" TEXT NOT NULL, action TEXT, "installationId" BIGINT, "payloadHash" TEXT, "normalizedEvent" JSONB, status "WebhookDeliveryStatus" NOT NULL DEFAULT 'processing', "errorSummary" TEXT, "processedAt" TIMESTAMP(3), "receivedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
@@ -76,36 +37,8 @@ test("fenced push on isolated PostgreSQL", () => {
         "utf8",
       ),
     );
-    await pool.query(
-      await readFile(
-        new URL(
-          "../../../../packages/platform/db/prisma/migrations/000166_current_scope_epoch/migration.sql",
-          import.meta.url,
-        ),
-        "utf8",
-      ),
-    );
-    await pool.query(
-      'CREATE TABLE "GitHubInstallation" (id TEXT PRIMARY KEY,"githubInstallationId" BIGINT UNIQUE NOT NULL,status "GitHubInstallationStatus" NOT NULL DEFAULT \'active\')',
-    );
-    await pool.query(
-      'CREATE TABLE "RepositoryConnection" (id TEXT PRIMARY KEY,"workspaceId" TEXT NOT NULL,"installationId" TEXT,"githubRepositoryId" BIGINT UNIQUE NOT NULL,provider "ScmProvider" NOT NULL DEFAULT \'github\',"defaultBranch" TEXT NOT NULL,"fullName" TEXT NOT NULL,selected BOOLEAN NOT NULL,archived BOOLEAN NOT NULL DEFAULT false)',
-    );
-    await pool.query(
-      `CREATE TABLE "WorkflowProvisioning" (id TEXT PRIMARY KEY,"attemptId" TEXT NOT NULL,revision INT NOT NULL,"installationId" TEXT,"workspaceId" TEXT NOT NULL,"repositoryId" TEXT UNIQUE NOT NULL,status "WorkflowProvisioningStatus" NOT NULL,branch TEXT NOT NULL,"workflowPath" TEXT NOT NULL,"workflowStyle" TEXT NOT NULL,"actionVersion" TEXT NOT NULL,"pullRequestHeadSha" TEXT,"pullRequestUrl" TEXT,"errorMessage" TEXT,"attemptWorkflowRequirement" TEXT,"installedWorkflowRequirement" TEXT,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
-    );
     await pool.query(`CREATE TYPE "OutboxEventStatus" AS ENUM ('pending','processing','retry_wait','processed','dead_letter');
       CREATE TABLE "OutboxEvent" (id TEXT PRIMARY KEY, type TEXT NOT NULL, version INT NOT NULL, "idempotencyKey" TEXT UNIQUE NOT NULL, "workspaceId" TEXT, "repositoryId" TEXT, "aggregateId" TEXT, payload JSONB NOT NULL, status "OutboxEventStatus" DEFAULT 'pending', attempts INT DEFAULT 0, "maxAttempts" INT DEFAULT 5, "nextAttemptAt" TIMESTAMP(3), "claimId" TEXT, "claimVersion" BIGINT, "claimOwnerHash" TEXT, "claimUntil" TIMESTAMP(3), "processedAt" TIMESTAMP(3), "deadLetteredAt" TIMESTAMP(3), "lastErrorCode" TEXT, "safeLastErrorSummary" TEXT, "occurredAt" TIMESTAMP(3) NOT NULL, "createdAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP)`);
-    await pool.query(
-      'INSERT INTO "GitHubInstallation" (id,"githubInstallationId") VALUES (\'inst\',123)',
-    );
-    await pool.query(
-      'INSERT INTO "RepositoryConnection" (id,"workspaceId","installationId","githubRepositoryId","defaultBranch","fullName",selected) VALUES (\'repo\',\'workspace\',\'inst\',456,\'main\',\'acme/widget\',true)',
-    );
-    await pool.query(
-      "INSERT INTO \"WorkflowProvisioning\" (id,\"attemptId\",revision,\"installationId\",\"workspaceId\",\"repositoryId\",status,branch,\"workflowPath\",\"workflowStyle\",\"actionVersion\",\"pullRequestHeadSha\",\"pullRequestUrl\",\"attemptWorkflowRequirement\") VALUES ('setup','attempt',1,'inst','workspace','repo','setup_pr_open','reviewrouter/setup','.github/workflows/reviewrouter-review.yml','reusable','workflow-v1',$1,'https://github.com/acme/widget/pull/7','ci_secrets')",
-      [sha],
-    );
   });
   afterAll(async () => {
     await prisma.$disconnect();
@@ -213,5 +146,32 @@ test("fenced push on isolated PostgreSQL", () => {
     expect(
       (await pool.query('SELECT count(*)::int n FROM "OutboxEvent"')).rows[0].n,
     ).toBe(1);
+  });
+  it("does not serialize push outbox work behind unrelated authority writers", async () => {
+    const { e, claim } = await begin("push-independent");
+    let entered!: () => void;
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const writer = prisma.$transaction(async (tx) => {
+      await acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "exclusive" }]);
+      entered();
+      await gate;
+    }, { isolationLevel: "ReadCommitted" });
+    await ready;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const result = await Promise.race([
+        handleFencedPushWebhook(prisma, e, claim, true),
+        new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(() => reject(new Error("push_waited_for_unrelated_scope")), 2000);
+        }),
+      ]);
+      expect(result).toMatchObject({ processed: true, queued: true });
+    } finally {
+      clearTimeout(timeout);
+      release();
+      await writer;
+    }
   });
 });

@@ -1,4 +1,4 @@
-import { runScopeEpochSerializableTransaction } from "@reviewrouter/platform-db";
+import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type {
   ProducerRelease,
@@ -57,49 +57,47 @@ export class PrismaProducerReleaseRepository
   async registerProtocolLimitsProfile(
     profile: ReviewProtocolLimitsV2,
   ): Promise<ImmutableRegistryWriteResult<ReviewProtocolLimitsV2>> {
-    return runScopeEpochSerializableTransaction(
-      this.prisma,
-      [{ scope: "global", mode: "exclusive" }],
-      async (transaction) => {
-        await lockReviewRunControlKeys(transaction, "review-limits", [
-          `id:${profile.protocolLimitsProfileId}`,
-          `digest:${profile.limitsDigest}`,
-        ]);
-        const existingById =
-          await transaction.reviewProtocolLimitsV2.findUnique({
-            where: { protocolLimitsProfileId: profile.protocolLimitsProfileId },
-          });
-        const existingByDigest =
-          await transaction.reviewProtocolLimitsV2.findUnique({
-            where: { limitsDigest: profile.limitsDigest },
-          });
-        if (existingById) {
-          const existing = protocolLimitsToDomain(existingById);
-          return limitsComparable(existing) === limitsComparable(profile)
-            ? {
-                status: ImmutableRegistryWriteStatus.Restored,
-                value: existing,
-              }
-            : {
-                status: ImmutableRegistryWriteStatus.Conflict,
-                existingId: existing.protocolLimitsProfileId,
-              };
-        }
-        if (existingByDigest) {
-          return {
-            status: ImmutableRegistryWriteStatus.Conflict,
-            existingId: existingByDigest.protocolLimitsProfileId,
-          };
-        }
-        const created = await transaction.reviewProtocolLimitsV2.create({
-          data: profile,
+    return this.prisma.$transaction(async (transaction) => {
+      await acquireCurrentScopeGuards(transaction, [
+        { scope: "global", mode: "exclusive" },
+      ]);
+      await lockReviewRunControlKeys(transaction, "review-limits", [
+        `id:${profile.protocolLimitsProfileId}`,
+        `digest:${profile.limitsDigest}`,
+      ]);
+      const existingById = await transaction.reviewProtocolLimitsV2.findUnique({
+        where: { protocolLimitsProfileId: profile.protocolLimitsProfileId },
+      });
+      const existingByDigest =
+        await transaction.reviewProtocolLimitsV2.findUnique({
+          where: { limitsDigest: profile.limitsDigest },
         });
+      if (existingById) {
+        const existing = protocolLimitsToDomain(existingById);
+        return limitsComparable(existing) === limitsComparable(profile)
+          ? {
+              status: ImmutableRegistryWriteStatus.Restored,
+              value: existing,
+            }
+          : {
+              status: ImmutableRegistryWriteStatus.Conflict,
+              existingId: existing.protocolLimitsProfileId,
+            };
+      }
+      if (existingByDigest) {
         return {
-          status: ImmutableRegistryWriteStatus.Created,
-          value: protocolLimitsToDomain(created),
+          status: ImmutableRegistryWriteStatus.Conflict,
+          existingId: existingByDigest.protocolLimitsProfileId,
         };
-      },
-    );
+      }
+      const created = await transaction.reviewProtocolLimitsV2.create({
+        data: profile,
+      });
+      return {
+        status: ImmutableRegistryWriteStatus.Created,
+        value: protocolLimitsToDomain(created),
+      };
+    });
   }
 
   async findOperationalSloProfileById(
@@ -114,55 +112,54 @@ export class PrismaProducerReleaseRepository
   async registerOperationalSloProfile(
     profile: ReviewOperationalSloProfileV2,
   ): Promise<ImmutableRegistryWriteResult<ReviewOperationalSloProfileV2>> {
-    return runScopeEpochSerializableTransaction(
-      this.prisma,
-      [{ scope: "global", mode: "exclusive" }],
-      async (transaction) => {
-        await lockReviewRunControlKeys(transaction, "review-slo", [
-          `id:${profile.operationalSloProfileId}`,
-          `digest:${profile.sloDigest}`,
-        ]);
-        const existingById =
-          await transaction.reviewOperationalSloProfileV2.findUnique({
-            where: {
-              operationalSloProfileId: profile.operationalSloProfileId,
-            },
-          });
-        const existingByDigest =
-          await transaction.reviewOperationalSloProfileV2.findUnique({
-            where: { sloDigest: profile.sloDigest },
-          });
-        if (existingById) {
-          const existing = operationalSloToDomain(existingById);
-          return sloComparable(existing) === sloComparable(profile)
-            ? {
-                status: ImmutableRegistryWriteStatus.Restored,
-                value: existing,
-              }
-            : {
-                status: ImmutableRegistryWriteStatus.Conflict,
-                existingId: existing.operationalSloProfileId,
-              };
-        }
-        if (existingByDigest) {
-          return {
-            status: ImmutableRegistryWriteStatus.Conflict,
-            existingId: existingByDigest.operationalSloProfileId,
-          };
-        }
-        const created = await transaction.reviewOperationalSloProfileV2.create({
-          data: {
-            ...profile,
-            ownerRefs: [...profile.ownerRefs],
-            runbookRefs: [...profile.runbookRefs],
+    return this.prisma.$transaction(async (transaction) => {
+      await acquireCurrentScopeGuards(transaction, [
+        { scope: "global", mode: "exclusive" },
+      ]);
+      await lockReviewRunControlKeys(transaction, "review-slo", [
+        `id:${profile.operationalSloProfileId}`,
+        `digest:${profile.sloDigest}`,
+      ]);
+      const existingById =
+        await transaction.reviewOperationalSloProfileV2.findUnique({
+          where: {
+            operationalSloProfileId: profile.operationalSloProfileId,
           },
         });
+      const existingByDigest =
+        await transaction.reviewOperationalSloProfileV2.findUnique({
+          where: { sloDigest: profile.sloDigest },
+        });
+      if (existingById) {
+        const existing = operationalSloToDomain(existingById);
+        return sloComparable(existing) === sloComparable(profile)
+          ? {
+              status: ImmutableRegistryWriteStatus.Restored,
+              value: existing,
+            }
+          : {
+              status: ImmutableRegistryWriteStatus.Conflict,
+              existingId: existing.operationalSloProfileId,
+            };
+      }
+      if (existingByDigest) {
         return {
-          status: ImmutableRegistryWriteStatus.Created,
-          value: operationalSloToDomain(created),
+          status: ImmutableRegistryWriteStatus.Conflict,
+          existingId: existingByDigest.operationalSloProfileId,
         };
-      },
-    );
+      }
+      const created = await transaction.reviewOperationalSloProfileV2.create({
+        data: {
+          ...profile,
+          ownerRefs: [...profile.ownerRefs],
+          runbookRefs: [...profile.runbookRefs],
+        },
+      });
+      return {
+        status: ImmutableRegistryWriteStatus.Created,
+        value: operationalSloToDomain(created),
+      };
+    });
   }
 
   async findProducerReleaseById(
@@ -178,128 +175,126 @@ export class PrismaProducerReleaseRepository
     release: ProducerRelease,
   ): Promise<ImmutableRegistryWriteResult<ProducerRelease>> {
     const tuple = producerReleaseImmutableKey(release);
-    return runScopeEpochSerializableTransaction(
-      this.prisma,
-      [{ scope: "global", mode: "exclusive" }],
-      async (transaction) => {
-        await lockReviewRunControlKeys(transaction, "producer-release", [
-          `id:${release.producerReleaseId}`,
-          `tuple:${tuple}`,
-        ]);
-        const existingById = await transaction.producerRelease.findUnique({
-          where: { producerReleaseId: release.producerReleaseId },
-        });
-        if (existingById) {
-          const existing = producerReleaseToDomain(existingById);
-          return producerReleaseImmutableKey(existing) === tuple
-            ? {
-                status: ImmutableRegistryWriteStatus.Restored,
-                value: existing,
-              }
-            : {
-                status: ImmutableRegistryWriteStatus.Conflict,
-                existingId: existing.producerReleaseId,
-              };
-        }
-        const tupleOwner = await transaction.producerRelease.findFirst({
-          where: producerReleaseTupleWhere(release),
-        });
-        if (tupleOwner) {
-          return {
-            status: ImmutableRegistryWriteStatus.Conflict,
-            existingId: tupleOwner.producerReleaseId,
-          };
-        }
-        const {
-          reviewInvestigationProfile,
-          agentProfiles,
-          contextToolsProfile,
-          reviewerPlanProfile,
-          prDescriptionProfile,
-          lifecycleVerificationProfile,
-          modelDispatchProfile,
-          ...releaseRecord
-        } = release;
-        const created = await transaction.producerRelease.create({
-          data: {
-            ...releaseRecord,
-            contextToolsProfile: contextToolsProfile ?? Prisma.DbNull,
-            modelDispatchProfile:
-              modelDispatchProfile == null
-                ? Prisma.DbNull
-                : JSON.parse(canonicalJson(modelDispatchProfile)),
-            reviewerPlanProfile: reviewerPlanProfile ?? Prisma.DbNull,
-            lifecycleVerificationProfile:
-              lifecycleVerificationProfile == null
-                ? Prisma.DbNull
-                : { ...lifecycleVerificationProfile },
-            prDescriptionProfile:
-              prDescriptionProfile == null
-                ? Prisma.DbNull
-                : { ...prDescriptionProfile },
-            agentProfilesJson:
-              agentProfiles === null ? null : canonicalJson(agentProfiles),
-            distributionKind: distributionKindToPersistence(
-              release.distributionKind,
-            ),
-            reviewInvestigationCapability:
-              reviewInvestigationProfile?.capability ?? null,
-            reviewInvestigationCoverageProfileHash:
-              reviewInvestigationProfile?.coverageProfileHash ?? null,
-            reviewInvestigationPolicyHash:
-              reviewInvestigationProfile?.policyHash ?? null,
-            state: producerStateToPersistence(release.state),
-          },
-        });
+    return this.prisma.$transaction(async (transaction) => {
+      await acquireCurrentScopeGuards(transaction, [
+        { scope: "global", mode: "exclusive" },
+      ]);
+      await lockReviewRunControlKeys(transaction, "producer-release", [
+        `id:${release.producerReleaseId}`,
+        `tuple:${tuple}`,
+      ]);
+      const existingById = await transaction.producerRelease.findUnique({
+        where: { producerReleaseId: release.producerReleaseId },
+      });
+      if (existingById) {
+        const existing = producerReleaseToDomain(existingById);
+        return producerReleaseImmutableKey(existing) === tuple
+          ? {
+              status: ImmutableRegistryWriteStatus.Restored,
+              value: existing,
+            }
+          : {
+              status: ImmutableRegistryWriteStatus.Conflict,
+              existingId: existing.producerReleaseId,
+            };
+      }
+      const tupleOwner = await transaction.producerRelease.findFirst({
+        where: producerReleaseTupleWhere(release),
+      });
+      if (tupleOwner) {
         return {
-          status: ImmutableRegistryWriteStatus.Created,
-          value: producerReleaseToDomain(created),
+          status: ImmutableRegistryWriteStatus.Conflict,
+          existingId: tupleOwner.producerReleaseId,
         };
-      },
-    );
+      }
+      const {
+        reviewInvestigationProfile,
+        agentProfiles,
+        contextToolsProfile,
+        reviewerPlanProfile,
+        prDescriptionProfile,
+        lifecycleVerificationProfile,
+        modelDispatchProfile,
+        ...releaseRecord
+      } = release;
+      const created = await transaction.producerRelease.create({
+        data: {
+          ...releaseRecord,
+          contextToolsProfile: contextToolsProfile ?? Prisma.DbNull,
+          modelDispatchProfile:
+            modelDispatchProfile == null
+              ? Prisma.DbNull
+              : JSON.parse(canonicalJson(modelDispatchProfile)),
+          reviewerPlanProfile: reviewerPlanProfile ?? Prisma.DbNull,
+          lifecycleVerificationProfile:
+            lifecycleVerificationProfile == null
+              ? Prisma.DbNull
+              : { ...lifecycleVerificationProfile },
+          prDescriptionProfile:
+            prDescriptionProfile == null
+              ? Prisma.DbNull
+              : { ...prDescriptionProfile },
+          agentProfilesJson:
+            agentProfiles === null ? null : canonicalJson(agentProfiles),
+          distributionKind: distributionKindToPersistence(
+            release.distributionKind,
+          ),
+          reviewInvestigationCapability:
+            reviewInvestigationProfile?.capability ?? null,
+          reviewInvestigationCoverageProfileHash:
+            reviewInvestigationProfile?.coverageProfileHash ?? null,
+          reviewInvestigationPolicyHash:
+            reviewInvestigationProfile?.policyHash ?? null,
+          state: producerStateToPersistence(release.state),
+        },
+      });
+      return {
+        status: ImmutableRegistryWriteStatus.Created,
+        value: producerReleaseToDomain(created),
+      };
+    });
   }
 
   async revokeProducerRelease(input: {
     readonly producerReleaseId: string;
     readonly revokedAt: Date;
   }) {
-    return runScopeEpochSerializableTransaction(
-      this.prisma,
-      [{ scope: "global", mode: "exclusive" }],
-      async (transaction) => {
-        await lockReviewRunControlKeys(transaction, "producer-release", [
-          `id:${input.producerReleaseId}`,
-        ]);
-        const row = await transaction.producerRelease.findUnique({
-          where: { producerReleaseId: input.producerReleaseId },
-        });
-        if (!row) {
-          return { status: ProducerReleaseRevocationStatus.Missing } as const;
-        }
-        const current = producerReleaseToDomain(row);
-        if (current.state === ProducerReleaseState.Revoked) {
-          return {
-            status: ProducerReleaseRevocationStatus.Restored,
-            release: current,
-          } as const;
-        }
-        const revoked = revokeProducerRelease(current, input.revokedAt);
-        const updated = await transaction.producerRelease.updateMany({
-          where: {
-            producerReleaseId: revoked.producerReleaseId,
-            state: "registered",
-          },
-          data: { state: "revoked", revokedAt: revoked.revokedAt },
-        });
-        if (updated.count !== 1) {
-          throw new Error("producer_release_revocation_cas_failed");
-        }
+    return this.prisma.$transaction(async (transaction) => {
+      await acquireCurrentScopeGuards(transaction, [
+        { scope: "global", mode: "exclusive" },
+      ]);
+      await lockReviewRunControlKeys(transaction, "producer-release", [
+        `id:${input.producerReleaseId}`,
+      ]);
+      const row = await transaction.producerRelease.findUnique({
+        where: { producerReleaseId: input.producerReleaseId },
+      });
+      if (!row) {
+        return { status: ProducerReleaseRevocationStatus.Missing } as const;
+      }
+      const current = producerReleaseToDomain(row);
+      if (current.state === ProducerReleaseState.Revoked) {
         return {
-          status: ProducerReleaseRevocationStatus.Revoked,
-          release: revoked,
+          status: ProducerReleaseRevocationStatus.Restored,
+          release: current,
         } as const;
-      },
-    );
+      }
+      const revoked = revokeProducerRelease(current, input.revokedAt);
+      const updated = await transaction.producerRelease.updateMany({
+        where: {
+          producerReleaseId: revoked.producerReleaseId,
+          state: "registered",
+        },
+        data: { state: "revoked", revokedAt: revoked.revokedAt },
+      });
+      if (updated.count !== 1) {
+        throw new Error("producer_release_revocation_cas_failed");
+      }
+      return {
+        status: ProducerReleaseRevocationStatus.Revoked,
+        release: revoked,
+      } as const;
+    });
   }
 }
 

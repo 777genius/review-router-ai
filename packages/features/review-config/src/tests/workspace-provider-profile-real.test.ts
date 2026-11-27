@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   createPrismaClient,
   type PrismaClient,
@@ -343,57 +343,6 @@ databaseTests("WorkspaceProviderProfile PostgreSQL storage", () => {
       await expect(
         prisma.workspaceProviderProfile.create({ data }),
       ).rejects.toThrow(/WorkspaceProviderProfile_/);
-  });
-
-  it("commits model and archive writes with their scope epoch", async () => {
-    const { profile } = await createWorkspaceProviderProfile(
-      {
-        workspaceId: workspaceA,
-        actor: owner,
-        credential: { kind: "user_ci_secret", authMode: "claude_code_oauth" },
-        model: "sonnet",
-      },
-      deps(),
-    );
-    const hash = createHash("sha256")
-      .update("review-current-scope-v1\0workspace:")
-      .update(workspaceA)
-      .digest("hex");
-    const revision = async () => {
-      const rows = await prisma.$queryRaw<Array<{ revision: bigint }>>`
-        SELECT revision FROM "CurrentScopeEpoch" WHERE "keyHash" = ${hash}`;
-      return rows[0]?.revision ?? 0n;
-    };
-    const input = {
-      workspaceId: workspaceA,
-      profileId: profile.id,
-      actor: owner,
-      gate: () => {},
-      authorize: () => {},
-    };
-    const before = await revision();
-    await profiles.changeModel({
-      ...input,
-      model: "opus",
-      validateScope: () => {},
-    });
-    expect(await revision()).toBe(before + 1n);
-    await expect(
-      profiles.archive({
-        ...input,
-        authorize: () => {
-          throw new Error("denied");
-        },
-      }),
-    ).rejects.toThrow("denied");
-    expect(await revision()).toBe(before + 1n);
-    await profiles.archive(input);
-    expect(await revision()).toBe(before + 2n);
-    const saved = await prisma.workspaceProviderProfile.findUniqueOrThrow({
-      where: { id: profile.id },
-    });
-    expect(saved.model).toBe("opus");
-    expect(saved.archivedAt).not.toBeNull();
   });
 
   it("keeps the credential source immutable while label and model change", async () => {

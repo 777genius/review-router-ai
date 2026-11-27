@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   createPrismaClient,
   type PrismaClient,
@@ -70,17 +70,6 @@ const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
       await prisma.$disconnect();
     });
     it("persists only this workspace, rejects a current non-admin and stale CAS, and preserves the setting during other saves", async () => {
-      const hash = createHash("sha256")
-        .update("review-current-scope-v1\0workspace:")
-        .update(workspaceId)
-        .digest("hex");
-      const epoch = async () =>
-        (
-          await prisma.$queryRaw<
-            Array<{ revision: bigint }>
-          >`SELECT revision FROM "CurrentScopeEpoch" WHERE "keyHash" = ${hash}`
-        )[0]?.revision ?? 0n;
-      const before = await epoch();
       const reader = new PrismaWorkspaceMemorySettings(prisma);
       await expect(reader.read(workspaceId)).resolves.toEqual({
         requireConfirmation: false,
@@ -95,7 +84,6 @@ const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
         },
         dependencies(),
       );
-      expect(await epoch()).toBe(before + 1n);
       await expect(reader.read(workspaceId)).resolves.toEqual({
         requireConfirmation: true,
         version: 1,
@@ -115,7 +103,6 @@ const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
           dependencies(),
         ),
       ).rejects.toThrow("workspace_admin_required");
-      expect(await epoch()).toBe(before + 1n);
       // Omitting the field must not let a member reset it to automatic either.
       await expect(
         dependencies().configurations.saveNextVersions({

@@ -8,11 +8,9 @@ const m = vi.hoisted(() => ({
   outbox: vi.fn(),
 }));
 vi.mock("@reviewrouter/platform-db", () => ({
-  runScopeEpochSerializableTransaction: async (
-    _db: unknown,
-    _scopes: unknown,
-    fn: (tx: unknown) => unknown,
-  ) => fn(m.transaction),
+  acquireCurrentScopeGuards: async (_tx: unknown, scopes: unknown) => {
+    expect(scopes).toEqual([{ scope: "global", mode: "exclusive" }]);
+  },
 }));
 vi.mock("@reviewrouter/features-outbox", () => ({
   writePrismaOutboxEvent: m.outbox,
@@ -35,14 +33,16 @@ vi.mock(
   }),
 );
 vi.mock("../infrastructure/prisma/webhook-effect-fence", () => ({
-  runWebhookFencedEffectInTransaction: async (
-    tx: unknown,
+  runWebhookFencedDatabaseEffect: async (
+    _prisma: unknown,
     _claim: unknown,
     fn: (tx: unknown) => unknown,
     state: string,
+    beforeFence: (tx: unknown) => Promise<void>,
   ) => {
     expect(state).toBe("processed");
-    return fn(tx);
+    await beforeFence(m.transaction);
+    return fn(m.transaction);
   },
 }));
 import { handleFencedInstallationWebhook } from "../infrastructure/prisma/fenced-installation-webhook";

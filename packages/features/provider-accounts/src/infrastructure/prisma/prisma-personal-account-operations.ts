@@ -1,9 +1,4 @@
 import {
-  acquireCurrentScopeGuardsWithEpoch,
-  isPersonalWorkspaceOwnerConflict,
-  runScopeEpochSerializableTransaction,
-} from "@reviewrouter/platform-db";
-import {
   Prisma,
   type PrismaClient,
   type ProviderAccountConnection as SourceRow,
@@ -96,60 +91,27 @@ export class PrismaPersonalAccountOperations implements PersonalAccountOperation
   async resolvePersonalWorkspace(actorUserId: string): Promise<string> {
     assertOpaqueReference(actorUserId);
     // Resolve/provision BEFORE any Source/Binding locks, including finalization.
-    for (let attempt = 0; ; attempt++) {
-      const candidate = await this.prisma.workspace.findUnique({
+    return this.prisma.$transaction(async (tx) => {
+      const users = await tx.$queryRaw<
+        { id: string }[]
+      >`SELECT "id" FROM "User" WHERE "id" = ${actorUserId} FOR UPDATE`;
+      if (users.length !== 1) return unavailable();
+      const existing = await tx.workspace.findUnique({
         where: { personalOwnerUserId: actorUserId },
-        select: { id: true },
       });
-      try {
-        return await runScopeEpochSerializableTransaction(
-          this.prisma,
-          candidate
-            ? [
-                {
-                  scope: "workspace",
-                  workspaceId: candidate.id,
-                  mode: "exclusive",
-                },
-              ]
-            : [{ scope: "global", mode: "exclusive" }],
-          async (tx) => {
-            const users = await tx.$queryRaw<
-              { id: string }[]
-            >`SELECT "id" FROM "User" WHERE "id" = ${actorUserId} FOR UPDATE`;
-            if (users.length !== 1) return unavailable();
-            const existing = await tx.workspace.findUnique({
-              where: { personalOwnerUserId: actorUserId },
-            });
-            if (candidate && existing?.id !== candidate.id)
-              throw new PersonalWorkspaceScopeChanged();
-            if (existing) return existing.id;
-            const workspace = await tx.workspace.create({
-              data: {
-                personalOwnerUserId: actorUserId,
-                slug: `personal-${randomUUID()}`,
-                name: "Personal accounts",
-              },
-            });
-            await tx.workspaceMember.create({
-              data: {
-                workspaceId: workspace.id,
-                userId: actorUserId,
-                role: "owner",
-              },
-            });
-            return workspace.id;
-          },
-        );
-      } catch (error) {
-        if (
-          (!(error instanceof PersonalWorkspaceScopeChanged) &&
-            !isPersonalWorkspaceOwnerConflict(error)) ||
-          attempt >= 2
-        )
-          throw error;
-      }
-    }
+      if (existing) return existing.id;
+      const workspace = await tx.workspace.create({
+        data: {
+          personalOwnerUserId: actorUserId,
+          slug: `personal-${randomUUID()}`,
+          name: "Personal accounts",
+        },
+      });
+      await tx.workspaceMember.create({
+        data: { workspaceId: workspace.id, userId: actorUserId, role: "owner" },
+      });
+      return workspace.id;
+    });
   }
   async listOwnedSources(
     input: Parameters<PersonalAccountOperationStore["listOwnedSources"]>[0],
@@ -461,23 +423,6 @@ export class PrismaPersonalAccountOperations implements PersonalAccountOperation
       return unavailable();
     try {
       return await this.prisma.$transaction(async (tx) => {
-        await acquireCurrentScopeGuardsWithEpoch(tx, [
-          {
-            scope: "accountSource",
-            sourceId: intent.sourceId,
-            mode: "exclusive",
-          },
-          {
-            scope: "workspace",
-            workspaceId: intent.personalWorkspaceId,
-            mode: "shared",
-          },
-          {
-            scope: "workspace",
-            workspaceId: intent.targetWorkspaceId,
-            mode: "exclusive",
-          },
-        ]);
         await this.lockPersonalAuthority(tx, actorUserId, personalWorkspaceId);
         // Lock current donor membership BEFORE Source, never after it.
         await this.lockMember(tx, intent.targetWorkspaceId, actorUserId);
@@ -574,23 +519,6 @@ export class PrismaPersonalAccountOperations implements PersonalAccountOperation
     )
       return unavailable();
     return this.prisma.$transaction(async (tx) => {
-      await acquireCurrentScopeGuardsWithEpoch(tx, [
-        {
-          scope: "accountSource",
-          sourceId: intent.sourceId,
-          mode: "exclusive",
-        },
-        {
-          scope: "workspace",
-          workspaceId: intent.personalWorkspaceId,
-          mode: "shared",
-        },
-        {
-          scope: "workspace",
-          workspaceId: intent.targetWorkspaceId,
-          mode: "exclusive",
-        },
-      ]);
       await this.lockPersonalAuthority(
         tx,
         ownerId,
@@ -830,5 +758,3 @@ export class PrismaPersonalAccountOperations implements PersonalAccountOperation
     });
   }
 }
-
-class PersonalWorkspaceScopeChanged extends Error {}

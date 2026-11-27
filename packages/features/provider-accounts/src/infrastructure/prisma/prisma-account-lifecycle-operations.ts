@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { runScopeEpochSerializableTransaction } from "@reviewrouter/platform-db";
 import {
   Prisma,
   type PrismaClient,
@@ -65,40 +64,6 @@ export class PrismaAccountLifecycleOperations implements AccountLifecycleOperati
     if (!["suspend", "resume", "delete"].includes(row.action))
       return fail("operation_conflict");
     return row;
-  }
-  private async withSourceEpoch<T>(
-    operationId: string,
-    work: (tx: Tx) => Promise<T>,
-  ): Promise<T> {
-    // Discovery is not authority. Re-read the complete immutable intent under
-    // the declared scopes before taking User/Workspace/Source row locks.
-    const discovered = intentOf(await this.load(this.prisma, operationId));
-    const expected = accountLifecycleIntentHash(discovered);
-    return runScopeEpochSerializableTransaction(
-      this.prisma,
-      [
-        {
-          scope: "accountSource",
-          sourceId: discovered.sourceId,
-          mode: "exclusive",
-        },
-        {
-          scope: "workspace",
-          workspaceId:
-            discovered.personalWorkspaceId ?? discovered.owningWorkspaceId!,
-          mode: "shared",
-        },
-      ],
-      async (tx) => {
-        if (
-          accountLifecycleIntentHash(
-            intentOf(await this.load(tx, operationId)),
-          ) !== expected
-        )
-          return fail("operation_conflict");
-        return work(tx);
-      },
-    );
   }
   private async lockSource(
     tx: Tx,
@@ -177,96 +142,76 @@ export class PrismaAccountLifecycleOperations implements AccountLifecycleOperati
   async reserve(request: AccountLifecycleIntent) {
     const intent = snapshotAccountLifecycleIntent(request);
     try {
-      return await runScopeEpochSerializableTransaction(
-        this.prisma,
-        [
-          {
-            scope: "accountSource",
-            sourceId: intent.sourceId,
-            mode: "exclusive",
-          },
-          {
-            scope: "workspace",
-            workspaceId:
-              intent.personalWorkspaceId ?? intent.owningWorkspaceId!,
-            mode: "shared",
-          },
-        ],
-        async (tx) => {
-          const source = await this.lockSource(tx, intent.actorUserId, intent);
-          const prior = await tx.personalAccountOperation.findUnique({
-            where: {
-              actorUserId_clientOperationId: {
-                actorUserId: intent.actorUserId,
-                clientOperationId: intent.clientOperationId,
-              },
+      return await this.prisma.$transaction(async (tx) => {
+        const source = await this.lockSource(tx, intent.actorUserId, intent);
+        const prior = await tx.personalAccountOperation.findUnique({
+          where: {
+            actorUserId_clientOperationId: {
+              actorUserId: intent.actorUserId,
+              clientOperationId: intent.clientOperationId,
             },
-          });
-          if (prior) {
-            if (
-              prior.normalizedIntentHash !== accountLifecycleIntentHash(intent)
-            )
-              return fail("operation_conflict");
-            return this.receipt(prior, source);
-          }
-          if (
-            source.pendingSourceOperationId ||
-            !source.profileRef ||
-            source.metadataRevision !== intent.expectedSourceMetadataRevision ||
-            ((source.authorizationEpochMirror !== null ||
-              intent.personalWorkspaceId !== null) &&
-              Number(source.authorizationEpochMirror) !==
-                intent.expectedAuthorizationEpoch) ||
-            source.metadataRevision >= 2147483646 ||
-            (intent.action === "resume"
-              ? source.state !== "suspended"
-              : intent.action === "suspend"
-                ? source.state !== "active"
-                : !["active", "suspended", "quarantined"].includes(
-                    source.state,
-                  ))
-          )
-            return fail("revision_conflict");
-          if (
-            await tx.personalAccountOperation.findFirst({
-              where: { sourceId: source.id, action: "delete" },
-            })
-          )
-            return fail();
-          const id = personalOperationId(
-            intent.actorUserId,
-            intent.clientOperationId,
-          );
-          const row = await tx.personalAccountOperation.create({
-            data: {
-              ...intent,
-              id,
-              originalOperationId: id,
-              normalizedIntentHash: accountLifecycleIntentHash(intent),
-              expectedGatewayRevision: BigInt(intent.expectedGatewayRevision),
-              expectedAuthorizationEpoch: BigInt(
-                intent.expectedAuthorizationEpoch,
-              ),
-              phase: "fencing",
-            },
-          });
-          await tx.providerAccountConnection.update({
+          },
+        });
+        if (prior) {
+          if (prior.normalizedIntentHash !== accountLifecycleIntentHash(intent))
+            return fail("operation_conflict");
+          return this.receipt(prior, source);
+        }
+        if (
+          source.pendingSourceOperationId ||
+          !source.profileRef ||
+          source.metadataRevision !== intent.expectedSourceMetadataRevision ||
+          ((source.authorizationEpochMirror !== null ||
+            intent.personalWorkspaceId !== null) &&
+            Number(source.authorizationEpochMirror) !==
+              intent.expectedAuthorizationEpoch) ||
+          source.metadataRevision >= 2147483646 ||
+          (intent.action === "resume"
+            ? source.state !== "suspended"
+            : intent.action === "suspend"
+              ? source.state !== "active"
+              : !["active", "suspended", "quarantined"].includes(source.state))
+        )
+          return fail("revision_conflict");
+        if (
+          await tx.personalAccountOperation.findFirst({
+            where: { sourceId: source.id, action: "delete" },
+          })
+        )
+          return fail();
+        const id = personalOperationId(
+          intent.actorUserId,
+          intent.clientOperationId,
+        );
+        const row = await tx.personalAccountOperation.create({
+          data: {
+            ...intent,
+            id,
+            originalOperationId: id,
+            normalizedIntentHash: accountLifecycleIntentHash(intent),
+            expectedGatewayRevision: BigInt(intent.expectedGatewayRevision),
+            expectedAuthorizationEpoch: BigInt(
+              intent.expectedAuthorizationEpoch,
+            ),
+            phase: "fencing",
+          },
+        });
+        await tx.providerAccountConnection.update({
+          where: { id: source.id },
+          data: {
+            state: "pending",
+            pendingSourceOperationId: id,
+            metadataRevision: { increment: 1 },
+          },
+        });
+        await this.fenceBindings(tx, intent, id);
+        return this.receipt(
+          row,
+          await tx.providerAccountConnection.findUniqueOrThrow({
             where: { id: source.id },
-            data: {
-              state: "pending",
-              pendingSourceOperationId: id,
-              metadataRevision: { increment: 1 },
-            },
-          });
-          await this.fenceBindings(tx, intent, id);
-          return this.receipt(
-            row,
-            await tx.providerAccountConnection.findUniqueOrThrow({
-              where: { id: source.id },
-            }),
-          );
-        },
-      );
+          }),
+        );
+      });
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -499,7 +444,7 @@ export class PrismaAccountLifecycleOperations implements AccountLifecycleOperati
   ) {
     const account = Object.freeze({ ...requestAccount });
     assertOpaqueReference(noEffectProofRef);
-    return this.withSourceEpoch(operationId, async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       const { row, source } = await this.locked(tx, actor, operationId);
       const intent = intentOf(row);
       if (row.phase === "rejected") return this.receipt(row, source);
@@ -558,7 +503,7 @@ export class PrismaAccountLifecycleOperations implements AccountLifecycleOperati
     const closure = requestClosure
       ? Object.freeze({ ...requestClosure })
       : null;
-    return this.withSourceEpoch(operationId, async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       const { row, source } = await this.locked(tx, actor, operationId);
       const intent = intentOf(row);
       if (row.phase === "applied") return this.receipt(row, source);

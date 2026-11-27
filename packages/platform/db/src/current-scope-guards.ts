@@ -8,11 +8,6 @@ type Mode = "shared" | "exclusive";
 export type CurrentScopeGuard =
   | { readonly scope: "global"; readonly mode: Mode }
   | {
-      readonly scope: "accountSource";
-      readonly sourceId: string;
-      readonly mode: Mode;
-    }
-  | {
       readonly scope: "workspace";
       readonly workspaceId: string;
       readonly mode: Mode;
@@ -94,15 +89,10 @@ function plan(scopes: readonly CurrentScopeGuard[]): Lock[] {
       throw new Error("current_scope_guard_invalid_mode");
     add("global", 0, scope.scope === "global" ? scope.mode : "shared");
     if (scope.scope === "global") continue;
-    if (scope.scope === "accountSource") {
-      validateId(scope.sourceId);
-      add(`account-source:${scope.sourceId}`, 1, scope.mode);
-      continue;
-    }
     validateId(scope.workspaceId);
     add(
       `workspace:${scope.workspaceId}`,
-      2,
+      1,
       scope.scope === "workspace" ? scope.mode : "shared",
     );
     if (scope.scope === "workspace") continue;
@@ -111,7 +101,7 @@ function plan(scopes: readonly CurrentScopeGuard[]): Lock[] {
     validateId(scope.repositoryId);
     add(
       `repository:${JSON.stringify([scope.workspaceId, scope.repositoryId])}`,
-      3,
+      2,
       scope.mode,
     );
   }
@@ -119,9 +109,6 @@ function plan(scopes: readonly CurrentScopeGuard[]): Lock[] {
     (a, b) => a.rank - b.rank || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
   );
 }
-
-// Shared with the experimental MVCC epoch adapter. Not a rollout signal.
-export { plan as planCurrentScopeGuards };
 
 function validateId(id: string) {
   if (typeof id !== "string" || !id || id.includes("\0"))

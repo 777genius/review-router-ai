@@ -6,7 +6,7 @@ import type {
 } from "@reviewrouter/features-github-installations";
 import type { GitHubAppWebhookRedeliveryClient } from "./github-app-webhook-redelivery-client";
 
-/** Draft: no caller may use this until all writers and the old fleet are fenced. */
+/** Only exact receiver evidence and trusted App delivery metadata qualify. */
 export class GitHubAppWebhookRecoveryAuthority implements WebhookRedeliveryAuthority {
   constructor(
     private readonly prisma: PrismaClient,
@@ -15,15 +15,17 @@ export class GitHubAppWebhookRecoveryAuthority implements WebhookRedeliveryAutho
   async authorize(identity: WebhookRecoveryIdentity): Promise<boolean> {
     if (identity.appIdentityHash !== this.client.appIdentityHash) return false;
     const rows = await this.prisma.$queryRaw<
-      Array<{ eligible: boolean }>
+      Array<{ signatureHash: string | null }>
     >(Prisma.sql`
-      SELECT EXISTS (SELECT 1 FROM "GitHubWebhookDelivery" d JOIN "GitHubWebhookFence" f USING ("deliveryId")
+      SELECT f."signatureHash" FROM "GitHubWebhookDelivery" d JOIN "GitHubWebhookFence" f USING ("deliveryId")
         WHERE d."deliveryId"=${identity.deliveryGuid} AND f."appIdentityHash"=${identity.appIdentityHash}
           AND d."eventName"=${identity.eventName} AND d."action" IS NOT DISTINCT FROM ${identity.action}
           AND d."installationId" IS NOT DISTINCT FROM ${identity.installationId}
-          AND d."payloadHash"=${identity.payloadHash} AND d.status='failed') AS eligible
+          AND d."payloadHash"=${identity.payloadHash}
+          AND (d.status='failed' OR (d.status='processing' AND f."leaseUntil" <= clock_timestamp()))
     `);
-    if (rows[0]?.eligible !== true) return false;
-    return this.client.verifyOriginalDelivery(identity);
+    const signatureHash = rows[0]?.signatureHash;
+    if (!signatureHash) return false;
+    return this.client.verifyOriginalDelivery(identity, signatureHash);
   }
 }

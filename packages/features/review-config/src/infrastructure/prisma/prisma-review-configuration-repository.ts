@@ -1,9 +1,6 @@
 import { recordAuditEvent } from "@reviewrouter/features-audit-log";
 import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log/composition";
-import {
-  acquireCurrentScopeGuards,
-  runScopeEpochSerializableTransaction,
-} from "@reviewrouter/platform-db";
+import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   canonicalJson,
@@ -130,17 +127,12 @@ export class PrismaReviewConfigurationRepository implements ReviewConfigurationR
   ): Promise<readonly SavedReviewPolicy[]> {
     for (let attempt = 1; attempt <= MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
       try {
-        const writes = planWrites(input.workspaceId, input.writes);
-        return await runScopeEpochSerializableTransaction(
-          this.prisma,
-          writes.map((write) => ({
-            ...write.target,
-            mode: "exclusive" as const,
-          })),
+        return await this.prisma.$transaction(
           (tx) =>
             saveReviewPolicyWrites(tx, input, this.options, {
               requireProvider,
             }),
+          { isolationLevel: "Serializable" },
         );
       } catch (error) {
         if (
@@ -165,16 +157,13 @@ export class PrismaReviewConfigurationRepository implements ReviewConfigurationR
     expectedVersion?: number | null,
     selectionAuthority?: ProviderSelectionAuthority,
   ) {
-    return runScopeEpochSerializableTransaction(
-      this.prisma,
-      [{ ...snapshotTarget(target), mode: "exclusive" }],
-      (tx) =>
-        deleteReviewConfigurationTarget(
-          tx,
-          target,
-          expectedVersion,
-          selectionAuthority,
-        ),
+    return this.prisma.$transaction((tx) =>
+      deleteReviewConfigurationTarget(
+        tx,
+        target,
+        expectedVersion,
+        selectionAuthority,
+      ),
     );
   }
 }

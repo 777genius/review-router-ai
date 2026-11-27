@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { runScopeEpochSerializableTransaction } from "@reviewrouter/platform-db";
+import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
 import {
   cloneReviewMutationAuthority,
   type ReviewMutationAuthority,
@@ -41,46 +41,46 @@ export class PrismaReviewMutationAuthorityRepository
 
   async initializeReviewMutationAuthority(authority: ReviewMutationAuthority) {
     const key = authorityKey(authority);
-    // The SCM binding can be absent or move across workspaces.
-    return runScopeEpochSerializableTransaction(
-      this.prisma,
-      [{ scope: "global", mode: "exclusive" }],
-      async (transaction) => {
-        await lockReviewRunControlKey(transaction, "mutation-authority", key);
-        const existingRow =
-          await transaction.reviewMutationAuthority.findUnique({
-            where: {
-              scmRepositoryIdentityId_laneKind: {
-                scmRepositoryIdentityId: authority.scmRepositoryIdentityId,
-                laneKind: laneKindToPersistence(authority.laneKind),
-              },
-            },
-          });
-        if (existingRow) {
-          const existing = reviewMutationAuthorityToDomain(existingRow);
-          const compatible =
-            existing.mode === authority.mode &&
-            existing.epoch === authority.epoch &&
-            existing.managedWorkflowInventoryHash ===
-              authority.managedWorkflowInventoryHash &&
-            existing.activationSafetyDecisionHash ===
-              authority.activationSafetyDecisionHash;
-          return {
-            status: compatible
-              ? ReviewMutationAuthorityWriteStatus.Restored
-              : ReviewMutationAuthorityWriteStatus.Conflict,
-            authority: existing,
-          } as const;
-        }
-        const created = await transaction.reviewMutationAuthority.create({
-          data: authorityCreateData(authority),
-        });
+    return this.prisma.$transaction(async (transaction) => {
+      // The SCM ID is not a repository storage ID. Its binding can be absent or
+      // move across workspaces, so guard every candidate scope before consulting
+      // identity/authority rows or taking the existing mutation key.
+      await acquireCurrentScopeGuards(transaction, [
+        { scope: "global", mode: "exclusive" },
+      ]);
+      await lockReviewRunControlKey(transaction, "mutation-authority", key);
+      const existingRow = await transaction.reviewMutationAuthority.findUnique({
+        where: {
+          scmRepositoryIdentityId_laneKind: {
+            scmRepositoryIdentityId: authority.scmRepositoryIdentityId,
+            laneKind: laneKindToPersistence(authority.laneKind),
+          },
+        },
+      });
+      if (existingRow) {
+        const existing = reviewMutationAuthorityToDomain(existingRow);
+        const compatible =
+          existing.mode === authority.mode &&
+          existing.epoch === authority.epoch &&
+          existing.managedWorkflowInventoryHash ===
+            authority.managedWorkflowInventoryHash &&
+          existing.activationSafetyDecisionHash ===
+            authority.activationSafetyDecisionHash;
         return {
-          status: ReviewMutationAuthorityWriteStatus.Created,
-          authority: reviewMutationAuthorityToDomain(created),
+          status: compatible
+            ? ReviewMutationAuthorityWriteStatus.Restored
+            : ReviewMutationAuthorityWriteStatus.Conflict,
+          authority: existing,
         } as const;
-      },
-    );
+      }
+      const created = await transaction.reviewMutationAuthority.create({
+        data: authorityCreateData(authority),
+      });
+      return {
+        status: ReviewMutationAuthorityWriteStatus.Created,
+        authority: reviewMutationAuthorityToDomain(created),
+      } as const;
+    });
   }
 
   async compareAndSetReviewMutationAuthority(input: {
@@ -88,64 +88,57 @@ export class PrismaReviewMutationAuthorityRepository
     readonly authority: ReviewMutationAuthority;
   }) {
     const key = authorityKey(input.authority);
-    return runScopeEpochSerializableTransaction(
-      this.prisma,
-      [{ scope: "global", mode: "exclusive" }],
-      async (transaction) => {
-        await lockReviewRunControlKey(transaction, "mutation-authority", key);
-        const currentRow = await transaction.reviewMutationAuthority.findUnique(
-          {
-            where: {
-              scmRepositoryIdentityId_laneKind: {
-                scmRepositoryIdentityId:
-                  input.authority.scmRepositoryIdentityId,
-                laneKind: laneKindToPersistence(input.authority.laneKind),
-              },
-            },
-          },
-        );
-        if (!currentRow) {
-          return {
-            status: ReviewMutationAuthorityWriteStatus.Missing,
-          } as const;
-        }
-        const current = reviewMutationAuthorityToDomain(currentRow);
-        if (
-          current.version === input.authority.version &&
-          canonicalJson(current) === canonicalJson(input.authority)
-        ) {
-          return {
-            status: ReviewMutationAuthorityWriteStatus.Restored,
-            authority: cloneReviewMutationAuthority(current),
-          } as const;
-        }
-        if (
-          current.version !== input.expectedVersion ||
-          input.authority.version !== input.expectedVersion + 1
-        ) {
-          return {
-            status: ReviewMutationAuthorityWriteStatus.Conflict,
-          } as const;
-        }
-        const updated = await transaction.reviewMutationAuthority.updateMany({
-          where: {
+    return this.prisma.$transaction(async (transaction) => {
+      // The SCM ID is not a repository storage ID. Its binding can be absent or
+      // move across workspaces, so guard every candidate scope before consulting
+      // identity/authority rows or taking the existing mutation key.
+      await acquireCurrentScopeGuards(transaction, [
+        { scope: "global", mode: "exclusive" },
+      ]);
+      await lockReviewRunControlKey(transaction, "mutation-authority", key);
+      const currentRow = await transaction.reviewMutationAuthority.findUnique({
+        where: {
+          scmRepositoryIdentityId_laneKind: {
             scmRepositoryIdentityId: input.authority.scmRepositoryIdentityId,
             laneKind: laneKindToPersistence(input.authority.laneKind),
-            version: input.expectedVersion,
           },
-          data: authorityUpdateData(input.authority),
-        });
-        if (updated.count !== 1) {
-          return {
-            status: ReviewMutationAuthorityWriteStatus.Conflict,
-          } as const;
-        }
+        },
+      });
+      if (!currentRow) {
+        return { status: ReviewMutationAuthorityWriteStatus.Missing } as const;
+      }
+      const current = reviewMutationAuthorityToDomain(currentRow);
+      if (
+        current.version === input.authority.version &&
+        canonicalJson(current) === canonicalJson(input.authority)
+      ) {
         return {
-          status: ReviewMutationAuthorityWriteStatus.Updated,
-          authority: cloneReviewMutationAuthority(input.authority),
+          status: ReviewMutationAuthorityWriteStatus.Restored,
+          authority: cloneReviewMutationAuthority(current),
         } as const;
-      },
-    );
+      }
+      if (
+        current.version !== input.expectedVersion ||
+        input.authority.version !== input.expectedVersion + 1
+      ) {
+        return { status: ReviewMutationAuthorityWriteStatus.Conflict } as const;
+      }
+      const updated = await transaction.reviewMutationAuthority.updateMany({
+        where: {
+          scmRepositoryIdentityId: input.authority.scmRepositoryIdentityId,
+          laneKind: laneKindToPersistence(input.authority.laneKind),
+          version: input.expectedVersion,
+        },
+        data: authorityUpdateData(input.authority),
+      });
+      if (updated.count !== 1) {
+        return { status: ReviewMutationAuthorityWriteStatus.Conflict } as const;
+      }
+      return {
+        status: ReviewMutationAuthorityWriteStatus.Updated,
+        authority: cloneReviewMutationAuthority(input.authority),
+      } as const;
+    });
   }
 }
 

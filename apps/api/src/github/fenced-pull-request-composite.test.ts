@@ -14,21 +14,15 @@ vi.mock("@reviewrouter/features-conflict-review", () => ({
   },
 }));
 vi.mock("@reviewrouter/platform-db", () => ({
-  runScopeEpochSerializableTransaction: async (
-    _db: unknown,
-    scopes: unknown,
-    fn: (tx: unknown) => unknown,
-  ) => {
-    expect(scopes).toEqual([{ scope: "global", mode: "exclusive" }]);
-    return fn(m.tx);
+  acquireCurrentScopeGuards: async (_tx: unknown, scopes: unknown) => {
+    expect(scopes).toEqual([{ scope: "global", mode: "shared" }]);
   },
 }));
 vi.mock("@reviewrouter/features-github-installations", () => ({
-  runWebhookFencedEffectInTransaction: async (
-    tx: unknown,
-    _claim: unknown,
-    fn: (tx: unknown) => unknown,
-  ) => fn(tx),
+  runWebhookFencedDatabaseEffect: async (
+    _prisma: unknown, _claim: unknown, fn: (tx: unknown) => unknown,
+    status: string, beforeFence: (tx: unknown) => Promise<void>,
+  ) => { expect(status).toBe("processed"); await beforeFence(m.tx); return fn(m.tx); },
 }));
 vi.mock("./fenced-pull-request-ingress.js", () => ({
   writePullRequestIngressInTransaction: m.ingress,

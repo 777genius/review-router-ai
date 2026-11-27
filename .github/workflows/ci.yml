@@ -711,6 +711,11 @@ jobs:
           test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='codex_oauth_provider_identity_guard' AND pg_catalog.pg_get_userbyid(p.proowner)='postgres'")" = 1
           test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname='reviewrouter_release_migration'")" = 0
 
+      - name: Webhook fencing PostgreSQL acceptance
+        env:
+          WEBHOOK_FENCE_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5433/postgres
+        run: node scripts/webhook-fencing/run-postgres.ts
+
       # Keep one idle snapshot before application suites open concurrent sessions.
       # Replaying 000079 after later migrations create global roles is unsafe.
       - name: Prepare isolated History template

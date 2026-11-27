@@ -26,8 +26,9 @@ import type { InstallationSyncRequestPort } from "../../application/ports/instal
 import { verifyGitHubWebhookSignature } from "../../infrastructure/crypto/github-webhook-signature";
 import type { Clock } from "@reviewrouter/shared";
 import { safeGitHubWebhookFailureSummary } from "../../domain/github-webhook-failure";
+import { parseGitHubWebhook, type GitHubWebhookProcessor } from "./github-webhook-processor";
 
-export type RegisterGitHubWebhookRoutesDependencies = {
+type LegacyWebhookDependencies = {
   readonly webhookSecret: string;
   readonly installations: GitHubInstallationRepositoryPort;
   readonly deliveries: WebhookDeliveryRepositoryPort;
@@ -39,6 +40,13 @@ export type RegisterGitHubWebhookRoutesDependencies = {
   readonly pushes?: GitHubPushWebhookHandlerPort;
   readonly repositories?: GitHubRepositoryWebhookHandlerPort;
   readonly clock: Clock;
+  readonly processor?: undefined;
+};
+
+export type RegisterGitHubWebhookRoutesDependencies = (
+  | LegacyWebhookDependencies
+  | { readonly processor: GitHubWebhookProcessor }
+) & {
   /** Operational logging is supplied by the API composition, never raw webhook data. */
   readonly onProcessingError?: () => void;
 };
@@ -106,20 +114,34 @@ export async function registerGitHubWebhookRoutes(
       if (typeof deliveryId !== "string" || typeof eventName !== "string") {
         return reply.code(400).send({ error: "missing_github_headers" });
       }
-      if (
-        verifyGitHubWebhookSignature({
+      const verification = dependencies.processor?.verify({
+        rawPayload,
+        ...(typeof signature === "string" ? { signatureHeader: signature } : {}),
+      });
+      const signatureValid = dependencies.processor
+        ? verification !== null
+        : verifyGitHubWebhookSignature({
           payload: rawPayload,
           signatureHeader:
             typeof signature === "string" ? signature : undefined,
           secret: dependencies.webhookSecret,
-        }) === false
-      ) {
+        });
+      if (!signatureValid) {
         return reply.code(401).send({ error: "invalid_signature" });
       }
       if (!isSupportedGitHubInstallationWebhookEvent(eventName)) {
         return reply
           .code(202)
           .send({ processed: false, ignored: true, eventName });
+      }
+
+      if (dependencies.processor) {
+        if (!verification) throw new Error("github_app_webhook_unverified");
+        const envelope = parseGitHubWebhook(eventName, request.body, {
+          deliveryId, payloadHash: verification.payloadHash,
+        });
+        if (!envelope) return reply.code(400).send({ error: "invalid_webhook_payload" });
+        return reply.send(await dependencies.processor.process(envelope, verification));
       }
 
       if (eventName === "github_app_authorization") {

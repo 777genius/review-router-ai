@@ -2,7 +2,7 @@ import type { PrismaClient } from "@reviewrouter/platform-db";
 import { describe, expect, it, vi } from "vitest";
 import { writeFencedPullRequestIngress } from "./fenced-pull-request-ingress";
 
-describe("fenced pull request ingress (not wired)", () => {
+describe("fenced pull request ingress", () => {
   it("enqueues the current ingress through the guarded transaction and refuses mismatches", async () => {
     const createMany = vi.fn(async (_input: { data: { type: string }[] }) => ({
       count: 1,
@@ -14,6 +14,7 @@ describe("fenced pull request ingress (not wired)", () => {
       payloadHash: "hash",
     });
     const transaction = {
+      $executeRaw: vi.fn().mockResolvedValue(1),
       $queryRaw: vi
         .fn()
         .mockImplementation(async (sql: { text: string }) =>

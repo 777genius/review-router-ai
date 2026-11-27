@@ -1,16 +1,15 @@
 import { ConflictReviewPushWebhookHandler } from "@reviewrouter/features-conflict-review";
 import { writePrismaOutboxEvent } from "@reviewrouter/features-outbox";
 import {
-  runWebhookFencedEffectInTransaction,
+  runWebhookFencedDatabaseEffect,
   type FencedDelivery,
   type GitHubPushWebhookEnvelope,
 } from "@reviewrouter/features-github-installations";
 import {
-  runScopeEpochSerializableTransaction,
   type PrismaClient,
 } from "@reviewrouter/platform-db";
 
-/** WIP: caller must verify signature and evaluate the existing rollout policy. */
+/** The caller verifies the signature and evaluates the existing rollout policy. */
 export async function handleFencedPushWebhook(
   prisma: PrismaClient,
   envelope: GitHubPushWebhookEnvelope,
@@ -23,13 +22,9 @@ export async function handleFencedPushWebhook(
     typeof conflictFallbackAllowed !== "boolean"
   )
     throw new Error("webhook_fence_identity_or_policy_invalid");
-  return runScopeEpochSerializableTransaction(
+  return runWebhookFencedDatabaseEffect(
     prisma,
-    [{ scope: "global", mode: "exclusive" }],
-    (tx) =>
-      runWebhookFencedEffectInTransaction(
-        tx,
-        claim,
+    claim,
         async (transaction) => {
           const delivery = await transaction.gitHubWebhookDelivery.findUnique({
             where: { deliveryId: claim.deliveryId },
@@ -63,7 +58,6 @@ export async function handleFencedPushWebhook(
           });
           return result;
         },
-        "processed",
-      ),
+    "processed",
   );
 }
