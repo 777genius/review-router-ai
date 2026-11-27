@@ -14,8 +14,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      QUALIFICATION_DIR: ${{ runner.temp }}/foundation-markdown
-      FOUNDATION_PROBE_DIR: ${{ runner.temp }}/foundation-markdown-probe
       NODE_OPTIONS: --max-old-space-size=2048 --max-semi-space-size=8
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -28,6 +26,9 @@ jobs:
       - name: Pin the resolver and record both source identities
         run: |
           set -euo pipefail
+          QUALIFICATION_DIR="$RUNNER_TEMP/foundation-markdown"
+          FOUNDATION_PROBE_DIR="$RUNNER_TEMP/foundation-markdown-probe"
+          printf '%s\n' "QUALIFICATION_DIR=$QUALIFICATION_DIR" "FOUNDATION_PROBE_DIR=$FOUNDATION_PROBE_DIR" >> "$GITHUB_ENV"
           npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
           test "$(node --version)" = v26.11.1
           test "$(pnpm --version)" = 11.28.7
