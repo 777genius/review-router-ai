@@ -18,7 +18,7 @@ export async function openNewProvider(page: Page, workspaceId: string) {
         .getByRole("button", { name: "Add provider", exact: true })
         .click();
     await expect(
-      dialog.getByRole("combobox", { name: "Provider", exact: true }),
+      dialog.getByRole("radiogroup", { name: "Provider", exact: true }),
     ).toBeVisible({ timeout: 1000 });
   }).toPass({ timeout: 60_000 });
   await expect(
@@ -41,6 +41,17 @@ export async function chooseSetupOption(
   label: string,
   value: string,
 ) {
+  if (label === "Provider") {
+    const providers = page
+      .getByRole("dialog")
+      .getByRole("radiogroup", { name: "Provider", exact: true });
+    const choice = providers.getByRole("radio", { name: value, exact: true });
+    await expect(choice).toBeEnabled();
+    // The radio is visually hidden; users choose its visible card label.
+    await providers.getByText(value, { exact: true }).click();
+    await expect(choice).toBeChecked();
+    return;
+  }
   const control = page.getByRole("dialog").getByRole("combobox", {
     name: label === "Account" ? /^Account\b/ : label,
     exact: true,
