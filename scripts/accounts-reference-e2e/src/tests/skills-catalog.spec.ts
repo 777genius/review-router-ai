@@ -168,7 +168,12 @@ async function loseCommittedReply(
       actionId: request.headers()["next-action"]!,
     });
     if (lost) return route.fallback();
-    const response = await route.fetch();
+    // Close forwarded connections before intentionally dropping their replies.
+    // Keep transport failures fatal; never replay a mutation in this probe.
+    const response = await route.fetch({
+      headers: { ...request.headers(), connection: "close" },
+      maxRetries: 0,
+    });
     expect(response.ok()).toBe(true);
     if (method === "requestScan") {
       expect(
