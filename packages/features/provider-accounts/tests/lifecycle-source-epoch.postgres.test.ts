@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   createPrismaClient,
+  acquireCurrentScopeGuardsWithEpoch,
   type PrismaClient,
 } from "@reviewrouter/platform-db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PrismaAccountLifecycleOperations } from "../src/infrastructure/prisma/prisma-account-lifecycle-operations";
+import { PrismaProviderAccountRepository } from "../src/infrastructure/prisma/prisma-provider-account-repository";
 
 const url = process.env.REVIEW_ROUTER_EPOCH_TEST_DATABASE_URL;
 (url ? describe : describe.skip)("account lifecycle source epoch", () => {
@@ -12,13 +14,14 @@ const url = process.env.REVIEW_ROUTER_EPOCH_TEST_DATABASE_URL;
   const id = `lifecycle-epoch-${randomUUID()}`,
     owner = `${id}-owner`,
     other = `${id}-other`,
+    third = `${id}-third`,
     actor = `${id}-actor`;
   beforeAll(async () => {
     if (!url?.includes("/rr_scope_full_test?"))
       throw new Error("disposable_test_database_required");
     prisma = createPrismaClient({ databaseUrl: url, poolMax: 5 });
     await prisma.workspace.createMany({
-      data: [owner, other].map((id) => ({ id, name: id, slug: id })),
+      data: [owner, other, third].map((id) => ({ id, name: id, slug: id })),
     });
     await prisma.user.create({ data: { id: actor } });
     await prisma.workspaceMember.create({
@@ -58,10 +61,68 @@ const url = process.env.REVIEW_ROUTER_EPOCH_TEST_DATABASE_URL;
     });
     await prisma.providerAccountConnection.deleteMany({ where: { id } });
     await prisma.workspace.deleteMany({
-      where: { id: { in: [owner, other] } },
+      where: { id: { in: [owner, other, third] } },
     });
     await prisma.user.deleteMany({ where: { id: actor } });
     await prisma.$disconnect();
+  });
+  it("refuses an operator attachment that waits for source suspension", async () => {
+    let entered!: () => void, release!: () => void;
+    const ready = new Promise<void>((r) => {
+      entered = r;
+    });
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const writer = prisma.$transaction(async (tx) => {
+      await acquireCurrentScopeGuardsWithEpoch(tx, [
+        { scope: "accountSource", sourceId: id, mode: "exclusive" },
+      ]);
+      await tx.providerAccountConnection.update({
+        where: { id },
+        data: { state: "suspended" },
+      });
+      entered();
+      await gate;
+    });
+    await ready;
+    const store = new PrismaProviderAccountRepository(prisma, owner);
+    const attach = store
+      .compareAndSetOperatorBinding({
+        workspaceId: third,
+        connectionId: id,
+        state: "active",
+        expectedRevision: 0,
+        actor: { userId: actor, githubUserId: "1" },
+      })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+    try {
+      let waiting = false;
+      for (let i = 0; i < 80 && !waiting; i++) {
+        const rows = await prisma.$queryRaw<
+          Array<{ n: bigint }>
+        >`SELECT count(*)::bigint AS n FROM pg_locks WHERE locktype='advisory' AND NOT granted`;
+        waiting = rows[0]!.n > 0n;
+        if (!waiting) await new Promise((r) => setTimeout(r, 25));
+      }
+      expect(waiting).toBe(true);
+    } finally {
+      release();
+    }
+    await writer;
+    expect(await attach).toMatchObject({ code: "connection_unavailable" });
+    expect(
+      await prisma.workspaceAccountBinding.count({
+        where: { workspaceId: third, connectionId: id },
+      }),
+    ).toBe(0);
+    await prisma.providerAccountConnection.update({
+      where: { id },
+      data: { state: "active" },
+    });
   });
   it("reserves source and fences bindings across workspaces with one source epoch", async () => {
     const hash = createHash("sha256")
