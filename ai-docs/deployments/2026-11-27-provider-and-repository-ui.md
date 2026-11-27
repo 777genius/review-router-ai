@@ -13,7 +13,7 @@
 | Environment | Status    | Actual deployed version          | Last verified (UTC) | Evidence / next step                                                |
 | ----------- | --------- | -------------------------------- | ------------------- | ------------------------------------------------------------------- |
 | staging     | `pending` | Not verified                     | Not verified        | Reconcile before rollout.                                           |
-| production  | `pending` | RR `f20a75ed` before this change | Not verified        | Merge selected changes and deploy an exact release containing them. |
+| production  | `installed` | RR `5ab12e2d79a2` | 2026-11-27 03:20 UTC | Fleet applied; public Web and API readiness return HTTP 200. Authenticated UI and keyboard/mobile verification remain pending. |
 
 ## Applicability and prerequisites
 
@@ -41,3 +41,7 @@ Inspect the actual active fleet and rollout receipts before resuming an interrup
 | Time (UTC)   | Environment          | Operator   | Actual version / image     | Step and result  | Evidence   | Next action                            |
 | ------------ | -------------------- | ---------- | -------------------------- | ---------------- | ---------- | -------------------------------------- |
 | Not executed | staging / production | Unassigned | Not verified for this task | Rollout pending. | PRs above. | Reconcile and deploy selected release. |
+
+### Production installation — 2026-11-27
+
+The four-role fleet was installed from `5ab12e2d79a2d60351fd17cca871b32f3d039f13`, image `sha256:e54aa8d14da80d0f7d462896d321483a670a2fa89b402e5b903cb4254a3b64b4`. The applied receipt is retained on the production host at `/srv/platform/projects/review-router/releases/fleet-overlay-5ab12-hook-v2-7J0ZRxaf/apply-receipt.json`. Web `/` and API `/ready` returned HTTP 200. Provider-card and repository UI verification in an authenticated session remains pending; no account was changed. This batch included the multi-tenant migrations documented in the linked deployment record.
