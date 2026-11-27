@@ -51,7 +51,7 @@ export function ProviderCards({
                 />
               ) : null
             }
-            className="h-full has-[[data-checked]]:border-emerald-400 has-[[data-checked]]:bg-emerald-400/[0.07] [&>button]:sr-only"
+            className="h-full has-[[data-checked]]:border-emerald-400 has-[[data-checked]]:bg-emerald-400/[0.07] [&>[role=radio]]:sr-only"
           />
         ))}
       </RadioCardGroup>

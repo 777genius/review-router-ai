@@ -204,7 +204,14 @@ export function ProviderModelInput({
                   </span>
                 ) : null}
               </span>
-              <span className="text-xs text-slate-500">{option.value}</span>
+              {option.provider === "claude" &&
+              ["sonnet", "opus", "haiku"].includes(option.value) ? (
+                <span className="text-xs text-slate-500">
+                  Claude Code alias · version chosen at runtime
+                </span>
+              ) : option.label !== option.value ? (
+                <span className="text-xs text-slate-500">{option.value}</span>
+              ) : null}
               {option.description ? (
                 <span className="text-xs leading-5 text-slate-400">
                   {option.description}
