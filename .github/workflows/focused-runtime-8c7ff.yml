@@ -1,0 +1,132 @@
+name: Focused runtime qualification
+
+on:
+  push:
+    branches:
+      - qualification/runtime-8c7ff-20261127
+
+permissions:
+  contents: read
+
+concurrency:
+  group: focused-runtime-8c7ff-20261127
+  cancel-in-progress: true
+
+jobs:
+  focused-unit-runtime:
+    name: Focused relay, receipt HTTP and API types
+    if: ${{ github.repository == '777genius/review-router-ai' && github.actor == '777genius' }}
+    runs-on: ${{ vars.CI_STATIC_CHECKS_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 15
+    env:
+      NODE_VERSION: "26.11.1"
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/review_router_ci?schema=public
+      AUTH_SECRET: ci-auth-secret-not-used-for-production
+      AUTH_TRUST_HOST: "true"
+      GITHUB_WEBHOOK_SECRET: ci-webhook-secret-not-used-for-production
+      REVIEW_ROUTER_WEB_URL: http://localhost:3000
+      REVIEW_ROUTER_PUBLIC_WEB_URL: https://web.reviewrouter.test
+      REVIEW_ROUTER_API_URL: http://localhost:4000
+      REVIEW_ROUTER_PUBLIC_API_URL: https://api.reviewrouter.test
+      REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: ci_database_recovery_witness_not_for_production_000000000000
+      REVIEW_ROUTER_DEFAULT_MODEL: gpt-5.5
+      REVIEW_ROUTER_DEFAULT_EFFORT: xhigh
+      GOMAXPROCS: "2"
+    steps:
+      - name: Checkout exact qualification subject
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: 8c7ff91b46c1d798534937d84781cc3f17426f9c
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Bind source and lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 8c7ff91b46c1d798534937d84781cc3f17426f9c
+          test "$(git rev-parse 'HEAD^{tree}')" = 3bdac3506d80ede1c5ae340861700ed162bb7359
+          test "$(git rev-parse HEAD:pnpm-lock.yaml)" = d7fca2ff60cb5e9a6de06cc775ab4dfbf535f20a
+          git diff --exit-code HEAD --
+          RR_QUALIFICATION_DIR="$RUNNER_TEMP/focused-runtime-8c7ff"
+          mkdir -p "$RR_QUALIFICATION_DIR"
+          printf 'RR_QUALIFICATION_DIR=%s\n' "$RR_QUALIFICATION_DIR" >> "$GITHUB_ENV"
+          git show -s --format='commit=%H%ntree=%T' HEAD > "$RR_QUALIFICATION_DIR/source.txt"
+          printf 'lock=%s\n' "$(git rev-parse HEAD:pnpm-lock.yaml)" >> "$RR_QUALIFICATION_DIR/source.txt"
+      - name: Setup pinned Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install pinned pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - name: Record actual toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = v26.11.1
+          test "$(pnpm --version)" = 11.28.7
+          node --version >> "$RR_QUALIFICATION_DIR/source.txt"
+          pnpm --version >> "$RR_QUALIFICATION_DIR/source.txt"
+      - name: Install dependencies with the stock frozen installer
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+      - name: Generate Prisma client offline
+        env:
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
+        run: node scripts/generate-prisma-offline.mjs
+      - name: Bootstrap stock contract-source builds
+        id: bootstrap
+        run: node scripts/check-review-action-v2-protocol.mjs --bootstrap-only
+      - name: Run unchanged focused unit suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec vitest run --no-file-parallelism --maxWorkers=1 \
+            --reporter=default --reporter=json \
+            --outputFile="$RR_QUALIFICATION_DIR/results.json" \
+            apps/api/src/review-run-gateway-byte-limits.test.ts \
+            apps/api/src/review-run-gateway-close-authority-gate.test.ts \
+            apps/api/src/review-model-dispatch-hosted-proof.test.ts
+          command -v jq
+          jq -e '
+            .success == true and .numTotalTests > 0 and
+            .numPassedTests == .numTotalTests and
+            .numFailedTests == 0 and .numPendingTests == 0 and .numTodoTests == 0 and
+            (.testResults | length) == 3 and
+            ([.testResults[].assertionResults[]] | all(.status == "passed"))
+          ' "$RR_QUALIFICATION_DIR/results.json"
+      - name: Run the five exact receipt HTTP cases
+        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # PostgreSQL cases in this mixed file are unselected and not qualified here.
+          pnpm exec vitest run --no-file-parallelism --maxWorkers=1 \
+            --reporter=default --reporter=json \
+            --outputFile="$RR_QUALIFICATION_DIR/receipt-http-results.json" \
+            apps/api/src/review-model-dispatch.postgres.test.ts \
+            -t '^refreshes receipt readback and gates actionable proof:'
+          jq -e --arg prefix 'refreshes receipt readback and gates actionable proof: ' '
+            [.testResults[].assertionResults[] |
+              select(.fullName | startswith($prefix))] as $cases |
+            .success == true and .numFailedTests == 0 and .numPassedTests == 5 and
+            ($cases | length) == 5 and ($cases | all(.status == "passed")) and
+            ($cases | map(.fullName | ltrimstr($prefix)) | sort) ==
+              (["live receipt", "lost custody", "run bearer only",
+                "expiry during custody check", "custody unavailable"] | sort)
+          ' "$RR_QUALIFICATION_DIR/receipt-http-results.json"
+      - name: Run stock API strict typecheck on unchanged source
+        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/focused-runtime-8c7ff/api-typecheck-native-audit.jsonl
+        run: pnpm --filter @reviewrouter/api typecheck
+      - name: Verify tracked source remains exact
+        if: always()
+        run: git diff --exit-code HEAD --
+      - name: Preserve focused execution evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: focused-runtime-8c7ff-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/focused-runtime-8c7ff/
+          if-no-files-found: warn
+          retention-days: 7
