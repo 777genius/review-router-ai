@@ -81,11 +81,12 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
 
   async function startServer(
     overrides: Readonly<Record<string, string>> = {},
+    receiverPrisma: PrismaClient = prisma,
   ): Promise<string> {
     const app = Fastify({ logger: false });
     servers.push(app);
     const dependencies = createDefaultGitHubWebhookDependencies({
-      prisma,
+      prisma: receiverPrisma,
       webhookSecret,
       env: { ...baseEnvironment, ...overrides },
       githubUserAuthorizationFetch: async (resource, options) => {
@@ -414,6 +415,14 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
 
   function outbox(idempotencyKey: string) {
     return prisma.outboxEvent.findUnique({ where: { idempotencyKey } });
+  }
+
+  function deferred() {
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => {
+      resolve = done;
+    });
+    return { promise, resolve };
   }
 
   async function rejectTerminal(deliveryId: string) {
@@ -1260,6 +1269,142 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
       }),
     ).toBe(1);
     expect(await outbox(ingressKey(deliveryId))).toBeNull();
+  }, 15_000);
+
+  it("does not apply an initial installation creation after a newer signed deletion completes", async () => {
+    const suffix = randomBytes(6).toString("hex");
+    const githubInstallationId = Number.parseInt(suffix, 16) + 1;
+    const actorId = Number.parseInt(randomBytes(6).toString("hex"), 16) + 1;
+    const account = "superseded-" + suffix;
+    const actorLogin = "actor-" + suffix;
+    const createdId = randomUUID();
+    const deletedId = randomUUID();
+    const payload = {
+      action: "created",
+      installation: {
+        id: githubInstallationId,
+        account: { login: account, type: "User" },
+        repository_selection: "selected",
+      },
+      sender: { id: actorId, login: actorLogin },
+    };
+    const localState = async () => ({
+      workspaces: await prisma.workspace.count({
+        where: { slug: "gh-user-" + account },
+      }),
+      installations: await prisma.gitHubInstallation.count({
+        where: { githubInstallationId: BigInt(githubInstallationId) },
+      }),
+      actors: await prisma.user.count({
+        where: { githubUserId: BigInt(actorId) },
+      }),
+      owners: await prisma.workspaceMember.count({
+        where: { githubLogin: actorLogin, role: "owner" },
+      }),
+      outbox: await prisma.outboxEvent.count({
+        where: {
+          idempotencyKey: {
+            in: [createdId, deletedId].map(
+              (id) => "installation:" + githubInstallationId + ":sync:" + id,
+            ),
+          },
+        },
+      }),
+    });
+    const emptyState = {
+      workspaces: 0,
+      installations: 0,
+      actors: 0,
+      owners: 0,
+      outbox: 0,
+    };
+    const claimed = deferred();
+    const resume = deferred();
+    let completedTransactions = 0;
+    // Delegate the real transaction and COMMIT, then pause only its return.
+    // The other receiver uses the original client and all production handlers.
+    const transaction = new Proxy(prisma.$transaction, {
+      async apply(target, _receiver, args) {
+        const result: unknown = await Reflect.apply(target, prisma, args);
+        if (++completedTransactions === 1) {
+          claimed.resolve();
+          await resume.promise;
+        }
+        return result;
+      },
+    });
+    const paused = new Proxy(prisma, {
+      get(target, key, receiver) {
+        return key === "$transaction"
+          ? transaction
+          : Reflect.get(target, key, receiver);
+      },
+    });
+    const pausedAddress = await startServer({}, paused);
+    const earlier = post("installation", createdId, payload, {
+      address: pausedAddress,
+    });
+    void earlier.catch(() => undefined);
+    onTestFinished(async () => {
+      resume.resolve();
+      await earlier;
+    });
+    await Promise.race([
+      claimed.promise,
+      earlier.then(() => {
+        throw new Error("webhook_creation_settled_before_claim_barrier");
+      }),
+    ]);
+    const initialReceipt = await prisma.gitHubWebhookDelivery.findUniqueOrThrow(
+      {
+        where: { deliveryId: createdId },
+      },
+    );
+    expect(initialReceipt).toMatchObject({
+      status: "processing",
+      action: "created",
+    });
+    expect(
+      await prisma.gitHubWebhookFence.findUniqueOrThrow({
+        where: { deliveryId: createdId },
+      }),
+    ).toMatchObject({ generation: 1n });
+    expect(await localState()).toEqual(emptyState);
+
+    expect(
+      await post("installation", deletedId, { ...payload, action: "deleted" }),
+    ).toEqual({
+      status: 200,
+      body: { processed: true, status: "removed" },
+    });
+    const newerReceipt = await prisma.gitHubWebhookDelivery.findUniqueOrThrow({
+      where: { deliveryId: deletedId },
+    });
+    expect(newerReceipt).toMatchObject({
+      status: "processed",
+      action: "deleted",
+    });
+    expect(newerReceipt.receivedAt.getTime()).toBeGreaterThan(
+      initialReceipt.receivedAt.getTime(),
+    );
+    expect(await localState()).toEqual(emptyState);
+
+    resume.resolve();
+    expect(await earlier).toEqual({
+      status: 500,
+      body: { error: "github_webhook_processing_failed" },
+    });
+    expect(String(processingErrors.get(createdId))).toContain(
+      "webhook_fence_reconciliation_required",
+    );
+    expect(await receipt(createdId)).toMatchObject({ status: "failed" });
+    expect(
+      await prisma.gitHubWebhookFence.findUniqueOrThrow({
+        where: { deliveryId: createdId },
+      }),
+    ).toMatchObject({ generation: 1n });
+    expect(await receipt(deletedId)).toMatchObject({ status: "processed" });
+    expect(await localState()).toEqual(emptyState);
   }, 15_000);
 
   it("takes over an expired authenticated push claim and rejects its stale failure and renewal", async () => {

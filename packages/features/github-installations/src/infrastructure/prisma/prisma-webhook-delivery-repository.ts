@@ -46,7 +46,28 @@ export class PrismaWebhookDeliveryRepository implements WebhookDeliveryRepositor
             processedAt: null,
           },
         });
-        return retried.count === 1;
+        if (retried.count === 1) return true;
+
+        // A concurrent or abandoned processing attempt is not a successful
+        // delivery. Returning false here makes the HTTP route acknowledge it
+        // with 200, hiding a delivery that may never have completed. Leave
+        // uncertain work untouched and let GitHub retain a failed delivery.
+        const existing = await this.prisma.gitHubWebhookDelivery.findFirst({
+          where: {
+            deliveryId: delivery.deliveryId,
+            eventName: delivery.eventName,
+            action: delivery.action ?? null,
+            installationId: delivery.installationId
+              ? BigInt(delivery.installationId)
+              : null,
+            payloadHash: delivery.payloadHash ?? null,
+          },
+          select: { status: true },
+        });
+        if (existing?.status === "processed") return false;
+        throw new Error("github_webhook_delivery_unconfirmed", {
+          cause: error,
+        });
       }
       throw error;
     }

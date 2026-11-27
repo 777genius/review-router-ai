@@ -37,23 +37,57 @@ describe("PrismaWebhookDeliveryRepository", () => {
     });
   });
 
-  it("does not reclaim a processed or identity-mismatched delivery", async () => {
+  it.each(["processing", "failed", "received", null] as const)(
+    "fails closed for an unconfirmed or mismatched delivery (%s)",
+    async (status) => {
+      const repository = new PrismaWebhookDeliveryRepository({
+        gitHubWebhookDelivery: {
+          create: vi.fn(async () => {
+            throw { code: "P2002" };
+          }),
+          updateMany: vi.fn(async () => ({ count: 0 })),
+          findFirst: vi.fn(async () => (status === null ? null : { status })),
+        },
+      } as never);
+
+      await expect(
+        repository.tryStartProcessing({
+          deliveryId: "delivery-1",
+          eventName: "pull_request",
+          action: "synchronize",
+          payloadHash: "different-payload",
+        }),
+      ).rejects.toThrow("github_webhook_delivery_unconfirmed");
+    },
+  );
+
+  it("acknowledges an exact delivery that was already processed", async () => {
+    const findFirst = vi.fn(async () => ({ status: "processed" }));
     const repository = new PrismaWebhookDeliveryRepository({
       gitHubWebhookDelivery: {
         create: vi.fn(async () => {
           throw { code: "P2002" };
         }),
         updateMany: vi.fn(async () => ({ count: 0 })),
+        findFirst,
       },
     } as never);
-
     await expect(
       repository.tryStartProcessing({
         deliveryId: "delivery-1",
         eventName: "pull_request",
-        action: "synchronize",
-        payloadHash: "different-payload",
+        payloadHash: "hash",
       }),
     ).resolves.toBe(false);
+    expect(findFirst).toHaveBeenCalledWith({
+      where: {
+        deliveryId: "delivery-1",
+        eventName: "pull_request",
+        action: null,
+        installationId: null,
+        payloadHash: "hash",
+      },
+      select: { status: true },
+    });
   });
 });
