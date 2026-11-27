@@ -1,3 +1,4 @@
+import { performance } from "node:perf_hooks";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   ReviewRunAuthorizationTokenResolutionStatus,
@@ -109,12 +110,18 @@ export async function registerReviewModelDispatchRoutes(
   ) => {
     const result = readback(row);
     if (!result.nativeRetryProof) return result;
+    const notAfter = row.nativeRetryProofNotAfter;
     let live = false;
-    if (receiptAuthenticated && row.nativeRetryProofNotAfter) {
+    if (
+      receiptAuthenticated &&
+      typeof notAfter === "number" &&
+      Number.isFinite(notAfter) &&
+      performance.now() < notAfter
+    ) {
       try {
         live =
           (await api.canReadNativeRetryProof?.(row)) === true &&
-          row.nativeRetryProofNotAfter.getTime() > Date.now();
+          performance.now() < notAfter;
       } catch {
         // Retry permission is optional; historical receipt facts remain readable.
       }

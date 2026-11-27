@@ -1932,6 +1932,185 @@ it.each([
   },
 );
 
+it.each(["reader", "response"] as const)(
+  "keeps early %s cancellation authoritative over a delayed SDK EOF",
+  async (cancel) => {
+    const releaseUpstream = deferred();
+    const releaseRead = deferred();
+    const releaseUnknown = deferred();
+    let readHeld = false;
+    let nativeCancels = 0;
+    const statusReads: string[] = [];
+    const originalFactory = preparationModule.createReviewRunGatewayPreparation;
+    const factory = vi
+      .spyOn(preparationModule, "createReviewRunGatewayPreparation")
+      .mockImplementation((input) => {
+        const preparation = originalFactory(input);
+        return {
+          ...preparation,
+          status: async (...args: Parameters<typeof preparation.status>) => {
+            statusReads.push(args[0]);
+            return preparation.status(...args);
+          },
+          request: async (...args: Parameters<typeof preparation.request>) => {
+            const upstream = await preparation.request(...args);
+            if (upstream.kind !== "stream") throw new Error("stream_expected");
+            const source = upstream.body.getReader();
+            return {
+              ...upstream,
+              body: new ReadableStream<Uint8Array>(
+                {
+                  async pull(target) {
+                    const chunk = await source.read();
+                    if (chunk.done) {
+                      // Actual SDK EOF has arrived; hold its delivery to relay.
+                      readHeld = true;
+                      await releaseRead.promise;
+                      target.close();
+                    } else target.enqueue(chunk.value);
+                  },
+                  async cancel() {
+                    await upstream.cancel();
+                  },
+                },
+                { highWaterMark: 0 },
+              ),
+              cancel: async () => {
+                nativeCancels++;
+                await upstream.cancel();
+              },
+            };
+          },
+        };
+      });
+    const state = companionReservation();
+    const originalSettle = state.admission.settle;
+    const settlement = vi
+      .spyOn(state.admission, "settle")
+      .mockImplementation(async (...args) => {
+        if (args[2] === "effect_unknown") await releaseUnknown.promise;
+        return originalSettle(...args);
+      });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const f = await fixture(
+      32768,
+      0,
+      2,
+      5000,
+      async (upstream) => {
+        upstream.write(progressFrame);
+        await releaseUpstream.promise;
+        upstream.end(completedFrame);
+      },
+      { admission: state.admission },
+    );
+    let response: Awaited<ReturnType<typeof f.relay.responses>> | undefined;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    let draining: Promise<void> | undefined;
+    let cancellation: Promise<void> | undefined;
+    let readResult:
+      | { kind: "done" }
+      | { kind: "error"; error: unknown }
+      | undefined;
+    try {
+      response = await f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      );
+      if (response.kind !== "stream") throw new Error("stream_expected");
+      reader = response.body.getReader();
+      await readExactFrame(reader, progressFrame);
+      releaseUpstream.resolve();
+      draining = (async () => {
+        while (!(await reader!.read()).done) {
+          // Keep the relay read pending until cancellation owns the outcome.
+        }
+      })().then(
+        () => {
+          readResult = { kind: "done" };
+        },
+        (error: unknown) => {
+          readResult = { kind: "error", error };
+        },
+      );
+      await vi.waitFor(() => expect(readHeld).toBe(true), { timeout: 5000 });
+      cancellation = cancel === "reader" ? reader.cancel() : response.cancel();
+      void cancellation.catch(() => {});
+      await vi.waitFor(() =>
+        expect(settlement.mock.calls.map(([, , effect]) => effect)).toEqual([
+          "effect_unknown",
+        ]),
+      );
+      expect(f.effects.map(({ effect }) => effect)).toEqual([
+        "dispatch_started",
+      ]);
+      expect(nativeCancels).toBe(0);
+      expect(statusReads).toEqual([]);
+      releaseRead.resolve();
+      await vi.waitFor(() => {
+        // This cancel is from the late pull's failure path. The original cancel
+        // is still held in unknown persistence, so it cannot satisfy the oracle.
+        expect(nativeCancels).toBe(1);
+        expect(statusReads).toEqual([]);
+        expect(readResult).toMatchObject(
+          cancel === "reader"
+            ? { kind: "done" }
+            : {
+                kind: "error",
+                error: {
+                  name: "GatewayError",
+                  code: "transport",
+                  effect: "effect_unknown",
+                  requestRef: "stored-companion-native-ref",
+                },
+              },
+        );
+      });
+      expect(settlement).toHaveBeenCalledTimes(1);
+      expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+        "dispatch_may_have_started",
+      );
+      expect(f.effects.map(({ effect }) => effect)).toEqual([
+        "dispatch_started",
+      ]);
+      releaseUnknown.resolve();
+      await expect(cancellation).resolves.toBeUndefined();
+      await draining;
+      expect(statusReads).toEqual([]);
+      expect(settlement.mock.calls.map(([, , effect]) => effect)).toEqual([
+        "effect_unknown",
+      ]);
+      expect(f.effects.map(({ effect }) => effect)).toEqual([
+        "dispatch_started",
+        "effect_unknown",
+      ]);
+      expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+        "effect_unknown",
+      );
+      expect(f.requestRefs).toEqual(["stored-companion-native-ref"]);
+      expect(f.admissions).toHaveLength(1);
+    } finally {
+      releaseUpstream.resolve();
+      releaseRead.resolve();
+      releaseUnknown.resolve();
+      if (!cancellation && response?.kind === "stream")
+        await response.cancel().catch(() => {});
+      await cancellation?.catch(() => {});
+      await reader?.cancel().catch(() => {});
+      await draining;
+      reader?.releaseLock();
+      settlement.mockRestore();
+      log.mockRestore();
+      factory.mockRestore();
+      await f.relay.shutdown();
+    }
+  },
+  10_000,
+);
+
 it("companion chunks use local authority while phase and EOF status retain full freshness", async () => {
   const state = companionReservation();
   const eof = deferred();
