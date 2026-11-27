@@ -58,13 +58,23 @@ function isSerializationFailure(error: unknown): boolean {
   if (!adapter || typeof adapter !== "object" || !("cause" in adapter))
     return false;
   const cause = adapter.cause;
-  return (
-    !!cause &&
-    typeof cause === "object" &&
-    "kind" in cause &&
+  if (
+    !cause ||
+    typeof cause !== "object" ||
+    !("kind" in cause) ||
+    !("originalCode" in cause)
+  )
+    return false;
+  if (
     cause.kind === "TransactionWriteConflict" &&
-    "originalCode" in cause &&
     cause.originalCode === "40001"
+  )
+    return true;
+  return (
+    cause.kind === "postgres" &&
+    cause.originalCode === "40P01" &&
+    "code" in cause &&
+    cause.code === "40P01"
   );
 }
 

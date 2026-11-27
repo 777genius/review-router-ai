@@ -160,6 +160,108 @@ test("experimental current scope epoch on isolated PostgreSQL", () => {
     ).toBe("second-updated");
   });
 
+  it("records actual raw SQL deadlock error shape", async () => {
+    await pool.query('CREATE TABLE "synthetic_deadlock" (id INT PRIMARY KEY)');
+    await pool.query('INSERT INTO "synthetic_deadlock" VALUES (1),(2)');
+    let entered = 0;
+    let release!: () => void;
+    let both!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const ready = new Promise<void>((r) => {
+      both = r;
+    });
+    const run = (first: number, second: number) =>
+      prisma
+        .$transaction(
+          async (tx) => {
+            await tx.$queryRaw(
+              Prisma.sql`SELECT id FROM "synthetic_deadlock" WHERE id=${first} FOR UPDATE`,
+            );
+            entered++;
+            if (entered === 2) both();
+            await gate;
+            await tx.$queryRaw(
+              Prisma.sql`SELECT id FROM "synthetic_deadlock" WHERE id=${second} FOR UPDATE`,
+            );
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        )
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+    const a = run(1, 2),
+      b = run(2, 1);
+    await ready;
+    release();
+    const result = await Promise.all([a, b]);
+    const errors = result.filter(Boolean);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      code: "P2010",
+      meta: {
+        driverAdapterError: {
+          cause: { originalCode: "40P01", kind: "postgres", code: "40P01" },
+        },
+      },
+    });
+  });
+
+  it("retries a real raw SQL deadlock victim as a new DB transaction", async () => {
+    for (const id of ["deadlock-a", "deadlock-b"]) {
+      const key = createHash("sha256")
+        .update(`review-current-scope-v1\0workspace:${id}`)
+        .digest("hex");
+      await pool.query(
+        'INSERT INTO "CurrentScopeEpoch" ("keyHash") VALUES ($1)',
+        [key],
+      );
+    }
+    let entered = 0;
+    let release!: () => void;
+    let both!: () => void;
+    const tries = [0, 0];
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const ready = new Promise<void>((r) => {
+      both = r;
+    });
+    const run = (index: number, first: number, second: number) =>
+      runScopeEpochSerializableTransaction(
+        prisma,
+        [
+          {
+            scope: "workspace",
+            workspaceId: index === 0 ? "deadlock-a" : "deadlock-b",
+            mode: "exclusive",
+          },
+        ],
+        async (tx) => {
+          tries[index]!++;
+          await tx.$queryRaw(
+            Prisma.sql`SELECT id FROM "synthetic_deadlock" WHERE id=${first} FOR UPDATE`,
+          );
+          if (tries[index] === 1) {
+            entered++;
+            if (entered === 2) both();
+            await gate;
+          }
+          await tx.$queryRaw(
+            Prisma.sql`SELECT id FROM "synthetic_deadlock" WHERE id=${second} FOR UPDATE`,
+          );
+        },
+      );
+    const a = run(0, 1, 2),
+      b = run(1, 2, 1);
+    await ready;
+    release();
+    await Promise.all([a, b]);
+    expect(tries[0]! + tries[1]!).toBe(3);
+  });
+
   it("documents unsafe stale effect when a legacy writer omits the epoch", async () => {
     await pool.query('CREATE TABLE "legacy_effect" (version int NOT NULL)');
     await pool.query('UPDATE "authority" SET version=10');
