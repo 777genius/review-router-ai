@@ -65,7 +65,9 @@ export class PrismaWebhookDeliveryRepository implements WebhookDeliveryRepositor
           select: { status: true },
         });
         if (existing?.status === "processed") return false;
-        throw new Error("github_webhook_delivery_unconfirmed");
+        throw new Error("github_webhook_delivery_unconfirmed", {
+          cause: error,
+        });
       }
       throw error;
     }

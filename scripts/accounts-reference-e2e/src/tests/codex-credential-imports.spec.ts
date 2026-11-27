@@ -105,7 +105,7 @@ for (const method of ["refresh_token", "oauth_auth_json"] as const) {
           .getByRole("button", { name: "Connect account", exact: true })
           .click();
         const dialog = page.getByRole("dialog", { name: "Connect a provider" });
-        await choose(page, "Provider", "Codex");
+        await choose(page, "Provider", "Codex", "combobox");
         await choose(page, "Connection method", `Import ${fieldLabel}`);
         await dialog.getByLabel("Connection name", { exact: true }).fill(label);
         const field = dialog.getByLabel(fieldLabel, { exact: true });

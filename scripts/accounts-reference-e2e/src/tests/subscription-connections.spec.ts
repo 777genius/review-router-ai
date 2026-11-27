@@ -27,7 +27,7 @@ async function connectProvider(page: Page, provider: string) {
     .click();
   const dialog = page.getByRole("dialog", { name: "Connect a provider" });
   await expect(dialog).toBeVisible();
-  await choose(page, "Provider", provider);
+  await choose(page, "Provider", provider, "combobox");
   return dialog;
 }
 const counters = [
