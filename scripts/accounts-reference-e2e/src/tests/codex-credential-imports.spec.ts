@@ -2,7 +2,7 @@ import { expect, test, type APIRequestContext } from "@playwright/test";
 import { FIXTURES } from "../contracts.ts";
 import { withDatabase } from "../database.ts";
 import {
-  chooseSetupOption as choose,
+  chooseDialogSelect as choose,
   expectNoHorizontalOverflow,
 } from "./provider-setup-support.ts";
 import {

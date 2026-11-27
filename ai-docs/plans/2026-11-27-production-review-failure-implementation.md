@@ -422,3 +422,34 @@ existing adapter must not manufacture success from a forbidden same-revision
 supersede. This separately reviewed follow-up adds no scheduler, provider replay,
 expiry policy or endpoint. Its new source and runtime gates remain separate from
 the relay/evidence results above.
+
+## Hosted CI follow-up
+
+On RR source `0caf58b2219c019bf664df7414fd8447d8601ac8`, the actual Next/OCR
+lifecycle, Skills Next/PostgreSQL, Memory PostgreSQL and rendered Memory UI lanes
+passed. In [catalog run 46028807261](https://github.com/777genius/review-router-ai/actions/runs/46028807261),
+the complete catalog receipt passed; the provider-connection branch passed six
+scenarios and failed three before their connection submissions. Its shared
+helper selected Provider radio cards from the setup dialog, while these tests
+opened the distinct account-connection dialog with a Provider combobox.
+
+The bounded correction extracts the existing combobox helper and changes only
+the two affected specification imports. The setup radio-card branch, selection
+waits, real server actions, database assertions, secret checks and receipt gates
+stay intact. A second scope review enumerated all five redirected helper calls;
+none enters the radio-card setup. The three affected browser scenarios still
+require a fresh authoritative CI result.
+
+[Action run 46041858637](https://github.com/777genius/review-router/actions/runs/46041858637)
+on `cd2140516d32c10650c1e37f4470d10c767806b2` passed lint, retained and strict
+TypeScript 7 checks, the full Jest step, native OCR MCP qualification and the
+official build. Its committed-runtime gate correctly failed because generated
+`dist` had not yet been committed; the actual build archive and provenance were
+retained for review. This is source/build evidence, not final bundle or release
+qualification. The separate real CLI qualifier passed all 21 tests.
+
+The Native/Gateway producers also completed the actual PostgreSQL non-entry
+fixture through both private and public ingress on Node 24.21.0 and 26.11.1.
+Those joined producer results do not stand in for the remaining RR ledger and
+compiled Action consumer acceptance. Main RR checks, official protocol/export,
+paired publication and final runtime integration remain separate gates.

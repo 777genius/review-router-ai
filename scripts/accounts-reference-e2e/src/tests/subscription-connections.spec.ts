@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { subscriptionProfiles } from "../subscription-fixture.ts";
 import {
-  chooseSetupOption as choose,
+  chooseDialogSelect as choose,
   expectNoHorizontalOverflow,
 } from "./provider-setup-support.ts";
 import {
