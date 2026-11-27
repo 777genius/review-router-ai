@@ -695,6 +695,9 @@ importers:
       '@prisma/client':
         specifier: 7.9.0
         version: 7.9.0(prisma@7.9.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@7.0.2))(typescript@7.0.2)
+      '@reviewrouter/platform-db':
+        specifier: workspace:*
+        version: link:../../platform/db
       '@reviewrouter/shared':
         specifier: workspace:*
         version: link:../../shared

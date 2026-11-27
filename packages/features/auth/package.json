@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@prisma/client": "7.9.0",
+    "@reviewrouter/platform-db": "workspace:*",
     "@reviewrouter/shared": "workspace:*",
     "zod": "^4.4.2"
   },
