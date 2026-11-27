@@ -1938,7 +1938,8 @@ if (
       nativeDsn.pathname = "/native_non_entry_rr_" + mode + "_ci";
       nativeDsn.search = "?sslmode=disable";
       const gatewayDsn = new URL(nativeDsn);
-      gatewayDsn.pathname = "/ag_kernel_test_non_entry_rr_retry_" + mode + "_ci";
+      gatewayDsn.pathname =
+        "/ag_kernel_test_non_entry_rr_retry_" + mode + "_ci";
       gatewayDsn.search = "";
       const native = await exec(
         "go",
