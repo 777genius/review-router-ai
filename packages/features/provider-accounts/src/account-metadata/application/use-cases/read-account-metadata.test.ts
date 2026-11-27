@@ -205,3 +205,60 @@ describe("authorized account metadata page", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+it("shares the parent page's remaining remote budget and still performs the final authority fence", async () => {
+  vi.useFakeTimers();
+  const authorize = vi.fn(async () => new Map([["a", allowed("a")]]));
+  let signal: AbortSignal | undefined;
+  let release!: () => void;
+  const pending = readAccountMetadata(
+    { connectionIds: ["a"], authorize, deadlineAt: Date.now() + 400 },
+    {
+      read: async (_owner, _refs, received) => {
+        signal = received;
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return [observation("a")];
+      },
+    },
+  );
+  await vi.advanceTimersByTimeAsync(400);
+  const result = await pending;
+  expect(result.get("a")?.status).toBe("unavailable");
+  expect(signal?.aborted).toBe(true);
+  expect(authorize).toHaveBeenCalledTimes(2);
+  release();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(result.get("a")?.status).toBe("unavailable");
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it("keeps local authorization outside the parent optional remote deadline and does not start expired work", async () => {
+  vi.useFakeTimers();
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const authorize = vi.fn(async () => {
+    await held;
+    return new Map([["a", allowed("a")]]);
+  });
+  const read = vi.fn(async () => [observation("a")]);
+  let done = false;
+  const pending = readAccountMetadata(
+    { connectionIds: ["a"], authorize, deadlineAt: Date.now() + 400 },
+    { read },
+  ).then((result) => {
+    done = true;
+    return result;
+  });
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(done).toBe(false);
+  expect(read).not.toHaveBeenCalled();
+  release();
+  expect((await pending).get("a")?.status).toBe("unavailable");
+  expect(read).not.toHaveBeenCalled();
+  expect(authorize).toHaveBeenCalledTimes(2);
+  expect(vi.getTimerCount()).toBe(0);
+});

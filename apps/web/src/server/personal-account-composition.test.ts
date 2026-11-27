@@ -19,6 +19,7 @@ import * as composition from "./personal-account-composition";
 import * as metadataService from "./account-metadata-service";
 import * as lifecycleReader from "./account-lifecycle-reader";
 import * as overviewService from "./accounts-overview";
+import { createAccountInventoryEnrichment } from "./account-inventory-enrichment";
 import { detachRecipientPersonalAccount } from "../../app/dashboard/personal-account-actions";
 
 const h = vi.hoisted(() => ({
@@ -782,4 +783,42 @@ it("constructs dedicated consumer-only composition without subscription activati
   expect(await composition.productionPersonalAccounts()).not.toBeNull();
   expect(h.capabilities).not.toHaveBeenCalled();
   expect(h.control.profiles).not.toHaveBeenCalled();
+});
+
+it("keeps catalogue I/O owned after a page timeout and recovers only after the ignored-abort attempt settles", async () => {
+  vi.useFakeTimers();
+  let finish!: (catalog: ProviderConnectionCapabilitiesV3) => void;
+  h.capabilities.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  await composition.productionPersonalAccounts();
+  const input = vi.mocked(createPersonalCanonicalAccounts).mock.calls[0]![0];
+  const firstPage = createAccountInventoryEnrichment();
+  const secondPage = createAccountInventoryEnrichment();
+  try {
+    const first = expect(input.catalogue!(firstPage.read)).rejects.toThrow(
+      "account_inventory_enrichment_unavailable",
+    );
+    await vi.advanceTimersByTimeAsync(3000);
+    await first;
+    const second = expect(input.catalogue!(secondPage.read)).rejects.toThrow(
+      "account_inventory_enrichment_unavailable",
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.capabilities).toHaveBeenCalledTimes(1);
+    expect(h.capabilities.mock.calls[0]?.[0]?.signal.aborted).toBe(true);
+    finish(nativeCapabilities(mimoCapability));
+    await second;
+    await expect(input.catalogue!()).resolves.toMatchObject([
+      { id: "profile" },
+    ]);
+    expect(h.capabilities).toHaveBeenCalledTimes(2);
+  } finally {
+    firstPage.close();
+    secondPage.close();
+    vi.useRealTimers();
+  }
 });

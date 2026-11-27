@@ -36,7 +36,11 @@ export async function readAccountMetadata(
   // Existing pages are bounded; reject an accidental unbounded aggregate.
   if (ids.length > 200) return output;
   const started = Date.now();
+  const readDeadline = Math.min(started + 2500, input.deadlineAt ?? Infinity);
+  if (input.signal?.aborted || started >= readDeadline) return output;
   const controller = new AbortController();
+  const abort = () => controller.abort();
+  input.signal?.addEventListener("abort", abort, { once: true });
   let readTimer: ReturnType<typeof setTimeout> | undefined;
   let finalTimer: ReturnType<typeof setTimeout> | undefined;
   let closed = false;
@@ -83,7 +87,12 @@ export async function readAccountMetadata(
     const observed = new Map<string, AccountMetadataObservation>();
     let next = 0;
     const worker = async () => {
-      while (!closed && next < batches.length && Date.now() - started < 2500) {
+      while (
+        !closed &&
+        !controller.signal.aborted &&
+        next < batches.length &&
+        Date.now() < readDeadline
+      ) {
         const batch = batches[next++]!;
         try {
           const values = await reader.read(
@@ -91,7 +100,7 @@ export async function readAccountMetadata(
             batch.refs,
             controller.signal,
           );
-          if (closed) return;
+          if (closed || controller.signal.aborted) return;
           // The SDK enforces this too; injected adapters must preserve identity.
           if (
             values.length !== batch.refs.length ||
@@ -112,7 +121,7 @@ export async function readAccountMetadata(
         Promise.all(
           Array.from({ length: Math.min(4, batches.length) }, worker),
         ),
-      2500 - (Date.now() - started),
+      readDeadline - Date.now(),
     );
     closed = true;
     controller.abort();
@@ -156,6 +165,7 @@ export async function readAccountMetadata(
   } finally {
     closed = true;
     controller.abort();
+    input.signal?.removeEventListener("abort", abort);
     if (readTimer) clearTimeout(readTimer);
     if (finalTimer) clearTimeout(finalTimer);
   }

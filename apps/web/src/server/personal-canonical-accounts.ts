@@ -11,6 +11,8 @@ import {
   oauthCompletionMatchesProfile,
 } from "./legacy-oauth-credentials";
 import { createPersonalNativeConnections } from "./personal-native-connections";
+import type { AccountInventoryRead } from "./account-inventory-enrichment";
+import { readPersonalAccountInventory } from "./personal-account-inventory";
 import { accountCredentialView } from "./native-connection-view";
 import {
   snapshotNativeConnectionRequest,
@@ -130,9 +132,11 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
     const ownerRef = accountGatewayUserOwnerRef(actor);
     // Original operation recovery must survive catalog outages. Protocol/model
     // discovery is needed only by display/fresh enrollment, never nonce lookup.
-    async function catalogue(): Promise<QualifiedProfile[]> {
+    async function catalogue(
+      read?: AccountInventoryRead,
+    ): Promise<QualifiedProfile[]> {
       if (input.catalogue) {
-        const current = await checked(input.catalogue);
+        const current = await checked(() => input.catalogue!(read));
         return current.flatMap((profile) => {
           if (profile.connection?.nativeMethods) return [profile];
           const allowed = approved.find(
@@ -143,7 +147,11 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
         });
       }
       const available = (
-        await checked(() => input.control.profiles())
+        await checked(() =>
+          read
+            ? read((signal) => input.control.profiles({ signal }))
+            : input.control.profiles(),
+        )
       ).profiles.map((profile) => c.profile.parse(profile));
       return approved.flatMap((profile) => {
         const wire = available.find(
@@ -195,13 +203,26 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
     const personal = personalFor();
     async function get(
       source: ProviderAccountConnection,
+      read?: AccountInventoryRead,
     ): Promise<AccountLifecycleRead> {
       const account = input.lifecycleReader
         ? await checked(() =>
-            input.lifecycleReader!.get(source.gatewayAccountRef),
+            read
+              ? read((signal) =>
+                  input.lifecycleReader!.get(source.gatewayAccountRef, {
+                    signal,
+                  }),
+                )
+              : input.lifecycleReader!.get(source.gatewayAccountRef),
           )
         : c.account.parse(
-            await checked(() => input.control.get(source.gatewayAccountRef)),
+            await checked(() =>
+              read
+                ? read((signal) =>
+                    input.control.get(source.gatewayAccountRef, { signal }),
+                  )
+                : input.control.get(source.gatewayAccountRef),
+            ),
           );
       if (
         source.owner.kind !== "user" ||
@@ -251,8 +272,9 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
     async function project(
       source: ProviderAccountConnection,
       currentProfile?: QualifiedProfile | Dependencies["profiles"][number],
+      read?: AccountInventoryRead,
     ) {
-      const account = await get(source);
+      const account = await get(source, read);
       const profile = currentProfile ??
         profileFor(account.profileId) ?? {
           id: account.profileId,
@@ -279,7 +301,11 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
       const lifecycle = lifecycleProjection({
         pendingAction: pendingAction ?? undefined,
         owned: true,
-        compatible: !!(await input.lifecycleReader?.writable()),
+        compatible: !!(await (read && input.lifecycleReader
+          ? read((signal) => input.lifecycleReader!.writable({ signal })).catch(
+              () => false,
+            )
+          : input.lifecycleReader?.writable())),
         state: account.state,
         pendingOperationId: current.pendingSourceOperationId ?? null,
         synchronized,
@@ -829,111 +855,14 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
       _context: string,
       cursor: string | null,
     ): Promise<AccountsResult<AccountsPage>> {
-      return safe(async (scope) => {
-        const profiles = await scope.catalogue().catch(async () => {
-          await scope.authorize();
-          return [];
-        });
-        const afterSourceId =
-          cursor === null ? undefined : c.reference.parse(cursor);
-        const page = await scope.personal.list({
-          limit: 25,
-          ...(afterSourceId ? { afterSourceId } : {}),
-        });
-        const rows = await Promise.all(
-          page.sources.map(async (row) => {
-            try {
-              return await scope.project(
-                await scope.checked(() =>
-                  input.store.findOwnedSource(scope.actor, row.sourceId),
-                ),
-                profiles.find((profile) => profile.id === row.profileId),
-              );
-            } catch (error) {
-              if (error instanceof Denied) return null;
-              let source: ProviderAccountConnection;
-              let pendingAction: "suspend" | "resume" | "delete" | null;
-              try {
-                source = await scope.checked(() =>
-                  input.store.findOwnedSource(scope.actor, row.sourceId),
-                );
-                pendingAction = source.pendingSourceOperationId
-                  ? ((await input.readLifecycleAction?.(
-                      source.id,
-                      source.pendingSourceOperationId,
-                    )) ?? null)
-                  : null;
-              } catch (fallbackError) {
-                if (fallbackError instanceof Denied) throw fallbackError;
-                return null;
-              }
-              const profile:
-                | QualifiedProfile
-                | Dependencies["profiles"][number]
-                | undefined =
-                profiles.find((entry) => entry.id === source.profileRef) ??
-                scope.profileFor(source.profileRef) ??
-                (source.profileRef
-                  ? {
-                      id: source.profileRef,
-                      label: "Provider account",
-                      protocol: "openai-responses",
-                      models: [],
-                    }
-                  : undefined);
-              if (!profile) return null;
-              const projection = lifecycleProjection({
-                pendingAction: pendingAction ?? undefined,
-                owned: true,
-                compatible: false,
-                state: source.state,
-                pendingOperationId: source.pendingSourceOperationId ?? null,
-                synchronized: false,
-                operationReadable: !!pendingAction,
-              });
-              return {
-                connectionId: source.id,
-                label: source.displayName,
-                profileId: profile.id,
-                profileLabel: profile.label,
-                provider: profile.provider,
-                ...(profile.authKind ? { authKind: profile.authKind } : {}),
-                connection: profile.connection,
-                state:
-                  source.state === "suspended"
-                    ? ("suspended" as const)
-                    : source.state === "disabled"
-                      ? ("disabled" as const)
-                      : ("quarantined" as const),
-                readiness: source.pendingSourceOperationId
-                  ? ("pending" as const)
-                  : ("unknown" as const),
-                gatewayRevision: 0,
-                mirrorRevision: source.metadataRevision,
-                binding: null,
-                canManage: false,
-                isOwnedByViewer: true,
-                origin: "personal" as const,
-                lifecycle: projection.lifecycle,
-                allowedActions: projection.actions,
-              };
-            }
-          }),
-        );
-        const limited = input.limits
-          ? await input.limits.page(rows.filter((row) => row !== null))
-          : rows.filter((row) => row !== null);
-        return {
-          accounts: input.metadata
-            ? await input.metadata.page(limited)
-            : limited,
-          profiles: profiles.filter(
-            (profile) =>
-              profile.availability !== "deployment_configuration_required",
-          ),
-          nextCursor: page.nextCursor,
-        };
-      });
+      return safe((scope) =>
+        readPersonalAccountInventory(
+          input,
+          scope,
+          cursor,
+          (error) => error instanceof Denied,
+        ),
+      );
     },
     async mutateGatewayAccount(_context: string, raw: AccountIntent) {
       let request: z.infer<typeof existing>;

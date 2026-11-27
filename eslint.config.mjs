@@ -32,8 +32,8 @@ const webMaxLinesCeilings = {
   "apps/web/src/features/provider-setup/provider-setup-model.ts": 628,
   "apps/web/src/server/account-gateway-accounts.ts": 2530,
   "apps/web/src/server/dashboard-mutations.ts": 1098,
-  "apps/web/src/server/personal-account-composition.ts": 848,
-  "apps/web/src/server/personal-canonical-accounts.ts": 1150,
+  "apps/web/src/server/personal-account-composition.ts": 791,
+  "apps/web/src/server/personal-canonical-accounts.ts": 1079,
 };
 
 export default [

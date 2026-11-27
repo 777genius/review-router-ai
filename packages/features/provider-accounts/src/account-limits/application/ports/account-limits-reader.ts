@@ -14,5 +14,8 @@ export type AccountLimitsCapability = {
 };
 export interface AccountLimitsReader {
   /** No upstream requests, inference, credential repair or lifecycle mutations. */
-  read(target: AccountLimitsTarget): Promise<AccountLimitsSourceResult>;
+  read(
+    target: AccountLimitsTarget,
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<AccountLimitsSourceResult>;
 }
