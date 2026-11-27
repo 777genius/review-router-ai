@@ -51,6 +51,13 @@ jobs:
           git diff -- pnpm-lock.yaml > "$QUALIFICATION_DIR/pnpm-lock.diff"
           sha256sum pnpm-lock.yaml > "$QUALIFICATION_DIR/pnpm-lock.sha256"
           git hash-object pnpm-lock.yaml > "$QUALIFICATION_DIR/pnpm-lock.git-blob"
+      - name: Preserve the public resolver output for executor-independent retrieval
+        run: |
+          set -euo pipefail
+          printf '%s\n' RR1002_LOCKFILE_BASE64_BEGIN
+          base64 -w 76 "$QUALIFICATION_DIR/pnpm-lock.yaml"
+          printf '%s\n' RR1002_LOCKFILE_BASE64_END
+          cat "$QUALIFICATION_DIR/pnpm-lock.sha256" "$QUALIFICATION_DIR/pnpm-lock.git-blob"
       - name: Prove the generated lock supports a frozen tooling install
         timeout-minutes: 8
         run: |
@@ -72,21 +79,30 @@ jobs:
           artifact_digest=7abaefccd0fa7771c6594824df794415801771f68f14bf0521d2d2461b360528
           test "$(wc -c < "$artifact")" -eq 12600
           printf '%s  %s\n' "$artifact_digest" "$artifact" | sha256sum -c -
-          jq -e '.version == "4.1.0"' node_modules/@agent-teams/engineering-foundation/package.json
-          jq -e '.version == "7.0.2"' node_modules/typescript/package.json
+          node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import { readFileSync } from "node:fs";
+            assert.equal(JSON.parse(readFileSync("node_modules/@agent-teams/engineering-foundation/package.json")).version, "4.1.0");
+            assert.equal(JSON.parse(readFileSync("node_modules/typescript/package.json")).version, "7.0.2");
+          '
           node "$cli" check --consumer "$PWD" --json > "$QUALIFICATION_DIR/foundation-baseline.json"
-          jq -e '
-            .foundationVersion == "4.1.0" and .coverage == "full" and .outcome == "passed" and
-            .summary == {errors: 0, warnings: 0, infos: 21} and
-            ([.capabilities[].capabilityId] | sort) == [
+          node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import { readFileSync } from "node:fs";
+            const report = JSON.parse(readFileSync(process.argv[1]));
+            assert.equal(report.foundationVersion, "4.1.0");
+            assert.equal(report.coverage, "full");
+            assert.equal(report.outcome, "passed");
+            assert.deepEqual(report.summary, { errors: 0, warnings: 0, infos: 21 });
+            assert.deepEqual(report.capabilities.map((c) => c.capabilityId).sort(), [
               "architecture.source-dependencies",
               "documentation.local-references",
               "quality.suppression-governance",
-              "repository.agent-workflow"
-            ] and
-            ([.capabilities[].diagnostics[]] | length == 21 and all(.[];
-              .ruleId == "documentation.local-references.historical-absolute-reference" and .severity == "info"
-            ))
+              "repository.agent-workflow",
+            ]);
+            const diagnostics = report.capabilities.flatMap((c) => c.diagnostics);
+            assert.equal(diagnostics.length, 21);
+            assert(diagnostics.every((d) => d.ruleId === "documentation.local-references.historical-absolute-reference" && d.severity === "info"));
           ' "$QUALIFICATION_DIR/foundation-baseline.json"
 
           git archive HEAD | tar -x -C "$FOUNDATION_PROBE_DIR"
@@ -96,21 +112,30 @@ jobs:
             probe_status=$?
             set -e
             test "$probe_status" -eq 1
-            jq -e '.outcome == "violations"' "$QUALIFICATION_DIR/$1.json"
           }
           expect_historical_rejection() {
-            jq -e --arg reason "$2" '
-              .summary == {errors: 22, warnings: 0, infos: 0} and
-              ([.capabilities[].diagnostics[] | select(.ruleId == "documentation.local-references.invalid-reference")] | length == 21) and
-              ([.capabilities[].diagnostics[] | select(
-                .ruleId == "documentation.local-references.historical-artifact-invalid" and
-                any(.evidence[]; .kind == "historical-artifact-rejection" and .value == $reason)
-              )] | length == 1)
-            ' "$QUALIFICATION_DIR/$1.json"
+            node --input-type=module -e '
+              import assert from "node:assert/strict";
+              import { readFileSync } from "node:fs";
+              const report = JSON.parse(readFileSync(process.argv[1]));
+              assert.equal(report.outcome, "violations");
+              assert.deepEqual(report.summary, { errors: 22, warnings: 0, infos: 0 });
+              const diagnostics = report.capabilities.flatMap((c) => c.diagnostics);
+              assert.equal(diagnostics.filter((d) => d.ruleId === "documentation.local-references.invalid-reference").length, 21);
+              const rejected = diagnostics.filter((d) => d.ruleId === "documentation.local-references.historical-artifact-invalid");
+              assert.equal(rejected.length, 1);
+              assert(rejected[0].evidence.some((e) => e.kind === "historical-artifact-rejection" && e.value === process.argv[2]));
+            ' "$QUALIFICATION_DIR/$1.json" "$2"
           }
           expect_clean_fixture() {
             node "$cli" check documentation.local-references --consumer "$FOUNDATION_PROBE_DIR" --json > "$QUALIFICATION_DIR/$1.json"
-            jq -e '.outcome == "passed" and .summary == {errors: 0, warnings: 0, infos: 21}' "$QUALIFICATION_DIR/$1.json"
+            node --input-type=module -e '
+              import assert from "node:assert/strict";
+              import { readFileSync } from "node:fs";
+              const report = JSON.parse(readFileSync(process.argv[1]));
+              assert.equal(report.outcome, "passed");
+              assert.deepEqual(report.summary, { errors: 0, warnings: 0, infos: 21 });
+            ' "$QUALIFICATION_DIR/$1.json"
           }
 
           printf '\n' >> "$FOUNDATION_PROBE_DIR/$artifact"
@@ -139,13 +164,15 @@ jobs:
           test ! -e "$FOUNDATION_PROBE_DIR/docs/__foundation_missing_probe__.md"
           printf '# Probe\n\n[Missing](./__foundation_missing_probe__.md)\n' > "$probe_doc"
           expect_violation negative-ordinary-link
-          jq -e '
-            .summary == {errors: 1, warnings: 0, infos: 21} and
-            ([.capabilities[].diagnostics[] | select(
-              .ruleId == "documentation.local-references.broken-link" and
-              .location.path == "docs/foundation-markdown-negative-probe.md"
-            )] | length == 1) and
-            ([.capabilities[].diagnostics[] | select(.ruleId == "documentation.local-references.historical-absolute-reference")] | length == 21)
+          node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import { readFileSync } from "node:fs";
+            const report = JSON.parse(readFileSync(process.argv[1]));
+            assert.equal(report.outcome, "violations");
+            assert.deepEqual(report.summary, { errors: 1, warnings: 0, infos: 21 });
+            const diagnostics = report.capabilities.flatMap((c) => c.diagnostics);
+            assert.equal(diagnostics.filter((d) => d.ruleId === "documentation.local-references.broken-link" && d.location.path === "docs/foundation-markdown-negative-probe.md").length, 1);
+            assert.equal(diagnostics.filter((d) => d.ruleId === "documentation.local-references.historical-absolute-reference").length, 21);
           ' "$QUALIFICATION_DIR/negative-ordinary-link.json"
           rm "$probe_doc"
           expect_clean_fixture restored-all-probes
@@ -159,7 +186,16 @@ jobs:
         run: |
           set -euo pipefail
           node node_modules/vitest/vitest.mjs run --no-file-parallelism --maxWorkers=1 --reporter=json --outputFile="$QUALIFICATION_DIR/focused-tests.json" scripts/install-private-dependencies.test.ts scripts/promote-private-pg17-activation-catalog-policy.test.ts
-          jq -e '.success == true and .numTotalTests == 52 and .numPassedTests == 52 and .numFailedTests == 0 and .numPendingTests == 0' "$QUALIFICATION_DIR/focused-tests.json"
+          node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import { readFileSync } from "node:fs";
+            const report = JSON.parse(readFileSync(process.argv[1]));
+            assert.equal(report.success, true);
+            assert.equal(report.numTotalTests, 52);
+            assert.equal(report.numPassedTests, 52);
+            assert.equal(report.numFailedTests, 0);
+            assert.equal(report.numPendingTests, 0);
+          ' "$QUALIFICATION_DIR/focused-tests.json"
       - name: Check the complete adoption delta format and tracked-byte integrity
         env:
           NODE_OPTIONS: --max-old-space-size=1024 --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
@@ -170,13 +206,6 @@ jobs:
           cmp pnpm-lock.yaml "$QUALIFICATION_DIR/pnpm-lock.yaml"
           git diff --exit-code -- . ':!pnpm-lock.yaml'
           git diff --check
-      - name: Preserve the public resolver output for executor-independent retrieval
-        run: |
-          set -euo pipefail
-          printf '%s\n' RR1002_LOCKFILE_BASE64_BEGIN
-          base64 -w 76 "$QUALIFICATION_DIR/pnpm-lock.yaml"
-          printf '%s\n' RR1002_LOCKFILE_BASE64_END
-          cat "$QUALIFICATION_DIR/pnpm-lock.sha256" "$QUALIFICATION_DIR/pnpm-lock.git-blob"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
