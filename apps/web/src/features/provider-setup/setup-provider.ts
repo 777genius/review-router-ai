@@ -171,7 +171,7 @@ export function setupProviderForGatewayProfile(
 ): SetupProviderId | undefined {
   if (!profile || profile.protocol !== "openai-responses") return undefined;
   if (profile.connection?.nativeMethods)
-    return nativeSetupId(profile.connection.provider);
+    return nativeSetupId(profile.connection.provider, profile.id);
   const nativeProvider = nativeAPIProvider(profile.id);
   if (nativeProvider)
     return profile.authKind === "api_key" &&
@@ -243,7 +243,10 @@ export function gatewaySetupProvidersForProfiles(
 
 // Stable display grouping may keep an existing direct source beside native custody.
 // It does not grant any native auth method, model, billing mode, or direct execution.
-function nativeSetupId(providerId: string): string {
+function nativeSetupId(providerId: string, profileId: string): string {
+  // Anthropic API keys and Claude Code subscriptions have distinct execution
+  // and custody paths, despite sharing the same vendor identity.
+  if (nativeAPIProvider(profileId) === "anthropic") return "anthropic";
   return (
     setupProviders.find(
       (row) => row.identity === providerId && row.githubSource !== null,
@@ -260,7 +263,7 @@ export function nativeSetupProvidersForProfiles(
   for (const profile of profiles) {
     if (!profile.connection?.nativeMethods || !canCreateConnection(profile))
       continue;
-    const id = nativeSetupId(profile.connection.provider);
+    const id = nativeSetupId(profile.connection.provider, profile.id);
     const direct = setupProviders.find((row) => row.id === id);
     providers.set(id, {
       id,
@@ -280,7 +283,12 @@ export function setupProviderChoices(
 ): readonly SetupProvider[] {
   return [
     ...setupProviders.filter(
-      (row) => !native.some((item) => item.identity === row.identity),
+      (row) =>
+        !native.some(
+          (item) =>
+            item.identity === row.identity &&
+            !(row.id === "claude-code" && item.id === "anthropic"),
+        ),
     ),
     ...native,
   ];
