@@ -1,4 +1,7 @@
-import { runScopeEpochSerializableTransaction } from "@reviewrouter/platform-db";
+import {
+  isPersonalWorkspaceOwnerConflict,
+  runScopeEpochSerializableTransaction,
+} from "@reviewrouter/platform-db";
 import {
   Prisma,
   type PrismaClient,
@@ -138,7 +141,11 @@ export class PrismaPersonalAccountOperations implements PersonalAccountOperation
           },
         );
       } catch (error) {
-        if (!(error instanceof PersonalWorkspaceScopeChanged) || attempt >= 2)
+        if (
+          (!(error instanceof PersonalWorkspaceScopeChanged) &&
+            !isPersonalWorkspaceOwnerConflict(error)) ||
+          attempt >= 2
+        )
           throw error;
       }
     }

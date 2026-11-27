@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 vi.mock("@reviewrouter/platform-db", () => ({
+  isPersonalWorkspaceOwnerConflict: () => false,
   runScopeEpochSerializableTransaction: (
     prisma: any,
     _scopes: unknown,

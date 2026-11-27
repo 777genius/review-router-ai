@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
-import { runScopeEpochSerializableTransaction } from "@reviewrouter/platform-db";
+import {
+  isPersonalWorkspaceOwnerConflict,
+  runScopeEpochSerializableTransaction,
+} from "@reviewrouter/platform-db";
 import type { AuthenticatedPrincipal } from "../../domain/authenticated-principal";
 import type {
   WorkspaceMembership,
@@ -82,7 +85,11 @@ export class PrismaWorkspaceMembershipRepository implements WorkspaceMembershipR
           },
         );
       } catch (error) {
-        if (!(error instanceof PersonalWorkspaceScopeChanged) || attempt >= 2)
+        if (
+          (!(error instanceof PersonalWorkspaceScopeChanged) &&
+            !isPersonalWorkspaceOwnerConflict(error)) ||
+          attempt >= 2
+        )
           throw error;
       }
     }

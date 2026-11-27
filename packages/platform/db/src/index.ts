@@ -116,3 +116,5 @@ export {
   rotateRemovedScmRepositoryIdentityEpoch,
   rotateScmRepositoryIdentityEpoch,
 } from "./scm-repository-identity-epoch.js";
+
+export { isPersonalWorkspaceOwnerConflict } from "./personal-workspace-owner-conflict.js";

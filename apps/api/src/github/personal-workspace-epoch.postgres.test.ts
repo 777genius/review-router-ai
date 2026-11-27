@@ -155,7 +155,7 @@ test("personal workspace scoped epochs on isolated PostgreSQL", () => {
     }
     await old;
     const outcome = await next;
-    expect(outcome).toMatchObject({ error: { code: "P2002" } });
+    expect(outcome).toMatchObject({ value: { source: "personal" } });
     expect(
       (
         await pool.query(
