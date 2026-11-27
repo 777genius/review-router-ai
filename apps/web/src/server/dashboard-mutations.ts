@@ -1061,8 +1061,7 @@ function localIdentityMatchesSession(
   return (
     user.githubUserId !== null &&
     user.githubLogin !== null &&
-    user.githubUserId === (identity.githubUserId ?? identity.externalUserId) &&
-    user.githubLogin === (identity.githubLogin ?? identity.sourceLogin)
+    user.githubUserId === (identity.githubUserId ?? identity.externalUserId)
   );
 }
 
