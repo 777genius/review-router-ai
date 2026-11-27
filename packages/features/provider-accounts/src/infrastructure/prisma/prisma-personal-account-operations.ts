@@ -1,4 +1,5 @@
 import {
+  acquireCurrentScopeGuardsWithEpoch,
   isPersonalWorkspaceOwnerConflict,
   runScopeEpochSerializableTransaction,
 } from "@reviewrouter/platform-db";
@@ -460,6 +461,23 @@ export class PrismaPersonalAccountOperations implements PersonalAccountOperation
       return unavailable();
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await acquireCurrentScopeGuardsWithEpoch(tx, [
+          {
+            scope: "accountSource",
+            sourceId: intent.sourceId,
+            mode: "exclusive",
+          },
+          {
+            scope: "workspace",
+            workspaceId: intent.personalWorkspaceId,
+            mode: "shared",
+          },
+          {
+            scope: "workspace",
+            workspaceId: intent.targetWorkspaceId,
+            mode: "exclusive",
+          },
+        ]);
         await this.lockPersonalAuthority(tx, actorUserId, personalWorkspaceId);
         // Lock current donor membership BEFORE Source, never after it.
         await this.lockMember(tx, intent.targetWorkspaceId, actorUserId);
@@ -556,6 +574,23 @@ export class PrismaPersonalAccountOperations implements PersonalAccountOperation
     )
       return unavailable();
     return this.prisma.$transaction(async (tx) => {
+      await acquireCurrentScopeGuardsWithEpoch(tx, [
+        {
+          scope: "accountSource",
+          sourceId: intent.sourceId,
+          mode: "exclusive",
+        },
+        {
+          scope: "workspace",
+          workspaceId: intent.personalWorkspaceId,
+          mode: "shared",
+        },
+        {
+          scope: "workspace",
+          workspaceId: intent.targetWorkspaceId,
+          mode: "exclusive",
+        },
+      ]);
       await this.lockPersonalAuthority(
         tx,
         ownerId,
