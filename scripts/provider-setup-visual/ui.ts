@@ -133,17 +133,21 @@ export function selectField(container: Locator, label: string): Locator {
 
 export const CREDENTIAL_SOURCE_LABEL = "Provider";
 
-/** Opens the credential source list of a new provider. */
+/** Reveals the provider cards of the new-provider form. Connection dialogs
+ * keep their separate Provider select and do not use this helper. */
 export async function openSourceList(
-  page: Page,
+  _page: Page,
   dialog: Locator,
 ): Promise<Locator> {
-  await dialog
-    .getByRole("combobox", { name: CREDENTIAL_SOURCE_LABEL, exact: true })
-    .click();
-  const listbox = page.getByRole("listbox");
-  await listbox.waitFor({ state: "visible" });
-  return listbox;
+  const choices = dialog
+    .getByRole("heading", { name: CREDENTIAL_SOURCE_LABEL, exact: true })
+    .locator("..")
+    .getByRole("radiogroup", {
+      name: CREDENTIAL_SOURCE_LABEL,
+      exact: true,
+    });
+  await choices.waitFor({ state: "visible" });
+  return choices;
 }
 
 export async function chooseSource(
@@ -151,9 +155,15 @@ export async function chooseSource(
   dialog: Locator,
   title: RegExp,
 ): Promise<void> {
-  const listbox = await openSourceList(page, dialog);
-  await listbox.getByRole("option", { name: title }).first().click();
-  await listbox.waitFor({ state: "hidden" });
+  const choices = await openSourceList(page, dialog);
+  const choice = choices.getByRole("radio", { name: title });
+  if (!(await choice.isEnabled()))
+    throw new Error("provider_choice_disabled");
+  // ProviderCards hides its radio; choose the visible label as a user does.
+  await choices.getByText(title).click();
+  await choices
+    .getByRole("radio", { name: title, checked: true })
+    .waitFor({ state: "attached" });
 }
 
 /** Source titles as `sourceTitle` renders them. */
