@@ -574,3 +574,29 @@ Independent source review and pinned native lint/format passed for this fixture.
 Its strict project typecheck, actual PostgreSQL/compiled execution and the
 final Action/RR required gates remain pending; earlier source passes do not
 qualify this new consumer checkpoint.
+
+### Consolidated cold qualification scope
+
+Keep the single `accepted-result-recovery` case added to the existing compiled
+Gateway/PostgreSQL public-entrypoint fixture. Its separate process, checkout,
+HOME, temporary directory and output file exercise the actual cold boundary.
+The existing synthetic Codex engine is a fixture seam; B recovery consumes
+already accepted immutable evidence. A second lifecycle fixture and alternate
+setup driver do not provide a separate required boundary and are not retained.
+Action `5bcf65db` removes that unused driver and has the same complete tree as
+`f0fb4d4d`, preserving the official generated runtime.
+
+The acceptance oracle must join the persisted observation-reference row to its
+original observation, slot and source lease, rather than compare unlike IDs.
+Preserve original authorization version, expiry/max-expiry, runtime snapshot,
+Gateway binding, provider lease and reporting window. Require exactly one
+ordinary adoption and the named cold case as an executed PASS in the existing
+CI invocation. Final strict compilation, PostgreSQL execution and current-head
+bundle reproducibility remain required; source review is not runtime evidence.
+
+Gateway `305fedb5` has all 23 checks passing, including both native-client Node
+lanes, the producer/rollback gates and all browser flows. The separate active
+retry consumer still requires the official SDK archive and lock integration,
+the real generated/exported protocol, a complete release-binding tuple and
+its joined consumer gate. Retained legacy/capacity128 source tuples must never
+authorize the new request-retry marker.

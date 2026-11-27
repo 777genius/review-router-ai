@@ -1500,10 +1500,30 @@ jobs:
             --testNamePattern "accepts the paired Action golden projection target|matches the paired Action golden corpus"
 
       - name: Paired Review Action to control plane investigation E2E
+        id: paired_review_investigation
         env:
           REVIEW_ROUTER_ACTION_SOURCE_DIR: ${{ github.workspace }}/.paired/review-router-action
           REVIEW_ROUTER_PAIRED_OCR_BINARY: ${{ runner.temp }}/reviewrouter-paired-ocr/opencodereview
-        run: pnpm review-investigation:paired-e2e
+        run: |
+          mkdir -p tmp/paired-review-investigation
+          rm -f tmp/paired-review-investigation/results.json tmp/multi-reviewer-e2e/accepted-result-recovery.json
+          pnpm review-investigation:paired-e2e \
+            --reporter=default --reporter=json \
+            --outputFile=tmp/paired-review-investigation/results.json
+          node scripts/paired-action-qualification/check-cold-recovery-results.ts \
+            tmp/paired-review-investigation/results.json \
+            tmp/multi-reviewer-e2e/accepted-result-recovery.json
+
+      - name: Preserve paired investigation and cold recovery proof
+        if: ${{ always() && steps.paired_review_investigation.outcome != 'skipped' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: paired-investigation-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            tmp/paired-review-investigation/results.json
+            tmp/multi-reviewer-e2e/accepted-result-recovery.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Captured Skills control plane to paired runtime HTTP proof
         env:

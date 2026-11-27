@@ -661,6 +661,38 @@ const profileId = "openrouter-openai-responses-apikey-v1";
               where: { workspaceId },
             });
             expect(original.state).toBe("running");
+            const authoritySelection = {
+              authorizationId: true,
+              producerReleaseId: true,
+              state: true,
+              expiresAt: true,
+              maxExpiresAt: true,
+              mutationEpoch: true,
+              reviewRevisionHash: true,
+              runtimeSnapshotCanonicalJson: true,
+            } as const;
+            const originalAuthority =
+              await prisma.reviewRunAuthorization.findUniqueOrThrow({
+                where: { authorizationId: original.authorizationId },
+                select: authoritySelection,
+              });
+            expect(originalAuthority.state).toBe("active");
+            expect(originalAuthority.expiresAt.getTime()).toBeGreaterThan(
+              Date.now(),
+            );
+            expect(
+              originalAuthority.maxExpiresAt.getTime(),
+            ).toBeGreaterThanOrEqual(originalAuthority.expiresAt.getTime());
+            const originalBindings =
+              await prisma.reviewRunGatewayAllocationExecution.findMany({
+                where: { authorizationId: original.authorizationId },
+                orderBy: { allocationId: "asc" },
+                select: {
+                  allocationId: true,
+                  gatewayExecutionCanonicalJson: true,
+                },
+              });
+            expect(originalBindings).toHaveLength(models.length);
             const originalSlots =
               await prisma.reviewExecutionWorkSlotV2.findMany({
                 where: {
@@ -698,6 +730,23 @@ const profileId = "openrouter-openai-responses-apikey-v1";
             expect(originalLeases).toHaveLength(models.length);
             for (const lease of originalLeases)
               expect(lease.state).toBe("released");
+            const originalSource = originals.find(
+              (observation) =>
+                observation.sourceWorkSlotId === unattachedSlots[0]!.workSlotId,
+            );
+            expect(originalSource).toBeDefined();
+            const originalSourceLease = originalLeases.find(
+              (lease) => lease.leaseId === originalSource!.sourceLeaseId,
+            );
+            expect(originalSourceLease).toMatchObject({
+              workSlotId: unattachedSlots[0]!.workSlotId,
+              authorizationId: original.authorizationId,
+              attemptOrdinal: 1,
+              fencingToken: originalSource!.sourceFencingToken,
+            });
+            expect(
+              originalSourceLease!.resultReportUntil.getTime(),
+            ).toBeGreaterThan(Date.now());
             const admissionCalls = native.calls.filter((call) =>
               /\/internal\/v1\/run-access|\/dispatch\b/.test(call),
             );
@@ -743,6 +792,50 @@ const profileId = "openrouter-openai-responses-apikey-v1";
                 orderBy: { observationId: "asc" },
               }),
             ).toEqual(originals);
+            expect(
+              await prisma.reviewRunAuthorization.findUniqueOrThrow({
+                where: { authorizationId: original.authorizationId },
+                select: authoritySelection,
+              }),
+            ).toEqual(originalAuthority);
+            expect(
+              await prisma.reviewExecutionV2.findUniqueOrThrow({
+                where: { executionId: original.executionId },
+              }),
+            ).toMatchObject({
+              generation: original.generation,
+              planHash: original.planHash,
+              admissionDeadlineAt: original.admissionDeadlineAt,
+              executionDeadlineAt: original.executionDeadlineAt,
+            });
+            expect(
+              await prisma.reviewRunGatewayAllocationExecution.findMany({
+                where: { authorizationId: original.authorizationId },
+                orderBy: { allocationId: "asc" },
+                select: {
+                  allocationId: true,
+                  gatewayExecutionCanonicalJson: true,
+                },
+              }),
+            ).toEqual(originalBindings);
+            const adoptionLeases =
+              await prisma.reviewInvocationLeaseV2.findMany({
+                where: {
+                  executionId: original.executionId,
+                  purpose: "observation_adoption",
+                },
+              });
+            expect(adoptionLeases).toHaveLength(1);
+            expect(adoptionLeases[0]).toMatchObject({
+              authorizationId: original.authorizationId,
+              workSlotId: unattachedSlots[0]!.workSlotId,
+              sourceObservationId: originalSource!.observationId,
+            });
+            const observationRefs =
+              await prisma.reviewExecutionObservationRefV2.findMany({
+                where: { executionId: original.executionId },
+              });
+            expect(observationRefs).toHaveLength(models.length);
             const restoredSlots =
               await prisma.reviewExecutionWorkSlotV2.findMany({
                 where: {
@@ -753,11 +846,22 @@ const profileId = "openrouter-openai-responses-apikey-v1";
             for (const slot of restoredSlots) {
               expect(slot.state).toBe("satisfied");
               expect(slot.nextAttemptOrdinal).toBe(2);
+              const observation = originals.find(
+                (source) => source.sourceWorkSlotId === slot.workSlotId,
+              );
+              expect(observation).toBeDefined();
+              const observationRef = observationRefs.find(
+                (ref) => ref.workSlotId === slot.workSlotId,
+              );
+              expect(observationRef).toMatchObject({
+                observationId: observation!.observationId,
+                payloadHash: observation!.payloadHash,
+                sourceExecutionId: original.executionId,
+                sourceLeaseId: observation!.sourceLeaseId,
+                sourceFencingToken: observation!.sourceFencingToken,
+              });
               expect(slot.acceptedObservationRefId).toBe(
-                originals.find(
-                  (observation) =>
-                    observation.sourceWorkSlotId === slot.workSlotId,
-                )?.observationId,
+                observationRef!.observationRefId,
               );
             }
           } finally {
@@ -1028,6 +1132,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
         JSON.stringify(
           {
             artifactDigest,
+            nodeVersion: process.version,
             scenario,
             executions: executions.length,
             reviewers: slots.length,
