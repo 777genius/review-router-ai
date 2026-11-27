@@ -119,6 +119,88 @@ describe("POST /api/dashboard/provider-keys/apply", () => {
     );
   });
 
+  it("rejects an oversized chunked key body before authorization and stops reading", async () => {
+    let pulled = 0;
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          pulled++;
+          controller.enqueue(new Uint8Array(128 * 1024).fill(32));
+        },
+        cancel() {
+          cancelled = true;
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const response = await POST(
+      new Request("http://localhost/api/dashboard/provider-keys/apply", {
+        method: "POST",
+        body,
+        ...{ duplex: "half" },
+      }),
+    );
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "json_invalid" });
+    expect(cancelled).toBe(true);
+    expect(pulled).toBeLessThanOrEqual(3);
+    expect(
+      mocks.assertDashboardWorkspaceAdminMutationAllowed,
+    ).not.toHaveBeenCalled();
+    expect(
+      mocks.createProviderApiKeyServiceDependencies,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized declared body without pulling it", async () => {
+    const pull = vi.fn();
+    const cancel = vi.fn();
+    const response = await POST(
+      new Request("http://localhost/api/dashboard/provider-keys/apply", {
+        method: "POST",
+        headers: { "content-length": String(256 * 1024 + 1) },
+        body: new ReadableStream({ pull, cancel }, { highWaterMark: 0 }),
+        ...{ duplex: "half" },
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect(pull).not.toHaveBeenCalled();
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(
+      mocks.assertDashboardWorkspaceAdminMutationAllowed,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("accepts a fully escaped maximum-length key and 100 real-sized IDs before the unchanged authorization gate", async () => {
+    mocks.assertDashboardWorkspaceAdminMutationAllowed.mockRejectedValue(
+      new Error("workspace_admin_forbidden"),
+    );
+    const key = "\\u0001".repeat(16 * 1024);
+    const repositoryIds = Array.from(
+      { length: 100 },
+      (_, index) => `repository_${String(index).padStart(4, "0")}`,
+    );
+    const body = `{"workspaceId":"workspace_1","providerType":"mimo","apiKey":"${key}","repositoryIds":${JSON.stringify(repositoryIds)}}`;
+    expect(Buffer.byteLength(body)).toBeGreaterThan(96 * 1024);
+    const response = await POST(
+      new Request("http://localhost/api/dashboard/provider-keys/apply", {
+        method: "POST",
+        body,
+      }),
+    );
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "workspace_admin_forbidden",
+    });
+    expect(
+      mocks.assertDashboardWorkspaceAdminMutationAllowed,
+    ).toHaveBeenCalledWith("workspace_1");
+    expect(
+      mocks.createProviderApiKeyServiceDependencies,
+    ).not.toHaveBeenCalled();
+  });
+
   it("keeps OpenRouter batch apply independent of an operator grant", async () => {
     mocks.assertProviderApiKeyWorkspaceGranted.mockRejectedValue(
       new Error("provider_key_workspace_grant_required"),
