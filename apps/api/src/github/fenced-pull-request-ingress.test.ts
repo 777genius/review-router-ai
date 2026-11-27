@@ -4,9 +4,9 @@ import { writeFencedPullRequestIngress } from "./fenced-pull-request-ingress";
 
 describe("fenced pull request ingress", () => {
   it("enqueues the current ingress through the guarded transaction and refuses mismatches", async () => {
-    const createMany = vi.fn(async (_input: { data: { type: string }[] }) => ({
-      count: 1,
-    }));
+    const createMany = vi
+      .fn<(input: { data: { type: string }[] }) => Promise<{ count: number }>>()
+      .mockResolvedValue({ count: 1 });
     const findUnique = vi.fn().mockResolvedValue({
       eventName: "pull_request",
       action: "synchronize",

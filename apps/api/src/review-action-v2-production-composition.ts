@@ -1,8 +1,6 @@
 import {
   assertReviewIntentRolloutConfiguration,
   reviewActionV2IntentAdmissionRequiredEnv,
-  reviewActionV2IntentIngressEnabledEnv,
-  reviewActionV2WorkflowDispatchReadyEnv,
 } from "./review-v2-intent-rollout-configuration.js";
 export {
   assertReviewIntentRolloutConfiguration,

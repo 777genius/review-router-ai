@@ -29,6 +29,10 @@ test("native PostgreSQL COMMIT acknowledgement loss", () => {
     let proxy: Awaited<ReturnType<typeof commitLossProxy>> | undefined;
     let receiverPool: Pool | undefined;
     let receiver: PrismaClient | undefined;
+    const failures: unknown[] = [];
+    const recordFailure = (error: unknown) => {
+      failures.push(error);
+    };
     try {
       await assertWebhookFenceTestDatabase(directPool);
       proxy = await commitLossProxy(webhookFencePostgres.connection);
@@ -138,26 +142,22 @@ test("native PostgreSQL COMMIT acknowledgement loss", () => {
         ).generation,
       ).toBe(1n);
       expect(proxy.observation()).toEqual({ dropped: 1, invalidFrames: 0 });
+    } catch (error) {
+      recordFailure(error);
     } finally {
-      const cleanup = Promise.allSettled([
-        app.close(),
-        (async () => {
-          try {
-            await receiver?.$disconnect();
-          } finally {
-            await receiverPool?.end();
-          }
-        })(),
-        (async () => {
-          try {
-            await direct.$disconnect();
-          } finally {
-            await directPool.end();
-          }
-        })(),
-      ]);
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
+        const cleanup = Promise.allSettled([
+          app.close(),
+          (async () => {
+            await receiver?.$disconnect().catch(recordFailure);
+            await receiverPool?.end().catch(recordFailure);
+          })(),
+          (async () => {
+            await direct.$disconnect().catch(recordFailure);
+            await directPool.end().catch(recordFailure);
+          })(),
+        ]);
         const completed = await Promise.race([
           cleanup,
           new Promise<never>((_, reject) => {
@@ -167,19 +167,25 @@ test("native PostgreSQL COMMIT acknowledgement loss", () => {
             );
           }),
         ]);
-        const failures = completed.filter(
-          (result) => result.status === "rejected",
-        );
-        if (failures.length)
-          throw new AggregateError(
-            failures.map((result) => result.reason),
-            "commit_loss_fixture_cleanup_failed",
-          );
+        for (const result of completed) {
+          if (result.status === "rejected") recordFailure(result.reason);
+        }
+      } catch (error) {
+        recordFailure(error);
       } finally {
         clearTimeout(timer);
-        await proxy?.close();
+        try {
+          await proxy?.close();
+        } catch (error) {
+          recordFailure(error);
+        }
       }
     }
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1)
+      throw new AggregateError(failures, "commit_loss_fixture_failed", {
+        cause: failures[0],
+      });
   }, 20_000);
 });
 

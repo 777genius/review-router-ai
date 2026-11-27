@@ -66,6 +66,7 @@ describe("PrismaGitHubAppAuthorizationWebhookHandler", () => {
     const deleteMany = vi.fn().mockResolvedValue({ count: 1 });
     const finish = vi.fn().mockResolvedValue({});
     const transaction = {
+      $executeRaw: vi.fn().mockResolvedValue(1),
       $queryRaw: vi
         .fn()
         .mockImplementation(async (sql: { text: string }) =>

@@ -36,7 +36,10 @@ export function validateWebhookRecoveryCommand(
     !["inspect", "request", "reconcile"].includes(command.mode) ||
     !command.deliveryGuid ||
     command.deliveryGuid.length > 200 ||
-    /[\u0000-\u0020\u007f]/u.test(command.deliveryGuid) ||
+    Array.from(command.deliveryGuid).some((character) => {
+      const code = character.charCodeAt(0);
+      return code <= 0x20 || code === 0x7f;
+    }) ||
     typeof command.githubDeliveryId !== "bigint" ||
     command.githubDeliveryId < 1n ||
     command.githubDeliveryId > BigInt(Number.MAX_SAFE_INTEGER)
