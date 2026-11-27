@@ -8,64 +8,55 @@ const leaked = "github_pat_privateSuperSecret123";
 
 describe("signed GitHub webhook HTTP failure privacy", () => {
   it.each([
-    {
-      scenario: "handler rejection",
-      rejectMarkFailed: false,
-      rejectCallback: false,
-    },
-    {
-      scenario: "delivery failure persistence rejection",
-      rejectMarkFailed: true,
-      rejectCallback: false,
-    },
-    {
-      scenario: "processing callback failure",
-      rejectMarkFailed: false,
-      rejectCallback: true,
-    },
-  ])("keeps $scenario errors opaque", async (scenario) => {
-    const { rejectMarkFailed, rejectCallback } = scenario;
+    "handler rejection",
+    "commit rejection",
+    "processing callback failure",
+  ])("keeps %s errors opaque", async (scenario) => {
     const app = Fastify({ logger: false });
     const onProcessingError = vi.fn(() => {
-      if (rejectCallback) throw new Error(`observer failure: ${leaked}`);
+      if (scenario === "processing callback failure")
+        throw new Error(`observer failure: ${leaked}`);
     });
     const deliveries = {
       tryStartProcessing: vi.fn(async () => true),
       markProcessed: vi.fn(async () => {}),
       markFailed: vi.fn(async () => {}),
     };
-    if (rejectMarkFailed) {
-      deliveries.markFailed.mockRejectedValueOnce(
-        new Error(`storage rejected: ${leaked}`),
-      );
-    }
-
     try {
       await registerGitHubWebhookRoutes(app, {
         webhookSecret: secret,
-        installations: {} as never,
-        deliveries,
         onProcessingError,
-        appAuthorizations: {
-          async handleGitHubAppAuthorizationWebhook() {
-            throw new Error(`authorization rejected: ${leaked}`);
+        transactions: {
+          async run(_eventName, work) {
+            const result = await work({
+              installations: {} as never,
+              deliveries,
+              appAuthorizations: {
+                async handleGitHubAppAuthorizationWebhook() {
+                  if (scenario !== "commit rejection")
+                    throw new Error(`authorization rejected: ${leaked}`);
+                  return { processed: true };
+                },
+              },
+              clock: { now: () => new Date("2026-10-31T10:00:00.000Z") },
+            });
+            if (scenario === "commit rejection")
+              throw new Error(`commit rejected: ${leaked}`);
+            return result;
           },
         },
-        clock: { now: () => new Date("2026-10-31T10:00:00.000Z") },
       });
       const payload = JSON.stringify({
         action: "revoked",
         sender: { id: 123, login: "private-actor" },
       });
-      const signature = signGitHubWebhookPayload(payload, secret);
-
       const response = await app.inject({
         method: "POST",
         url: "/webhooks/github",
         headers: {
           "x-github-event": "github_app_authorization",
           "x-github-delivery": "private-delivery-1",
-          "x-hub-signature-256": signature,
+          "x-hub-signature-256": signGitHubWebhookPayload(payload, secret),
           "content-type": "application/json",
         },
         payload,
@@ -76,10 +67,7 @@ describe("signed GitHub webhook HTTP failure privacy", () => {
       });
       expect(response.body).not.toContain(leaked);
       expect(onProcessingError).toHaveBeenCalledExactlyOnceWith();
-      expect(deliveries.markFailed).toHaveBeenCalledExactlyOnceWith({
-        deliveryId: "private-delivery-1",
-        errorSummary: "github_webhook_processing_failed",
-      });
+      expect(deliveries.markFailed).not.toHaveBeenCalled();
     } finally {
       await app.close();
     }

@@ -1,4 +1,8 @@
-import { gatewayProfileAcceptsRequestedModel } from "./review-run-gateway-model-qualification";
+import {
+  gatewayProfileAcceptsRequestedModel,
+  gatewayProfileMatchesCapturedNativeContext,
+} from "./review-run-gateway-model-qualification";
+import type { NativeGatewayRelayPolicySource } from "./native-gateway-relay-policy";
 import type { GatewayModelQualificationProfile } from "./review-run-gateway-model-qualification";
 import type { UsageIdentity } from "@reviewrouter/features-provider-usage";
 import { gatewayUsageReceipt } from "./provider-usage-gateway-relay-receipt";
@@ -249,6 +253,7 @@ type Session = {
  * authority/selected facts. Absence NEVER replays inference or auto-recovers. */
 export function createReviewRunGatewayRelay(input: {
   readonly policy: ReviewRunGatewayRelayPolicy;
+  readonly nativePolicySource?: NativeGatewayRelayPolicySource | undefined;
   readonly runAccess: RunAccessConfig;
   /** Authenticated SCM observation only; never proof of absent model effects. */
   readonly isSourceRunTerminal?: (
@@ -1492,11 +1497,12 @@ export function createReviewRunGatewayRelay(input: {
       );
       if (
         qualified.length !== 1 ||
-        qualified[0]!.profile.protocol !== "openai-responses" ||
-        !gatewayProfileAcceptsRequestedModel(
-          qualified[0]!.profile,
-          provider.model,
-        ) ||
+        (!input.nativePolicySource &&
+          (qualified[0]!.profile.protocol !== "openai-responses" ||
+            !gatewayProfileAcceptsRequestedModel(
+              qualified[0]!.profile,
+              provider.model,
+            ))) ||
         gateway.limits.tokens > qualified[0]!.outputTokens
       )
         throw new RelayFailure("gateway_unavailable", 403);
@@ -1641,6 +1647,31 @@ export function createReviewRunGatewayRelay(input: {
           claim.dispatch.nativeRequestRef,
           companionReadback(claim.dispatch),
         );
+      // Exact persisted claims above keep their original identity/readback even
+      // during a discovery outage. Only a new inference needs current discovery.
+      const nativeObservation = await input.nativePolicySource?.read();
+      const nativeProfile = nativeObservation?.policy.profiles.find(
+        (entry) => entry.profile.profileId === gateway.profileRef,
+      )?.profile;
+      const ensureNativeFresh = () => {
+        if (
+          input.nativePolicySource &&
+          (!nativeObservation ||
+            !input.nativePolicySource.isFresh(nativeObservation) ||
+            !nativeProfile ||
+            !gatewayProfileMatchesCapturedNativeContext(
+              nativeProfile,
+              gateway.nativeContext,
+            ) ||
+            !gatewayProfileAcceptsRequestedModel(nativeProfile, provider.model))
+        )
+          throw new RelayFailure("gateway_unavailable", 403);
+      };
+      try {
+        ensureNativeFresh();
+      } catch (error) {
+        return await refuseBeforeForward(error as RelayFailure);
+      }
       const remaining = Math.min(
         policy.requestTimeoutMs,
         session.deadline - Date.now(),
@@ -1736,6 +1767,7 @@ export function createReviewRunGatewayRelay(input: {
                   "effect_unknown",
                   claim.dispatch.nativeRequestRef,
                 );
+              ensureNativeFresh();
             },
             reviewerId,
           );
@@ -1785,6 +1817,7 @@ export function createReviewRunGatewayRelay(input: {
               async () => {
                 requestStage = "local_authority";
                 await fresh();
+                ensureNativeFresh();
                 requestStage = "sdk_request";
               },
             );

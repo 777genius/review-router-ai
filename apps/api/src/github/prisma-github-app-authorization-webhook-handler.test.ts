@@ -11,15 +11,17 @@ describe("PrismaGitHubAppAuthorizationWebhookHandler", () => {
     vi.stubEnv("GITHUB_APP_SLUG", "reviewrouter-test");
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const deleteMany = vi.fn().mockResolvedValue({ count: 2 });
+    const transaction = {
+      gitHubUserAuthorization: { updateMany },
+      repositoryPermissionCache: { deleteMany },
+    };
     const prisma = {
+      ...transaction,
       user: {
         findMany: vi.fn().mockResolvedValue([{ id: "user_1" }]),
       },
-      gitHubUserAuthorization: { updateMany },
-      repositoryPermissionCache: { deleteMany },
-      $transaction: vi
-        .fn()
-        .mockImplementation((operations) => Promise.all(operations)),
+      $connect: vi.fn(),
+      $transaction: vi.fn().mockImplementation((work) => work(transaction)),
     } as unknown as PrismaClient;
 
     await expect(

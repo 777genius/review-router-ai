@@ -58,10 +58,6 @@ function expectedLegacyUsageReport(
         ...run,
         identities: run.identities.map(withUnknownBilling),
       })),
-      facets: {
-        ...overview.facets,
-        models: overview.facets.models.map(withUnknownBilling),
-      },
     },
   };
 }

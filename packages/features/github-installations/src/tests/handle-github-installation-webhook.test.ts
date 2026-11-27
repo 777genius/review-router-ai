@@ -103,13 +103,20 @@ class InMemoryDeliveries implements WebhookDeliveryRepositoryPort {
 }
 
 describe("handleGitHubInstallationWebhook", () => {
-  it("records only a safe code when an installation dependency throws private text", async () => {
+  it("preserves the original failure for the transaction owner without a second database write", async () => {
     const installations = new InMemoryInstallations();
     const deliveries = new InMemoryDeliveries();
     const secret = "github_pat_privateSuperSecret123";
-    vi.spyOn(installations, "upsertInstallation").mockRejectedValueOnce(
+    const failure = Object.assign(
       new Error(`provider failure Authorization: Bearer ${secret}`),
+      { code: "P2034" },
     );
+    vi.spyOn(installations, "upsertInstallation").mockRejectedValueOnce(
+      failure,
+    );
+    const markFailed = vi
+      .spyOn(deliveries, "markFailed")
+      .mockRejectedValue(new Error("transaction_is_already_aborted"));
     await expect(
       handleGitHubInstallationWebhook(
         {
@@ -128,13 +135,8 @@ describe("handleGitHubInstallationWebhook", () => {
         },
         { installations, deliveries, clock: fixedClock },
       ),
-    ).rejects.toThrow("provider failure");
-    const saved = deliveries.deliveries.get("delivery-sensitive-error");
-    expect(saved).toMatchObject({
-      status: "failed",
-      errorSummary: "github_webhook_processing_failed",
-    });
-    expect(JSON.stringify(saved)).not.toContain(secret);
+    ).rejects.toBe(failure);
+    expect(markFailed).not.toHaveBeenCalled();
   });
 
   it("upserts installation events and dedupes delivery ids before side effects", async () => {

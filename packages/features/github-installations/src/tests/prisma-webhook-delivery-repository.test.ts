@@ -3,12 +3,10 @@ import { PrismaWebhookDeliveryRepository } from "../infrastructure/prisma/prisma
 
 describe("PrismaWebhookDeliveryRepository", () => {
   it("reclaims an exact failed delivery without reopening a different payload", async () => {
-    const create = vi.fn(async () => {
-      throw { code: "P2002" };
-    });
+    const createMany = vi.fn(async () => ({ count: 0 }));
     const updateMany = vi.fn(async () => ({ count: 1 }));
     const repository = new PrismaWebhookDeliveryRepository({
-      gitHubWebhookDelivery: { create, updateMany },
+      gitHubWebhookDelivery: { createMany, updateMany },
     } as never);
 
     await expect(
@@ -40,9 +38,7 @@ describe("PrismaWebhookDeliveryRepository", () => {
   it("does not reclaim a processed or identity-mismatched delivery", async () => {
     const repository = new PrismaWebhookDeliveryRepository({
       gitHubWebhookDelivery: {
-        create: vi.fn(async () => {
-          throw { code: "P2002" };
-        }),
+        createMany: vi.fn(async () => ({ count: 0 })),
         updateMany: vi.fn(async () => ({ count: 0 })),
       },
     } as never);

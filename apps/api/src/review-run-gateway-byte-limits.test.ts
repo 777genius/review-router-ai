@@ -30,6 +30,7 @@ import { workspacePolicyFixture } from "../../../packages/features/review-config
 import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config";
 import { createReviewRunGatewayPreparation } from "./review-run-gateway-preparation";
 import * as preparationModule from "./review-run-gateway-preparation";
+import type { NativeGatewayRelayPolicyObservation } from "./native-gateway-relay-policy";
 import {
   createReviewRunGatewayRelay,
   createReviewRunGatewayTerminalGate,
@@ -5748,6 +5749,218 @@ it("drains more retained sessions than cleanup slots during shutdown", async () 
   } finally {
     gate?.release();
     await Promise.allSettled([first, shutdown]);
+    await f.relay.shutdown();
+  }
+});
+
+async function nativeRecoveryFixture(companion = false) {
+  const state = companionReservation();
+  const base = await fixture(
+    32768,
+    0,
+    2,
+    5000,
+    undefined,
+    companion ? { admission: state.admission } : undefined,
+  );
+  const context = {
+    schemaVersion: 1 as const,
+    profileId: "profile-1",
+    providerId: "native-provider",
+    productId: "native-product",
+  };
+  const original = base.authorization("authorization-1");
+  const snapshot = JSON.parse(original.runtimeSnapshotCanonicalJson!);
+  snapshot.gateway.nativeContext = context;
+  base.overrides.set("authorization-1", {
+    runtimeSnapshotCanonicalJson: canonicalJson(snapshot),
+  });
+  const policy = {
+    ...base.relayInput.policy,
+    profiles: [
+      {
+        outputTokens: 32768,
+        profile: {
+          profileId: "profile-1",
+          protocol: "openai-responses" as const,
+          authKinds: [] as [],
+          modelIds: ["gpt-5.6-sol"],
+          nativeContext: context,
+          modelPolicy: {
+            contract: "native-account-models/v2" as const,
+            sourceId: "native-models",
+            unavailableFallback: "deny" as const,
+          },
+        },
+      },
+    ],
+  };
+  let now = 0;
+  let current: NativeGatewayRelayPolicyObservation | undefined = {
+    policy,
+    expiresAt: 30_000,
+  };
+  const read = vi.fn(async () => current);
+  const relay = createReviewRunGatewayRelay({
+    ...base.relayInput,
+    policy,
+    nativePolicySource: { read, isFresh: (value) => now < value.expiresAt },
+  });
+  return {
+    ...base,
+    relay,
+    state,
+    read,
+    outage() {
+      current = undefined;
+    },
+    recover() {
+      current = { policy, expiresAt: now + 30_000 };
+    },
+    at(value: number) {
+      now = value;
+    },
+    change(kind: "disabled" | "removed" | "provider" | "product") {
+      const profile = policy.profiles[0]!.profile;
+      current = {
+        expiresAt: now + 30_000,
+        policy: {
+          ...policy,
+          profiles:
+            kind === "removed"
+              ? []
+              : [
+                  {
+                    outputTokens: 32768,
+                    profile:
+                      kind === "disabled"
+                        ? {
+                            profileId: "profile-1",
+                            protocol: "openai-responses",
+                            authKinds: [],
+                            modelIds: [],
+                          }
+                        : {
+                            ...profile,
+                            nativeContext: {
+                              ...context,
+                              ...(kind === "provider"
+                                ? { providerId: "replacement-provider" }
+                                : { productId: "replacement-product" }),
+                            },
+                          },
+                  },
+                ],
+        },
+      };
+    },
+  };
+}
+
+it("recovers native inference after a catalog outage with the same relay owner and captured identity", async () => {
+  const f = await nativeRecoveryFixture();
+  try {
+    f.outage();
+    await expect(streamRun(f, "authorization-1")).rejects.toMatchObject({
+      code: "gateway_unavailable",
+      effect: "not_dispatched",
+    });
+    expect(f.intents).toHaveLength(0);
+    expect(f.admissions).toHaveLength(0);
+    f.recover();
+    await expect(streamRun(f, "authorization-1")).resolves.toBe("stream");
+    expect(f.intents).toHaveLength(1);
+    expect(f.admissions).toHaveLength(1);
+    const readCount = f.read.mock.calls.length;
+    f.outage();
+    await f.relay.close("authorization-1", "completed");
+    expect(f.read).toHaveBeenCalledTimes(readCount);
+    expect(f.nativeCloses).toHaveLength(1);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it.each(["disabled", "removed", "provider", "product"] as const)(
+  "denies fresh inference for %s native qualification while retained cleanup stays usable",
+  async (change) => {
+    const f = await nativeRecoveryFixture();
+    try {
+      await streamRun(f, "authorization-1");
+      f.change(change);
+      await expect(streamRun(f, "authorization-1")).rejects.toMatchObject({
+        code: "gateway_unavailable",
+        effect: "not_dispatched",
+      });
+      expect(f.admissions).toHaveLength(1);
+      await f.relay.close("authorization-1", "completed");
+      expect(f.nativeCloses).toHaveLength(1);
+      expect(f.admissions).toHaveLength(1);
+    } finally {
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it("returns exact persisted companion replay and readback during discovery failure without another native request", async () => {
+  const f = await nativeRecoveryFixture(true);
+  try {
+    const response = await f.relay.responses(
+      "authorization-1",
+      companionEnvelope(),
+      new AbortController(),
+      undefined,
+      companionContext,
+    );
+    if (response.kind !== "stream") throw new Error("stream_expected");
+    for await (const _chunk of response.body) void _chunk;
+    expect(f.state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "completed",
+    );
+    f.outage();
+    const reads = f.read.mock.calls.length;
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({
+      code: "companion_dispatch_already_claimed",
+      effect: "completed",
+      requestRef: "stored-companion-native-ref",
+    });
+    await expect(
+      f.relay.status("authorization-1", "stored-companion-native-ref"),
+    ).resolves.toMatchObject({ effect: "completed" });
+    expect(f.read).toHaveBeenCalledTimes(reads);
+    expect(f.admissions).toHaveLength(1);
+    await f.relay.close("authorization-1", "completed");
+    expect(f.nativeCloses).toHaveLength(1);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it("rejects native qualification expiring during preparation before any inference is forwarded", async () => {
+  const f = await nativeRecoveryFixture();
+  const prepare = f.holdPrepare();
+  try {
+    const result = streamRun(f, "authorization-1");
+    const rejected = expect(result).rejects.toMatchObject({
+      code: "gateway_unavailable",
+      effect: "not_dispatched",
+    });
+    await prepare.started;
+    f.at(30_000);
+    prepare.release();
+    await rejected;
+    expect(f.intents).toHaveLength(1);
+    expect(f.admissions).toHaveLength(0);
+  } finally {
+    prepare.release();
     await f.relay.shutdown();
   }
 });

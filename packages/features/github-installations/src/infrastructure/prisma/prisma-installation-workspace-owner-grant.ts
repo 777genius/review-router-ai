@@ -1,16 +1,29 @@
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import type {
   InstallationWorkspaceOwnerGrant,
   InstallationWorkspaceOwnerGrantPort,
 } from "../../application/ports/installation-workspace-owner-grant-port";
 
 export class PrismaInstallationWorkspaceOwnerGrant implements InstallationWorkspaceOwnerGrantPort {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient | Prisma.TransactionClient,
+  ) {}
+
+  // Prisma 7 transaction proxies expose $transaction too; only the root client
+  // owns connection lifecycle and may start a new transaction.
+  private transaction<T>(
+    work: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    return "$connect" in this.prisma &&
+      typeof this.prisma.$connect === "function"
+      ? this.prisma.$transaction(work)
+      : work(this.prisma);
+  }
 
   async grantInstallationActorOwner(
     grant: InstallationWorkspaceOwnerGrant,
   ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+    await this.transaction(async (tx) => {
       const installation = await tx.gitHubInstallation.findUnique({
         where: {
           githubInstallationId: BigInt(grant.githubInstallationId),

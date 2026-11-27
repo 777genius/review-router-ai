@@ -12,7 +12,9 @@ import type { PrismaClient } from "@reviewrouter/platform-db";
 type RepositoryVisibility = "public" | "private" | "internal";
 
 export class PrismaRepositoryWebhookHandler {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient | Prisma.TransactionClient,
+  ) {}
 
   async handleGitHubRepositoryWebhook(
     envelope: GitHubRepositoryWebhookEnvelope,

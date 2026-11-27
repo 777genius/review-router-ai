@@ -14,6 +14,22 @@ export type GatewayModelQualificationProfile = {
   }>;
 };
 
+/** Discovery may qualify an existing native identity, never replace it. */
+export function gatewayProfileMatchesCapturedNativeContext(
+  profile: GatewayModelQualificationProfile,
+  captured: ReviewRunNativeProviderContext | undefined,
+): boolean {
+  const current = profile.nativeContext;
+  return (
+    !!captured &&
+    !!current &&
+    profile.protocol === "openai-responses" &&
+    current.profileId === captured.profileId &&
+    current.providerId === captured.providerId &&
+    current.productId === captured.productId
+  );
+}
+
 /** Server-qualified dynamic profiles defer exact model membership and capability
  * checks to the authorized Gateway/native catalogue at dispatch. Other profiles
  * retain their configured model allowlist. This does not authorize an account.

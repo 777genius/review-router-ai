@@ -13,12 +13,25 @@ function workspaceSlugForInstallation(
 }
 
 export class PrismaGitHubInstallationRepository implements GitHubInstallationRepositoryPort {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient | Prisma.TransactionClient,
+  ) {}
+
+  // Prisma 7 transaction proxies expose $transaction too; only the root client
+  // owns connection lifecycle and may start a new transaction.
+  private transaction<T>(
+    work: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    return "$connect" in this.prisma &&
+      typeof this.prisma.$connect === "function"
+      ? this.prisma.$transaction(work)
+      : work(this.prisma);
+  }
 
   async upsertInstallation(
     snapshot: GitHubInstallationSnapshot,
   ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+    await this.transaction(async (tx) => {
       // Installation IDs have no current-scope key. Repository membership can
       // span workspaces and change during inventory transfers; an unprotected
       // fanout query cannot predeclare the union. Fence globally before reads.
@@ -90,7 +103,7 @@ export class PrismaGitHubInstallationRepository implements GitHubInstallationRep
   }
 
   async markInstallationRemoved(githubInstallationId: string): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+    await this.transaction(async (tx) => {
       // Installation IDs have no current-scope key. Repository membership can
       // span workspaces and change during inventory transfers; an unprotected
       // fanout query cannot predeclare the union. Fence globally before reads.

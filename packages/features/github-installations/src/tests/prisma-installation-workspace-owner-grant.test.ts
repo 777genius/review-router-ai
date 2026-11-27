@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PrismaInstallationWorkspaceOwnerGrant } from "../infrastructure/prisma/prisma-installation-workspace-owner-grant";
 
 type UserRow = {
@@ -22,8 +22,21 @@ class FakeOwnerGrantPrisma {
   public readonly members = new Map<string, WorkspaceMemberRow>();
   private memberSequence = 0;
 
-  async $transaction<T>(callback: (tx: this) => Promise<T>): Promise<T> {
-    return callback(this);
+  public readonly $connect = vi.fn();
+
+  async $transaction<T>(
+    callback: (
+      tx: Pick<
+        FakeOwnerGrantPrisma,
+        "gitHubInstallation" | "user" | "workspaceMember"
+      >,
+    ) => Promise<T>,
+  ): Promise<T> {
+    return callback({
+      gitHubInstallation: this.gitHubInstallation,
+      user: this.user,
+      workspaceMember: this.workspaceMember,
+    });
   }
 
   public readonly gitHubInstallation = {

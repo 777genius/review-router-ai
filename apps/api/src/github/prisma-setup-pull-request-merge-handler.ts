@@ -1,9 +1,12 @@
 import type { GitHubPullRequestWebhookEnvelope } from "@reviewrouter/features-github-installations";
 import type { PrismaClient } from "@reviewrouter/platform-db";
+import type { Prisma } from "@prisma/client";
 import { PrismaWorkflowProvisioningStatusAuthority } from "@reviewrouter/features-workflow-provisioning/composition";
 
 export class PrismaSetupPullRequestMergeHandler {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient | Prisma.TransactionClient,
+  ) {}
 
   async handleGitHubPullRequestWebhook(
     envelope: GitHubPullRequestWebhookEnvelope,

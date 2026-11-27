@@ -62,11 +62,11 @@ Observed from live GitHub on 2026-11-27, not inferred from old conversation stat
 | #959 | Merged | Preserve native provider contracts; ReviewRouter does not copy native provider logic. |
 | #1008, `7681003e` | Draft | Do not edit worker `review-v2-projection-envelope.ts` or `review-v2-publication-payloads.ts` and its test. |
 | #1020, `46e20e3d` | Open | Do not duplicate `apps/web/src/features/provider-setup/setup-provider.ts` selector fix or its test. |
-| #1017, `5183c9f5` | Draft | Gateway management ingress in `deploy/hetzner/apply-domain.sh` belongs to that PR. |
+| #1017, `45283edc` | Open | Gateway management ingress and its deployment evidence belong to that PR. |
 | #1010, `c31ab0b8` | Draft | Shared Identity/SCM plans own future identity/session/account migration. |
 | #474, `f4523cae` | Draft | Offline custody envelope rebind and PG17 cutover remain separately owned. |
 | #1002, `021c7828` | Draft | Full-root Markdown-reference adoption is not part of this PR. |
-| #1015 | Open | Format-only review-history tooling correction may arrive through main. |
+| #1015, `907bb607` | Open | Main already includes its original formatting correction. Reuse only the independently checked four-line Usage fixture correction below, with attribution; do not merge the other PR or change report semantics. |
 | #1013, #1014, #1019 | Open/Draft | Deployment records retain their own observed facts; merge index additions additively. |
 | #869, #870, #864, #872 | Draft | Homepage and video work excluded. |
 
@@ -498,9 +498,28 @@ effects survive restart and rollback. Never delete pending work to recover healt
   uses its partial index even under a forced generic prepared plan. A skewed
   health-history fixture justified the workspace/repository/latest-order index.
   Policy uses its existing version index; no speculative index was added.
-- G source and model-settings suites initially passed 68 tests. Remaining snapshot,
-  relay and authorization suites are being qualified separately with one CPU and
-  one worker; an earlier resource-killed batch supplies no passing evidence.
+- G source/model-settings passed 68 tests; the initial runtime-snapshot suite
+  passed 90, adjacent authorization suites 37, and the final repository admission
+  suite 11. The final suite proves rollback after later authority SQL, authorization
+  insertion and outbox insertion cross the catalog TTL. Seven new relay recovery
+  cases and one original HTTP case passed separately. The complete 182-case relay
+  suite and the extended 91-case snapshot suite still need successful completion;
+  interrupted runs supply no evidence for their remaining cases.
+- Cross-owner G review found TTL could expire during SQL after the first runtime
+  fence. The existing authorization repository now checks a synchronous native
+  freshness predicate after all new authorization/outbox writes. Expiry throws
+  through the real transaction boundary; only the outer catch maps it to
+  EligibilityChanged. Exact persisted replay bypasses this new-admission check.
+  No HTTP, repeated SQL, recapture, wire field or lock-order change was added.
+- I adapter regression: 102 existing tests in seven suites passed with the updated
+  root-versus-transaction fixtures. Independent owners reviewed transaction joins,
+  receipt identity, error privacy and the actual PostgreSQL COMMIT-loss proxy.
+  A second review added concurrent push commit/abort cases to prove unique receipt
+  fencing without the installation global lock masking that database boundary.
+- Whole changed-source syntax ESLint passed for 131 files, and the architecture
+  checker passed for 704 domain/application files. Full original TS7 configs passed
+  for shared, platform-db, repo-health and support-diagnostics; remaining original
+  projects are pending. No include set, test assertion or compiler was weakened.
 - I implementation joins receipt, local handlers and outbox in one root transaction.
   Independent review found that wrapping every event in Serializable would change
   installation authority visibility after a scope-lock wait. The composition now
@@ -515,6 +534,17 @@ effects survive restart and rollback. Never delete pending work to recover healt
   A separate PostgreSQL protocol proxy will distinguish a committed transaction
   whose acknowledgment was lost from a transaction that rolled back. These tests
   remain pending until their recorded successful execution.
+
+- Open-PR recheck: #1008 and #1020 retain their audited source and ownership;
+  #1017 now includes updated ingress/deployment evidence and stays separate.
+  #1015 now has one four-line test-only correction against main at
+  `907bb60730ba3bd38a1e288c6528143f6cdaada1`: filter facets contain provider/model
+  identities, while billing metadata belongs to metrics and report rows. The
+  legacy expected-report helper incorrectly added billing to facets. Independent
+  SQL/builder review and byte-for-byte comparison approved reusing exactly that
+  deletion to remove the known baseline qualification failure. All 20 PostgreSQL
+  test bodies and complete report equality assertions remain unchanged; their
+  rerun is pending. No production Usage change or merge of another PR is included.
 
 ### Remaining qualification and review gates
 

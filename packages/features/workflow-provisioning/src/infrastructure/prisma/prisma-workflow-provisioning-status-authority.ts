@@ -3,7 +3,7 @@ import {
   managedCodexWorkflowPath,
   reviewRouterWorkflowContract,
 } from "@reviewrouter/protocol-review-workflow";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import type {
   WorkflowProvisioningAttempt,
   WorkflowProvisioningRecord,
@@ -33,7 +33,9 @@ type Failure =
   | "setup_pr_workflow_mismatch";
 
 export class PrismaWorkflowProvisioningStatusAuthority {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient | Prisma.TransactionClient,
+  ) {}
 
   async markConfigured(
     input: WorkflowProvisioningPullRequestIdentity & {

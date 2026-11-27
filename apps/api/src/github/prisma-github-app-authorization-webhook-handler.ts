@@ -1,8 +1,10 @@
 import type { GitHubAppAuthorizationWebhookEnvelope } from "@reviewrouter/features-github-installations";
-import type { PrismaClient } from "@reviewrouter/platform-db";
+import type { Prisma, PrismaClient } from "@prisma/client";
 
 export class PrismaGitHubAppAuthorizationWebhookHandler {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient | Prisma.TransactionClient,
+  ) {}
 
   async handleGitHubAppAuthorizationWebhook(
     envelope: GitHubAppAuthorizationWebhookEnvelope,
@@ -23,8 +25,8 @@ export class PrismaGitHubAppAuthorizationWebhookHandler {
 
     const userIds = users.map((user) => user.id);
     const appSlug = resolveGitHubAppSlug();
-    await this.prisma.$transaction([
-      this.prisma.gitHubUserAuthorization.updateMany({
+    const revoke = async (tx: Prisma.TransactionClient) => {
+      await tx.gitHubUserAuthorization.updateMany({
         where: {
           appSlug,
           userId: { in: userIds },
@@ -36,11 +38,14 @@ export class PrismaGitHubAppAuthorizationWebhookHandler {
           revokedAt: new Date(),
           lastErrorCode: "github_app_authorization_revoked",
         },
-      }),
-      this.prisma.repositoryPermissionCache.deleteMany({
+      });
+      await tx.repositoryPermissionCache.deleteMany({
         where: { userId: { in: userIds }, authorizationAppSlug: appSlug },
-      }),
-    ]);
+      });
+    };
+    if ("$connect" in this.prisma && typeof this.prisma.$connect === "function")
+      await this.prisma.$transaction(revoke);
+    else await revoke(this.prisma);
 
     return {
       processed: true,

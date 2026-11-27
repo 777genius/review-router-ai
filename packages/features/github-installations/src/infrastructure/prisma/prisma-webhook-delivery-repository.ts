@@ -5,12 +5,16 @@ import type {
 } from "../../application/ports/webhook-delivery-repository-port";
 
 export class PrismaWebhookDeliveryRepository implements WebhookDeliveryRepositoryPort {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: Pick<PrismaClient, "gitHubWebhookDelivery">,
+  ) {}
 
   async tryStartProcessing(delivery: WebhookDeliveryRecord): Promise<boolean> {
-    try {
-      await this.prisma.gitHubWebhookDelivery.create({
-        data: {
+    // ON CONFLICT keeps a duplicate receipt from aborting the enclosing unit of
+    // work. Catching a unique violation would leave PostgreSQL unable to proceed.
+    const inserted = await this.prisma.gitHubWebhookDelivery.createMany({
+      data: [
+        {
           deliveryId: delivery.deliveryId,
           eventName: delivery.eventName,
           action: delivery.action ?? null,
@@ -25,31 +29,28 @@ export class PrismaWebhookDeliveryRepository implements WebhookDeliveryRepositor
             ? { normalizedEvent: delivery.normalizedEvent }
             : {}),
         },
-      });
-      return true;
-    } catch (error) {
-      if (isUniqueConstraintError(error)) {
-        const retried = await this.prisma.gitHubWebhookDelivery.updateMany({
-          where: {
-            deliveryId: delivery.deliveryId,
-            eventName: delivery.eventName,
-            action: delivery.action ?? null,
-            installationId: delivery.installationId
-              ? BigInt(delivery.installationId)
-              : null,
-            payloadHash: delivery.payloadHash ?? null,
-            status: "failed",
-          },
-          data: {
-            status: "processing",
-            errorSummary: null,
-            processedAt: null,
-          },
-        });
-        return retried.count === 1;
-      }
-      throw error;
-    }
+      ],
+      skipDuplicates: true,
+    });
+    if (inserted.count === 1) return true;
+    const retried = await this.prisma.gitHubWebhookDelivery.updateMany({
+      where: {
+        deliveryId: delivery.deliveryId,
+        eventName: delivery.eventName,
+        action: delivery.action ?? null,
+        installationId: delivery.installationId
+          ? BigInt(delivery.installationId)
+          : null,
+        payloadHash: delivery.payloadHash ?? null,
+        status: "failed",
+      },
+      data: {
+        status: "processing",
+        errorSummary: null,
+        processedAt: null,
+      },
+    });
+    return retried.count === 1;
   }
 
   async markProcessed(deliveryId: string): Promise<void> {
@@ -71,13 +72,4 @@ export class PrismaWebhookDeliveryRepository implements WebhookDeliveryRepositor
       },
     });
   }
-}
-
-function isUniqueConstraintError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { readonly code?: unknown }).code === "P2002"
-  );
 }
