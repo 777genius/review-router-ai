@@ -47,6 +47,7 @@ import {
 } from "../../../src/features/provider-setup/api-key-storage";
 import { GatewayReviewerRoster } from "./gateway-reviewer-roster";
 import { ApiKeyStorageChoice } from "./api-key-storage-choice";
+import { ProviderCards } from "./provider-cards";
 import {
   setupProviderChoices,
   getSetupProvider as setupProviderDefinition,
@@ -97,7 +98,6 @@ import {
 } from "./gateway-account-status";
 import { AccountProviderLogo } from "../account-identity";
 import { ProviderAuthLogoFrame } from "../provider-auth-logo";
-import { ProviderLogo } from "../provider-logo";
 import {
   ProviderModelCatalogStatus,
   useProviderModelCatalogs,
@@ -252,7 +252,7 @@ export function ProviderSetupDialog(
       </DialogTrigger>
       <DialogPortal>
         <DialogBackdrop />
-        <DialogPopup className="w-[min(96vw,46rem)] p-0 [overflow-wrap:anywhere] [&_pre]:[overflow-wrap:anywhere]">
+        <DialogPopup className="w-[min(96vw,64rem)] p-0 [overflow-wrap:anywhere] [&_pre]:[overflow-wrap:anywhere]">
           <DialogCloseButton label="Close provider setup" disabled={locked} />
           {open ? (
             <ProviderSetupDialogBody
@@ -1722,10 +1722,8 @@ function ProviderChoiceStep({
               : "grid gap-4 border-t border-cyan-200/10 pt-5"
           }
         >
-          <SelectField
-            label="Provider"
-            value={setupProvider ?? ""}
-            placeholder="Choose a provider"
+          <ProviderCards
+            value={setupProvider}
             options={providerChoices.map((provider) => {
               const availability = storageAvailabilityFor(provider.id);
               const unavailable = Boolean(
@@ -1739,14 +1737,14 @@ function ProviderChoiceStep({
               return {
                 value: provider.id,
                 label: provider.label,
-                icon: <ProviderLogo providerId={provider.identity} />,
+                identity: provider.identity,
                 disabled: unavailable,
                 ...(unavailable && description ? { description } : {}),
               };
             })}
             disabled={pending || connectLocked}
             onValueChange={(value) =>
-              chooseSetupProvider(value as SetupProviderId, "reviewrouter")
+              chooseSetupProvider(value, "reviewrouter")
             }
           />
           {setupProvider === "claude-code" &&
