@@ -391,9 +391,7 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
         "4fe16668e4bc946a9f26f59835f3e7c6072b8ce4cc4ffcd39d667c5faa68c68b" ||
       webhookDeliveryCheckoutExtension.some(
         (extension) =>
-          !catalog.some(
-            (row) => row.migrationName === extension.migrationName,
-          ),
+          !catalog.some((row) => row.migrationName === extension.migrationName),
       )
     )
       fail("checkout_extension");

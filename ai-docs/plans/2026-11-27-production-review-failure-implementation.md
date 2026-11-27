@@ -600,3 +600,43 @@ retry consumer still requires the official SDK archive and lock integration,
 the real generated/exported protocol, a complete release-binding tuple and
 its joined consumer gate. Retained legacy/capacity128 source tuples must never
 authorize the new request-retry marker.
+
+### Bounded attested request retry consumer checkpoint
+
+Implement the remaining consumer through the existing model-dispatch claim,
+settlement and receipt paths. The new immutable producer profile is
+`model-dispatch-policy.native-retry.v1`; its capability retains the existing
+capacity128 marker and adds `retryPolicy: native-rejection-once.v1`. Legacy and
+capacity128 profiles keep their current behavior. Only `account_gateway`
+`finding_discovery` requests may consume the distinct
+`native_rejection_after_forward` settlement proof.
+
+The Gateway must attest the original request's protected admission conflict and
+physical transport closure while its original authority is live. RR binds that
+authenticated proof to the immutable original request before any unknown-effect
+settlement. Add only two nullable fields to the existing dispatch row: immutable
+`nativeRetryProofJson` and `retryOfDispatchId`, with a unique predecessor-use
+constraint. A successor is exactly one new dispatch, with the same body, route,
+limits, original lease/fence and authorization, and the next existing ordinal.
+Both requests remain charged to the original budget. A successor cannot itself
+have a successor; unknown effects, expired authority and auxiliary roles stay
+fenced. No new scheduler, ledger, wakeup, credentials or whole-slot replay.
+
+Receipt reconciliation must refresh the row after proof persistence and expose
+the actionable two-field `nativeRetryProof` only while original authority remains
+live. A successor claim repeats current authority, lease, scope and budget checks
+and enforces lineage atomically. Historical receipt retention does not grant a
+new dispatch allowance. Action retains the exact request bytes and allows one
+bounded, abortable delay before its one fresh successor.
+
+Independent Action review accepted this boundary and called out the mandatory
+proof-before-unknown ordering, strict readback identity, unchanged spent budget,
+same request limits and concurrent one-successor checks. Expected handwritten
+scope is 400-650 RR production lines and 600-1,000 focused test lines; Action
+adds about 150-300 production and 300-500 test lines. Complexity C=6/10,
+expected reliability N=8/10 after gates, estimate confidence 7/10. The main risks
+are cross-repository protocol export, lost acknowledgement reconciliation and
+concurrent successor admission. Source, strict compiler, focused PostgreSQL,
+official SDK/export binding, compiled Action and the existing joined native
+consumer oracle remain required evidence. This checkpoint authorizes no release
+registration, deployment or broader retry policy.
