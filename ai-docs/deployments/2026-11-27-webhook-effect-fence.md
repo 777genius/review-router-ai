@@ -39,11 +39,20 @@ been removed; existing authority owners and scope/row locks remain.
 | Full migration catalog                                                     | 172 directories, including `000165_webhook_effect_fence` and `000167_webhook_recovery_intent`; no experimental `000166` epoch migration |
 | Prior 170 → 172 migration rehearsal and isolated fence tests               | Partial earlier-source results; not evidence for the final replay guard/HTTP suite                                                      |
 | Full signed HTTP/Prisma/PostgreSQL/outbox and recovery matrix              | Checked in and mandatory in the existing CI; final execution pending                                                                    |
-| TypeScript 7.0.2, lint/format, architecture and ordinary CI                | Pending; local executor unavailable after resource-killed pinned dependency build                                                       |
+| TypeScript 7.0.2, lint/format, architecture and ordinary CI                | Pending; executor unavailable; final type/lint/architecture/CI remain unverified                                                        |
 | Production replay or fleet qualification                                   | Not executed; separately authorized operational work                                                                                    |
 
 Historical prototype/shim-based checks at `783409f2a21edc182df216d63c1f3cb4b84785bf`
 do not qualify this implementation. Do not treat queued/skipped CI as passing.
+
+Fresh code-check evidence at `6735c26d30a595874fcdc48172db405029680c5b`: frozen
+root/API dependency installation, verification of the exact pinned runtime in both
+installed peer contexts, isolated Prisma 7.9.0 client generation and all 11 harness
+unit tests passed with zero skips. These harness tests validate the runner and its
+result checks; the 13 PostgreSQL suites themselves have not completed on this source.
+The feature typecheck was stopped by its memory watchdog before diagnostics. The
+executor then disconnected under shared-memory pressure; final type/lint/runtime
+qualification and ordinary GitHub CI are still required. No deployment status changed.
 
 ## Applicability and prerequisites
 

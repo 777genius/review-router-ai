@@ -182,10 +182,19 @@ The earlier isolated fence tests and 170-baseline → 172-final migration rehear
 were partial checkpoints before the final replay guard, production HTTP suites and
 operator composition. They are not a passing result for the final source.
 
-The executor restarted during resource-killed dependency builds. The exact pinned
-subscription-runtime build subsequently passed with one CPU and bounded memory;
-its verified build artifact was retained. Changed-source formatting passed. Final
-TypeScript, lint, full migration/HTTP matrix and ordinary CI remain unverified.
+For `6735c26d30a595874fcdc48172db405029680c5b`, the frozen root/API install,
+exact pinned subscription-runtime artifact verification, isolated Prisma 7.9.0
+client generation and all 11 harness qualification unit tests passed with zero
+skips. This used Node 26.11.1, pnpm 11.28.7, TypeScript 7.0.2 and Vitest 4.1.10.
+The runtime source is unchanged from `882dee1b`; its 69-file formatting check
+passed. The later CI/docs edits received static review only.
+
+The feature typecheck was stopped by the resource watchdog before compiler
+diagnostics; it is neither a source failure nor a pass. Shared memory continued
+to fall after our heavy processes stopped, and the executor disconnected again.
+Final type/lint/architecture checks, the remaining unit suites and all 13 native
+PostgreSQL suites therefore remain unverified. Compact completed-check evidence
+was retained; earlier isolated PostgreSQL results do not qualify this source.
 The existing CI includes the mandatory
 `scripts/webhook-fencing/run-postgres.ts` runner; it executes every required suite
 in a fresh process and rejects skipped, missing or unsuccessful results. A queued
