@@ -36,11 +36,11 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
-[Provider and repository UI](2026-11-27-provider-and-repository-ui.md) — production `pending`; cards and repository-screen changes in PRs #1016 and #1018 await a selected release.
+[Provider and repository UI](2026-11-27-provider-and-repository-ui.md) — production `installed` on RR `5ab12e2d`; public readiness passed, authenticated UI verification remains pending.
 
 Production relay update 2026-11-26: RR `f20a75ed` and compatible Gateway/native installed, fleet readiness passed; task-specific verification remains pending. Approximately 2.4 GiB remained on production disk; see [installation](2026-11-22-relay-completed-close-recovery.md#production-installation--2026-11-26).
 
-Multi-tenant reliability: [authorization, bounded recovery/maintenance, inventory and ruleset concurrency, usage pagination, workspace selection and Action streaming](2026-11-25-multi-tenant-reliability.md), [PR #1007](https://github.com/777genius/review-router-ai/pull/1007) — Web/API/worker, four additive migrations and the ordinary public Action runtime release; staging and production `pending`. Old writers must be drained for the revised guarantees; unknown external-effect evidence is retained. No deployment is claimed.
+Multi-tenant reliability: [authorization, bounded recovery/maintenance, inventory and ruleset concurrency, usage pagination, workspace selection and Action streaming](2026-11-25-multi-tenant-reliability.md), [PR #1007](https://github.com/777genius/review-router-ai/pull/1007) — Web/API/worker, four additive migrations and the ordinary public Action runtime release; staging `pending`, production fleet and migrations `installed` on RR `5ab12e2d`. Live task-specific verification and the public Action runtime release remain pending; external-effect evidence is retained.
 
 Scoped dashboard/worker modular refactor: [combined delivery and qualification](2026-11-25-scoped-modular-refactor.md), [PR #998](https://github.com/777genius/review-router-ai/pull/998) — combines #999, #1000, #1001, #1004 and the agent-workflow/suppression portion of #1002; the global Markdown candidate remains in Draft #1002. Implementation checkpoint `ff30c381` passed production PostgreSQL E2E 17/17 and targeted native/static checks; full browser and CI qualification remain pending. Ordinary Web/worker rollout only, no migration or activation change; staging/production `pending`, no deployment authorized.
 
