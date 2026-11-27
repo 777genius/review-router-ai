@@ -453,3 +453,93 @@ fixture through both private and public ingress on Node 24.21.0 and 26.11.1.
 Those joined producer results do not stand in for the remaining RR ledger and
 compiled Action consumer acceptance. Main RR checks, official protocol/export,
 paired publication and final runtime integration remain separate gates.
+
+## Bounded discovery of an accepted, unattached original result
+
+The completed-output correction in Action #411 preserves finite validated bytes
+before the post-provider GitHub guard. The next separately reviewed slice lets
+an explicit later invocation discover those bytes after the original source
+lease has been released. This is a bounded recovery capability, not evidence
+that the incident contained an accepted orphan or that automatic long-wait
+continuation has been completed.
+
+### Contract and authority
+
+The restore response may add `unattachedAcceptedManifests` inside its existing
+computed `persistedPlan`. The original assignment JSON/hash, plan hash, canonical
+work slots and satisfied-only `acceptedManifests` retain their meanings. No new
+endpoint, request field, database column, SDK method, feature flag or scheduler
+is introduced.
+
+A hint requires the current Running execution and an Exhausted
+`finding_discovery` slot with attempt budget 1, next ordinal 2, no active lease
+and no accepted attachment. Select only the exact original execution/slot,
+scope, trust domain and reviewer vote; a bounded two-row query rejects
+ambiguity without using the ranked cross-execution candidate search. The
+accepted source must bind the original authorization, revision, plan, provider
+manifest/invocation, attempt, lease, owner and fence. Only the original
+Released/Expired provider lease at ordinal 1 can supply it. Existing same-attempt
+acceptance uniqueness supplies the concurrency bound.
+
+Reapply the existing canonical-payload, original-source and reporting-window
+validator before emitting the hint. Passing the provider work cutoff does not
+itself prohibit reporting or adoption: the original `resultReportUntil` and
+current authorization must still permit the existing operation. Preserve the
+existing expiry equality and idempotency rules; do not extend any ceiling.
+
+The Action keeps the original manifest and reconstructed committed coverage in
+the existing read-only restore wrapper. Its invocation cannot execute. Before
+adoption, the ordinary lookup must yield `Hit` with `same_execution` and the
+exact hinted observation/payload/invocation/vote/lease/fence/owner tuple. The
+existing adoption RPC performs the authoritative transition after fresh current
+execution CAS. Check the outer abort and hard execution deadline before lookup
+and again after that refresh. No provider start window is required for adopting
+completed work.
+
+A known hint remains sticky if a subsequent restore omits it: exact current
+lookup/adoption can still prove the original source. A missing, changed,
+ambiguous or failed proof ends the run before admission, reviewer fallback,
+cross-execution reuse or context replay. Without any hint, keep the existing
+exhausted-slot behavior. Other task kinds and multi-attempt slots are unchanged.
+
+### Review and acceptance boundary
+
+Root and two independent reviewers reduced the proposal to this single-attempt,
+same-authority path. They required a production-reachable crash boundary,
+explicit stale-hint failure, the existing report/work cutoff distinction, and
+compatibility outside immutable plan bytes. The exact twelve-file production
+diff received independent static approval. The source checkpoint also contains
+lookup/store/API, strict-decoder, read-only wrapper and orchestration tests,
+including an available fallback reviewer and abort/deadline races. Actual
+format, strict compiler, test and final bundle results remain required.
+
+The old Action decoder rejects new top-level keys but ignores unknown members
+inside `persistedPlan`; its existing satisfied-only list stays unchanged.
+Qualify this using the actual unchanged old decoder bytes, not a reimplemented
+parser or an assumption that optional JSON is compatible. Source inspection
+alone is not that executable compatibility result.
+
+The mandatory joined oracle uses the existing real RR PostgreSQL and compiled
+public Action runner. Complete and commit one provider result, make the next
+GitHub guard unavailable once, apply the actual source-lease release, and hold
+only its acknowledgement. Kill the first child before outer transport cleanup;
+then explicitly invoke a cold child with only the original authorization/runtime
+capture. It must discover all source IDs through restore and adopt the exact
+stored bytes without a new provider lease, attempt, dispatch, Gateway preparation
+or authorization grant. The ordinary adoption term may be created. Preserve
+original execution/lease identity and next ordinal 2. A direct database rewrite
+to Exhausted or an assumed lease sweeper is not this oracle.
+
+The original execution, Gateway preparation and report authority must still be
+live. This slice adds no wakeup owner, recovery after normal transport close,
+automatic runner replacement, or continuation past the original deadline.
+The durable trigger/long-wait boundary remains outstanding and is not subsumed
+from separately owned PR #1021. That PR has no file overlap with this checkpoint.
+
+Estimated handwritten scope after review: 380-500 production lines, 700-1,100
+test lines including the joined fixture, and 80-110 documentation lines.
+With the existing fixtures and usable execution tooling: 2-4 focused
+engineer-days. Complexity C=5/10; scoped utility U=8/10; expected reliability
+N=8/10 after all gates, with moderate estimate confidence. The source checkpoint
+does not establish runtime qualification, production deployment or a completed
+durable long-wait recovery feature.

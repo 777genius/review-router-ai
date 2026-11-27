@@ -38,6 +38,8 @@ export type LookupReviewEvidenceQuery = Readonly<{
   revision: ReviewRevision;
   planHash: string;
   executionId: string;
+  /** Server-selected source recovery excludes cross-execution candidates. */
+  sourceWorkSlotId?: string;
   manifest: ProviderInvocationManifest;
   manifestKey: string;
   providerInvocationKey: string;
@@ -70,6 +72,8 @@ export class LookupReviewEvidence {
     const manifest = normalizeProviderInvocationManifest(query.manifest);
     assertSha256(query.planHash, "plan_hash");
     assertIdentifier(query.executionId, "execution_id");
+    if (query.sourceWorkSlotId !== undefined)
+      assertIdentifier(query.sourceWorkSlotId, "source_work_slot_id");
     assertSha256(query.manifestKey, "manifest_key");
     assertSha256(query.providerInvocationKey, "provider_invocation_key");
     assertSha256(query.providerVoteIdentityHash, "provider_vote_identity_hash");
@@ -106,13 +110,37 @@ export class LookupReviewEvidence {
       policy.safetyDecision.safetyDecisionHash,
       "reuse_safety_decision_hash",
     );
-    const candidates = await this.dependencies.observations.findCandidates({
-      scope,
-      trustDomain: query.trustDomain,
-      providerInvocationKey: canonicalIdentity.providerInvocationKey,
-      reusableAfterMs: nowMs,
-      limit: reviewEvidenceMaxLookupCandidates,
-    });
+    const candidates = query.sourceWorkSlotId === undefined
+      ? await this.dependencies.observations.findCandidates({
+          scope,
+          trustDomain: query.trustDomain,
+          providerInvocationKey: canonicalIdentity.providerInvocationKey,
+          reusableAfterMs: nowMs,
+          limit: reviewEvidenceMaxLookupCandidates,
+        })
+      : await this.dependencies.observations.findSourceSlotCandidates({
+          scope,
+          trustDomain: query.trustDomain,
+          sourceExecutionId: query.executionId,
+          sourceWorkSlotId: query.sourceWorkSlotId,
+          providerVoteIdentityHash: query.providerVoteIdentityHash,
+          reusableAfterMs: nowMs,
+        });
+    if (query.sourceWorkSlotId !== undefined) {
+      if (candidates.length > 1)
+        throw new Error("review_observation_source_ambiguous");
+      const original = candidates[0];
+      if (!original) return miss([]);
+      if (
+        original.sourceExecutionId !== query.executionId ||
+        original.sourceWorkSlotId !== query.sourceWorkSlotId ||
+        original.manifestKey !== canonicalIdentity.manifestKey ||
+        original.providerInvocationKey !==
+          canonicalIdentity.providerInvocationKey ||
+        original.providerVoteIdentityHash !== query.providerVoteIdentityHash
+      )
+        return miss([ReviewReuseDenialReason.ManifestMismatch]);
+    }
     const decisions = candidates.map((observation) =>
       decideReviewReuseEligibility(observation, {
         scope,

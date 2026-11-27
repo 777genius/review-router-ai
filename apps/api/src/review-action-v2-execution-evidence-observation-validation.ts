@@ -314,7 +314,15 @@ export function assertAdoptionSourceLease(
 }
 
 export async function isAdoptionLookupSourceValid(input: {
-  readonly request: ReviewEvidenceLookupRequest;
+  readonly request: Pick<
+    ReviewEvidenceLookupRequest,
+    | "executionId"
+    | "workSlotId"
+    | "manifestCanonicalJson"
+    | "manifestKey"
+    | "providerInvocationKey"
+    | "providerVoteIdentityHash"
+  >;
   readonly authorization: ReviewRunAuthorization;
   readonly snapshot: ReviewExecutionSnapshot;
   readonly observation: ReviewObservation;

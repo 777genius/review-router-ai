@@ -1190,6 +1190,9 @@ async function createFixture(
       async findCandidates() {
         return currentObservation ? [currentObservation] : [];
       },
+      async findSourceSlotCandidates() {
+        throw new Error("unexpected_original_source_discovery");
+      },
     },
     reusePolicy: {
       async resolveReviewReusePolicy() {
