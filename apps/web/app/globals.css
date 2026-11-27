@@ -1985,3 +1985,10 @@ body:has([role="dialog"]) .z-50:has([role="listbox"]) {
 .rr-sticky-table tbody tr:hover {
   background-color: rgba(103, 232, 249, 0.03);
 }
+
+/* The GitHub mark is dark in its original asset and needs contrast on dark dashboard surfaces. */
+html[data-theme="dark"]
+  #dashboard-workspace
+  img[src="/service-icons/github.svg"] {
+  filter: invert(1);
+}
