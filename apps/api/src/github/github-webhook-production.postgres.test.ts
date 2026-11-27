@@ -60,6 +60,7 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
     beforeResponse?: () => Promise<void>;
   };
   const tokenProbes = new Map<string, TokenProbe>();
+  const processingErrors = new Map<string, unknown>();
   let githubOrigin = "";
   let address: string;
   let otherAppAddress: string;
@@ -72,19 +73,34 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
   ): Promise<string> {
     const app = Fastify({ logger: false });
     servers.push(app);
-    await registerGitHubWebhookRoutes(
-      app,
-      createDefaultGitHubWebhookDependencies({
-        prisma,
-        webhookSecret,
-        env: { ...baseEnvironment, ...overrides },
-        githubUserAuthorizationFetch: async (resource, options) => {
-          expect(String(resource)).toBe("https://api.github.com/user");
-          expect(options?.method).toBe("GET");
-          return fetch(githubOrigin + "/user", options);
+    const dependencies = createDefaultGitHubWebhookDependencies({
+      prisma,
+      webhookSecret,
+      env: { ...baseEnvironment, ...overrides },
+      githubUserAuthorizationFetch: async (resource, options) => {
+        expect(String(resource)).toBe("https://api.github.com/user");
+        expect(options?.method).toBe("GET");
+        return fetch(githubOrigin + "/user", options);
+      },
+    });
+    if (!("processor" in dependencies))
+      throw new Error("production_webhook_processor_required");
+    const processor = dependencies.processor;
+    await registerGitHubWebhookRoutes(app, {
+      ...dependencies,
+      processor: {
+        ...processor,
+        async process(envelope, verification) {
+          try {
+            return await processor.process(envelope, verification);
+          } catch (error) {
+            // Observe the real cause before the HTTP adapter makes it opaque.
+            processingErrors.set(envelope.deliveryId, error);
+            throw error;
+          }
         },
-      }),
-    );
+      },
+    });
     return app.listen({ host: "127.0.0.1", port: 0 });
   }
 
@@ -880,47 +896,60 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
   );
 
   it("rechecks database expiry after waiting for the authorization row lock", async () => {
-    const f = await authorizationFixture(304);
+    const f = await authorizationFixture(302);
     const deliveryId = randomUUID();
-    let locked!: () => void;
-    let observed!: () => void;
+    let locked!: (pid: number) => void;
     let release!: () => void;
-    const ready = new Promise<void>((resolve) => {
+    const ready = new Promise<number>((resolve) => {
       locked = resolve;
-    });
-    const entered = new Promise<void>((resolve) => {
-      observed = resolve;
     });
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    f.probe.beforeResponse = async () => {
-      observed();
-    };
     const blocker = prisma.$transaction(
       async (transaction) => {
-        await transaction.$queryRaw`SELECT id FROM "GitHubUserAuthorization"
+        const rows = await transaction.$queryRaw<Array<{ pid: number }>>`
+          SELECT pg_backend_pid() AS pid FROM "GitHubUserAuthorization"
           WHERE id = ${f.authorization.id} FOR UPDATE`;
-        locked();
+        if (!rows[0]) throw new Error("authorization_blocker_missing");
+        locked(rows[0].pid);
         await gate;
       },
       { isolationLevel: "ReadCommitted", timeout: 10_000 },
     );
-    await ready;
+    const blockerPid = await Promise.race([
+      ready,
+      blocker.then(() => {
+        throw new Error("authorization_lock_not_observed");
+      }),
+    ]);
     const pending = post("github_app_authorization", deliveryId, f.payload);
+    const effectIsBlocked = async () => {
+      const result = await pool.query<{ blocked: boolean }>(
+        "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND $1 = ANY(pg_blocking_pids(pid))) AS blocked",
+        [blockerPid],
+      );
+      return result.rows[0]?.blocked === true;
+    };
     let result: Awaited<typeof pending> | undefined;
     try {
-      await Promise.race([
-        entered,
-        pending.then(() => {
-          throw new Error("synthetic_probe_not_observed");
-        }),
-      ]);
+      let blocked = false;
+      for (let attempt = 0; attempt < 80 && !blocked; attempt++) {
+        blocked = await effectIsBlocked();
+        if (!blocked) await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(blocked).toBe(true);
+      const beforeExpiry = await pool.query<{ eligible: boolean }>(
+        "SELECT $1::timestamp > clock_timestamp() + interval '5 minutes' AS eligible",
+        [f.authorization.accessTokenExpiresAt],
+      );
+      expect(beforeExpiry.rows[0]?.eligible).toBe(true);
       // Cross the real database's refresh threshold without changing any row.
       await pool.query(
         "SELECT pg_sleep(GREATEST(0, EXTRACT(EPOCH FROM ($1::timestamp - interval '5 minutes' - clock_timestamp()))) + 0.05)",
         [f.authorization.accessTokenExpiresAt],
       );
+      expect(await effectIsBlocked()).toBe(true);
     } finally {
       release();
       await blocker;
@@ -929,6 +958,9 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
     expect(result).toEqual({
       status: 500,
       body: { error: "github_webhook_processing_failed" },
+    });
+    expect(processingErrors.get(deliveryId)).toMatchObject({
+      message: "github_app_authorization_reconciliation_required",
     });
     expect(f.probe.requests).toBe(1);
     expect(
