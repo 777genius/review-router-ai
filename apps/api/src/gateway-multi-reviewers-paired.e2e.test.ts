@@ -576,6 +576,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
       let output: { stdout: string; stderr: string };
       let expectedCoverageFailure = false;
       try {
+        const originalDeadline = String(Date.now() + 300_000);
         const coldRepository = path.join(root, "cold-repository");
         const runAction = (cold = false) =>
           exec(process.execPath, [artifact], {
@@ -589,6 +590,9 @@ const profileId = "openrouter-openai-responses-apikey-v1";
                 .filter(Boolean)
                 .join(" "),
               ...(mixed ? { REVIEWROUTER_OCR_BINARY: ocr } : {}),
+              ...(acceptedRecovery
+                ? { REVIEWROUTER_EXECUTION_DEADLINE_EPOCH_MS: originalDeadline }
+                : {}),
               CI: "true",
               GITHUB_ACTIONS: "true",
               GITHUB_EVENT_NAME: "pull_request",
