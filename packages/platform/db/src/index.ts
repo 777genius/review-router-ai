@@ -111,7 +111,10 @@ export {
   type CurrentScopeGuard,
 } from "./current-scope-guards.js";
 // WIP: not sufficient for mixed-version rollout or unfenced writers.
-export { runScopeEpochSerializableTransaction } from "./current-scope-guard-epochs.js";
+export {
+  runScopeEpochSerializableTransaction,
+  acquireCurrentScopeGuardsWithEpoch,
+} from "./current-scope-guard-epochs.js";
 export {
   rotateRemovedScmRepositoryIdentityEpoch,
   rotateScmRepositoryIdentityEpoch,

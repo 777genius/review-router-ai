@@ -14,6 +14,7 @@ import {
   renderCanonicalHostedPoolWorkflowV2,
 } from "../../domain/hosted-pool-workflow-template";
 import type { Prisma, PrismaClient } from "@prisma/client";
+import { acquireCurrentScopeGuardsWithEpoch } from "@reviewrouter/platform-db";
 import { defaultCodexRotatingWorkflowPath } from "../../domain/workflow-template";
 
 type GitHubRequester = {
@@ -198,6 +199,14 @@ export async function activateConfirmedHostedPoolBindingAfterWorkflowMerge(input
   }
 
   await input.prisma.$transaction(async (transaction) => {
+    await acquireCurrentScopeGuardsWithEpoch(transaction, [
+      {
+        scope: "repository",
+        workspaceId: input.workspaceId,
+        repositoryId: input.repositoryId,
+        mode: "exclusive",
+      },
+    ]);
     const configured = await input.switchConfiguration({
       transaction,
       workspaceId: input.workspaceId,
