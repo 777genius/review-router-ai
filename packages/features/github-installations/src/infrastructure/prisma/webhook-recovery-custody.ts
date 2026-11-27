@@ -13,6 +13,7 @@ export type WebhookRecoveryIdentity = Readonly<{
 
 type RecoveryRow = WebhookRecoveryIdentity & {
   state: "prepared" | "issued_unknown" | "accepted" | "confirmed";
+  attemptHash: string | null;
 };
 function validate(identity: WebhookRecoveryIdentity) {
   if (
@@ -41,7 +42,7 @@ export async function prepareWebhookRecovery(
       ON CONFLICT ("appIdentityHash", "deliveryGuid") DO NOTHING
     `);
     const rows = await tx.$queryRaw<RecoveryRow[]>(Prisma.sql`
-      SELECT "appIdentityHash", "deliveryGuid", "githubDeliveryId", "eventName", "action", "installationId", "payloadHash", "state"
+      SELECT "appIdentityHash", "deliveryGuid", "githubDeliveryId", "eventName", "action", "installationId", "payloadHash", "state", "attemptHash"
       FROM "GitHubWebhookRecoveryIntent" WHERE "appIdentityHash"=${identity.appIdentityHash} AND "deliveryGuid"=${identity.deliveryGuid}
     `);
     const row = rows[0];
@@ -62,12 +63,15 @@ export async function prepareWebhookRecovery(
 export async function reserveWebhookRedeliveryOnce(
   prisma: PrismaClient,
   identity: WebhookRecoveryIdentity,
+  attemptHash: string,
 ): Promise<boolean> {
   validate(identity);
+  if (!/^[a-f0-9]{64}$/.test(attemptHash))
+    throw new Error("webhook_recovery_attempt_invalid");
   const rows = await prisma.$queryRaw<
     Array<{ deliveryGuid: string }>
   >(Prisma.sql`
-    UPDATE "GitHubWebhookRecoveryIntent" SET "state"='issued_unknown', "updatedAt"=clock_timestamp()
+    UPDATE "GitHubWebhookRecoveryIntent" SET "state"='issued_unknown', "attemptHash"=${attemptHash}, "updatedAt"=clock_timestamp()
     WHERE "appIdentityHash"=${identity.appIdentityHash} AND "deliveryGuid"=${identity.deliveryGuid}
       AND "githubDeliveryId"=${identity.githubDeliveryId} AND "eventName"=${identity.eventName}
       AND "action" IS NOT DISTINCT FROM ${identity.action} AND "installationId" IS NOT DISTINCT FROM ${identity.installationId}
@@ -81,8 +85,11 @@ export async function reserveWebhookRedeliveryOnce(
 export async function recordWebhookRedeliveryAccepted(
   prisma: PrismaClient,
   identity: WebhookRecoveryIdentity,
+  attemptHash: string,
 ): Promise<boolean> {
   validate(identity);
+  if (!/^[a-f0-9]{64}$/.test(attemptHash))
+    throw new Error("webhook_recovery_attempt_invalid");
   const rows = await prisma.$queryRaw<
     Array<{ deliveryGuid: string }>
   >(Prisma.sql`
@@ -90,7 +97,7 @@ export async function recordWebhookRedeliveryAccepted(
     WHERE "appIdentityHash"=${identity.appIdentityHash} AND "deliveryGuid"=${identity.deliveryGuid}
       AND "githubDeliveryId"=${identity.githubDeliveryId} AND "eventName"=${identity.eventName}
       AND "action" IS NOT DISTINCT FROM ${identity.action} AND "installationId" IS NOT DISTINCT FROM ${identity.installationId}
-      AND "payloadHash"=${identity.payloadHash} AND "state"='issued_unknown'
+      AND "payloadHash"=${identity.payloadHash} AND "attemptHash"=${attemptHash} AND "state"='issued_unknown'
     RETURNING "deliveryGuid"
   `);
   return rows.length === 1;

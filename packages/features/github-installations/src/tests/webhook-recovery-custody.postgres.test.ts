@@ -150,13 +150,16 @@ test("webhook recovery custody on isolated PostgreSQL", () => {
     const i = identity("reservation");
     await prepareWebhookRecovery(prisma, i);
     const reservations = await Promise.all([
-      reserveWebhookRedeliveryOnce(prisma, i),
-      reserveWebhookRedeliveryOnce(prisma, i),
+      reserveWebhookRedeliveryOnce(prisma, i, "1".repeat(64)),
+      reserveWebhookRedeliveryOnce(prisma, i, "2".repeat(64)),
     ]);
     expect(reservations.filter(Boolean)).toHaveLength(1);
-    expect(await reserveWebhookRedeliveryOnce(prisma, i)).toBe(false);
+    const winner = (reservations[0] ? "1" : "2").repeat(64);
+    const loser = (reservations[0] ? "2" : "1").repeat(64);
+    expect(await reserveWebhookRedeliveryOnce(prisma, i, winner)).toBe(false);
     expect(await confirmWebhookRecovery(prisma, i)).toBe(false);
-    expect(await recordWebhookRedeliveryAccepted(prisma, i)).toBe(true);
+    expect(await recordWebhookRedeliveryAccepted(prisma, i, loser)).toBe(false);
+    expect(await recordWebhookRedeliveryAccepted(prisma, i, winner)).toBe(true);
     expect(await confirmWebhookRecovery(prisma, i)).toBe(false);
     expect(
       (
@@ -167,28 +170,49 @@ test("webhook recovery custody on isolated PostgreSQL", () => {
       ).rows[0].state,
     ).toBe("accepted");
   });
+  it("requires a valid owner token and rejects an unfenced issued row", async () => {
+    const i = identity("invalid-owner");
+    await prepareWebhookRecovery(prisma, i);
+    await expect(
+      reserveWebhookRedeliveryOnce(prisma, i, "bad"),
+    ).rejects.toThrow("webhook_recovery_attempt_invalid");
+    await expect(
+      pool.query(
+        'UPDATE "GitHubWebhookRecoveryIntent" SET state=\'issued_unknown\' WHERE "deliveryGuid"=$1',
+        [i.deliveryGuid],
+      ),
+    ).rejects.toMatchObject({ code: "23514" });
+  });
   it("retains unknown outcome and rejects conflicting immutable identity", async () => {
     const i = identity("unknown");
     await prepareWebhookRecovery(prisma, i);
-    expect(await reserveWebhookRedeliveryOnce(prisma, i)).toBe(true);
+    expect(await reserveWebhookRedeliveryOnce(prisma, i, "1".repeat(64))).toBe(
+      true,
+    );
     expect((await prepareWebhookRecovery(prisma, i)).state).toBe(
       "issued_unknown",
     );
-    expect(await reserveWebhookRedeliveryOnce(prisma, i)).toBe(false);
+    expect(await reserveWebhookRedeliveryOnce(prisma, i, "1".repeat(64))).toBe(
+      false,
+    );
     await expect(
       prepareWebhookRecovery(prisma, { ...i, githubDeliveryId: 34n }),
     ).rejects.toThrow("webhook_recovery_identity_conflict");
     expect(
-      await recordWebhookRedeliveryAccepted(prisma, {
-        ...i,
-        payloadHash: "b".repeat(64),
-      }),
+      await recordWebhookRedeliveryAccepted(
+        prisma,
+        {
+          ...i,
+          payloadHash: "b".repeat(64),
+        },
+        "1".repeat(64),
+      ),
     ).toBe(false);
   });
   it("confirms only the exact fenced App, event, installation and payload after receiver terminal", async () => {
     const i = identity("receiver");
     await prepareWebhookRecovery(prisma, i);
-    await reserveWebhookRedeliveryOnce(prisma, i);
+    await reserveWebhookRedeliveryOnce(prisma, i, "1".repeat(64));
     await beginFencedWebhookDelivery(
       prisma,
       {
@@ -220,6 +244,8 @@ test("webhook recovery custody on isolated PostgreSQL", () => {
       }),
     ).toBe(false);
     expect(await confirmWebhookRecovery(prisma, i)).toBe(true);
-    expect(await reserveWebhookRedeliveryOnce(prisma, i)).toBe(false);
+    expect(await reserveWebhookRedeliveryOnce(prisma, i, "1".repeat(64))).toBe(
+      false,
+    );
   });
 });

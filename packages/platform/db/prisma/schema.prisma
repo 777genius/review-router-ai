@@ -5171,6 +5171,7 @@ model GitHubWebhookRecoveryIntent {
   installationId BigInt?
   payloadHash String
   state String @default("prepared")
+  attemptHash String?
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @default(now()) @db.Timestamptz(3)
   @@id([appIdentityHash, deliveryGuid])
