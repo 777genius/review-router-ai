@@ -1,3 +1,4 @@
+import { runScopeEpochSerializableTransaction } from "@reviewrouter/platform-db";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import type {
   InstallationWorkspaceOwnerGrant,
@@ -10,8 +11,10 @@ export class PrismaInstallationWorkspaceOwnerGrant implements InstallationWorksp
   async grantInstallationActorOwner(
     grant: InstallationWorkspaceOwnerGrant,
   ): Promise<void> {
-    await this.prisma.$transaction((tx) =>
-      this.grantInstallationActorOwnerInTransaction(tx, grant),
+    await runScopeEpochSerializableTransaction(
+      this.prisma,
+      [{ scope: "global", mode: "exclusive" }],
+      (tx) => this.grantInstallationActorOwnerInTransaction(tx, grant),
     );
   }
 

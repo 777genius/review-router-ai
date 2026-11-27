@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { beginFencedWebhookDelivery } from "../infrastructure/prisma/webhook-effect-fence";
 import { handleFencedInstallationWebhook } from "../infrastructure/prisma/fenced-installation-webhook";
 import { PrismaGitHubInstallationRepository } from "../infrastructure/prisma/prisma-github-installation-repository";
+import { PrismaInstallationWorkspaceOwnerGrant } from "../infrastructure/prisma/prisma-installation-workspace-owner-grant";
 
 const socket = process.env.REVIEW_ROUTER_WEBHOOK_FENCE_TEST_SOCKET;
 const test = socket?.startsWith("/") ? describe : describe.skip;
@@ -51,6 +52,9 @@ test("fenced installation webhook on isolated PostgreSQL", () => {
       CREATE TABLE "GitHubWebhookDelivery" (id TEXT PRIMARY KEY DEFAULT 'synthetic-' || md5(random()::text), "deliveryId" TEXT UNIQUE NOT NULL, "eventName" TEXT NOT NULL, action TEXT, "installationId" BIGINT, "payloadHash" TEXT, "normalizedEvent" JSONB, status "WebhookDeliveryStatus" NOT NULL DEFAULT 'processing', "errorSummary" TEXT, "processedAt" TIMESTAMP(3), "receivedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP);
       CREATE TABLE "Workspace" (id TEXT PRIMARY KEY, slug TEXT UNIQUE, name TEXT, "reviewDraftPullRequests" BOOLEAN DEFAULT true, "providerManagementAdminOnly" BOOLEAN DEFAULT false, "deletionState" "WorkspaceDeletionState" DEFAULT 'active', "deletionRevision" INT DEFAULT 1, "deletionTombstonedAt" TIMESTAMP(3), "personalOwnerUserId" TEXT, "createdAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP);
       CREATE TABLE "GitHubInstallation" (id TEXT PRIMARY KEY, "workspaceId" TEXT NOT NULL, "githubInstallationId" BIGINT UNIQUE NOT NULL, "accountLogin" TEXT NOT NULL, "accountType" TEXT NOT NULL, "accountAvatarUrl" TEXT, "repositorySelection" TEXT NOT NULL, "inventoryGeneration" BIGINT DEFAULT 0, status "GitHubInstallationStatus" DEFAULT 'active', "createdAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP);
+      CREATE TYPE "WorkspaceRole" AS ENUM ('owner','admin','member');
+      CREATE TABLE "User" (id TEXT PRIMARY KEY, "githubUserId" BIGINT UNIQUE, "githubLogin" TEXT, "primaryEmail" TEXT, "avatarUrl" TEXT, "createdAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP);
+      CREATE TABLE "WorkspaceMember" (id TEXT PRIMARY KEY, "workspaceId" TEXT, "userId" TEXT, "githubLogin" TEXT, role "WorkspaceRole", "createdAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP, UNIQUE("workspaceId","userId"), UNIQUE("workspaceId","githubLogin"));
       CREATE TABLE "RepositoryPermissionCache" ("githubInstallationId" BIGINT);
       CREATE TABLE "RepositoryConnection" (id TEXT PRIMARY KEY, "workspaceId" TEXT, "installationId" TEXT, "scmRepositoryIdentityId" TEXT, selected BOOLEAN, "updatedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP);
       INSERT INTO "RepositoryConnection" (id,"workspaceId","installationId",selected) VALUES ('r','w','i',true);
@@ -255,6 +259,36 @@ test("fenced installation webhook on isolated PostgreSQL", () => {
     await writer;
     expect((await reader!)[0]?.accountLogin).toBe("race-team");
     await pool.query('DROP TRIGGER synthetic_hold ON "GitHubInstallation"');
+  });
+
+  it("owner grant commits alongside a global epoch update", async () => {
+    const before = (
+      await pool.query(
+        'SELECT COALESCE(sum(revision),0)::int n FROM "CurrentScopeEpoch"',
+      )
+    ).rows[0].n;
+    await new PrismaInstallationWorkspaceOwnerGrant(
+      prisma,
+    ).grantInstallationActorOwner({
+      githubInstallationId: "42",
+      githubUserId: "77",
+      githubLogin: "synthetic-owner",
+      avatarUrl: null,
+    });
+    expect(
+      (
+        await pool.query(
+          'SELECT role::text FROM "WorkspaceMember" WHERE "githubLogin"=\'synthetic-owner\'',
+        )
+      ).rows[0].role,
+    ).toBe("owner");
+    expect(
+      (
+        await pool.query(
+          'SELECT COALESCE(sum(revision),0)::int n FROM "CurrentScopeEpoch"',
+        )
+      ).rows[0].n,
+    ).toBe(before + 1);
   });
 
   it("ordinary installation removal participates in global epoch", async () => {
