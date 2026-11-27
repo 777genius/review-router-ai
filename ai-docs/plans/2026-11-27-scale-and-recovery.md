@@ -62,7 +62,7 @@ Observed from live GitHub on 2026-11-27, not inferred from old conversation stat
 | #959 | Merged | Preserve native provider contracts; ReviewRouter does not copy native provider logic. |
 | #1008, `7681003e` | Draft | Do not edit worker `review-v2-projection-envelope.ts` or `review-v2-publication-payloads.ts` and its test. |
 | #1020, `46e20e3d` | Open | Do not duplicate `apps/web/src/features/provider-setup/setup-provider.ts` selector fix or its test. |
-| #1017, `45283edc` | Open | Gateway management ingress and its deployment evidence belong to that PR. |
+| #1017, `42d2cf28` | Merged during qualification | Preserve the Gateway management ingress and deployment evidence from current main; no duplicate implementation. |
 | #1010, `c31ab0b8` | Draft | Shared Identity/SCM plans own future identity/session/account migration. |
 | #474, `f4523cae` | Draft | Offline custody envelope rebind and PG17 cutover remain separately owned. |
 | #1002, `021c7828` | Draft | Full-root Markdown-reference adoption is not part of this PR. |
@@ -535,8 +535,9 @@ effects survive restart and rollback. Never delete pending work to recover healt
   whose acknowledgment was lost from a transaction that rolled back. These tests
   remain pending until their recorded successful execution.
 
-- Open-PR recheck: #1008 and #1020 retain their audited source and ownership;
-  #1017 now includes updated ingress/deployment evidence and stays separate.
+- Open-PR recheck: #1008 and #1020 retain their audited source and ownership.
+  #1017 was merged into main at `42d2cf2850d4de525aea16a96ceb1a444e2e2e34`;
+  its ingress and deployment evidence are preserved through normal branch merge.
   #1015 now has one four-line test-only correction against main at
   `907bb60730ba3bd38a1e288c6528143f6cdaada1`: filter facets contain provider/model
   identities, while billing metadata belongs to metrics and report rows. The
@@ -545,6 +546,36 @@ effects survive restart and rollback. Never delete pending work to recover healt
   deletion to remove the known baseline qualification failure. All 20 PostgreSQL
   test bodies and complete report equality assertions remain unchanged; their
   rerun is pending. No production Usage change or merge of another PR is included.
+
+### Final integration and migration admission review
+
+- Main reconciliation: merge `bff69a97f559b345bfc8e770235a2adbc1c3851b`
+  retains current main `42d2cf2850d4de525aea16a96ceb1a444e2e2e34` as its
+  second parent. Independent comparison found seven incoming paths and only one
+  overlap: the deployment index. Keeping main verbatim plus this task's entry
+  resolves it without a runtime, workflow or migration conflict. The Draft is
+  mergeable and the scoped diff remains 141 files, +10,297 / -1,391 at that merge.
+- Release-admission review found the source catalog validators still admitted at
+  most checkout170 despite the successful full migration experiment. The exact
+  checkout172 tail now requires both new index names and checksums, then delegates
+  to the unchanged checkout170 validator. Historical managed92, historical96 and
+  the private rehearsal's 76-migration boundary retain their immutable contents.
+  The concurrent indexes remain ordinary migration targets, excluded from the
+  historical transaction-wrapped SQL and production additive window 105-110.
+- Seven fixture owners are updated for checkout172 while retaining explicit
+  predecessor170 and native-less169 coverage. Missing or altered index, incomplete
+  171-row native-less catalog, unknown future migration and transactional-index
+  admission all have negative assertions. No historical SQL or checksum changed.
+  The ten-file patch is subject to the existing full CI; preparing it remotely
+  and checking literal replacements is not an executed test result.
+- The execution environment disconnected again after all production work was
+  published. Existing local results remain recorded above. Further qualification
+  uses the repository's normal CI dispatch on this branch, with the dedicated
+  PostgreSQL 17 contract and current main as its exact immutable baseline.
+- Previous Draft PR run `45933520011` passed only the impact/aggregate control
+  jobs; actual quality, static and PostgreSQL jobs were skipped. That green
+  aggregate is not full qualification. Keep Draft status and require the actual
+  manual full-tier jobs to finish successfully; no workflow condition is weakened.
 
 ### Remaining qualification and review gates
 

@@ -20,7 +20,14 @@ const reader = vi.mocked(readRenderManagedCheckoutInventory);
 // Preserve old immutable-prefix fixtures through 000124 explicitly.
 // The complete current checkout is exercised separately.
 const currentFull = readRenderManagedCheckoutInventory();
-const previousFull = currentFull.filter(
+const readScalingMigrationNames = [
+  "000165_installation_sync_latest_index",
+  "000166_repository_health_latest_index",
+];
+const predecessorFull = currentFull.filter(
+  (row) => !readScalingMigrationNames.includes(row.migrationName),
+);
+const previousFull = predecessorFull.filter(
   (row) =>
     row.migrationName !== "000155_usage_member_report_index" &&
     row.migrationName !== "000157_claude_code_api_key_secret" &&
@@ -182,6 +189,10 @@ describe("trusted historical96 checkout reader", () => {
     expect(full[96]?.migrationName).toBe(
       "000098_certified_fork_effect_archive",
     );
+    expect(currentFull).toHaveLength(172);
+    expect(currentFull.slice(-2).map((row) => row.migrationName)).toEqual(
+      readScalingMigrationNames,
+    );
     const result = readRenderHistorical96CheckoutInventory();
     expect(result).toEqual(historical);
     expect(result).toHaveLength(96);
@@ -199,22 +210,39 @@ describe("trusted historical96 checkout reader", () => {
     expect(reader).toHaveBeenCalledWith();
     reader.mockReturnValue([
       ...currentFull,
-      { migrationName: "000165_unknown", checksum: "0".repeat(64) },
+      { migrationName: "000167_unknown", checksum: "0".repeat(64) },
     ]);
     expect(() => readRenderHistorical96CheckoutInventory()).toThrow(
       "render_historical96_checkout_rejected:count",
     );
   });
 
+  it.each(readScalingMigrationNames)(
+    "rejects altered checkout-only index %s before returning historical96",
+    (migrationName) => {
+      reader.mockReturnValueOnce(
+        currentFull.map((row) =>
+          row.migrationName === migrationName
+            ? { ...row, checksum: "0".repeat(64) }
+            : row,
+        ),
+      );
+      expect(() => readRenderHistorical96CheckoutInventory()).toThrow(
+        "render_schema_handoff_rejected:checkout_extension",
+      );
+    },
+  );
+
   it.each([
     { checkout: currentFull },
+    { checkout: predecessorFull },
     {
-      checkout: currentFull.filter(
+      checkout: predecessorFull.filter(
         (row) => row.migrationName !== "000161_native_connection_intent",
       ),
     },
     {
-      checkout: currentFull.filter(
+      checkout: predecessorFull.filter(
         (row) =>
           row.migrationName !== "000161_github_authorization_revision" &&
           row.migrationName !== "000162_inventory_ruleset_revisions" &&

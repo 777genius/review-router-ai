@@ -6,9 +6,12 @@
 - Affected targets: API, Web, ordinary worker, skill worker and PostgreSQL indexes.
 - Implementation: [Draft PR #1021](https://github.com/777genius/review-router-ai/pull/1021).
 - Source checkpoints: worker/database `b63ff683148f2bbf7ecc7e2171883f5f6b4dd1bf`;
-  Accounts `bdb4ac8ff76546781fc175526a2cba4e4ce108aa`. Further query, catalog and
-  webhook changes are under qualification on the same branch. These references
-  establish source only; no merge, release or installation is claimed.
+  Accounts `bdb4ac8ff76546781fc175526a2cba4e4ce108aa`;
+  latest-row readers `d86e501a7c63e748596f4983d336d86868fe5f3f`;
+  native catalog and webhook `dc9f0cd8cae93fff46044a4a8e2c4b2ac4b1c222`.
+  Main was integrated into the Draft branch by
+  `bff69a97f559b345bfc8e770235a2adbc1c3851b`. These references establish
+  source only; no merge of this Draft into main, release or installation is claimed.
 - Dependencies: preserve the already merged
   [multi-tenant reliability work](2026-11-25-multi-tenant-reliability.md);
   complete exact-head qualification before release selection.
@@ -62,6 +65,13 @@ migration/release budget, inspect actual build progress and available capacity,
 and resolve any interrupted invalid index through the established migration
 procedure before retrying. Do not silently mark an unapplied migration successful.
 Runtime SQL deadlines do not change the administrative migration client.
+
+Release-admission validators accept the exact checksum-bound checkout172 tail and
+then reuse the unchanged predecessor validation. Both indexes stay excluded from
+managed92/historical96 transaction SQL, the private rehearsal's historical76, and
+the production additive migration window 105-110. Historical migration bytes and
+manifests remain immutable. This source update still requires successful full CI;
+the earlier fresh-cluster migration pass alone does not qualify every release gate.
 
 ## Ordered rollout
 

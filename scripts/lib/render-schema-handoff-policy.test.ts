@@ -57,8 +57,16 @@ const reliabilityMigrationNames = [
   "000163_usage_retention_index",
   "000164_ruleset_create_uncertainty",
 ];
-const readPreIndexCheckoutInventory = () =>
+const readScalingMigrationNames = [
+  "000165_installation_sync_latest_index",
+  "000166_repository_health_latest_index",
+];
+const readPreScalingCheckoutInventory = () =>
   readRenderManagedCheckoutInventory().filter(
+    (row) => !readScalingMigrationNames.includes(row.migrationName),
+  );
+const readPreIndexCheckoutInventory = () =>
+  readPreScalingCheckoutInventory().filter(
     (row) =>
       row.migrationName !== usageMemberReportIndexName &&
       row.migrationName !== claudeApiKeyMigrationName &&
@@ -227,6 +235,7 @@ const canonicalPrismaMigrationNames =
       name !== credentialImportMigrationName &&
       name !== nativeConnectionMigrationName &&
       !reliabilityMigrationNames.includes(name) &&
+      !readScalingMigrationNames.includes(name) &&
       name !== usageMemberReportIndexName &&
       name !== verifiedReplyMigrationName &&
       name !== gatewayAllocationsMigrationName &&
@@ -614,10 +623,58 @@ const canonicalPrefix = (count: number) =>
   canonicalPrismaMigrationNames.slice(0, count);
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
+  it("admits only the exact concurrent-read-index checkout172", () => {
+    const current = readRenderManagedCheckoutInventory();
+    expect(current).toHaveLength(172);
+    expect(current.slice(-2)).toEqual([
+      {
+        migrationName: "000165_installation_sync_latest_index",
+        checksum:
+          "ca7d7762d40f5a9b019ddc09c69811d1d3bb8ffaaa3386db9fe375dd0c47c509",
+      },
+      {
+        migrationName: "000166_repository_health_latest_index",
+        checksum:
+          "30846a3fc568e650c1ab1f295691ebe084f875090b5cd0f444dc46997d575f41",
+      },
+    ]);
+    expect(partitionRenderSchemaHandoffCheckout(current)).toEqual(catalog);
+    for (const migrationName of [
+      ...readScalingMigrationNames,
+      credentialImportMigrationName,
+    ]) {
+      expect(() =>
+        partitionRenderSchemaHandoffCheckout(
+          current.map((row) =>
+            row.migrationName === migrationName
+              ? { ...row, checksum: "0".repeat(64) }
+              : row,
+          ),
+        ),
+      ).toThrow("checkout_extension");
+    }
+    for (const migrationName of [
+      ...readScalingMigrationNames,
+      nativeConnectionMigrationName,
+    ]) {
+      expect(() =>
+        partitionRenderSchemaHandoffCheckout(
+          current.filter((row) => row.migrationName !== migrationName),
+        ),
+      ).toThrow("checkout_extension");
+    }
+    expect(() =>
+      partitionRenderSchemaHandoffCheckout([
+        ...current,
+        { migrationName: "000167_unknown", checksum: "0".repeat(64) },
+      ]),
+    ).toThrow("checkout_extension");
+  });
+
   it.each([false, true])(
     "admits only the exact reliability checkout with native intent %s",
     (withNative) => {
-      const merged = readRenderManagedCheckoutInventory();
+      const merged = readPreScalingCheckoutInventory();
       expect(merged).toHaveLength(170);
       const current = withNative
         ? merged
@@ -680,7 +737,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
   );
 
   it("admits only the exact concurrent-index checkout160 outside managed92 and historical96", () => {
-    const withNativeConnections = readRenderManagedCheckoutInventory().filter(
+    const withNativeConnections = readPreScalingCheckoutInventory().filter(
       (row) => !reliabilityMigrationNames.includes(row.migrationName),
     );
     expect(withNativeConnections).toHaveLength(166);
@@ -3041,6 +3098,8 @@ describe("complete filesystem checkout inventory", () => {
       { recursive: true },
     );
     if (count !== undefined) {
+      for (const name of readScalingMigrationNames)
+        rmSync(join(migrations, name), { recursive: true });
       rmSync(join(migrations, nativeConnectionMigrationName), {
         recursive: true,
       });
@@ -3152,11 +3211,15 @@ describe("complete filesystem checkout inventory", () => {
     };
   }
 
-  it("reads merged checkout170 and every previous checkout as identical frozen92 rows", async () => {
+  it("reads merged checkout172 and every previous checkout as identical frozen92 rows", async () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(170);
+    expect(inventory).toHaveLength(172);
+    expect(fixture.read()).toEqual(catalog);
+    for (const name of readScalingMigrationNames)
+      rmSync(join(fixture.migrations, name), { recursive: true });
+    expect(readdirSync(fixture.migrations)).toHaveLength(170);
     expect(fixture.read()).toEqual(catalog);
     const nativeDirectory = join(
       fixture.migrations,
@@ -3642,12 +3705,15 @@ describe("complete filesystem checkout inventory", () => {
       // their explicit names must still restore the unchanged historical gate.
       if (
         name === usageMemberReportIndexName ||
-        name === credentialImportMigrationName
+        name === credentialImportMigrationName ||
+        name === nativeConnectionMigrationName
       ) {
         expect(() => fixture.read()).toThrow("checkout_extension");
         const extensions = [
-          nativeConnectionMigrationName,
-          ...reliabilityMigrationNames,
+          ...readScalingMigrationNames,
+          ...(name === nativeConnectionMigrationName
+            ? []
+            : [nativeConnectionMigrationName, ...reliabilityMigrationNames]),
           ...(name === usageMemberReportIndexName
             ? [
                 credentialImportMigrationName,
@@ -3674,9 +3740,6 @@ describe("complete filesystem checkout inventory", () => {
             extensionBytes,
           );
         }
-      } else if (name === nativeConnectionMigrationName) {
-        // Removing native intent restores the exact reliability checkout169.
-        expect(fixture.read()).toEqual(catalog);
       } else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);
       writeFileSync(sql, bytes);

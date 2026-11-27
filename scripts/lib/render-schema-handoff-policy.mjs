@@ -334,6 +334,22 @@ const reliabilityCheckoutExtension = Object.freeze([
   }),
 ]);
 
+// Concurrent read indexes belong to ordinary Prisma deploy. Admit only this
+// exact application checkout tail before retaining the unchanged checkout170
+// validator; neither index enters managed92 or historical96 transaction SQL.
+const readScalingCheckoutExtension = Object.freeze([
+  Object.freeze({
+    migrationName: "000165_installation_sync_latest_index",
+    checksum:
+      "ca7d7762d40f5a9b019ddc09c69811d1d3bb8ffaaa3386db9fe375dd0c47c509",
+  }),
+  Object.freeze({
+    migrationName: "000166_repository_health_latest_index",
+    checksum:
+      "30846a3fc568e650c1ab1f295691ebe084f875090b5cd0f444dc46997d575f41",
+  }),
+]);
+
 export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (
     !Array.isArray(catalog) ||
@@ -346,6 +362,29 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  if (
+    catalog.some((row) =>
+      readScalingCheckoutExtension.some(
+        (extension) => extension.migrationName === row.migrationName,
+      ),
+    )
+  ) {
+    const tail = catalog.slice(-readScalingCheckoutExtension.length);
+    if (
+      catalog.length !== 172 ||
+      readScalingCheckoutExtension.some((extension, index) => {
+        const row = tail[index];
+        return (
+          row.migrationName !== extension.migrationName ||
+          row.checksum !== extension.checksum
+        );
+      })
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.slice(0, -readScalingCheckoutExtension.length),
+    );
+  }
   if (
     catalog.some((row) =>
       reliabilityCheckoutExtension.some(
