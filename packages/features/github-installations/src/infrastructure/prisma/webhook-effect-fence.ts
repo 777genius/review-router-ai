@@ -142,20 +142,21 @@ export async function runWebhookFencedDatabaseEffect<T>(
     !["processing", "processed", "failed"].includes(expectedFinalStatus)
   )
     throw new Error("webhook_fence_invalid");
-  return prisma.$transaction(async (transaction) => {
-    // The locking query and the DB effect must use the same connection and
-    // transaction. Check wall-clock time *after* waiting for the row lock.
-    const rows = await transaction.$queryRaw<
-      Array<{ deliveryId: string }>
-    >(Prisma.sql`
+  return prisma.$transaction(
+    async (transaction) => {
+      // The locking query and the DB effect must use the same connection and
+      // transaction. Check wall-clock time *after* waiting for the row lock.
+      const rows = await transaction.$queryRaw<
+        Array<{ deliveryId: string }>
+      >(Prisma.sql`
       SELECT "deliveryId" FROM "GitHubWebhookFence"
       WHERE "deliveryId" = ${claim.deliveryId}
       FOR UPDATE
     `);
-    if (rows.length !== 1) throw new Error("webhook_fence_missing");
-    const valid = await transaction.$queryRaw<
-      Array<{ valid: boolean }>
-    >(Prisma.sql`
+      if (rows.length !== 1) throw new Error("webhook_fence_missing");
+      const valid = await transaction.$queryRaw<
+        Array<{ valid: boolean }>
+      >(Prisma.sql`
       SELECT (f."ownerHash" = ${claim.ownerHash}
           AND f."generation" = ${claim.generation}
           AND f."leaseUntil" > clock_timestamp()
@@ -163,11 +164,11 @@ export async function runWebhookFencedDatabaseEffect<T>(
       FROM "GitHubWebhookFence" f JOIN "GitHubWebhookDelivery" d USING ("deliveryId")
       WHERE f."deliveryId" = ${claim.deliveryId}
     `);
-    if (valid[0]?.valid !== true) throw new Error("webhook_fence_stale");
-    const result = await effect(transaction);
-    const stillValid = await transaction.$queryRaw<
-      Array<{ valid: boolean }>
-    >(Prisma.sql`
+      if (valid[0]?.valid !== true) throw new Error("webhook_fence_stale");
+      const result = await effect(transaction);
+      const stillValid = await transaction.$queryRaw<
+        Array<{ valid: boolean }>
+      >(Prisma.sql`
       SELECT (f."ownerHash" = ${claim.ownerHash}
           AND f."generation" = ${claim.generation}
           AND f."leaseUntil" > clock_timestamp()
@@ -175,7 +176,10 @@ export async function runWebhookFencedDatabaseEffect<T>(
       FROM "GitHubWebhookFence" f JOIN "GitHubWebhookDelivery" d USING ("deliveryId")
       WHERE f."deliveryId" = ${claim.deliveryId}
     `);
-    if (stillValid[0]?.valid !== true) throw new Error("webhook_fence_expired");
-    return result;
-  });
+      if (stillValid[0]?.valid !== true)
+        throw new Error("webhook_fence_expired");
+      return result;
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  );
 }
