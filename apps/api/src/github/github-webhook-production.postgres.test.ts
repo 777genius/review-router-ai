@@ -83,7 +83,7 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
         return fetch(githubOrigin + "/user", options);
       },
     });
-    if (!("processor" in dependencies))
+    if (!dependencies.processor)
       throw new Error("production_webhook_processor_required");
     const processor = dependencies.processor;
     await registerGitHubWebhookRoutes(app, {
