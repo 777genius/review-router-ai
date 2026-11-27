@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import ProvidersPage from "./page";
@@ -17,5 +18,12 @@ describe("public AI provider methods page", () => {
     expect(html).toContain("does not guarantee");
     expect((html.match(/scope="row"/g) ?? [])).toHaveLength(18);
     expect((html.match(/scope="col"/g) ?? [])).toHaveLength(6);
+    const logos = [...html.matchAll(/src="([^"]+svg)"/g)]
+      .map((match) => match[1] ?? "")
+      .filter((src) => src.startsWith("/provider-logos/"));
+    expect(logos).toHaveLength(19);
+    for (const path of logos) {
+      expect(existsSync(new URL(`../../public${path}`, import.meta.url))).toBe(true);
+    }
   });
 });
