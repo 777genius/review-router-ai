@@ -38,6 +38,8 @@ export type ReviewRunCompanionDispatch = Readonly<{
   terminalReceipt?: ReviewModelDispatchTerminalReceiptV2 | null;
   retryOfDispatchId?: string;
   nativeRetryProof?: ReviewModelDispatchNativeRetryProof;
+  /** Internal authority cutoff for the final HTTP proof filter; never serialized. */
+  nativeRetryProofNotAfter?: Date;
 }>;
 
 /** Obtained only through the original authenticated Gateway execution client.
@@ -53,7 +55,12 @@ export type ReviewRunNativeRetryAttestation = Readonly<{
 
 export type ReviewRunCompanionDispatchClaim = Omit<
   ReviewRunCompanionDispatch,
-  "role" | "state" | "nativeRequestRef" | "terminalReceipt" | "nativeRetryProof"
+  | "role"
+  | "state"
+  | "nativeRequestRef"
+  | "terminalReceipt"
+  | "nativeRetryProof"
+  | "nativeRetryProofNotAfter"
 > &
   Readonly<{
     runtimeSnapshotCanonicalJson: string;
