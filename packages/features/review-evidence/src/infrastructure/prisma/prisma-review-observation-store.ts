@@ -59,7 +59,9 @@ export class PrismaReviewObservationStore
   }
 
   async findSourceSlotCandidates(
-    input: Parameters<ReviewObservationQueryPort["findSourceSlotCandidates"]>[0],
+    input: Parameters<
+      ReviewObservationQueryPort["findSourceSlotCandidates"]
+    >[0],
   ): Promise<readonly ReviewObservation[]> {
     const records = await this.prisma.reviewEvidenceObservation.findMany({
       where: {

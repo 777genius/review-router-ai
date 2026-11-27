@@ -110,22 +110,23 @@ export class LookupReviewEvidence {
       policy.safetyDecision.safetyDecisionHash,
       "reuse_safety_decision_hash",
     );
-    const candidates = query.sourceWorkSlotId === undefined
-      ? await this.dependencies.observations.findCandidates({
-          scope,
-          trustDomain: query.trustDomain,
-          providerInvocationKey: canonicalIdentity.providerInvocationKey,
-          reusableAfterMs: nowMs,
-          limit: reviewEvidenceMaxLookupCandidates,
-        })
-      : await this.dependencies.observations.findSourceSlotCandidates({
-          scope,
-          trustDomain: query.trustDomain,
-          sourceExecutionId: query.executionId,
-          sourceWorkSlotId: query.sourceWorkSlotId,
-          providerVoteIdentityHash: query.providerVoteIdentityHash,
-          reusableAfterMs: nowMs,
-        });
+    const candidates =
+      query.sourceWorkSlotId === undefined
+        ? await this.dependencies.observations.findCandidates({
+            scope,
+            trustDomain: query.trustDomain,
+            providerInvocationKey: canonicalIdentity.providerInvocationKey,
+            reusableAfterMs: nowMs,
+            limit: reviewEvidenceMaxLookupCandidates,
+          })
+        : await this.dependencies.observations.findSourceSlotCandidates({
+            scope,
+            trustDomain: query.trustDomain,
+            sourceExecutionId: query.executionId,
+            sourceWorkSlotId: query.sourceWorkSlotId,
+            providerVoteIdentityHash: query.providerVoteIdentityHash,
+            reusableAfterMs: nowMs,
+          });
     if (query.sourceWorkSlotId !== undefined) {
       if (candidates.length > 1)
         throw new Error("review_observation_source_ambiguous");

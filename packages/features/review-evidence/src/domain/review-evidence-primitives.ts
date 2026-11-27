@@ -131,7 +131,9 @@ export function normalizeQualityFlags(
     throw new Error("review_evidence_quality_flag_unknown");
   }
   if (
-    !sorted.includes(ReviewObservationQualityFlag.ContextInspectionIncomplete) &&
+    !sorted.includes(
+      ReviewObservationQualityFlag.ContextInspectionIncomplete,
+    ) &&
     sorted.some(
       (flag) =>
         flag === ReviewObservationQualityFlag.ReviewMainIncomplete ||

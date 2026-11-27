@@ -157,8 +157,7 @@ export async function chooseSource(
 ): Promise<void> {
   const choices = await openSourceList(page, dialog);
   const choice = choices.getByRole("radio", { name: title });
-  if (!(await choice.isEnabled()))
-    throw new Error("provider_choice_disabled");
+  if (!(await choice.isEnabled())) throw new Error("provider_choice_disabled");
   // ProviderCards hides its radio; choose the visible label as a user does.
   await choices.getByText(title).click();
   await choices
