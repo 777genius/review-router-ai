@@ -954,6 +954,9 @@ importers:
       '@reviewrouter/features-auth':
         specifier: workspace:*
         version: link:../auth
+      '@reviewrouter/platform-db':
+        specifier: workspace:*
+        version: link:../../platform/db
     devDependencies:
       '@get-modular/conformance':
         specifier: 0.5.2
