@@ -54,9 +54,10 @@ and review rules in one dashboard.
   attached to the exact PR commit.
 - **Multiple reviewers.** Choose models and accounts, run reviewers in parallel
   and require agreement before publishing inline findings.
-- **AI providers and accounts.** Connect Codex, Claude Code, OpenRouter,
-  MiMo Token Plan or Kimi Code via supported subscriptions, OAuth or API keys.
-  Manage accounts and choose models from the available provider catalogs.
+- **AI providers and accounts.** Connect native Claude/Anthropic, Gemini,
+  OpenAI/Codex, Grok, Kimi, GLM, MiniMax, DeepSeek, OpenRouter, NVIDIA Build
+  and others through supported per-provider API keys, OAuth or imports.
+  Availability depends on the deployment; see the matrix below.
 - **Review settings.** Workspace defaults and per-repository overrides for models,
   reasoning effort, language, severity, comment limits and parallelism. Workspace
   admins also control automatic reviews of draft PRs.
@@ -98,6 +99,42 @@ and review rules in one dashboard.
 
 Availability varies by provider, installed workflows and deployment. See
 [capabilities and limits](./docs/capabilities.md).
+
+## AI provider connection methods
+
+The managed native integration supports the following connection methods
+**when enabled in a deployment**. These are not all direct GitHub Actions
+setup modes, and controlled E2E does not prove live provider acceptance.
+
+| Provider / product | Managed-native connection methods |
+| --- | --- |
+| Anthropic / Claude | API key; browser OAuth; session-key-assisted OAuth; setup token by code or cookie |
+| Claude via AWS Bedrock | AWS SigV4 keys, including temporary session credentials; Bedrock API key |
+| Claude via Vertex AI | Google service-account JSON |
+| Gemini / Google | API key; Google One OAuth; Code Assist OAuth; AI Studio custom-client OAuth |
+| Gemini via Vertex AI | Google service-account JSON; Vertex API key (project/region or express mode) |
+| OpenAI API | API key |
+| OpenAI Codex | Browser or device OAuth; refresh token; mobile refresh token; auth.json; session import; Agent Identity; PAT |
+| Grok | API key; browser OAuth; refresh-token import; SSO import |
+| Antigravity | Browser OAuth; refresh-token import; API key for approved target |
+| Kimi | PAYG API key; Kimi Code plan API key |
+| GLM | PAYG API key; Coding Plan API key |
+| DeepSeek | API key |
+| MiniMax | PAYG API key; M Plan API key |
+| OpenCode Go / Zen | Go API key; Zen API key |
+| Command Code | API key |
+| Cline | API key |
+| OpenRouter | API key |
+| NVIDIA Build | API key |
+| MiMo Token Plan | Token Plan API key |
+| TypeSafe SystemOne | API key declaration only; no qualified generative review |
+
+The fixed inventory contains **53** scenarios across 30 native profiles;
+**52/52 required** passed controlled E2E. TypeSafe SystemOne is **not
+qualified for generative review**; MiMo Token Plan uses a separate existing
+path. See the [complete methods reference](./docs/provider-connections.md)
+and [deployment evidence](./ai-docs/deployments/2026-11-21-native-provider-parity.md)
+for limitations and actual configured availability.
 
 ## PR comment commands
 
