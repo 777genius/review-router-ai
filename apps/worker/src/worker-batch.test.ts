@@ -192,13 +192,17 @@ describe("worker owner scheduling", () => {
     const subscriptions = new Map<Promise<unknown>, number>();
     let tracking = false;
     const then = Promise.prototype.then;
-    const observe = vi.spyOn(Promise.prototype, "then").mockImplementation(
-      function (this: Promise<unknown>, fulfilled, rejected) {
+    const observe = vi
+      .spyOn(Promise.prototype, "then")
+      .mockImplementation(function (
+        this: Promise<unknown>,
+        fulfilled,
+        rejected,
+      ) {
         if (tracking)
           subscriptions.set(this, (subscriptions.get(this) ?? 0) + 1);
         return then.call(this, fulfilled, rejected);
-      },
-    );
+      });
     try {
       for (let pass = 0; pass < 100; pass += 1) {
         // Track subscriptions made by the processor, excluding timer/test I/O.
