@@ -17,8 +17,11 @@ combined fenced implementation.
 The integration retains the worker, Accounts, native catalog, database-budget,
 bounded-reader and index changes from this PR. It also retains the current
 retry/settlement and accepted-result recovery contracts from PR #1028 and both
-provider-picker browser contracts from PR #1030. No production deployment is
-part of this integration.
+provider-picker browser contracts from PR #1030. Owner integration
+`1572026b30d4403e9161f308712404b09ed34b85` additionally includes the bounded
+attested Native/Gateway request retry, its pinned SDK and its additive migration.
+Preserve this integrated work while reviewing its new concurrency, authority and
+producer/consumer boundaries. No production deployment is part of this task.
 
 ### Webhook ownership and retained failure contracts
 
@@ -30,12 +33,16 @@ part of this integration.
   custody and actual COMMIT-response-loss checks remain authoritative. Exact
   duplicate completion succeeds; a live or unfenced historical attempt remains
   uncertain and must not be acknowledged as complete.
-- Four focused signed-HTTP PostgreSQL scenarios retain the distinct earlier
+- Five focused signed-HTTP PostgreSQL scenarios retain the distinct earlier
   failure contracts: lost HTTP acknowledgement, lock-wait cancellation, actual
   backend termination, and installation deletion that observes an installation
   created while waiting for the scope lock. The backend-termination scenario
   also checks a brand-new installation for orphan workspace, actor, membership
   and outbox effects before retry.
+  The additional case pauses an initial creation after its durable claim, lets a
+  newer signed deletion finish, then verifies that the old owner cannot recreate
+  any local state. Reuse the existing supersession predicate under the existing
+  scope/row locks; initial App authorization retains its grant-revision rules.
 - The legacy injected route keeps conflict-safe receipt insertion with
   `createMany({ skipDuplicates: true })` and exact-identity, processed-only
   duplicate acknowledgement. This preserves PR #1026's acknowledgement contract
@@ -47,14 +54,15 @@ part of this integration.
 
 ### Migration and qualification boundaries
 
-The application catalog contains all 175 migrations: the shared 170-migration
-baseline, both latest-row indexes and all three webhook migrations, including
-`000168_webhook_receipt_order_indexes`. Admission accepts only the exact shared
-baseline, either complete earlier two-migration group, the complete three-migration
-webhook group, or the exact four- and five-migration unions. The new index cannot
-be admitted without both preceding webhook migrations. Partial, reordered,
-changed, duplicate and unknown tails fail. Managed92, historical96 and the other
-frozen historical fixtures remain unchanged.
+The current application catalog contains 176 migrations: the shared baseline,
+both latest-row indexes, all three webhook migrations and the separately owned
+`000165_attested_model_request_retry`. Admission must validate the exact
+checksum-bound complete groups and their supported combinations; a migration
+count alone is insufficient. The receipt-order index still requires both
+preceding webhook migrations. Partial, reordered, changed, duplicate and unknown
+tails fail. Managed92, historical96 and the other frozen historical fixtures
+remain unchanged. The earlier 175-migration source and qualification stay bound
+to their recorded predecessor.
 
 The integration includes the bounded empty-element Link parser and indexed
 receipt-floor lookup from PR #1027 at `ebf7adcc`. Its migration suite captures the
@@ -66,8 +74,17 @@ The integration checkpoints received source review. The complete combined
 source still requires its native formatting, strict TypeScript, existing unit
 and PostgreSQL matrices, browser contracts, paired public Action recovery and
 ordinary protected CI checks. Earlier results retain their original commit/tree
-bindings. The local executor became unavailable during preparation, so no
-unexecuted combined-source check is recorded as a pass.
+bindings. The first-owner follow-up has local whole-file results on the earlier
+`ef1`/175-migration candidate: production HTTP/PostgreSQL 46/46 and repository
+PostgreSQL 5/5, with an old-runtime negative control. Those results do not qualify
+the current 176-migration/SDK composition. Reconcile final code before publishing,
+then complete the ten selected automatic workflow families, the dedicated PG17
+baseline/adversarial qualification, compiled Action cold recovery and joined
+Native retry evidence. The Statistics followthrough workflow is included.
+Do not record a queued, skipped, failed or unexecuted gate as a pass.
+The joined fixture must use the unchanged producer URL/database-name contract;
+keep its PostgreSQL password authentication through `PGPASSWORD`, without
+weakening producer guards or changing the original private/public assertions.
 
 For an eventual webhook rollout, retain the writer-drain, migration and
 legacy-role grant requirements in the
