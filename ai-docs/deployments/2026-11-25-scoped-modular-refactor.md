@@ -13,7 +13,7 @@
 | Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                                                       |
 | -------------------- | --------- | ------------------------------- | ------------------- | ------------------------------------------------------------------------------------------ |
 | staging              | `pending` | Not verified                    | Not verified        | Qualify the exact merged source, then select it in an authorized ordinary rollout.         |
-| production           | `pending` | Not verified                    | Not verified        | Reconcile the installed version and applicable release tasks before an authorized rollout. |
+| production | `installed` | RR `6271ebe1f5e98bb376b4c7269394f806cb73041f` | 2026-11-27 | Source is included in the running fleet; task-specific verification remains pending. |
 
 This record does not authorize deployment. A pending status records an absence
 of verified completion, not an observation that the code is absent.
@@ -115,3 +115,7 @@ do not replay external onboarding effects merely to obtain evidence.
 | Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result              | Evidence | Next action                                                             |
 | ------------ | -------------------- | ---------- | ---------------------- | ------------------------------------- | -------- | ----------------------------------------------------------------------- |
 | Not executed | staging / production | Unassigned | Not verified           | No deployment requested or performed. | PR #998  | Complete implementation qualification, then join an authorized rollout. |
+
+### Production reconciliation — 2026-11-27
+
+The production API, worker, scan and Web roles run image `sha256:c85668050780757e79c0c7dfa0964f8f06629fbd2d694aa404ce192f7420d9ec` at source `6271ebe1f5e98bb376b4c7269394f806cb73041f`, which includes the merged implementation. The [fleet installation record](2026-11-27-relay-stale-close-capability.md#production-installation-2026-11-27) records the rollout and release verifier; current container inspection found all four roles running with zero restarts, and API readiness and Web returned HTTP 200. Task-specific live behavior and the isolated scenario specified above have not been verified; this entry records installation, not feature acceptance.

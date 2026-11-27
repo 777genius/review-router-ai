@@ -19,7 +19,7 @@
 | Environment / target  | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                                              |
 | --------------------- | --------- | ------------------------------- | ------------------- | --------------------------------------------------------------------------------- |
 | staging               | `pending` | Not verified                    | Not verified        | Select the coherent source and execute the ordered rollout.                       |
-| production            | `pending` | Not verified                    | Not verified        | No deployment or credential rotation was requested in this task.                  |
+| production            | `installed` | RR `5ab12e2d79a2` | 2026-11-27 03:20 UTC | Fleet and migrations installed; feature-specific live verification and public Action release remain pending. |
 | public Action runtime | `pending` | Not verified                    | Not verified        | Artifact regenerated and locally qualified; release through the existing channel. |
 
 `pending` records no verified completion; it does not claim the change is absent.
@@ -124,3 +124,7 @@ specific inspect/adopt/retry procedure; no background polling service is added.
 | Time (UTC)   | Environment          | Operator   | Actual version / image | Observed result                                | Evidence          | Next action                                             |
 | ------------ | -------------------- | ---------- | ---------------------- | ---------------------------------------------- | ----------------- | ------------------------------------------------------- |
 | Not executed | staging / production | Unassigned | Not verified           | Implementation and fixture qualification only. | PR #1007 and plan | Select the coherent release when rollout is authorized. |
+
+### Production installation — 2026-11-27
+
+Four-role fleet installed at `5ab12e2d79a2d60351fd17cca871b32f3d039f13`, image `sha256:e54aa8d14da80d0f7d462896d321483a670a2fa89b402e5b903cb4254a3b64b4`; the old fleet was drained before migrations. Ledger reported 174 rows and zero unfinished migrations; runtime database grants and connection ACL were restored. API `/ready` and Web `/` returned HTTP 200. Production receipt: `/srv/platform/projects/review-router/releases/fleet-overlay-5ab12-hook-v2-7J0ZRxaf/apply-receipt.json`; prior fleet containers and full backup `20261127-031801F` are retained. Six historical Gateway allocations have expired authorization and no recorded cleanup; expiry alone does not prove native sessions closed. Their reconciliation and task-specific live E2E remain outstanding. The public Action runtime was not released in this installation.
