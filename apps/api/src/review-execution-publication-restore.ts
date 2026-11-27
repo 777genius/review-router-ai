@@ -27,14 +27,15 @@ export type PersistedAcceptedReviewManifest = Readonly<{
   providerVoteIdentityHash: string;
 }>;
 
-export type PersistedUnattachedReviewManifest = PersistedAcceptedReviewManifest &
-  Readonly<{
-    observationId: string;
-    payloadHash: string;
-    sourceLeaseId: string;
-    sourceFencingToken: string;
-    sourceOwnerIdHash: string;
-  }>;
+export type PersistedUnattachedReviewManifest =
+  PersistedAcceptedReviewManifest &
+    Readonly<{
+      observationId: string;
+      payloadHash: string;
+      sourceLeaseId: string;
+      sourceFencingToken: string;
+      sourceOwnerIdHash: string;
+    }>;
 
 /** A single spent provider attempt has no possible later source to choose. */
 export function isUnattachedAcceptedRestoreSlot(
@@ -87,7 +88,9 @@ export async function loadUnattachedAcceptedReviewManifests(input: {
       throw new Error("review_restore_accepted_source_ambiguous");
     const observation = candidates[0];
     if (!observation) continue;
-    const sourceLease = await input.queries.findLease(observation.sourceLeaseId);
+    const sourceLease = await input.queries.findLease(
+      observation.sourceLeaseId,
+    );
     if (
       !sourceLease ||
       (sourceLease.state !== ReviewInvocationLeaseState.Released &&
