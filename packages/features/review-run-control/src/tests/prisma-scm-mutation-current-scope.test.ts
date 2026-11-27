@@ -72,11 +72,13 @@ function fixture(failGuard = false) {
       throw new Error("nested_transaction");
     }),
     $queryRaw: vi.fn(async (sql: Prisma.Sql) => {
+      if (sql.sql.includes('"CurrentScopeEpoch"')) return [{ revision: 0n }];
       events.push("lock");
       queries.push(sql);
       if (failGuard) throw new Error("scope_unavailable");
       return [{ locked: 1 }];
     }),
+    $executeRaw: vi.fn(async () => 1),
     scmRepositoryIdentity: delegate("identity"),
     reviewMutationAuthority: delegate("authority"),
     repositoryConnection: delegate("repository"),
