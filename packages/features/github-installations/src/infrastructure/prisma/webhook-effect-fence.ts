@@ -1,3 +1,4 @@
+import { requireVerifiedGitHubAppWebhook } from "../crypto/github-app-webhook-verifier";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { WebhookDeliveryRecord } from "../../application/ports/webhook-delivery-repository-port";
 
@@ -8,6 +9,30 @@ export type FencedDelivery = Readonly<{
   appIdentityHash: string;
   generation: bigint;
 }>;
+
+/**
+ * WIP ingress boundary: only a verifier-issued context may supply App identity.
+ * Header integrity and trusted secret-to-App configuration remain deployment
+ * prerequisites; no production route calls this function yet.
+ */
+export async function beginVerifiedFencedWebhookDelivery(
+  prisma: PrismaClient,
+  context: unknown,
+  delivery: WebhookDeliveryRecord,
+  ownerHash: string,
+  leaseMs: number,
+): Promise<FencedDelivery> {
+  const verified = requireVerifiedGitHubAppWebhook(context);
+  if (!delivery.payloadHash || delivery.payloadHash !== verified.payloadHash)
+    throw new Error("webhook_fence_payload_mismatch");
+  return beginFencedWebhookDelivery(
+    prisma,
+    delivery,
+    ownerHash,
+    leaseMs,
+    verified.appIdentityHash,
+  );
+}
 
 /**
  * WIP: appIdentityHash must come from the trusted App configuration paired

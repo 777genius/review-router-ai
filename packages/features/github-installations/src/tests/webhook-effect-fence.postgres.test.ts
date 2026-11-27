@@ -1,4 +1,5 @@
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
+import { createGitHubAppWebhookVerifier } from "../infrastructure/crypto/github-app-webhook-verifier";
 import { readFile } from "node:fs/promises";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -6,6 +7,7 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   beginFencedWebhookDelivery,
+  beginVerifiedFencedWebhookDelivery,
   reclaimWebhookFence,
   renewWebhookFence,
   runWebhookFencedDatabaseEffect,
@@ -122,6 +124,51 @@ test("webhook database-effect fencing in isolated PostgreSQL", () => {
     await realPrisma.$disconnect();
     await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     await pool.end();
+  });
+
+  it("binds creation to the verified body and trusted App configuration", async () => {
+    const body = Buffer.from('{"action":"opened"}');
+    const secret = "synthetic-secret";
+    const verify = createGitHubAppWebhookVerifier({
+      appId: "123",
+      apiBaseUrl: "https://api.github.com",
+      webhookSecret: secret,
+    });
+    const signature = `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
+    const verified = verify({ rawPayload: body, signatureHeader: signature });
+    expect(verified).not.toBeNull();
+    const delivery = {
+      deliveryId: "verified-app",
+      eventName: "pull_request",
+      payloadHash: verified!.payloadHash,
+    };
+    await expect(
+      beginVerifiedFencedWebhookDelivery(
+        realPrisma,
+        { ...verified },
+        delivery,
+        a,
+        10000,
+      ),
+    ).rejects.toThrow("github_app_webhook_unverified");
+    await expect(
+      beginVerifiedFencedWebhookDelivery(
+        realPrisma,
+        verified,
+        { ...delivery, payloadHash: "e".repeat(64) },
+        a,
+        10000,
+      ),
+    ).rejects.toThrow("webhook_fence_payload_mismatch");
+    const claim = await beginVerifiedFencedWebhookDelivery(
+      realPrisma,
+      verified,
+      delivery,
+      a,
+      10000,
+    );
+    expect(claim.appIdentityHash).toBe(verified!.appIdentityHash);
+    expect(await renewWebhookFence(realPrisma, claim, 10000)).toBe(true);
   });
 
   it("rejects a different authenticated app identity for the same delivery", async () => {

@@ -5160,3 +5160,18 @@ model ReviewHistoryRun {
   @@unique([workspaceId, scmRepositoryIdentityId, pullRequestNumber, runSequence])
   @@index([workspaceId, pullRequestId, runSequence])
 }
+
+// Draft recovery custody only. No automatic GitHub redelivery is enabled.
+model GitHubWebhookRecoveryIntent {
+  appIdentityHash String
+  deliveryGuid String
+  githubDeliveryId BigInt
+  eventName String
+  action String?
+  installationId BigInt?
+  payloadHash String
+  state String @default("prepared")
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @db.Timestamptz(3)
+  @@id([appIdentityHash, deliveryGuid])
+}
