@@ -100,41 +100,29 @@ and review rules in one dashboard.
 Availability varies by provider, installed workflows and deployment. See
 [capabilities and limits](./docs/capabilities.md).
 
-## AI provider connection methods
+## Supported AI providers
 
-The managed native integration supports the following connection methods
-**when enabled in a deployment**. These are not all direct GitHub Actions
-setup modes, and controlled E2E does not prove live provider acceptance.
+Choose a supported subscription or bring an API key. The ways to connect
+depend on the provider and on your deployment.
 
-| Provider / product | Managed-native connection methods |
+| Provider | Ways to connect |
 | --- | --- |
-| Anthropic / Claude | API key; browser OAuth; session-key-assisted OAuth; setup token by code or cookie |
-| Claude via AWS Bedrock | AWS SigV4 keys, including temporary session credentials; Bedrock API key |
-| Claude via Vertex AI | Google service-account JSON |
-| Gemini / Google | API key; Google One OAuth; Code Assist OAuth; AI Studio custom-client OAuth |
-| Gemini via Vertex AI | Google service-account JSON; Vertex API key (project/region or express mode) |
-| OpenAI API | API key |
-| OpenAI Codex | Browser or device OAuth; refresh token; mobile refresh token; auth.json; session import; Agent Identity; PAT |
-| Grok | API key; browser OAuth; refresh-token import; SSO import |
-| Antigravity | Browser OAuth; refresh-token import; API key for approved target |
-| Kimi | PAYG API key; Kimi Code plan API key |
-| GLM | PAYG API key; Coding Plan API key |
-| DeepSeek | API key |
-| MiniMax | PAYG API key; M Plan API key |
-| OpenCode Go / Zen | Go API key; Zen API key |
-| Command Code | API key |
-| Cline | API key |
-| OpenRouter | API key |
-| NVIDIA Build | API key |
-| MiMo Token Plan | Token Plan API key |
-| TypeSafe SystemOne | API key declaration only; no qualified generative review |
+| **Claude / Anthropic** | API key, account sign-in (OAuth), session-assisted sign-in, setup token |
+| **Claude via AWS / Google Cloud** | Bedrock API key or AWS credentials; Vertex AI service account |
+| **Gemini / Google** | API key, Google One / Code Assist / AI Studio sign-in, Vertex AI credentials |
+| **OpenAI / Codex** | OpenAI API key; Codex sign-in, token / session import, `auth.json`, Agent Identity, PAT |
+| **Grok / Antigravity** | Account sign-in, imported token, API key where supported; Grok SSO |
+| **Kimi / GLM / MiniMax** | API keys for pay-as-you-go or supported coding/subscription plans |
+| **DeepSeek / OpenCode Go and Zen / Command Code / Cline** | API key |
+| **OpenRouter / NVIDIA Build** | API key |
+| **MiMo Token Plan** | Token Plan API key (existing ReviewRouter connection) |
 
-The fixed inventory contains **53** scenarios across 30 native profiles;
-**52/52 required** passed controlled E2E. TypeSafe SystemOne is **not
-qualified for generative review**; MiMo Token Plan uses a separate existing
-path. See the [complete methods reference](./docs/provider-connections.md)
-and [deployment evidence](./ai-docs/deployments/2026-11-21-native-provider-parity.md)
-for limitations and actual configured availability.
+**Important:** Not all options are enabled in every deployment, and not all
+managed-account methods work as direct GitHub Actions secrets. See the
+[full provider-by-provider table](./docs/provider-connections.md) or the
+[public providers page](https://reviewrouter.org/providers) for exact methods
+and requirements. Our controlled integration tests do not substitute for a
+live paid-provider review.
 
 ## PR comment commands
 
