@@ -6,5 +6,5 @@ export const conversationSourceFiles = {
     "apps/api/src/action-conversation-memory-preview.ts",
   accountPolicySourceDigest: "apps/api/src/action-conversation-policy.ts",
   gatewaySdkProvenanceDigest:
-    "vendor/account-gateway/native-provider-parity-sdk-provenance.json",
+    "vendor/account-gateway/native-request-retry-sdk-provenance.json",
 } as const;
