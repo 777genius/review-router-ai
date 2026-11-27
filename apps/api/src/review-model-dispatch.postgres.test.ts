@@ -1360,6 +1360,7 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
     const unexpected = async (): Promise<never> => {
       throw new Error("unexpected_claim_after_custody_loss");
     };
+    const custodyReads: ReviewRunCompanionDispatch[] = [];
     const app = Fastify({ logger: false });
     await registerReviewModelDispatchRoutes(app, {
       authorizations: {
@@ -1369,7 +1370,10 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
         }),
       },
       checkAuthority: async () => true,
-      canReadNativeRetryProof: async () => false,
+      canReadNativeRetryProof: async (dispatch) => {
+        custodyReads.push(dispatch);
+        return false;
+      },
       admission: {
         claim: unexpected,
         forward: unexpected,
@@ -1408,6 +1412,17 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
       expect(response.json()).toEqual({
         code: "model_dispatch_retry_denied",
       });
+      expect(custodyReads).toEqual([
+        expect.objectContaining({
+          authorizationId: original.authorizationId,
+          dispatchId: original.dispatchId,
+          nativeRequestRef: rejected.dispatch.nativeRequestRef,
+          nativeRetryProof: {
+            kind: "native_rejection_after_forward",
+            reason: "admission_storage_conflict",
+          },
+        }),
+      ]);
       expect(
         await f.prisma.reviewRunCompanionDispatchV1.count({
           where: { authorizationId: original.authorizationId },

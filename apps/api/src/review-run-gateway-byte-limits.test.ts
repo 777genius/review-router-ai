@@ -271,6 +271,16 @@ it.each([
         accepted ? "not_dispatched" : "effect_unknown",
       );
       expect(f.retryProofCalls).toHaveLength(enabled ? 1 : 0);
+      expect(f.retryProofHeaders).toEqual(
+        enabled
+          ? [
+              {
+                authorization: "Bearer local-execution-token",
+                capability: "request-retry-proof/v1",
+              },
+            ]
+          : [],
+      );
       if (accepted) {
         expect(recordNativeRejection).toHaveBeenCalledWith(
           f.authorization().authorizationId,
@@ -350,8 +360,10 @@ it.each([
   async ({ effect, status, nativeRetry, role, proof }) => {
     const state = companionReservation(role);
     const events: string[] = [];
-    const statusBody = Promise.withResolvers<void>();
-    const releaseEof = Promise.withResolvers<void>();
+    const releaseEof = deferred();
+    const eofReadPending = deferred();
+    const proofCallStarted = deferred();
+    let statusBytes = 0;
     const forward = vi.fn(
       async (
         ...args: Parameters<ReviewRunModelDispatchAdmission["forward"]>
@@ -396,9 +408,10 @@ it.each([
       nativeRetry,
       nativeStatusResponse: async (response, requestRef) => {
         response.writeHead(202, { "content-type": "application/json" });
-        response.write(JSON.stringify({ requestRef, effect, status }));
+        const body = JSON.stringify({ requestRef, effect, status });
+        statusBytes = Buffer.byteLength(body);
+        response.write(body);
         events.push("status-body");
-        statusBody.resolve();
         // The public native handler awaits its close ACK before returning.
         // Sending JSON without EOF must not trigger an early RR proof read.
         await releaseEof.promise;
@@ -446,6 +459,58 @@ it.each([
       requestBytes: bytes.byteLength,
       maxOutputTokens: 4096,
     });
+    const originalFetch = globalThis.fetch;
+    let clientEofObserved = false;
+    const proofInvocations: boolean[] = [];
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input, init) => {
+        const url = new URL(input instanceof Request ? input.url : input);
+        const fixtureRequest = url.origin === f.relayInput.runAccess.origin;
+        if (fixtureRequest && url.pathname.endsWith("/retry-proof")) {
+          proofInvocations.push(clientEofObserved);
+          proofCallStarted.resolve();
+        }
+        const response = await originalFetch(input, init);
+        if (
+          !fixtureRequest ||
+          !url.pathname.endsWith("/requests") ||
+          response.status !== 202 ||
+          !response.body
+        )
+          return response;
+        const reader = response.body.getReader();
+        let consumedBytes = 0;
+        const body = new ReadableStream<Uint8Array>(
+          {
+            async pull(controller) {
+              // With no prefetch, this read is driven by the SDK's next read.
+              const pendingRead = reader.read();
+              if (consumedBytes === statusBytes && consumedBytes > 0)
+                eofReadPending.resolve();
+              try {
+                const { done, value } = await pendingRead;
+                if (done) {
+                  clientEofObserved = true;
+                  controller.close();
+                } else {
+                  consumedBytes += value.byteLength;
+                  controller.enqueue(value);
+                }
+              } catch (error) {
+                controller.error(error);
+              }
+            },
+            cancel: (reason) => reader.cancel(reason),
+          },
+          { highWaterMark: 0 },
+        );
+        return new Response(body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        });
+      });
     const controller = new AbortController();
     const pending = f.relay
       .responses(
@@ -461,12 +526,15 @@ it.each([
       );
     try {
       await Promise.race([
-        statusBody.promise,
+        eofReadPending.promise,
+        proofCallStarted.promise.then(() => {
+          throw new Error("native_proof_started_before_eof_read");
+        }),
         pending.then(() => {
-          throw new Error("native_status_finished_before_body_checkpoint");
+          throw new Error("native_status_finished_before_eof_read");
         }),
       ]);
-      await setImmediate();
+      expect(proofInvocations).toEqual([]);
       expect(events).toEqual(["status-body"]);
       expect(f.retryProofCalls).toHaveLength(0);
       expect(recordNativeRejection).not.toHaveBeenCalled();
@@ -494,7 +562,18 @@ it.each([
           },
         });
       }
+      expect(proofInvocations).toEqual(proof === "unused" ? [] : [true]);
       expect(f.retryProofCalls).toHaveLength(proof === "unused" ? 0 : 1);
+      expect(f.retryProofHeaders).toEqual(
+        proof === "unused"
+          ? []
+          : [
+              {
+                authorization: "Bearer local-execution-token",
+                capability: "request-retry-proof/v1",
+              },
+            ],
+      );
       expect(recordNativeRejection).toHaveBeenCalledTimes(
         proof === "accepted" ? 1 : 0,
       );
@@ -527,8 +606,12 @@ it.each([
     } finally {
       releaseEof.resolve();
       controller.abort();
-      await pending;
-      await f.relay.shutdown();
+      try {
+        await pending;
+        await f.relay.shutdown();
+      } finally {
+        fetchMock.mockRestore();
+      }
     }
   },
   10_000,
@@ -686,6 +769,12 @@ it.each([
         });
       expect(recordNativeRejection).toHaveBeenCalledTimes(proofDenied ? 0 : 1);
       expect(f.retryProofCalls).toHaveLength(1);
+      expect(f.retryProofHeaders).toEqual([
+        {
+          authorization: "Bearer local-execution-token",
+          capability: "request-retry-proof/v1",
+        },
+      ]);
       expect(f.retryProofCalls[0]?.requestRef).toBe(
         original.dispatch.nativeRequestRef,
       );
@@ -2433,6 +2522,10 @@ async function fixture(
     | null,
 ) {
   const retryProofCalls: { requestRef: string; executionRef: string }[] = [];
+  const retryProofHeaders: {
+    authorization: string | undefined;
+    capability: string | string[] | undefined;
+  }[] = [];
   const deadline = new Date(Date.now() + 120_000).toISOString();
   const limits = {
     requests: capturedRequests,
@@ -2796,13 +2889,29 @@ async function fixture(
         req.url ?? "",
       );
     if (proofRequest && req.method === "GET") {
-      expect(req.headers.authorization).toBe("Bearer local-execution-token");
-      expect(req.headers["x-account-gateway-capability"]).toBe(
-        "request-retry-proof/v1",
-      );
+      const headers = {
+        authorization: req.headers.authorization,
+        capability: req.headers["x-account-gateway-capability"],
+      };
       const executionRef = proofRequest[1]!,
         requestRef = proofRequest[2]!;
       retryProofCalls.push({ executionRef, requestRef });
+      retryProofHeaders.push(headers);
+      if (
+        headers.authorization !== "Bearer local-execution-token" ||
+        headers.capability !== "request-retry-proof/v1"
+      ) {
+        res.writeHead(403, { "content-type": "application/json" }).end(
+          JSON.stringify({
+            code: "forbidden",
+            traceRef: "invalid-proof-headers-fixture",
+            requestRef,
+            effect: "effect_unknown",
+            retry: { kind: "never" },
+          }),
+        );
+        return;
+      }
       res
         .writeHead(companionOptions?.retryProofStatus ?? 200, {
           "content-type": "application/json",
@@ -3159,6 +3268,7 @@ async function fixture(
     requestBodies,
     requestRefs,
     retryProofCalls,
+    retryProofHeaders,
     limits,
     effects,
     authorityChecks,
