@@ -1339,15 +1339,15 @@ export function createReviewRunGatewayRelay(input: {
                 phase = "cancelled";
                 if (signal.aborted) throw new Error("companion_cancelled");
                 if (chunk.done) {
+                  // EOF owns its status read and both settlement writes.
                   // EOF alone is not native no-dispatch/completion evidence.
+                  settlementStarted = true;
                   phase = "native_status";
                   const status = await session.preparation.status(
                     requestRef,
                     { signal },
                     fresh,
                   );
-                  // This EOF owns settlement until success or its failure path.
-                  settlementStarted = true;
                   await settle(status.effect, (settlementPhase) => {
                     phase = settlementPhase;
                   });

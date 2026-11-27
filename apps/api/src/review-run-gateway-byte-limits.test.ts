@@ -287,7 +287,12 @@ it.each(["closeRun", "shutdown"] as const)(
           ? f.relay.closeRun("authorization-1", "cancelled")
           : f.relay.shutdown();
       void closing.catch(() => {});
-      await revokeStarted.promise;
+      await Promise.race([
+        revokeStarted.promise,
+        closing.then(() => {
+          throw new Error("close_finished_before_revocation");
+        }),
+      ]);
       expect(f.authorization().state).toBe("active");
       expect(f.nativeCloses).toHaveLength(0);
       releaseLiveRead.resolve();
@@ -1659,8 +1664,10 @@ it.each([
 );
 
 it.each([
+  { phase: "native_status", fail: false },
   { phase: "usage_outcome", fail: false },
   { phase: "companion_settlement", fail: false },
+  { phase: "native_status", fail: true },
   { phase: "usage_outcome", fail: true },
   { phase: "companion_settlement", fail: true },
 ] as const)(
@@ -1691,7 +1698,36 @@ it.each([
       async (upstream) => {
         upstream.end(progressFrame + completedFrame);
       },
-      { admission: state.admission },
+      {
+        admission: state.admission,
+        ...(phase === "native_status"
+          ? {
+              requestStatus: async (requestRef: string) => {
+                settlementStarted.resolve();
+                await releaseSettlement.promise;
+                return fail
+                  ? {
+                      statusCode: 503,
+                      body: {
+                        code: "upstream_failure",
+                        traceRef: "fixture-native-status-failure",
+                        requestRef,
+                        effect: "effect_unknown",
+                        retry: { kind: "readback" },
+                      },
+                    }
+                  : {
+                      statusCode: 200,
+                      body: {
+                        requestRef,
+                        effect: "completed",
+                        status: "completed",
+                      },
+                    };
+              },
+            }
+          : {}),
+      },
     );
     const recordOutcome = f.usage!.outcome;
     const usage = vi
@@ -1718,7 +1754,7 @@ it.each([
       reader = response.body.getReader();
       draining = (async () => {
         while (!(await reader!.read()).done) {
-          // Drive EOF until one of the two real settlement writes is held.
+          // Drive EOF until its status read or one settlement write is held.
         }
       })();
       void draining.catch(() => {});
@@ -1758,6 +1794,9 @@ it.each([
               maxStreamBytes: 32768,
               signalAborted: false,
               errorCategory: fail ? "Error" : "TypeError",
+              ...(fail && phase === "native_status"
+                ? { httpStatus: 503, sdkCode: "safe_error" }
+                : {}),
             },
           ],
         ]);
@@ -1772,14 +1811,14 @@ it.each([
       expect(f.effects.map(({ effect }) => effect)).toEqual(
         !fail
           ? ["dispatch_started", "completed"]
-          : phase === "usage_outcome"
+          : phase !== "companion_settlement"
             ? ["dispatch_started", "effect_unknown"]
             : ["dispatch_started", "completed", "effect_unknown"],
       );
       expect(settlement.mock.calls.map(([, , effect]) => effect)).toEqual(
         !fail
           ? ["completed"]
-          : phase === "usage_outcome"
+          : phase !== "companion_settlement"
             ? ["effect_unknown"]
             : ["completed", "effect_unknown"],
       );
@@ -2580,10 +2619,9 @@ async function fixture(
       resetAt: string;
     };
     refusalStatus?: number;
-    requestStatus?: (requestRef: string) => {
-      statusCode: number;
-      body: unknown;
-    };
+    requestStatus?: (requestRef: string) =>
+      | { statusCode: number; body: unknown }
+      | Promise<{ statusCode: number; body: unknown }>;
     failUsageOutcome?: boolean;
     modelDispatchV2?: boolean;
     modelDispatchCapacity128?: boolean;
@@ -3112,7 +3150,7 @@ async function fixture(
       requestRefs.includes(req.url.split("/").at(-1)!)
     ) {
       const requestRef = req.url.split("/").at(-1)!;
-      const response = companionOptions?.requestStatus?.(requestRef);
+      const response = await companionOptions?.requestStatus?.(requestRef);
       res
         .writeHead(response?.statusCode ?? 200, {
           "content-type": "application/json",
