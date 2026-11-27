@@ -1,74 +1,154 @@
-# Webhook delivery fencing: implementation boundary
+# Durable GitHub webhook delivery — completion plan
 
-Status: design and implementation work in progress. This is not an enabled recovery mechanism and does not authorize changing production delivery rows or replaying webhooks.
+Status: implementation and qualification in progress in PR #1027. No production
+migration, replay, deployment or activation has been performed by this workstream.
 
-## Current boundary
+## Outcome and scope
 
-The signed GitHub webhook route authenticates the raw body before dispatch. Pull-request pre-admission writes durable ingress before the generic delivery claim; the generic handler then writes separate state. Installation handling performs multiple repository and outbox operations before marking the delivery processed. A generic `processing` row has no owner, generation or lease. The existing completion methods update by delivery ID alone. A timeout cannot prove that the previous handler stopped, and a generation check only at final acknowledgement cannot fence a stale handler's earlier effects.
+A verified supported GitHub event has one durable delivery identity. Local effects,
+its existing outbox commands and its terminal receipt commit together. A stopped
+handler can be replaced only when the complete local effect protocol proves that
+its older generation cannot commit. HTTP success never acknowledges unfinished or
+mismatched work. Operator recovery issues at most one GitHub redelivery request and
+reports success only after the exact receiver receipt is processed.
 
-## Required invariants
+This continuation supersedes the experimental epoch design at
+`783409f2a21edc182df216d63c1f3cb4b84785bf`. Its historical tests and known negative
+reproductions remain available in Git history; they are not qualification of the
+revised implementation.
 
-- Preserve the full delivery identity: App identity, delivery GUID, event and action, installation, and authenticated payload hash. A mismatch never reclaims or acknowledges the original delivery.
-- Keep a durable monotonically increasing generation, an opaque per-attempt owner and a database-clock deadline. A new owner cannot take over merely because a legacy un-fenced record is old. Terminal, mismatched and unknown records remain distinguishable.
-- Every effect owned by a fenced handler must commit in a database transaction that first locks and checks the same delivery identity, owner, generation and unexpired deadline. The check and the mutation/outbox enqueue must share the same database transaction. The transaction must finish before the row lock is released. A stale owner cannot complete, fail, enqueue, mutate or extend a newer generation.
-- Move external effects behind an idempotent, durable outbox or a separately fenced protocol. A network timeout or unknown external outcome is not proof of no effect and cannot authorize replay. A lease deadline is not evidence that an old process or external request ended.
-- Preserve pull-request ingress durability: do not move its existing enqueue after a generic claim unless the signed ingress write and the claim are committed atomically, with an independently tested recovery path. Preserve current trust, revision and deduplication checks.
-- During mixed-version rollout, old binaries must not write unfenced effects for rows eligible for fenced takeover. Block takeover until all relevant readers, writers and queued workers use the new protocol, or provide an independently verified compatible version fence. Never infer safety from a schema migration alone.
-- A `202` from a GitHub redelivery request is not completion. Track redelivery attempts durably, group attempts by delivery GUID, and confirm the receiver's terminal effect before marking recovered. A lost POST response is unknown and must be reconciled without a blind second POST. GitHub does not automatically redeliver failed deliveries. Do not rely solely on the API's 400–599 failure filter when scanning for network or timeout outcomes.
+In scope: the six existing webhook event families, authenticated ingress, delivery
+claims, local effect/outbox transactions, bounded known-delivery reconciliation,
+actual PostgreSQL migrations/privileges, old-writer rejection, race and HTTP E2E.
 
-## Work and acceptance
+Out of scope: provider-account lifecycle redesign, workspace/auth membership epoch
+migration, general admission/entitlement changes, new services/queues/dependencies,
+production replay/deployment, never-ingressed automatic recovery and guarantees
+about an external operation already in flight. PR #1021 owns its separate worker,
+transport, catalog and dashboard improvements; it is not imported or qualified here.
 
-1. Inventory all webhook types and every read, mutation, outbox write and external call, including `preAdmissionPullRequests`, composite pull-request handlers, installation removal and owner grant, push, repository and app-authorization handlers. Classify each effect by transaction owner and existing idempotency key; unknown paths block takeover.
-2. Add an additive schema and bounded, database-clock lease/owner/generation repository. Preserve old rows as legacy and read-compatible. Introduce an effect transaction guard and migrate each eligible handler and its outbox writes to the same guarded transaction. Keep automatic takeover disabled for handlers or rows without the complete guard. Provide explicit operator visibility for stuck/unknown records and bounded retention.
-3. Add read-only recovery planning and a separately authorised, bounded App-JWT redelivery protocol. Bind it to the exact configured App and delivery identity; durably persist the decision and POST intent before a single external POST. Reconcile ambiguous outcomes and receiver state, limit pages and retries, and surface incomplete scans or GitHub retention expiry without declaring success. Do not apply to production events during tests.
-4. On an isolated worker with real PostgreSQL and a synthetic GitHub/handler fixture, test concurrent duplicate delivery, owner death before and after every effect, held old owner past lease expiry, concurrent takeover, stale finish/fail/renew, old process resume, transaction rollback, delayed or lost POST response, duplicate successful redelivery, payload mismatch, same GUID with different App identity, GitHub pagination/retention/rate-limit errors, and mixed-version rollout. Assert no silent 2xx for unfinished work, no duplicate effects, no untracked `processing`, preserved ingress and eventual recovery only where terminal evidence allows it.
-5. Run independent security and architecture review, update the deployment registry for additive migration and mixed-fleet rollout, and verify isolated end-to-end behavior before any production adoption. The preceding acknowledgement-only change does not satisfy these acceptance criteria.
+## Design review and selected approach
 
-## Current-scope lock inventory and mixed versions
+Two independent reviewers inspected the handoff, concrete handler reads/writes and
+failure protocol. The first review found an unnecessary global exclusive lock on
+ordinary PR/push events, missing failed-to-retry transitions, unconnected routes and
+unsafe old terminal writers. The second review verified that these handlers do not
+read the account/entitlement authority that the draft was converting to epochs.
 
-An initial source inventory found guarded writer paths in the API repository webhook handler and these infrastructure repositories: repository connection, workspace provider profile, review configuration, mutation authority, SCM repository identity, review safety control, producer release, entitlement, and GitHub installation. Shared guard consumers also include API production review composition, action conversation policy, review memory admission, and workspace memory settings. This is a call-site census, **not** a completeness proof: direct workspace, installation and repository writes also exist in workspace review settings, membership, provider-account deletion and GitLab inventory paths. Each must be classified against the authority being protected, including SQL, migrations, maintenance scripts and older binaries. Capture a machine-checkable exact-source inventory before activation.
+| Approach                                                                                       | Incremental production/integration LOC | Tests/fixtures LOC | Engineer-days | Fitness / reliability / complexity |
+| ---------------------------------------------------------------------------------------------- | -------------------------------------: | -----------------: | ------------: | ---------------------------------- |
+| Complete repository-wide SERIALIZABLE epochs                                                   |                            2,500–5,000 |        3,000–6,000 |          8–16 | 4 / 7 / 9                          |
+| READ COMMITTED, existing scope locks, exact delivery fence and atomic local effects (selected) |                              700–1,500 |        1,000–2,000 |           3–6 | 9 / 8 / 5                          |
+| Atomic receipt/effects only, without durable takeover or recovery custody                      |                                300–700 |          500–1,000 |           1–3 | 5 / 8 / 3                          |
 
-Serializable snapshot freshness is a separate condition from lock order. An isolated PostgreSQL reproduction holds the global advisory lock in T1 while changing authority from 1 to 2. T2 begins SERIALIZABLE, waits for that lock, then reads 1 and successfully commits a dependent effect even though the latest value is 2. Therefore acquiring scope before delivery and retrying only observed serialization errors are insufficient. A synthetic shared-epoch experiment makes T1 update an epoch row in the same transaction as authority and makes T2 acquire `FOR SHARE` on that row after the advisory lock: T2 gets SQLSTATE 40001 and a new transaction sees 2. This is evidence for that fixture, not a proof that the application participates.
+These are engineering estimates, not delivery promises or measured availability.
+Reliability is within each option's stated scope. Generated files, existing draft
+code, documentation and production rollout are excluded. The smaller atomic-only
+option does not finish this PR's abandoned-delivery recovery goal. The selected
+approach removes the broad epoch changes rather than claiming their incomplete
+writer census is safe. It preserves existing authority ownership and checks.
 
-A production epoch protocol requires durable rows for the exact global/workspace/repository hierarchy, a complete and ordered set of affected scopes, writer updates and reader `FOR SHARE` checks in the same transaction, stable identity and deletion/recreation handling, bounded transaction retries, DB permissions, and proofs for all protected writers. Shared readers must remain concurrent; a single global exclusive row update on every ordinary read would serialize tenants and is not an acceptable scaling assumption. All writers must use the same hierarchy and ordering before the snapshot is trusted. Validate insertion races, workspace/repository isolation, global exclusive transitions, throughput and deadlock behavior on real PostgreSQL.
+Round-two criticism requires complete lock ordering, an installation/repository
+reread after row-lock waits for setup completion, no external callback retries,
+exact App/body binding, and real migrated PostgreSQL tests. A receipt trigger alone
+cannot qualify an old fleet's earlier unguarded effects; deployment still requires
+a controlled writer drain. These findings are implementation requirements below.
 
-An unconnected WIP epoch adapter now uses shared row locks for existing ancestor epochs and updates only exclusive scope epochs. A two-workspace PostgreSQL fixture with both epochs pre-created showed concurrent entry. Concurrent cold initialization produced a serialization conflict and requires bounded retry and a backfill strategy; this is not a load test. The actual generated Prisma 7.9 adapter surfaced a PostgreSQL `40001` from raw SQL as `P2010` with structured `driverAdapterError.cause`; a narrowly scoped WIP transaction runner retries that exact structured conflict Prisma P2034 model write conflicts, and the exact structured P2010/postgres/40P01 deadlock shape, at most three attempts, and only for DB-only callbacks. An isolated model-update race produced P2034, verified rollback, and verified the next attempt reads a fresh snapshot. A real raw-SQL deadlock produced structured P2010/postgres/40P01; a separate race confirmed the victim retries as a new DB transaction. Other errors are not retried. These observations do not prove coverage of the inventoried writers, handler integration or production safety.
+## Exact local-effect inventory
 
-An additional isolated PostgreSQL/Prisma reproduction uses the actual legacy `acquireCurrentScopeGuards` writer and the actual epoch-enabled serializable reader. The writer changes synthetic authority from 10 to 11 without updating the epoch while the reader waits; after the writer commits, the reader still commits an effect based on 10. This is an expected demonstration of unsafety, not a passing safety test. The epoch reader must not be activated for takeover while any relevant writer lacks the shared protocol. A separate isolated PostgreSQL test runs the existing legacy delivery repository against a fenced completed delivery: `markFailed` overwrites `processed`, and `tryStartProcessing` then reopens it. This is a demonstration of unsafety, not a safety test. Legacy delivery terminal methods do not enforce the new fence and must be excluded from concurrent participation.
+| Event / owner                                                      | Local effects and existing command owner                                             | Scope / row order                                                                                |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `installation`, `installation_repositories` — GitHub installations | Installation/workspace membership and repository authority; installation-sync outbox | Existing global exclusive scope → delivery → fence → installation and dependent rows             |
+| `repository` — repository webhook adapter                          | Repository selection/metadata, SCM identity invalidation, workflow state             | Existing global exclusive scope → delivery → fence → repository rows                             |
+| `pull_request` — ingress/setup/conflict composite                  | Review intent outbox, setup workflow CAS, optional conflict outbox                   | Global shared scope → delivery → fence → installation then repository shared rows → workflow CAS |
+| `push` — conflict handler                                          | Optional existing conflict outbox                                                    | Delivery → fence → outbox; no global exclusive lock                                              |
+| `github_app_authorization` — authorization adapter                 | GitHub authorization revocation and its permission cache                             | Delivery → fence → authorization/cache rows                                                      |
 
-A first WIP writer conversion routes the ordinary GitHub installation upsert/removal and installation owner-grant entrypoints through the global epoch and serializable DB-only retry helper. Isolated PostgreSQL tests verify upsert, removal, owner grant, and a reader waiting on the actual installation writer: the transaction retries and reads the new authority. Other writer classes and full contention behavior still need qualification; this partial conversion does not make mixed-version or takeover safe. The migration must precede any binary using this helper.
+`PrismaGitHubInstallationRepository` and `PrismaInstallationWorkspaceOwnerGrant`
+expose transaction-bound operations reused by the installation adapter. Existing
+workflow and outbox owners retain their idempotency keys. The production composition
+selects fenced processing for every supported event; no new feature flag selects it.
+The legacy dependency-injection route remains for existing isolated adapters/tests,
+and is never selected by the default production composition.
 
-A WIP personal-workspace writer discovers the existing binding before locking, takes its workspace epoch exclusively (global epoch exclusively only when discovery finds no workspace), locks the stable user and rechecks the binding in-transaction. A changed candidate causes bounded rediscovery in a fresh transaction. Two isolated PostgreSQL tests exercised two concurrent first logins producing one workspace and concurrent existing workspaces entering without a global exclusive lock; a mock checks stale-candidate rediscovery. This is not proof against unconverted writers or all identity transitions.
+No handler invokes provider/GitHub HTTP inside its retryable database effect.
+Installation synchronization and review/conflict work remain commands for existing
+outbox workers, whose authority/idempotency contracts are unchanged. Source census
+includes all delivery repository calls and raw SQL/maintenance references. No generic
+repository-wide authority scanner or new architectural framework is required.
 
-The WIP provider-account personal-workspace writer now follows the same scope→epoch→User order as auth. An isolated PostgreSQL race of the two converted entrypoints produced one workspace and owner. A separate fixture reproducing the old User-lock-before-create path overlapping the new auth path initially yielded P2002 despite no duplicate row; the WIP now recognises only the confirmed Workspace/personalOwnerUserId/23505 conflict and performs bounded rediscovery after rollback. That fixture succeeds, but old-fleet drain remains essential for the wider fencing protocol. Other provider-account operations and writers are not covered by this test.
+## Delivery invariants
 
-The WIP draft-review setting writer now uses a workspace-exclusive epoch transaction. Two isolated PostgreSQL races using the actual setting writer exercised a same-workspace reader and a global-exclusive reader: both retried and observed the committed value. The global reader test verifies more than one transaction attempt. This is evidence for those specific ancestor-lock/SSI scenarios, not a proof for all scopes or writers.
+- App identity comes from trusted App ID/API origin paired with the webhook secret.
+  Raw-body HMAC verification precedes parsing and all writes. The full receipt binds
+  App, GUID, event, action, installation and exact authenticated body hash.
+- New delivery and fence creation are atomic. Never add a fence to a legacy row.
+  A matching processed receipt is the only successful duplicate acknowledgement;
+  legacy processing/failed/unknown and identity mismatches remain fail closed.
+- Claims have random owner hashes, monotonic generations and database-clock leases.
+  An expired processing or failed fenced claim can be replaced under the same row
+  locks; an active owner, processed receipt or mismatch cannot be replaced.
+- Every effect first acquires its complete scope plan, then delivery/fence rows.
+  READ COMMITTED rereads after waits. The fence is checked before and after local
+  work; effect, outbox and processed status share one transaction/connection.
+- The migration's receipt trigger rejects legacy terminal changes or deletion of a
+  fenced delivery unless the validated fence names the current database transaction.
+  This is a local compatibility defense, not proof of a safe mixed production fleet.
+- Failure recording occurs only after rollback, checks the exact generation and
+  cannot overwrite a committed receipt or replacement owner. Unknown commit outcomes
+  are reconciled; they do not authorize another external mutation.
+- Transactions and leases are bounded. No handler callback containing external I/O
+  is retried automatically. Independent push/PR work remains concurrent.
 
-The ordinary repository webhook writer is also a WIP global epoch participant. One isolated PostgreSQL test verified the repository mutation and epoch update; four other fenced PG tests and 28 mock business-behavior tests passed. This does not cover repository inventory, other authority writers or rollout.
+## Recovery boundary
 
-The WIP GitHub installation inventory transaction now participates in the global epoch. Two isolated PostgreSQL tests cover atomic empty-inventory removal/watermark and rollback of the removal and epoch when a later write fails; 23 existing business mocks also passed with epoch SQL modeled separately. A separate WIP GitLab inventory writer now uses the workspace epoch, with existing provider I/O outside the DB-only callback and a 15-second transaction timeout; three isolated PostgreSQL tests cover commit, rollback and a forced cross-workspace simultaneous ownership-claim race: exactly one owner is stored and the other receives the stable ownership conflict. Nine mock business tests pass. Other concurrency paths require further review; other writers remain uncovered.
+The existing operator environment supplies App JWT credentials and a database URL.
+A small operational command provides read-only status/eligibility and an explicit
+one-shot recovery request, followed by bounded read-only reconciliation. It adds no
+HTTP administration endpoint or scheduler subsystem.
 
-The draft provider-management access-rights writer now takes the workspace epoch before authorization and row locks. Three isolated PostgreSQL tests exercised atomic rights/audit/epoch commit, rollback on audit failure, and a waiting global reader retrying to fresh rights. The fixture uses import shims for unrelated provider services. Profile model/archive writes now participate too, with a PostgreSQL commit and authorization rollback test; account binding and deletion writers remain unproven.
+Recovery accepts only already-ingressed fenced deliveries. Trusted GitHub delivery
+metadata and the retained verified signature digest must match the local exact body
+identity. Missing/redacted signatures, secret-rotation ambiguity, unknown originals
+and never-ingressed deliveries fail closed. HMAC authenticates the body, not event
+headers or network provenance. A captured identical signed body arriving first must
+still produce at most the same already-authorized local effect.
 
-Further experimental participants are the entitlement, safety, producer-release and SCM-identity/mutation-authority writers. Focused PostgreSQL tests cover their writes and existing mocks cover their business behavior; they are not race or scalability proofs. Root review-configuration writes and the current transaction-scoped operator and hosted-pool entrypoints acquire epochs; hosted-to-rotating was tested against PostgreSQL with synthetic authority, while workflow activation has mock-only coverage. The production source census still finds direct authority mutations in provider-account lifecycle, canonical operations, synchronization, binding and workspace deletion. These require scope/lock-order and mixed-fleet proof before takeover; a caller census cannot substitute for raw SQL, scripts or old binaries.
+The durable intent is reserved before POST. A lost reservation/POST response remains
+unknown and never authorizes a second POST. HTTP 202 means accepted, not processed.
+Repeated commands inspect the existing custody state and reconcile; only an exact
+processed receiver receipt confirms recovery. Pagination is bounded and incomplete,
+rate-limited, cancelled and retention-expired observations stay visible as such.
 
-Account lifecycle reserve and completion paths lock User, then the owner Workspace and Source, before operating on an ordered set of bindings. A source may affect several workspace bindings; operator-owned connections can also be consumed outside their owner workspace. A candidate list read before transaction entry is not proof of completeness after a lock wait, and acquiring additional scopes after Source locks violates the complete-plan order. Covering these paths needs a common source-to-workspace discovery/fencing protocol shared by all binding writers, revalidation using a provably fresh view, and old-fleet drain. Do not replace this with an owner-only epoch or a global lock on every ordinary account operation.
+## Qualification plan
 
-A possible bounded-fanout alternative is a source-level epoch shared by every source/binding writer and effect reader, acquired with the relevant workspace scopes in a single deterministic order before ordinary row locks. This is only a design candidate, not an implemented protocol: every authority read and binding mutation must participate, and rollout must exclude old processes. Test stale snapshots across multiple consuming workspaces, concurrent attach/detach, lifecycle suspend/resume/delete, lock-order deadlocks and independent-source concurrency on PostgreSQL before claiming it works.
+1. [x] Inspect handoff and obtain two independent design/code critiques.
+2. [x] Remove unrelated account/auth/config epochs and retain current owner contracts.
+3. [ ] Wire all six event families through production signed HTTP composition.
+4. [ ] Complete claim, retry, stale terminal rejection, failure and recovery transitions.
+5. [ ] Apply the complete actual migration history to a disposable PostgreSQL database;
+       exercise trigger/check/index behavior and application-role privileges (no db push).
+6. [ ] Run real signed HTTP → Prisma → PostgreSQL → outbox E2E, including concurrent
+       duplicate, body/App mismatch, death before effects, rollback during effects,
+       expired held owner, simultaneous takeover, stale finish/fail/renew and COMMIT loss.
+7. [ ] Verify independent PR/push work, setup versus authority change, old terminal
+       writer rejection, legacy no-takeover and old schema reader compatibility.
+8. [ ] Exercise one POST, response loss, duplicate request, fake 202/200 without a
+       receipt, exact receiver confirmation and bounded pagination/rate-limit failures.
+9. [ ] Run affected tests, strict TypeScript 7.0.2, lint/format/architecture and required
+       full CI. Mandatory PostgreSQL qualification must fail if its tests are skipped.
+10. [ ] Review the complete final diff independently; fix findings and repeat affected
+        evidence. Reconcile PR #1026's acknowledgement contract and overlapping #1021 work.
 
-For rollout, first deploy additive schema without granting takeover, then upgrade or stop every old API/worker/maintenance writer and prove the old processes and outstanding transactions have drained. Only after exact-version coverage and epoch initialization are verified may the new generation protocol become eligible for an explicitly approved activation; schema presence or a timer is not proof. Rollback to an unfenced writer requires closing takeover, draining all guarded transactions and proving no new-generation work remains. Unknown external effects and old `processing` deliveries remain retained. The WIP prototype is not eligible for activation.
+## Rollout and rollback
 
-The draft App client can inspect a failed delivery and retain only a digest of the original `X-Hub-Signature-256` header when GitHub returns exactly one valid header. The signed-ingress verifier also computes a signature digest after successful HMAC. Synthetic tests exercise malformed, redacted and duplicate headers. GitHub documents delivery headers as nullable and does not guarantee this header is available; secret rotation can also invalidate the comparison. GitHub signs the raw body, not delivery GUID or event headers. A synthetic HTTP fixture demonstrates that replaying the same body and HMAC with different headers passes HMAC verification. Matching the expected digest and trusted API metadata still cannot prove the HTTP request originated from GitHub or was the intended redelivery; a captured identical body and signature could arrive first. The missing-ingress path must remain disabled until its threat model and an independently reviewed binding address that limitation. No durable missing-ingress plan, atomic late binding, live routing or POST is implemented for this case, and absence of the header must remain fail-closed.
+The deployment registry owns operational evidence. Expand schema first; verify role
+grants and checks. Quiesce ingress, stop/drain all old API/webhook writers and their
+transactions, then start the exact qualified API version and reopen ingress. Do not
+infer old-writer drain from elapsed time, schema presence or green unit tests.
 
-## WIP continuation checkpoint
-
-The draft is not routable or deployable. The retry helper now reduces each subsequent transaction timeout against a monotonic elapsed budget; pool-acquisition overhead and wall-clock scheduling can still extend the absolute duration, so this is not a hard end-to-end deadline. Epoch SQL and all new effects require the additive migration and proper privileges before any compatible binary could run.
-
-Remaining work before even considering activation:
-
-- Complete a source- and SQL-level census of all workspace, membership, installation, repository, configuration, provider account and binding authority writers. The partial conversions above do not cover, among others, workspace deletion, provider binding/lifecycle/canonical operations, and other current-scope call sites. For each, prove its scope set and lock order before authority reads; avoid serializing independent tenants.
-- Design and test the workspace deletion order across operator workspace, target workspace, shared connections, bindings and rows; do not infer completeness from just its two workspace updates. Recheck User-to-scope lock order across all entrypoints and demonstrate deadlock/retry behavior on PostgreSQL.
-- Bind each new claim to an authenticated GitHub App identity as well as delivery GUID, event, action, installation and payload hash. The WIP fence now stores and compares an opaque App identity hash during creation, renewal, takeover and DB effects, with isolated PostgreSQL wrong-App rejection tests. A WIP verifier and HTTP adapter derive it from a trusted App ID/API origin configuration paired with the HMAC secret, issue a runtime-checked immutable context only after signature verification, and bind fence creation to the same payload hash. A synthetic Fastify+PostgreSQL test exercises that boundary, but the live route is not wired. HMAC does not independently prove that the configured secret belongs to the configured App: deployment configuration must establish that pairing. The existing globally unique delivery GUID constraint fails closed on a cross-App collision, rather than supporting independent same-GUID deliveries.
-- Finish live HTTP ingress, claim, lease renewal, guarded terminal/failure transitions and no-loss redelivery reconciliation. A draft durable custody primitive reserves one POST, retains uncertain outcomes, treats HTTP 202 only as accepted, and confirms only exact receiver-side terminal evidence; a draft fixed-origin App-JWT client can issue one POST and bounded read-only polling when explicitly invoked, but no route or job invokes it. Synthetic fake-server/PostgreSQL tests exercise one POST, unknown-outcome suppression, remote 202/200 without premature completion, and exact receiver confirmation. Only already-ingressed fenced failures with known payload hash are eligible; a delivery that never reached ingress has no known raw-body hash and is not recoverable by this prototype. Preserve signed pull-request pre-admission atomically, keep external work outside retrying transactions, and treat unknown commit/network outcomes as unknown. Tests above do not provide an automatic GitHub redelivery mechanism.
-- Prove expansion/migration and role privileges, exact-version writer coverage, admission/drain for all old API/worker/maintenance processes and outstanding transactions, and safe rollback before takeover. Legacy terminal methods demonstrably overwrite fenced results and legacy writers demonstrably violate epoch freshness. No timer or additive table is proof of old-fleet drain.
-- Run full repository typecheck, meaningful test suites, ownership/security review, contention and mixed-version E2E on the hosted worker; no user repositories or production data are needed for this proof. Independent review must cover any changed scope hierarchy and per-attempt timeout semantics.
+Legacy unknown deliveries remain retained. The receipt trigger remains installed
+on application rollback. Stop new admission and drain all fenced work before any
+legacy binary returns; a legacy binary cannot safely process new-generation work.
+No production rollback drops custody, fence rows or terminal receipts. Real external
+replay and rollout require their separately authorized operational task.
