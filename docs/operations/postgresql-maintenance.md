@@ -34,6 +34,7 @@ Check the command's exit status and look for `NEEDRESTART-SVC: postgresql@17-rev
    ```
 
    Classify active, stale and unknown records using their actual ownership and terminal evidence. Historical uncleaned allocations are not automatically live, and an expired lease is not proof that its external effect ended. Wait or escalate on active/ambiguous work; do not infer safety from zero currently visible DB rows alone. After a quiet period recheck the gate, workflows, Gateway/native and DB immediately before the restart; if new work or unknown effect appears, stop and reconcile.
+
 4. Take a fresh full ReviewRouter backup through the existing mechanism, then independently read back its final status and retain the receipt:
 
    ```bash
