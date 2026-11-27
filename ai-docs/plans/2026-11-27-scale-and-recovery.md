@@ -137,6 +137,9 @@ parallel owners reducing elapsed implementation time, not the verification work.
    bounded phase concurrency and the existing owner-local locks/transactions.
    One overall pass observation budget bounds waiting across all owners; do not
    multiply a full per-phase timeout by the number of owners.
+   Each actual owner has one settlement notification; only the active pass may
+   retain an observation callback. Remove it when the window ends. Repeated
+   observation must not attach another reaction to a permanently pending owner.
 5. Preserve dependencies within one owner; do not parallelize dependent state
    transitions or claim more work than can receive a live lease heartbeat.
 6. Propagate a cooperative signal only where the existing boundary can use it.
@@ -154,6 +157,9 @@ recovers it. Repeat with normal HTTP abort and database timeout to demonstrate
 real recovery without restarting worker.
 One-shot execution awaits actual retained settlements and preserves failure exit
 status; only the continuous host uses bounded pass observation.
+Hold an owner across 100 expired windows as well: its native Promise reaction
+count must remain bounded while the healthy outbox completes all 100 passes.
+Keep the existing late-failure, recovery, one-shot and actual-drain assertions.
 
 ### B. Graceful shutdown and claim boundaries
 
@@ -815,6 +821,53 @@ artifact received the separate review above. Remaining CI findings are evaluated
 against their actual source; older already-corrected diagnostics are not new bugs.
 
 ### Remaining qualification and review gates
+
+The final independent cross-boundary review found one additional P2 in
+`worker-batch.ts`: a new `Promise.all` on each continuous pass retained another
+reaction on the same unresponsive owner after the observation deadline. The
+correction gives each owner a constant notification that reads one removable
+current callback. It introduces no registry, polling, cancellation claim or
+production diagnostic API. One-shot ordering, actual drain and once-only result
+consumption retain their existing implementations. A 100-pass regression checks
+native Promise subscription identities and independent outbox progress. An
+exact-source Node type-stripping reproduction measured 100 subscriptions before
+the correction and one afterward; this is runtime reproduction, not a strict
+compiler or complete test-suite result. Two independent reviews accepted the
+source correction.
+
+The restored frozen dependency install passed on Node 24.22.3/pnpm 11.28.7 in
+112.758s with unchanged package and lock inputs. Local preparation then failed:
+running the engine package's postinstall through its own directory triggered an
+implicit pnpm install terminated by SIGKILL; an ordinary root engine rebuild
+returned zero, but the subsequent original offline Prisma generation in a
+verified isolated network namespace was also terminated by SIGKILL. The external
+cause is unconfirmed, and the executor subsequently became unavailable. No
+worker Vitest or strict pass is claimed from these attempts. Original complete
+worker test files, strict compiler, formatter and final CI remain mandatory.
+The reviewed correction can be published to the existing Draft for those
+ordinary CI gates; qualification and release remain pending until they pass.
+
+Native browser run `45974106641` on `1388559a` completed with failure. Its strict
+preflight, fixture and immutable-reader rollback passed, and artifact inspection
+confirmed 40 unique captured screenshots. Three interactive flows timed out on
+the removed Provider combobox; subsequent manifest assertion and role-visibility
+steps were skipped. Commit `e1ed96f2b866d1e874d155bf46ab62335fcf94d2` corrects
+only the shared harness and three screenshot callers to use the visible Provider
+radio cards, with an exact Claude Code choice. All credential, persistence and
+readiness assertions remain intact. E1 Native `45997885217` and full CI
+`45997217875` retain their own source-bound results; no pending run is a pass.
+The PR verification record tracks terminal outcomes and the subsequent worker
+correction without requiring a documentation-only CI restart.
+
+The 12:25 UTC overlap snapshot observes main at
+`7aaf95c30211d2cf9147ea450fc84282ebd0f7da`, with only operations/deployment
+changes after integrated `d84feba7`. Ready PR #1027 is now
+`882dee1b20920b2f7a44a230a5877fef9eb5a515`: its current six-family fenced
+webhook protocol replaces the earlier epoch experiment, has separate migrations
+and explicit operator recovery, and adds the same COMMIT-loss fixture path.
+That separately owned protocol remains excluded; later integration must
+reconcile the shared paths deliberately. Earlier dated observations above
+retain their historical meaning.
 
 1. Preserve the executed G280, I28/122, Usage20, installer63 and migration382
    source bindings when publishing the late patch. Rerun affected boundaries if

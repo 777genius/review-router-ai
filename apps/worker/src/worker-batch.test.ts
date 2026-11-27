@@ -179,6 +179,56 @@ describe("worker owner scheduling", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("bounds retained settlement observers while healthy owners keep advancing", async () => {
+    vi.useFakeTimers();
+    const { input, calls } = await fixture();
+    const held = deferred<{ linked: number; failed: number }>();
+    const execute = vi.fn(() => held.promise);
+    input.sdkGrowthMaintenance = execute;
+    const processor = createWorkerBatchProcessor(input, {
+      signal: new AbortController().signal,
+      observationMs: 5,
+    });
+    const subscriptions = new Map<Promise<unknown>, number>();
+    let tracking = false;
+    const then = Promise.prototype.then;
+    const observe = vi.spyOn(Promise.prototype, "then").mockImplementation(
+      function (this: Promise<unknown>, fulfilled, rejected) {
+        if (tracking)
+          subscriptions.set(this, (subscriptions.get(this) ?? 0) + 1);
+        return then.call(this, fulfilled, rejected);
+      },
+    );
+    try {
+      for (let pass = 0; pass < 100; pass += 1) {
+        // Track subscriptions made by the processor, excluding timer/test I/O.
+        tracking = true;
+        let pending: ReturnType<typeof processor.processBatch>;
+        try {
+          pending = processor.processBatch();
+        } finally {
+          tracking = false;
+        }
+        await vi.advanceTimersByTimeAsync(5);
+        expect(await pending).toMatchObject({
+          outbox: { status: "completed", value: actualOutbox },
+          running: ["sdk_growth.recovery"],
+          failures: [],
+        });
+      }
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(calls.filter((value) => value === "processOutbox")).toHaveLength(
+        100,
+      );
+      expect(Math.max(0, ...subscriptions.values())).toBe(1);
+    } finally {
+      observe.mockRestore();
+      held.resolve({ linked: 0, failed: 0 });
+      await processor.drain();
+    }
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("uses one pass budget for multiple stuck owners and drains their actual outcomes", async () => {
     vi.useFakeTimers();
     const { input } = await fixture();

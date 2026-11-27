@@ -35,29 +35,30 @@ export function createWorkerBatchProcessor(
   const observationMs = options.observationMs ?? 1_000;
   if (!Number.isSafeInteger(observationMs) || observationMs < 1)
     throw new Error("worker_observation_budget_invalid");
-  const sdk = retainOwner("sdk_growth.recovery", input.sdkGrowthMaintenance);
-  const outbox = retainOwner("outbox", input.processOutbox);
-  const reviewV2 = retainOwner(
-    "review_v2.maintenance",
-    input.reviewV2Maintenance,
-  );
+  let onSettlement: (() => void) | undefined;
+  function retain<Value>(name: string, execute: () => Promise<Value>) {
+    return retainOwner(name, execute, () => onSettlement?.());
+  }
+  const sdk = retain("sdk_growth.recovery", input.sdkGrowthMaintenance);
+  const outbox = retain("outbox", input.processOutbox);
+  const reviewV2 = retain("review_v2.maintenance", input.reviewV2Maintenance);
   // There is no configurable registry or dynamically growing work queue here.
   const owners = [
     sdk,
     outbox,
-    retainOwner("rate_limits.retention", input.pruneRateLimits),
-    retainOwner("action_oidc.retention", input.pruneActionOidcReplayNonces),
-    retainOwner("review_snapshots.retention", input.pruneReviewSnapshots),
-    retainOwner(
+    retain("rate_limits.retention", input.pruneRateLimits),
+    retain("action_oidc.retention", input.pruneActionOidcReplayNonces),
+    retain("review_snapshots.retention", input.pruneReviewSnapshots),
+    retain(
       "review_checkpoints.retention",
       input.pruneReviewExecutionCheckpoints,
     ),
-    retainOwner(
+    retain(
       "review_investigations.retention",
       input.reviewInvestigationMaintenance,
     ),
-    retainOwner("memory.maintenance", input.memoryMaintenance),
-    retainOwner("memory_usage.retention", input.pruneMemoryUsageTelemetry),
+    retain("memory.maintenance", input.memoryMaintenance),
+    retain("memory_usage.retention", input.pruneMemoryUsageTelemetry),
     reviewV2,
   ];
   let stopped = false;
@@ -97,8 +98,19 @@ export function createWorkerBatchProcessor(
       if (waitForSettlement) await owner.pending();
     }
     if (!waitForSettlement) {
-      const pending = Promise.all(owners.map((owner) => owner.pending()));
-      await observeUntilBudget(pending, observationMs, options.signal);
+      // A stuck owner must not retain another promise reaction on every pass.
+      // Its constant notification reads only the current, removable observer.
+      const pending = new Promise<void>((resolve) => {
+        onSettlement = () => {
+          if (owners.every((owner) => !owner.running())) resolve();
+        };
+        onSettlement();
+      });
+      try {
+        await observeUntilBudget(pending, observationMs, options.signal);
+      } finally {
+        onSettlement = undefined;
+      }
     }
     return collect();
   }
@@ -149,7 +161,11 @@ export async function runWorkerBatch(
   return processor.processOnce();
 }
 
-function retainOwner<Value>(name: string, execute: () => Promise<Value>) {
+function retainOwner<Value>(
+  name: string,
+  execute: () => Promise<Value>,
+  notifySettlement: () => void,
+) {
   let pending: Promise<void> | undefined;
   let settled: WorkerPhaseResult<Value> | undefined;
   return {
@@ -159,6 +175,7 @@ function retainOwner<Value>(name: string, execute: () => Promise<Value>) {
       pending = captureWorkerPhase(name, execute).then((result) => {
         settled = result;
         pending = undefined;
+        notifySettlement();
       });
     },
     pending: () => pending,

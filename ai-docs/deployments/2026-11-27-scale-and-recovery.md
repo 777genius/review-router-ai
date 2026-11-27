@@ -113,6 +113,43 @@ the earlier fresh-cluster migration pass alone does not qualify every release ga
 
 ## Verification and completion
 
+### Final bounded-observation and browser follow-through
+
+A final independent review reproduced an increasing number of Promise reactions
+when continuous worker passes repeatedly observed one indefinitely pending owner.
+The correction keeps a constant notification on each actual owner and one
+removable callback for the active observation window. The added 100-pass
+regression also requires one SDK invocation and 100 healthy outbox completions;
+existing late-failure, one-shot and drain contracts remain unchanged. Two source
+reviews accepted this correction. The exact-source Node reproduction changed
+from 100 retained subscriptions to one; full-file tests and the original strict
+worker project remain separate required qualification.
+
+The frozen dependency restoration succeeded with unchanged package/lock inputs.
+Subsequent local engine preparation and offline Prisma generation did not
+complete successfully; the latter child ended with SIGKILL after its actual
+network isolation was verified, and the executor became unavailable. Neither
+attempt provides worker test or strict evidence. The source-reviewed correction
+remains subject to the ordinary original CI gates before this Draft is qualified.
+
+Native run `45974106641` on `1388559a` passed strict preflight, fixture and
+immutable-reader rollback, then produced 40 captured screenshots but three
+failed interactive flows. All three failed at the obsolete Provider combobox.
+Manifest assertion and role-visibility steps were skipped. The shared harness
+correction is published as `e1ed96f2b866d1e874d155bf46ab62335fcf94d2`, with no
+product, workflow, deadline or assertion weakening. Its Native run `45997885217`
+and full CI `45997217875` were queued at the 12:40 UTC checkpoint. The PR body
+records later exact-source outcomes; these attempts are not deployment evidence.
+
+At 12:25 UTC main was `7aaf95c30211d2cf9147ea450fc84282ebd0f7da`, with only
+operations/deployment changes after the integrated base. Ready PR #1027 at
+`882dee1b20920b2f7a44a230a5877fef9eb5a515` has replaced its earlier epoch
+experiment with a separate fenced webhook protocol and explicit recovery.
+It remains excluded and now shares an independently added COMMIT-loss test path
+that requires deliberate reconciliation on any later integration.
+
+### Earlier executed qualification
+
 | Local evidence                                      | Observed result                                                                                                                                                                                                                                                                                                                      | Exact limit of the evidence                                                                                                                                                                                                                                     |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Worker ownership, shutdown, completion, GitHub HTTP | 227 focused tests passed after one duplicate-ID fixture correction.                                                                                                                                                                                                                                                                  | Local transport/process fixtures, no customer GitHub mutations.                                                                                                                                                                                                 |
