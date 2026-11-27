@@ -1345,7 +1345,7 @@ export function createReviewRunGatewayRelay(input: {
                 } catch {
                   /* Diagnostics must not affect settlement. */
                 }
-                await unknown();
+                if (!completed) await unknown();
                 cleanup();
                 await stream.cancel().catch(() => {});
                 target.error(

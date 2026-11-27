@@ -959,11 +959,18 @@ it("attributes consumer cancellation during successful companion settlement to d
       }
     })();
     void draining.catch(() => {});
-    await settlementStarted.promise;
+    await Promise.race([
+      settlementStarted.promise,
+      draining.then(() => {
+        throw new Error("stream_ended_before_companion_settlement");
+      }),
+    ]);
     expect(completedRecorded).toBe(false);
     await reader.cancel();
     await draining;
     expect(completedRecorded).toBe(false);
+    const effectsBeforeCompletion = [...f.effects];
+    const settlementsBeforeCompletion = [...settlement.mock.calls];
     releaseSettlement.resolve();
 
     await vi.waitFor(() =>
@@ -986,6 +993,8 @@ it("attributes consumer cancellation during successful companion settlement to d
       ]),
     );
     expect(completedRecorded).toBe(true);
+    expect(f.effects).toEqual(effectsBeforeCompletion);
+    expect(settlement.mock.calls).toEqual(settlementsBeforeCompletion);
     expect(
       settlement.mock.calls.filter(([, , effect]) => effect === "completed"),
     ).toHaveLength(1);
@@ -3604,6 +3613,8 @@ it.each(["pressure", "timer"] as const)(
 );
 
 it("v4 pressure still reclaims an exact retained close after all automatic retries are spent", async () => {
+  const realSetTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
   vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
   const originalFactory = preparationModule.createReviewRunGatewayPreparation;
   let localCloseCalls = 0;
@@ -3652,9 +3663,22 @@ it("v4 pressure still reclaims an exact retained close after all automatic retri
       }
       expect(Date.now()).toBeLessThan(deadline);
       expect(localCloseCalls).toBe(expected);
-      // Freeze fake time during real I/O. The held response makes this join
-      // exact, so settlement latency cannot consume the next retry's window.
-      await retryClose.started;
+      // Freeze fake time during real I/O; a local failure must not leave this
+      // arrival wait pending beyond the real-time bound.
+      let arrivalTimeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          retryClose.started,
+          new Promise<never>((_resolve, reject) => {
+            arrivalTimeout = realSetTimeout(
+              () => reject(new Error("native_close_request_not_started")),
+              2000,
+            );
+          }),
+        ]);
+      } finally {
+        if (arrivalTimeout !== undefined) realClearTimeout(arrivalTimeout);
+      }
       expect(f.nativeCloses).toHaveLength(expected);
       closing = f.relay.closeRun("authorization-1", "completed");
       retryClose.release();
