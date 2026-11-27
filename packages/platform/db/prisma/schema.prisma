@@ -1051,6 +1051,7 @@ model ActionRunHealthReport {
 
   @@unique([repositoryId, githubRunId, githubRunAttempt])
   @@index([workspaceId, receivedAt])
+  @@index([workspaceId, repositoryId, receivedAt(sort: Desc), id(sort: Desc)], map: "ActionRunHealthReport_workspace_repository_latest_idx")
 }
 
 model ReviewSnapshot {
@@ -3333,6 +3334,8 @@ model OutboxEvent {
   @@index([workspaceId, status])
   @@index([repositoryId, status])
   @@index([type, version, status])
+  // 000165: partial latest-request index for installation.sync_requested v1:
+  // (aggregateId, createdAt DESC, id DESC). Other event types are not indexed.
 }
 
 model OutboxFencingControl {

@@ -463,61 +463,70 @@ effects survive restart and rollback. Never delete pending work to recover healt
   retention, and catalog freshness against transactional admission. No blocking
   design finding remained. Implementation authorized by the existing user task
   and assigned to the four disjoint owners above.
-- Published implementation checkpoint: `3cb28a1456d110215cf6ae0a35fc58e1881ae98d`
-  contains the bounded provider-key request and public-catalog response cleanup,
-  with their two focused suites (18 tests passed before the environment outage).
-  This evidence covers only those files, not A-I or complete J.
-- Independent implementation review of that published checkpoint: ingress has
-  no critical source finding; catalog cleanup has no critical production finding.
-  Review identified a real test-observation flaw: IncomingMessage close is not
-  proof of response teardown. The loopback fixture now observes unfinished
-  ServerResponse close. This correction requires a new run; the earlier 18 passes
-  do not establish the strengthened assertion.
-- Execution interrupted: dependency setup exhausted the execution environment's
-  resources, and the environment subsequently became unavailable. The last
-  executor response is `No usable execution environment is available`. The
-  authoritative CI impact-selection job was queued at the last inspection
-  ([run 45928097736](https://github.com/777genius/review-router-ai/actions/runs/45928097736)).
-  Skipped auxiliary workflows and queued jobs are not passes.
-- A/B/C/D, E/F, G, the accounts final-fence part of J, and the beginning of I
-  have uncommitted work in the unavailable checkout. Their contents have not
-  been reconciled after interruption and are not part of this PR checkpoint.
-  Do not treat them as implemented, typechecked, tested or review-complete.
-- Full implementation, PostgreSQL/worker E2E, strict checks, complete
-  implementation review, the 10-20k meaningful-change target and final CI remain
-  pending. This Draft must not be promoted on the evidence above.
+- Initial published HTTP checkpoint: `3cb28a1456d110215cf6ae0a35fc58e1881ae98d`
+  bounds provider-key requests and public-catalog response cleanup. Independent
+  review corrected its response-close test in `c9659a4`; the stronger assertion
+  still needs its final rerun. The earlier 18 passes do not prove that correction.
+- Environment recovery: the interrupted checkout and every owner's source were
+  recovered intact. The pinned dependency graph and Prisma client were restored.
+  The exact optional subscription-runtime source `c7543bc716411a5f899a790a735d09ed2530f779`
+  was built with the existing TypeScript 7.0.2 toolchain and its 64 exported
+  artifacts verified in both installed peer contexts. No owner dependency or
+  source version was replaced to make tests run.
+- Published A/B/C/D/E checkpoint: `b63ff683148f2bbf7ecc7e2171883f5f6b4dd1bf`.
+  Worker ownership, shutdown, completion settlement and GitHub transport suites:
+  227 tests passed after correcting one duplicate-ID fixture. Runtime SQL and
+  retained worker/SQL fault integration: 9 real PostgreSQL 17.10 tests passed.
+  Explicit Prisma Web wiring and existing acquisition regression also passed.
+  Shared strict TypeScript passed; larger native compiler processes were killed
+  by the shared environment and are pending, not source passes or failures.
+- Published J checkpoint: `bdb4ac8ff76546781fc175526a2cba4e4ce108aa`.
+  Accounts enrichment/final authorization: 155 tests in 11 suites passed, including
+  a 100-account real SDK/HTTP body stall, transport closure and subsequent page
+  recovery without rebuilding the service. The three-second budget starts at
+  optional remote enrichment; mandatory local authorization and final source
+  fences remain outside it. Four concurrent row enrichments are a page-local
+  bound, not a process-wide connection or render-latency guarantee.
+- F conditional queries are confirmed by actual Prisma/driver SQL. For 20 parents,
+  health and diagnostics each hydrated 4,000 history rows and policy hydrated
+  2,000 versions. Latest-row readers now return 20 relevant child rows each;
+  installation status returns 40 parents in one statement. Tenant, ties, nullable
+  and empty cases plus a real RepeatableRead concurrent append passed. All 16
+  focused tests passed on PostgreSQL 17.10, with all 172 migrations applied.
+- Two measured F indexes are approved: `000165_installation_sync_latest_index`
+  and `000166_repository_health_latest_index`. The actual installation query
+  uses its partial index even under a forced generic prepared plan. A skewed
+  health-history fixture justified the workspace/repository/latest-order index.
+  Policy uses its existing version index; no speculative index was added.
+- G source and model-settings suites initially passed 68 tests. Remaining snapshot,
+  relay and authorization suites are being qualified separately with one CPU and
+  one worker; an earlier resource-killed batch supplies no passing evidence.
+- I implementation joins receipt, local handlers and outbox in one root transaction.
+  Independent review found that wrapping every event in Serializable would change
+  installation authority visibility after a scope-lock wait. The composition now
+  preserves ReadCommitted for installation/auth/push and the existing Serializable
+  retry boundary for PR/repository workflow authority. The global writer guard
+  precedes receipt claims only for installation/repository events. A downgrade of
+  repository isolation is rejected because concurrent workflow creation still
+  needs its cross-table Serializable protection.
+- I failure qualification covers actual signed HTTP, PostgreSQL rollback after
+  each local stage, duplicate wait/abort, historical receipt identity, server lock
+  cancellation, backend termination, scope-lock creation/removal and response loss.
+  A separate PostgreSQL protocol proxy will distinguish a committed transaction
+  whose acknowledgment was lost from a transaction that rolled back. These tests
+  remain pending until their recorded successful execution.
 
-### Resume checkpoints and concrete holds
+### Remaining qualification and review gates
 
-1. Recover the existing checkout before resetting, reinstalling or replacing it.
-   Compare each owner's confirmed files with the published branch. Verify the
-   interrupted HTTP/installation-status test writes and the repaired
-   runtime-snapshot capture test for truncation. Preserve source before any
-   dependency cleanup. The two direct Octokit Core dependencies are approved
-   existing-version dependencies; regenerate their lock importers coherently.
-2. Worker owner: retained outer phases, signal/drain, completion settlements and
-   progress/inventory transport changes are written but untested. Qualify actual
-   App/token/body traffic, retained capacity, V2 inner stop boundaries and the
-   intentional wait for admitted work. Reconcile all completion-result callers.
-3. Data owner: runtime budget, Web wiring, draft availability classification,
-   test fixture and installation-status lateral query are written but untested.
-   Actual Prisma model/raw timeout wrappers and rollback/release must be measured.
-   The lateral query must not ship without a measured supporting access path.
-   Conditional health/policy readers and schema migrations are still untouched.
-4. Native owner: lazy shared catalog and per-admission observation qualification
-   are written but untested. Fix the V3-narrowed final branch in
-   `review-run-runtime-snapshot.ts` to test `!original.gateway || nativeIsFresh()`;
-   checking snapshotVersion 4 there is redundant after the V4 early return.
-   Add and execute relay replay/close, V4 observation and model-settings tests.
-   Accounts metadata-before-final-fence changes and four races are written;
-   the whole-page enrichment budget/concurrency work is not implemented.
-5. Webhook/root owner: transaction port, processing use case and HTTP route
-   restructuring are partial. Transaction-bound adapters, conflict-safe receipt
-   insertion, outer composition, route fixtures and real PostgreSQL rollback/
-   redelivery tests are not integrated. Keep remote preadmission outside that
-   transaction and preserve old uncertain processing receipts.
-6. Complete API root integration for explicit runtime database budgets and lazy
-   catalog construction. Re-run the corrected published HTTP suites first, then
-   the exact owner projects and the fault/E2E/CI stages above. A missing generated
-   Prisma client, a skipped PostgreSQL test or an unavailable runner is a blocker,
-   never evidence that the change works.
+1. Finish G and I focused real-boundary suites and the corrected HTTP assertion.
+   Restore valid test fixture composition when strict production roots require it;
+   do not add production fallbacks solely for incomplete mocks.
+2. Run original strict TS7 owner projects, changed-file preflight and the applicable
+   lint/architecture/format gates. Use one heavy process at a time within the local
+   environment. Resource-killed processes and skipped tests are not passes.
+3. Repeat independent implementation review, resolve concrete critical findings
+   and rerun the affected tests. Preserve unknown commit/effect and replay fences.
+4. Reconcile live main/open PRs and wait for authoritative checks on the final
+   published head. Queued or running checks need normal waiting, not bypasses.
+5. Publish the final source-bound verification and rollout record, with actual diff
+   size and limits. Draft status and later deployment remain separate decisions.

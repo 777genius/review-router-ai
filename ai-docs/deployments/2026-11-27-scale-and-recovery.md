@@ -3,102 +3,123 @@
 - Task ID: `2026-11-27-scale-and-recovery`.
 - Goal: bounded resource use and recovery from component failures without
   restarting otherwise healthy services.
-- Affected targets: the published slice changes Web provider-key ingress and
-  public model catalog consumers. The complete planned batch also affects API,
-  ordinary worker, skill worker and runtime database clients.
+- Affected targets: API, Web, ordinary worker, skill worker and PostgreSQL indexes.
 - Implementation: [Draft PR #1021](https://github.com/777genius/review-router-ai/pull/1021).
-- Published production reference:
-  [`3cb28a1456d110215cf6ae0a35fc58e1881ae98d`](https://github.com/777genius/review-router-ai/commit/3cb28a1456d110215cf6ae0a35fc58e1881ae98d).
-  Later checkpoint changes correct a test observation and document interruption.
-  None of these references proves merge, release selection or installation.
+- Source checkpoints: worker/database `b63ff683148f2bbf7ecc7e2171883f5f6b4dd1bf`;
+  Accounts `bdb4ac8ff76546781fc175526a2cba4e4ce108aa`. Further query, catalog and
+  webhook changes are under qualification on the same branch. These references
+  establish source only; no merge, release or installation is claimed.
 - Dependencies: preserve the already merged
   [multi-tenant reliability work](2026-11-25-multi-tenant-reliability.md);
-  complete this task's implementation and qualification before release selection.
+  complete exact-head qualification before release selection.
 - Last updated: `2026-11-27`.
 
 ## Environment status
 
 | Environment / target | Status | Actual deployed version / image | Last verified (UTC) | Evidence / next step |
 | --- | --- | --- | --- | --- |
-| staging | `pending` | Not verified | Not verified | Complete implementation and qualification; no rollout performed. |
-| production | `pending` | Not verified | Not verified | Complete implementation and qualification; no rollout performed. |
+| staging | `pending` | Not verified | Not verified | Complete qualification, then separately authorize release. |
+| production | `pending` | Not verified | Not verified | No rollout attempted; use the release process and exact selected source. |
 
 Pending means no verified completion is recorded, not an observation that an
 installation is absent. Use the [status contract](README.md#status-contract).
 
 ## Applicability and prerequisites
 
-The Draft currently contains the plan and two narrow HTTP corrections:
-streamed provider-key JSON is limited to 256 KiB through the existing reader;
-rejected or oversized public-catalog responses abort transport and start body
-cancellation without waiting forever for uncooperative cleanup.
+The batch changes existing runtime boundaries. It adds no service, queue, feature
+flag, provider protocol, customer configuration or credential migration.
 
-The worker, database, native catalog, atomic webhook and remaining accounts work
-is incomplete and not qualified. Do not release the planned guarantees on the
-basis of the currently published slice. Review the
-[plan and resume holds](../plans/2026-11-27-scale-and-recovery.md#7-actual-review--implementation-record)
-before completing this record.
+| Area | Resulting behavior | Operational bound |
+| --- | --- | --- |
+| Worker phases | An unresponsive owner keeps its actual in-flight slot while independent owners continue. Stop prevents new claims and drains admitted work. | Observation timeout never authorizes repeating an uncertain effect. One-shot ordering is preserved. |
+| GitHub reads/progress | Real App/token/body transport and whole-pass deadlines; complete inventory is required before reconciliation. | Failed inventory cannot imply repository deletion. Ambiguous mutations retain reconciliation semantics. |
+| Runtime PostgreSQL | Explicit runtime clients use server statement and lock timeouts. | 30-second statements and 5-second lock waits; administrative and injected clients retain their existing policy. |
+| Dashboard reads | Latest-per-parent SQL avoids historical child hydration and installation N+1. | Tenant filters and stable latest-row ordering remain explicit; no retention deletion. |
+| Native catalog | One recoverable source serves new admission, settings and relay. | 30-second success TTL, one-second failure cooldown, existing ten-second SDK transport; captured admission identity/policy stays immutable. |
+| Webhook receipts | Receipt, local authority effects and outbox commit together. | Independent preadmission stays outside; historical uncertain processing receipts are preserved. |
+| Accounts/HTTP | Optional enrichment shares a bounded window before final authorization; rejected body resources close. | Three-second optional remote window, four row enrichments per page; neither a total render SLA nor a process-wide cap. Provider-key envelope remains 256 KiB. |
 
-The published slice has no migration, configuration change, new service or
-activation step. An installation-status index is conditional on a PostgreSQL
-experiment and has not been designed or added. If justified later, amend this
-record with its exact migration, lock/build cost and release order before rollout.
+Read the [implementation plan](../plans/2026-11-27-scale-and-recovery.md) for
+acceptance contracts and the excluded open-PR ownership. Catalog/webhook and strict
+qualification are still in progress; do not infer full approval from a checkpoint.
+
+## Additive database migrations
+
+| Migration | Definition and justification | Application compatibility |
+| --- | --- | --- |
+| `000165_installation_sync_latest_index` | Concurrent partial index on OutboxEvent aggregate ID, descending creation time and ID, limited to installation sync v1. Actual production SQL uses it under generic prepared plans. | Existing writers and old readers remain compatible. |
+| `000166_repository_health_latest_index` | Concurrent index on health-report workspace, repository, descending received time and ID. A skewed hot-repository fixture showed avoidable history scanning with the older access path. | Existing readers/writers remain compatible; older useful indexes remain. |
+
+Each migration contains a single `CREATE INDEX CONCURRENTLY` statement and uses
+ordinary immutable migration history. Both were applied by the actual migration
+runner in a fresh PostgreSQL 17.10 cluster (172 total migrations). No historical
+migration or checksum was edited. The complete application schema, not a reduced
+fixture schema, is used in the PostgreSQL tests.
+
+Index builds consume disk and I/O and can wait on existing transactions even
+though concurrent creation avoids blocking ordinary table writes. Use the normal
+migration/release budget, inspect actual build progress and available capacity,
+and resolve any interrupted invalid index through the established migration
+procedure before retrying. Do not silently mark an unapplied migration successful.
+Runtime SQL deadlines do not change the administrative migration client.
 
 ## Ordered rollout
 
-1. Complete the implementation, cross-owner reviews, strict checks, real
-   PostgreSQL/HTTP/worker failure qualification and authoritative CI on the exact
-   selected commit. Keep current unknown effects and replay barriers intact.
-2. When a release is separately authorized, reconcile the selected source and
-   the current deployment registry through the
-   [release process](../operations/07-environments-and-release-management.md).
-   Ordinary code deployment is sufficient for the currently published HTTP slice.
-3. For the complete batch, drain old workers before claiming the new graceful
-   shutdown behavior; roll API/Web/worker through the ordinary release path.
-   Perform any subsequently justified additive migration in its recorded order.
-4. Verify actual versions and each applicable behavior below, then record
-   per-environment evidence. This task does not authorize production changes.
+1. Complete independent review, strict checks, real PostgreSQL/HTTP/worker failure
+   qualification and authoritative CI on the exact selected source.
+2. When a release is separately authorized, reconcile that source and unfinished
+   deployment tasks through the [release process](../operations/07-environments-and-release-management.md).
+3. Apply migrations 165 then 166 through the normal migration gate. Verify both
+   indexes exist and are valid before relying on their query scaling behavior.
+4. Drain old workers and roll API/Web/worker through the ordinary release path.
+   An old process does not acquire the new shutdown behavior until replaced.
+5. Verify actual versions and applicable behavior below, then record environment,
+   operator, time, source, image and evidence. This task does not authorize rollout.
 
 ## Verification and completion
 
-Current local evidence: two focused suites, 18 tests passed on the published
-production checkpoint. Those tests cover provider-key envelope compatibility,
-oversize rejection and catalog rejection/recovery. Independent source review
-found a test-observation issue: the loopback fixture watched request completion
-rather than the unfinished response closing. The corrected response-close
-assertion is pending execution after the environment outage.
+| Local evidence | Observed result | Exact limit of the evidence |
+| --- | --- | --- |
+| Worker ownership, shutdown, completion, GitHub HTTP | 227 focused tests passed after one duplicate-ID fixture correction. | Local transport/process fixtures, no customer GitHub mutations. |
+| Runtime SQL plus worker/SQL integration | 9 actual PostgreSQL 17.10 tests passed. | Server cancellation, lock wait, disconnect and subsequent pool recovery; no throughput SLA. |
+| Accounts enrichment and final fences | 155 tests in 11 suites passed; actual SDK/HTTP 100-account stalled body followed by successful recovery. | Final local authorization remains mandatory beyond the optional remote budget. |
+| Latest-row readers and migrations | 16 tests passed; full 172 migrations applied, including both new indexes. | Driver SQL/rows, tenant and empty cases, ordering and real concurrent snapshot. Timings are synthetic. |
+| Native catalog, atomic webhook, corrected catalog body assertion | Qualification in progress. | Source changes or an interrupted run are not passing evidence. |
+| Strict projects and authoritative CI | In progress. | Queued/running/skipped or resource-killed checks are not successful completion. |
 
-The previous local result does not prove that corrected assertion, complete E2E,
-SQL performance, worker recovery or the full planned batch. Main CI
-[run 45928097736](https://github.com/777genius/review-router-ai/actions/runs/45928097736)
-was queued at the last inspection; auxiliary skipped jobs are not passes.
+The synthetic 20-repository fixture changed health/diagnostics child hydration
+from 4,000 to 20 rows and policy from 2,000 to 20. The installation reader returns
+40 latest statuses in one statement. The measured indexes remove repeated full
+history work, including a forced generic prepared-plan test and a hot-repository
+skew; these figures do not forecast production latency or supported user count.
 
-For the HTTP slice, verify rejection of declared and streamed oversized request
-bodies, acceptance of the maximum escaped key with 100 ordinary repository IDs,
-unchanged authorization behavior, closure of a deliberately unfinished rejected
-response and successful reads after restoration. Use disposable local fixtures;
-never real provider credentials in tests or evidence.
-
-Before complete-batch deployment, add actual results for retained worker
-ownership/drain, runtime SQL cancellation and connection recovery, measured
-installation-status SQL, same-process catalog recovery, immutable admission
-policy, webhook rollback/redelivery and accounts final authorization. Capture
-exact source/version, environment, operator, timestamp and evidence.
-No complete-batch or deployed status is claimed now.
+Production verification should confirm independent worker progress during one
+failed dependency, no duplicate admitted effect, stop/drain behavior, SQL pool
+recovery after a controlled lock, latest-row query plans, catalog outage/restoration
+and immutable existing admission. Verify webhook rollback/redelivery and lost
+response recovery only with disposable event scope; never reset a real uncertain
+receipt to manufacture a successful replay. Check Accounts final authorization
+when session/source changes during optional enrichment. Use local disposable data
+and secrets in tests, never real credentials in retained evidence.
 
 ## Retry, partial completion, and rollback
 
-Inspect actual source and environment state before resuming. Do not repeat an
-uncertain external effect, reset historical processing receipts, or delete
-outbox/audit records to make a recovery test pass. Recover and reconcile the
-uncommitted checkout before replacing it; the plan lists the interrupted owners
-and remaining integration holds.
+Inspect actual source and environment state before retrying. Do not repeat an
+uncertain external effect, reset historical processing receipts or delete durable
+outbox/audit rows. A lost commit acknowledgment is not proof of rollback: read the
+receipt and use ordinary redelivery/idempotency instead of replaying effects.
 
-The published HTTP changes are ordinary application changes and can follow the
-existing application rollback procedure; rollback removes their resource bounds.
-No migration has been added or applied. Amend rollback instructions if later
-evidence introduces an additive index. Never rewrite historical migration
-checksums or relabel old source-bound results as qualification of a new commit.
+Application rollback follows the existing release process. The additive indexes
+can safely remain with old application code; dropping them is not necessary for
+an application rollback and would remove the measured access paths. If index
+removal is separately required, use the established reviewed migration procedure,
+not edits to already applied history. Rollback removes new process resource bounds
+but must preserve existing durable authority, replay fences and captured policy.
+
+The event transaction isolation is deliberate: installation/auth/push preserve
+ReadCommitted, and PR/repository workflow authority retains Serializable retries.
+Retries exclude external preadmission and HTTP response delivery. Do not turn
+all handler failures or ambiguous commits into generic automatic retry.
 
 ## Related links
 
@@ -109,7 +130,10 @@ checksums or relabel old source-bound results as qualification of a new commit.
 
 ## Execution log
 
-| Time (UTC) | Environment | Operator | Actual version / image | Step and observed result | Evidence | Next action |
-| --- | --- | --- | --- | --- | --- | --- |
-| 2026-11-27 | Local qualification | Coding agent | Published production source `3cb28a1` | Two focused suites: 18 passed; independent review then corrected a response-close assertion. | Published tests and plan record | Re-run corrected tests after executor recovery. |
-| Not executed | staging / production | Unassigned | Not verified | No rollout attempted; full implementation remains incomplete. | Draft PR and this record | Complete qualification before separately authorized rollout. |
+| Time (UTC) | Environment | Operator | Source | Step and observed result | Next action |
+| --- | --- | --- | --- | --- | --- |
+| 2026-11-27 | Local qualification | Coding agent | `3cb28a1`, corrected test `c9659a4` | Initial HTTP suites passed 18 tests; response-close observation strengthened in review. | Rerun strengthened assertion. |
+| 2026-11-27 | Local qualification | Coding agents | `b63ff68` | Worker 227 and actual PostgreSQL/worker 9 passed. | Finish original strict projects. |
+| 2026-11-27 | Local qualification | Coding agent | `bdb4ac8` | Accounts 155 passed, including real SDK/HTTP recovery. | Final cross-owner review. |
+| 2026-11-27 | Disposable PostgreSQL 17.10 | Coding agent | F candidate on the same branch | 172 actual migrations; 16 latest-reader tests passed. | Publish source and finish strict checks. |
+| Not executed | staging / production | Unassigned | Not verified | No rollout attempted. | Complete qualification before separately authorized release. |
