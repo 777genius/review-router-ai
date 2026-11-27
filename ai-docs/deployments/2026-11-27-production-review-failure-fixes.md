@@ -1,10 +1,11 @@
-# Production review failure diagnostics and GitHub read waits
+# Production review failure diagnostics, GitHub waits and incomplete causes
 
 - Task ID: `2026-11-27-production-review-failure-fixes`
-- Goal: respect GitHub retry boundaries and identify the failed companion
-  settlement operation without changing provider-effect or coverage semantics.
-- Affected services/targets: ReviewRouter API and consumers of its GitHub
-  revision-read adapter.
+- Goal: respect GitHub retry boundaries, identify the failed companion settlement
+  operation and preserve finite incomplete-review causes through evidence and
+  publication, without changing provider-effect or coverage semantics.
+- Affected services/targets: ReviewRouter API, workers and evidence readers,
+  consumers of its GitHub revision-read adapter, and the public Action.
 - Implementation PR: [#1028](https://github.com/777genius/review-router-ai/pull/1028).
 - Initial implementation reference: `dd17dc481b7d2dadbc62be734d2858de5c51da71`.
   The candidate also includes the later leap-second correction and custody
@@ -30,8 +31,10 @@ not grant deployment permission.
 
 The release must contain the rate-wait correction and companion diagnostic
 changes from this PR. Reconcile fleet version and existing unfinished tasks
-before an authorized rollout. There is no migration, configuration activation,
-new feature flag, budget increase or new protocol capability.
+before an authorized rollout. There is no SQL migration, new feature flag or
+budget increase. The existing quality-flags field gains three accepted values;
+this semantic contract extension requires compatible API and worker readers
+before the corresponding Action producer is activated.
 
 Required evidence: focused GitHub transport and companion failure-injection
 tests; relevant static/type/architecture checks; existing real PostgreSQL
@@ -42,8 +45,10 @@ Draft CI aggregation with skipped lanes is not runtime qualification.
 
 1. Use the existing [release procedure](../operations/07-environments-and-release-management.md)
    after the normal source/review/CI gates. Record the exact source/image.
-2. Deploy the compatible ReviewRouter code as one coherent batch. No data
-   conversion or activation step is needed.
+2. Deploy compatible ReviewRouter API and worker/evidence readers as one
+   coherent batch. Existing producers remain compatible. Before any Action
+   activation that emits the new causes, verify all readers accept the three
+   new persisted values and record the compatible rollback floor.
 3. In isolated staging fixtures, verify that GitHub waits do not precede either
    announced primary/reset boundary and that a wait outside the read deadline
    refuses without another read, including valid leap-second dates.
@@ -55,8 +60,34 @@ Draft CI aggregation with skipped lanes is not runtime qualification.
    expired-credential refusal. An unconfirmed close retains the slot; an applied
    close before the original deadline permits the next admission. Preserve the
    original close identity and verify that inference is not repeated.
-6. Confirm healthy and partial reviews retain their existing publication and
-   progress outcomes. Record evidence before considering production complete.
+6. Qualify the rebuilt Action with the paired compiled-entrypoint/PostgreSQL
+   fixture: a failed phase with full path coverage keeps its useful finding and
+   publishes the finite reason; a preserved filter remains advisory. Require
+   unchanged server work completion, partial producer coverage where applicable,
+   and no baseline advancement for incomplete coverage.
+7. Use the official protocol generator/check/export and Action bundle gates.
+   Activate the qualified Action only after the reader-first prerequisite,
+   through the separately authorized release process. Confirm healthy and
+   partial reviews retain their existing progress outcomes before completion.
+
+## Accepted incomplete-review causes
+
+The closed values `review_main_incomplete`, `review_round_incomplete` and
+`review_phase_incomplete` refine `context_inspection_incomplete`; none is
+accepted or restored without that existing flag. They add no reuse penalty and
+remain immutable attempt metadata. Retrying the same attempt with different
+flags conflicts rather than rewriting its accepted observation.
+
+The Action maps only finite classifications and structured phase states.
+A failed filter with `filterDecisionValid: false` remains advisory even beside
+an unrelated round, normalization or path gap. Genuine non-filter failures,
+non-preserved filter failures and compression stops retain their phase cause.
+Required accepted lanes contribute these causes to the existing localized
+incomplete-summary section. Raw native prose remains local.
+
+The wire field and envelope are unchanged; official generation and handoff
+checks must establish the actual exported bytes. Tests and rebuilt artifacts
+qualify source behavior separately from deployment or producer activation.
 
 ## Verification and completion
 
@@ -70,9 +101,11 @@ independent rate-wait parser.
 
 ## Retry, partial completion, and rollback
 
-Ordinary code rollback uses the retained preceding compatible image and the
-release runbook. There is no schema/data rollback. Preserve spent dispatch
-claims, unknown effects, retained native custody and partial findings.
+Ordinary code rollback follows the release runbook. Once the new cause values
+are persisted, every retained API/worker rollback image must decode them; an
+older reader that rejects these values is not a compatible rollback. There is
+no SQL schema or destructive data rollback. Preserve spent dispatch claims,
+unknown effects, retained native custody, partial findings and their causes.
 
 Do not replay customer reviews or model requests to verify this change.
 A retry of the original rejected native request remains prohibited by its

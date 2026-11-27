@@ -66,10 +66,15 @@ const profileId = "openrouter-openai-responses-apikey-v1";
   "independent",
   "unavailable-primary",
   "mixed-engines",
+  "mixed-phase-incomplete",
+  "mixed-filter-preserved",
 ] as const)(
   "runs the compiled entrypoint through real API/SQL with %s Gateway allocations",
   async (scenario) => {
-    const mixed = scenario === "mixed-engines";
+    const phaseIncomplete = scenario === "mixed-phase-incomplete";
+    const filterPreserved = scenario === "mixed-filter-preserved";
+    const mixed =
+      scenario === "mixed-engines" || phaseIncomplete || filterPreserved;
     const sharedAllocation = scenario === "shared" || mixed;
     const root = await mkdtemp(path.join(tmpdir(), "rr-multi-paired-"));
     const native = await nativeGateway();
@@ -117,9 +122,19 @@ const profileId = "openrouter-openai-responses-apikey-v1";
       );
       const binaryDigest = sha256(await readFile(codex));
       const ocr = path.join(bin, "synthetic-ocr");
-      await writeFile(ocr, syntheticOcr(childLog, approvedOcr.packageVersion), {
-        mode: 0o700,
-      });
+      await writeFile(
+        ocr,
+        syntheticOcr(
+          childLog,
+          approvedOcr.packageVersion,
+          phaseIncomplete
+            ? "phase_incomplete"
+            : filterPreserved
+              ? "filter_preserved"
+              : "complete",
+        ),
+        { mode: 0o700 },
+      );
       const ocrDigest = sha256(await readFile(ocr));
       await writeFile(
         path.join(bin, "npm"),
@@ -511,6 +526,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
           });
       }, 200);
       let output: { stdout: string; stderr: string };
+      let expectedCoverageFailure = false;
       try {
         const result = await exec(process.execPath, [artifact], {
           cwd: repository.directory,
@@ -572,14 +588,19 @@ const profileId = "openrouter-openai-responses-apikey-v1";
         if (processError.stderr)
           processError.stderr = redact(processError.stderr);
         if (
-          scenario === "unavailable-primary" &&
           processError.code === 1 &&
-          // Runtime 1.0.240 and older name a stopped reviewer's work
-          // admission_limited; later releases name the provider failure.
-          /::error::required_(?:admission_limited|work_exhausted)\b/.test(
-            processError.stdout ?? "",
-          )
+          ((scenario === "unavailable-primary" &&
+            // Runtime 1.0.240 and older name a stopped reviewer's work
+            // admission_limited; later releases name the provider failure.
+            /::error::required_(?:admission_limited|work_exhausted)\b/.test(
+              processError.stdout ?? "",
+            )) ||
+            (phaseIncomplete &&
+              /::error::required_review_coverage_incomplete\b/.test(
+                processError.stdout ?? "",
+              )))
         ) {
+          expectedCoverageFailure = phaseIncomplete;
           output = {
             stdout: redact(processError.stdout ?? ""),
             stderr: redact(processError.stderr ?? ""),
@@ -595,6 +616,12 @@ const profileId = "openrouter-openai-responses-apikey-v1";
             { cause: error },
           );
         }
+      }
+      if (phaseIncomplete) {
+        expect(expectedCoverageFailure).toBe(true);
+        expect(output.stdout).toMatch(
+          /::error::required_review_coverage_incomplete\b/,
+        );
       }
       const authorizations = await prisma.reviewRunAuthorization.findMany({
         where: { workspaceId },
@@ -721,6 +748,55 @@ const profileId = "openrouter-openai-responses-apikey-v1";
       expect(fixture.fakeGitHub.comments[0]?.user.login).toBe(
         "reviewrouter-e2e[bot]",
       );
+      if (phaseIncomplete || filterPreserved) {
+        const observation =
+          await prisma.reviewEvidenceObservation.findFirstOrThrow({
+            where: {
+              sourceExecutionId: executions[0]!.executionId,
+              providerKind: "ocr",
+            },
+          });
+        expect(observation.qualityFlagsJson).toEqual(
+          phaseIncomplete
+            ? [
+                "context_inspection_incomplete",
+                "provider_warning",
+                "review_phase_incomplete",
+              ]
+            : ["provider_warning"],
+        );
+        const artifact =
+          await prisma.finalizedReviewProjectionArtifactV2.findUniqueOrThrow({
+            where: { executionId: executions[0]!.executionId },
+          });
+        const projection = JSON.parse(artifact.projectionEnvelopeCanonicalJson);
+        expect(artifact.coverageState).toBe("completed");
+        expect(projection.coverage).toMatchObject({
+          state: phaseIncomplete ? "partial" : "complete",
+          reviewedFiles: 1,
+          unreviewedFiles: 0,
+        });
+        const summary = fixture.fakeGitHub.comments[0]!.body;
+        expect(summary).toContain(
+          phaseIncomplete
+            ? "<!-- reviewrouter:review-status:incomplete -->"
+            : "<!-- reviewrouter:review-status:complete -->",
+        );
+        if (phaseIncomplete) {
+          expect(observation.findingCount).toBe(1);
+          expect(summary).toContain("A review phase could not be completed.");
+          expect(summary).toContain("Tax percentage is added as currency.");
+        } else {
+          expect(summary).not.toContain("A review phase could not be completed.");
+        }
+        expect(summary).not.toContain("review_phase_incomplete");
+        expect(summary).not.toContain("private_phase_reason_923");
+        expect(
+          await prisma.reviewSnapshot.count({
+            where: { sourceExecutionId: executions[0]!.executionId },
+          }),
+        ).toBe(phaseIncomplete ? 0 : 1);
+      }
       expect(errors).toEqual([]);
       expect(workerError).toBeUndefined();
       await mkdir(path.resolve("tmp/multi-reviewer-e2e"), { recursive: true });
@@ -1117,7 +1193,36 @@ const target=path.join(prefix,'node_modules/@openai/codex/vendor/x86_64-unknown-
 fs.mkdirSync(path.dirname(target),{recursive:true});fs.copyFileSync(${JSON.stringify(codex)},target);fs.chmodSync(target,0o700);
 `;
 }
-function syntheticOcr(log: string, version: string) {
+function syntheticOcr(
+  log: string,
+  version: string,
+  outcome: "complete" | "phase_incomplete" | "filter_preserved",
+) {
+  const comments =
+    outcome === "phase_incomplete"
+      ? [{
+          path: "tax.js",
+          content: "Tax percentage is added as currency.",
+          severity: "high",
+          category: "correctness",
+          existing_code: null,
+          suggestion_code: null,
+          start_line: null,
+          end_line: null,
+        }]
+      : [];
+  const phases = {
+    plan:
+      outcome === "phase_incomplete"
+        ? { state: "failed", reason: "private_phase_reason_923" }
+        : { state: "not_applicable", reason: "threshold" },
+    compression: { state: "not_applicable", reason: "no_zone" },
+    relocation: { state: "not_applicable", reason: "no_candidates" },
+    filter:
+      outcome === "filter_preserved"
+        ? { state: "failed", reason: "invalid_arguments" }
+        : { state: "not_applicable", reason: "no_candidates" },
+  };
   return `#!${process.execPath}
 const fs=require('node:fs'),path=require('node:path'),args=process.argv.slice(2);
 if(args.includes('--version')) { console.log('opencodereview ${version} linux/amd64'); process.exit(0); }
@@ -1135,11 +1240,11 @@ const arg=(name)=>args[args.indexOf(name)+1];
  const text=await response.text();
  if(!response.ok || !text.includes('response.completed'))throw Error('synthetic_native_response_failed:'+response.status+':'+text);
  fs.writeFileSync(output,JSON.stringify({
-  status:'complete',llm:{provider:'reviewrouter',model},summary:{input_tokens:11,output_tokens:7,total_tokens:18},comments:[],
+  status:'complete',llm:{provider:'reviewrouter',model},summary:{input_tokens:11,output_tokens:7,total_tokens:18},comments:${JSON.stringify(comments)},
   manifest:{schema_version:'ocr.run-manifest/v1',operation:'review',terminal_state:'complete',input:{mode:'range',resolved_base:arg('--from'),resolved_head:arg('--to')}},
   reviewrouter_outcome:{schema_version:'reviewrouter.ocr-outcome/v1',run_stop_cause:null,grouping:{state:'completed',reason:null},groups:[{
    paths:['tax.js'],main_completed:true,stop_cause:null,rounds:{configured:2,started:1,completed:1},
-   phases:{plan:{state:'not_applicable',reason:'threshold'},compression:{state:'not_applicable',reason:'no_zone'},relocation:{state:'not_applicable',reason:'no_candidates'},filter:{state:'not_applicable',reason:'no_candidates'}},filter_decision_valid:null,
+   phases:${JSON.stringify(phases)},filter_decision_valid:${outcome === "filter_preserved" ? "false" : "null"},
   }]},
  }));
  fs.appendFileSync(${JSON.stringify(log)},JSON.stringify({event:'completed',model,capabilityHash,home:process.env.HOME,engine:'ocr'})+'\\n');

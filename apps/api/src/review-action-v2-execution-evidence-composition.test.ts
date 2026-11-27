@@ -15,6 +15,7 @@ import {
   LookupReviewEvidenceStatus,
   ProviderResultCompletionStatus,
   ProviderExecutionProfile,
+  ReviewObservationQualityFlag,
   ReviewProviderKind,
   ReviewReuseTier,
   ReviewTaskKind as EvidenceTaskKind,
@@ -2661,12 +2662,20 @@ describe("Review Action v2 execution/evidence composition", () => {
     {
       name: "native span",
       qualityFlags: [
-        "context_inspection_incomplete",
-        "provider_warning",
-        "unverified_native_span",
+        ReviewObservationQualityFlag.ContextInspectionIncomplete,
+        ReviewObservationQualityFlag.ProviderWarning,
+        ReviewObservationQualityFlag.UnverifiedNativeSpan,
       ],
     },
-    { name: "verified clean", qualityFlags: ["investigation_verified_clean"] },
+    { name: "verified clean", qualityFlags: [ReviewObservationQualityFlag.InvestigationVerifiedClean] },
+    ...[
+      ReviewObservationQualityFlag.ReviewMainIncomplete,
+      ReviewObservationQualityFlag.ReviewRoundIncomplete,
+      ReviewObservationQualityFlag.ReviewPhaseIncomplete,
+    ].map((cause) => ({
+      name: cause,
+      qualityFlags: [ReviewObservationQualityFlag.ContextInspectionIncomplete, ReviewObservationQualityFlag.ProviderWarning, cause],
+    })),
   ])("restores $name after crash", async ({ qualityFlags }) => {
     const capabilities = capabilityAdapter();
     const currentLease = lease();
@@ -2687,6 +2696,7 @@ describe("Review Action v2 execution/evidence composition", () => {
       providerInvocationKey: currentLease.providerInvocationKey,
       payloadHash: await digest.digest(preparedPayload.canonicalBytes),
       byteCount: preparedPayload.byteCount,
+      qualityFlags,
     });
     const acceptObservation = vi
       .fn()
@@ -2762,6 +2772,12 @@ describe("Review Action v2 execution/evidence composition", () => {
       expect.objectContaining({ qualityFlags: commit.qualityFlags }),
     );
     expect(attachFresh).toHaveBeenCalledTimes(1);
+    expect(execution.observations.findById).toHaveBeenCalledWith(
+      observation.observationId,
+    );
+    await expect(
+      vi.mocked(execution.observations.findById).mock.results[0]?.value,
+    ).resolves.toMatchObject({ qualityFlags });
   });
 
   it("adopts committed evidence after process restart without issuing a reuse capability", async () => {

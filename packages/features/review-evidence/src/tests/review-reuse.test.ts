@@ -95,6 +95,9 @@ describe("ReviewReuseEligibilityPolicy", () => {
         providerKind: ReviewProviderKind.Ocr,
         qualityFlags: [
           ReviewObservationQualityFlag.ContextInspectionIncomplete,
+          ReviewObservationQualityFlag.ReviewMainIncomplete,
+          ReviewObservationQualityFlag.ReviewRoundIncomplete,
+          ReviewObservationQualityFlag.ReviewPhaseIncomplete,
           ReviewObservationQualityFlag.ProviderWarning,
           ReviewObservationQualityFlag.UnverifiedNativeSpan,
         ],
@@ -381,6 +384,39 @@ describe("ReviewReuseEligibilityPolicy", () => {
     expect(decision.reason).toBe(
       ReviewReuseDenialReason.SameExecutionRequiresAdoption,
     );
+  });
+
+  it.each([
+    ReviewObservationQualityFlag.ReviewMainIncomplete,
+    ReviewObservationQualityFlag.ReviewRoundIncomplete,
+    ReviewObservationQualityFlag.ReviewPhaseIncomplete,
+  ])("does not add a reuse penalty for incomplete cause %s", (cause) => {
+    const targetFacts = target();
+    const candidates = [
+      observation({
+        observationId: "incomplete-older",
+        attemptId: "attempt-older",
+        createdAtMs: nowMs + 1,
+        qualityFlags: [ReviewObservationQualityFlag.ContextInspectionIncomplete],
+      }),
+      observation({
+        observationId: "incomplete-newer",
+        attemptId: "attempt-newer",
+        createdAtMs: nowMs + 2,
+        qualityFlags: [
+          ReviewObservationQualityFlag.ContextInspectionIncomplete,
+          cause,
+        ],
+      }),
+    ].map((candidate) => decideReviewReuseEligibility(candidate, targetFacts));
+
+    expect(
+      selectDeterministicReviewObservations(candidates)[0]?.observation.observationId,
+    ).toBe("incomplete-newer");
+    expect(
+      selectDeterministicReviewObservations([...candidates].reverse())[0]
+        ?.observation.observationId,
+    ).toBe("incomplete-newer");
   });
 
   it("selects deterministically and permits one observation per vote identity", () => {

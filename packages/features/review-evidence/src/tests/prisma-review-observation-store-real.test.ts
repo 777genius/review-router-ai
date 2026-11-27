@@ -142,6 +142,9 @@ describeWithDatabase("Prisma review evidence observations", () => {
       ReviewObservationQualityFlag.LowConfidence,
       ReviewObservationQualityFlag.ProviderWarning,
       ReviewObservationQualityFlag.ContextInspectionIncomplete,
+      ReviewObservationQualityFlag.ReviewMainIncomplete,
+      ReviewObservationQualityFlag.ReviewRoundIncomplete,
+      ReviewObservationQualityFlag.ReviewPhaseIncomplete,
       ReviewObservationQualityFlag.ContextAttestationUnavailable,
       ReviewObservationQualityFlag.CrossRevisionReuseDisabled,
       ReviewObservationQualityFlag.UnverifiedNativeSpan,
@@ -157,7 +160,8 @@ describeWithDatabase("Prisma review evidence observations", () => {
       status: ReviewObservationAcceptPersistenceStatus.Accepted,
       observation: { qualityFlags: normalizedQualityFlags },
     });
-    await expect(store.findById(current.observationId)).resolves.toMatchObject({
+    const restoredStore = new PrismaReviewObservationStore(prisma);
+    await expect(restoredStore.findById(current.observationId)).resolves.toMatchObject({
       qualityFlags: normalizedQualityFlags,
     });
   });

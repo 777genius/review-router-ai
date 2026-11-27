@@ -856,24 +856,27 @@ it.each([
       ).rejects.toBeDefined();
       expect(tail).toBe("");
       expect(
-        log.mock.calls
-          .map(([event]) => event)
-          .filter(
-            (event) => event?.event === "review_run_companion_stream_failure",
-          ),
+        log.mock.calls.filter(
+          ([event]) => event?.event === "review_run_companion_stream_failure",
+        ),
       ).toEqual([
-        {
-          event: "review_run_companion_stream_failure",
-          phase,
-          requestRef: "stored-companion-native-ref",
-          receivedBytes: Buffer.byteLength(progressFrame + completedFrame),
-          maxStreamBytes: 32768,
-          signalAborted: false,
-          errorCategory: phase === "native_status" ? "Error" : "TypeError",
-          httpStatus: 503,
-          ...(phase === "native_status" ? { sdkCode: "safe_error" } : {}),
-        },
+        [
+          {
+            event: "review_run_companion_stream_failure",
+            phase,
+            requestRef: "stored-companion-native-ref",
+            receivedBytes: Buffer.byteLength(progressFrame + completedFrame),
+            maxStreamBytes: 32768,
+            signalAborted: false,
+            errorCategory: phase === "native_status" ? "Error" : "TypeError",
+            httpStatus: 503,
+            ...(phase === "native_status" ? { sdkCode: "safe_error" } : {}),
+          },
+        ],
       ]);
+      expect(
+        log.mock.calls.flat().some((value) => value instanceof Error),
+      ).toBe(false);
       expect(getter).not.toHaveBeenCalled();
       expect(JSON.stringify(log.mock.calls)).not.toContain("secret");
       expect(requestStatus).toHaveBeenCalledTimes(
@@ -910,6 +913,102 @@ it.each([
     }
   },
 );
+
+it("attributes consumer cancellation during successful companion settlement to downstream", async () => {
+  const state = companionReservation();
+  const settlementStarted = deferred();
+  const releaseSettlement = deferred();
+  let completedRecorded = false;
+  const recordSettlement = state.admission.settle;
+  const settlement = vi
+    .spyOn(state.admission, "settle")
+    .mockImplementation(async (authorizationId, dispatchId, effect) => {
+      if (effect === "completed") {
+        settlementStarted.resolve();
+        await releaseSettlement.promise;
+      }
+      await recordSettlement(authorizationId, dispatchId, effect);
+      if (effect === "completed") completedRecorded = true;
+    });
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  const f = await fixture(
+    32768,
+    0,
+    2,
+    5000,
+    async (upstream) => {
+      upstream.end(progressFrame + completedFrame);
+    },
+    { admission: state.admission },
+  );
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let draining: Promise<void> | undefined;
+  try {
+    const response = await f.relay.responses(
+      "authorization-1",
+      companionEnvelope(),
+      new AbortController(),
+      undefined,
+      companionContext,
+    );
+    if (response.kind !== "stream") throw new Error("stream_expected");
+    reader = response.body.getReader();
+    draining = (async () => {
+      while (!(await reader!.read()).done) {
+        // Drive EOF until the real companion settlement is held.
+      }
+    })();
+    void draining.catch(() => {});
+    await settlementStarted.promise;
+    expect(completedRecorded).toBe(false);
+    await reader.cancel();
+    await draining;
+    expect(completedRecorded).toBe(false);
+    releaseSettlement.resolve();
+
+    await vi.waitFor(() =>
+      expect(
+        log.mock.calls.filter(
+          ([event]) => event?.event === "review_run_companion_stream_failure",
+        ),
+      ).toEqual([
+        [
+          {
+            event: "review_run_companion_stream_failure",
+            phase: "downstream",
+            requestRef: "stored-companion-native-ref",
+            receivedBytes: Buffer.byteLength(progressFrame + completedFrame),
+            maxStreamBytes: 32768,
+            signalAborted: false,
+            errorCategory: "TypeError",
+          },
+        ],
+      ]),
+    );
+    expect(completedRecorded).toBe(true);
+    expect(
+      settlement.mock.calls.filter(([, , effect]) => effect === "completed"),
+    ).toHaveLength(1);
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "completed",
+    );
+    expect(f.requestRefs).toEqual(["stored-companion-native-ref"]);
+    expect(
+      log.mock.calls.flat().some((value) => value instanceof Error),
+    ).toBe(false);
+  } finally {
+    releaseSettlement.resolve();
+    await reader?.cancel().catch(() => {});
+    await draining?.catch(() => {});
+    reader?.releaseLock();
+    try {
+      await f.relay.shutdown();
+    } finally {
+      settlement.mockRestore();
+      log.mockRestore();
+    }
+  }
+});
 
 it("companion chunks use local authority while phase and EOF status retain full freshness", async () => {
   const state = companionReservation();
@@ -3497,7 +3596,7 @@ it.each(["pressure", "timer"] as const)(
       expect(f.requestModels).toHaveLength(2);
     } finally {
       gate?.release();
-      await closing;
+      await closing?.catch(() => {});
       revoke.mockRestore();
       await f.relay.shutdown();
     }
@@ -3535,26 +3634,32 @@ it("v4 pressure still reclaims an exact retained close after all automatic retri
     f.authorizations,
     "expireOrRevokeReviewRunAuthorization",
   );
-  let ninthClose: ReturnType<typeof f.holdClose> | undefined;
+  let retryClose: ReturnType<typeof f.holdClose> | undefined;
   let closing: ReturnType<typeof f.relay.closeRun> | undefined;
   try {
     await streamRun(f, "authorization-1", "reviewer-0");
     f.setCloseState("unknown");
     await f.relay.closeRun("authorization-1", "completed");
-    for (let tick = 0; tick < 1100 && f.nativeCloses.length < 9; tick++) {
-      if (f.nativeCloses.length === 8 && !ninthClose)
-        ninthClose = f.holdClose();
-      await vi.advanceTimersByTimeAsync(100);
-      await setImmediate();
+    const deadline = f.authorization().maxExpiresAt.getTime();
+    for (let expected = 2; expected <= 9; expected++) {
+      retryClose = f.holdClose();
+      // Search the remaining original window, excluding its deadline close.
+      while (localCloseCalls < expected && Date.now() < deadline - 1) {
+        await vi.advanceTimersByTimeAsync(
+          Math.min(100, deadline - Date.now() - 1),
+        );
+        await setImmediate();
+      }
+      expect(Date.now()).toBeLessThan(deadline);
+      expect(localCloseCalls).toBe(expected);
+      // Freeze fake time during real I/O. The held response makes this join
+      // exact, so settlement latency cannot consume the next retry's window.
+      await retryClose.started;
+      expect(f.nativeCloses).toHaveLength(expected);
+      closing = f.relay.closeRun("authorization-1", "completed");
+      retryClose.release();
+      await expect(closing).resolves.toMatchObject({ state: "unknown" });
     }
-    expect(ninthClose).toBeDefined();
-    expect(f.nativeCloses).toHaveLength(9);
-    await ninthClose!.started;
-    // The ninth HTTP response is held, so this call must join its exact close.
-    // Awaiting it after release proves the relay's closing entry has settled.
-    closing = f.relay.closeRun("authorization-1", "completed");
-    ninthClose!.release();
-    await expect(closing).resolves.toMatchObject({ state: "unknown" });
 
     const remaining = f.authorization().maxExpiresAt.getTime() - Date.now();
     expect(remaining).toBeGreaterThan(0);
@@ -3595,7 +3700,7 @@ it("v4 pressure still reclaims an exact retained close after all automatic retri
     expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
     expect(revoke).not.toHaveBeenCalled();
   } finally {
-    ninthClose?.release();
+    retryClose?.release();
     await closing?.catch(() => {});
     try {
       await f.relay.shutdown();

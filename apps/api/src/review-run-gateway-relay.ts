@@ -1309,6 +1309,7 @@ export function createReviewRunGatewayRelay(input: {
                   await settle(status.effect, (settlementPhase) => {
                     phase = settlementPhase;
                   });
+                  phase = "downstream";
                   completed = true;
                   cleanup();
                   target.close();

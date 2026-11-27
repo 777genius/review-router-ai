@@ -374,3 +374,51 @@ fixtures and a working environment: 1-3 focused engineer-days. Complexity 4/10,
 expected reliability within this reporting scope 8/10, confidence in fit 8/10;
 estimate confidence is moderate. This slice is independent of native retry proof
 and does not claim durable resumption after earlier paid work.
+
+## Second executable review checkpoint
+
+Parent source: `e72d9910b8ee5c8ba79adf2990c3b3b99b74bbf3`. Preserve its two
+concurrent conflict-detection investigations unchanged; their separate dispatch
+races do not expand this runtime correction.
+
+CodeRabbit's completed review of `a2e23003` raised four further minor findings.
+The diagnostic returns to `downstream` after successful settlement. A held
+settlement/cancellation regression checks the completed row and single native
+request. The EOF matrix checks complete one-argument log calls and rejects raw
+Error arguments. Teardown consumes an already rejected joined-close promise.
+The retained-close fixture holds, joins and awaits each of eight real background
+attempts, freezing fake time during HTTP and excluding the original deadline
+close. Two independent source reviewers approved these corrections.
+
+Actual local evidence from the formatted working copy:
+
+- Corrected relay suite: 192 tests passed.
+- Evidence acceptance, reuse, Prisma decoder and API-composition suites:
+  137 tests passed. Two suites initially could not load a locally copied Prisma
+  runtime dependency; after repairing that private dependency link, their
+  82 tests passed. No repository dependency or lockfile changed.
+- All 170 ordinary migrations applied successfully on a fresh disposable
+  PostgreSQL 17.10 cluster through the existing migration entrypoint and
+  version preflight. Earlier killed/partial-cluster attempts were discarded.
+- Real observation readback was killed before a result. The full protocol
+  command generated its canonical output but was killed in the required
+  control-plane typecheck. Neither command passed. New Action phase tests,
+  paired compiled Action, complete type/architecture/CI gates and rollout remain
+  pending. This source checkpoint still requires its own CI qualification.
+
+The executor subsequently disconnected and is unavailable. Preserved GitHub
+source blobs and connected CI remain usable. Missing, killed, queued and skipped
+checks are not passes.
+
+### Closed-pull-request cancellation follow-up
+
+The executed Action baseline includes a test that starts a running server
+execution and returns Cancelled for a closed PR without durable terminalization.
+The bounded Action #411 correction reuses exact-scope supersede with the original
+revision hash and current stream version, preserving authenticated already-terminal
+readback. A missing or ambiguous acknowledgement becomes an explicit unconfirmed
+cancellation failure; closure before any admission stays mutation-free. The
+existing adapter must not manufacture success from a forbidden same-revision
+supersede. This separately reviewed follow-up adds no scheduler, provider replay,
+expiry policy or endpoint. Its new source and runtime gates remain separate from
+the relay/evidence results above.
