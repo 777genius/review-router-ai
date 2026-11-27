@@ -21,7 +21,7 @@ test("fenced app revocation on isolated PostgreSQL", () => {
   const schema = `webhook_app_${randomBytes(8).toString("hex")}`;
   const pool = new Pool({
     ...webhookFencePostgres.connection,
-    options: `-c search_path=${schema}`,
+    options: `-c search_path=${schema} -c timezone=Pacific/Honolulu`,
   });
   const prisma = new PrismaClient({ adapter: new PrismaPg(pool, { schema }) });
   const env = {
@@ -56,6 +56,9 @@ test("fenced app revocation on isolated PostgreSQL", () => {
   });
   beforeAll(async () => {
     await assertWebhookFenceTestDatabase(pool);
+    expect((await pool.query("SHOW timezone")).rows[0]?.TimeZone).toBe(
+      "Pacific/Honolulu",
+    );
     if (
       (await pool.query("SELECT current_database() AS name")).rows[0]?.name !==
       "rr_webhook_fence_test"
@@ -104,8 +107,8 @@ test("fenced app revocation on isolated PostgreSQL", () => {
   it("commits revocation, cache removal and terminal status together", async () => {
     await pool.query(
       `INSERT INTO "GitHubUserAuthorization" ("userId","appSlug","encryptedAccessToken","accessTokenExpiresAt")
-        VALUES ('u1','synthetic-app',$1,clock_timestamp()+interval '1 hour')`,
-      [token],
+        VALUES ('u1','synthetic-app',$1,$2::timestamp)`,
+      [token, new Date(Date.now() + 3_600_000).toISOString()],
     );
     await pool.query(
       "INSERT INTO \"RepositoryPermissionCache\" VALUES ('u1','synthetic-app')",
@@ -131,6 +134,15 @@ test("fenced app revocation on isolated PostgreSQL", () => {
         )
       ).rows[0],
     ).toEqual({ revoked: true, revision: 2 });
+    expect(
+      (
+        await pool.query(
+          `SELECT abs(EXTRACT(EPOCH FROM ("revokedAt" - (clock_timestamp() AT TIME ZONE 'UTC')))) < 30
+            AND abs(EXTRACT(EPOCH FROM ("updatedAt" - (clock_timestamp() AT TIME ZONE 'UTC')))) < 30
+            AS "utcTimestamps" FROM "GitHubUserAuthorization"`,
+        )
+      ).rows[0]?.utcTimestamps,
+    ).toBe(true);
     expect(
       (
         await pool.query(
@@ -254,5 +266,41 @@ test("fenced app revocation on isolated PostgreSQL", () => {
         )
       ).rows[0].status,
     ).toBe("processing");
+  });
+  it("does not mistake an expired UTC token for a current grant in a negative-offset session", async () => {
+    await pool.query(
+      'UPDATE "GitHubUserAuthorization" SET "revokedAt"=NULL,revision=3,"accessTokenExpiresAt"=$1::timestamp',
+      [new Date(Date.now() - 60_000).toISOString()],
+    );
+    const e = envelope("app-expired-token");
+    const claim = await beginFencedWebhookDelivery(
+      prisma,
+      {
+        deliveryId: e.deliveryId,
+        eventName: e.eventName,
+        action: e.payload.action,
+        payloadHash: e.payloadHash,
+      },
+      owner,
+      10000,
+      "d".repeat(64),
+    );
+    await expect(
+      handler().handleFencedGitHubAppAuthorizationWebhook(e, claim),
+    ).rejects.toThrow("github_app_authorization_reconciliation_required");
+    expect(
+      (
+        await pool.query(
+          'SELECT "revokedAt" IS NULL AS unchanged,revision FROM "GitHubUserAuthorization"',
+        )
+      ).rows[0],
+    ).toEqual({ unchanged: true, revision: 3 });
+    expect(
+      (
+        await pool.query(
+          'SELECT count(*)::int AS n FROM "RepositoryPermissionCache"',
+        )
+      ).rows[0].n,
+    ).toBe(1);
   });
 });

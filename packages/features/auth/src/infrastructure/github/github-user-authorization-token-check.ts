@@ -14,7 +14,7 @@ export type GitHubUserAuthorizationTokenSnapshot = Readonly<{
   eligible: boolean;
 }>;
 
-/** One row snapshot before read-only provider IO; never refreshes or writes. */
+/** One row snapshot before provider IO; Prisma's timezone-less timestamps contain UTC. */
 export async function readGitHubUserAuthorizationTokenSnapshot(
   prisma: PrismaClient,
   githubUserId: bigint,
@@ -26,7 +26,7 @@ export async function readGitHubUserAuthorizationTokenSnapshot(
         a."encryptedAccessToken", a."accessTokenExpiresAt", a."revokedAt", a."refreshAttemptId",
         (a."githubUserId" = ${githubUserId} AND a."revokedAt" IS NULL
           AND a."refreshAttemptId" IS NULL AND a."accessTokenExpiresAt" IS NOT NULL
-          AND a."accessTokenExpiresAt" > clock_timestamp() +
+          AND a."accessTokenExpiresAt" > (clock_timestamp() AT TIME ZONE 'UTC') +
             ${githubUserAccessTokenRefreshSkewMs} * interval '1 millisecond') AS eligible
       FROM "GitHubUserAuthorization" a JOIN "User" u ON u.id = a."userId"
       WHERE u."githubUserId" = ${githubUserId} AND a."appSlug" = ${appSlug}
@@ -54,7 +54,7 @@ export async function applyGitHubUserAuthorizationTokenCheckInTransaction(
     AND a."accessTokenExpiresAt" IS NOT DISTINCT FROM ${snapshot.accessTokenExpiresAt}
     AND a."revokedAt" IS NULL AND a."refreshAttemptId" IS NULL
     AND a."accessTokenExpiresAt" IS NOT NULL
-    AND a."accessTokenExpiresAt" > clock_timestamp() +
+    AND a."accessTokenExpiresAt" > (clock_timestamp() AT TIME ZONE 'UTC') +
       ${githubUserAccessTokenRefreshSkewMs} * interval '1 millisecond'
   `;
   if (tokenStatus === "valid") {
@@ -65,9 +65,9 @@ export async function applyGitHubUserAuthorizationTokenCheckInTransaction(
   }
   const changed = await transaction.$queryRaw<Array<{ userId: string }>>(
     Prisma.sql`
-      UPDATE "GitHubUserAuthorization" a SET "revokedAt" = clock_timestamp(),
+      UPDATE "GitHubUserAuthorization" a SET "revokedAt" = (clock_timestamp() AT TIME ZONE 'UTC'),
         revision = a.revision + 1, "refreshAttemptId" = NULL,
-        "lastErrorCode" = 'github_app_authorization_revoked', "updatedAt" = clock_timestamp()
+        "lastErrorCode" = 'github_app_authorization_revoked', "updatedAt" = (clock_timestamp() AT TIME ZONE 'UTC')
       WHERE ${current}
       RETURNING a."userId"
     `,

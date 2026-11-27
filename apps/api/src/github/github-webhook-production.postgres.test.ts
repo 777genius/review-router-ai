@@ -45,7 +45,8 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
   const pool = new Pool({
     ...webhookFencePostgres.connection,
     max: 8,
-    options: "-c search_path=public",
+    // Prisma timestamps carry UTC values even when the DB session is not UTC.
+    options: "-c search_path=public -c timezone=Asia/Tokyo",
     application_name: "webhook_http_" + randomBytes(6).toString("hex"),
   });
   const prisma = new PrismaClient({
@@ -106,6 +107,9 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
 
   beforeAll(async () => {
     await assertWebhookFenceTestDatabase(pool);
+    expect((await pool.query("SHOW timezone")).rows[0]?.TimeZone).toBe(
+      "Asia/Tokyo",
+    );
     const directory = new URL(
       "../../../../packages/platform/db/prisma/migrations/",
       import.meta.url,
@@ -897,6 +901,8 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
 
   it("rechecks database expiry after waiting for the authorization row lock", async () => {
     const f = await authorizationFixture(302);
+    const expiresAt = f.authorization.accessTokenExpiresAt?.toISOString();
+    if (!expiresAt) throw new Error("synthetic_authorization_expiry_missing");
     const deliveryId = randomUUID();
     let locked!: (pid: number) => void;
     let release!: () => void;
@@ -940,14 +946,14 @@ test("production signed GitHub HTTP with the complete migrated schema", () => {
       }
       expect(blocked).toBe(true);
       const beforeExpiry = await pool.query<{ eligible: boolean }>(
-        "SELECT $1::timestamp > clock_timestamp() + interval '5 minutes' AS eligible",
-        [f.authorization.accessTokenExpiresAt],
+        "SELECT $1::timestamp > (clock_timestamp() AT TIME ZONE 'UTC') + interval '5 minutes' AS eligible",
+        [expiresAt],
       );
       expect(beforeExpiry.rows[0]?.eligible).toBe(true);
       // Cross the real database's refresh threshold without changing any row.
       await pool.query(
-        "SELECT pg_sleep(GREATEST(0, EXTRACT(EPOCH FROM ($1::timestamp - interval '5 minutes' - clock_timestamp()))) + 0.05)",
-        [f.authorization.accessTokenExpiresAt],
+        "SELECT pg_sleep(GREATEST(0, EXTRACT(EPOCH FROM ($1::timestamp - interval '5 minutes' - (clock_timestamp() AT TIME ZONE 'UTC')))) + 0.05)",
+        [expiresAt],
       );
       expect(await effectIsBlocked()).toBe(true);
     } finally {
