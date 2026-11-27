@@ -13,7 +13,7 @@
 | Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                     |
 | -------------------- | --------- | ------------------------------- | ------------------- | -------------------------------------------------- |
 | staging              | `pending` | Not verified                    | Not verified        | Reconcile target and ship exact qualified release. |
-| production           | `pending` | Not verified                    | Not verified        | Reconcile target and ship exact qualified release. |
+| production | `installed` | RR `6271ebe1f5e98bb376b4c7269394f806cb73041f` | 2026-11-27 | Source is included in the running fleet; task-specific verification remains pending. |
 
 `pending` records no verified completion, not observed absence. The [status contract](README.md#status-contract) applies separately per environment.
 
@@ -46,3 +46,7 @@ Before retrying, inspect actual versions, durable intents and previous rollout e
 | Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result                 | Evidence                             | Next action                                 |
 | ------------ | -------------------- | ---------- | ---------------------- | ---------------------------------------- | ------------------------------------ | ------------------------------------------- |
 | Not executed | staging / production | Unassigned | Not verified           | Local qualification only; no deployment. | `734212fa3`; CI and release pending. | Complete review, CI and authorized rollout. |
+
+### Production reconciliation — 2026-11-27
+
+The production API, worker, scan and Web roles run image `sha256:c85668050780757e79c0c7dfa0964f8f06629fbd2d694aa404ce192f7420d9ec` at source `6271ebe1f5e98bb376b4c7269394f806cb73041f`, which includes the merged implementation. The [fleet installation record](2026-11-27-relay-stale-close-capability.md#production-installation-2026-11-27) records the rollout and release verifier; current container inspection found all four roles running with zero restarts, and API readiness and Web returned HTTP 200. Task-specific live behavior and the isolated scenario specified above have not been verified; this entry records installation, not feature acceptance.

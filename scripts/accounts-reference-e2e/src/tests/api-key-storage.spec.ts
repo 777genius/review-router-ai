@@ -206,8 +206,10 @@ test("API key storage creates all three GitHub profiles and preserves identity w
     .click();
   const replacement = page.getByRole("dialog");
   await expect(
-    replacement.getByRole("combobox", { name: "Provider", exact: true }),
-  ).toContainText("Kimi Code");
+    replacement
+      .getByRole("radiogroup", { name: "Provider" })
+      .getByRole("radio", { name: "Kimi Code", exact: true }),
+  ).toBeChecked();
   await expect(
     (await expectStorage(replacement)).getByRole("radio", {
       name: /^ReviewRouter/,

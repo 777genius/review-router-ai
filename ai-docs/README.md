@@ -6,6 +6,10 @@ Current provider delivery scope: [Sub2API production and legacy direct transport
 
 Current provider navigation and connection UX: [Providers and connections](./product/10-provider-connections-ux.md).
 
+Proposed central identity integration: [Unified Identity login and separate SCM connections](./plans/2026-11-26-unified-identity-and-scm-connections.md) — direct GitHub/GitLab sign-in, stable local users, product-owned repository credentials, migration phases, and qualification gates. This is a planning document, not a completed rollout.
+
+Planning review evidence: [Identity integration review record](./plans/2026-11-26-unified-identity-review.md).
+
 ## Reading Order
 
 1. [Agent Start Here](./AGENT_START_HERE.md)
