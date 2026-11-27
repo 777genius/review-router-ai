@@ -334,6 +334,22 @@ const reliabilityCheckoutExtension = Object.freeze([
   }),
 ]);
 
+// Webhook delivery migrations belong to ordinary Prisma deploy. Admit only this
+// exact application checkout tail before retaining the unchanged checkout170
+// validator; neither migration enters managed92 or historical96 transaction SQL.
+const webhookDeliveryCheckoutExtension = Object.freeze([
+  Object.freeze({
+    migrationName: "000165_webhook_effect_fence",
+    checksum:
+      "d3f747f018080ca863c0f84f695d6fcd96bd6ef4cd4a5ef5cb2fdc84bc9674f5",
+  }),
+  Object.freeze({
+    migrationName: "000167_webhook_recovery_intent",
+    checksum:
+      "e207c11ca7dd836031b8849daf531eb8e56d0f62cc1f34c5c049c60f366d7124",
+  }),
+]);
+
 export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (
     !Array.isArray(catalog) ||
@@ -346,6 +362,29 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  if (
+    catalog.some((row) =>
+      webhookDeliveryCheckoutExtension.some(
+        (extension) => extension.migrationName === row.migrationName,
+      ),
+    )
+  ) {
+    const tail = catalog.slice(-webhookDeliveryCheckoutExtension.length);
+    if (
+      catalog.length !== 172 ||
+      webhookDeliveryCheckoutExtension.some((extension, index) => {
+        const row = tail[index];
+        return (
+          row.migrationName !== extension.migrationName ||
+          row.checksum !== extension.checksum
+        );
+      })
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.slice(0, -webhookDeliveryCheckoutExtension.length),
+    );
+  }
   if (
     catalog.some((row) =>
       reliabilityCheckoutExtension.some(
