@@ -2,6 +2,20 @@ import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import type { GitHubRepositoryWebhookEnvelope } from "@reviewrouter/features-github-installations";
 import { describe, expect, it, vi } from "vitest";
+// These legacy behavior fixtures model the business effect; epoch SQL and
+// transaction races are exercised against PostgreSQL separately.
+vi.mock("@reviewrouter/platform-db", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@reviewrouter/platform-db")>();
+  return {
+    ...actual,
+    runScopeEpochSerializableTransaction: (
+      prisma: any,
+      _scopes: unknown,
+      work: (tx: unknown) => unknown,
+    ) => prisma.$transaction(work, { isolationLevel: "Serializable" }),
+  };
+});
 import { PrismaRepositoryWebhookHandler } from "./prisma-repository-webhook-handler";
 
 describe("PrismaRepositoryWebhookHandler", () => {

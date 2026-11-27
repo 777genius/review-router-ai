@@ -260,4 +260,28 @@ test("fenced repository webhook on isolated PostgreSQL", () => {
       ).rows[0].status,
     ).toBe("processing");
   });
+  it("ordinary repository webhook mutates authority and its epoch together", async () => {
+    const before = (
+      await pool.query(
+        'SELECT COALESCE(sum(revision),0)::int n FROM "CurrentScopeEpoch"',
+      )
+    ).rows[0].n;
+    await new PrismaRepositoryWebhookHandler(
+      prisma,
+    ).handleGitHubRepositoryWebhook(envelope("ordinary-writer"));
+    expect(
+      (
+        await pool.query(
+          "SELECT selected FROM \"RepositoryConnection\" WHERE id='repo'",
+        )
+      ).rows[0].selected,
+    ).toBe(false);
+    expect(
+      (
+        await pool.query(
+          'SELECT COALESCE(sum(revision),0)::int n FROM "CurrentScopeEpoch"',
+        )
+      ).rows[0].n,
+    ).toBe(before + 1);
+  });
 });

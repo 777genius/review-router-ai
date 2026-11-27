@@ -3,7 +3,6 @@ import {
   type FencedDelivery,
   type GitHubRepositoryWebhookEnvelope,
 } from "@reviewrouter/features-github-installations";
-import { workflowProvisioningTransaction } from "@reviewrouter/features-workflow-provisioning/composition";
 import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import {
@@ -22,8 +21,10 @@ export class PrismaRepositoryWebhookHandler {
   async handleGitHubRepositoryWebhook(
     envelope: GitHubRepositoryWebhookEnvelope,
   ): Promise<Record<string, unknown>> {
-    const handled = await workflowProvisioningTransaction(this.prisma, (tx) =>
-      this.applyRepositoryWebhook(tx, envelope),
+    const handled = await runScopeEpochSerializableTransaction(
+      this.prisma,
+      [{ scope: "global", mode: "exclusive" }],
+      (tx) => this.applyRepositoryWebhook(tx, envelope),
     );
     return repositoryWebhookResult(
       handled,
