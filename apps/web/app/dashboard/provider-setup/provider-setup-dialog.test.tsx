@@ -2308,8 +2308,10 @@ describe("ProviderSetupDialog", () => {
       });
       expect(github.getAttribute("aria-checked")).toBe("true");
       expect(
-        screen.getByRole("combobox", { name: "Provider" }).textContent,
-      ).toContain(provider.label);
+        screen
+          .getByRole("radio", { name: provider.label })
+          .getAttribute("aria-checked"),
+      ).toBe("true");
       expect(screen.queryByLabelText("API key")).toBeNull();
       fireEvent.click(screen.getByRole("radio", { name: "ReviewRouter" }));
       const link = screen.getByRole("link", {
