@@ -24,8 +24,7 @@ const webhookDeliveryMigrationNames = [
   "000165_webhook_effect_fence",
   "000167_webhook_recovery_intent",
 ];
-const webhookReceiptOrderMigrationName =
-  "000168_webhook_receipt_order_indexes";
+const webhookReceiptOrderMigrationName = "000168_webhook_receipt_order_indexes";
 const checkout172 = currentFull.filter(
   (row) => row.migrationName !== webhookReceiptOrderMigrationName,
 );

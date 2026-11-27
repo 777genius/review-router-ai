@@ -248,82 +248,82 @@ test("full migration webhook fencing compatibility", () => {
       }
     }
   });
-  it(
-    "uses the migrated receipt-order indexes for actual guarded admission queries",
-    async () => {
-      type PlanNode = {
-        "Node Type": string;
-        "Relation Name"?: string;
-        "Index Name"?: string;
-        "Actual Rows": number;
-        "Actual Loops": number;
-        "Rows Removed by Filter"?: number;
-        "Rows Removed by Index Recheck"?: number;
-        Plans?: PlanNode[];
-      };
-      const prefix = `receipt-plan-${randomBytes(6).toString("hex")}`;
-      const installationId = "900000000001";
-      const repositoryIds = ["900000000101", "900000000102"] as const;
-      const secret = "synthetic-receipt-plan-secret";
-      const verify = createGitHubAppWebhookVerifier({
-        appId: "123",
-        apiBaseUrl: "https://api.github.com",
-        webhookSecret: secret,
-      });
-      const initialBody = Buffer.from('{"action":"created"}');
-      const initialContext = verify({
-        rawPayload: initialBody,
-        signatureHeader: `sha256=${createHmac("sha256", secret).update(initialBody).digest("hex")}`,
-      });
-      if (!initialContext) throw new Error("receipt_plan_signature_invalid");
-      const appHash = initialContext.appIdentityHash;
-      const otherAppHash = "b".repeat(64);
-      expect(appHash).not.toBe(otherAppHash);
-      const observedPool = new Pool(webhookFencePostgres.connection);
-      const baseClient = new PrismaClient({ adapter: new PrismaPg(observedPool) });
-      const floorQueries: Array<{ text: string; values: unknown[] }> = [];
-      const observed = baseClient.$extends({
-        query: {
-          async $queryRaw({ args, query }) {
-            // Keep the native PostgreSQL placeholders and original bigint/Date values.
-            const captured = { text: args.text, values: [...args.values] };
-            const result: unknown = await query(args);
-            if (
-              /^\s*SELECT\s+GREATEST\s*\(/iu.test(captured.text) &&
-              captured.text.includes('"GitHubWebhookDelivery"') &&
-              captured.text.includes('AS "receivedAt"')
-            )
-              floorQueries.push(captured);
-            return result;
-          },
+  it("uses the migrated receipt-order indexes for actual guarded admission queries", async () => {
+    type PlanNode = {
+      "Node Type": string;
+      "Relation Name"?: string;
+      "Index Name"?: string;
+      "Actual Rows": number;
+      "Actual Loops": number;
+      "Rows Removed by Filter"?: number;
+      "Rows Removed by Index Recheck"?: number;
+      Plans?: PlanNode[];
+    };
+    const prefix = `receipt-plan-${randomBytes(6).toString("hex")}`;
+    const installationId = "900000000001";
+    const repositoryIds = ["900000000101", "900000000102"] as const;
+    const secret = "synthetic-receipt-plan-secret";
+    const verify = createGitHubAppWebhookVerifier({
+      appId: "123",
+      apiBaseUrl: "https://api.github.com",
+      webhookSecret: secret,
+    });
+    const initialBody = Buffer.from('{"action":"created"}');
+    const initialContext = verify({
+      rawPayload: initialBody,
+      signatureHeader: `sha256=${createHmac("sha256", secret).update(initialBody).digest("hex")}`,
+    });
+    if (!initialContext) throw new Error("receipt_plan_signature_invalid");
+    const appHash = initialContext.appIdentityHash;
+    const otherAppHash = "b".repeat(64);
+    expect(appHash).not.toBe(otherAppHash);
+    const observedPool = new Pool(webhookFencePostgres.connection);
+    const baseClient = new PrismaClient({
+      adapter: new PrismaPg(observedPool),
+    });
+    const floorQueries: Array<{ text: string; values: unknown[] }> = [];
+    const observed = baseClient.$extends({
+      query: {
+        async $queryRaw({ args, query }) {
+          // Keep the native PostgreSQL placeholders and original bigint/Date values.
+          const captured = { text: args.text, values: [...args.values] };
+          const result: unknown = await query(args);
+          if (
+            /^\s*SELECT\s+GREATEST\s*\(/iu.test(captured.text) &&
+            captured.text.includes('"GitHubWebhookDelivery"') &&
+            captured.text.includes('AS "receivedAt"')
+          )
+            floorQueries.push(captured);
+          return result;
         },
-      });
-      onTestFinished(async () => {
-        try {
-          const remaining = await pool.query(
-            `SELECT
+      },
+    });
+    onTestFinished(async () => {
+      try {
+        const remaining = await pool.query(
+          `SELECT
               (SELECT count(*)::int FROM "GitHubWebhookDelivery" WHERE "deliveryId" LIKE $1) AS deliveries,
               (SELECT count(*)::int FROM "GitHubWebhookFence" WHERE "deliveryId" LIKE $1) AS fences`,
-            [`${prefix}%`],
-          );
-          expect(remaining.rows[0]).toEqual({ deliveries: 0, fences: 0 });
+          [`${prefix}%`],
+        );
+        expect(remaining.rows[0]).toEqual({ deliveries: 0, fences: 0 });
+      } finally {
+        try {
+          await observed.$disconnect();
         } finally {
-          try {
-            await observed.$disconnect();
-          } finally {
-            await observedPool.end();
-          }
+          await observedPool.end();
         }
-      });
-      const rollback = new Error("rollback_receipt_plan_fixture");
-      try {
-        // This transaction also owns the bounded seed, ANALYZE and EXPLAIN work;
-        // its fixture budget does not change the receiver's transaction timeout.
-        await observed.$transaction(
-          async (transaction) => {
-            const indexes = await transaction.$queryRaw<
-              Array<{ name: string; valid: boolean; ready: boolean }>
-            >`
+      }
+    });
+    const rollback = new Error("rollback_receipt_plan_fixture");
+    try {
+      // This transaction also owns the bounded seed, ANALYZE and EXPLAIN work;
+      // its fixture budget does not change the receiver's transaction timeout.
+      await observed.$transaction(
+        async (transaction) => {
+          const indexes = await transaction.$queryRaw<
+            Array<{ name: string; valid: boolean; ready: boolean }>
+          >`
               SELECT i.relname AS name, x.indisvalid AS valid, x.indisready AS ready
               FROM pg_index x
               JOIN pg_class i ON i.oid = x.indexrelid
@@ -332,25 +332,25 @@ test("full migration webhook fencing compatibility", () => {
               WHERE n.nspname = 'public'
                 AND t.relname IN ('GitHubWebhookDelivery', 'GitHubWebhookFence')
             `;
-            for (const name of [
-              "GitHubWebhookDelivery_installation_receipt_order_idx",
-              "GitHubWebhookDelivery_repository_receipt_order_idx",
-            ])
-              expect(indexes.find((index) => index.name === name)).toEqual({
-                name,
-                valid: true,
-                ready: true,
-              });
-            const relationIndexes = new Set(indexes.map((index) => index.name));
-            const clock = await transaction.$queryRaw<Array<{ nowMs: bigint }>>`
+          for (const name of [
+            "GitHubWebhookDelivery_installation_receipt_order_idx",
+            "GitHubWebhookDelivery_repository_receipt_order_idx",
+          ])
+            expect(indexes.find((index) => index.name === name)).toEqual({
+              name,
+              valid: true,
+              ready: true,
+            });
+          const relationIndexes = new Set(indexes.map((index) => index.name));
+          const clock = await transaction.$queryRaw<Array<{ nowMs: bigint }>>`
               SELECT (extract(epoch FROM clock_timestamp()) * 1000)::bigint AS "nowMs"
             `;
-            const now = clock[0];
-            if (!now) throw new Error("receipt_plan_clock_missing");
-            const future = Number(now.nowMs) + 86_400_000;
-            const futureIso = new Date(future).toISOString();
-            expect(
-              await transaction.$executeRaw`
+          const now = clock[0];
+          if (!now) throw new Error("receipt_plan_clock_missing");
+          const future = Number(now.nowMs) + 86_400_000;
+          const futureIso = new Date(future).toISOString();
+          expect(
+            await transaction.$executeRaw`
               INSERT INTO "GitHubWebhookDelivery"
                 (id, "deliveryId", "eventName", "installationId", "normalizedEvent",
                  status, "receivedAt", "createdAt", "updatedAt")
@@ -378,95 +378,102 @@ test("full migration webhook fencing compatibility", () => {
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
               FROM generate_series(1, 100000) AS n
               `,
-            ).toBe(100_000);
-            expect(
-              await transaction.$executeRaw`
+          ).toBe(100_000);
+          expect(
+            await transaction.$executeRaw`
               INSERT INTO "GitHubWebhookFence"
                 ("deliveryId", "ownerHash", "appIdentityHash", generation, "leaseUntil")
               SELECT "deliveryId", ${"a".repeat(64)}, ${appHash}, 1, clock_timestamp() + interval '1 minute'
               FROM "GitHubWebhookDelivery" WHERE "deliveryId" LIKE ${`${prefix}-noise-%`}
               `,
-            ).toBe(100_000);
-            const retained = [
-              [
-                "install-current",
-                "installation",
-                installationId,
-                null,
-                20_000,
-                appHash,
-              ],
-              [
-                "install-legacy",
-                "installation_repositories",
-                installationId,
-                null,
-                30_000,
-                null,
-              ],
-              [
-                "install-other",
-                "installation",
-                installationId,
-                null,
-                70_000,
-                otherAppHash,
-              ],
-              [
-                "repo-current",
-                "repository",
-                "900000000002",
-                repositoryIds[0],
-                35_000,
-                appHash,
-              ],
-              [
-                "repo-legacy",
-                "repository",
-                "900000000003",
-                repositoryIds[0],
-                40_000,
-                null,
-              ],
-              [
-                "repo-other",
-                "repository",
-                "900000000004",
-                repositoryIds[0],
-                90_000,
-                otherAppHash,
-              ],
-              [
-                "repo2-current",
-                "repository",
-                "900000000005",
-                repositoryIds[1],
-                55_000,
-                appHash,
-              ],
-              [
-                "repo2-legacy",
-                "repository",
-                "900000000006",
-                repositoryIds[1],
-                50_000,
-                null,
-              ],
-              [
-                "repo2-other",
-                "repository",
-                "900000000007",
-                repositoryIds[1],
-                95_000,
-                otherAppHash,
-              ],
-            ] as const;
-            expect(
-              await transaction.$executeRaw(Prisma.sql`
+          ).toBe(100_000);
+          const retained = [
+            [
+              "install-current",
+              "installation",
+              installationId,
+              null,
+              20_000,
+              appHash,
+            ],
+            [
+              "install-legacy",
+              "installation_repositories",
+              installationId,
+              null,
+              30_000,
+              null,
+            ],
+            [
+              "install-other",
+              "installation",
+              installationId,
+              null,
+              70_000,
+              otherAppHash,
+            ],
+            [
+              "repo-current",
+              "repository",
+              "900000000002",
+              repositoryIds[0],
+              35_000,
+              appHash,
+            ],
+            [
+              "repo-legacy",
+              "repository",
+              "900000000003",
+              repositoryIds[0],
+              40_000,
+              null,
+            ],
+            [
+              "repo-other",
+              "repository",
+              "900000000004",
+              repositoryIds[0],
+              90_000,
+              otherAppHash,
+            ],
+            [
+              "repo2-current",
+              "repository",
+              "900000000005",
+              repositoryIds[1],
+              55_000,
+              appHash,
+            ],
+            [
+              "repo2-legacy",
+              "repository",
+              "900000000006",
+              repositoryIds[1],
+              50_000,
+              null,
+            ],
+            [
+              "repo2-other",
+              "repository",
+              "900000000007",
+              repositoryIds[1],
+              95_000,
+              otherAppHash,
+            ],
+          ] as const;
+          expect(
+            await transaction.$executeRaw(Prisma.sql`
               WITH retained(delivery_id, event_name, installation_id, repository_id, received_at, app_hash) AS (
                 VALUES ${Prisma.join(
                   retained.map(
-                    ([name, eventName, installation, repository, offset, app]) =>
+                    ([
+                      name,
+                      eventName,
+                      installation,
+                      repository,
+                      offset,
+                      app,
+                    ]) =>
                       Prisma.sql`(${`${prefix}-${name}`}::text, ${eventName}::text,
                         ${BigInt(installation)}::bigint, ${repository}::text,
                         ${new Date(future + offset).toISOString()}::timestamp, ${app}::text)`,
@@ -489,130 +496,128 @@ test("full migration webhook fencing compatibility", () => {
               FROM inserted i JOIN retained r ON r.delivery_id = i."deliveryId"
               WHERE r.app_hash IS NOT NULL
               `),
-            ).toBe(6);
-            await transaction.$executeRaw`ANALYZE "GitHubWebhookDelivery"`;
-            await transaction.$executeRaw`ANALYZE "GitHubWebhookFence"`;
+          ).toBe(6);
+          await transaction.$executeRaw`ANALYZE "GitHubWebhookDelivery"`;
+          await transaction.$executeRaw`ANALYZE "GitHubWebhookFence"`;
 
-            const scenarios = [
+          const scenarios = [
+            {
+              eventName: "installation",
+              action: "created",
+              repositoryId: null,
+              offset: 30_000,
+            },
+            {
+              eventName: "repository",
+              action: "deleted",
+              repositoryId: repositoryIds[0],
+              offset: 40_000,
+            },
+            {
+              eventName: "repository",
+              action: "deleted",
+              repositoryId: repositoryIds[1],
+              offset: 55_000,
+            },
+          ] as const;
+          for (const [index, scenario] of scenarios.entries()) {
+            const deliveryId = `${prefix}-claim-${index}`;
+            const body = Buffer.from(
+              JSON.stringify({
+                action: scenario.action,
+                installation: { id: Number(installationId) },
+                ...(scenario.repositoryId
+                  ? { repository: { id: Number(scenario.repositoryId) } }
+                  : {}),
+              }),
+            );
+            const context = verify({
+              rawPayload: body,
+              signatureHeader: `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`,
+            });
+            if (!context) throw new Error("receipt_plan_signature_invalid");
+            const before = floorQueries.length;
+            const claim = await claimVerifiedFencedWebhookDeliveryInTransaction(
+              transaction,
+              context,
               {
-                eventName: "installation",
-                action: "created",
-                repositoryId: null,
-                offset: 30_000,
+                deliveryId,
+                eventName: scenario.eventName,
+                action: scenario.action,
+                installationId,
+                payloadHash: context.payloadHash,
+                normalizedEvent: scenario.repositoryId
+                  ? { repositoryId: scenario.repositoryId }
+                  : null,
               },
-              {
-                eventName: "repository",
-                action: "deleted",
-                repositoryId: repositoryIds[0],
-                offset: 40_000,
-              },
-              {
-                eventName: "repository",
-                action: "deleted",
-                repositoryId: repositoryIds[1],
-                offset: 55_000,
-              },
-            ] as const;
-            for (const [index, scenario] of scenarios.entries()) {
-              const deliveryId = `${prefix}-claim-${index}`;
-              const body = Buffer.from(
-                JSON.stringify({
-                  action: scenario.action,
-                  installation: { id: Number(installationId) },
-                  ...(scenario.repositoryId
-                    ? { repository: { id: Number(scenario.repositoryId) } }
-                    : {}),
-                }),
-              );
-              const context = verify({
-                rawPayload: body,
-                signatureHeader: `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`,
+              "a".repeat(64),
+              30_000,
+            );
+            expect(claim.kind).toBe("claimed");
+            const receipt =
+              await transaction.gitHubWebhookDelivery.findUniqueOrThrow({
+                where: { deliveryId },
+                select: { receivedAt: true },
               });
-              if (!context) throw new Error("receipt_plan_signature_invalid");
-              const before = floorQueries.length;
-              const claim = await claimVerifiedFencedWebhookDeliveryInTransaction(
-                transaction,
-                context,
-                {
-                  deliveryId,
-                  eventName: scenario.eventName,
-                  action: scenario.action,
-                  installationId,
-                  payloadHash: context.payloadHash,
-                  normalizedEvent: scenario.repositoryId
-                    ? { repositoryId: scenario.repositoryId }
-                    : null,
-                },
-                "a".repeat(64),
-                30_000,
-              );
-              expect(claim.kind).toBe("claimed");
-              const receipt =
-                await transaction.gitHubWebhookDelivery.findUniqueOrThrow({
-                  where: { deliveryId },
-                  select: { receivedAt: true },
-                });
-              expect(receipt.receivedAt.toISOString()).toBe(
-                new Date(future + scenario.offset + 1).toISOString(),
-              );
-              expect(floorQueries).toHaveLength(before + 1);
-              const captured = floorQueries[before];
-              if (!captured) throw new Error("receipt_plan_query_missing");
-              const explained = await transaction.$queryRawUnsafe<
-                Array<{ "QUERY PLAN": Array<{ Plan: PlanNode }> }>
-              >(
-                `EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, FORMAT JSON) ${captured.text}`,
-                ...captured.values,
-              );
-              const plan = explained[0]?.["QUERY PLAN"][0]?.Plan;
-              if (!plan) throw new Error("receipt_plan_explain_missing");
-              const pending = [plan];
-              let scanned = 0;
-              let scans = 0;
-              while (pending.length) {
-                const node = pending.pop();
-                if (!node) continue;
-                pending.push(...(node.Plans ?? []));
-                if (
-                  node["Relation Name"] === "GitHubWebhookDelivery" ||
-                  node["Relation Name"] === "GitHubWebhookFence" ||
-                  (node["Index Name"] && relationIndexes.has(node["Index Name"]))
-                ) {
-                  scans++;
-                  scanned +=
-                    (node["Actual Rows"] +
-                      (node["Rows Removed by Filter"] ?? 0) +
-                      (node["Rows Removed by Index Recheck"] ?? 0)) *
-                    node["Actual Loops"];
-                }
+            expect(receipt.receivedAt.toISOString()).toBe(
+              new Date(future + scenario.offset + 1).toISOString(),
+            );
+            expect(floorQueries).toHaveLength(before + 1);
+            const captured = floorQueries[before];
+            if (!captured) throw new Error("receipt_plan_query_missing");
+            const explained = await transaction.$queryRawUnsafe<
+              Array<{ "QUERY PLAN": Array<{ Plan: PlanNode }> }>
+            >(
+              `EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, FORMAT JSON) ${captured.text}`,
+              ...captured.values,
+            );
+            const plan = explained[0]?.["QUERY PLAN"][0]?.Plan;
+            if (!plan) throw new Error("receipt_plan_explain_missing");
+            const pending = [plan];
+            let scanned = 0;
+            let scans = 0;
+            while (pending.length) {
+              const node = pending.pop();
+              if (!node) continue;
+              pending.push(...(node.Plans ?? []));
+              if (
+                node["Relation Name"] === "GitHubWebhookDelivery" ||
+                node["Relation Name"] === "GitHubWebhookFence" ||
+                (node["Index Name"] && relationIndexes.has(node["Index Name"]))
+              ) {
+                scans++;
+                scanned +=
+                  (node["Actual Rows"] +
+                    (node["Rows Removed by Filter"] ?? 0) +
+                    (node["Rows Removed by Index Recheck"] ?? 0)) *
+                  node["Actual Loops"];
               }
-              expect(scans).toBeGreaterThan(0);
-              // Count index work too: BitmapOr/MAX over thousands of matching history
-              // must not pass merely because the final aggregate emits one row.
-              expect(scanned, JSON.stringify(plan)).toBeLessThan(1_000);
-              console.info(
-                "webhook_receipt_floor_plan",
-                JSON.stringify({
-                  eventName: scenario.eventName,
-                  repositoryId: scenario.repositoryId,
-                  retainedNoiseRows: 100_000,
-                  scannedRows: scanned,
-                  plan,
-                }),
-              );
             }
-            throw rollback;
-          },
-          {
-            isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
-            timeout: 60_000,
-          },
-        );
-        throw new Error("receipt_plan_fixture_did_not_roll_back");
-      } catch (error) {
-        if (error !== rollback) throw error;
-      }
-    },
-    90_000,
-  );
+            expect(scans).toBeGreaterThan(0);
+            // Count index work too: BitmapOr/MAX over thousands of matching history
+            // must not pass merely because the final aggregate emits one row.
+            expect(scanned, JSON.stringify(plan)).toBeLessThan(1_000);
+            console.info(
+              "webhook_receipt_floor_plan",
+              JSON.stringify({
+                eventName: scenario.eventName,
+                repositoryId: scenario.repositoryId,
+                retainedNoiseRows: 100_000,
+                scannedRows: scanned,
+                plan,
+              }),
+            );
+          }
+          throw rollback;
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
+          timeout: 60_000,
+        },
+      );
+      throw new Error("receipt_plan_fixture_did_not_roll_back");
+    } catch (error) {
+      if (error !== rollback) throw error;
+    }
+  }, 90_000);
 });
