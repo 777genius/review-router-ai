@@ -71,6 +71,12 @@ describe("provider setup registry", () => {
     const native = nativeSetupProvidersForProfiles([api]);
     expect(native.map(({ id }) => id)).toEqual(["anthropic"]);
     expect(setupProviderForGatewayProfile(api)).toBe("anthropic");
+    expect(
+      setupProviderForGatewayProfile({
+        ...api,
+        connection: { ...api.connection!, provider: "gemini" },
+      }),
+    ).not.toBe("anthropic");
     const choices = setupProviderChoices(native);
     expect(choices.filter(({ id }) => id === "anthropic")).toHaveLength(1);
     expect(choices.find(({ id }) => id === "claude-code")?.githubSource).toBe(
