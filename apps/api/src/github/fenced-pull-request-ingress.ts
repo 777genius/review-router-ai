@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { PrismaClient } from "@reviewrouter/platform-db";
+import type { Prisma } from "@prisma/client";
 import {
   runWebhookFencedDatabaseEffect,
   type FencedDelivery,
@@ -39,35 +40,43 @@ export async function writeFencedPullRequestIngress(
     )
       throw new Error("webhook_fence_identity_mismatch");
 
-    const outbox = {
-      enqueue: (event: Parameters<typeof writePrismaOutboxEvent>[1]) =>
-        writePrismaOutboxEvent(transaction, event),
-      async findStatusByIdempotencyKey(idempotencyKey: string) {
-        const event = await transaction.outboxEvent.findUnique({
-          where: { idempotencyKey },
-          select: { id: true, status: true },
-        });
-        return event
-          ? { id: event.id, status: event.status as OutboxEventStatus }
-          : null;
-      },
-    };
-    const ingress = new ReviewV2GitHubRequestIngressOutbox(outbox, {
-      async digestUtf8(value) {
-        return createHash("sha256").update(value, "utf8").digest("hex");
-      },
-    });
-    const settings = new PrismaWorkspaceReviewSettings(transaction);
-    const handler = new ReviewV2PullRequestWebhookHandler({
-      ingress,
-      clock: { now: () => new Date() },
-      policy: {
-        reviewDrafts: (githubInstallationId) =>
-          settings.reviewDraftsForGitHubInstallation(githubInstallationId),
-      },
-    });
-    // Leave processing active: a later fenced generic handler must commit its
-    // effects and terminal status. The outbox insertion shares this guard.
-    return handler.handleGitHubPullRequestWebhook(envelope);
+    return writePullRequestIngressInTransaction(transaction, envelope);
   });
+}
+
+/** DB-only effect; caller must acquire scope and delivery fences first. */
+export async function writePullRequestIngressInTransaction(
+  transaction: Prisma.TransactionClient,
+  envelope: GitHubPullRequestWebhookEnvelope,
+): Promise<Record<string, unknown>> {
+  const outbox = {
+    enqueue: (event: Parameters<typeof writePrismaOutboxEvent>[1]) =>
+      writePrismaOutboxEvent(transaction, event),
+    async findStatusByIdempotencyKey(idempotencyKey: string) {
+      const event = await transaction.outboxEvent.findUnique({
+        where: { idempotencyKey },
+        select: { id: true, status: true },
+      });
+      return event
+        ? { id: event.id, status: event.status as OutboxEventStatus }
+        : null;
+    },
+  };
+  const ingress = new ReviewV2GitHubRequestIngressOutbox(outbox, {
+    async digestUtf8(value) {
+      return createHash("sha256").update(value, "utf8").digest("hex");
+    },
+  });
+  const settings = new PrismaWorkspaceReviewSettings(transaction);
+  const handler = new ReviewV2PullRequestWebhookHandler({
+    ingress,
+    clock: { now: () => new Date() },
+    policy: {
+      reviewDrafts: (githubInstallationId) =>
+        settings.reviewDraftsForGitHubInstallation(githubInstallationId),
+    },
+  });
+  // Leave processing active: a later fenced generic handler must commit its
+  // effects and terminal status. The outbox insertion shares this guard.
+  return handler.handleGitHubPullRequestWebhook(envelope);
 }

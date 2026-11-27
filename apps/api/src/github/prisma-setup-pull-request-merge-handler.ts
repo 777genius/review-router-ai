@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import {
   runWebhookFencedEffectInTransaction,
   type FencedDelivery,
@@ -103,62 +104,67 @@ export class PrismaSetupPullRequestMergeHandler {
             delivery.payloadHash !== envelope.payloadHash
           )
             throw new Error("webhook_fence_identity_mismatch");
-          const payload = envelope.payload;
-          if (
-            payload.action !== "closed" ||
-            payload.pull_request.merged !== true
-          )
-            return {
-              processed: false,
-              ignored: true,
-              reason: "pull_request_not_merged",
-            };
-          const repository = await transaction.repositoryConnection.findFirst({
-            where: {
-              githubRepositoryId: BigInt(payload.repository.id),
-              installation: {
-                githubInstallationId: BigInt(payload.installation.id),
-              },
-            },
-            select: {
-              id: true,
-              workspaceId: true,
-              installationId: true,
-              fullName: true,
-            },
-          });
-          if (!repository?.installationId)
-            return {
-              processed: false,
-              ignored: true,
-              reason: "repository_not_synced",
-            };
-          const matched = await new PrismaWorkflowProvisioningStatusAuthority(
-            this.prisma,
-          ).markConfiguredInTransaction(transaction, {
-            repositoryId: repository.id,
-            workspaceId: repository.workspaceId,
-            installationId: repository.installationId,
-            baseBranch: payload.pull_request.base.ref,
-            headSha: payload.pull_request.head.sha ?? null,
-            setupBranch: payload.pull_request.head.ref,
-            pullRequestNumber: payload.pull_request.number,
-          });
-          // A composite coordinator still has other generic effects to finish;
-          // this adapter must not mark the whole delivery processed on its own.
-          return matched
-            ? {
-                processed: true,
-                repository: repository.fullName,
-                status: "configured",
-              }
-            : {
-                processed: false,
-                ignored: true,
-                reason: "not_reviewrouter_setup_pr",
-                repository: repository.fullName,
-              };
+          return this.handlePullRequestInTransaction(transaction, envelope);
         }),
     );
+  }
+
+  /** DB-only effect; caller must acquire scope and delivery fences first. */
+  async handlePullRequestInTransaction(
+    transaction: Prisma.TransactionClient,
+    envelope: GitHubPullRequestWebhookEnvelope,
+  ): Promise<Record<string, unknown>> {
+    const payload = envelope.payload;
+    if (payload.action !== "closed" || payload.pull_request.merged !== true)
+      return {
+        processed: false,
+        ignored: true,
+        reason: "pull_request_not_merged",
+      };
+    const repository = await transaction.repositoryConnection.findFirst({
+      where: {
+        githubRepositoryId: BigInt(payload.repository.id),
+        installation: {
+          githubInstallationId: BigInt(payload.installation.id),
+        },
+      },
+      select: {
+        id: true,
+        workspaceId: true,
+        installationId: true,
+        fullName: true,
+      },
+    });
+    if (!repository?.installationId)
+      return {
+        processed: false,
+        ignored: true,
+        reason: "repository_not_synced",
+      };
+    const matched = await new PrismaWorkflowProvisioningStatusAuthority(
+      this.prisma,
+    ).markConfiguredInTransaction(transaction, {
+      repositoryId: repository.id,
+      workspaceId: repository.workspaceId,
+      installationId: repository.installationId,
+      baseBranch: payload.pull_request.base.ref,
+      headSha: payload.pull_request.head.sha ?? null,
+      setupBranch: payload.pull_request.head.ref,
+      pullRequestNumber: payload.pull_request.number,
+    });
+    // A composite coordinator still has other generic effects to finish;
+    // this adapter must not mark the whole delivery processed on its own.
+    return matched
+      ? {
+          processed: true,
+          repository: repository.fullName,
+          status: "configured",
+        }
+      : {
+          processed: false,
+          ignored: true,
+          reason: "not_reviewrouter_setup_pr",
+          repository: repository.fullName,
+        };
   }
 }
