@@ -110,7 +110,9 @@ describe("canonical release migration transition", () => {
         name !== "000161_native_connection_intent" &&
         name !== "000162_inventory_ruleset_revisions" &&
         name !== "000163_usage_retention_index" &&
-        name !== "000164_ruleset_create_uncertainty",
+        name !== "000164_ruleset_create_uncertainty" &&
+        name !== "000165_installation_sync_latest_index" &&
+        name !== "000166_repository_health_latest_index",
     );
     const checkout161 = names.map((migrationName) => ({
       migrationName,

@@ -297,11 +297,24 @@ function renderAddProvider(
   fireEvent.click(screen.getByRole("button", { name: "Add provider" }));
 }
 
+/** The new-provider catalog, separate from the saved-profile chooser. */
+async function providerCards() {
+  const dialog = await screen.findByRole("dialog");
+  const heading = await within(dialog).findByRole("heading", {
+    name: "Provider",
+  });
+  return within(heading.parentElement!).getByRole("radiogroup", {
+    name: "Provider",
+  });
+}
+
+async function chooseProvider(name: string) {
+  const cards = await providerCards();
+  fireEvent.click(within(cards).getByRole("radio", { name }));
+}
+
 async function chooseNvidia() {
-  fireEvent.click(await screen.findByRole("combobox", { name: /^Provider\b/ }));
-  const option = await screen.findByRole("option", { name: /NVIDIA Build/ });
-  fireEvent.mouseMove(option);
-  fireEvent.click(option);
+  await chooseProvider("NVIDIA Build");
 }
 
 function enterKey(form: HTMLElement) {
@@ -344,10 +357,7 @@ async function startWaitingCodexSignIn() {
       },
     }),
   );
-  fireEvent.click(await screen.findByRole("combobox", { name: /^Provider\b/ }));
-  const option = await screen.findByRole("option", { name: /^Codex/ });
-  fireEvent.mouseMove(option);
-  fireEvent.click(option);
+  await chooseProvider("Codex");
   const form = await screen.findByRole("region", { name: "Connect Codex" });
   const start = await within(form).findByRole("button", {
     name: "Sign in to Codex",
@@ -401,12 +411,7 @@ describe("adding a provider and connecting its account in one dialog", () => {
         };
       });
       renderAddProvider();
-      fireEvent.click(
-        await screen.findByRole("combobox", { name: /^Provider\b/ }),
-      );
-      const option = await screen.findByRole("option", { name: /^Codex/ });
-      fireEvent.mouseMove(option);
-      fireEvent.click(option);
+      await chooseProvider("Codex");
       const form = await screen.findByRole("region", { name: "Connect Codex" });
       const label =
         method === "refresh_token" ? "Refresh token" : "Codex auth.json";
@@ -452,12 +457,7 @@ describe("adding a provider and connecting its account in one dialog", () => {
     vi.mocked(listPersonalGatewayAccounts).mockResolvedValue(page([]));
     renderAddProvider();
     const chooseCodex = async () => {
-      fireEvent.click(
-        await screen.findByRole("combobox", { name: /^Provider\b/ }),
-      );
-      const option = await screen.findByRole("option", { name: /^Codex/ });
-      fireEvent.mouseMove(option);
-      fireEvent.click(option);
+      await chooseProvider("Codex");
       return screen.findByRole("region", { name: "Connect Codex" });
     };
     const form = await chooseCodex();
@@ -580,18 +580,14 @@ describe("adding a provider and connecting its account in one dialog", () => {
 
     await within(form).findByText("Declined");
     // A request in progress holds the provider choice in place.
-    expect(
-      screen.getByRole("combobox", { name: /^Provider\b/ }),
-    ).toHaveProperty("disabled", true);
+    expect((await providerCards()).getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(
       within(form).getByRole("button", { name: "Add another account" }),
     );
     await waitFor(() =>
       expect(form.querySelector('input[name="credential"]')).not.toBeNull(),
     );
-    expect(
-      screen.getByRole("combobox", { name: /^Provider\b/ }),
-    ).toHaveProperty("disabled", false);
+    expect((await providerCards()).getAttribute("aria-disabled")).toBeNull();
     expect(attachConnectedPersonalAccount).not.toHaveBeenCalled();
   });
 
@@ -666,9 +662,7 @@ describe("adding a provider and connecting its account in one dialog", () => {
     expect(
       screen.getByRole("region", { name: "Connect NVIDIA Build" }),
     ).toBeTruthy();
-    expect(
-      screen.getByRole("combobox", { name: /^Provider\b/ }),
-    ).toHaveProperty("disabled", true);
+    expect((await providerCards()).getAttribute("aria-disabled")).toBe("true");
   });
 
   it("offers a new connection beside the existing ones and closes it again", async () => {
@@ -773,12 +767,7 @@ describe("adding a provider and connecting its account in one dialog", () => {
       };
     });
     renderAddProvider();
-    fireEvent.click(
-      await screen.findByRole("combobox", { name: /^Provider\b/ }),
-    );
-    const option = await screen.findByRole("option", { name: /^Codex/ });
-    fireEvent.mouseMove(option);
-    fireEvent.click(option);
+    await chooseProvider("Codex");
     const form = await screen.findByRole("region", { name: "Connect Codex" });
     const start = await within(form).findByRole("button", {
       name: "Sign in to Codex",
@@ -788,9 +777,7 @@ describe("adding a provider and connecting its account in one dialog", () => {
 
     // The code is shown in the dialog, and the choice stays put meanwhile.
     await within(form).findByText("WXYZ-1234");
-    expect(
-      screen.getByRole("combobox", { name: /^Provider\b/ }),
-    ).toHaveProperty("disabled", true);
+    expect((await providerCards()).getAttribute("aria-disabled")).toBe("true");
     await waitFor(() =>
       expect(
         vi.mocked(listPersonalGatewayAccounts).mock.calls.length,
@@ -826,9 +813,7 @@ describe("adding a provider and connecting its account in one dialog", () => {
     );
 
     await within(form).findByRole("button", { name: "Sign in to Codex" });
-    expect(
-      screen.getByRole("combobox", { name: /^Provider\b/ }),
-    ).toHaveProperty("disabled", false);
+    expect((await providerCards()).getAttribute("aria-disabled")).toBeNull();
     // The waiting request stays a receipt in Connections.
     expect(
       JSON.parse(
