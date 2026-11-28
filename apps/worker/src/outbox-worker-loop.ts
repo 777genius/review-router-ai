@@ -9,6 +9,8 @@ export type OutboxWorkerLoopResult = ProcessOutboxBatchResult & {
 
 export interface OutboxWorkerBatchProcessorPort {
   processBatch(): Promise<WorkerBatchResult>;
+  /** Returns only outcomes that the normal passes have not consumed yet. */
+  drain?(): Promise<WorkerBatchResult>;
 }
 
 export type SleepPort = (
@@ -43,10 +45,52 @@ export async function runOutboxWorkerLoop(
     errors: 0,
   } satisfies OutboxWorkerLoopResult;
 
-  while (shouldContinue(input, total.iterations)) {
-    total.iterations += 1;
-    try {
-      const result = await dependencies.processor.processBatch();
+  try {
+    while (shouldContinue(input, total.iterations)) {
+      total.iterations += 1;
+      try {
+        const result = await dependencies.processor.processBatch();
+        if (result.outbox.status === "completed") {
+          const outbox = result.outbox.value;
+          total.recoveredStale += outbox.recoveredStale;
+          total.claimed += outbox.claimed;
+          total.processed += outbox.processed;
+          total.retried += outbox.retried;
+          total.deadLettered += outbox.deadLettered;
+          total.staleClaims += outbox.staleClaims;
+        }
+        reportWorkerBatch(result, dependencies.logger);
+        const failed = workerBatchFailed(result);
+        if (failed) total.errors += 1;
+
+        const delayMs = failed
+          ? input.errorDelayMs
+          : result.outbox.status === "running" ||
+              (result.running?.length ?? 0) > 0
+            ? input.busyDelayMs
+            : result.outbox.status === "completed" &&
+                (result.outbox.value.claimed > 0 ||
+                  result.outbox.value.recoveredStale > 0)
+              ? input.busyDelayMs
+              : input.idleDelayMs;
+        if (shouldContinue(input, total.iterations)) {
+          await dependencies.sleep(delayMs, input.signal);
+        }
+      } catch (error) {
+        total.errors += 1;
+        dependencies.logger.error("ReviewRouter worker batch failed", {
+          safeErrorSummary: safeWorkerErrorSummary(error),
+        });
+        if (shouldContinue(input, total.iterations)) {
+          await dependencies.sleep(input.errorDelayMs, input.signal);
+        }
+      }
+    }
+  } finally {
+    // Observation deadlines never discharge ownership. Drain before the host
+    // disconnects its database, including after a logger/sleep/loop failure.
+    if (dependencies.processor.drain) {
+      const result = await dependencies.processor.drain();
       if (result.outbox.status === "completed") {
         const outbox = result.outbox.value;
         total.recoveredStale += outbox.recoveredStale;
@@ -57,27 +101,7 @@ export async function runOutboxWorkerLoop(
         total.staleClaims += outbox.staleClaims;
       }
       reportWorkerBatch(result, dependencies.logger);
-      const failed = workerBatchFailed(result);
-      if (failed) total.errors += 1;
-
-      const delayMs = failed
-        ? input.errorDelayMs
-        : result.outbox.status === "completed" &&
-            (result.outbox.value.claimed > 0 ||
-              result.outbox.value.recoveredStale > 0)
-          ? input.busyDelayMs
-          : input.idleDelayMs;
-      if (shouldContinue(input, total.iterations)) {
-        await dependencies.sleep(delayMs, input.signal);
-      }
-    } catch (error) {
-      total.errors += 1;
-      dependencies.logger.error("ReviewRouter worker batch failed", {
-        safeErrorSummary: safeWorkerErrorSummary(error),
-      });
-      if (shouldContinue(input, total.iterations)) {
-        await dependencies.sleep(input.errorDelayMs, input.signal);
-      }
+      if (workerBatchFailed(result)) total.errors += 1;
     }
   }
 
@@ -105,6 +129,11 @@ function reportWorkerBatch(result: WorkerBatchResult, logger: Logger): void {
       "ReviewRouter worker processed outbox batch",
       result.outbox.value,
     );
+  }
+  if (result.running?.length) {
+    logger.info("ReviewRouter worker owners remain in flight", {
+      phases: result.running,
+    });
   }
   if (workerBatchFailed(result)) {
     logger.error("ReviewRouter worker phases failed", {

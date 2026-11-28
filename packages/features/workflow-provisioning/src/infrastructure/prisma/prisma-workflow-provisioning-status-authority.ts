@@ -3,7 +3,7 @@ import {
   managedCodexWorkflowPath,
   reviewRouterWorkflowContract,
 } from "@reviewrouter/protocol-review-workflow";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import type {
   WorkflowProvisioningAttempt,
   WorkflowProvisioningRecord,
@@ -263,79 +263,103 @@ export class PrismaWorkflowProvisioningStatusAuthority {
       | { status: "configured"; baseBranch: string; headSha: string | null }
       | { status: "failed"; reason: Failure },
   ): Promise<boolean> {
-    return workflowProvisioningTransaction(this.prisma, async (tx) => {
-      const repository = await findProvisioningRepository(tx, input);
-      if (
-        !repository ||
-        (next.status === "configured" &&
-          !preferredSetupBaseBranches(repository.defaultBranch).includes(
-            next.baseBranch,
-          ))
-      )
-        return false;
-      const current = await tx.workflowProvisioning.findFirst({
-        where: provisioningScopeWhere(input),
-      });
-      // A reused branch alone never establishes which attempt created a PR.
-      if (
-        !current ||
-        !current.pullRequestUrl ||
-        current.branch !== input.setupBranch ||
-        pullRequestNumberFromUrl(current.pullRequestUrl) !==
-          input.pullRequestNumber ||
-        (input.expectedAttempt &&
-          current.attemptId !== input.expectedAttempt.attemptId)
-      )
-        return false;
-      if (
-        next.status === "configured" &&
-        (!current.pullRequestHeadSha ||
-          current.pullRequestHeadSha !== next.headSha)
-      )
-        return false;
-      if (current.status === "configured") {
-        if (next.status === "failed")
-          throw new Error("workflow_provisioning_already_configured");
-        return true;
-      }
-      if (current.status !== "setup_pr_open" && current.status !== "failed")
-        return false;
-      if (
-        input.expectedAttempt &&
-        current.revision !== input.expectedAttempt.revision
-      )
-        return false;
-      if (
-        next.status === "failed" &&
-        current.status === "failed" &&
-        current.errorMessage === next.reason
-      )
-        return true;
-      const updated = await tx.workflowProvisioning.updateMany({
-        where: {
-          ...provisioningScopeWhere(input),
-          id: current.id,
-          attemptId: current.attemptId,
-          revision: current.revision,
-          status: current.status,
-          branch: current.branch,
-          pullRequestUrl: current.pullRequestUrl,
-        },
-        data: {
-          status: next.status,
-          errorMessage: next.status === "failed" ? next.reason : null,
-          // A merged setup PR installs exactly the workflow of its attempt.
-          ...(next.status === "configured"
-            ? {
-                installedWorkflowRequirement:
-                  current.attemptWorkflowRequirement,
-              }
-            : {}),
-          revision: { increment: 1 },
-        },
-      });
-      return updated.count === 1;
+    return workflowProvisioningTransaction(this.prisma, (tx) =>
+      this.transitionInTransaction(tx, input, next),
+    );
+  }
+
+  /** The caller owns the transaction and locks its repository authority first. */
+  async markConfiguredInTransaction(
+    tx: Prisma.TransactionClient,
+    input: WorkflowProvisioningPullRequestIdentity & {
+      readonly baseBranch: string;
+      readonly headSha: string | null;
+    },
+  ): Promise<boolean> {
+    return this.transitionInTransaction(tx, input, {
+      status: "configured",
+      baseBranch: input.baseBranch,
+      headSha: input.headSha,
     });
+  }
+
+  private async transitionInTransaction(
+    tx: Prisma.TransactionClient,
+    input: WorkflowProvisioningPullRequestIdentity,
+    next:
+      | { status: "configured"; baseBranch: string; headSha: string | null }
+      | { status: "failed"; reason: Failure },
+  ): Promise<boolean> {
+    const repository = await findProvisioningRepository(tx, input);
+    if (
+      !repository ||
+      (next.status === "configured" &&
+        !preferredSetupBaseBranches(repository.defaultBranch).includes(
+          next.baseBranch,
+        ))
+    )
+      return false;
+    const current = await tx.workflowProvisioning.findFirst({
+      where: provisioningScopeWhere(input),
+    });
+    // A reused branch alone never establishes which attempt created a PR.
+    if (
+      !current ||
+      !current.pullRequestUrl ||
+      current.branch !== input.setupBranch ||
+      pullRequestNumberFromUrl(current.pullRequestUrl) !==
+        input.pullRequestNumber ||
+      (input.expectedAttempt &&
+        current.attemptId !== input.expectedAttempt.attemptId)
+    )
+      return false;
+    if (
+      next.status === "configured" &&
+      (!current.pullRequestHeadSha ||
+        current.pullRequestHeadSha !== next.headSha)
+    )
+      return false;
+    if (current.status === "configured") {
+      if (next.status === "failed")
+        throw new Error("workflow_provisioning_already_configured");
+      return true;
+    }
+    if (current.status !== "setup_pr_open" && current.status !== "failed")
+      return false;
+    if (
+      input.expectedAttempt &&
+      current.revision !== input.expectedAttempt.revision
+    )
+      return false;
+    if (
+      next.status === "failed" &&
+      current.status === "failed" &&
+      current.errorMessage === next.reason
+    )
+      return true;
+    const updated = await tx.workflowProvisioning.updateMany({
+      where: {
+        ...provisioningScopeWhere(input),
+        id: current.id,
+        attemptId: current.attemptId,
+        revision: current.revision,
+        status: current.status,
+        branch: current.branch,
+        pullRequestUrl: current.pullRequestUrl,
+      },
+      data: {
+        status: next.status,
+        errorMessage: next.status === "failed" ? next.reason : null,
+        // A merged setup PR installs exactly the workflow of its attempt.
+        ...(next.status === "configured"
+          ? {
+              installedWorkflowRequirement: current.attemptWorkflowRequirement,
+            }
+          : {}),
+        revision: { increment: 1 },
+      },
+    });
+    return updated.count === 1;
   }
 }
 

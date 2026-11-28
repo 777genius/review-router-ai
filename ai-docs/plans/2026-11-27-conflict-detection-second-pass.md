@@ -1,0 +1,27 @@
+# Conflict-detection dead letters: second investigation pass
+
+Read-only follow-up through 15:11 UTC on 27 November 2026, supplementing `2026-11-27-conflict-detection-outbox-investigation.md`. No event, GitHub workflow, database row, credential or production service was mutated. This pass does not establish the cause of the recorded `handler_error` failures.
+
+## Current bounded observations
+
+The 21 conflict-detection events both created and dead-lettered after the 04:57:09 UTC deployment cutoff were associated with three existing repositories in one installation. At inspection the installation was active and the repositories were selected and not archived. This is current state, not evidence of their exact status when events ran.
+
+At 15:11:35 UTC `ConflictReviewAttempt` contained nine retained rows, all predating the cutoff: four `started`, three `dispatched`, two `status_posted`; the latest update was 30 June 2026. There were no current rows created or updated after the cutoff. For the twelve post-cutover pull-request dead letters, the bounded repo/PR/time lookup found no matching attempt between one hour before the event and one minute after dead-lettering. The nine base-push events cannot be mapped one-to-one to a PR this way.
+
+The deployed use case creates a durable attempt only after repository lookup, rollout checks, workflow capability lookup, PR read and eligibility; dispatch is later. The absence of a row today narrows the currently observable trail but does not prove that execution stopped before attempt creation, that GitHub never received a dispatch, or that no prior row existed: the schema cascades attempts on workspace/repository deletion and prior retention/history was not exhaustively established. Do not blindly replay based on this negative evidence.
+
+With the operator's existing GitHub user authorization, limited read-only GETs for the three currently associated repositories succeeded, while GETs for `.github/workflows/reviewrouter.yml` on their current default branches returned 404. The deployed `OctokitConflictReviewGitHubGateway.getReviewWorkflowCapability` maps a normal workflow-file 404 to `workflow_missing`/ignored, not generic `handler_error`. These checks do **not** reproduce the error using the GitHub App installation token, prove App permissions, reconstruct the workflow at event time, or exclude a masked authorization 404. They therefore do not establish a root cause. The sanitized outbox status still contains only `handler_error/outbox_handler_failure`.
+
+## One failing PR can block later PRs in a base-push event
+
+Source analysis independently reviewed against deployed `6271ebe1`: `process-conflict-review-detection.ts:123–156` fetches a list of PRs and awaits `processPullRequestNumber` sequentially without a per-PR catch. A thrown exception for one PR aborts that entire event attempt; earlier PRs may already have caused external dispatches, and later PRs in that returned order are not considered in that attempt. The GitHub list is paginated without an explicit stable sort (`octokit-conflict-review-github-gateway.ts:61–81`), so repeated attempts are not guaranteed to encounter the same order. Generic unhandled failures are retryable `handler_error`; the observed events can reach dead letter after their configured five-attempt budget, although other outbox events can have different budgets. This source-level path is **not proof** that any particular observed dead letter followed it or skipped a specific PR.
+
+The existing `conflict-review.test.ts:336–369` exercises a different case: `mergeability=null` returns an ignored result, processing continues to the next PR, and the handler later reports `github_mergeability_unknown` after the list is processed. It does not cover a thrown exception halfway through the loop.
+
+Use disposable real-PostgreSQL and fake-GitHub fixtures with at least three PRs: one accepted dispatch, one deterministic thrown read/parse/dispatch error, and a later eligible PR. Test both list orders, all five attempts, list-pagination errors, unknown mergeability and event deadline. Verify durable per-PR outcomes and that no accepted/unknown external dispatch is blindly repeated. A simple `catch` and ignore would silently lose the failed PR; whole-event replay can repeat earlier external side effects. Evaluate durable per-PR work/ownership, bounded concurrency and revision revalidation together with the dispatch identity races in the preceding investigation.
+
+## Other infrastructure snapshot
+
+At 15:09–15:11 UTC PostgreSQL primary accepted connections; `max_connections=50`, with 11 sessions and three active at that moment. Prisma recorded 174 migrations and no unfinished migration. The PostgreSQL archiver reported one historical failure on 13 November and a WAL archived at 15:09 UTC on 27 November; one cumulative failed count is not proof of a current archive outage. pgBackRest stanza reported `ok`, the latest full backup stopped at 04:51:42 UTC, and its timer was active for the next day; a reported successful backup is not a restore test.
+
+The host-wide reboot-required marker existed, but does not prove that a specific running service requires an immediate restart. ReviewRouter's separately documented cold-fleet unit remains a potential cold-boot issue; do not reboot or invoke recovery during this read-only investigation. Web and API readiness returned HTTP 200. Other-project historical one-shot failed units were observed but not classified as current production failures.

@@ -14,6 +14,7 @@ import { z } from "zod";
 import { assertDashboardWorkspaceAdminMutationAllowed } from "../../../../../src/server/dashboard-mutations";
 import { getPrisma } from "../../../../../src/server/prisma";
 import { createProviderApiKeyServiceDependencies } from "../../../../../src/server/provider-api-keys";
+import { readBoundedRequestJson } from "../../../../../src/server/bounded-request-body";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,8 @@ const applyProviderApiKeyRequestSchema = z
 export async function POST(request: Request): Promise<NextResponse> {
   let body: unknown;
   try {
-    body = await request.json();
+    // Includes a fully JSON-escaped 16 KiB key and 100 supported repository IDs.
+    body = await readBoundedRequestJson(request, 256 * 1024);
   } catch {
     return NextResponse.json({ error: "json_invalid" }, { status: 400 });
   }

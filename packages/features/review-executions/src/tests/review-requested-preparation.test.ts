@@ -64,6 +64,79 @@ async function claim(
 }
 
 describe("pre-submission preparation recovery", () => {
+  it("drains a raced dispatch claim and stops before claiming another request", async () => {
+    const store = new InMemoryReviewRequestedIntentStore();
+    await store.registerIntent({ candidate: candidate("first", "1") });
+    await store.registerIntent({
+      candidate: { ...candidate("second", "2"), pullRequestNumber: 43 },
+    });
+    const stop = new AbortController();
+    const original = store.claimIntent.bind(store);
+    const claims = vi
+      .spyOn(store, "claimIntent")
+      .mockImplementationOnce(async (input) => {
+        const result = await original(input);
+        stop.abort();
+        return result;
+      });
+    let sourceRun = 100;
+    const submit = vi.fn(async () => ({
+      status: ReviewRequestedDispatchSubmissionStatus.Accepted as const,
+      sourceRunId: String(++sourceRun),
+      sourceRunAttempt: "1",
+    }));
+    const prepare = vi.fn(async () => ({ submit }));
+    let sequence = 0;
+    const dispatcher = new DispatchDueReviewRequestedIntents(
+      store,
+      store,
+      {
+        prepare,
+        async findByRequestIdentity() {
+          return { status: ReviewRequestedDispatchLookupStatus.Absent };
+        },
+        async inspectKnownRun() {
+          return { status: ReviewRequestedDispatchRunStatus.Pending };
+        },
+        async inspectRunnerWait() {
+          return {
+            waitingForRunner: false,
+            neverStarted: false,
+            revisionCurrent: true,
+          };
+        },
+        async cancelKnownRun() {},
+      },
+      { now: () => initial },
+      {
+        nextClaimId: () => `claim-${sequence++}`,
+        nextRequestId: () => `request-${sequence++}`,
+      },
+      { digestUtf8: async () => "a".repeat(64) },
+    );
+    await expect(
+      dispatcher.execute({
+        ownerIdHash: "a".repeat(64),
+        limit: 10,
+        signal: stop.signal,
+      }),
+    ).resolves.toMatchObject({ claimed: 1, dispatched: 1 });
+    expect(claims).toHaveBeenCalledTimes(1);
+    expect(submit).toHaveBeenCalledTimes(1);
+    await expect(
+      dispatcher.execute({
+        ownerIdHash: "a".repeat(64),
+        limit: 10,
+        signal: stop.signal,
+      }),
+    ).resolves.toMatchObject({ claimed: 0, dispatched: 0 });
+    expect(claims).toHaveBeenCalledTimes(1);
+    await expect(
+      dispatcher.execute({ ownerIdHash: "b".repeat(64), limit: 10 }),
+    ).resolves.toMatchObject({ claimed: 1, dispatched: 1 });
+    expect(claims).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps a newer pass's POST slot when an older pass resumes", async () => {
     vi.useFakeTimers();
     try {

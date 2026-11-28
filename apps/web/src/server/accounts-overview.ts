@@ -2,6 +2,10 @@ import type { AccountLimitsService } from "./account-limits-service";
 import type { AccountMetadataService } from "./account-metadata-service";
 import { lifecycleProjection } from "./account-lifecycle";
 import type { AccountLifecycleRead } from "./account-lifecycle-reader";
+import {
+  createAccountInventoryEnrichment,
+  type AccountInventoryRead,
+} from "./account-inventory-enrichment";
 import { accountCredentialView } from "./native-connection-view";
 import {
   createCipheriv,
@@ -57,8 +61,18 @@ export function createAccountsOverview(input: {
   metadata?: AccountMetadataService;
   prisma: PrismaClient;
   cursorSecret: string;
-  gateway: { get(accountRef: string): Promise<AccountLifecycleRead> };
-  lifecycleCompatible?: () => Promise<boolean>;
+  gateway: {
+    get(
+      accountRef: string,
+      options?: { signal?: AbortSignal },
+    ): Promise<AccountLifecycleRead>;
+  };
+  lifecycleCompatible?: (options?: {
+    signal?: AbortSignal;
+  }) => Promise<boolean>;
+  loadProfiles?: (
+    read: AccountInventoryRead,
+  ) => Promise<readonly AccountProfileView[]>;
   profiles: readonly (Pick<AccountProfileView, "id" | "label" | "authKind"> &
     Partial<AccountProfileView>)[];
   operatorWorkspaceId?: string;
@@ -156,6 +170,7 @@ export function createAccountsOverview(input: {
     async list(
       request: { afterBindingId?: string; limit?: number } = {},
     ): Promise<AccountsResult<AccountsPage>> {
+      const enrichment = createAccountInventoryEnrichment();
       try {
         const who = await input.authorize();
         const limit = request.limit ?? 25;
@@ -186,9 +201,21 @@ export function createAccountsOverview(input: {
         }
         const candidates = await read(who, undefined, after, limit + 1);
         const scanned = candidates.slice(0, limit);
+        const qualified = await input
+          .loadProfiles?.(enrichment.read)
+          .catch(() => []);
+        const profiles = qualified
+          ? [
+              ...qualified,
+              ...input.profiles.filter(
+                (profile) =>
+                  !qualified.some((current) => current.id === profile.id),
+              ),
+            ]
+          : input.profiles;
         const visible = scanned.flatMap((source) => {
           const profile: (typeof input.profiles)[number] | undefined =
-            input.profiles.find((p) => p.id === source.profileRef) ??
+            profiles.find((p) => p.id === source.profileRef) ??
             (source.profileRef
               ? {
                   id: source.profileRef,
@@ -199,13 +226,17 @@ export function createAccountsOverview(input: {
         });
         // One capability read per inventory page; per-row repetition only adds
         // sequential Gateway timeouts to a server render.
-        const compatible = !!(await input
-          .lifecycleCompatible?.()
-          .catch(() => false));
-        const remotes = await Promise.all(
-          visible.map(({ source }) =>
-            input.gateway.get(source.gatewayAccountRef).catch(() => null),
-          ),
+        const compatible = input.lifecycleCompatible
+          ? await enrichment
+              .read((signal) => input.lifecycleCompatible!({ signal }))
+              .catch(() => false)
+          : false;
+        const remotes = await enrichment.map(visible, ({ source }) =>
+          enrichment
+            .read((signal) =>
+              input.gateway.get(source.gatewayAccountRef, { signal }),
+            )
+            .catch(() => null),
         );
         const projections: Array<{ source: Row; account: AccountView }> = [];
         for (const [index, { source, profile }] of visible.entries()) {
@@ -371,7 +402,7 @@ export function createAccountsOverview(input: {
             .catch(() => new Set<string>());
           const usage = await readWorkspaceAccountUsage(input.prisma, {
             workspaceId: who.workspaceId,
-            profiles: input.profiles,
+            profiles,
             visibleRepositoryIds,
             rows: pendingAccounts.map((account) => ({
               key: account.connectionId,
@@ -385,8 +416,17 @@ export function createAccountsOverview(input: {
           }
         }
         const limited = input.limits
-          ? await input.limits.page(pendingAccounts)
+          ? await input.limits.page(pendingAccounts, {
+              deadlineAt: enrichment.deadlineAt,
+              signal: enrichment.signal,
+            })
           : pendingAccounts;
+        const withMetadata = input.metadata
+          ? await input.metadata.page(limited, {
+              deadlineAt: enrichment.deadlineAt,
+              signal: enrichment.signal,
+            })
+          : limited;
         const current = await input.authorize();
         if (
           current.userId !== who.userId ||
@@ -407,7 +447,7 @@ export function createAccountsOverview(input: {
           : [];
         const liveById = new Map(liveRows.map((row) => [row.id, row]));
         const enriched = new Map(
-          limited.map((account) => [account.connectionId, account]),
+          withMetadata.map((account) => [account.connectionId, account]),
         );
         for (const { source, account: original } of projections) {
           const account = enriched.get(original.connectionId)!;
@@ -437,9 +477,7 @@ export function createAccountsOverview(input: {
         return {
           status: "ok",
           value: {
-            accounts: input.metadata
-              ? await input.metadata.page(accounts)
-              : accounts,
+            accounts,
             profiles: [],
             nextCursor:
               candidates.length > limit
@@ -459,6 +497,8 @@ export function createAccountsOverview(input: {
         )
           return { status: "denied" };
         return { status: "unavailable" };
+      } finally {
+        enrichment.close();
       }
     },
   };

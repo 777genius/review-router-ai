@@ -38,10 +38,9 @@ function isNative(value: unknown): boolean {
   );
 }
 
-/** Explicit version selection. A discovery failure never falls back to old semantics. */
-export async function loadNativeGatewayCatalog(
+function nativeCatalogLoader(
   env: Readonly<Record<string, string | undefined>>,
-): Promise<c.ProviderConnectionCapabilitiesV3 | undefined> {
+) {
   if (env.REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED !== "1") return undefined;
   const raw = env.REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY;
   if (!raw || !isNative(decode(raw))) return undefined;
@@ -65,17 +64,119 @@ export async function loadNativeGatewayCatalog(
     timeoutMs: 10000,
     responseBytes: 1024 * 1024,
   });
+  return {
+    raw,
+    load: (signal?: AbortSignal) =>
+      client.getProviderConnectionCapabilitiesV3(
+        signal ? { signal } : undefined,
+      ),
+  };
+}
+
+/** Explicit version selection. A discovery failure never falls back to old semantics. */
+export async function loadNativeGatewayCatalog(
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<c.ProviderConnectionCapabilitiesV3 | undefined> {
+  const loader = nativeCatalogLoader(env);
+  if (!loader) return undefined;
   try {
-    return c.providerConnectionCapabilitiesV3.parse(
-      await client.getProviderConnectionCapabilitiesV3(),
-    );
+    return c.providerConnectionCapabilitiesV3.parse(await loader.load());
   } catch {
     // Recovery services still start. No current native declaration means no new model admission.
     return undefined;
   }
 }
 
-/** Runs before composition/transactions. Local allowances never come from discovery. */
+export type NativeGatewayRelayPolicyObservation = Readonly<{
+  policy: ReviewRunGatewayRelayPolicy;
+  expiresAt: number;
+}>;
+export type NativeGatewayRelayPolicySource = Readonly<{
+  read(): Promise<NativeGatewayRelayPolicyObservation | undefined>;
+  isFresh(observation: NativeGatewayRelayPolicyObservation): boolean;
+}>;
+
+/** One process owner, refreshed on demand. No discovery runs inside admission
+ * transactions, and an expired observation never admits a new operation. */
+export function createNativeGatewayRelayPolicySource(
+  env: Readonly<Record<string, string | undefined>>,
+  options: {
+    initialCatalog?: c.ProviderConnectionCapabilitiesV3;
+    now?: () => number;
+    load?: (signal: AbortSignal) => Promise<c.ProviderConnectionCapabilitiesV3>;
+  } = {},
+): NativeGatewayRelayPolicySource | undefined {
+  const loader = nativeCatalogLoader(env);
+  if (!loader) return undefined;
+  const now = options.now ?? Date.now;
+  const load = options.load ?? loader.load;
+  function observe(catalog: c.ProviderConnectionCapabilitiesV3) {
+    const policy = qualifiedGatewayRelayPolicy(loader!.raw, catalog);
+    for (const entry of policy.profiles) {
+      Object.freeze(entry.profile.modelIds);
+      Object.freeze(entry.profile.authKinds);
+      Object.freeze(entry.profile.modelPolicy);
+      Object.freeze(entry.profile.nativeContext);
+      Object.freeze(entry.profile);
+      Object.freeze(entry);
+    }
+    Object.freeze(policy.profiles);
+    return Object.freeze({
+      policy: Object.freeze(policy),
+      expiresAt: now() + 30_000,
+    });
+  }
+  let current = options.initialCatalog
+    ? observe(options.initialCatalog)
+    : undefined;
+  let retryAt = 0;
+  // Retain ownership until the actual transport settles, even if it ignores
+  // cancellation. Callers time out; another attempt cannot overlap that owner.
+  let inFlight:
+    | Promise<NativeGatewayRelayPolicyObservation | undefined>
+    | undefined;
+  const isFresh = (observation: NativeGatewayRelayPolicyObservation) =>
+    now() < observation.expiresAt;
+  return {
+    isFresh,
+    read() {
+      if (current && isFresh(current)) return Promise.resolve(current);
+      if (inFlight) return inFlight;
+      if (now() < retryAt) return Promise.resolve(undefined);
+      current = undefined;
+      const controller = new AbortController();
+      let timedOut!: () => void;
+      const timeout = new Promise<undefined>((resolve) => {
+        timedOut = () => {
+          retryAt = now() + 1000;
+          controller.abort();
+          resolve(undefined);
+        };
+      });
+      const timer = setTimeout(timedOut, 10_000);
+      timer.unref?.();
+      const owned = Promise.resolve()
+        .then(() => load(controller.signal))
+        .then((catalog) => {
+          if (controller.signal.aborted) return undefined;
+          current = observe(catalog);
+          return current;
+        })
+        .catch(() => {
+          retryAt = now() + 1000;
+          return undefined;
+        })
+        .finally(() => {
+          clearTimeout(timer);
+          inFlight = undefined;
+        });
+      inFlight = Promise.race([owned, timeout]);
+      return inFlight;
+    },
+  };
+}
+
+/** Pure qualification. Local allowances never come from discovery. */
 export function qualifiedGatewayRelayPolicy(
   raw: string,
   catalog?: c.ProviderConnectionCapabilitiesV3,

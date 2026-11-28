@@ -5,6 +5,7 @@ import { CanonicalGitHubReviewRevisionResolver } from "./canonical-github-review
 import { OctokitGitHubReviewRevisionSource } from "./octokit-github-review-revision-source";
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -290,56 +291,64 @@ it("retries an exhausted primary limit whose reset has already passed", async ()
   expect(reads.count).toBe(2);
 });
 
-it("still refuses a revision that moved while a read was retried", async () => {
-  // The retry only reads again: a head that changed between the two pointer
-  // reads stays revision_moved and never authorizes.
-  vi.spyOn(console, "warn").mockImplementation(() => {});
-  const movedHead = "c".repeat(40);
-  const pointers = [
-    () => json(200, pullRequest),
-    () => json(502, { message: "Bad Gateway" }),
-    () => json(200, { ...pullRequest, head: { sha: movedHead } }),
-  ];
-  let pointerReads = 0;
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (url: string) => {
-      if (String(url).endsWith("/access_tokens"))
-        return json(201, {
-          token: "fixture-installation-token",
-          expires_at: new Date(Date.now() + 3600000).toISOString(),
-          permissions: { pull_requests: "read" },
-          repository_selection: "selected",
-        });
-      if (String(url).includes("/compare/"))
-        return json(200, { merge_base_commit: { sha: baseSha } });
-      const answer = pointers[Math.min(pointerReads, pointers.length - 1)]!;
-      pointerReads += 1;
-      return answer();
-    }),
-  );
-  const resolver = new CanonicalGitHubReviewRevisionResolver(source(noWait), {
-    digestUtf8: async () => "d".repeat(64),
-  } as unknown as ConstructorParameters<
-    typeof CanonicalGitHubReviewRevisionResolver
-  >[1]);
-  const scope = retryInput();
-  await expect(
-    resolver.resolve({
-      workspaceId: "workspace-1",
-      repositoryConnectionId: "connection-1",
-      scmRepositoryIdentityId: "identity-1",
-      githubInstallationId: scope.githubInstallationId,
-      owner: scope.owner,
-      repo: scope.repo,
-      sourceRunId: null,
-      pullRequestNumberHint: 12,
-    }),
-  ).resolves.toEqual({
-    status: CanonicalReviewRevisionResolutionStatus.RevisionMoved,
-  });
-  expect(pointerReads).toBe(3);
-});
+it.each([502, 403])(
+  "still refuses a revision that moved while a %s read was retried",
+  async (status) => {
+    // The retry only reads again: a head that changed between the two pointer
+    // reads stays revision_moved and never authorizes.
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const movedHead = "c".repeat(40);
+    const pointers = [
+      () => json(200, pullRequest),
+      () =>
+        json(
+          status,
+          { message: "temporarily unavailable" },
+          status === 403 ? { "retry-after": "0" } : {},
+        ),
+      () => json(200, { ...pullRequest, head: { sha: movedHead } }),
+    ];
+    let pointerReads = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).endsWith("/access_tokens"))
+          return json(201, {
+            token: "fixture-installation-token",
+            expires_at: new Date(Date.now() + 3600000).toISOString(),
+            permissions: { pull_requests: "read" },
+            repository_selection: "selected",
+          });
+        if (String(url).includes("/compare/"))
+          return json(200, { merge_base_commit: { sha: baseSha } });
+        const answer = pointers[Math.min(pointerReads, pointers.length - 1)]!;
+        pointerReads += 1;
+        return answer();
+      }),
+    );
+    const resolver = new CanonicalGitHubReviewRevisionResolver(source(noWait), {
+      digestUtf8: async () => "d".repeat(64),
+    } as unknown as ConstructorParameters<
+      typeof CanonicalGitHubReviewRevisionResolver
+    >[1]);
+    const scope = retryInput();
+    await expect(
+      resolver.resolve({
+        workspaceId: "workspace-1",
+        repositoryConnectionId: "connection-1",
+        scmRepositoryIdentityId: "identity-1",
+        githubInstallationId: scope.githubInstallationId,
+        owner: scope.owner,
+        repo: scope.repo,
+        sourceRunId: null,
+        pullRequestNumberHint: 12,
+      }),
+    ).resolves.toEqual({
+      status: CanonicalReviewRevisionResolutionStatus.RevisionMoved,
+    });
+    expect(pointerReads).toBe(3);
+  },
+);
 
 it("reads again after a dropped connection and logs it as network", async () => {
   const log = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -375,3 +384,258 @@ it("honours a server error's retry-after and refuses when it does not fit", asyn
   expect(reads.count).toBe(1);
   expect(log).not.toHaveBeenCalled();
 });
+
+it.each([
+  {
+    retryAt: "Fri, 27 Nov 2026 12:00:02 GMT",
+    now: "2026-11-27T12:00:00.000Z",
+    waitMs: 2_000,
+  },
+  {
+    retryAt: "Friday, 27-Nov-26 12:00:02 GMT",
+    now: "2026-11-27T12:00:00.000Z",
+    waitMs: 2_000,
+  },
+  {
+    retryAt: "Friday, 01-Jan-00 00:00:02 GMT",
+    now: "2099-12-31T23:59:59.000Z",
+    waitMs: 3_000,
+    status: 503,
+  },
+  {
+    retryAt: "Fri Nov 27 12:00:02 2026",
+    now: "2026-11-27T12:00:00.000Z",
+    waitMs: 2_000,
+  },
+  {
+    retryAt: "Sat, 31 Dec 2016 23:59:60 GMT",
+    now: "2016-12-31T23:59:57.000Z",
+    waitMs: 3_000,
+  },
+  {
+    retryAt: "Saturday, 31-Dec-16 23:59:60 GMT",
+    now: "2016-12-31T23:59:57.000Z",
+    waitMs: 3_000,
+  },
+  {
+    retryAt: "Sat Dec 31 23:59:60 2016",
+    now: "2016-12-31T23:59:57.000Z",
+    waitMs: 3_000,
+  },
+])(
+  "honors HTTP-date $retryAt within the read deadline",
+  async ({ retryAt, now, waitMs, status = 403 }) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(now));
+    let retryObserved!: () => void;
+    const retried = new Promise<void>((resolve) => {
+      retryObserved = resolve;
+    });
+    const log = vi.spyOn(console, "warn").mockImplementation(retryObserved);
+    const reads = stubGitHub([
+      () =>
+        json(
+          status,
+          { message: status === 503 ? "unavailable" : "secondary rate limit" },
+          { "retry-after": retryAt },
+        ),
+      () => json(200, pullRequest),
+    ]);
+    const result = source(noWait).loadPullRequestPointer(retryInput());
+    // Surface an early refusal instead of hanging while waiting for its log.
+    await Promise.race([retried, result]);
+    expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({
+      failureClass: status === 503 ? "server_error" : "rate_limited",
+      waitMs,
+    });
+    await vi.advanceTimersByTimeAsync(waitMs - 1);
+    expect(reads.count).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(result).resolves.toMatchObject({ headSha });
+    expect(reads.count).toBe(2);
+  },
+);
+
+it("does not retry a server error before its HTTP-date boundary", async () => {
+  const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const retryAt = new Date(Date.now() + 60_000).toUTCString();
+  const reads = stubGitHub([
+    () => json(503, { message: "unavailable" }, { "retry-after": retryAt }),
+    () => json(200, pullRequest),
+  ]);
+  await expect(
+    source(noWait).loadPullRequestPointer(retryInput()),
+  ).rejects.toMatchObject({ status: 503 });
+  expect(reads.count).toBe(1);
+  expect(log).not.toHaveBeenCalled();
+});
+
+it("does not let Retry-After shorten an exhausted primary reset", async () => {
+  const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const reads = stubGitHub([
+    () =>
+      json(
+        403,
+        { message: "API rate limit exceeded" },
+        {
+          "retry-after": "0",
+          "x-ratelimit-remaining": "0",
+          "x-ratelimit-reset": String(Math.floor(Date.now() / 1_000) + 60),
+        },
+      ),
+    () => json(200, pullRequest),
+  ]);
+  await expect(
+    source(noWait).loadPullRequestPointer(retryInput()),
+  ).rejects.toMatchObject({ status: 403 });
+  expect(reads.count).toBe(1);
+  expect(log).not.toHaveBeenCalled();
+});
+
+it("does not let an elapsed reset shorten Retry-After", async () => {
+  const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const reads = stubGitHub([
+    () =>
+      json(
+        429,
+        { message: "rate limit" },
+        {
+          "retry-after": "60",
+          "x-ratelimit-remaining": "0",
+          "x-ratelimit-reset": String(Math.floor(Date.now() / 1_000) - 1),
+        },
+      ),
+    () => json(200, pullRequest),
+  ]);
+  await expect(
+    source(noWait).loadPullRequestPointer(retryInput()),
+  ).rejects.toMatchObject({ status: 429 });
+  expect(reads.count).toBe(1);
+  expect(log).not.toHaveBeenCalled();
+});
+
+it.each(["", " ", "-1", "0x0", "1e-3", "Infinity"])(
+  "treats malformed Retry-After %j as no announced wait",
+  async (value) => {
+    const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const reads = stubGitHub([
+      () => json(429, { message: "rate limit" }, { "retry-after": value }),
+      () => json(200, pullRequest),
+    ]);
+    await expect(
+      source(noWait).loadPullRequestPointer(retryInput()),
+    ).rejects.toMatchObject({ status: 429 });
+    expect(reads.count).toBe(1);
+    expect(log).not.toHaveBeenCalled();
+  },
+);
+
+it.each(["", " ", "-1", "0x0", "1e-3", "Infinity"])(
+  "treats malformed exhausted-primary reset %j as no announced wait",
+  async (value) => {
+    const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const reads = stubGitHub([
+      () =>
+        json(
+          403,
+          { message: "API rate limit exceeded" },
+          {
+            "x-ratelimit-remaining": "0",
+            "x-ratelimit-reset": value,
+          },
+        ),
+      () => json(200, pullRequest),
+    ]);
+    await expect(
+      source(noWait).loadPullRequestPointer(retryInput()),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(reads.count).toBe(1);
+    expect(log).not.toHaveBeenCalled();
+  },
+);
+
+it.each([
+  ["oversized seconds", "8640000000000"],
+  ["overflowing seconds", "9".repeat(400)],
+  ["RFC 850 date", "Friday, 27-Nov-26 12:01:00 GMT"],
+  ["asctime date", "Fri Nov 27 12:01:00 2026"],
+])("refuses a 503 retry before its %s boundary", async (_kind, value) => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-11-27T12:00:00.000Z"));
+  const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const reads = stubGitHub([
+    () => json(503, { message: "unavailable" }, { "retry-after": value }),
+    () => json(200, pullRequest),
+  ]);
+  await expect(
+    source(noWait).loadPullRequestPointer(retryInput()),
+  ).rejects.toMatchObject({ status: 503 });
+  expect(reads.count).toBe(1);
+  expect(log).not.toHaveBeenCalled();
+});
+
+it("does not shorten an unrepresentable exhausted reset to Retry-After", async () => {
+  const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const reads = stubGitHub([
+    () =>
+      json(
+        403,
+        { message: "API rate limit exceeded" },
+        {
+          "retry-after": "0",
+          "x-ratelimit-remaining": "0",
+          "x-ratelimit-reset": "9".repeat(400),
+        },
+      ),
+    () => json(200, pullRequest),
+  ]);
+  await expect(
+    source(noWait).loadPullRequestPointer(retryInput()),
+  ).rejects.toMatchObject({ status: 403 });
+  expect(reads.count).toBe(1);
+  expect(log).not.toHaveBeenCalled();
+});
+
+it.each([
+  "Sun, 31 Feb 2027 12:00:00 GMT",
+  "Sunday, 31-Feb-27 12:00:00 GMT",
+  "Sun Feb 31 12:00:00 2027",
+])("rejects a normalized invalid calendar date %s", async (value) => {
+  const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const reads = stubGitHub([
+    () => json(429, { message: "rate limit" }, { "retry-after": value }),
+    () => json(200, pullRequest),
+  ]);
+  await expect(
+    source(noWait).loadPullRequestPointer(retryInput()),
+  ).rejects.toMatchObject({ status: 429 });
+  expect(reads.count).toBe(1);
+  expect(log).not.toHaveBeenCalled();
+});
+
+it.each([403, 503])(
+  "does not discard a leap-second Retry-After on %s",
+  async (status) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2016-12-31T23:59:30.000Z"));
+    const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const reads = stubGitHub([
+      () =>
+        json(
+          status,
+          { message: "unavailable" },
+          {
+            "retry-after": "Sat, 31 Dec 2016 23:59:60 GMT",
+            "x-ratelimit-remaining": "0",
+            "x-ratelimit-reset": String(Math.floor(Date.now() / 1_000) - 1),
+          },
+        ),
+      () => json(200, pullRequest),
+    ]);
+    await expect(
+      source(noWait).loadPullRequestPointer(retryInput()),
+    ).rejects.toMatchObject({ status });
+    expect(reads.count).toBe(1);
+    expect(log).not.toHaveBeenCalled();
+  },
+);

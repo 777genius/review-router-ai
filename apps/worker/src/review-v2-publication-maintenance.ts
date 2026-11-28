@@ -31,10 +31,12 @@ export class ReviewV2PublicationMaintenance implements ReviewV2PublicationMainte
     },
   ) {}
 
-  async runMaintenance() {
+  async runMaintenance(input: Readonly<{ signal?: AbortSignal }> = {}) {
     const now = this.clock.now();
     // A failed scan is a phase failure; there is no reliable settlement subset.
-    const work = await this.feed.scan({ now, limit: this.policy.limit });
+    const work = input.signal?.aborted
+      ? []
+      : await this.feed.scan({ now, limit: this.policy.limit });
     let processed = 0;
     let manualRequired = 0;
     let terminalUnknown = 0;
@@ -46,6 +48,7 @@ export class ReviewV2PublicationMaintenance implements ReviewV2PublicationMainte
     >();
 
     for (const item of work) {
+      if (input.signal?.aborted) break;
       const execution = await captureWorkerPhase(
         "review_v2.publication_item",
         () =>

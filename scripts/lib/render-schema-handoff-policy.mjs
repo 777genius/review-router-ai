@@ -334,6 +334,38 @@ const reliabilityCheckoutExtension = Object.freeze([
   }),
 ]);
 
+// Concurrent read indexes belong to ordinary Prisma deploy. Admit only this
+// exact application checkout tail before retaining the unchanged checkout170
+// validator; neither index enters managed92 or historical96 transaction SQL.
+const readScalingCheckoutExtension = Object.freeze([
+  Object.freeze({
+    migrationName: "000165_installation_sync_latest_index",
+    checksum:
+      "ca7d7762d40f5a9b019ddc09c69811d1d3bb8ffaaa3386db9fe375dd0c47c509",
+  }),
+  Object.freeze({
+    migrationName: "000166_repository_health_latest_index",
+    checksum:
+      "30846a3fc568e650c1ab1f295691ebe084f875090b5cd0f444dc46997d575f41",
+  }),
+]);
+
+// Webhook delivery migrations belong to ordinary Prisma deploy. Admit only this
+// exact application checkout tail before retaining the unchanged checkout170
+// validator; neither migration enters managed92 or historical96 transaction SQL.
+const webhookDeliveryCheckoutExtension = Object.freeze([
+  Object.freeze({
+    migrationName: "000165_webhook_effect_fence",
+    checksum:
+      "d3f747f018080ca863c0f84f695d6fcd96bd6ef4cd4a5ef5cb2fdc84bc9674f5",
+  }),
+  Object.freeze({
+    migrationName: "000167_webhook_recovery_intent",
+    checksum:
+      "e207c11ca7dd836031b8849daf531eb8e56d0f62cc1f34c5c049c60f366d7124",
+  }),
+]);
+
 export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (
     !Array.isArray(catalog) ||
@@ -346,6 +378,76 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Native request retry is an independent, checksum-bound application tail.
+  // Validate it before reusing the exact prior checkout and historical gates.
+  const nativeRetryMigration = catalog.find(
+    (row) => row.migrationName === "000165_attested_model_request_retry",
+  );
+  if (nativeRetryMigration) {
+    if (
+      ![171, 173, 174, 175, 176].includes(catalog.length) ||
+      nativeRetryMigration.checksum !==
+        "9cff45bd76d02ae28d0936a9160c5ae4c6c0d155cbcf51d900e3e7569fe2f58a"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== nativeRetryMigration),
+    );
+  }
+  // The exact optional receipt-order tail requires the complete webhook pair.
+  // Retain both checkout172 groups and their checkout174 union below.
+  const webhookReceiptOrderMigration = catalog.find(
+    (row) => row.migrationName === "000168_webhook_receipt_order_indexes",
+  );
+  if (webhookReceiptOrderMigration) {
+    if (
+      ![173, 175].includes(catalog.length) ||
+      catalog.at(-1) !== webhookReceiptOrderMigration ||
+      webhookReceiptOrderMigration.checksum !==
+        "4fe16668e4bc946a9f26f59835f3e7c6072b8ce4cc4ffcd39d667c5faa68c68b" ||
+      webhookDeliveryCheckoutExtension.some(
+        (extension) =>
+          !catalog.some((row) => row.migrationName === extension.migrationName),
+      )
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(catalog.slice(0, -1));
+  }
+  const hasReadScaling = catalog.some((row) =>
+    readScalingCheckoutExtension.some(
+      (extension) => extension.migrationName === row.migrationName,
+    ),
+  );
+  const hasWebhookDelivery = catalog.some((row) =>
+    webhookDeliveryCheckoutExtension.some(
+      (extension) => extension.migrationName === row.migrationName,
+    ),
+  );
+  if (hasReadScaling || hasWebhookDelivery) {
+    // Each complete group admits checkout172; their exact union admits174.
+    // A single member still selects its entire group, so partial tails fail.
+    const extension = [
+      ...(hasReadScaling ? readScalingCheckoutExtension : []),
+      ...(hasWebhookDelivery ? webhookDeliveryCheckoutExtension : []),
+    ].sort((left, right) =>
+      left.migrationName < right.migrationName ? -1 : 1,
+    );
+    const tail = catalog.slice(-extension.length);
+    if (
+      catalog.length !== 170 + extension.length ||
+      extension.some((expected, index) => {
+        const row = tail[index];
+        return (
+          row.migrationName !== expected.migrationName ||
+          row.checksum !== expected.checksum
+        );
+      })
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.slice(0, -extension.length),
+    );
+  }
   if (
     catalog.some((row) =>
       reliabilityCheckoutExtension.some(

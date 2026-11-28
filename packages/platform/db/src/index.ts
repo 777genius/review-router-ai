@@ -4,6 +4,10 @@ import { PrismaPg } from "@prisma/adapter-pg";
 export { resolveCodexOAuthDatabaseEffectAuthorityUrl } from "./codex-oauth-database-effect-authority.js";
 export { resolveCommentTokenCustodyDatabaseAuthorityUrl } from "./comment-token-custody-database-authority.js";
 export {
+  isDatabaseAcquisitionTimeout,
+  isDatabaseUnavailable,
+} from "./database-availability.js";
+export {
   PostgresTransactionClock,
   type PostgresTransactionClockClient,
   type TransactionClock,
@@ -21,18 +25,6 @@ export function createDatabaseHealth(
   return { connected, checkedAt };
 }
 
-/** Qualified against Prisma 7 + adapter-pg; execution timeouts are not overload. */
-export function isDatabaseAcquisitionTimeout(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  return (
-    error.message === "timeout exceeded when trying to connect" ||
-    ("code" in error &&
-      error.code === "P2028" &&
-      error.message ===
-        "Transaction API error: Unable to start a transaction in the given time.")
-  );
-}
-
 export type CreatePrismaClientOptions = {
   readonly databaseUrl?: string;
   readonly poolMax?: number;
@@ -42,7 +34,20 @@ export type CreatePrismaClientOptions = {
   readonly poolMaxLifetimeSeconds?: number;
   readonly transactionMaxWaitMs?: number;
   readonly transactionTimeoutMs?: number;
+  /** Server-side limits for runtime SQL; administrative clients opt out. */
+  readonly executionBudget?: DatabaseExecutionBudget;
 };
+
+export type DatabaseExecutionBudget = {
+  readonly statementTimeoutMs: number;
+  readonly lockTimeoutMs: number;
+};
+
+/** Runtime statements terminate on the server, releasing their pool slot. */
+export const runtimeDatabaseExecutionBudget = {
+  statementTimeoutMs: 30_000,
+  lockTimeoutMs: 5_000,
+} as const satisfies DatabaseExecutionBudget;
 
 export function createPrismaClient(
   options: CreatePrismaClientOptions = {},
@@ -70,10 +75,15 @@ export function createPrismaClient(
   const connectionUrl = new URL(databaseUrl);
   const startupOptions = connectionUrl.searchParams.get("options") ?? "";
   connectionUrl.searchParams.delete("options");
+  const executionOptions = options.executionBudget
+    ? executionBudgetStartupOptions(options.executionBudget)
+    : "";
   const adapterConfig = {
     connectionString: connectionUrl.toString(),
     connectionTimeoutMillis,
-    options: `${startupOptions} -c timezone=UTC`,
+    // Later PostgreSQL startup options win. A URL cannot disable the runtime
+    // budget; transaction owners can still use a reviewed SET LOCAL budget.
+    options: `${startupOptions} -c timezone=UTC${executionOptions}`,
     ...(typeof poolMax === "number" ? { max: poolMax } : {}),
     ...(typeof options.poolMaxLifetimeSeconds === "number"
       ? { maxLifetimeSeconds: options.poolMaxLifetimeSeconds }
@@ -91,6 +101,21 @@ export function createPrismaClient(
         : {}),
     },
   });
+}
+
+function executionBudgetStartupOptions(
+  budget: DatabaseExecutionBudget,
+): string {
+  for (const name of ["statementTimeoutMs", "lockTimeoutMs"] as const) {
+    const value = budget[name];
+    // PostgreSQL timeout settings are positive signed 32-bit milliseconds.
+    if (!Number.isInteger(value) || value < 1 || value > 2_147_483_647) {
+      throw new Error(
+        `executionBudget.${name} must be a positive PostgreSQL integer`,
+      );
+    }
+  }
+  return ` -c statement_timeout=${budget.statementTimeoutMs} -c lock_timeout=${budget.lockTimeoutMs}`;
 }
 
 function parseOptionalPositiveInteger(name: string): number | undefined {

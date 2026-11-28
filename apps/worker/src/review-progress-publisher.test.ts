@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   formatGithubProgressComment,
   githubProgressCommentMarker,
@@ -19,6 +19,157 @@ const now = new Date("2026-08-12T12:00:00.000Z");
 const targetIssueUrl = "https://api.github.com/repos/acme/rocket/issues/42";
 
 describe("ReviewProgressPublisher", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("takes no new publication claim after shutdown", async () => {
+    const stop = new AbortController();
+    stop.abort();
+    const store = fakeStore(claimed());
+    const factory = vi.fn();
+    await expect(
+      createPublisher(store, factory).runMaintenance({ signal: stop.signal }),
+    ).resolves.toEqual({
+      claimed: 0,
+      published: 0,
+      deferred: 0,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(store.claimNext).not.toHaveBeenCalled();
+    expect(factory).not.toHaveBeenCalled();
+  });
+
+  it("drains an acquired publication across shutdown without claiming another", async () => {
+    const stop = new AbortController();
+    const store = fakeStore(claimed());
+    let release!: () => void;
+    let entered!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const mutationEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let operationSignal: AbortSignal | undefined;
+    const publisher = createPublisher(store, async (_id, options) => {
+      operationSignal = options?.signal;
+      return {
+        botLogin: "review-router[bot]",
+        async request(route, parameters = {}) {
+          if (route.includes("/pulls/")) return pull();
+          if (route.startsWith("GET")) return { data: [] };
+          entered();
+          await held;
+          return {
+            data: {
+              id: 77,
+              body: parameters.body,
+              user: { login: "review-router[bot]" },
+              issue_url: targetIssueUrl,
+            },
+          };
+        },
+      };
+    });
+    const pass = publisher.runMaintenance({ signal: stop.signal });
+    await mutationEntered;
+    stop.abort();
+    expect(operationSignal?.aborted).toBe(false);
+    expect(store.complete).not.toHaveBeenCalled();
+    release();
+    await expect(pass).resolves.toMatchObject({
+      claimed: 1,
+      published: 1,
+      failed: 0,
+    });
+    expect(store.complete).toHaveBeenCalledTimes(1);
+    expect(store.claimNext).toHaveBeenCalledTimes(1);
+  });
+
+  it("settles a claim acquired while the shutdown signal races the database query", async () => {
+    const stop = new AbortController();
+    const store = fakeStore(claimed());
+    store.claimNext.mockImplementationOnce(async () => {
+      stop.abort();
+      return claimed();
+    });
+    const factory = vi.fn(async () => {
+      throw new Error("dependency unavailable after claim");
+    });
+    await expect(
+      createPublisher(store, factory).runMaintenance({ signal: stop.signal }),
+    ).resolves.toMatchObject({ claimed: 1, failed: 1 });
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(store.retry).toHaveBeenCalledTimes(1);
+    expect(store.claimNext).toHaveBeenCalledTimes(1);
+  });
+
+  it("bounds the whole comment scan and prevents a late read from authorizing a write", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    const store = fakeStore(claimed());
+    const calls: string[] = [];
+    let operationSignal: AbortSignal | undefined;
+    const publisher = createPublisher(
+      store,
+      async (_id, options) => {
+        operationSignal = options?.signal;
+        return {
+          botLogin: "review-router[bot]",
+          async request(route, parameters = {}) {
+            calls.push(route);
+            // Deliberately ignore abort until the current read settles. The
+            // publisher must not continue to another page or a mutation.
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            if (route.includes("/pulls/")) return pull();
+            return {
+              data: Array.from({ length: 100 }, (_, index) => ({
+                id: Number(parameters.page) * 100 + index,
+                body: "unrelated",
+                user: { login: "other-user" },
+                issue_url: targetIssueUrl,
+              })),
+            };
+          },
+        };
+      },
+      { passBudgetMs: 25, maxCommentPages: 20 },
+    );
+    const pass = publisher.runMaintenance();
+    await vi.advanceTimersByTimeAsync(35);
+    await expect(pass).resolves.toMatchObject({
+      claimed: 1,
+      deferred: 1,
+      failed: 0,
+    });
+    expect(operationSignal?.aborted).toBe(true);
+    expect(calls).toHaveLength(3);
+    expect(calls.every((route) => route.startsWith("GET"))).toBe(true);
+    expect(store.complete).not.toHaveBeenCalled();
+    expect(store.retry).toHaveBeenCalledTimes(1);
+    expect(store.retry).toHaveBeenCalledWith(
+      expect.objectContaining({ countFailure: false }),
+    );
+    expect(store.claimNext).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("does not start remote IO for a claim whose lease already expired", async () => {
+    const publication = claimed();
+    const store = fakeStore({
+      ...publication,
+      claim: { ...publication.claim, claimUntil: new Date(now.getTime() - 1) },
+    });
+    const factory = vi.fn();
+    await expect(
+      createPublisher(store, factory).runMaintenance(),
+    ).resolves.toMatchObject({ claimed: 1, deferred: 1, failed: 0 });
+    expect(factory).not.toHaveBeenCalled();
+    expect(store.retry).toHaveBeenCalledTimes(1);
+    expect(store.retry).toHaveBeenCalledWith(
+      expect.objectContaining({ countFailure: false }),
+    );
+  });
+
   it("publishes through the installation and fences completion", async () => {
     const publication = claimed();
     const store = fakeStore(publication);
@@ -1620,6 +1771,9 @@ function testKnownComment(
 function createPublisher(
   store: ReturnType<typeof fakeStore>,
   factory: ConstructorParameters<typeof ReviewProgressPublisher>[1],
+  options: Partial<
+    ConstructorParameters<typeof ReviewProgressPublisher>[4]
+  > = {},
 ) {
   return new ReviewProgressPublisher(
     store,
@@ -1633,6 +1787,7 @@ function createPublisher(
       retryDelayMs: 5_000,
       maxCommentPages: 2,
       maxFailures: 3,
+      ...options,
     },
   );
 }

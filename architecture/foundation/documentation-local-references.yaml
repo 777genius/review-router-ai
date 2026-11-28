@@ -1,0 +1,95 @@
+schemaVersion: 2
+markdownRoots:
+  - docs
+  - ai-docs
+  - architecture
+anchorProfile: github
+# Frozen review provenance; never refresh this declaration to hide byte drift.
+historicalArtifacts:
+  - path: docs/release-evidence/activation-catalog-policy-v29-schema-v5-independent-review.md
+    sha256: 7abaefccd0fa7771c6594824df794415801771f68f14bf0521d2d2461b360528
+    references:
+      - kind: link
+        line: 34
+        column: 3
+        rawTarget: "/mnt/volume_ams3_1784742570542/evidence/rr-pr245-79c8496d-schema-v5-candidate/activation-catalog-policy-candidate-1.json:1"
+      - kind: link
+        line: 35
+        column: 3
+        rawTarget: "/mnt/volume_ams3_1784742570542/evidence/rr-pr245-79c8496d-schema-v5-candidate/activation-catalog-policy-candidate-2.json:1"
+      - kind: link
+        line: 55
+        column: 100
+        rawTarget: "/mnt/volume_ams3_1784742570542/worktrees/rr-pr245-r253-schema-v5-provenance-review/packages/features/release-rollout/src/domain/release-migration-transition.ts:139"
+      - kind: link
+        line: 55
+        column: 402
+        rawTarget: "/mnt/volume_ams3_1784742570542/worktrees/rr-pr245-r253-schema-v5-provenance-review/scripts/run-codex-rotating-release-migration.mjs:5358"
+      - kind: link
+        line: 55
+        column: 655
+        rawTarget: "/mnt/volume_ams3_1784742570542/worktrees/rr-pr245-r253-schema-v5-provenance-review/scripts/rehearse-private-pg17-rollout.mjs:446"
+      - kind: link
+        line: 59
+        column: 211
+        rawTarget: "/mnt/volume_ams3_1784742570542/worktrees/rr-pr245-r253-schema-v5-provenance-review/.github/workflows/ci.yml:136"
+      - kind: link
+        line: 63
+        column: 90
+        rawTarget: "/mnt/volume_ams3_1784742570542/worktrees/rr-pr245-r253-schema-v5-provenance-review/scripts/rehearse-private-pg17-rollout.mjs:396"
+      - kind: link
+        line: 64
+        column: 69
+        rawTarget: "/mnt/volume_ams3_1784742570542/worktrees/rr-pr245-r253-schema-v5-provenance-review/scripts/rehearse-private-pg17-rollout.mjs:3728"
+      - kind: link
+        line: 65
+        column: 113
+        rawTarget: "/mnt/volume_ams3_1784742570542/worktrees/rr-pr245-r253-schema-v5-provenance-review/scripts/run-codex-rotating-release-migration.mjs:2173"
+      - kind: link
+        line: 66
+        column: 99
+        rawTarget: "/mnt/volume_ams3_1784742570542/worktrees/rr-pr245-r253-schema-v5-provenance-review/scripts/run-codex-rotating-release-migration.mjs:343"
+      - kind: link
+        line: 66
+        column: 318
+        rawTarget: "/mnt/volume_ams3_1784742570542/worktrees/rr-pr245-r253-schema-v5-provenance-review/scripts/run-codex-rotating-release-migration.mjs:5371"
+      - kind: link
+        line: 67
+        column: 71
+        rawTarget: "/mnt/volume_ams3_1784742570542/worktrees/rr-pr245-r253-schema-v5-provenance-review/scripts/rehearse-private-pg17-rollout.mjs:3813"
+      - kind: link
+        line: 73
+        column: 42
+        rawTarget: "/mnt/volume_ams3_1784742570542/worktrees/rr-pr245-r253-schema-v5-provenance-review/packages/features/release-rollout/src/domain/activation-catalog-policy-provenance.json:1"
+      - kind: link
+        line: 75
+        column: 20
+        rawTarget: "/mnt/volume_ams3_1784742570542/worktrees/rr-pr245-r253-schema-v5-provenance-review/packages/features/release-rollout/src/domain/activation-catalog-policy-provenance-contract.ts:56"
+      - kind: link
+        line: 77
+        column: 101
+        rawTarget: "/mnt/volume_ams3_1784742570542/worktrees/rr-pr245-r253-schema-v5-provenance-review/packages/features/release-rollout/src/domain/activation-catalog-policy-contract.ts:24"
+      - kind: link
+        line: 100
+        column: 86
+        rawTarget: "/mnt/volume_ams3_1784742570542/worktrees/rr-pr245-r253-schema-v5-provenance-review/scripts/rehearse-private-pg17-rollout.mjs:825"
+      - kind: link
+        line: 101
+        column: 192
+        rawTarget: "/mnt/volume_ams3_1784742570542/worktrees/rr-pr245-r253-schema-v5-provenance-review/scripts/rehearse-private-pg17-rollout.mjs:3207"
+      - kind: link
+        line: 102
+        column: 244
+        rawTarget: "/mnt/volume_ams3_1784742570542/worktrees/rr-pr245-r253-schema-v5-provenance-review/scripts/run-codex-rotating-release-migration.mjs:4323"
+      - kind: link
+        line: 108
+        column: 56
+        rawTarget: "/mnt/volume_ams3_1784742570542/worktrees/rr-pr245-r253-schema-v5-provenance-review/packages/features/release-rollout/src/domain/activation-catalog-policy-normalization.ts:17"
+      - kind: link
+        line: 118
+        column: 229
+        rawTarget: "/mnt/volume_ams3_1784742570542/worktrees/rr-pr245-r253-schema-v5-provenance-review/packages/platform/db/prisma/migrations/000079_remove_account_wide_provider_lane_serialization/migration.sql:64"
+      - kind: link
+        line: 118
+        column: 591
+        rawTarget: "/mnt/volume_ams3_1784742570542/worktrees/rr-pr245-r253-schema-v5-provenance-review/packages/features/review-executions/src/infrastructure/prisma/prisma-review-execution-store.ts:262"

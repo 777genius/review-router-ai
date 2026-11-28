@@ -109,8 +109,8 @@ importers:
         version: 5.0.12(@types/react@19.2.14)(immer@11.2.6)(react@19.2.5)(use-sync-external-store@1.6.0(react@19.2.5))
     devDependencies:
       '@agent-teams/engineering-foundation':
-        specifier: 3.1.0
-        version: 3.1.0(@types/node@22.19.17)
+        specifier: 4.1.0
+        version: 4.1.0(@types/node@22.19.17)
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.3.0(jiti@2.6.1)(supports-color@8.1.1))
@@ -203,8 +203,8 @@ importers:
   apps/api:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-parity-83c18fd090e7.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-parity-83c18fd090e7.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-parity-90739814c9e8.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-parity-90739814c9e8.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -356,8 +356,8 @@ importers:
   apps/web:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-parity-83c18fd090e7.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-parity-83c18fd090e7.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-parity-90739814c9e8.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-parity-90739814c9e8.tgz
       '@mux/mux-player-react':
         specifier: ^3.14.1
         version: 3.14.1(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -536,6 +536,9 @@ importers:
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
+      '@octokit/core':
+        specifier: 7.0.6
+        version: 7.0.6
       '@reviewrouter/features-action-control-plane':
         specifier: workspace:*
         version: link:../../packages/features/action-control-plane
@@ -912,7 +915,6 @@ importers:
       zod:
         specifier: 4.6.7
         version: 4.6.7
-
     devDependencies:
       '@reviewrouter/platform-db':
         specifier: workspace:*
@@ -995,8 +997,8 @@ importers:
   packages/features/provider-usage:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-parity-83c18fd090e7.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-parity-83c18fd090e7.tgz
+        specifier: file:../../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-parity-90739814c9e8.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-parity-90739814c9e8.tgz
       '@get-modular/assembly':
         specifier: 0.8.0
         version: 0.8.0
@@ -1049,6 +1051,9 @@ importers:
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
+      '@octokit/core':
+        specifier: 7.0.6
+        version: 7.0.6
       '@prisma/client':
         specifier: 7.9.0
         version: 7.9.0(prisma@7.9.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@7.0.2))(typescript@7.0.2)
@@ -1525,8 +1530,8 @@ packages:
   '@actions/io@3.0.2':
     resolution: {integrity: sha512-nRBchcMM+QK1pdjO7/idu86rbJI5YHUKCvKs0KxnSYbVe3F51UfGxuZX4Qy/fWlp6l7gWFwIkrOzN+oUK03kfw==}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-parity-83c18fd090e7.tgz':
-    resolution: {integrity: sha512-kMLKrUj68niesuqs1IvyCCuAQ5NtTC1jUqVClrd3IRxPY2GM4HNHOVU3hhzVgZPR8YpaiK5ZbTyNpGT92JI4dw==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-parity-83c18fd090e7.tgz}
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-parity-90739814c9e8.tgz':
+    resolution: {integrity: sha512-YE23syJCQGpnPPsfHp3ho3m/tQMQQPvxGBkgCMFsBQLS/euRluKh1PAljKT1+MMDgOSlKkAXOiRGEBMasHGdyg==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-parity-90739814c9e8.tgz}
     version: 0.1.0
     engines: {node: '>=24.21.0 <25 || >=26.10.0 <27'}
 
@@ -1534,8 +1539,8 @@ packages:
     resolution: {integrity: sha512-aKfZTjMM2GteYLZ9Jt8XLOgVgffx84XtgyjCoiJ+8Tn/V+mXICE3VGby6jgwrpCtDNU/td6qt5Ytlax4JLZ/KA==}
     engines: {node: ^24.18.0 || ^26.0.0, pnpm: '>=11.17.0 <12'}
 
-  '@agent-teams/document-authoring@0.3.6':
-    resolution: {integrity: sha512-9oy6ojzGSq2KWcot3QBBkNItzXQ3S8kZjcCTZ163dtJ966vGWKRbfpSuwTasnXz/3jpQjbStILMhorvaLX4xsA==}
+  '@agent-teams/document-authoring@0.3.9':
+    resolution: {integrity: sha512-a6SOuytNOoKJVW+pp51AUMhrjzTvbYvro6nUuAFqmu0l0G63xkSAnhpwlaPJbHSbSBvoIawm8z+nL8OVMFIY3A==}
     engines: {node: ^24.18.0 || ^26.0.0, pnpm: '>=11.17.0 <12'}
 
   '@agent-teams/engineering-foundation@2.1.0':
@@ -1543,8 +1548,8 @@ packages:
     engines: {node: ^24.18.0 || ^26.0.0, pnpm: '>=11.17.0 <12'}
     hasBin: true
 
-  '@agent-teams/engineering-foundation@3.1.0':
-    resolution: {integrity: sha512-JNBE4o+8KS8KPx9fuUdYzFUJj4t6Io58qnDFbhBV+mEhlDk/H6wTGN0/DIItf/oPvXFmKCh0W5vIVKitpoKmeg==}
+  '@agent-teams/engineering-foundation@4.1.0':
+    resolution: {integrity: sha512-4ClOx9/iMUt3s6Y3GwEd75F2SAn34YcjPHneyVA1atu8F1LoW5lG4xWSk9Lxufh+Dh/TyxJtxo68UR/fCcQXuw==}
     engines: {node: ^24.18.0 || ^26.0.0, pnpm: '>=11.17.0 <12'}
     hasBin: true
 
@@ -1552,8 +1557,8 @@ packages:
     resolution: {integrity: sha512-vXWWH6HyiqULXm4pAydEB985sxiRVkWp8wA69OpPHbhCWp8Ldhm/Hy2nWgpRt03jp8w11gUyk21SmgvC2K9PqA==}
     engines: {node: ^24.18.0 || ^26.0.0, pnpm: '>=11.17.0 <12'}
 
-  '@agent-teams/repository-mutation@0.4.2':
-    resolution: {integrity: sha512-gPjDKKIJU+7eNyPFRsnVpRJqQyhjg2F0XTsiGKSGYDI6w/oRfbdvRs2l7EBHFo3AGRWDk+dQVTGJ6gDr6a/BkQ==}
+  '@agent-teams/repository-mutation@0.5.2':
+    resolution: {integrity: sha512-eK/HsE/1qt+TXzrrbggXykZJXloFZfZD0ZlwdGbm2Jc9O6lAlhu7+w9BdSeryX/vCyMYWeRLv38S/7V717RPMg==}
     engines: {node: ^24.18.0 || ^26.0.0, pnpm: '>=11.17.0 <12'}
 
   '@alloc/quick-lru@5.2.0':
@@ -2117,10 +2122,6 @@ packages:
   '@floating-ui/utils@0.2.11':
     resolution: {integrity: sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg==}
 
-  '@get-modular/assembly@0.2.0':
-    resolution: {integrity: sha512-xZTgfMUzHnA8DR7wk/3mAdLppTlwAsm6pfW5bgoW6lvGh8hYGBJwcwzbdynJduRVBVW7aFmchsrLTP5w4rcmlw==}
-    engines: {node: '>=24.18.0 <25 || >=26.10.0 <27'}
-
   '@get-modular/assembly@0.8.0':
     resolution: {integrity: sha512-UJjGxv+sXY6BzKXm+ffGAFC9gBK1CehDKQwz24LeLthUdhKT6WkZCjRPj8/Gr8XbFVx83pxdhxNtAXAdN/G5DQ==}
     engines: {node: '>=24.18.0 <25 || >=26.10.0 <27'}
@@ -2132,10 +2133,6 @@ packages:
       '@get-modular/assembly': ^0.8.0
       '@get-modular/core': ^0.8.0
       '@get-modular/resources': ^0.2.2
-
-  '@get-modular/core@0.2.0':
-    resolution: {integrity: sha512-npn2dAR5TuVobDzuI7MRZS0p6/0qzTWbRbPo5y9EaDz4qFtBNF6+YBhU92QPwOkYzVjo9xAJtIgMkly7wlkdWw==}
-    engines: {node: '>=24.18.0 <25 || >=26.10.0 <27'}
 
   '@get-modular/core@0.8.0':
     resolution: {integrity: sha512-c2zLxvmvSAZPtHXbURkT4LNydqVY2YGRbcoF58hc2tvNe/JzH/6cVZbpO3XEQZXJ2z4W3eBPK9vpN8U9wmXMMQ==}
@@ -7562,10 +7559,10 @@ snapshots:
 
   '@actions/io@3.0.2': {}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-parity-83c18fd090e7.tgz':
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-parity-90739814c9e8.tgz':
     dependencies:
-      '@get-modular/assembly': 0.2.0
-      '@get-modular/core': 0.2.0
+      '@get-modular/assembly': 0.8.0
+      '@get-modular/core': 0.8.0
       zod: 4.6.7
 
   '@agent-teams/document-authoring@0.3.4':
@@ -7574,9 +7571,9 @@ snapshots:
       ajv: 8.20.0
       yaml: 2.9.0
 
-  '@agent-teams/document-authoring@0.3.6':
+  '@agent-teams/document-authoring@0.3.9':
     dependencies:
-      '@agent-teams/repository-mutation': 0.4.2
+      '@agent-teams/repository-mutation': 0.5.2
       ajv: 8.20.0
       yaml: 2.9.0
 
@@ -7597,10 +7594,10 @@ snapshots:
     transitivePeerDependencies:
       - '@types/node'
 
-  '@agent-teams/engineering-foundation@3.1.0(@types/node@22.19.17)':
+  '@agent-teams/engineering-foundation@4.1.0(@types/node@22.19.17)':
     dependencies:
-      '@agent-teams/document-authoring': 0.3.6
-      '@agent-teams/repository-mutation': 0.4.2
+      '@agent-teams/document-authoring': 0.3.9
+      '@agent-teams/repository-mutation': 0.5.2
       '@microsoft/api-extractor-model': 7.33.10(@types/node@22.19.17)
       '@microsoft/tsdoc': 0.16.0
       ajv: 8.20.0
@@ -7616,7 +7613,7 @@ snapshots:
 
   '@agent-teams/repository-mutation@0.4.0': {}
 
-  '@agent-teams/repository-mutation@0.4.2': {}
+  '@agent-teams/repository-mutation@0.5.2': {}
 
   '@alloc/quick-lru@5.2.0': {}
 
@@ -8232,10 +8229,6 @@ snapshots:
 
   '@floating-ui/utils@0.2.11': {}
 
-  '@get-modular/assembly@0.2.0':
-    dependencies:
-      '@get-modular/core': 0.2.0
-
   '@get-modular/assembly@0.8.0':
     dependencies:
       '@get-modular/core': 0.8.0
@@ -8245,8 +8238,6 @@ snapshots:
       '@get-modular/assembly': 0.8.0
       '@get-modular/core': 0.8.0
       '@get-modular/resources': 0.2.2
-
-  '@get-modular/core@0.2.0': {}
 
   '@get-modular/core@0.8.0': {}
 

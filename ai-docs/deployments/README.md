@@ -16,6 +16,20 @@ are in [PR #1003](https://github.com/777genius/review-router-ai/pull/1003) under
 qualification, including precise database-time publication expiry; ordinary API
 rollout pending, with no migration or configuration change.
 
+PR #1028: [review failure fixes, accepted-source recovery and attested request retry](2026-11-27-production-review-failure-fixes.md)
+are under qualification. The current cold recovery correction preserves
+completed-plus-exhausted progress separately for required and optional work
+during accepted observation adoption. Native progress/API types, all 34
+domain regressions and all 19 production PostgreSQL cases passed on the
+recorded candidate; the formatter's exact canonical output is applied.
+The cold fixture now distinguishes two public-process catalog-read pairs
+while preserving identical selection custody and every no-replay assertion.
+Its corrected cold run, current-head CI and all four joined Node/mode
+executions remain required. Staging and production remain `pending`.
+The bounded retry consumer requires additive migration `000165`, compatible
+readers and the new immutable producer policy in the recorded order; legacy
+and capacity128 producer identities retain their meanings.
+
 <a id="current-coordinated-rollout-reconciliation-2026-11-14"></a>
 
 ## Current coordinated rollout reconciliation (2026-11-15)
@@ -35,6 +49,16 @@ User-declined legacy Statistics/DL backfill, separate GitLab, owner-SKIPPED Anth
 The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:12.132Z` (admission 142.293 seconds/full 106.377 seconds). Catalog/capabilities expose the old seven plus NVIDIA; API policy preserves its old three/defaults plus NVIDIA. Service config `49ba7d0e…`, bootstrap `b3f0c8f4…`; same signed image/source/FILE 66, no migration, production NVIDIA account or model call. [Full recovery/availability evidence](2026-11-14-producer-registry-file.md#final-nvidia-availability-and-native-98-recovery) records the refused 128-vs-640 candidate, premature proxy restoration and real outage, native 98's 64-receipt count-cap repair, all retained state and rollback limitation. The bounded PR 35 semantic reply and complete Usage stands remain the live model qualification; no production inference is claimed.
 
 ## Task index
+
+[Scale and recovery](2026-11-27-scale-and-recovery.md), [PR #1021](https://github.com/777genius/review-router-ai/pull/1021) — worker/database and Accounts checkpoints published; the integration keeps the fenced webhook default from PR #1027 and ports the distinct failure cases. Combined-source qualification is in progress. Additive indexes 165/166, ordinary API/Web/worker rollout pending; no environment deployment claimed.
+
+The same task includes the account lifecycle cache-subscription correction and
+its original-operation regression. Final-source checks, browser qualification
+and the merged paired Action cold/joined executions remain required.
+
+The captured v4 assignment-v1 restore correction and retained legacy-response
+regression are included in the same task. The failed cold recovery run remains
+recorded; final-source runtime qualification and rollout remain pending.
 
 [Gateway management ingress](2026-11-27-gateway-management-ingress.md): production `installed`; native V2/V3 routes restored and read-only account metadata verified. Browser enrollment and connection mutations remain unverified.
 
@@ -104,6 +128,8 @@ Repositories page without a reload after setup confirmations: [the repository ro
 
 - [Relay stale close capability recovery](2026-11-27-relay-stale-close-capability.md): exact pre-expiry retry after a definite 401; production installed on `6271ebe1`, live recovery verification and staging pending.
 - [PostgreSQL automatic restart deferral](2026-11-27-postgresql-maintenance-deferral.md): production override installed; actual unattended-upgrade observation and staging pending.
+- [Durable GitHub webhook delivery](2026-11-27-webhook-effect-fence.md): all six production paths and bounded known-delivery recovery implemented; recorded checkpoint `7bb2a59d` passed PostgreSQL 160/160 and matched the 127-test unit inputs. Later catalog/parser/index changes require final-source qualification and current-head CI; the combined catalog has 176 migrations. Staging and production remain `pending`; controlled writer drain includes index construction, with no operational rollout or replay performed.
+- [Unconfirmed webhook acknowledgement](2026-11-27-webhook-unconfirmed-delivery.md): do not acknowledge an unfinished delivery as successfully processed; staging and production pending.
 - [Relay close and pressure-batch diagnostics](2026-11-22-relay-close-diagnostics.md): #962 preparation observations plus an aggregate continuation; API observability is pending staging and production rollout.
 
 Bound close-authority database work and drain restored closes on shutdown: [relay close authority bounds](2026-11-23-relay-close-authority-bounds.md) - API-only, depends on #970 and #988; staging `pending`, production `installed` on `f20a75ed`, with live verification pending. Limits close-authority phases, not all DB traffic or tenant fairness.

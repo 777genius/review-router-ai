@@ -66,6 +66,7 @@ export function createAccountLimitsService(input: {
   async function observe(
     connectionId: string,
     explicitRefresh: boolean,
+    signal?: AbortSignal,
   ): Promise<AccountsResult<AccountLimitsView>> {
     try {
       const scope = await input.authorize();
@@ -95,6 +96,8 @@ export function createAccountLimitsService(input: {
       const value = await readAccountLimits({
         reader: {
           async read(target) {
+            if (signal?.aborted)
+              return { status: "unavailable", reason: "source_unavailable" };
             const supported =
               source.state === "active" && input.refresher
                 ? input.refresher.supports(target.profileId).catch((error) => {
@@ -111,7 +114,9 @@ export function createAccountLimitsService(input: {
               try {
                 // Optional discovery must not consume the cached page's deadline.
                 const [result, available] = await Promise.all([
-                  input.reader.read(target),
+                  signal
+                    ? input.reader.read(target, { signal })
+                    : input.reader.read(target),
                   Promise.race([
                     supported,
                     new Promise<boolean>((resolve) => {
@@ -187,33 +192,52 @@ export function createAccountLimitsService(input: {
   const refresh = (connectionId: string) => observe(connectionId, true);
   async function page<T extends AccountView>(
     accounts: readonly T[],
+    options: { deadlineAt?: number; signal?: AbortSignal } = {},
   ): Promise<T[]> {
     const rows = accounts.map((account) => ({
       ...account,
       limits: view("unavailable"),
     }));
+    const deadlineAt = Math.min(
+      Date.now() + 3000,
+      options.deadlineAt ?? Infinity,
+    );
+    if (options.signal?.aborted || Date.now() >= deadlineAt) return rows;
     let cursor = 0;
     let closed = false;
+    const controller = new AbortController();
+    let stop!: () => void;
+    const stopped = new Promise<void>((resolve) => {
+      stop = resolve;
+    });
+    const abort = () => {
+      closed = true;
+      controller.abort();
+      stop();
+    };
+    options.signal?.addEventListener("abort", abort, { once: true });
     let timer: ReturnType<typeof setTimeout> | undefined;
     const work = Promise.all(
       Array.from({ length: Math.min(4, rows.length) }, async () => {
-        while (!closed && cursor < rows.length) {
+        while (!closed && Date.now() < deadlineAt && cursor < rows.length) {
           const index = cursor++;
-          const result = await read(rows[index]!.connectionId);
+          const result = await observe(
+            rows[index]!.connectionId,
+            false,
+            controller.signal,
+          );
           if (!closed && result.status === "ok")
             rows[index]!.limits = result.value;
         }
       }),
     );
     try {
-      await Promise.race([
-        work,
-        new Promise<void>((done) => {
-          timer = setTimeout(done, 3000);
-        }),
-      ]);
+      timer = setTimeout(abort, Math.max(0, deadlineAt - Date.now()));
+      await Promise.race([work, stopped]);
     } finally {
       closed = true;
+      controller.abort();
+      options.signal?.removeEventListener("abort", abort);
       if (timer) clearTimeout(timer);
     }
     // A fast row may finish before another row consumes the page deadline.

@@ -13,6 +13,7 @@ import {
 import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config/review-configuration";
 import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { createReviewRunGatewayCheckout } from "./review-run-gateway-checkout";
+import type { NativeGatewayRelayPolicyObservation } from "./native-gateway-relay-policy";
 import {
   codexOAuthModelSettingsProfile,
   createReviewRunGatewayModelSettingsReader,
@@ -26,6 +27,7 @@ function fixture(
   reasoningEffort?: "minimal" | "high" | "max" | "ultra",
   options: {
     readonly source?: "codex" | "openrouter" | "glm" | "kimi" | "minimax";
+    readonly native?: boolean;
   } = {},
 ) {
   const source = options.source ?? "codex";
@@ -40,6 +42,12 @@ function fixture(
             ? "minimax-mplan-global-responses-apikey-v1"
             : "openrouter-openai-responses-apikey-v1";
 
+  const nativeContext = {
+    schemaVersion: 1 as const,
+    profileId: profileRef,
+    providerId: "native-provider",
+    productId: "native-product",
+  };
   const configuration = parseReviewConfigurationStrict({
     ...workspacePolicyFixture,
     providers: [
@@ -91,6 +99,7 @@ function fixture(
       permittedAccountRef: "account-private",
       ...(source === "glm" ? { expectedAuthorizationEpoch: 7 } : {}),
       profileRef,
+      ...(options.native ? { nativeContext } : {}),
       invocationId: "invocation-1",
       attemptId: "attempt-1",
       operationId: "operation-1",
@@ -212,23 +221,76 @@ function fixture(
     duringGet?.();
     return structuredClone(account);
   });
-  const readAccountModels = vi.fn<ConsumerControlClient["readAccountModels"]>(
-    async (request) => {
-      if (
-        request.ownerRef !== account.ownerRef ||
-        request.accountRef !== account.accountRef ||
-        request.profileId !== account.profileId ||
-        request.expectedAuthorizationEpoch !== account.authorizationEpoch
-      )
-        throw new Error("fixture_wrong_account_models_scope");
-      duringRead?.();
-      return structuredClone(catalog);
+  const scopedModels: ConsumerControlClient["readAccountModels"] = async (
+    request,
+  ) => {
+    if (
+      request.ownerRef !== account.ownerRef ||
+      request.accountRef !== account.accountRef ||
+      request.profileId !== account.profileId ||
+      request.expectedAuthorizationEpoch !== account.authorizationEpoch
+    )
+      throw new Error("fixture_wrong_account_models_scope");
+    duringRead?.();
+    return structuredClone(catalog);
+  };
+  const readAccountModels =
+    vi.fn<ConsumerControlClient["readAccountModels"]>(scopedModels);
+  const readAccountModelsV2 = vi.fn<
+    ConsumerControlClient["readAccountModelsV2"]
+  >(async (request, options) => {
+    const value = await scopedModels(request, options);
+    if (value.status !== "snapshot") return value;
+    const { source: _source, ...snapshot } = value;
+    void _source;
+    return {
+      ...snapshot,
+      sourceId: "native-models",
+      profileId: profileRef,
+      admission: { unavailableFallback: "deny" },
+    };
+  });
+  let nativeObservation: NativeGatewayRelayPolicyObservation | undefined = {
+    expiresAt: Date.now() + 30_000,
+    policy: {
+      profiles: [
+        {
+          outputTokens: 4096,
+          profile: {
+            profileId: profileRef,
+            protocol: "openai-responses",
+            modelIds: [model],
+            authKinds: [],
+            nativeContext,
+            modelPolicy: {
+              contract: "native-account-models/v2",
+              sourceId: "native-models",
+              unavailableFallback: "deny",
+            },
+          },
+        },
+      ],
+      ingressBytes: 4096,
+      requestTimeoutMs: 10_000,
+      waitBudgetMs: 0,
+      maxWaits: 0,
+      maxSessions: 4,
+      maxInFlight: 2,
     },
-  );
+  };
   const readSettings = createReviewRunGatewayModelSettingsReader({
     ...options,
     accounts: { findBinding: vi.fn(async () => structuredClone(row)) },
-    control: { get, readAccountModels },
+    control: { get, readAccountModels, readAccountModelsV2 },
+    ...(options.native
+      ? {
+          nativePolicySource: {
+            read: async () => nativeObservation,
+            isFresh: (value: NativeGatewayRelayPolicyObservation) =>
+              Date.now() < value.expiresAt,
+          },
+        }
+      : {}),
     profiles: [
       {
         profileId: profileRef,
@@ -285,6 +347,11 @@ function fixture(
     issuer,
     get,
     readAccountModels,
+    readAccountModelsV2,
+    nativeSnapshot: () => structuredClone(nativeObservation!),
+    nativeCatalog: (value: NativeGatewayRelayPolicyObservation | undefined) => {
+      nativeObservation = value;
+    },
     configuration,
     read: (epoch?: number) =>
       readSettings({
@@ -777,3 +844,82 @@ it.each([
     expect(other.issuer).not.toHaveBeenCalled();
   },
 );
+
+it("recovers native selected model settings with the same reader after discovery failure", async () => {
+  const f = fixture("gpt-prefix/dynamic", "ultra", { native: true });
+  const catalog = f.nativeSnapshot();
+  f.nativeCatalog(undefined);
+  await expect(f.read()).rejects.toThrow("gateway_model_settings_unavailable");
+  expect(f.get).not.toHaveBeenCalled();
+  f.nativeCatalog(catalog);
+  await expect(f.read()).resolves.toMatchObject({
+    authorizationEpoch: 7,
+    settings: { model: "gpt-prefix/dynamic", reasoning: { default: "high" } },
+  });
+  expect(f.readAccountModelsV2).toHaveBeenCalledTimes(1);
+  expect(f.readAccountModels).not.toHaveBeenCalled();
+});
+
+it.each(["provider", "product", "disabled", "expired"] as const)(
+  "does not replace captured native identity for %s discovery",
+  async (change) => {
+    const f = fixture("gpt-prefix/dynamic", undefined, { native: true });
+    const original = f.nativeSnapshot();
+    const selected = original.policy.profiles[0]!;
+    f.nativeCatalog({
+      ...original,
+      expiresAt: change === "expired" ? Date.now() : original.expiresAt,
+      policy: {
+        ...original.policy,
+        profiles: [
+          {
+            ...selected,
+            profile:
+              change === "disabled"
+                ? {
+                    profileId: selected.profile.profileId,
+                    protocol: "openai-responses",
+                    authKinds: [],
+                    modelIds: [],
+                  }
+                : {
+                    ...selected.profile,
+                    nativeContext: {
+                      ...selected.profile.nativeContext!,
+                      ...(change === "provider"
+                        ? { providerId: "other-provider" }
+                        : change === "product"
+                          ? { productId: "other-product" }
+                          : {}),
+                    },
+                  },
+          },
+        ],
+      },
+    });
+    await expect(f.read()).rejects.toThrow(
+      "gateway_model_settings_unavailable",
+    );
+    expect(f.get).not.toHaveBeenCalled();
+    expect(f.readAccountModelsV2).not.toHaveBeenCalled();
+  },
+);
+
+it("retains native selected-model account fences and rejects qualification expiring during the read", async () => {
+  const changed = fixture("gpt-prefix/dynamic", undefined, { native: true });
+  changed.during(changed.changeBinding);
+  await expect(changed.read()).rejects.toThrow(
+    "gateway_model_settings_unavailable",
+  );
+  const expiring = fixture("gpt-prefix/dynamic", undefined, { native: true });
+  const expiry = expiring.nativeSnapshot().expiresAt;
+  const clock = vi.spyOn(Date, "now");
+  try {
+    expiring.during(() => clock.mockReturnValue(expiry));
+    await expect(expiring.read()).rejects.toThrow(
+      "gateway_model_settings_unavailable",
+    );
+  } finally {
+    clock.mockRestore();
+  }
+});

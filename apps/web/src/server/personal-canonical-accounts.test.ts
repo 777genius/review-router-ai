@@ -1603,3 +1603,35 @@ describe("lazy native admission and durable personal recovery", () => {
     expect(f.control.get).not.toHaveBeenCalled();
   });
 });
+
+it("keeps personal local inventory available when the first catalogue read consumes the page budget", async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  const signals: AbortSignal[] = [];
+  const catalogue = vi.fn(
+    (read?: import("./account-inventory-enrichment").AccountInventoryRead) =>
+      read!((signal) => {
+        signals.push(signal);
+        return new Promise<never>(() => {});
+      }),
+  );
+  const api = createPersonalCanonicalAccounts({ ...f.input, catalogue });
+  try {
+    const pending = api.listGatewayAccounts("ignored-display-context", null);
+    await vi.advanceTimersByTimeAsync(3000);
+    const result = await pending;
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") throw new Error("inventory_expected");
+    expect(result.value.accounts).toMatchObject([
+      { connectionId: "own-source", label: "Personal", readiness: "unknown" },
+    ]);
+    expect(f.control.get).not.toHaveBeenCalled();
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.aborted).toBe(true);
+    expect(f.intents).toHaveLength(0);
+    expect(f.deliverFences).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
+});

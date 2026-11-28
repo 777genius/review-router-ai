@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@octokit/app": "^16.1.2",
+    "@octokit/core": "7.0.6",
     "@prisma/client": "7.9.0",
     "@reviewrouter/features-outbox": "workspace:*",
     "@reviewrouter/features-workflow-provisioning": "workspace:*",

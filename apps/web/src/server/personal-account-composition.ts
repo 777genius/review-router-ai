@@ -10,6 +10,7 @@ import {
 import { gatewayAPIKeyProviderKinds } from "../features/provider-setup/provider-identity";
 import { createAccountLimitsService } from "./account-limits-service";
 import { createAccountMetadataService } from "./account-metadata-service";
+import type { AccountInventoryRead } from "./account-inventory-enrichment";
 import { accountMetadataReader } from "./account-metadata-sdk-reader";
 import {
   accountLimitsReader,
@@ -179,13 +180,30 @@ export async function productionPersonalAccounts() {
       });
   }
   let v3: Promise<c.ProviderConnectionCapabilitiesV3> | undefined;
-  const connectionCapabilitiesV3 = () =>
-    (v3 ??= checked(() => control.getProviderConnectionCapabilitiesV3()));
-  async function catalogue(): Promise<AccountProfileView[]> {
+  const connectionCapabilitiesV3 = (read?: AccountInventoryRead) => {
+    const request = (signal?: AbortSignal) =>
+      (v3 ??= control
+        .getProviderConnectionCapabilitiesV3(signal ? { signal } : undefined)
+        .then((catalog) => {
+          if (signal?.aborted)
+            throw new Error("account_inventory_enrichment_unavailable");
+          return catalog;
+        })
+        .catch((error) => {
+          v3 = undefined;
+          throw error;
+        }));
+    // Catalogue's outer checked() owns the live session fence. Cache only the
+    // actual transport, so a page timeout cannot start an overlapping attempt.
+    return read ? read((signal) => request(signal)) : request();
+  };
+  async function catalogue(
+    read?: AccountInventoryRead,
+  ): Promise<AccountProfileView[]> {
     return checked(() =>
       connectionProfiles({
         legacy: [],
-        capabilitiesV3: connectionCapabilitiesV3,
+        capabilitiesV3: () => connectionCapabilitiesV3(read),
       }),
     );
   }
@@ -313,9 +331,10 @@ export async function productionPersonalAccounts() {
         target: Parameters<
           import("@reviewrouter/features-provider-accounts").AccountLimitsReader["read"]
         >[0],
+        options?: { signal?: AbortSignal },
       ) {
         cachedReader ??= accountLimitsReader(limitsSettings);
-        return (await cachedReader).read(target);
+        return (await cachedReader).read(target, options);
       },
     };
     return createAccountLimitsService({
@@ -518,8 +537,6 @@ export async function productionPersonalAccounts() {
   }
   async function overview(workspaceId: string) {
     await workspaceAccess(workspaceId);
-    const qualified = await catalogue().catch(() => []);
-    await workspaceAccess(workspaceId);
     const managementSettings = {
       role: "management" as const,
       origin: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "",
@@ -544,22 +561,12 @@ export async function productionPersonalAccounts() {
       gateway: overviewReader,
       visibleRepositoryIds: () => usageRepositoryVisibility(workspaceId),
       lifecycleCompatible: overviewReader.writable,
-      profiles: [
-        ...qualified,
-        ...profiles
-          .filter(
-            (identity) =>
-              !qualified.some((profile) => profile.id === identity.id),
-          )
-          .map(
-            (identity) =>
-              ({
-                ...identity,
-                availability: "deployment_configuration_required",
-                canReconnect: false,
-              }) as const,
-          ),
-      ],
+      loadProfiles: catalogue,
+      profiles: profiles.map((identity) => ({
+        ...identity,
+        availability: "deployment_configuration_required",
+        canReconnect: false,
+      })),
       ...(settings.operatorWorkspaceId
         ? { operatorWorkspaceId: settings.operatorWorkspaceId }
         : {}),

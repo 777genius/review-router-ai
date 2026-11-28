@@ -16,6 +16,96 @@ afterEach(() => {
 });
 
 describe("outbox execution ownership", () => {
+  it("stops between owned events without claiming the next event", async () => {
+    const outbox = new InMemoryOutboxEventRepository();
+    await seed(outbox, "first", "second");
+    const stop = new AbortController();
+    const handled: string[] = [];
+    const input = {
+      limit: 2,
+      claimOwnerHash: "draining-worker",
+      signal: stop.signal,
+      handlers: [
+        {
+          ...definition,
+          async handle(event: { id: string }) {
+            handled.push(event.id);
+            stop.abort();
+          },
+        },
+      ],
+    };
+    const result = await processOutboxBatch(input, {
+      outbox,
+      clock: { now: () => start },
+    });
+    expect(result).toMatchObject({ claimed: 1, processed: 1 });
+    expect(handled).toEqual(["first"]);
+    expect(outbox.events.get("second")).toMatchObject({
+      status: "pending",
+      attempts: 0,
+    });
+    expect(
+      await processOutboxBatch(
+        {
+          ...input,
+          signal: new AbortController().signal,
+          claimOwnerHash: "other-worker",
+        },
+        { outbox, clock: { now: () => start } },
+      ),
+    ).toMatchObject({ claimed: 1, processed: 1 });
+  });
+
+  it("drains a claim that completes after shutdown was requested", async () => {
+    const outbox = new InMemoryOutboxEventRepository();
+    await seed(outbox, "racing-claim", "unstarted");
+    const stop = new AbortController();
+    const claim = outbox.claimDue.bind(outbox);
+    vi.spyOn(outbox, "claimDue").mockImplementationOnce(async (input) => {
+      const acquired = await claim(input);
+      stop.abort();
+      return acquired;
+    });
+    const handled = vi.fn(async () => undefined);
+    const result = await processOutboxBatch(
+      {
+        limit: 2,
+        claimOwnerHash: "worker",
+        signal: stop.signal,
+        handlers: [{ ...definition, handle: handled }],
+      },
+      { outbox, clock: { now: () => start } },
+    );
+    expect(result).toMatchObject({ claimed: 1, processed: 1 });
+    expect(handled).toHaveBeenCalledOnce();
+    expect(outbox.events.get("unstarted")).toMatchObject({
+      status: "pending",
+      attempts: 0,
+    });
+  });
+
+  it("does not recover or claim work when already stopping", async () => {
+    const outbox = new InMemoryOutboxEventRepository();
+    const recovery = vi.spyOn(outbox, "recoverStaleProcessing");
+    const claim = vi.spyOn(outbox, "claimDue");
+    const stop = new AbortController();
+    stop.abort();
+    const result = await processOutboxBatch(
+      {
+        limit: 25,
+        claimOwnerHash: "worker",
+        signal: stop.signal,
+        takeoverEnabled: true,
+        handlers: [{ ...definition, handle: async () => undefined }],
+      },
+      { outbox, clock: { now: () => start } },
+    );
+    expect(result).toMatchObject({ recoveredStale: 0, claimed: 0 });
+    expect(recovery).not.toHaveBeenCalled();
+    expect(claim).not.toHaveBeenCalled();
+  });
+
   it.each([NaN, Infinity, -Infinity, 1.5, -1, Number.MAX_SAFE_INTEGER + 1])(
     "rejects invalid batch limit %s before touching the repository",
     async (limit) => {

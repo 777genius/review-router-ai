@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import {
   reviewConfigurationTargetKey,
   type ReviewConfigurationTarget,
@@ -12,7 +12,7 @@ import { readProviderProfiles } from "./prisma-provider-profile-rows";
 
 export type ReviewPolicyReader = Pick<
   PrismaClient | Prisma.TransactionClient,
-  "reviewConfiguration" | "workspaceProviderProfile"
+  "reviewConfiguration" | "workspaceProviderProfile" | "$queryRaw"
 >;
 
 const policyHeadSelect = {
@@ -101,30 +101,32 @@ export class PrismaReviewPolicyHeadReader implements ReviewPolicyHeadReaderPort 
     const records =
       repositoryIds?.length === 0
         ? []
-        : await this.reader.reviewConfiguration.findMany({
-            where: {
-              workspaceId,
-              repositoryId: repositoryIds
-                ? { in: [...repositoryIds] }
-                : { not: null },
-              active: true,
-            },
-            orderBy: { repositoryId: "asc" },
-            select: {
-              repositoryId: true,
-              versions: {
-                orderBy: { version: "desc" },
-                take: 1,
-                select: policyHeadSelect,
-              },
-            },
-          });
+        : await this.reader.$queryRaw<
+            (ReviewPolicyHead & { repositoryId: string })[]
+          >`
+            SELECT configuration."repositoryId", latest."version",
+                   latest."schemaVersion", latest."policyJson"
+            FROM "ReviewConfiguration" AS configuration
+            JOIN LATERAL (
+              SELECT version."version", version."schemaVersion", version."policyJson"
+              FROM "ReviewConfigurationVersion" AS version
+              WHERE version."configurationId" = configuration."id"
+                AND version."workspaceId" = configuration."workspaceId"
+              ORDER BY version."version" DESC
+              LIMIT 1
+            ) AS latest ON true
+            WHERE configuration."workspaceId" = ${workspaceId}
+              AND configuration."active" = true
+              AND configuration."repositoryId" IS NOT NULL
+              ${
+                repositoryIds
+                  ? Prisma.sql`AND configuration."repositoryId" = ANY(${repositoryIds}::text[])`
+                  : Prisma.empty
+              }
+            ORDER BY configuration."repositoryId" ASC
+          `;
     const repositories = new Map(
-      records.flatMap((record) =>
-        record.repositoryId && record.versions[0]
-          ? [[record.repositoryId, record.versions[0]] as const]
-          : [],
-      ),
+      records.map(({ repositoryId, ...head }) => [repositoryId, head] as const),
     );
     const profiles = await readProviderProfiles(
       this.reader,

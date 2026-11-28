@@ -30,3 +30,7 @@ export async function mapWithConcurrency<Value, Mapped>(
   );
   return results;
 }
+export {
+  createRetainedOperationRunner,
+  RetainedOperationUnavailable,
+} from "./retained-operation";

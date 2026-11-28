@@ -30,9 +30,9 @@ const forbiddenPnpmConfigBasename =
   /^(?:\.npmrc|\.pnpmfile(?:\..*)?|pnpmfile\.(?:c?js|mjs|ts))$/iu;
 
 const reviewedMinimumReleaseAgeExclusions = new Set([
-  "@agent-teams/document-authoring@0.3.6",
-  "@agent-teams/engineering-foundation@3.1.0",
-  "@agent-teams/repository-mutation@0.4.2",
+  "@agent-teams/document-authoring@0.3.9",
+  "@agent-teams/engineering-foundation@4.1.0",
+  "@agent-teams/repository-mutation@0.5.2",
   "@get-modular/assembly@0.8.0",
   "@get-modular/conformance@0.5.2",
   "@get-modular/core@0.8.0",

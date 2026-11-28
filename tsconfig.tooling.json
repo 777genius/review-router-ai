@@ -6,6 +6,7 @@
   },
   "include": [
     "scripts/ci-browser-routing.test.ts",
+    "scripts/webhook-fencing/**/*.ts",
     "scripts/accounts-reference-next-app.test.ts",
     "scripts/accounts-reference-low-memory-webpack.test.ts",
     "scripts/accounts-reference-source-revision.test.ts",

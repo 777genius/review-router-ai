@@ -40,7 +40,7 @@ export const FIXTURES = Object.freeze({
   identities: {
     viewer: {
       provider: "github",
-      externalUserId: "rr-e2e-github-viewer-0001",
+      externalUserId: "910000000001",
       login: "rr-e2e-viewer",
     },
     other: {
@@ -50,7 +50,7 @@ export const FIXTURES = Object.freeze({
     },
     foreign: {
       provider: "github",
-      externalUserId: "rr-e2e-github-foreign-0001",
+      externalUserId: "910000000003",
       login: "rr-e2e-foreign-person",
     },
   },

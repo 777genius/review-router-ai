@@ -16,7 +16,7 @@
     }
   },
   "dependencies": {
-    "@agent-teams/account-gateway": "file:../../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-parity-83c18fd090e7.tgz",
+    "@agent-teams/account-gateway": "file:../../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-parity-90739814c9e8.tgz",
     "@prisma/client": "7.9.0",
     "@get-modular/core": "0.8.0",
     "@get-modular/assembly": "0.8.0"

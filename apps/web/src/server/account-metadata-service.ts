@@ -122,6 +122,7 @@ export function createAccountMetadataService(input: {
   });
   async function page<T extends DisplayAccount>(
     accounts: readonly T[],
+    options: { deadlineAt?: number; signal?: AbortSignal } = {},
   ): Promise<Array<T & { metadata: AccountMetadataView }>> {
     try {
       const values = await (
@@ -129,6 +130,7 @@ export function createAccountMetadataService(input: {
       ).readMetadata({
         connectionIds: accounts.map((account) => account.connectionId),
         authorize,
+        ...options,
       });
       return accounts.map((account) => ({
         ...account,

@@ -1,4 +1,5 @@
 import { assertLifecycleVerificationPreparedPlan } from "./review-lifecycle-verification.js";
+import { isUnattachedAcceptedRestoreSlot } from "./review-execution-publication-restore.js";
 import type {
   ReviewInvocationLease,
   ReviewObservationAttachmentKind,
@@ -125,6 +126,9 @@ export async function lookupEvidence(
     revision: toEvidenceRevision(authorization),
     planHash: request.planHash,
     executionId: request.executionId,
+    ...(isUnattachedAcceptedRestoreSlot(snapshot, slot)
+      ? { sourceWorkSlotId: slot.workSlotId }
+      : {}),
     manifest,
     manifestKey: request.manifestKey,
     providerInvocationKey: request.providerInvocationKey,

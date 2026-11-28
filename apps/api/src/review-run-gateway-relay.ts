@@ -1,4 +1,8 @@
-import { gatewayProfileAcceptsRequestedModel } from "./review-run-gateway-model-qualification";
+import {
+  gatewayProfileAcceptsRequestedModel,
+  gatewayProfileMatchesCapturedNativeContext,
+} from "./review-run-gateway-model-qualification";
+import type { NativeGatewayRelayPolicySource } from "./native-gateway-relay-policy";
 import type { GatewayModelQualificationProfile } from "./review-run-gateway-model-qualification";
 import type { UsageIdentity } from "@reviewrouter/features-provider-usage";
 import { gatewayUsageReceipt } from "./provider-usage-gateway-relay-receipt";
@@ -43,6 +47,7 @@ import {
   reviewModelDispatchContract,
   reviewModelDispatchHeaders,
   parseReviewModelDispatchCapability,
+  reviewModelDispatchAllowsNativeRetry,
   type ReviewModelDispatchCapability,
 } from "@reviewrouter/shared";
 
@@ -249,6 +254,7 @@ type Session = {
  * authority/selected facts. Absence NEVER replays inference or auto-recovers. */
 export function createReviewRunGatewayRelay(input: {
   readonly policy: ReviewRunGatewayRelayPolicy;
+  readonly nativePolicySource?: NativeGatewayRelayPolicySource | undefined;
   readonly runAccess: RunAccessConfig;
   /** Authenticated SCM observation only; never proof of absent model effects. */
   readonly isSourceRunTerminal?: (
@@ -284,7 +290,9 @@ export function createReviewRunGatewayRelay(input: {
   readonly snapshots: ReviewRunRuntimeSnapshotPort;
   readonly bindings: ReviewRunGatewayExecutionBindingPort;
   readonly companionDispatches?: ReviewRunCompanionDispatchAdmission &
-    Partial<Pick<ReviewRunModelDispatchAdmission, "forward">>;
+    Partial<
+      Pick<ReviewRunModelDispatchAdmission, "forward" | "recordNativeRejection">
+    >;
   /** Persist trusted correlation before dispatch; outcome reporting never replays inference. */
   readonly usage?: {
     prepare(input: {
@@ -1176,8 +1184,42 @@ export function createReviewRunGatewayRelay(input: {
           effect,
         });
     };
-    const settle = async (effect: c.RequestStatus["effect"]) => {
+    const attestNativeRejection = async () => {
+      const capability = parseReviewRunRuntimeSnapshot(
+        session.canonical,
+      )?.modelDispatchCapability;
+      if (
+        dispatch.dispatchVersion !== 2 ||
+        dispatch.role !== "finding_discovery" ||
+        dispatch.retryOfDispatchId !== undefined ||
+        !reviewModelDispatchAllowsNativeRetry(capability) ||
+        !input.companionDispatches?.recordNativeRejection
+      )
+        return false;
+      const proof = await session.preparation.retryProof(
+        requestRef,
+        { signal },
+        fresh,
+      );
+      await input.companionDispatches.recordNativeRejection(
+        auth.authorizationId,
+        dispatch.dispatchId,
+        proof,
+      );
+      return true;
+    };
+    const settle = async (
+      effect: c.RequestStatus["effect"],
+      observePhase?: (phase: "usage_outcome" | "companion_settlement") => void,
+    ) => {
+      observePhase?.("usage_outcome");
       await outcome(effect);
+      observePhase?.("companion_settlement");
+      if (
+        effect === "rejected_before_dispatch" &&
+        (await attestNativeRejection())
+      )
+        return;
       await input.companionDispatches!.settle(
         auth.authorizationId,
         dispatch.dispatchId,
@@ -1252,7 +1294,14 @@ export function createReviewRunGatewayRelay(input: {
       requestStage = "post_request_authority";
       await fresh();
       if (upstream.kind === "status") {
-        await settle(upstream.status.effect);
+        // Public native 202 may retain its pre-settlement status. The SDK has
+        // fully drained it; only the separate proof can attest closed non-entry.
+        if (
+          upstream.status.effect !== "completed" &&
+          (await attestNativeRejection())
+        )
+          await outcome("rejected_before_dispatch");
+        else await settle(upstream.status.effect);
         dispose();
         return upstream;
       }
@@ -1262,6 +1311,7 @@ export function createReviewRunGatewayRelay(input: {
       const reader = stream.body.getReader();
       let received = 0;
       let completed = false;
+      let outcomeOwner: "pull" | "cancel" | undefined;
       const abort = () => {
         dispose();
         void stream.cancel().catch(() => {});
@@ -1283,10 +1333,18 @@ export function createReviewRunGatewayRelay(input: {
                 | "authority_recheck"
                 | "cancelled"
                 | "native_status"
+                | "usage_outcome"
+                | "companion_settlement"
                 | "stream_byte_limit"
                 | "downstream" = "upstream_read";
               try {
                 const chunk = await reader.read();
+                phase = "cancelled";
+                if (outcomeOwner === "cancel")
+                  throw new Error("companion_cancelled");
+                // EOF reconciliation owns the outcome across authority, status,
+                // and both persistence awaits; its catch still records failure.
+                if (chunk.done) outcomeOwner = "pull";
                 phase = "authority_recheck";
                 await localFresh();
                 phase = "cancelled";
@@ -1299,7 +1357,10 @@ export function createReviewRunGatewayRelay(input: {
                     { signal },
                     fresh,
                   );
-                  await settle(status.effect);
+                  await settle(status.effect, (settlementPhase) => {
+                    phase = settlementPhase;
+                  });
+                  phase = "downstream";
                   completed = true;
                   cleanup();
                   target.close();
@@ -1325,12 +1386,20 @@ export function createReviewRunGatewayRelay(input: {
                     requestRef,
                     receivedBytes: received,
                     maxStreamBytes: maxResponseBytes,
+                    signalAborted: signal.aborted,
+                    ...(detail ? { errorCategory: detail.errorCategory } : {}),
+                    ...(detail?.httpStatus === undefined
+                      ? {}
+                      : { httpStatus: detail.httpStatus }),
                     ...(detail?.sdkCode ? { sdkCode: detail.sdkCode } : {}),
                   });
                 } catch {
                   /* Diagnostics must not affect settlement. */
                 }
-                await unknown();
+                if (!completed && outcomeOwner !== "cancel") {
+                  outcomeOwner = "pull";
+                  await unknown();
+                }
                 cleanup();
                 await stream.cancel().catch(() => {});
                 target.error(
@@ -1344,7 +1413,10 @@ export function createReviewRunGatewayRelay(input: {
               }
             },
             async cancel() {
-              if (!completed) await unknown();
+              if (!completed && outcomeOwner === undefined) {
+                outcomeOwner = "cancel";
+                await unknown();
+              }
               cleanup();
               await stream.cancel();
             },
@@ -1352,7 +1424,10 @@ export function createReviewRunGatewayRelay(input: {
           { highWaterMark: 0 },
         ),
         cancel: async () => {
-          if (!completed) await unknown();
+          if (!completed && outcomeOwner === undefined) {
+            outcomeOwner = "cancel";
+            await unknown();
+          }
           cleanup();
           await stream.cancel();
         },
@@ -1370,9 +1445,23 @@ export function createReviewRunGatewayRelay(input: {
         cause.code,
       );
       if (upstream?.kind === "stream") await upstream.cancel().catch(() => {});
-      // Only a positively local native no-dispatch proof settles unpaid.
+      // A distinct authenticated native proof precedes unknown settlement.
       let failureEffect: c.RequestStatus["effect"] = "effect_unknown";
       if (
+        !upstream &&
+        error instanceof GatewayError &&
+        error.effect === "rejected_before_dispatch" &&
+        error.requestRef === requestRef
+      ) {
+        try {
+          if (await attestNativeRejection()) {
+            failureEffect = "rejected_before_dispatch";
+            await outcome("rejected_before_dispatch");
+          } else await unknown();
+        } catch {
+          await unknown();
+        }
+      } else if (
         !upstream &&
         error instanceof GatewayError &&
         error.effect === "not_dispatched" &&
@@ -1492,11 +1581,12 @@ export function createReviewRunGatewayRelay(input: {
       );
       if (
         qualified.length !== 1 ||
-        qualified[0]!.profile.protocol !== "openai-responses" ||
-        !gatewayProfileAcceptsRequestedModel(
-          qualified[0]!.profile,
-          provider.model,
-        ) ||
+        (!input.nativePolicySource &&
+          (qualified[0]!.profile.protocol !== "openai-responses" ||
+            !gatewayProfileAcceptsRequestedModel(
+              qualified[0]!.profile,
+              provider.model,
+            ))) ||
         gateway.limits.tokens > qualified[0]!.outputTokens
       )
         throw new RelayFailure("gateway_unavailable", 403);
@@ -1521,6 +1611,11 @@ export function createReviewRunGatewayRelay(input: {
           : null;
       if (modelBudget && (!reserved || reserved.dispatchVersion !== 2))
         throw new RelayFailure("model_dispatch_reservation_required", 409);
+      if (
+        reserved?.retryOfDispatchId !== undefined &&
+        !(await session.preparation.hasLiveNativeRetryAuthority())
+      )
+        throw new RelayFailure("model_dispatch_retry_denied", 409);
       const isCompanion = !!companion && reserved?.role !== "finding_discovery";
       if (
         companion &&
@@ -1570,6 +1665,9 @@ export function createReviewRunGatewayRelay(input: {
         companion && modelBudget
           ? {
               ...companion,
+              ...(reserved?.retryOfDispatchId === undefined
+                ? {}
+                : { retryOfDispatchId: reserved.retryOfDispatchId }),
               requestBytes: body.byteLength,
               maxOutputTokens: Number(
                 JSON.parse(new TextDecoder().decode(body)).max_output_tokens,
@@ -1641,6 +1739,31 @@ export function createReviewRunGatewayRelay(input: {
           claim.dispatch.nativeRequestRef,
           companionReadback(claim.dispatch),
         );
+      // Exact persisted claims above keep their original identity/readback even
+      // during a discovery outage. Only a new inference needs current discovery.
+      const nativeObservation = await input.nativePolicySource?.read();
+      const nativeProfile = nativeObservation?.policy.profiles.find(
+        (entry) => entry.profile.profileId === gateway.profileRef,
+      )?.profile;
+      const ensureNativeFresh = () => {
+        if (
+          input.nativePolicySource &&
+          (!nativeObservation ||
+            !input.nativePolicySource.isFresh(nativeObservation) ||
+            !nativeProfile ||
+            !gatewayProfileMatchesCapturedNativeContext(
+              nativeProfile,
+              gateway.nativeContext,
+            ) ||
+            !gatewayProfileAcceptsRequestedModel(nativeProfile, provider.model))
+        )
+          throw new RelayFailure("gateway_unavailable", 403);
+      };
+      try {
+        ensureNativeFresh();
+      } catch (error) {
+        return await refuseBeforeForward(error as RelayFailure);
+      }
       const remaining = Math.min(
         policy.requestTimeoutMs,
         session.deadline - Date.now(),
@@ -1664,6 +1787,10 @@ export function createReviewRunGatewayRelay(input: {
             new RelayFailure("authorization_denied", 401),
           );
         if (!session.preparation.hasSession()) {
+          if (reserved?.retryOfDispatchId !== undefined)
+            return await refuseBeforeForward(
+              new RelayFailure("model_dispatch_retry_denied", 409),
+            );
           if (session.preparation.needsRecovery())
             return await refuseBeforeForward(
               new RelayFailure(
@@ -1736,6 +1863,7 @@ export function createReviewRunGatewayRelay(input: {
                   "effect_unknown",
                   claim.dispatch.nativeRequestRef,
                 );
+              ensureNativeFresh();
             },
             reviewerId,
           );
@@ -1785,6 +1913,7 @@ export function createReviewRunGatewayRelay(input: {
               async () => {
                 requestStage = "local_authority";
                 await fresh();
+                ensureNativeFresh();
                 requestStage = "sdk_request";
               },
             );
@@ -2016,6 +2145,28 @@ export function createReviewRunGatewayRelay(input: {
     }
   }
   return Object.freeze({
+    canReadNativeRetryProof: async (dispatch: ReviewRunCompanionDispatch) => {
+      const session = sessions.get(dispatch.authorizationId);
+      if (
+        stopping ||
+        closing.has(dispatch.authorizationId) ||
+        !session ||
+        session.closed
+      )
+        return false;
+      const auth = await input.queries.findReviewRunAuthorizationById(
+        dispatch.authorizationId,
+      );
+      return (
+        !!auth &&
+        auth.runtimeSnapshotCanonicalJson === session.canonical &&
+        (await input.checkAuthority(auth, "local")) &&
+        (await session.preparation.hasLiveNativeRetryAuthority()) &&
+        !stopping &&
+        !closing.has(dispatch.authorizationId) &&
+        !session.closed
+      );
+    },
     policy,
     responses,
     closeRun,
@@ -2415,7 +2566,10 @@ export async function registerReviewRunGatewayRelayRoutes(
             reviewerSelector(request),
           );
           if (upstream.kind === "status")
-            return reply.code(202).send(upstream.status);
+            return reply
+              .code(202)
+              .header("x-reviewrouter-request-ref", upstream.status.requestRef)
+              .send(upstream.status);
           diagnostic.stage = "http_headers";
           try {
             diagnostic.bodyLocked = upstream.body.locked === true;
@@ -2467,6 +2621,12 @@ export async function registerReviewRunGatewayRelayRoutes(
           if (reply.raw.headersSent) reply.raw.destroy();
           else {
             const failure = safeFailure(error);
+            const requestRef = c.reference.safeParse(failure.requestRef);
+            if (
+              failure.effect === "rejected_before_dispatch" &&
+              requestRef.success
+            )
+              reply.header("x-reviewrouter-request-ref", requestRef.data);
             reply.code(failure.statusCode).send({
               error: {
                 code: failure.code,
@@ -2671,10 +2831,24 @@ function captureStreamFailureDiagnostic(
       ].includes(code)
         ? code
         : undefined;
-    const status: unknown = object
-      ? (Object.getOwnPropertyDescriptor(object, "status")?.value ??
-        Object.getOwnPropertyDescriptor(object, "statusCode")?.value)
-      : undefined;
+    let status: number | undefined;
+    if (object) {
+      for (const field of ["httpStatus", "status", "statusCode"]) {
+        const candidate: unknown = Object.getOwnPropertyDescriptor(
+          object,
+          field,
+        )?.value;
+        if (
+          typeof candidate === "number" &&
+          Number.isInteger(candidate) &&
+          candidate >= 400 &&
+          candidate <= 599
+        ) {
+          status = candidate;
+          break;
+        }
+      }
+    }
     const message: unknown = object
       ? Object.getOwnPropertyDescriptor(object, "message")?.value
       : undefined;
@@ -2694,12 +2868,7 @@ function captureStreamFailureDiagnostic(
             : error instanceof Error
               ? "Error"
               : "other",
-      ...(typeof status === "number" &&
-      Number.isInteger(status) &&
-      status >= 400 &&
-      status <= 599
-        ? { httpStatus: status }
-        : {}),
+      ...(status === undefined ? {} : { httpStatus: status }),
       ...(sdkCode === undefined ? {} : { sdkCode }),
     };
   } catch {

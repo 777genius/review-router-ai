@@ -1,6 +1,8 @@
 import {
   persistedReviewExecutionRestore,
   loadAcceptedReviewInvocationManifests,
+  loadUnattachedAcceptedReviewManifests,
+  isUnattachedAcceptedRestoreSlot,
 } from "./review-execution-publication-restore.js";
 import {
   assertLifecycleVerificationWorkSlots,
@@ -11,7 +13,6 @@ import {
   ReviewWorkSlotState,
   ReviewWorkSlotTerminalReason as DomainWorkSlotTerminalReason,
   StartReviewExecutionStatus,
-  type ReviewExecutionQueryPort,
   type ReviewExecutionSnapshot,
 } from "@reviewrouter/features-review-executions";
 import {
@@ -99,11 +100,7 @@ export async function restoreExecution(
     ) {
       return {
         statusCode: 200 as const,
-        result: await restoreResult(
-          snapshot,
-          authorization,
-          d.executionQueries,
-        ),
+        result: await restoreResult(snapshot, authorization, d),
       };
     }
   }
@@ -193,11 +190,7 @@ export async function startExecution(
     result: {
       status: mapStart(outcome.status),
       ...(outcome.snapshot
-        ? await executionResult(
-            outcome.snapshot,
-            authorization,
-            d.executionQueries,
-          )
+        ? await executionResult(outcome.snapshot, authorization, d)
         : {}),
     },
   };
@@ -522,7 +515,7 @@ export async function finalizeExecution(
 async function executionResult(
   snapshot: ReviewExecutionSnapshot,
   authorization: ReviewRunAuthorization,
-  queries: Pick<ReviewExecutionQueryPort, "findLease">,
+  d: ReviewActionV2ExecutionHandlerDependencies,
 ) {
   return {
     executionId: snapshot.execution.executionId,
@@ -532,7 +525,7 @@ async function executionResult(
     executionCanonicalJson: await canonicalExecution(
       snapshot,
       authorization,
-      queries,
+      d,
     ),
   };
 }
@@ -540,7 +533,7 @@ async function executionResult(
 async function restoreResult(
   snapshot: ReviewExecutionSnapshot,
   authorization: ReviewRunAuthorization,
-  queries: Pick<ReviewExecutionQueryPort, "findLease">,
+  d: ReviewActionV2ExecutionHandlerDependencies,
 ) {
   return {
     status: ReviewExecutionRestoreResultStatus.Found,
@@ -551,7 +544,7 @@ async function restoreResult(
     executionCanonicalJson: await canonicalExecution(
       snapshot,
       authorization,
-      queries,
+      d,
     ),
   };
 }
@@ -559,19 +552,50 @@ async function restoreResult(
 async function canonicalExecution(
   snapshot: ReviewExecutionSnapshot,
   authorization: ReviewRunAuthorization,
-  queries: Pick<ReviewExecutionQueryPort, "findLease">,
+  d: ReviewActionV2ExecutionHandlerDependencies,
 ) {
   const e = snapshot.execution;
-  const persistedPlan =
-    parseReviewRunRuntimeSnapshot(authorization.runtimeSnapshotCanonicalJson)
-      ?.lifecycleVerificationCapability ||
+  let persistedPlan:
+    | ReturnType<typeof persistedReviewExecutionRestore>
+    | undefined;
+  const runtime = parseReviewRunRuntimeSnapshot(
+    authorization.runtimeSnapshotCanonicalJson,
+  );
+  if (
+    runtime?.lifecycleVerificationCapability ||
     (e.assignmentManifestCanonicalJson &&
-      JSON.parse(e.assignmentManifestCanonicalJson).manifestVersion === 2)
-      ? persistedReviewExecutionRestore(
+      (runtime?.snapshotVersion === 4 ? [1, 2] : [2]).includes(
+        JSON.parse(e.assignmentManifestCanonicalJson).manifestVersion,
+      ))
+  ) {
+    const accepted = await loadAcceptedReviewInvocationManifests(
+      snapshot,
+      d.executionQueries,
+    );
+    const hasUnattachedSource = e.workSlots.some((slot) =>
+      isUnattachedAcceptedRestoreSlot(snapshot, slot),
+    );
+    const limits = hasUnattachedSource
+      ? await requireProtocolLimits(authorization, d)
+      : null;
+    const unattached = limits
+      ? await loadUnattachedAcceptedReviewManifests({
           snapshot,
-          await loadAcceptedReviewInvocationManifests(snapshot, queries),
-        )
-      : undefined;
+          authorization,
+          queries: d.executionQueries,
+          observations: d.observations,
+          digest: d.digest,
+          now: d.now(),
+          maxObservationBytes: limits.maxObservationBytes,
+          maxObservationFindings: limits.maxObservationFindings,
+        })
+      : [];
+    persistedPlan = persistedReviewExecutionRestore(
+      snapshot,
+      accepted,
+      unattached,
+    );
+  }
   return canonicalJson({
     ...(persistedPlan ? { persistedPlan } : {}),
     executionId: e.executionId,

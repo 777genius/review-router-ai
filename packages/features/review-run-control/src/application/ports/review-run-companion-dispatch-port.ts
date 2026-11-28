@@ -2,6 +2,7 @@ import type { ReviewRunAuthorization } from "../../domain/review-run-authorizati
 import type {
   ReviewModelDispatchSettlementV2,
   ReviewModelDispatchTerminalReceiptV2,
+  ReviewModelDispatchNativeRetryProof,
 } from "@reviewrouter/shared";
 
 export type ReviewRunCompanionRole =
@@ -14,7 +15,8 @@ export type ReviewRunCompanionDispatchState =
   | "completed"
   | "not_dispatched";
 
-/** Safe durable facts only; neither request/response bytes nor capabilities. */
+/** Safe dispatch facts and server-only readback metadata; no request/response
+ * bytes or capabilities. */
 export type ReviewRunCompanionDispatch = Readonly<{
   authorizationId: string;
   dispatchId: string;
@@ -35,11 +37,32 @@ export type ReviewRunCompanionDispatch = Readonly<{
   requestBytes?: number;
   maxOutputTokens?: number;
   terminalReceipt?: ReviewModelDispatchTerminalReceiptV2 | null;
+  retryOfDispatchId?: string;
+  nativeRetryProof?: ReviewModelDispatchNativeRetryProof;
+  /** Process-local performance.now() cutoff derived from the DB clock. Never
+   * persisted, serialized, or accepted as claim authority. */
+  nativeRetryProofNotAfter?: number;
+}>;
+
+/** Obtained only through the original authenticated Gateway execution client.
+ * It is never accepted from the runner's settlement body. */
+export type ReviewRunNativeRetryAttestation = Readonly<{
+  kind: "request-retry-proof/v1";
+  consumerId: string;
+  executionRef: string;
+  requestRef: string;
+  nonEntryReason: "admission_storage_conflict";
+  transportClosed: true;
 }>;
 
 export type ReviewRunCompanionDispatchClaim = Omit<
   ReviewRunCompanionDispatch,
-  "role" | "state" | "nativeRequestRef" | "terminalReceipt"
+  | "role"
+  | "state"
+  | "nativeRequestRef"
+  | "terminalReceipt"
+  | "nativeRetryProof"
+  | "nativeRetryProofNotAfter"
 > &
   Readonly<{
     runtimeSnapshotCanonicalJson: string;
@@ -95,6 +118,11 @@ export interface ReviewRunCompanionDispatchRepository {
     receiptToken: string,
     settlement: ReviewModelDispatchSettlementV2,
   ): Promise<ReviewRunCompanionDispatch>;
+  recordNativeRejection(
+    authorizationId: string,
+    dispatchId: string,
+    proof: ReviewRunNativeRetryAttestation,
+  ): Promise<void>;
 }
 
 /** HTTP-facing consumer contract. Capability verification belongs to its
@@ -116,6 +144,7 @@ export interface ReviewRunCompanionDispatchAdmission {
       routeIdentityHash?: string;
       requestBytes?: number;
       maxOutputTokens?: number;
+      retryOfDispatchId?: string;
     }>,
     providerRequestEnvelopeHash: string,
   ): ReturnType<ReviewRunCompanionDispatchRepository["claim"]>;
@@ -127,4 +156,5 @@ export interface ReviewRunModelDispatchAdmission extends ReviewRunCompanionDispa
   forward: ReviewRunCompanionDispatchAdmission["claim"];
   readReceipt: ReviewRunCompanionDispatchRepository["readReceipt"];
   settleReceipt: ReviewRunCompanionDispatchRepository["settleReceipt"];
+  recordNativeRejection: ReviewRunCompanionDispatchRepository["recordNativeRejection"];
 }

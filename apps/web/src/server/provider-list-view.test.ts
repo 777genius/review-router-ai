@@ -57,6 +57,7 @@ function stubPrisma(input: {
       findUnique: async () => null,
       findMany: async () => [],
     },
+    $queryRaw: async () => [],
     $transaction: async (run: (tx: unknown) => Promise<unknown>) => run(prisma),
   };
   return prisma as unknown as PrismaClient;

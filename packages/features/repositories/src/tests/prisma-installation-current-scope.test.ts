@@ -98,6 +98,7 @@ function fixture() {
     return [];
   });
   const prisma = {
+    $connect: vi.fn(),
     $transaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => {
       events.push("begin");
       // Each retry/unit gets an authentic distinct transaction lifetime.
