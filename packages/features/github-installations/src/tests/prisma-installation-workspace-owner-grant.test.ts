@@ -21,6 +21,12 @@ class FakeOwnerGrantPrisma {
   public readonly users = new Map<string, UserRow>();
   public readonly members = new Map<string, WorkspaceMemberRow>();
   private memberSequence = 0;
+  async $queryRaw() {
+    return [{ revision: 0n }];
+  }
+  async $executeRaw() {
+    return 1;
+  }
 
   async $transaction<T>(callback: (tx: this) => Promise<T>): Promise<T> {
     return callback(this);

@@ -18,7 +18,7 @@ import { assertRestorableOutboxEvent } from "./review-v2-request-ingress-outbox.
 
 export class ReviewV2GitHubRequestIngressOutbox implements GitHubReviewRequestIngressPort {
   constructor(
-    private readonly outbox: OutboxEventRepositoryPort &
+    private readonly outbox: Pick<OutboxEventRepositoryPort, "enqueue"> &
       OutboxEventStatusQueryPort,
     private readonly digest: { digestUtf8(value: string): Promise<string> },
   ) {}

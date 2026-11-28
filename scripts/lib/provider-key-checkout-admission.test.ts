@@ -45,6 +45,9 @@ const originalHistory = readRenderManagedCheckoutInventory()
       row.migrationName !== "000162_inventory_ruleset_revisions" &&
       row.migrationName !== "000163_usage_retention_index" &&
       row.migrationName !== "000164_ruleset_create_uncertainty" &&
+      row.migrationName !== "000165_webhook_effect_fence" &&
+      row.migrationName !== "000167_webhook_recovery_intent" &&
+      row.migrationName !== "000168_webhook_receipt_order_indexes" &&
       row.migrationName !== "000152_review_run_gateway_allocations" &&
       row.migrationName !== "000152_memory_automatic_source" &&
       row.migrationName !== "000153_conversation_processing" &&

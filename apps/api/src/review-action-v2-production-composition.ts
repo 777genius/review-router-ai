@@ -1,3 +1,13 @@
+import {
+  assertReviewIntentRolloutConfiguration,
+  reviewActionV2IntentAdmissionRequiredEnv,
+} from "./review-v2-intent-rollout-configuration.js";
+export {
+  assertReviewIntentRolloutConfiguration,
+  reviewActionV2IntentAdmissionRequiredEnv,
+  reviewActionV2IntentIngressEnabledEnv,
+  reviewActionV2WorkflowDispatchReadyEnv,
+} from "./review-v2-intent-rollout-configuration.js";
 import { createReviewRunGatewayTerminalRunReader } from "./review-run-gateway-terminal-run.js";
 import type { HistoryCapture } from "@reviewrouter/features-review-history/composition";
 import type { Logger } from "@reviewrouter/platform-logger";
@@ -306,12 +316,7 @@ export const reviewActionV2ProviderVoteLanesEnv =
   "REVIEW_ROUTER_REVIEW_V2_PROVIDER_VOTE_LANES_JSON";
 export const reviewActionV2ProjectionPolicyVersionEnv =
   "REVIEW_ROUTER_REVIEW_V2_PROJECTION_POLICY_VERSION";
-export const reviewActionV2IntentAdmissionRequiredEnv =
-  "REVIEW_ROUTER_REVIEW_V2_INTENT_ADMISSION_REQUIRED";
-export const reviewActionV2IntentIngressEnabledEnv =
-  "REVIEW_ROUTER_REVIEW_V2_INTENT_INGRESS_ENABLED";
-export const reviewActionV2WorkflowDispatchReadyEnv =
-  "REVIEW_ROUTER_REVIEW_V2_WORKFLOW_DISPATCH_READY";
+
 export const reviewInvestigationRecordingEnabledEnv =
   investigationRecordingEnabledEnv;
 export const reviewInvestigationShadowEnabledEnv =
@@ -2078,27 +2083,6 @@ function investigationCapabilityEnabled(
   return (
     !policy.emergencyDisabled && policy.enabledCapabilities.has(capability)
   );
-}
-
-export function assertReviewIntentRolloutConfiguration(
-  env: Readonly<Record<string, string | undefined>>,
-): void {
-  const ingressEnabled = env[reviewActionV2IntentIngressEnabledEnv] === "1";
-  const admissionRequired =
-    env[reviewActionV2IntentAdmissionRequiredEnv] === "1";
-  const dispatchReady = env[reviewActionV2WorkflowDispatchReadyEnv] === "1";
-  const workerEnabled = env.REVIEW_ROUTER_REVIEW_V2_WORKER_ENABLED === "1";
-  const outboxTakeoverEnabled =
-    env.REVIEW_ROUTER_OUTBOX_FENCED_TAKEOVER_ENABLED === "1";
-  if (
-    ingressEnabled &&
-    (!dispatchReady || !workerEnabled || !outboxTakeoverEnabled)
-  ) {
-    throw new Error("review_action_v2_intent_ingress_dependencies_unavailable");
-  }
-  if (admissionRequired && !ingressEnabled) {
-    throw new Error("review_action_v2_intent_admission_without_ingress");
-  }
 }
 
 class ProductionReviewActionV2Digest {
