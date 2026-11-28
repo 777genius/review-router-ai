@@ -4,6 +4,7 @@ import { reviewRouterWebUrl } from "./public-urls";
 const publicRoutes = [
   { path: "/", priority: 1, lastModified: "2026-05-29" },
   { path: "/getting-started", priority: 0.9, lastModified: "2026-05-27" },
+  { path: "/providers", priority: 0.86, lastModified: "2026-11-28" },
   { path: "/security", priority: 0.85, lastModified: "2026-05-27" },
   { path: "/privacy", priority: 0.8, lastModified: "2026-05-16" },
   { path: "/compare", priority: 0.78, lastModified: "2026-05-29" },

@@ -82,6 +82,12 @@ export function HomeHero({
           <ArrowUpRight size={13} aria-hidden="true" />
         </a>
         <HomeProviders />
+        <a
+          href="/providers"
+          className="text-xs text-cyan-200 underline decoration-cyan-200/40 underline-offset-4 hover:text-cyan-100"
+        >
+          See provider connection methods and availability
+        </a>
       </div>
     </section>
   );
