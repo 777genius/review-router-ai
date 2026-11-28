@@ -1503,7 +1503,7 @@ if (
               model: input.model,
               agentProfileRef: approved.profileRef,
               reasoningEffort: "low",
-              agenticContext: false,
+              agenticContext: true,
               fastMode: false,
               requiredHealthy: true,
               gatewayBindingId: binding.id,
@@ -1596,7 +1596,10 @@ if (
               read.method === "POST" &&
               url.pathname.endsWith("/access_tokens")
             ) {
-              const body = (await read.clone().json()) as {
+              const payload = await read.clone().text();
+              const body = (
+                payload.trim().length === 0 ? {} : JSON.parse(payload)
+              ) as {
                 permissions?: Record<string, string>;
               };
               if (
