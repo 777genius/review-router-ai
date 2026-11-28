@@ -432,11 +432,7 @@ describe("Review Action v2 execution/evidence composition", () => {
           startReviewExecution: { execute: start },
         },
       } satisfies ReviewActionV2ExecutionHandlerDependencies;
-      const readback = await discoveryExecutionReadback(
-        operation,
-        d,
-        restored,
-      );
+      const readback = await discoveryExecutionReadback(operation, d, restored);
       expect(readback.persistedPlan).toMatchObject({
         assignmentManifestVersion: 1,
         planHash: restored.execution.planHash,
