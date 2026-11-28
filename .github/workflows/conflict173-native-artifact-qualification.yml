@@ -1,0 +1,322 @@
+name: Standalone webhook conflict runtime qualification
+
+on:
+  push:
+    branches:
+      - qualification/conflict173-a288-20261128
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: conflict173-a288-20261128
+  cancel-in-progress: false
+
+jobs:
+  conflict-artifact:
+    name: Exact a288 conflict runtime candidate
+    if: ${{ github.repository == '777genius/review-router-ai' && github.actor == '777genius' && github.ref == 'refs/heads/qualification/conflict173-a288-20261128' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RR_SUBJECT_SHA: a288164e5be74840a117a2ff2cd10ff675979f22
+      RR_SUBJECT_TREE: 1c4d1846b3e9d56432c4df64c5ab6e278cdb1268
+      RR_LOCK_BLOB: 57eb6ccff2c7a2f061d9343ba5ffac1155d31b47
+      RR_ORIGINAL_BLOB: 3c7acacc728d637614b4957e51809e44221b73b4
+      RR_BUILDER_BLOB: ec0db2ee536a0f7159f50328429b266c3ec8b85a
+      RR_GUARD_BLOB: 69c0cf5f23c9d8b238b85f6eb2428dd497885be8
+    steps:
+      - name: Checkout the immutable standalone source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: a288164e5be74840a117a2ff2cd10ff675979f22
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "26.11.1"
+
+      - name: Bind every source byte and tracked mode
+        id: evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          qualification_directory="$RUNNER_TEMP/conflict173-a288"
+          mkdir -p "$qualification_directory"
+          printf 'RR_EVIDENCE_DIRECTORY=%s\n' "$qualification_directory" >> "$GITHUB_ENV"
+          printf 'directory=%s\n' "$qualification_directory" >> "$GITHUB_OUTPUT"
+          export RR_EVIDENCE_DIRECTORY="$qualification_directory"
+          cat > "$qualification_directory/verify.mjs" <<'NODE'
+          import assert from "node:assert/strict";
+          import { createHash } from "node:crypto";
+          import { execFileSync } from "node:child_process";
+          import { lstatSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
+          import { join } from "node:path";
+
+          const directory = process.env.RR_EVIDENCE_DIRECTORY;
+          const target = "action-dist/conflict-runtime.cjs";
+          const git = args => execFileSync("git", args, { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+          const hash = (algorithm, bytes) => createHash(algorithm).update(bytes).digest("hex");
+          const blob = bytes => createHash("sha1").update("blob " + bytes.length + "\0").update(bytes).digest("hex");
+          const save = (name, value) => writeFileSync(join(directory, name), JSON.stringify(value, null, 2) + "\n");
+          const readJson = name => JSON.parse(readFileSync(join(directory, name), "utf8"));
+          const treeEntries = () => git(["ls-tree", "-r", "-z", "--full-tree", "HEAD"]).split("\0").filter(Boolean).map(row => {
+            const tab = row.indexOf("\t");
+            const [mode, type, sha] = row.slice(0, tab).split(" ");
+            assert.equal(type, "blob");
+            assert(["100644", "100755", "120000"].includes(mode));
+            return { path: row.slice(tab + 1), mode, gitBlob: sha };
+          });
+          function sourceSnapshot(allowGenerated = false) {
+            assert.equal(git(["rev-parse", "HEAD"]).trim(), process.env.RR_SUBJECT_SHA);
+            assert.equal(git(["rev-parse", "HEAD^{tree}"]).trim(), process.env.RR_SUBJECT_TREE);
+            assert.equal(git(["rev-parse", "HEAD:pnpm-lock.yaml"]).trim(), process.env.RR_LOCK_BLOB);
+            assert.equal(git(["rev-parse", "HEAD:scripts/build-conflict-runtime.ts"]).trim(), process.env.RR_BUILDER_BLOB);
+            assert.equal(git(["rev-parse", "HEAD:scripts/local-checks/lint-format-native-load-guard.ts"]).trim(), process.env.RR_GUARD_BLOB);
+            const entries = treeEntries();
+            assert.equal(entries.length, 5081);
+            const index = git(["ls-files", "--stage", "-z"]).split("\0").filter(Boolean).map(row => {
+              const tab = row.indexOf("\t");
+              const [mode, sha, stage] = row.slice(0, tab).split(" ");
+              assert.equal(stage, "0");
+              return { path: row.slice(tab + 1), mode, gitBlob: sha };
+            });
+            assert.deepEqual(index, entries, "tracked index does not match the immutable tree");
+            const records = entries.map(entry => {
+              const stat = lstatSync(entry.path);
+              const bytes = stat.isSymbolicLink() ? readlinkSync(entry.path, { encoding: "buffer" }) : readFileSync(entry.path);
+              const actualMode = stat.isSymbolicLink() ? "120000" : (stat.mode & 0o111) ? "100755" : "100644";
+              assert.equal(actualMode, entry.mode, "mode drift: " + entry.path);
+              const actualBlob = blob(bytes);
+              if (!allowGenerated || entry.path !== target) assert.equal(actualBlob, entry.gitBlob, "source drift: " + entry.path);
+              return { ...entry, actualGitBlob: actualBlob, bytes: bytes.length, sha256: hash("sha256", bytes) };
+            });
+            assert.equal(git(["ls-files", "--others", "--exclude-standard", "-z"]), "", "unexpected non-ignored files");
+            return records;
+          }
+          const command = process.argv[2];
+          if (command === "baseline") {
+            const entries = sourceSnapshot();
+            const output = entries.find(entry => entry.path === target);
+            assert.equal(output.gitBlob, process.env.RR_ORIGINAL_BLOB);
+            assert.equal(output.bytes, 656979);
+            save("source-inventory-before.json", {
+              source: process.env.RR_SUBJECT_SHA, tree: process.env.RR_SUBJECT_TREE,
+              workflowCommit: process.env.GITHUB_SHA, lock: process.env.RR_LOCK_BLOB, entries,
+            });
+          } else if (command === "unchanged") {
+            const baseline = readJson("source-inventory-before.json");
+            assert.deepEqual(sourceSnapshot(), baseline.entries);
+          } else if (command === "candidate") {
+            const baseline = readJson("source-inventory-before.json");
+            const entries = sourceSnapshot(true);
+            const changes = entries.filter((entry, i) => entry.actualGitBlob !== baseline.entries[i].actualGitBlob);
+            assert.equal(changes.length, 1);
+            assert.equal(changes[0].path, target);
+            assert.equal(changes[0].gitBlob, process.env.RR_ORIGINAL_BLOB);
+            const output = readFileSync(target);
+            assert(output.equals(readFileSync(join(directory, "conflict-runtime.cjs"))), "second canonical build changed bytes");
+            assert(output.length > 0 && output.length < 1024 * 1024, "generated artifact exceeds bounded transport");
+            const audit = readFileSync(join(directory, "native-build-audit.jsonl"), "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
+            assert(audit.some(event => event.event === "guard-installed" && event.nodeVersion === "v26.11.1"));
+            assert(audit.every(event => event.event !== "blocked-before-initialization"), "prohibited compiler or parser was requested");
+            const baselineLog = readFileSync(join(directory, "baseline-check.log"), "utf8");
+            assert.match(baselineLog, /Error: conflict_runtime_bundle_stale: run pnpm action:build/);
+            assert.equal(readJson("baseline-check.json").exitCode, 1);
+            save("source-inventory-candidate.json", { source: baseline.source, tree: baseline.tree, entries });
+            const record = {
+              source: baseline.source, tree: baseline.tree, workflowCommit: process.env.GITHUB_SHA,
+              path: target, originalGitBlob: process.env.RR_ORIGINAL_BLOB,
+              gitBlob: blob(output), sha256: hash("sha256", output), bytes: output.length,
+              toolchain: readJson("toolchain.json"),
+              initialStockCheckExit: 1, initialStockCheckError: "conflict_runtime_bundle_stale",
+              canonicalBuilds: 2, byteIdempotence: true, stockArtifactSmoke: "passed",
+              onlyTrackedChange: target, inputInventorySha256: hash("sha256", readFileSync(join(directory, "source-inventory-before.json"))),
+              trackedFiles: entries.length, nativeLoadGuard: "passed",
+              scope: "Generated candidate only; the committed a288 artifact failed freshness.",
+            };
+            save("candidate-manifest.json", record);
+            console.log("RR_CONFLICT173_CANDIDATE " + JSON.stringify(record));
+          } else if (command === "restore") {
+            const original = execFileSync("git", ["show", "HEAD:" + target], { maxBuffer: 2 * 1024 * 1024 });
+            assert.equal(blob(original), process.env.RR_ORIGINAL_BLOB);
+            writeFileSync(target, original);
+            const entries = sourceSnapshot();
+            assert.deepEqual(entries, readJson("source-inventory-before.json").entries);
+            git(["diff", "--exit-code", "HEAD", "--"]);
+            save("source-inventory-restored.json", { source: process.env.RR_SUBJECT_SHA, tree: process.env.RR_SUBJECT_TREE, entries });
+            save("restore-summary.json", { originalTargetRestored: true, allTrackedFilesAndModesUnchanged: true, trackedFiles: entries.length });
+          } else if (command === "emit") {
+            const record = readJson("candidate-manifest.json");
+            assert.equal(readJson("restore-summary.json").allTrackedFilesAndModesUnchanged, true);
+            const bytes = readFileSync(join(directory, "conflict-runtime.cjs"));
+            assert.equal(blob(bytes), record.gitBlob);
+            assert.equal(hash("sha256", bytes), record.sha256);
+            const base64 = bytes.toString("base64");
+            const chunkSize = 32768;
+            const total = Math.ceil(base64.length / chunkSize);
+            assert(base64.length < 1400 * 1024);
+            console.log("RR_CONFLICT173_MANIFEST " + JSON.stringify({ ...record, encoding: "base64", total, chunkSize }));
+            for (let index = 0; index < total; index++) console.log("RR_CONFLICT173_CHUNK " + JSON.stringify({
+              gitBlob: record.gitBlob, sha256: record.sha256, sequence: index + 1, total,
+              data: base64.slice(index * chunkSize, (index + 1) * chunkSize),
+            }));
+          } else {
+            throw new Error("unknown qualification operation");
+          }
+          NODE
+          node "$qualification_directory/verify.mjs" baseline
+
+      - name: Verify the current PR still owns the exact source
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import assert from "node:assert/strict";
+          import { writeFileSync } from "node:fs";
+          import { join } from "node:path";
+          const response = await fetch("https://api.github.com/repos/777genius/review-router-ai/pulls/1027", {
+            redirect: "error",
+            headers: {
+              Accept: "application/vnd.github+json",
+              Authorization: "Bearer " + process.env.GH_TOKEN,
+              "X-GitHub-Api-Version": "2022-11-28",
+            },
+          });
+          assert.equal(response.status, 200, "cannot verify the current PR head");
+          const pr = await response.json();
+          assert.equal(pr.state, "open");
+          assert.equal(pr.head.sha, process.env.RR_SUBJECT_SHA);
+          assert.equal(pr.head.repo.full_name, "777genius/review-router-ai");
+          assert.equal(pr.user.login, "777genius");
+          writeFileSync(join(process.env.RR_EVIDENCE_DIRECTORY, "pull-request-head.json"),
+            JSON.stringify({ number: pr.number, head: pr.head.sha, state: pr.state, checkedAt: new Date().toISOString() }, null, 2) + "\n");
+          NODE
+
+      - name: Install pinned pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+
+      - name: Install the stock frozen graph and generated Prisma client
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+
+      - name: Bind the exact native build toolchain
+        id: prepare
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/conflict173-a288/native-build-audit.jsonl
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = v26.11.1
+          test "$(pnpm --version)" = 11.28.7
+          node --input-type=module - <<'NODE'
+          import assert from "node:assert/strict";
+          import { execFileSync } from "node:child_process";
+          import { createRequire } from "node:module";
+          import { writeFileSync } from "node:fs";
+          import { join } from "node:path";
+          const require = createRequire(import.meta.url);
+          const versions = {
+            node: process.version,
+            pnpm: execFileSync("pnpm", ["--version"], { encoding: "utf8" }).trim(),
+            esbuild: require("esbuild").version,
+            prisma: require("@prisma/client/package.json").version,
+            generatedPrisma: require("@prisma/client").Prisma.prismaVersion.client,
+          };
+          assert.deepEqual(versions, {
+            node: "v26.11.1", pnpm: "11.28.7", esbuild: "0.28.1", prisma: "7.9.0", generatedPrisma: "7.9.0",
+          });
+          writeFileSync(join(process.env.RR_EVIDENCE_DIRECTORY, "toolchain.json"), JSON.stringify(versions, null, 2) + "\n");
+          console.log(JSON.stringify(versions));
+          NODE
+          node "$RR_EVIDENCE_DIRECTORY/verify.mjs" unchanged
+
+      - name: Record the exact original stale bundle failure
+        id: baseline
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/conflict173-a288/native-build-audit.jsonl
+        shell: bash
+        run: |
+          set -euo pipefail
+          initial_status=0
+          node scripts/build-conflict-runtime.ts --check > "$RR_EVIDENCE_DIRECTORY/baseline-check.log" 2>&1 || initial_status=$?
+          cat "$RR_EVIDENCE_DIRECTORY/baseline-check.log"
+          RR_BASELINE_EXIT="$initial_status" node --input-type=module - <<'NODE'
+          import assert from "node:assert/strict";
+          import { readFileSync, writeFileSync } from "node:fs";
+          import { join } from "node:path";
+          const exitCode = Number(process.env.RR_BASELINE_EXIT);
+          assert.equal(exitCode, 1, "the original artifact did not produce the known stale-check exit");
+          assert.match(readFileSync(join(process.env.RR_EVIDENCE_DIRECTORY, "baseline-check.log"), "utf8"),
+            /Error: conflict_runtime_bundle_stale: run pnpm action:build/);
+          writeFileSync(join(process.env.RR_EVIDENCE_DIRECTORY, "baseline-check.json"),
+            JSON.stringify({ exitCode, error: "conflict_runtime_bundle_stale" }) + "\n");
+          NODE
+          node "$RR_EVIDENCE_DIRECTORY/verify.mjs" unchanged
+
+      - name: Run the original conflict builder twice
+        id: generate
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/conflict173-a288/native-build-audit.jsonl
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/build-conflict-runtime.ts 2>&1 | tee "$RR_EVIDENCE_DIRECTORY/build-first.log"
+          cp -- action-dist/conflict-runtime.cjs "$RR_EVIDENCE_DIRECTORY/conflict-runtime.cjs"
+          node scripts/build-conflict-runtime.ts 2>&1 | tee "$RR_EVIDENCE_DIRECTORY/build-second.log"
+          cmp -- action-dist/conflict-runtime.cjs "$RR_EVIDENCE_DIRECTORY/conflict-runtime.cjs"
+          git diff --numstat HEAD -- > "$RR_EVIDENCE_DIRECTORY/generated-delta.txt"
+
+      - name: Run the unchanged stock action artifact smoke
+        id: smoke
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/conflict173-a288/native-build-audit.jsonl
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm action:artifact:check:smoke 2>&1 | tee "$RR_EVIDENCE_DIRECTORY/stock-artifact-smoke.log"
+
+      - name: Validate the sole generated delta and all original inputs
+        id: candidate
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/conflict173-a288/native-build-audit.jsonl
+        shell: bash
+        run: |
+          set -euo pipefail
+          node "$RR_EVIDENCE_DIRECTORY/verify.mjs" candidate
+
+      - name: Restore only the original bundle and verify the complete clean tree
+        id: restore
+        if: ${{ always() && steps.evidence.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node "$RR_EVIDENCE_DIRECTORY/verify.mjs" restore
+
+      - name: Emit bounded verified artifact records
+        id: emit
+        if: ${{ !cancelled() && steps.candidate.outcome == 'success' && steps.restore.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node "$RR_EVIDENCE_DIRECTORY/verify.mjs" emit
+
+      - name: Preserve exact candidate bytes and source evidence
+        if: ${{ always() && steps.evidence.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: conflict173-a288-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.evidence.outputs.directory }}/
+          if-no-files-found: error
+          retention-days: 7
