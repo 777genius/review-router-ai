@@ -41,6 +41,11 @@ for (const viewport of [
       name: /Require confirmation for memory changes/,
     });
     const save = async () => {
+      const versionInput = page
+        .getByRole("region", { name: "Settings", exact: true })
+        .locator('input[name="expectedVersion"]');
+      const previousVersion = await versionInput.inputValue();
+      expect(previousVersion).toMatch(/^[1-9]\d*$/);
       const [response] = await Promise.all([
         page.waitForResponse(
           (response) =>
@@ -53,11 +58,12 @@ for (const viewport of [
           .click(),
       ]);
       expect(response.ok()).toBe(true);
-      // Next can keep the RSC response open after saving. Observe the user
-      // feedback here; the fresh navigations below verify persisted state.
+      // The success notice precedes router.refresh(). Wait for the updated
+      // server-rendered policy version before starting another navigation.
       await expect(
         page.getByText("Memory settings saved", { exact: true }),
       ).toBeVisible();
+      await expect(versionInput).toHaveValue(String(Number(previousVersion) + 1));
     };
     await open();
     await checkbox.scrollIntoViewIfNeeded();
