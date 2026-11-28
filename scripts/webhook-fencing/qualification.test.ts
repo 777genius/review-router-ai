@@ -24,11 +24,13 @@ describe("webhook PostgreSQL qualification boundary", () => {
   it("ignores the application's database URL and permits an explicit local fixture", () => {
     expect(
       webhookFencePostgresConfig({
+        NODE_ENV: "test",
         DATABASE_URL: "postgresql://production/prod",
       }).enabled,
     ).toBe(false);
     expect(
       webhookFencePostgresConfig({
+        NODE_ENV: "test",
         REVIEW_ROUTER_WEBHOOK_FENCE_TEST_DATABASE_URL:
           "postgresql://postgres@127.0.0.1:5433/rr_webhook_fence_test?schema=public",
       }).enabled,
@@ -41,6 +43,7 @@ describe("webhook PostgreSQL qualification boundary", () => {
   ])("rejects an unsafe fixture URL %s", (value) => {
     expect(() =>
       webhookFencePostgresConfig({
+        NODE_ENV: "test",
         REVIEW_ROUTER_WEBHOOK_FENCE_TEST_DATABASE_URL: value,
       }),
     ).toThrow();
