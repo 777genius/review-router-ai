@@ -337,9 +337,14 @@ async function cleanup(): Promise<void> {
       },
     },
   });
-  await prisma.gitHubWebhookDelivery.deleteMany({
-    where: { deliveryId: { startsWith: "e2e-installation-" } },
-  });
+  await prisma.$transaction([
+    prisma.gitHubWebhookFence.deleteMany({
+      where: { deliveryId: { startsWith: "e2e-installation-" } },
+    }),
+    prisma.gitHubWebhookDelivery.deleteMany({
+      where: { deliveryId: { startsWith: "e2e-installation-" } },
+    }),
+  ]);
   await prisma.gitHubInstallation.deleteMany({
     where: { githubInstallationId: installationId },
   });
