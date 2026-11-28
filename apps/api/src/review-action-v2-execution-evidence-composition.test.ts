@@ -4794,7 +4794,11 @@ function ordinaryDiscoveryAuthorization(
     parsed.lifecycleVerificationCapability !== undefined
   )
     throw new Error("test_discovery_runtime_invalid");
-  return { ...authorization, runtimeSnapshotCanonicalJson };
+  return {
+    ...authorization,
+    schemaDigest: reviewActionV2PublishedSchemaDigest,
+    runtimeSnapshotCanonicalJson,
+  };
 }
 
 function lifecycleAuthorization(): ReviewRunAuthorization {
