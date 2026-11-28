@@ -4,6 +4,7 @@ import {
   randomUUID,
   timingSafeEqual,
 } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import {
   Prisma,
   type PrismaClient,
@@ -14,6 +15,8 @@ import {
   reviewModelDispatchCapacityPolicyMatches,
   parseReviewModelDispatchProfile,
   parseReviewModelDispatchSettlementV2,
+  parseReviewModelDispatchSettlement,
+  reviewModelDispatchAllowsNativeRetry,
   reviewModelDispatchIdPreimage,
   reviewModelDispatchOutputUsageIsWithinLimit,
   type ReviewModelDispatchCapability,
@@ -26,7 +29,9 @@ import {
   type ReviewRunCompanionDispatchClaim,
   type ReviewRunCompanionDispatchRepository,
   type ReviewRunCompanionRole,
+  type ReviewRunNativeRetryAttestation,
 } from "../../application/ports/review-run-companion-dispatch-port";
+import { parseReviewRunGatewayExecutionBinding } from "../../application/ports/review-run-gateway-execution-binding-port";
 import type { ReviewRunAuthorization } from "../../domain/review-run-authorization";
 import { canonicalJson } from "../../domain/review-run-control-types";
 import { reviewRunAuthorizationToDomain } from "./prisma-review-run-control-mappers";
@@ -311,7 +316,8 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
             existing.requestOrdinal !== input.requestOrdinal ||
             existing.routeIdentityHash !== input.routeIdentityHash ||
             existing.requestBytes !== input.requestBytes ||
-            existing.maxOutputTokens !== input.maxOutputTokens)
+            existing.maxOutputTokens !== input.maxOutputTokens ||
+            existing.retryOfDispatchId !== (input.retryOfDispatchId ?? null))
         )
           fail("companion_dispatch_conflict");
         if (input.forwardExisting) {
@@ -397,6 +403,60 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
           fail("model_dispatch_ordinal_invalid");
         if (role !== "finding_discovery" && input.requestOrdinal !== 1)
           fail("companion_slot_already_claimed");
+        const predecessor = await tx.reviewRunCompanionDispatchV1.findFirst({
+          where: {
+            authorizationId: input.authorizationId,
+            workSlotId: input.workSlotId,
+            attemptOrdinal: input.attemptOrdinal,
+          },
+          orderBy: { requestOrdinal: "desc" },
+        });
+        // A failed native request cannot be bypassed by omitting lineage and
+        // presenting its successor as an ordinary new turn.
+        if (
+          input.retryOfDispatchId !== undefined ||
+          (reviewModelDispatchAllowsNativeRetry(budget) &&
+            predecessor &&
+            predecessor.state !== "completed")
+        ) {
+          if (
+            !reviewModelDispatchAllowsNativeRetry(budget) ||
+            role !== "finding_discovery" ||
+            !predecessor ||
+            predecessor.dispatchId !== input.retryOfDispatchId ||
+            predecessor.retryOfDispatchId !== null ||
+            predecessor.state !== "not_dispatched" ||
+            predecessor.nativeEffectState !== "not_dispatched" ||
+            !predecessor.forwardedAt ||
+            !nativeRetryBindingMatches(
+              auth.gatewayExecutionCanonicalJson,
+              nativeRetryAttestation(predecessor),
+              now,
+            ) ||
+            [
+              "executionId",
+              "workSlotId",
+              "attemptOrdinal",
+              "leaseId",
+              "fencingToken",
+              "preparedManifestKey",
+              "providerRequestEnvelopeHash",
+              "routeIdentityHash",
+              "requestBytes",
+              "maxOutputTokens",
+            ].some(
+              (key) =>
+                Reflect.get(predecessor, key) !== Reflect.get(input, key),
+            ) ||
+            (await tx.reviewRunCompanionDispatchV1.count({
+              where: {
+                authorizationId: input.authorizationId,
+                retryOfDispatchId: predecessor.dispatchId,
+              },
+            })) !== 0
+          )
+            fail("model_dispatch_retry_denied");
+        }
       } else {
         const count = await tx.reviewRunCompanionDispatchV1.count({
           where: { authorizationId: input.authorizationId, role },
@@ -433,6 +493,7 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
                 requestBytes: input.requestBytes,
                 maxOutputTokens: input.maxOutputTokens,
                 receiptTokenHash: sha256(receiptToken!),
+                retryOfDispatchId: input.retryOfDispatchId ?? null,
               }
             : {}),
           role,
@@ -463,9 +524,9 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
     const row = await this.prisma.reviewRunCompanionDispatchV1.findUnique({
       where: { authorizationId_dispatchId: { authorizationId, dispatchId } },
     });
-    return row && (row.dispatchVersion === 1 || row.retainUntil > new Date())
-      ? toDispatch(row)
-      : null;
+    if (!row || (row.dispatchVersion !== 1 && row.retainUntil <= new Date()))
+      return null;
+    return this.withNativeRetryProof(row);
   }
 
   async settle(
@@ -523,11 +584,13 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
     const [clock] = await this.prisma.$queryRaw<
       readonly { now: Date }[]
     >`SELECT (clock_timestamp() AT TIME ZONE 'UTC') AS "now"`;
-    return row &&
-      clock &&
-      receiptMatches(row, dispatchId, receiptToken, clock.now)
-      ? toDispatch(row)
-      : null;
+    if (
+      !row ||
+      !clock ||
+      !receiptMatches(row, dispatchId, receiptToken, clock.now)
+    )
+      return null;
+    return this.withNativeRetryProof(row);
   }
 
   async settleReceipt(
@@ -536,7 +599,7 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
     raw: ReviewModelDispatchSettlementV2,
   ) {
     if (!validReceiptToken(receiptToken)) fail("model_dispatch_receipt_denied");
-    const settlement = parseReviewModelDispatchSettlementV2(raw);
+    const settlement = parseReviewModelDispatchSettlement(raw);
     return this.prisma.$transaction(async (tx) => {
       const tokenHash = sha256(receiptToken);
       await tx.$queryRaw`SELECT "dispatchId" FROM "ReviewRunCompanionDispatchV1" WHERE "receiptTokenHash" = ${tokenHash} FOR UPDATE`;
@@ -560,6 +623,22 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
       const native = ["account_gateway", "hosted_pool"].includes(
         budget.transport,
       );
+      if (settlement.state === "not_dispatched") {
+        if (settlement.proof === "native_rejection_after_forward") {
+          if (
+            !reviewModelDispatchAllowsNativeRetry(budget) ||
+            row.role !== "finding_discovery" ||
+            row.retryOfDispatchId !== null ||
+            row.state !== "not_dispatched" ||
+            !row.forwardedAt ||
+            row.nativeEffectState !== "not_dispatched" ||
+            !nativeRetryAttestation(row)
+          )
+            fail("model_dispatch_native_proof_required");
+        } else if (row.nativeRetryProofJson !== null) {
+          fail("model_dispatch_native_proof_required");
+        }
+      }
       if (
         native &&
         ((settlement.state === "completed" &&
@@ -626,6 +705,246 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
       return toDispatch(updated);
     });
   }
+
+  async recordNativeRejection(
+    authorizationId: string,
+    dispatchId: string,
+    proof: ReviewRunNativeRetryAttestation,
+  ) {
+    // Capture bounded facts before awaiting. Only the server adapter calls this.
+    const captured = parseNativeRetryAttestation(proof);
+    if (!captured) fail("model_dispatch_native_proof_required");
+    await this.prisma.$transaction(async (tx) => {
+      const where = {
+        authorizationId_dispatchId: { authorizationId, dispatchId },
+      };
+      const initial = await tx.reviewRunCompanionDispatchV1.findUnique({
+        where,
+      });
+      const authority =
+        initial && (await this.nativeRetryAuthority(tx, initial));
+      if (!initial || !authority) fail("model_dispatch_retry_denied");
+      await tx.$queryRaw`SELECT "dispatchId" FROM "ReviewRunCompanionDispatchV1" WHERE "authorizationId" = ${authorizationId} AND "dispatchId" = ${dispatchId} FOR UPDATE`;
+      const row = await tx.reviewRunCompanionDispatchV1.findUnique({ where });
+      if (
+        !row ||
+        !row.forwardedAt ||
+        row.retryOfDispatchId !== null ||
+        captured.requestRef !== row.nativeRequestRef
+      )
+        fail("model_dispatch_native_proof_required");
+      if (row.nativeRetryProofJson !== null) {
+        if (canonicalJson(row.nativeRetryProofJson) !== canonicalJson(captured))
+          fail("model_dispatch_settlement_conflict");
+        return;
+      }
+      // Unknown is never upgraded to retry permission, including native facts
+      // recorded before a runner could report its own unknown outcome.
+      if (
+        row.state !== "dispatch_may_have_started" ||
+        row.nativeEffectState !== null
+      )
+        fail("model_dispatch_retry_denied");
+      const auth = await tx.reviewRunAuthorization.findUnique({
+        where: { authorizationId },
+      });
+      const [clock] = await tx.$queryRaw<
+        readonly { now: Date }[]
+      >`SELECT (clock_timestamp() AT TIME ZONE 'UTC') AS "now"`;
+      if (
+        !clock ||
+        clock.now >= authority.notAfter ||
+        !nativeRetryBindingMatches(
+          auth?.gatewayExecutionCanonicalJson,
+          captured,
+          clock.now,
+        )
+      )
+        fail("model_dispatch_native_proof_required");
+      await tx.reviewRunCompanionDispatchV1.update({
+        where,
+        data: {
+          state: "not_dispatched",
+          nativeEffectState: "not_dispatched",
+          nativeRetryProofJson: { ...captured },
+          completedAt: clock.now,
+        },
+      });
+    });
+  }
+
+  private async withNativeRetryProof(row: ReviewRunCompanionDispatchV1) {
+    const dispatch = toDispatch(row);
+    if (row.nativeRetryProofJson === null || row.state !== "not_dispatched")
+      return dispatch;
+    const notAfter = await this.prisma.$transaction(async (tx) => {
+      const authority = await this.nativeRetryAuthority(tx, row);
+      if (!authority) return undefined;
+      const successors = await tx.reviewRunCompanionDispatchV1.count({
+        where: {
+          authorizationId: row.authorizationId,
+          retryOfDispatchId: row.dispatchId,
+        },
+      });
+      return successors === 0 ? authority.proofNotAfter : undefined;
+    });
+    return notAfter !== undefined && performance.now() < notAfter
+      ? {
+          ...dispatch,
+          nativeRetryProofNotAfter: notAfter,
+          nativeRetryProof: {
+            kind: "native_rejection_after_forward" as const,
+            reason: "admission_storage_conflict" as const,
+          },
+        }
+      : dispatch;
+  }
+
+  /** Current authority for actionable readback/attestation. Keep the selection,
+   * authorization, stream and lease lock order used by claim. */
+  private async nativeRetryAuthority(
+    tx: Prisma.TransactionClient,
+    row: ReviewRunCompanionDispatchV1,
+  ): Promise<Readonly<{ notAfter: Date; proofNotAfter: number }> | false> {
+    const first = await tx.reviewRunAuthorization.findUnique({
+      where: { authorizationId: row.authorizationId },
+    });
+    if (
+      !first ||
+      !(await this.dependencies.lockSelection(
+        tx,
+        reviewRunAuthorizationToDomain(first),
+      ))
+    )
+      return false;
+    await tx.$queryRaw`SELECT "authorizationId" FROM "ReviewRunAuthorization" WHERE "authorizationId" = ${row.authorizationId} FOR SHARE`;
+    await tx.$queryRaw`SELECT "activeExecutionId" FROM "ReviewExecutionStreamV2" WHERE "workspaceId" = ${first.workspaceId} AND "repositoryConnectionId" = ${first.repositoryConnectionId} AND "scmRepositoryIdentityId" = ${first.scmRepositoryIdentityId} AND "pullRequestNumber" = ${first.pullRequestNumber} FOR SHARE`;
+    await tx.$queryRaw`SELECT "leaseId" FROM "ReviewInvocationLeaseV2" WHERE "leaseId" = ${row.leaseId} FOR SHARE`;
+    const auth = await tx.reviewRunAuthorization.findUnique({
+      where: { authorizationId: row.authorizationId },
+    });
+    const lease = await tx.reviewInvocationLeaseV2.findUnique({
+      where: { leaseId: row.leaseId },
+    });
+    const execution = await tx.reviewExecutionV2.findUnique({
+      where: { executionId: row.executionId },
+    });
+    const slot = await tx.reviewExecutionWorkSlotV2.findUnique({
+      where: {
+        executionId_workSlotId: {
+          executionId: row.executionId,
+          workSlotId: row.workSlotId,
+        },
+      },
+    });
+    const stream = await tx.reviewExecutionStreamV2.findUnique({
+      where: {
+        workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
+          {
+            workspaceId: first.workspaceId,
+            repositoryConnectionId: first.repositoryConnectionId,
+            scmRepositoryIdentityId: first.scmRepositoryIdentityId,
+            pullRequestNumber: first.pullRequestNumber,
+          },
+      },
+    });
+    const release = await tx.producerRelease.findUnique({
+      where: { producerReleaseId: first.producerReleaseId },
+    });
+    const mutation = await tx.reviewMutationAuthority.findUnique({
+      where: {
+        scmRepositoryIdentityId_laneKind: {
+          scmRepositoryIdentityId: first.scmRepositoryIdentityId,
+          laneKind: "hosted_reviewrouter_app",
+        },
+      },
+    });
+    const budget = modelBudget(auth?.runtimeSnapshotCanonicalJson);
+    const clockReadStartedAt = performance.now();
+    const [clock] = await tx.$queryRaw<
+      readonly { now: Date }[]
+    >`SELECT (clock_timestamp() AT TIME ZONE 'UTC') AS "now"`;
+    if (
+      !auth ||
+      !clock ||
+      !reviewModelDispatchAllowsNativeRetry(budget) ||
+      auth.state !== "active" ||
+      auth.expiresAt <= clock.now ||
+      auth.maxExpiresAt <= clock.now ||
+      new Date(budget.deadline) <= clock.now ||
+      row.routeIdentityHash !== budget.routeIdentityHash ||
+      row.dispatchVersion !== 2 ||
+      row.role !== "finding_discovery" ||
+      row.retryOfDispatchId !== null ||
+      !release ||
+      release.state !== "registered" ||
+      !reviewModelDispatchCapacityPolicyMatches(
+        parseReviewModelDispatchProfile(release.modelDispatchProfile),
+        budget,
+      ) ||
+      !mutation ||
+      mutation.mode !== "v2_active" ||
+      mutation.epoch !== auth.mutationEpoch ||
+      !execution ||
+      !stream ||
+      !lease ||
+      !slot ||
+      stream.activeExecutionId !== execution.executionId ||
+      stream.lastAllocatedGeneration !== execution.generation ||
+      stream.currentHeadSha !== auth.headSha ||
+      stream.currentReviewRevisionHash !== auth.reviewRevisionHash ||
+      execution.authorizationId !== auth.authorizationId ||
+      execution.producerReleaseId !== auth.producerReleaseId ||
+      execution.mutationEpoch !== auth.mutationEpoch ||
+      execution.reviewRevisionHash !== auth.reviewRevisionHash ||
+      execution.headSha !== auth.headSha ||
+      !["planned", "running"].includes(execution.state) ||
+      execution.executionDeadlineAt <= clock.now ||
+      lease.authorizationId !== auth.authorizationId ||
+      lease.executionId !== execution.executionId ||
+      lease.executionGeneration !== execution.generation ||
+      lease.workSlotId !== row.workSlotId ||
+      lease.fencingToken !== row.fencingToken ||
+      lease.preparedManifestKey !== row.preparedManifestKey ||
+      lease.purpose !== "provider_execution" ||
+      lease.sourceObservationId !== null ||
+      lease.state !== "active" ||
+      lease.expiresAt <= clock.now ||
+      slot.taskKind !== "finding_discovery" ||
+      slot.state !== "leased" ||
+      slot.activeLeaseId !== row.leaseId
+    )
+      return false;
+    const proof = nativeRetryAttestation(row);
+    let bindingDeadline = Number.POSITIVE_INFINITY;
+    if (row.nativeRetryProofJson !== null) {
+      const binding = auth.gatewayExecutionCanonicalJson;
+      if (!binding || !nativeRetryBindingMatches(binding, proof, clock.now))
+        return false;
+      bindingDeadline = Date.parse(
+        parseReviewRunGatewayExecutionBinding(binding).deadline,
+      );
+    }
+    const notAfter = new Date(
+      Math.min(
+        auth.expiresAt.getTime(),
+        auth.maxExpiresAt.getTime(),
+        execution.executionDeadlineAt.getTime(),
+        lease.expiresAt.getTime(),
+        Date.parse(budget.deadline),
+        bindingDeadline,
+      ),
+    );
+    return {
+      notAfter,
+      // Anchor before the DB read so elapsed query time only shortens validity.
+      // Host wall-clock skew must never extend authority or receipt retention.
+      proofNotAfter:
+        clockReadStartedAt +
+        (Math.min(notAfter.getTime(), row.retainUntil.getTime()) -
+          clock.now.getTime()),
+    };
+  }
 }
 
 function fail(code: string): never {
@@ -666,6 +985,9 @@ function toDispatch(
           routeIdentityHash: row.routeIdentityHash!,
           requestBytes: row.requestBytes!,
           maxOutputTokens: row.maxOutputTokens!,
+          ...(row.retryOfDispatchId === null
+            ? {}
+            : { retryOfDispatchId: row.retryOfDispatchId }),
           terminalReceipt:
             row.terminalReceiptJson == null
               ? null
@@ -691,9 +1013,15 @@ function modelBudget(
     !Object.hasOwn(raw, "modelDispatchCapability")
   )
     return undefined;
-  return parseReviewModelDispatchCapability(
+  const capability = parseReviewModelDispatchCapability(
     Reflect.get(raw, "modelDispatchCapability"),
   );
+  if (
+    reviewModelDispatchAllowsNativeRetry(capability) &&
+    Reflect.get(raw, "snapshotVersion") !== 3
+  )
+    fail("model_dispatch_retry_denied");
+  return capability;
 }
 function validateModelClaim(
   input: ReviewRunCompanionDispatchClaim,
@@ -701,6 +1029,10 @@ function validateModelClaim(
 ) {
   if (
     input.dispatchVersion !== 2 ||
+    (input.retryOfDispatchId !== undefined &&
+      (!reviewModelDispatchAllowsNativeRetry(budget) ||
+        !/^rr-model-[a-f0-9]{64}$/.test(input.retryOfDispatchId) ||
+        input.retryOfDispatchId === input.dispatchId)) ||
     input.routeIdentityHash !== budget.routeIdentityHash ||
     !Number.isSafeInteger(input.requestOrdinal) ||
     input.requestOrdinal! < 1 ||
@@ -715,6 +1047,44 @@ function validateModelClaim(
       `rr-model-${sha256(reviewModelDispatchIdPreimage({ ...input, requestOrdinal: input.requestOrdinal! }))}`
   )
     fail("model_dispatch_claim_invalid");
+}
+function parseNativeRetryAttestation(
+  value: unknown,
+): ReviewRunNativeRetryAttestation | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return;
+  const data = value as Record<string, unknown>;
+  if (
+    Object.keys(data).sort().join(",") !==
+      "consumerId,executionRef,kind,nonEntryReason,requestRef,transportClosed" ||
+    data.kind !== "request-retry-proof/v1" ||
+    data.nonEntryReason !== "admission_storage_conflict" ||
+    data.transportClosed !== true ||
+    typeof data.consumerId !== "string" ||
+    !/^[A-Za-z0-9_.:-]{1,128}$/.test(data.consumerId) ||
+    [data.executionRef, data.requestRef].some(
+      (ref) =>
+        typeof ref !== "string" ||
+        !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(ref),
+    )
+  )
+    return;
+  return { ...data } as ReviewRunNativeRetryAttestation;
+}
+function nativeRetryAttestation(row: ReviewRunCompanionDispatchV1) {
+  const proof = parseNativeRetryAttestation(row.nativeRetryProofJson);
+  return proof?.requestRef === row.nativeRequestRef ? proof : undefined;
+}
+function nativeRetryBindingMatches(
+  binding: string | null | undefined,
+  proof: ReviewRunNativeRetryAttestation | undefined,
+  now: Date,
+) {
+  if (!binding || !proof) return false;
+  const parsed = parseReviewRunGatewayExecutionBinding(binding);
+  return (
+    parsed.executionRef === proof.executionRef &&
+    new Date(parsed.deadline) > now
+  );
 }
 function sha256(value: string) {
   return createHash("sha256").update(value).digest("hex");

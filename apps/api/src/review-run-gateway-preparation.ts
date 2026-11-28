@@ -594,6 +594,14 @@ export function createReviewRunGatewayPreparation(input: {
     canDetachUnknownWithoutCapability: () =>
       closed && !inFlight && initialAttempted && !noExecutionProven && !session,
     usageBinding: () => (session?.attached ? { ...session.binding } : null),
+    hasLiveNativeRetryAuthority: async () => {
+      try {
+        await currentSession();
+        return true;
+      } catch {
+        return false;
+      }
+    },
     needsRecovery: () =>
       initialAttempted && !session?.attached && !noExecutionProven,
     request: async (
@@ -657,6 +665,50 @@ export function createReviewRunGatewayPreparation(input: {
         );
       }
       return status;
+    },
+    retryProof: async (
+      requestRef: string,
+      options: CallOptions = {},
+      check: () => Promise<void> = async () => {},
+    ) => {
+      const requestId = c.reference.parse(requestRef);
+      // Consumer scope comes from this original prepared client's pinned origin
+      // and execution bearer. Never reconstruct a client or recover authority.
+      const current = await currentSession();
+      await check();
+      if (closed || session !== current || options.signal?.aborted)
+        throw new GatewayError(
+          "cancelled",
+          "effect_unknown",
+          undefined,
+          requestId,
+        );
+      const proof = await current.client.retryProof(
+        current.binding.executionRef,
+        requestId,
+        options,
+      );
+      if (
+        (await currentSession()) !== current ||
+        options.signal?.aborted ||
+        proof.executionRef !== current.binding.executionRef ||
+        proof.requestRef !== requestId
+      )
+        throw new GatewayError(
+          "invalid_response",
+          "effect_unknown",
+          undefined,
+          requestId,
+        );
+      await check();
+      if (closed || session !== current || options.signal?.aborted)
+        throw new GatewayError(
+          "cancelled",
+          "effect_unknown",
+          undefined,
+          requestId,
+        );
+      return proof;
     },
     close: async (reason: c.Close["reason"], options: CallOptions = {}) => {
       let closePhase: ClosePhase = "prepare_wait";
@@ -939,6 +991,7 @@ function privateRunAccess(config: RunAccessConfig) {
           : Object.freeze({
               request: dataClient.request,
               status: controlClient.status,
+              retryProof: controlClient.retryProof,
               close: controlClient.close,
               operation: controlClient.operation,
             });

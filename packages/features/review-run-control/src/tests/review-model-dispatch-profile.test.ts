@@ -13,6 +13,10 @@ import {
   parseReviewModelDispatchSettlementV2,
   reviewModelDispatchContract,
   reviewModelDispatchDescriptorDigest,
+  reviewModelDispatchNativeRetryContract,
+  reviewModelDispatchNativeRetryDescriptorDigest,
+  reviewModelDispatchAllowsNativeRetry,
+  parseReviewModelDispatchSettlement,
 } from "@reviewrouter/shared";
 import { canonicalJson } from "../domain/review-run-control-types";
 import {
@@ -460,5 +464,128 @@ describe("explicit capacity128 model dispatch policy", () => {
         capacityCapability,
       ),
     ).toThrow();
+  });
+
+  it("negotiates native retry independently of capacity and retains other transports", () => {
+    const nativeProfile = {
+      ...capacityProfile,
+      policyVersion: reviewModelDispatchNativeRetryContract.policyVersion,
+      descriptorDigest: reviewModelDispatchNativeRetryDescriptorDigest,
+      transports: [
+        "account_gateway" as const,
+        "runner_local_responses" as const,
+      ],
+      defaultAgentProfileRefs: {
+        account_gateway: "ocr-controlled-responses",
+        runner_local_responses: "ocr-controlled-responses",
+      },
+    };
+    const nativeCapability = {
+      ...capacityCapability,
+      transport: "account_gateway" as const,
+      retryPolicy: reviewModelDispatchNativeRetryContract.retryPolicy,
+    };
+    expect(
+      `sha256:${createHash("sha256").update(canonicalJson(reviewModelDispatchNativeRetryContract)).digest("hex")}`,
+    ).toBe(reviewModelDispatchNativeRetryDescriptorDigest);
+    expect(parseReviewModelDispatchProfile(nativeProfile)).toEqual(
+      nativeProfile,
+    );
+    expect(parseReviewModelDispatchCapability(nativeCapability)).toEqual(
+      nativeCapability,
+    );
+    expect(reviewModelDispatchAllowsNativeRetry(nativeCapability)).toBe(true);
+    expect(reviewModelDispatchAllowsNativeRetry(capacityCapability)).toBe(
+      false,
+    );
+    expect(
+      reviewModelDispatchCapacityPolicyMatches(nativeProfile, nativeCapability),
+    ).toBe(true);
+    expect(
+      reviewModelDispatchCapacityPolicyMatches(
+        capacityProfile,
+        nativeCapability,
+      ),
+    ).toBe(false);
+    expect(
+      reviewModelDispatchCapacityPolicyMatches(profile, nativeCapability),
+    ).toBe(false);
+    expect(
+      reviewModelDispatchCapacityPolicyMatches(
+        nativeProfile,
+        capacityCapability,
+      ),
+    ).toBe(true);
+    expect(
+      reviewModelDispatchCapacityPolicyMatches(nativeProfile, {
+        ...capacityCapability,
+        transport: "account_gateway",
+      }),
+    ).toBe(false);
+    for (const transport of [
+      "runner_local_responses",
+      "runner_local_anthropic",
+      "hosted_pool",
+    ])
+      expect(() =>
+        parseReviewModelDispatchCapability({ ...nativeCapability, transport }),
+      ).toThrow();
+    for (const value of [
+      { ...nativeCapability, retryPolicy: "capacity128" },
+      { ...nativeCapability, capacityPolicy: undefined },
+      { ...nativeCapability, maxRequests: 129 },
+      {
+        ...capacityCapability,
+        retryPolicy: "native-rejection-once.v1",
+        proof: true,
+      },
+    ])
+      expect(() => parseReviewModelDispatchCapability(value)).toThrow();
+    expect(() => parseReviewModelDispatchProfileV2(nativeProfile)).toThrow();
+    expect(() =>
+      parseReviewModelDispatchCapabilityV2(nativeCapability),
+    ).toThrow();
+
+    const successor = {
+      ...claim(2),
+      retryOfDispatchId: `rr-model-${"b".repeat(64)}`,
+    };
+    expect(
+      parseReviewModelDispatchClaimForCapability(successor, nativeCapability),
+    ).toEqual(successor);
+    expect(() => parseReviewModelDispatchClaimV2(successor)).toThrow();
+    expect(() =>
+      parseReviewModelDispatchClaimForCapability(successor, capacityCapability),
+    ).toThrow();
+    expect(() =>
+      parseReviewModelDispatchClaimForCapability(
+        { ...successor, retryOfDispatchId: successor.dispatchId },
+        nativeCapability,
+      ),
+    ).toThrow();
+    expect(() =>
+      parseReviewModelDispatchClaimForCapability(
+        { ...successor, retryOfDispatchId: "foreign" },
+        nativeCapability,
+      ),
+    ).toThrow();
+    const settlement = {
+      state: "not_dispatched",
+      proof: "native_rejection_after_forward",
+    };
+    expect(parseReviewModelDispatchSettlement(settlement)).toEqual(settlement);
+    expect(() => parseReviewModelDispatchSettlementV2(settlement)).toThrow();
+    expect(() =>
+      parseReviewModelDispatchSettlement({
+        ...settlement,
+        consumerId: "caller",
+      }),
+    ).toThrow();
+    expect(
+      parseReviewModelDispatchSettlement({
+        state: "not_dispatched",
+        proof: "local_before_forward",
+      }),
+    ).toEqual({ state: "not_dispatched", proof: "local_before_forward" });
   });
 });

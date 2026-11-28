@@ -76,6 +76,9 @@ export class ClaimReviewRunCompanionDispatch implements ReviewRunCompanionDispat
             routeIdentityHash: context.routeIdentityHash,
             requestBytes: context.requestBytes,
             maxOutputTokens: context.maxOutputTokens,
+            ...(context.retryOfDispatchId === undefined
+              ? {}
+              : { retryOfDispatchId: context.retryOfDispatchId }),
           }
         : {}),
       leaseCapabilityId: authority.capabilityId,
@@ -104,4 +107,6 @@ export class ClaimReviewRunCompanionDispatch implements ReviewRunCompanionDispat
   settleReceipt: ReviewRunCompanionDispatchRepository["settleReceipt"] = (
     ...args
   ) => this.repository.settleReceipt(...args);
+  recordNativeRejection: ReviewRunCompanionDispatchRepository["recordNativeRejection"] =
+    (...args) => this.repository.recordNativeRejection(...args);
 }

@@ -1,0 +1,133 @@
+import { Prisma, type PrismaClient } from "@prisma/client";
+
+import type { WebhookRecoveryIdentity } from "../../application/ports/webhook-recovery-identity";
+import { isWebhookReplayEligible } from "./webhook-replay-eligibility";
+export type { WebhookRecoveryIdentity } from "../../application/ports/webhook-recovery-identity";
+
+type RecoveryRow = WebhookRecoveryIdentity & {
+  state: "prepared" | "issued_unknown" | "accepted" | "confirmed";
+  attemptHash: string | null;
+};
+function validate(identity: WebhookRecoveryIdentity) {
+  if (
+    !/^[a-f0-9]{64}$/.test(identity.appIdentityHash) ||
+    !/^[a-f0-9]{64}$/.test(identity.payloadHash) ||
+    !identity.deliveryGuid ||
+    identity.deliveryGuid.length > 200 ||
+    !identity.eventName ||
+    identity.eventName.length > 100 ||
+    identity.githubDeliveryId <= 0n ||
+    (identity.installationId !== null && identity.installationId <= 0n)
+  )
+    throw new Error("webhook_recovery_identity_invalid");
+}
+
+/** Immutable custody, no external call; duplicate identity must match exactly. */
+export async function prepareWebhookRecovery(
+  prisma: PrismaClient,
+  identity: WebhookRecoveryIdentity,
+): Promise<RecoveryRow> {
+  validate(identity);
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO "GitHubWebhookRecoveryIntent" ("appIdentityHash", "deliveryGuid", "githubDeliveryId", "eventName", "action", "installationId", "payloadHash")
+      VALUES (${identity.appIdentityHash}, ${identity.deliveryGuid}, ${identity.githubDeliveryId}, ${identity.eventName}, ${identity.action}, ${identity.installationId}, ${identity.payloadHash})
+      ON CONFLICT ("appIdentityHash", "deliveryGuid") DO NOTHING
+    `);
+    const rows = await tx.$queryRaw<RecoveryRow[]>(Prisma.sql`
+      SELECT "appIdentityHash", "deliveryGuid", "githubDeliveryId", "eventName", "action", "installationId", "payloadHash", "state", "attemptHash"
+      FROM "GitHubWebhookRecoveryIntent" WHERE "appIdentityHash"=${identity.appIdentityHash} AND "deliveryGuid"=${identity.deliveryGuid}
+    `);
+    const row = rows[0];
+    if (
+      !row ||
+      row.githubDeliveryId !== identity.githubDeliveryId ||
+      row.eventName !== identity.eventName ||
+      row.action !== identity.action ||
+      row.installationId !== identity.installationId ||
+      row.payloadHash !== identity.payloadHash
+    )
+      throw new Error("webhook_recovery_identity_conflict");
+    return row;
+  });
+}
+
+/** Durable one-shot reservation before POST. A crash leaves an unknown outcome. */
+export async function reserveWebhookRedeliveryOnce(
+  prisma: PrismaClient,
+  identity: WebhookRecoveryIdentity,
+  attemptHash: string,
+): Promise<boolean> {
+  validate(identity);
+  if (!/^[a-f0-9]{64}$/.test(attemptHash))
+    throw new Error("webhook_recovery_attempt_invalid");
+  if (!(await isWebhookReplayEligible(prisma, identity.deliveryGuid)))
+    return false;
+  const rows = await prisma.$queryRaw<
+    Array<{ deliveryGuid: string }>
+  >(Prisma.sql`
+    UPDATE "GitHubWebhookRecoveryIntent" SET "state"='issued_unknown', "attemptHash"=${attemptHash}, "updatedAt"=clock_timestamp()
+    WHERE "appIdentityHash"=${identity.appIdentityHash} AND "deliveryGuid"=${identity.deliveryGuid}
+      AND "githubDeliveryId"=${identity.githubDeliveryId} AND "eventName"=${identity.eventName}
+      AND "action" IS NOT DISTINCT FROM ${identity.action} AND "installationId" IS NOT DISTINCT FROM ${identity.installationId}
+      AND "payloadHash"=${identity.payloadHash} AND "state"='prepared'
+      AND EXISTS (SELECT 1 FROM "GitHubWebhookDelivery" d JOIN "GitHubWebhookFence" f USING ("deliveryId")
+        WHERE d."deliveryId" = "GitHubWebhookRecoveryIntent"."deliveryGuid"
+          AND f."appIdentityHash" = "GitHubWebhookRecoveryIntent"."appIdentityHash"
+          AND d."eventName" = "GitHubWebhookRecoveryIntent"."eventName"
+          AND d."action" IS NOT DISTINCT FROM "GitHubWebhookRecoveryIntent"."action"
+          AND d."installationId" IS NOT DISTINCT FROM "GitHubWebhookRecoveryIntent"."installationId"
+          AND d."payloadHash" = "GitHubWebhookRecoveryIntent"."payloadHash"
+          AND (d.status = 'failed' OR (d.status = 'processing' AND f."leaseUntil" <= clock_timestamp())))
+    RETURNING "deliveryGuid"
+  `);
+  return rows.length === 1;
+}
+
+/** Only a verified HTTP 202 response authorizes this transition; not completion. */
+export async function recordWebhookRedeliveryAccepted(
+  prisma: PrismaClient,
+  identity: WebhookRecoveryIdentity,
+  attemptHash: string,
+): Promise<boolean> {
+  validate(identity);
+  if (!/^[a-f0-9]{64}$/.test(attemptHash))
+    throw new Error("webhook_recovery_attempt_invalid");
+  const rows = await prisma.$queryRaw<
+    Array<{ deliveryGuid: string }>
+  >(Prisma.sql`
+    UPDATE "GitHubWebhookRecoveryIntent" SET "state"='accepted', "updatedAt"=clock_timestamp()
+    WHERE "appIdentityHash"=${identity.appIdentityHash} AND "deliveryGuid"=${identity.deliveryGuid}
+      AND "githubDeliveryId"=${identity.githubDeliveryId} AND "eventName"=${identity.eventName}
+      AND "action" IS NOT DISTINCT FROM ${identity.action} AND "installationId" IS NOT DISTINCT FROM ${identity.installationId}
+      AND "payloadHash"=${identity.payloadHash} AND "attemptHash"=${attemptHash} AND "state"='issued_unknown'
+    RETURNING "deliveryGuid"
+  `);
+  return rows.length === 1;
+}
+
+/** Only an exact receiver terminal record establishes completion; no POST replay. */
+export async function confirmWebhookRecovery(
+  prisma: PrismaClient,
+  identity: WebhookRecoveryIdentity,
+): Promise<boolean> {
+  validate(identity);
+  // A poll count does not bound a blocked UPDATE. Keep the SQL deadline local
+  // to this transaction so cancellation rolls back without changing custody.
+  const [, rows] = await prisma.$transaction([
+    prisma.$executeRaw(Prisma.sql`SET LOCAL statement_timeout = '5s'`),
+    prisma.$queryRaw<Array<{ deliveryGuid: string }>>(Prisma.sql`
+    UPDATE "GitHubWebhookRecoveryIntent" r SET "state"='confirmed', "updatedAt"=clock_timestamp()
+    WHERE r."appIdentityHash"=${identity.appIdentityHash} AND r."deliveryGuid"=${identity.deliveryGuid}
+      AND r."githubDeliveryId"=${identity.githubDeliveryId} AND r."eventName"=${identity.eventName}
+      AND r."action" IS NOT DISTINCT FROM ${identity.action} AND r."installationId" IS NOT DISTINCT FROM ${identity.installationId}
+      AND r."payloadHash"=${identity.payloadHash} AND r."state" IN ('prepared','issued_unknown','accepted','confirmed')
+      AND EXISTS (SELECT 1 FROM "GitHubWebhookDelivery" d JOIN "GitHubWebhookFence" f USING ("deliveryId")
+        WHERE d."deliveryId"=r."deliveryGuid" AND f."appIdentityHash"=r."appIdentityHash"
+          AND d."eventName"=r."eventName" AND d."action" IS NOT DISTINCT FROM r."action"
+          AND d."installationId" IS NOT DISTINCT FROM r."installationId" AND d."payloadHash"=r."payloadHash" AND d.status='processed')
+    RETURNING r."deliveryGuid"
+    `),
+  ]);
+  return rows.length === 1;
+}

@@ -44,9 +44,9 @@ const input = () => ({
 });
 
 describe("bounded managed89-to92 transaction construction", () => {
-  it("keeps the reader-to-builder boundary at92 for checkout160 and excludes the concurrent index", () => {
+  it("keeps the reader-to-builder boundary at92 for checkout174 and excludes application-only migrations", () => {
     expect(readdirSync("packages/platform/db/prisma/migrations")).toHaveLength(
-      170,
+      174,
     );
     expect(catalog).toHaveLength(92);
     const sql = renderSchemaHandoffTransaction(input());
@@ -241,6 +241,10 @@ describe("bounded managed89-to92 transaction construction", () => {
         "000162_inventory_ruleset_revisions",
         "000163_usage_retention_index",
         "000164_ruleset_create_uncertainty",
+        "000165_attested_model_request_retry",
+        "000165_webhook_effect_fence",
+        "000167_webhook_recovery_intent",
+        "000168_webhook_receipt_order_indexes",
       ].map((migrationName) => ({
         migrationName,
         checksum: createHash("sha256")

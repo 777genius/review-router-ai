@@ -350,6 +350,70 @@ describe("assertProgressTransition", () => {
     expect(() => assertProgressTransition(previous, next)).not.toThrow();
   });
 
+  it.each([true, false])(
+    "accepts exhausted-to-accepted recovery with required=%s",
+    (required) => {
+      const previous = computeProgressSnapshot(
+        input([slot("recovered", "exhausted", required, 1)]),
+      );
+      const next = computeProgressSnapshot(
+        input([slot("recovered", "accepted", required, 1)]),
+      );
+      expect(() => assertProgressTransition(previous, next)).not.toThrow();
+      expect(next.counts).toMatchObject({
+        completed: 1,
+        exhausted: 0,
+        recovered: 0,
+      });
+    },
+  );
+
+  it.each([
+    [true, "pending"],
+    [true, "running"],
+    [true, "cancelled"],
+    [false, "pending"],
+    [false, "running"],
+    [false, "cancelled"],
+  ] as const)(
+    "rejects reopening or cancelling exhausted work with required=%s as %s",
+    (required, state) => {
+      const previous = computeProgressSnapshot(
+        input([slot("exhausted", "exhausted", required, 1)]),
+      );
+      const next = computeProgressSnapshot(
+        input([slot("exhausted", state, required, 1)]),
+      );
+      expect(() => assertProgressTransition(previous, next)).toThrow(
+        "progress_count_regressed",
+      );
+    },
+  );
+
+  it.each([true, false])(
+    "rejects cross-cohort compensation for exhausted work with required=%s",
+    (required) => {
+      const previous = computeProgressSnapshot(
+        input([
+          slot("exhausted", "exhausted", required, 1),
+          slot("other", "pending", !required, 1),
+        ]),
+      );
+      const next = computeProgressSnapshot(
+        input([
+          slot("exhausted", "pending", required, 1),
+          slot("other", "accepted", !required, 1),
+        ]),
+      );
+      expect(next.counts.completed + next.counts.exhausted).toBe(
+        previous.counts.completed + previous.counts.exhausted,
+      );
+      expect(() => assertProgressTransition(previous, next)).toThrow(
+        "progress_count_regressed",
+      );
+    },
+  );
+
   it("rejects generation, lifecycle, count and timestamp regressions", () => {
     const completed = computeProgressSnapshot(
       input([slot("a", "accepted")], {

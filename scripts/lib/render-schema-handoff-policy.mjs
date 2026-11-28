@@ -334,6 +334,22 @@ const reliabilityCheckoutExtension = Object.freeze([
   }),
 ]);
 
+// Webhook delivery migrations belong to ordinary Prisma deploy. Admit only this
+// exact application checkout tail before retaining the unchanged checkout170
+// validator; neither migration enters managed92 or historical96 transaction SQL.
+const webhookDeliveryCheckoutExtension = Object.freeze([
+  Object.freeze({
+    migrationName: "000165_webhook_effect_fence",
+    checksum:
+      "d3f747f018080ca863c0f84f695d6fcd96bd6ef4cd4a5ef5cb2fdc84bc9674f5",
+  }),
+  Object.freeze({
+    migrationName: "000167_webhook_recovery_intent",
+    checksum:
+      "e207c11ca7dd836031b8849daf531eb8e56d0f62cc1f34c5c049c60f366d7124",
+  }),
+]);
+
 export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (
     !Array.isArray(catalog) ||
@@ -346,6 +362,60 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Native request retry is an independent, checksum-bound application tail.
+  // Reuse the exact prior checkout and historical gates after validating it.
+  const nativeRetryMigration = catalog.find(
+    (row) => row.migrationName === "000165_attested_model_request_retry",
+  );
+  if (nativeRetryMigration) {
+    if (
+      ![171, 173, 174].includes(catalog.length) ||
+      nativeRetryMigration.checksum !==
+        "9cff45bd76d02ae28d0936a9160c5ae4c6c0d155cbcf51d900e3e7569fe2f58a"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== nativeRetryMigration),
+    );
+  }
+  // Admit the exact additive receipt-order index after checkout172. The existing
+  // validator still binds every predecessor and the frozen managed92 inventory.
+  const webhookReceiptOrderMigration = catalog.find(
+    (row) => row.migrationName === "000168_webhook_receipt_order_indexes",
+  );
+  if (webhookReceiptOrderMigration) {
+    if (
+      catalog.length !== 173 ||
+      catalog.at(-1) !== webhookReceiptOrderMigration ||
+      webhookReceiptOrderMigration.checksum !==
+        "4fe16668e4bc946a9f26f59835f3e7c6072b8ce4cc4ffcd39d667c5faa68c68b"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(catalog.slice(0, -1));
+  }
+  if (
+    catalog.some((row) =>
+      webhookDeliveryCheckoutExtension.some(
+        (extension) => extension.migrationName === row.migrationName,
+      ),
+    )
+  ) {
+    const tail = catalog.slice(-webhookDeliveryCheckoutExtension.length);
+    if (
+      catalog.length !== 172 ||
+      webhookDeliveryCheckoutExtension.some((extension, index) => {
+        const row = tail[index];
+        return (
+          row.migrationName !== extension.migrationName ||
+          row.checksum !== extension.checksum
+        );
+      })
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.slice(0, -webhookDeliveryCheckoutExtension.length),
+    );
+  }
   if (
     catalog.some((row) =>
       reliabilityCheckoutExtension.some(

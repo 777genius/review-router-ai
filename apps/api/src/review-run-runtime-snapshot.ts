@@ -14,6 +14,7 @@ import {
   selectReviewModelRoutePolicy,
   reviewModelDispatchContract,
   reviewModelDispatchCapacity128Contract,
+  reviewModelDispatchNativeRetryContract,
   type LifecycleVerificationCapability,
   type ReviewModelDispatchCapability,
 } from "@reviewrouter/shared";
@@ -600,9 +601,15 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       return { captureDenied: "agent_profile_unavailable" };
     let modelDispatchCapability: ReviewModelDispatchCapability | undefined;
     if (modelDispatchProfile && preparedRoute && reviewerIndex === undefined) {
-      const capacity128 =
+      const nativeRetryPolicy =
         modelDispatchProfile.policyVersion ===
-        reviewModelDispatchCapacity128Contract.policyVersion;
+        reviewModelDispatchNativeRetryContract.policyVersion;
+      const nativeRetry =
+        nativeRetryPolicy && preparedRoute.transport === "account_gateway";
+      const capacity128 =
+        nativeRetryPolicy ||
+        modelDispatchProfile.policyVersion ===
+          reviewModelDispatchCapacity128Contract.policyVersion;
       // The admission owns one exact model route, shared by all paid roles.
       // Credential bytes remain with their existing adapter and never enter it.
       modelDispatchCapability = {
@@ -625,6 +632,9 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         ),
         extensionId: reviewModelDispatchContract.extensionId,
         version: 2,
+        ...(nativeRetry
+          ? { retryPolicy: reviewModelDispatchNativeRetryContract.retryPolicy }
+          : {}),
         ...(capacity128
           ? {
               capacityPolicy:
@@ -635,6 +645,12 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
           .update(
             canonicalJson({
               version: 2,
+              ...(nativeRetry
+                ? {
+                    retryPolicy:
+                      reviewModelDispatchNativeRetryContract.retryPolicy,
+                  }
+                : {}),
               ...(capacity128
                 ? {
                     capacityPolicy:

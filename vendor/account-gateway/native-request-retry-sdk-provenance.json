@@ -1,0 +1,76 @@
+{
+  "contract": "native-provider-parity-sdk-provenance/v1",
+  "archive": "agent-teams-account-gateway-0.1.0-native-parity-90739814c9e8.tgz",
+  "sha256": "f03b92cf4ad847ecea3e1141be8fc9f71ca0385c6a46db8da4393f1e51ae33e9",
+  "integrity": "sha512-YE23syJCQGpnPPsfHp3ho3m/tQMQQPvxGBkgCMFsBQLS/euRluKh1PAljKT1+MMDgOSlKkAXOiRGEBMasHGdyg==",
+  "sdkSourceRepository": "agent-teams-ai/account-gateway",
+  "sdkSourceCommit": "90739814c9e85fcf3ac9e9e6a0b2ea68b3131d28",
+  "sdkSourceTree": "1fe82d5d848c9ca72b501067b5b11bf5014be4d3",
+  "build": {
+    "node": "24.21.0",
+    "pnpm": "11.28.2",
+    "typescript": "7.0.2"
+  },
+  "qualification": {
+    "sdkPackageWorkflow": {
+      "runId": "46059489374",
+      "sourceCommit": "90739814c9e85fcf3ac9e9e6a0b2ea68b3131d28",
+      "conclusion": "success",
+      "nodeLanes": ["24.21.0", "26.11.1"]
+    },
+    "reviewRouterConsumer": "pending",
+    "pairedActionConsumer": "pending"
+  },
+  "upstreamArtifact": {
+    "kind": "account-gateway-sdk-build-artifact/v1",
+    "repository": "agent-teams-ai/account-gateway",
+    "runId": "46059489374",
+    "runAttempt": "1",
+    "event": "pull_request",
+    "requestedSource": "90739814c9e85fcf3ac9e9e6a0b2ea68b3131d28",
+    "requestedTree": "1fe82d5d848c9ca72b501067b5b11bf5014be4d3",
+    "checkoutCommit": "38c274e4e7a9325262a75323319a199a76d72651",
+    "checkoutTree": "1fe82d5d848c9ca72b501067b5b11bf5014be4d3",
+    "checkoutParents": [],
+    "sourceInputs": {
+      "packages/account-gateway": {
+        "checkoutObject": "c452109187b9d76da591c8ddc43fc5c1bb988d5a",
+        "requestedObject": "c452109187b9d76da591c8ddc43fc5c1bb988d5a"
+      },
+      "package.json": {
+        "checkoutObject": "f06e7b92b80f1dfbc366e44cc95f36400bb84593",
+        "requestedObject": "f06e7b92b80f1dfbc366e44cc95f36400bb84593"
+      },
+      "pnpm-lock.yaml": {
+        "checkoutObject": "c97c583f727d8d50e588d5ee72efe089fcf4725c",
+        "requestedObject": "c97c583f727d8d50e588d5ee72efe089fcf4725c"
+      },
+      "pnpm-workspace.yaml": {
+        "checkoutObject": "04907d3dda26fad8fb6b933d2e1abd135ea5d667",
+        "requestedObject": "04907d3dda26fad8fb6b933d2e1abd135ea5d667"
+      },
+      "tsconfig.build.json": {
+        "checkoutObject": "783747e3c764dcfc5ad9c025366444a115ef5211",
+        "requestedObject": "783747e3c764dcfc5ad9c025366444a115ef5211"
+      },
+      "scripts/build.mjs": {
+        "checkoutObject": "0e98a8cebabb52956aa083d645f9b060c9da747c",
+        "requestedObject": "0e98a8cebabb52956aa083d645f9b060c9da747c"
+      }
+    },
+    "packageName": "@agent-teams/account-gateway",
+    "packageVersion": "0.1.0",
+    "nodeVersion": "24.21.0",
+    "pnpmVersion": "11.28.2",
+    "typescriptVersion": "7.0.2",
+    "archive": "agent-teams-account-gateway-0.1.0.tgz",
+    "bytes": 78664,
+    "sha256": "f03b92cf4ad847ecea3e1141be8fc9f71ca0385c6a46db8da4393f1e51ae33e9",
+    "sha512": "604db7b32242406a673cfb1f1e9de1a379bfb5031040fbf118192008c16c0502d2fdeb9196e2a1d4f0258ca4f5f8c30380e4a52a40173a244610131ab0719dca",
+    "integrity": "sha512-YE23syJCQGpnPPsfHp3ho3m/tQMQQPvxGBkgCMFsBQLS/euRluKh1PAljKT1+MMDgOSlKkAXOiRGEBMasHGdyg=="
+  },
+  "scope": "Existing native provider parity SDK plus request-retry-proof/v1 readback. Proof is advisory to the original authenticated execution; ReviewRouter separately enforces original live authority and one successor. Producer checks do not qualify the new ReviewRouter/Action consumer.",
+  "publicPublished": false,
+  "productionDeployed": false,
+  "previousProvenance": "native-provider-parity-sdk-provenance.json"
+}

@@ -8,6 +8,8 @@ import {
   reviewModelDispatchDescriptorDigest,
   reviewModelDispatchCapacity128Contract,
   reviewModelDispatchCapacity128DescriptorDigest,
+  reviewModelDispatchNativeRetryContract,
+  reviewModelDispatchNativeRetryDescriptorDigest,
   reviewModelTransportForAuthMode,
   lifecycleVerificationDescriptorDigestV2,
   type ReviewModelDispatchProfileV2,
@@ -397,7 +399,12 @@ describe("multi-reviewer immutable capture", () => {
         ],
         producerRelease: {
           ...qualified.producerRelease,
-          modelDispatchProfile: unifiedDispatchProfile,
+          modelDispatchProfile: {
+            ...unifiedDispatchProfile,
+            descriptorDigest: reviewModelDispatchNativeRetryDescriptorDigest,
+            policyVersion: reviewModelDispatchNativeRetryContract.policyVersion,
+            limits: { ...unifiedDispatchProfile.limits, maxRequests: 128 },
+          },
           agentProfiles: parseReviewAgentProfiles([
             codexDefaultProfile,
             ocrProfile,
@@ -708,9 +715,13 @@ describe("one prepared route for discovery and verification", () => {
       reviewSkillsVersion: 1,
     },
   ]);
-  it.each([16, 640])(
-    "freezes explicit capacity128 identity and clamps to actual Gateway requests=%i",
-    async (requests) => {
+  it.each(
+    [16, 640].flatMap((requests) =>
+      [false, true].map((nativeRetry) => ({ requests, nativeRetry })),
+    ),
+  )(
+    "freezes capacity128/nativeRetry=$nativeRetry and clamps actual Gateway requests=$requests",
+    async ({ requests, nativeRetry }) => {
       const configuration = gatewayPolicyJson({
         agentProfileRef: "ocr-unified",
       });
@@ -721,8 +732,12 @@ describe("one prepared route for discovery and verification", () => {
           agentProfiles: profiles,
           modelDispatchProfile: {
             ...profile,
-            descriptorDigest: reviewModelDispatchCapacity128DescriptorDigest,
-            policyVersion: reviewModelDispatchCapacity128Contract.policyVersion,
+            descriptorDigest: nativeRetry
+              ? reviewModelDispatchNativeRetryDescriptorDigest
+              : reviewModelDispatchCapacity128DescriptorDigest,
+            policyVersion: nativeRetry
+              ? reviewModelDispatchNativeRetryContract.policyVersion
+              : reviewModelDispatchCapacity128Contract.policyVersion,
             limits: { ...profile.limits, maxRequests: 128 },
           },
         },
@@ -740,6 +755,14 @@ describe("one prepared route for discovery and verification", () => {
           maxOutputTokens: 128,
         },
       });
+      if (nativeRetry)
+        expect(captured).toMatchObject({
+          modelDispatchCapability: { retryPolicy: "native-rejection-once.v1" },
+        });
+      else
+        expect(captured).not.toHaveProperty(
+          "modelDispatchCapability.retryPolicy",
+        );
       if (
         !captured ||
         "captureDenied" in captured ||
@@ -1015,9 +1038,12 @@ describe("one prepared route for discovery and verification", () => {
     });
   });
 
-  it.each(providerRows)(
-    "captures OCR and the same verifier route for $provider.authMode",
-    async ({ mode, provider }) => {
+  it.each([
+    ...providerRows.map((row) => ({ ...row, nativeRetry: false })),
+    { ...providerRows[0]!, nativeRetry: true },
+  ])(
+    "captures OCR and the same verifier route for $provider.authMode with nativeRetry=$nativeRetry",
+    async ({ mode, provider, nativeRetry }) => {
       const configuration = parseReviewConfigurationStrict({
         ...JSON.parse(gatewayPolicyJson({})),
         providers: [provider],
@@ -1033,7 +1059,16 @@ describe("one prepared route for discovery and verification", () => {
           producerRelease: {
             ...captureInput().producerRelease,
             agentProfiles: profiles,
-            modelDispatchProfile: profile,
+            modelDispatchProfile: nativeRetry
+              ? {
+                  ...profile,
+                  descriptorDigest:
+                    reviewModelDispatchNativeRetryDescriptorDigest,
+                  policyVersion:
+                    reviewModelDispatchNativeRetryContract.policyVersion,
+                  limits: { ...profile.limits, maxRequests: 128 },
+                }
+              : profile,
           },
         },
         readerFor(canonicalJson(configuration)),
@@ -1054,7 +1089,7 @@ describe("one prepared route for discovery and verification", () => {
               ? "terminal_acceptance"
               : "upstream_request",
           model: provider.model,
-          maxRequests: 32,
+          maxRequests: nativeRetry ? 128 : 32,
         },
         lifecycleVerificationCapability: {
           extensionId: "lifecycle-verification.v2",
@@ -1066,6 +1101,20 @@ describe("one prepared route for discovery and verification", () => {
       });
       if (!captured || "captureDenied" in captured)
         throw new Error("capture_missing");
+      if (nativeRetry) {
+        expect(captured).toMatchObject({
+          modelDispatchCapability: {
+            capacityPolicy:
+              reviewModelDispatchCapacity128Contract.capacityPolicy,
+          },
+        });
+        expect(captured).not.toHaveProperty(
+          "modelDispatchCapability.retryPolicy",
+        );
+        expect(parseReviewRunRuntimeSnapshot(canonicalJson(captured))).toEqual(
+          captured,
+        );
+      }
       expect(captured.lifecycleVerificationCapability).toMatchObject({
         routeIdentityHash: captured.modelDispatchCapability!.routeIdentityHash,
       });

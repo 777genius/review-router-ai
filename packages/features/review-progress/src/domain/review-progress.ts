@@ -226,11 +226,9 @@ export function assertProgressTransition(
   }
   const monotonicKeys: readonly (keyof ProgressCounts)[] = [
     "completed",
-    "exhausted",
     "cancelled",
     "recovered",
     "requiredCompleted",
-    "requiredExhausted",
     "requiredCancelled",
     "optionalCompleted",
   ];
@@ -238,6 +236,23 @@ export function assertProgressTransition(
     if (next.counts[key] < previous.counts[key]) {
       throw new Error("progress_count_regressed");
     }
+  }
+  // Accepted durable evidence may satisfy an exhausted slot without another
+  // attempt. Resolved work must not reopen or move between required/optional
+  // cohorts merely because another slot completed.
+  if (
+    next.counts.completed + next.counts.exhausted <
+      previous.counts.completed + previous.counts.exhausted ||
+    next.counts.requiredCompleted + next.counts.requiredExhausted <
+      previous.counts.requiredCompleted + previous.counts.requiredExhausted ||
+    next.counts.optionalCompleted +
+      next.counts.exhausted -
+      next.counts.requiredExhausted <
+      previous.counts.optionalCompleted +
+        previous.counts.exhausted -
+        previous.counts.requiredExhausted
+  ) {
+    throw new Error("progress_count_regressed");
   }
   if (previous.terminal !== "none" && next.terminal !== previous.terminal) {
     throw new Error("progress_terminal_changed");

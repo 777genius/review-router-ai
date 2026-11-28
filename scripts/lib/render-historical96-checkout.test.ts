@@ -20,7 +20,27 @@ const reader = vi.mocked(readRenderManagedCheckoutInventory);
 // Preserve old immutable-prefix fixtures through 000124 explicitly.
 // The complete current checkout is exercised separately.
 const currentFull = readRenderManagedCheckoutInventory();
-const previousFull = currentFull.filter(
+const nativeRetryMigrationName = "000165_attested_model_request_retry";
+const webhookDeliveryMigrationNames = [
+  "000165_webhook_effect_fence",
+  "000167_webhook_recovery_intent",
+];
+const webhookReceiptOrderMigrationName = "000168_webhook_receipt_order_indexes";
+const applicationTailMigrationNames = [
+  nativeRetryMigrationName,
+  ...webhookDeliveryMigrationNames,
+  webhookReceiptOrderMigrationName,
+].sort();
+const checkout173 = currentFull.filter(
+  (row) => row.migrationName !== nativeRetryMigrationName,
+);
+const checkout172 = checkout173.filter(
+  (row) => row.migrationName !== webhookReceiptOrderMigrationName,
+);
+const predecessorFull = checkout172.filter(
+  (row) => !webhookDeliveryMigrationNames.includes(row.migrationName),
+);
+const previousFull = predecessorFull.filter(
   (row) =>
     row.migrationName !== "000155_usage_member_report_index" &&
     row.migrationName !== "000157_claude_code_api_key_secret" &&
@@ -182,6 +202,18 @@ describe("trusted historical96 checkout reader", () => {
     expect(full[96]?.migrationName).toBe(
       "000098_certified_fork_effect_archive",
     );
+    expect(currentFull).toHaveLength(174);
+    expect(currentFull.slice(-4).map((row) => row.migrationName)).toEqual(
+      applicationTailMigrationNames,
+    );
+    expect(checkout173).toHaveLength(173);
+    expect(currentFull.at(-1)?.migrationName).toBe(
+      webhookReceiptOrderMigrationName,
+    );
+    expect(checkout172).toHaveLength(172);
+    expect(checkout172.slice(-2).map((row) => row.migrationName)).toEqual(
+      webhookDeliveryMigrationNames,
+    );
     const result = readRenderHistorical96CheckoutInventory();
     expect(result).toEqual(historical);
     expect(result).toHaveLength(96);
@@ -199,22 +231,43 @@ describe("trusted historical96 checkout reader", () => {
     expect(reader).toHaveBeenCalledWith();
     reader.mockReturnValue([
       ...currentFull,
-      { migrationName: "000165_unknown", checksum: "0".repeat(64) },
+      { migrationName: "000169_unknown", checksum: "0".repeat(64) },
     ]);
     expect(() => readRenderHistorical96CheckoutInventory()).toThrow(
       "render_historical96_checkout_rejected:count",
     );
   });
 
+  it.each(applicationTailMigrationNames)(
+    "rejects altered checkout-only application migration %s before returning historical96",
+    (migrationName) => {
+      reader.mockReturnValueOnce(
+        currentFull.map((row) =>
+          row.migrationName === migrationName
+            ? { ...row, checksum: "0".repeat(64) }
+            : row,
+        ),
+      );
+      expect(() => readRenderHistorical96CheckoutInventory()).toThrow(
+        "render_schema_handoff_rejected:checkout_extension",
+      );
+    },
+  );
+
   it.each([
-    { checkout: currentFull },
+    ...[0, 1, 6, 7, 14, 15].map((mask) => ({
+      checkout: currentFull.filter((row) => {
+        const index = applicationTailMigrationNames.indexOf(row.migrationName);
+        return index < 0 || (mask & (1 << index)) !== 0;
+      }),
+    })),
     {
-      checkout: currentFull.filter(
+      checkout: predecessorFull.filter(
         (row) => row.migrationName !== "000161_native_connection_intent",
       ),
     },
     {
-      checkout: currentFull.filter(
+      checkout: predecessorFull.filter(
         (row) =>
           row.migrationName !== "000161_github_authorization_revision" &&
           row.migrationName !== "000162_inventory_ruleset_revisions" &&
