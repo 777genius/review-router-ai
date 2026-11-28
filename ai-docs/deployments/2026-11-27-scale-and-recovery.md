@@ -489,7 +489,6 @@ private/public Node 24/26 joined executions. Staging and production remain pendi
 | 2026-11-27   | Canonical isolated build    | Coding agent  | `474b599b` plus the recorded artifact SHA256        | Action build/smoke and both complete CLI/workflow test files passed; independent generated-delta review found no critical issue.                                     | Publish the artifact correction and qualify that head.                      |
 | Not executed | staging / production        | Unassigned    | Not verified                                        | No rollout of this Draft attempted. The separate peer installation record remains attributed to its owner.                                                           | Complete qualification before separately authorized release.                |
 
-
 ## Shared accepted-result progress correction (2026-11-28)
 
 The accepted-result cold scenario in #1028 reached source lookup but received
