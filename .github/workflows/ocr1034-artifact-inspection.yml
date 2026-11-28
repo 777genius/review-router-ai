@@ -144,7 +144,7 @@ jobs:
                   return "[invalid URL]"
           def clean(value):
               s = str(value)
-              s = re.sub(r"https?://[^\s\"'<>]+", lambda m: url(m.group(0)), s)
+              s = re.sub(r"(?:https?|postgres(?:ql)?)://[^\s\"'<>]+", lambda m: url(m.group(0)), s)
               s = re.sub(r"""(?i)["']?(authorization|cookie|set-cookie|password|secret|access_token|refresh_token)["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)""", r"\1=[redacted]", s)
               s = re.sub(r"(?i)\bBearer\s+\S+", "Bearer [redacted]", s)
               s = re.sub(r"(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)", "[redacted-token]", s)
@@ -219,6 +219,17 @@ jobs:
                   lines = archive.read(f).decode("utf-8", errors="replace").splitlines()
                   selected = [clean(line) for line in lines if re.search(r"error|exception|failed|GET /dashboard|POST /dashboard", line, re.I)]
                   emit("RR_OCR1034_SERVER_LOG", {"path": f.filename, "matchedLines": len(selected), "lastLines": selected[-100:]})
+                  if f.filename == "next-app.log":
+                      matches = [i for i, line in enumerate(lines) if re.search(r"timeout exceeded when trying to connect|2886023226", line)]
+                      context = sorted({j for i in matches[:8] for j in range(max(0, i - 10), min(len(lines), i + 11))})
+                      emit("RR_OCR1034_SERVER_CONTEXT", {
+                          "path": f.filename,
+                          "matchCount": len(matches),
+                          "selectedMatchLines": [i + 1 for i in matches[:8]],
+                          "omittedMatches": max(0, len(matches) - 8),
+                          "omittedContextLines": max(0, len(context) - 96),
+                          "lines": [{"line": i + 1, "text": clean(lines[i])} for i in context[:96]],
+                      })
           emit("RR_OCR1034_INSPECTION_COMPLETE", {"scope": "Historical failure diagnostics only; no source or test was executed.", "remainingOutputBudget": budget})
           
           PY
