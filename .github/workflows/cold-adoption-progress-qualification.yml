@@ -1,0 +1,248 @@
+name: Cold adoption progress qualification
+
+on:
+  push:
+    branches:
+      - qualification/cold-adoption-progress-20261128
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cold-adoption-progress-20261128
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "26.11.1"
+  DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/review_router_ci?schema=public
+  TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/review_router_ci_test?schema=public
+  REVIEW_ROUTER_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/review_router_ci_test?schema=public
+  AUTH_SECRET: ci-auth-secret-not-used-for-production
+  AUTH_TRUST_HOST: "true"
+  GITHUB_WEBHOOK_SECRET: ci-webhook-secret-not-used-for-production
+  REVIEW_ROUTER_WEB_URL: http://localhost:3000
+  REVIEW_ROUTER_PUBLIC_WEB_URL: https://web.reviewrouter.test
+  REVIEW_ROUTER_API_URL: http://localhost:4000
+  REVIEW_ROUTER_PUBLIC_API_URL: https://api.reviewrouter.test
+  REVIEW_ROUTER_ACTION_REF: 777genius/review-router@main
+  REVIEW_ROUTER_ACTION_VERSION: main
+  REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: 777genius/review-router@66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff
+  REVIEW_ROUTER_CODEX_ROTATING_ALLOWED_ACTION_REFS: ""
+  # Public test fixture only; production uses one secret-manager value shared
+  # by every database writer.
+  REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: ci_database_recovery_witness_not_for_production_000000000000
+  REVIEW_ROUTER_DEFAULT_MODEL: gpt-5.5
+  REVIEW_ROUTER_DEFAULT_EFFORT: xhigh
+  REVIEW_ROUTER_PAIRED_ACTION_REF: 1ce5d0abc8300d024ec75c556df1ebbb41c3cbe7
+  REVIEW_ROUTER_HOSTED_POOL_ACTION_TAG: v1.0.171
+  REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA: 66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff
+  REVIEW_ROUTER_HOSTED_POOL_ACTION_DIST_SHA256: 2a65907ac8474f805dcb23358618c9c673e6a903bf1c3c26fcdf4cfe02debe2a
+  REVIEW_ROUTER_ENABLE_DASHBOARD_MUTATIONS: "0"
+  REVIEW_ROUTER_ENABLE_WORKFLOW_PROVISIONING: "0"
+  REVIEW_ROUTER_PG_DUMP: /usr/lib/postgresql/17/bin/pg_dump
+  REVIEW_ROUTER_PG_RESTORE: /usr/lib/postgresql/17/bin/pg_restore
+
+
+jobs:
+  cold-adoption:
+    name: Native progress and real cold recovery
+    if: ${{ github.repository == '777genius/review-router-ai' && github.actor == '777genius' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public
+      REVIEW_ROUTER_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public
+      REVIEW_ROUTER_REVIEW_INVESTIGATION_PAIRED_E2E: "1"
+    services:
+      postgres:
+        image: postgres:17.5-bookworm@sha256:fbcea1bd13b6a882cd6caa6b58db3ae5c102efe50ec625b3e2a5cbc50db5bfe4
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      postgres-app-test:
+        image: postgres:17.5-bookworm@sha256:fbcea1bd13b6a882cd6caa6b58db3ae5c102efe50ec625b3e2a5cbc50db5bfe4
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout immutable progress correction
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 1e40b74843bf92b295f1c16b39290aec42d7825b
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "26.11.1"
+
+      - name: Bind exact source inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 1e40b74843bf92b295f1c16b39290aec42d7825b
+          test "$(git rev-parse HEAD^{tree})" = c7befd2b0fac5be06c588f995058e36fc23b2f25
+          test "$(git hash-object apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts)" = f9a4c914256babe208270730c7bcb55006ef3a5e
+          test "$(git hash-object packages/features/review-progress/src/domain/review-progress.ts)" = 221ffcd2e5af465767745a3ef628c568c9c7bee5
+          test "$(git hash-object packages/features/review-progress/src/domain/review-progress.test.ts)" = 32d4374087f626de4f52ef3d4af165930679ddc3
+          test "$(git hash-object scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts)" = 837db91c878d86bbc8ded03b4041b2eaf3ee2738
+          mkdir -p tmp/cold-adoption-progress
+          git log -1 --format='%H %T' > tmp/cold-adoption-progress/source.txt
+          node --version >> tmp/cold-adoption-progress/source.txt
+
+      - name: Install pinned pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+
+      - name: Install PostgreSQL 17 client
+        uses: ./.github/actions/setup-postgresql-client
+
+      - name: Install frozen source dependencies
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+
+      - name: Generate offline Prisma client
+        env:
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
+        run: node scripts/generate-prisma-offline.mjs
+
+      - name: Bootstrap native contract sources
+        id: bootstrap
+        run: |
+          node scripts/check-review-action-v2-protocol.mjs --bootstrap-only
+          pnpm --filter @reviewrouter/protocol-review-action-v2 build
+          node scripts/rewrite-dist-esm-imports.mjs
+
+      - name: Prepare ordinary PostgreSQL 17 schemas
+        env:
+          PGPASSWORD: postgres
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_ci'
+          psql -X -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_provider_scope_ci_test'
+          psql -X -h 127.0.0.1 -p 5433 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_ci_test'
+          test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname IN ('reviewrouter_release_migration', 'reviewrouter_release_schema_owner')")" = 0
+          DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy
+          test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='codex_oauth_provider_identity_guard' AND pg_catalog.pg_get_userbyid(p.proowner)='postgres'")" = 1
+          test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname='reviewrouter_release_migration'")" = 0
+          pnpm db:migrate:deploy
+
+      - name: Checkout immutable paired Action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: 777genius/review-router
+          ref: 1ce5d0abc8300d024ec75c556df1ebbb41c3cbe7
+          path: .paired/review-router-action
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Verify paired Action provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C .paired/review-router-action rev-parse HEAD)" = 1ce5d0abc8300d024ec75c556df1ebbb41c3cbe7
+          test "$(git -C .paired/review-router-action rev-parse HEAD^{tree})" = f07fa75ec037d43a30632ac20e489871b637b577
+          git -C .paired/review-router-action merge-base --is-ancestor 36bf99ae7fba5553a428eeb1e641945e7afa99ac HEAD
+          git -C .paired/review-router-action log -1 --format='%H %T' >> tmp/cold-adoption-progress/source.txt
+
+      - name: Install paired Action locked dependencies
+        run: npm ci --ignore-scripts --prefix .paired/review-router-action
+
+      - name: Check native formatting of the three changed files
+        id: format
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/cold-adoption-progress-native-format.jsonl
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec prettier --check \
+            packages/features/review-progress/src/domain/review-progress.ts \
+            packages/features/review-progress/src/domain/review-progress.test.ts \
+            scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts
+
+      - name: Check owning progress and API types
+        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @reviewrouter/features-review-progress typecheck
+          pnpm --filter @reviewrouter/api typecheck
+
+      - name: Run complete progress domain regressions
+        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec vitest run --configLoader native --maxWorkers=1 \
+            packages/features/review-progress/src/domain/review-progress.test.ts \
+            --reporter=default --reporter=json \
+            --outputFile=tmp/cold-adoption-progress/domain-results.json \
+            2>&1 | tee tmp/cold-adoption-progress/domain.log
+
+      - name: Run original production PostgreSQL cases and exhausted adoption regression
+        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
+        env:
+          REVIEW_ROUTER_REVIEW_V2_E2E: "1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec vitest run --configLoader native --no-file-parallelism --maxWorkers=1 \
+            scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts \
+            --reporter=default --reporter=json \
+            --outputFile=tmp/cold-adoption-progress/production-results.json \
+            2>&1 | tee tmp/cold-adoption-progress/production.log
+
+      - name: Reproduce original cold recovery assertion
+        id: cold
+        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
+        env:
+          REVIEW_ROUTER_ACTION_SOURCE_DIR: ${{ github.workspace }}/.paired/review-router-action
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec vitest run --configLoader native --no-file-parallelism --maxWorkers=1 \
+            apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts \
+            --testNamePattern "^runs the compiled entrypoint through real API/SQL with accepted-result-recovery Gateway allocations$" \
+            --reporter=default --reporter=json \
+            --outputFile=tmp/cold-adoption-progress/results.json \
+            2>&1 | tee tmp/cold-adoption-progress/test.log
+          GITHUB_SHA="$(git rev-parse HEAD)" node scripts/paired-action-qualification/check-cold-recovery-results.ts \
+            tmp/cold-adoption-progress/results.json \
+            tmp/multi-reviewer-e2e/accepted-result-recovery.json
+
+      - name: Verify source stayed unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code
+          test "$(git hash-object apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts)" = f9a4c914256babe208270730c7bcb55006ef3a5e
+          test "$(git hash-object packages/features/review-progress/src/domain/review-progress.ts)" = 221ffcd2e5af465767745a3ef628c568c9c7bee5
+          test "$(git hash-object packages/features/review-progress/src/domain/review-progress.test.ts)" = 32d4374087f626de4f52ef3d4af165930679ddc3
+          test "$(git hash-object scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts)" = 837db91c878d86bbc8ded03b4041b2eaf3ee2738
+
+      - name: Preserve exact diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cold-adoption-progress-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            tmp/cold-adoption-progress/
+            ${{ runner.temp }}/cold-adoption-progress-native-format.jsonl
+            tmp/multi-reviewer-e2e/accepted-result-recovery.json
+          if-no-files-found: error
+          retention-days: 14
