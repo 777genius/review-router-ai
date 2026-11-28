@@ -83,7 +83,13 @@ describe("dashboard repository access boundary", () => {
 
     const gitlab = await h.load({
       ...input,
-      actor: { ...actor, sourceProvider: "gitlab" },
+      actor: {
+        ...actor,
+        sourceProvider: "gitlab",
+        externalUserId: "202",
+        githubUserId: null,
+        githubLogin: null,
+      },
     });
     expect(gitlab.repositoryIds.size).toBe(0);
     expect(h.listAccess).not.toHaveBeenCalled();

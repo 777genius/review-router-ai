@@ -62,7 +62,10 @@ vi.mock("../../../../../src/server/github-user-authorization", () => ({
 
 const prisma = {
   userExternalIdentity: {
-    findUnique: () => Promise.resolve({ userId: "user_1" }),
+    findUnique: () =>
+      Promise.resolve({
+        user: { id: "user_1", githubUserId: 123n, githubLogin: "maintainer" },
+      }),
   },
   repositoryConnection: {
     findUnique: () =>
