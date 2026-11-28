@@ -107,7 +107,11 @@ afterEach(() => {
 test("lifecycle activity updates do not notify during child query rendering", async () => {
   const f = fixture();
   const errors = vi.spyOn(console, "error");
-  const activityKey = ["account-lifecycle-activity", "actor", "source"] as const;
+  const activityKey = [
+    "account-lifecycle-activity",
+    "actor",
+    "source",
+  ] as const;
   const operationKey = [
     "account-lifecycle-operation",
     "actor",
