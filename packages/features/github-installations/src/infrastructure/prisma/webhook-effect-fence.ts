@@ -7,11 +7,6 @@ import {
 import type { WebhookDeliveryRecord } from "../../application/ports/webhook-delivery-repository-port";
 import { isWebhookReplayEligible } from "./webhook-replay-eligibility";
 
-type WebhookClaimTransaction = Pick<
-  Prisma.TransactionClient,
-  "$queryRaw" | "$executeRaw" | "gitHubWebhookDelivery"
->;
-
 /** A delivery owner may commit only through the guarded database transaction. */
 export type FencedDelivery = Readonly<{
   deliveryId: string;
@@ -47,7 +42,7 @@ export async function claimVerifiedFencedWebhookDelivery(
 
 /** Allows initial durable PR ingress and its delivery claim to commit together. */
 export async function claimVerifiedFencedWebhookDeliveryInTransaction(
-  transaction: WebhookClaimTransaction,
+  transaction: Prisma.TransactionClient,
   context: unknown,
   delivery: WebhookDeliveryRecord,
   ownerHash: string,
@@ -228,7 +223,7 @@ function deliveryData(delivery: WebhookDeliveryRecord) {
 }
 
 async function insertFence(
-  transaction: WebhookClaimTransaction,
+  transaction: Prisma.TransactionClient,
   deliveryId: string,
   ownerHash: string,
   appIdentityHash: string,
@@ -256,7 +251,7 @@ function validateLease(leaseMs: number) {
   if (!Number.isInteger(leaseMs) || leaseMs < 1 || leaseMs > 60_000)
     throw new Error("webhook_fence_invalid");
 }
-function assertTransaction(transaction: WebhookClaimTransaction) {
+function assertTransaction(transaction: Prisma.TransactionClient) {
   if (
     !transaction ||
     typeof transaction.$queryRaw !== "function" ||
@@ -268,7 +263,7 @@ function assertTransaction(transaction: WebhookClaimTransaction) {
 
 /** All participants take delivery before fence, including status triggers. */
 async function lockDeliveryAndFence(
-  transaction: WebhookClaimTransaction,
+  transaction: Prisma.TransactionClient,
   deliveryId: string,
 ) {
   await transaction.$queryRaw(Prisma.sql`
@@ -280,7 +275,7 @@ async function lockDeliveryAndFence(
 }
 
 async function replaceOwner(
-  transaction: WebhookClaimTransaction,
+  transaction: Prisma.TransactionClient,
   previous: FencedDelivery,
   ownerHash: string,
   leaseMs: number,

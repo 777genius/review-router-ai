@@ -278,26 +278,10 @@ test("full migration webhook fencing compatibility", () => {
     const otherAppHash = "b".repeat(64);
     expect(appHash).not.toBe(otherAppHash);
     const observedPool = new Pool(webhookFencePostgres.connection);
-    const baseClient = new PrismaClient({
+    const observed = new PrismaClient({
       adapter: new PrismaPg(observedPool),
     });
     const floorQueries: Array<{ text: string; values: unknown[] }> = [];
-    const observed = baseClient.$extends({
-      query: {
-        async $queryRaw({ args, query }) {
-          // Keep the native PostgreSQL placeholders and original bigint/Date values.
-          const captured = { text: args.text, values: [...args.values] };
-          const result: unknown = await query(args);
-          if (
-            /^\s*SELECT\s+GREATEST\s*\(/iu.test(captured.text) &&
-            captured.text.includes('"GitHubWebhookDelivery"') &&
-            captured.text.includes('AS "receivedAt"')
-          )
-            floorQueries.push(captured);
-          return result;
-        },
-      },
-    });
     onTestFinished(async () => {
       try {
         const remaining = await pool.query(
@@ -321,6 +305,24 @@ test("full migration webhook fencing compatibility", () => {
       // its fixture budget does not change the receiver's transaction timeout.
       await observed.$transaction(
         async (transaction) => {
+          const nativeQueryRaw = transaction.$queryRaw.bind(transaction);
+          transaction.$queryRaw = <T = unknown>(
+            query: TemplateStringsArray | Prisma.Sql,
+            ...values: unknown[]
+          ) => {
+            // Capture native SQL values without replacing the transaction or its PrismaPromise.
+            if (
+              "text" in query &&
+              /^\s*SELECT\s+GREATEST\s*\(/iu.test(query.text) &&
+              query.text.includes('"GitHubWebhookDelivery"') &&
+              query.text.includes('AS "receivedAt"')
+            )
+              floorQueries.push({
+                text: query.text,
+                values: [...query.values],
+              });
+            return nativeQueryRaw<T>(query, ...values);
+          };
           const indexes = await transaction.$queryRaw<
             Array<{ name: string; valid: boolean; ready: boolean }>
           >`
@@ -366,7 +368,7 @@ test("full migration webhook fencing compatibility", () => {
                   ELSE 'repository'
                 END,
                 CASE WHEN n > 55000 AND n <= 97500
-                  THEN ${BigInt(installationId)} ELSE 1000000 + n END,
+                  THEN ${BigInt(installationId)}::bigint ELSE 1000000 + n END,
                 jsonb_build_object('repositoryId',
                   CASE WHEN n > 97500
                     THEN CASE WHEN n % 2 = 0 THEN ${repositoryIds[0]} ELSE ${repositoryIds[1]} END

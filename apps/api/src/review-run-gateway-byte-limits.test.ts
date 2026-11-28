@@ -1754,9 +1754,11 @@ it.each([
 );
 
 it.each([
+  { phase: "authority_recheck", fail: false },
   { phase: "native_status", fail: false },
   { phase: "usage_outcome", fail: false },
   { phase: "companion_settlement", fail: false },
+  { phase: "authority_recheck", fail: true },
   { phase: "native_status", fail: true },
   { phase: "usage_outcome", fail: true },
   { phase: "companion_settlement", fail: true },
@@ -1819,6 +1821,56 @@ it.each([
           : {}),
       },
     );
+    let nativeEofObserved = false;
+    const originalFactory = preparationModule.createReviewRunGatewayPreparation;
+    const factory = vi
+      .spyOn(preparationModule, "createReviewRunGatewayPreparation")
+      .mockImplementation((input) => {
+        const preparation = originalFactory(input);
+        if (phase !== "authority_recheck") return preparation;
+        return {
+          ...preparation,
+          request: async (...args: Parameters<typeof preparation.request>) => {
+            const response = await preparation.request(...args);
+            if (response.kind !== "stream") return response;
+            const reader = response.body.getReader();
+            return {
+              ...response,
+              body: new ReadableStream<Uint8Array>(
+                {
+                  async pull(controller) {
+                    const chunk = await reader.read();
+                    if (chunk.done) {
+                      nativeEofObserved = true;
+                      controller.close();
+                    } else controller.enqueue(chunk.value);
+                  },
+                  cancel: (reason) => reader.cancel(reason),
+                },
+                { highWaterMark: 0 },
+              ),
+            };
+          },
+        };
+      });
+    const originalAuthority = f.relayInput.checkAuthority;
+    let authorityReadObserved = false;
+    const authority = vi
+      .spyOn(f.relayInput, "checkAuthority")
+      .mockImplementation(async (authorization, freshness) => {
+        if (
+          phase === "authority_recheck" &&
+          nativeEofObserved &&
+          freshness === "local" &&
+          !authorityReadObserved
+        ) {
+          authorityReadObserved = true;
+          settlementStarted.resolve();
+          await releaseSettlement.promise;
+          if (fail) throw new Error("fixture_settlement_failed");
+        }
+        return originalAuthority(authorization, freshness);
+      });
     const recordOutcome = f.usage!.outcome;
     const usage = vi
       .spyOn(f.usage!, "outcome")
@@ -1855,6 +1907,7 @@ it.each([
         }),
       ]);
       expect(completedRecorded).toBe(false);
+      if (phase === "authority_recheck") expect(nativeEofObserved).toBe(true);
       await reader.cancel();
       await response.cancel();
       await draining;
@@ -1925,6 +1978,8 @@ it.each([
         await f.relay.shutdown();
       } finally {
         usage.mockRestore();
+        authority.mockRestore();
+        factory.mockRestore();
         settlement.mockRestore();
         log.mockRestore();
       }

@@ -19,7 +19,6 @@ export type CurrentScopeGuard =
       readonly mode: Mode;
     };
 
-type CurrentScopeGuardTransaction = Pick<Prisma.TransactionClient, "$queryRaw">;
 type Lock = { key: string; mode: Mode; rank: number };
 type Held = { locks: readonly Lock[]; ready: Promise<void> };
 const transactions = new WeakMap<object, Held>();
@@ -38,7 +37,7 @@ const transactions = new WeakMap<object, Held>();
  * predate a lock wait and must not be treated as a fresh current-authorization view.
  */
 export async function acquireCurrentScopeGuards(
-  transaction: CurrentScopeGuardTransaction,
+  transaction: Prisma.TransactionClient,
   scopes: readonly CurrentScopeGuard[],
 ): Promise<void> {
   // Prisma 7.8 interactive callbacks also expose $transaction. Supported
@@ -117,7 +116,7 @@ function validateId(id: string) {
 }
 
 async function acquire(
-  transaction: CurrentScopeGuardTransaction,
+  transaction: Prisma.TransactionClient,
   locks: readonly Lock[],
 ): Promise<void> {
   for (const lock of locks) {

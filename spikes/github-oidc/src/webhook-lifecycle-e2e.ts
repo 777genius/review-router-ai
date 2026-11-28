@@ -38,6 +38,11 @@ async function main(): Promise<void> {
   await cleanup();
   const app = await createApiApp({
     githubWebhookSecret: webhookSecret,
+    reviewActionV2Env: {
+      ...process.env,
+      GITHUB_APP_ID: "12345",
+      GITHUB_API_BASE_URL: "https://api.github.com",
+    },
     prisma,
   });
 
@@ -332,9 +337,14 @@ async function cleanup(): Promise<void> {
       },
     },
   });
-  await prisma.gitHubWebhookDelivery.deleteMany({
-    where: { deliveryId: { startsWith: "e2e-installation-" } },
-  });
+  await prisma.$transaction([
+    prisma.gitHubWebhookFence.deleteMany({
+      where: { deliveryId: { startsWith: "e2e-installation-" } },
+    }),
+    prisma.gitHubWebhookDelivery.deleteMany({
+      where: { deliveryId: { startsWith: "e2e-installation-" } },
+    }),
+  ]);
   await prisma.gitHubInstallation.deleteMany({
     where: { githubInstallationId: installationId },
   });
