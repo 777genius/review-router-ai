@@ -17,7 +17,7 @@ jobs:
   inspect:
     name: Read exact a999 Memory failure evidence
     if: ${{ github.repository == '777genius/review-router-ai' && github.actor == '777genius' && github.ref == 'refs/heads/qualification/ocr1034-artifact-inspection-20261128' }}
-    runs-on: macos-latest
+    runs-on: ${{ vars.CI_STATIC_CHECKS_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 10
     steps:
       - name: Setup pinned Node
