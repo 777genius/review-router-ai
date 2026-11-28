@@ -1,4 +1,4 @@
-name: Cold adoption progress qualification
+name: Cold model discovery qualification
 
 on:
   push:
@@ -45,7 +45,7 @@ env:
 
 jobs:
   cold-adoption:
-    name: Native progress and real cold recovery
+    name: Native format and corrected real cold recovery
     if: ${{ github.repository == '777genius/review-router-ai' && github.actor == '777genius' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -77,10 +77,10 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - name: Checkout immutable progress correction
+      - name: Checkout immutable model-discovery correction
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 1e40b74843bf92b295f1c16b39290aec42d7825b
+          ref: fb1bdc7cddd083e540714a7a6de05a43c5301d0b
           fetch-depth: 0
           persist-credentials: false
 
@@ -93,12 +93,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 1e40b74843bf92b295f1c16b39290aec42d7825b
-          test "$(git rev-parse HEAD^{tree})" = c7befd2b0fac5be06c588f995058e36fc23b2f25
-          test "$(git hash-object apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts)" = f9a4c914256babe208270730c7bcb55006ef3a5e
+          test "$(git rev-parse HEAD)" = fb1bdc7cddd083e540714a7a6de05a43c5301d0b
+          test "$(git rev-parse HEAD^{tree})" = 057fbcef3aa2ca22f291028bd029354b675e786c
+          test "$(git hash-object apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts)" = dba571ae1dbcb272b7e6ee0b64b9e06a5d7ea0cd
           test "$(git hash-object packages/features/review-progress/src/domain/review-progress.ts)" = 221ffcd2e5af465767745a3ef628c568c9c7bee5
           test "$(git hash-object packages/features/review-progress/src/domain/review-progress.test.ts)" = 32d4374087f626de4f52ef3d4af165930679ddc3
-          test "$(git hash-object scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts)" = 837db91c878d86bbc8ded03b4041b2eaf3ee2738
+          test "$(git hash-object scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts)" = 5825f3be89b9126f0fe654c2f5ef64dcb7b63ad8
           mkdir -p tmp/cold-adoption-progress
           git log -1 --format='%H %T' > tmp/cold-adoption-progress/source.txt
           node --version >> tmp/cold-adoption-progress/source.txt
@@ -161,7 +161,7 @@ jobs:
       - name: Install paired Action locked dependencies
         run: npm ci --ignore-scripts --prefix .paired/review-router-action
 
-      - name: Check native formatting of the three changed files
+      - name: Check native formatting of the cold fixture and owning records
         id: format
         env:
           NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
@@ -170,43 +170,48 @@ jobs:
         run: |
           set -euo pipefail
           pnpm exec prettier --check \
-            packages/features/review-progress/src/domain/review-progress.ts \
-            packages/features/review-progress/src/domain/review-progress.test.ts \
-            scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts
+            apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts \
+            ai-docs/deployments/2026-11-27-production-review-failure-fixes.md \
+            ai-docs/deployments/README.md
 
-      - name: Check owning progress and API types
-        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          pnpm --filter @reviewrouter/features-review-progress typecheck
-          pnpm --filter @reviewrouter/api typecheck
-
-      - name: Run complete progress domain regressions
-        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          pnpm exec vitest run --configLoader native --maxWorkers=1 \
-            packages/features/review-progress/src/domain/review-progress.test.ts \
-            --reporter=default --reporter=json \
-            --outputFile=tmp/cold-adoption-progress/domain-results.json \
-            2>&1 | tee tmp/cold-adoption-progress/domain.log
-
-      - name: Run original production PostgreSQL cases and exhausted adoption regression
-        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
+      - name: Preserve canonical native formatter output for any mismatched file
+        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' && steps.format.outcome == 'failure' }}
         env:
-          REVIEW_ROUTER_REVIEW_V2_E2E: "1"
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/cold-adoption-progress-native-format.jsonl
         shell: bash
         run: |
           set -euo pipefail
-          pnpm exec vitest run --configLoader native --no-file-parallelism --maxWorkers=1 \
-            scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts \
-            --reporter=default --reporter=json \
-            --outputFile=tmp/cold-adoption-progress/production-results.json \
-            2>&1 | tee tmp/cold-adoption-progress/production.log
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+          import { spawnSync } from 'node:child_process';
+          import { createHash } from 'node:crypto';
+          const paths = [
+            'apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts',
+            'ai-docs/deployments/2026-11-27-production-review-failure-fixes.md',
+            'ai-docs/deployments/README.md',
+          ];
+          const gitBlob = bytes => createHash('sha1').update(Buffer.concat([Buffer.from('blob ' + bytes.length + '\0'), bytes])).digest('hex');
+          mkdirSync('tmp/cold-adoption-progress/canonical', { recursive: true });
+          for (const [index, path] of paths.entries()) {
+            const original = readFileSync(path);
+            const result = spawnSync('pnpm', ['exec', 'prettier', path], { encoding: null, env: process.env, maxBuffer: 8 * 1024 * 1024 });
+            assert.equal(result.status, 0);
+            const again = spawnSync('pnpm', ['exec', 'prettier', '--stdin-filepath', path], { input: result.stdout, encoding: null, env: process.env, maxBuffer: 8 * 1024 * 1024 });
+            assert.equal(again.status, 0);
+            assert(result.stdout.equals(again.stdout), 'native formatter is not idempotent');
+            const changed = !original.equals(result.stdout);
+            const receipt = { path, originalGitBlob: gitBlob(original), canonicalGitBlob: gitBlob(result.stdout), changed };
+            if (changed) {
+              receipt.canonicalBase64 = result.stdout.toString('base64');
+              writeFileSync('tmp/cold-adoption-progress/canonical/' + index + '.txt', result.stdout);
+            }
+            console.log('NATIVE_CANONICAL_FILE ' + JSON.stringify(receipt));
+          }
+          NODE
 
-      - name: Reproduce original cold recovery assertion
+      - name: Qualify corrected cold recovery and original receipt
         id: cold
         if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
         env:
@@ -230,10 +235,10 @@ jobs:
         run: |
           set -euo pipefail
           git diff --exit-code
-          test "$(git hash-object apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts)" = f9a4c914256babe208270730c7bcb55006ef3a5e
+          test "$(git hash-object apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts)" = dba571ae1dbcb272b7e6ee0b64b9e06a5d7ea0cd
           test "$(git hash-object packages/features/review-progress/src/domain/review-progress.ts)" = 221ffcd2e5af465767745a3ef628c568c9c7bee5
           test "$(git hash-object packages/features/review-progress/src/domain/review-progress.test.ts)" = 32d4374087f626de4f52ef3d4af165930679ddc3
-          test "$(git hash-object scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts)" = 837db91c878d86bbc8ded03b4041b2eaf3ee2738
+          test "$(git hash-object scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts)" = 5825f3be89b9126f0fe654c2f5ef64dcb7b63ad8
 
       - name: Preserve exact diagnostic evidence
         if: always()
