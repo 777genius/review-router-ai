@@ -19,11 +19,13 @@ rollout pending, with no migration or configuration change.
 PR #1028: [review failure fixes, accepted-source recovery and attested request retry](2026-11-27-production-review-failure-fixes.md)
 are under qualification. The current cold recovery correction preserves
 completed-plus-exhausted progress separately for required and optional work
-during accepted observation adoption. Native progress/API types and all 34
-domain regressions passed; the formatter's exact canonical output is applied.
-Real PostgreSQL, the original compiled cold scenario, current-head CI and all
-four joined Node/mode executions remain required. Staging and production
-remain `pending`.
+during accepted observation adoption. Native progress/API types, all 34
+domain regressions and all 19 production PostgreSQL cases passed on the
+recorded candidate; the formatter's exact canonical output is applied.
+The cold fixture now distinguishes two public-process catalog-read pairs
+while preserving identical selection custody and every no-replay assertion.
+Its corrected cold run, current-head CI and all four joined Node/mode
+executions remain required. Staging and production remain `pending`.
 The bounded retry consumer requires additive migration `000165`, compatible
 readers and the new immutable producer policy in the recorded order; legacy
 and capacity128 producer identities retain their meanings.

@@ -508,9 +508,13 @@ adoption replay and an unchanged original source lease. Its one required
 line wrap uses the exact idempotent native formatter output; no assertion,
 retry allowance or timeout changed.
 
-Real PostgreSQL and the unchanged compiled cold oracle still need their
-runtime evidence. Current-head CI and all four existing joined private/public
-Node 24/26 executions remain required. See the
+Focused runtime qualification passed all 19 production PostgreSQL cases.
+The cold process restored the original execution, then exposed a generic
+catalog-read count that omitted the second public Action bootstrap. The
+shared fixture now verifies exactly two identical account selections per
+process while preserving every no-admission and no-inference-replay check.
+Its corrected cold execution, current-head CI and all four existing joined
+private/public Node 24/26 executions remain required. See the
 [shared task checkpoint](2026-11-27-production-review-failure-fixes.md#cold-recovery-and-progress-qualification-2026-11-28)
 for source/run bindings. This is an ordinary shared API/worker code correction;
 it adds no migration, configuration or feature flag. Environment status and

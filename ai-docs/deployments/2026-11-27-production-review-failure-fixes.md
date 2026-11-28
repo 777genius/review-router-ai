@@ -247,7 +247,8 @@ Ten domain regressions cover accepted recovery and rejected reopening,
 cancellation and cross-cohort compensation. One additional production
 PostgreSQL case verifies atomic progress advancement, exactly one semantic
 attempt, replay without another write and unchanged original source lease.
-The existing production cases and compiled cold-recovery oracle are retained.
+The existing production cases and compiled cold-recovery authority and
+no-replay oracles are retained.
 
 The [native qualification of candidate `1e40b748`](https://github.com/777genius/review-router-ai/actions/runs/46146653437/job/140984071063)
 passed progress/API types and all 34 domain tests, with no skipped tests.
@@ -257,13 +258,35 @@ PostgreSQL case. Its idempotent canonical output was imported as Git blob
 and all existing assertions are unchanged. The original native job remains
 failed on that format check; the canonical correction is part of this source.
 
-The [focused PostgreSQL and compiled cold run](https://github.com/777genius/review-router-ai/actions/runs/46145764941)
-still needs its actual runtime results. The
-[separate original diagnostic run](https://github.com/777genius/review-router-ai/actions/runs/46145204735)
-uses owner source `0c8544b2` to expose the actual handler cause. These runs
-do not replace current-head CI or the original four joined Node/mode
-executions. Record their actual results and final source before claiming
-completion.
+The [separate original diagnostic run](https://github.com/777genius/review-router-ai/actions/runs/46145204735/job/140979637328)
+on owner source `0c8544b2` reproduced `progress_count_regressed` inside
+the adoption transaction. Both failed requests retained the same original
+request identity; one selected cold case failed and eight other cases were
+unselected. The original failed result remains recorded.
+
+The [focused PostgreSQL and compiled cold run](https://github.com/777genius/review-router-ai/actions/runs/46145764941/job/140981373033)
+on candidate `1e40b748` passed all 34 domain and 19 production PostgreSQL
+cases, including exhausted-slot adoption and exact replay. Its original
+format failure predates the canonical output imported above. The cold
+process then restored the completed execution and passed the original
+no-new-admission, dispatch, request, provider-lease, evidence and authority
+checks. It failed the later generic catalog-read count: two fresh public
+Action processes produced four reads, while the single-process expectation
+allowed only two. This run is not a complete cold-recovery pass.
+
+Each Action bootstrap checks out its Gateway binding and reads the selected
+account models. These authenticated catalog reads do not dispatch inference.
+The fixture now captures the two original full model-selection requests
+before termination, requires the retained request prefix to stay identical,
+and requires exactly one additional identical selection for each account.
+Only the accepted-result cold scenario expects four total catalog reads;
+all other scenario counts and all paid-effect and publication assertions
+remain unchanged.
+
+The corrected cold fixture, its receipt verifier, current-head CI and all
+four original joined Node/mode executions still require successful execution.
+Neither a focused PostgreSQL pass nor the earlier failed cold run replaces
+those gates.
 
 ## Earlier source qualification checkpoint (2026-11-27)
 
