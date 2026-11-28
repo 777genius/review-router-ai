@@ -86,7 +86,13 @@ describe("production Skills repository proof adapter", () => {
       repository("repo-write"),
       repository("repo-read"),
     ]);
-    h.identity.mockResolvedValue({ userId: actor.userId });
+    h.identity.mockResolvedValue({
+      user: {
+        id: actor.userId,
+        githubUserId: 123n,
+        githubLogin: "synthetic-user",
+      },
+    });
     h.session.mockResolvedValue({
       user: {
         sourceProvider: "github",
@@ -167,7 +173,13 @@ describe("production Skills repository proof adapter", () => {
   );
 
   it("rejects a changed signed-in actor after a positive SCM check", async () => {
-    h.identity.mockResolvedValue({ userId: "different-user" });
+    h.identity.mockResolvedValue({
+      user: {
+        id: "different-user",
+        githubUserId: 123n,
+        githubLogin: "synthetic-user",
+      },
+    });
     h.permission.mockResolvedValue(facts("write", "write"));
     await expect(authorize()).rejects.toThrow("review_skills_actor_changed");
   });
