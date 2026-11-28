@@ -447,6 +447,26 @@ const profileId = "openrouter-openai-responses-apikey-v1";
       });
       await registerReviewRunSkillsRoute(app, fixture.routes.reviewSkills!);
       if (acceptedRecovery) {
+        // Keep private handler details inside this disposable E2E fixture.
+        // The public API intentionally maps unexpected failures to a generic
+        // 500; expose the exact cause only if this qualification fails.
+        const adopt = fixture.routes.execution.adoptObservation!;
+        const executeAdopt = adopt.execute;
+        vi.spyOn(adopt, "execute").mockImplementation(async (request) => {
+          try {
+            return await executeAdopt(request);
+          } catch (error) {
+            errors.push({
+              adoptionHandlerError:
+                error instanceof Error ? error.message : String(error),
+              adoptionHandlerCode:
+                error instanceof Error ? Reflect.get(error, "code") : undefined,
+              adoptionHandlerStack:
+                error instanceof Error ? error.stack : undefined,
+            });
+            throw error;
+          }
+        });
         const commit = fixture.routes.evidence.commit!;
         const executeCommit = commit.execute;
         vi.spyOn(commit, "execute").mockImplementation(async (request) => {
