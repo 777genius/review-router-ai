@@ -409,12 +409,11 @@ describe("Review Action v2 execution/evidence composition", () => {
           : f.snapshot;
       const beforeSnapshot = structuredClone(restored);
       const beforeLease = structuredClone(f.sourceLease);
-      const start = vi
-        .spyOn(f.d.executions.startReviewExecution, "execute")
-        .mockResolvedValue({
-          status: StartReviewExecutionStatus.Restored,
-          snapshot: restored,
-        });
+      const start = vi.spyOn(f.d.executions.startReviewExecution, "execute");
+      start.mockResolvedValue({
+        status: StartReviewExecutionStatus.Restored,
+        snapshot: restored,
+      });
       const d = {
         ...f.d,
         authorizations: {
@@ -516,12 +515,11 @@ describe("Review Action v2 execution/evidence composition", () => {
         runtimeKind === "v3" ? 3 : null,
       );
       expect(runtime?.lifecycleVerificationCapability).toBeUndefined();
-      const start = vi
-        .spyOn(f.d.executions.startReviewExecution, "execute")
-        .mockResolvedValue({
-          status: StartReviewExecutionStatus.Restored,
-          snapshot: f.snapshot,
-        });
+      const start = vi.spyOn(f.d.executions.startReviewExecution, "execute");
+      start.mockResolvedValue({
+        status: StartReviewExecutionStatus.Restored,
+        snapshot: f.snapshot,
+      });
       const d = {
         ...f.d,
         authorizations: {

@@ -20,14 +20,15 @@ jobs:
     runs-on: ${{ vars.CI_STATIC_CHECKS_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 15
     env:
-      RR_FORMAT_SUBJECT_SHA: 3427f67ffaddba49d976858ab63b6508cbc87fdd
+      RR_FORMAT_SUBJECT_SHA: 233f304e3d874df85474770765b9b9d5a69f95da
       RR_QUALIFICATION_BASE_SHA: 77aa8e5a42403c69883e6ef6ef0bf2ed18063e9a
-      RR_FORMAT_SUBJECT_TREE: d66f6e1cbff1d5c9b60b62a78307babf555565e3
+      RR_EXPECTED_PR_HEAD: 233f304e3d874df85474770765b9b9d5a69f95da
+      RR_FORMAT_SUBJECT_TREE: 27e13b6b2ab6e66c1c00e9e6940747704cbf5019
       RR_FORMAT_SUBJECT_LOCK: 2aa3a8d6ffbcc49dc9577ccc55f5c28e1a290bcc
       RR_FORMAT_SUBJECT_PATH: apps/api/src/review-action-v2-execution-evidence-lifecycle.ts
       RR_FORMAT_SUBJECT_BLOB: 9cb8f54ec181eae3818b1ce9025437a7d7a4f950
       RR_FORMAT_SECOND_PATH: apps/api/src/review-action-v2-execution-evidence-composition.test.ts
-      RR_FORMAT_SECOND_BLOB: a16f2ab9694f25206818d8e69189064624c5885a
+      RR_FORMAT_SECOND_BLOB: 202899b76331cb62e5debc44d118e1163158f77e
       RR_FORMAT_TASK_PATH: ai-docs/deployments/2026-11-27-scale-and-recovery.md
       RR_FORMAT_TASK_BLOB: b219c521a67225a938b75ebf50739ccec0f1a2d0
       RR_FORMAT_INDEX_PATH: ai-docs/deployments/README.md
@@ -41,7 +42,7 @@ jobs:
       - name: Checkout the immutable reviewed subject
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: 3427f67ffaddba49d976858ab63b6508cbc87fdd
+          ref: 233f304e3d874df85474770765b9b9d5a69f95da
           fetch-depth: 2
           persist-credentials: false
 
@@ -99,7 +100,7 @@ jobs:
           assert.equal(response.status, 200, "cannot verify the current PR head");
           const pr = await response.json();
           assert.equal(pr.state, "open");
-          assert.equal(pr.head.sha, process.env.RR_QUALIFICATION_BASE_SHA);
+          assert.equal(pr.head.sha, process.env.RR_EXPECTED_PR_HEAD);
           assert.equal(pr.head.repo.full_name, "777genius/review-router-ai");
           assert.equal(pr.user.login, "777genius");
           writeFileSync(join(process.env.RR_FORMAT_DIRECTORY, "pull-request-head.json"),
@@ -178,7 +179,7 @@ jobs:
           import { readFileSync, writeFileSync } from "node:fs";
           import { join } from "node:path";
           const directory = process.env.RR_FORMAT_DIRECTORY;
-          const expected = [{"path":"apps/api/src/review-action-v2-execution-evidence-lifecycle.ts","originalGitBlob":"9cb8f54ec181eae3818b1ce9025437a7d7a4f950"},{"path":"apps/api/src/review-action-v2-execution-evidence-composition.test.ts","originalGitBlob":"a16f2ab9694f25206818d8e69189064624c5885a"},{"path":"ai-docs/deployments/2026-11-27-scale-and-recovery.md","originalGitBlob":"b219c521a67225a938b75ebf50739ccec0f1a2d0"},{"path":"ai-docs/deployments/README.md","originalGitBlob":"8a17d1969b4f43b30c3f97c5cd2dcdd0edd2ada6"}];
+          const expected = [{"path":"apps/api/src/review-action-v2-execution-evidence-lifecycle.ts","originalGitBlob":"9cb8f54ec181eae3818b1ce9025437a7d7a4f950"},{"path":"apps/api/src/review-action-v2-execution-evidence-composition.test.ts","originalGitBlob":"202899b76331cb62e5debc44d118e1163158f77e"},{"path":"ai-docs/deployments/2026-11-27-scale-and-recovery.md","originalGitBlob":"b219c521a67225a938b75ebf50739ccec0f1a2d0"},{"path":"ai-docs/deployments/README.md","originalGitBlob":"8a17d1969b4f43b30c3f97c5cd2dcdd0edd2ada6"}];
           const audit = readFileSync(process.env.REVIEWROUTER_NATIVE_FORMAT_AUDIT, "utf8")
             .trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
           assert(audit.some(event => event.event === "guard-installed" && event.nodeVersion === "v26.11.1"),
