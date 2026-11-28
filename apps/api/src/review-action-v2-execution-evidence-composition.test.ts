@@ -409,12 +409,11 @@ describe("Review Action v2 execution/evidence composition", () => {
           : f.snapshot;
       const beforeSnapshot = structuredClone(restored);
       const beforeLease = structuredClone(f.sourceLease);
-      const start = vi.fn<
-        ReviewActionV2ExecutionHandlerDependencies["executions"]["startReviewExecution"]["execute"]
-      >(async () => ({
+      const start = vi.spyOn(f.d.executions.startReviewExecution, "execute");
+      start.mockResolvedValue({
         status: StartReviewExecutionStatus.Restored,
         snapshot: restored,
-      }));
+      });
       const d = {
         ...f.d,
         authorizations: {
@@ -426,10 +425,6 @@ describe("Review Action v2 execution/evidence composition", () => {
         executionQueries: {
           ...f.d.executionQueries,
           findExecution: async () => restored,
-        },
-        executions: {
-          ...f.d.executions,
-          startReviewExecution: { execute: start },
         },
       } satisfies ReviewActionV2ExecutionHandlerDependencies;
       const readback = await discoveryExecutionReadback(operation, d, restored);
@@ -520,12 +515,11 @@ describe("Review Action v2 execution/evidence composition", () => {
         runtimeKind === "v3" ? 3 : null,
       );
       expect(runtime?.lifecycleVerificationCapability).toBeUndefined();
-      const start = vi.fn<
-        ReviewActionV2ExecutionHandlerDependencies["executions"]["startReviewExecution"]["execute"]
-      >(async () => ({
+      const start = vi.spyOn(f.d.executions.startReviewExecution, "execute");
+      start.mockResolvedValue({
         status: StartReviewExecutionStatus.Restored,
         snapshot: f.snapshot,
-      }));
+      });
       const d = {
         ...f.d,
         authorizations: {
@@ -533,10 +527,6 @@ describe("Review Action v2 execution/evidence composition", () => {
             status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
             authorization: captured,
           }),
-        },
-        executions: {
-          ...f.d.executions,
-          startReviewExecution: { execute: start },
         },
       } satisfies ReviewActionV2ExecutionHandlerDependencies;
       const readback = await discoveryExecutionReadback(
@@ -4790,7 +4780,11 @@ function ordinaryDiscoveryAuthorization(
     parsed.lifecycleVerificationCapability !== undefined
   )
     throw new Error("test_discovery_runtime_invalid");
-  return { ...authorization, runtimeSnapshotCanonicalJson };
+  return {
+    ...authorization,
+    schemaDigest: reviewActionV2PublishedSchemaDigest,
+    runtimeSnapshotCanonicalJson,
+  };
 }
 
 function lifecycleAuthorization(): ReviewRunAuthorization {
