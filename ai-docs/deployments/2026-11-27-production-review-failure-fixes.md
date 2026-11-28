@@ -18,9 +18,10 @@
   [Action #411](https://github.com/777genius/review-router/pull/411) contains the
   independent GitHub wait, completed-output preservation, cancellation and
   accepted-source recovery changes. Source `ccbcabb8` passed the official
-  source, test and build steps; its exact generated artifact still needs normal
+  source, test and build steps; at that checkpoint its exact generated artifact still needed normal
   provenance verification and committed-runtime integration. Earlier bundle
-  `b2227915` remains the paired fixture pin until that integration is qualified.
+  `b2227915` was the paired fixture pin then. The current immutable Action
+  source and qualification are recorded in the 2026-11-28 checkpoint below.
   [Native #8](https://github.com/agent-teams-ai/sub2api-standalone/pull/8) and
   [Gateway #125](https://github.com/agent-teams-ai/account-gateway/pull/125) have
   qualified the non-entry proof producer source. The RR/Action consumer
@@ -28,7 +29,7 @@
   and separate ordinary producer activation remain required. Both producer PRs
   were merged by their owner with source-equivalent trees and passing post-merge
   checks. A merge does not establish deployment or active fleet configuration.
-- Last updated: `2026-11-27`.
+- Last updated: `2026-11-28`.
 
 ## Environment status
 
@@ -213,7 +214,58 @@ This capability needs an explicit later invocation before original Gateway
 cleanup. It adds no durable wake-up, recovery after normal transport closure or
 authority extension. Broader recovery remains with its existing owner in #1021.
 
-## Current source qualification checkpoint
+## Cold recovery and progress qualification (2026-11-28)
+
+The paired candidate uses immutable Action
+`1ce5d0abc8300d024ec75c556df1ebbb41c3cbe7`. Its complete runtime tree equals
+the owner-merged Action `519026120e1769a9ff1f3ca8f26341f983969b5a`, while
+retaining the handoff's required ancestry through
+`36bf99ae7fba5553a428eeb1e641945e7afa99ac`. The ancestry verifier remains
+required; runtime tree equality alone does not satisfy that contract.
+
+The [Source run on RR `85719b03`](https://github.com/777genius/review-router-ai/actions/runs/46131214658/job/140954121988)
+passed 47 paired cases and failed the accepted-result cold case. The two
+separately selected joined cases were not executed there, and the later four
+joined executions did not run. Captured-v4 restoration reached the original
+accepted source and same-execution lookup. Two identical adoption requests
+returned `500 ambiguous_outcome / handler_failed`; only the two original
+provider children completed, with no repeated inference.
+
+Source review identified an incompatible progress guard inside the adoption
+transaction. The allowed Exhausted-to-Satisfied transition reduces the current
+exhausted count while increasing completed work. Progress now retains the
+completed-plus-exhausted total separately for required and optional work,
+instead of requiring each exhausted count to grow forever. A completion in
+one cohort cannot hide a regression in the other. The existing completed,
+cancelled, recovered, identity, generation, timestamp, phase, terminal and
+file-coverage guards remain in force.
+
+This correction uses the existing progress snapshot and schema. It adds no
+migration, configuration, feature flag, new provider attempt or authority
+extension. Ship the ordinary API/worker code batch after its normal checks.
+Ten domain regressions cover accepted recovery and rejected reopening,
+cancellation and cross-cohort compensation. One additional production
+PostgreSQL case verifies atomic progress advancement, exactly one semantic
+attempt, replay without another write and unchanged original source lease.
+The existing production cases and compiled cold-recovery oracle are retained.
+
+The [native qualification of candidate `1e40b748`](https://github.com/777genius/review-router-ai/actions/runs/46146653437/job/140984071063)
+passed progress/API types and all 34 domain tests, with no skipped tests.
+The native formatter required one property-access line wrap in the new
+PostgreSQL case. Its idempotent canonical output was imported as Git blob
+`5825f3be89b9126f0fe654c2f5ef64dcb7b63ad8`; all non-whitespace bytes
+and all existing assertions are unchanged. The original native job remains
+failed on that format check; the canonical correction is part of this source.
+
+The [focused PostgreSQL and compiled cold run](https://github.com/777genius/review-router-ai/actions/runs/46145764941)
+still needs its actual runtime results. The
+[separate original diagnostic run](https://github.com/777genius/review-router-ai/actions/runs/46145204735)
+uses owner source `0c8544b2` to expose the actual handler cause. These runs
+do not replace current-head CI or the original four joined Node/mode
+executions. Record their actual results and final source before claiming
+completion.
+
+## Earlier source qualification checkpoint (2026-11-27)
 
 - Native source `f6e05bf4` was merged as `157b07f2` with the same complete
   tree; all 16 post-merge checks passed. Gateway source `90739814` was merged

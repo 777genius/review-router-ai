@@ -318,6 +318,109 @@ describeWithDatabase.sequential(
       }
     }, 60_000);
 
+    it("adopts accepted evidence after the sole attempt is exhausted and advances progress atomically", async () => {
+      const fixture = requiredHarness(harness);
+      const flow = await fixture.createCommittedFlow({
+        attachSlotCount: 0,
+        attemptBudget: 1,
+      });
+      const released = await fixture.releaseProviderLease(flow);
+      expect(released.result.status).toBe(
+        ReviewInvocationLeaseResultStatus.Applied,
+      );
+      const originalLease =
+        await fixture.prisma.reviewInvocationLeaseV2.findUniqueOrThrow({
+          where: { leaseId: flow.leaseId },
+        });
+      expect(originalLease.state).toBe("released");
+      await expect(
+        fixture.prisma.reviewExecutionWorkSlotV2.findUniqueOrThrow({
+          where: {
+            executionId_workSlotId: {
+              executionId: flow.executionId,
+              workSlotId: flow.workSlotId,
+            },
+          },
+        }),
+      ).resolves.toMatchObject({
+        state: "exhausted",
+        attemptBudget: 1,
+        nextAttemptOrdinal: 2,
+        activeLeaseId: null,
+        acceptedObservationRefId: null,
+      });
+      const before =
+        await fixture.prisma.reviewExecutionProgressV1.findUniqueOrThrow({
+          where: { executionId: flow.executionId },
+        });
+      expect(before).toMatchObject({
+        requiredTotal: 1,
+        requiredSatisfied: 0,
+        requiredExhausted: 1,
+        recoveredUnits: 0,
+        snapshotJson: {
+          phase: "reviewing",
+          terminal: "none",
+          counts: {
+            completed: 0,
+            exhausted: 1,
+            requiredCompleted: 0,
+            requiredExhausted: 1,
+            recovered: 0,
+          },
+        },
+      });
+      expect((await fixture.lookup(flow)).result).toMatchObject({
+        status: ReviewEvidenceLookupResultStatus.Shadow,
+        observationId: flow.observationId,
+        payloadHash: flow.payloadHash,
+      });
+      const adopted = await fixture.adoptCommittedObservation(flow);
+      expect(adopted.response.result.status).toBe(
+        ReviewExecutionMutationResultStatus.Applied,
+      );
+      await expectAdoptedExactlyOnce(fixture, flow);
+      const after =
+        await fixture.prisma.reviewExecutionProgressV1.findUniqueOrThrow({
+          where: { executionId: flow.executionId },
+        });
+      expect(after).toMatchObject({
+        generation: before.generation,
+        sourceExecutionVersion: before.sourceExecutionVersion + 1n,
+        desiredVersion: before.desiredVersion + 1n,
+        requiredTotal: 1,
+        requiredSatisfied: 1,
+        requiredExhausted: 0,
+        recoveredUnits: 0,
+        snapshotJson: {
+          phase: "reviewing",
+          terminal: "none",
+          counts: {
+            completed: 1,
+            exhausted: 0,
+            requiredCompleted: 1,
+            requiredExhausted: 0,
+            recovered: 0,
+          },
+        },
+      });
+      expect(
+        (await fixture.replayObservationAdoption(adopted.request)).result
+          .status,
+      ).toBe(ReviewExecutionMutationResultStatus.Restored);
+      await expectAdoptedExactlyOnce(fixture, flow);
+      await expect(
+        fixture.prisma.reviewExecutionProgressV1.findUniqueOrThrow({
+          where: { executionId: flow.executionId },
+        }),
+      ).resolves.toEqual(after);
+      await expect(
+        fixture.prisma.reviewInvocationLeaseV2.findUniqueOrThrow({
+          where: { leaseId: flow.leaseId },
+        }),
+      ).resolves.toEqual(originalLease);
+    }, 60_000);
+
     it("takes over expired outbox and publication claims with monotonic fencing", async () => {
       const fixture = requiredHarness(harness);
       const flow = await fixture.createCommittedFlow();
