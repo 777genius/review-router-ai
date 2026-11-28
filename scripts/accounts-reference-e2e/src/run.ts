@@ -411,6 +411,12 @@ async function verifyBoot(
       ["repositories", /<section\b[^>]*\bdata-repository-live-search\b/u],
     ] as const) {
       const signal = AbortSignal.timeout(120_000);
+      if (section === "skills") {
+        // Drain setup client scripts before database-backed SSR, sharing
+        // the existing authenticated Skills warmup deadline.
+        await warmNextClientScripts(viewerHtml, appUrl, signal, warmedScripts);
+        checks.push("setup-client-scripts-warmed");
+      }
       const response = await fetch(
         `${appUrl}/dashboard?section=${section}&workspace=rr-e2e-personal-viewer`,
         {

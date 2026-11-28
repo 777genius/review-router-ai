@@ -40,8 +40,9 @@ export async function chooseSetupOption(
   page: Page,
   label: string,
   value: string,
+  providerControl: "cards" | "combobox" = "cards",
 ) {
-  if (label === "Provider") {
+  if (label === "Provider" && providerControl === "cards") {
     const providers = page
       .getByRole("dialog")
       .getByRole("radiogroup", { name: "Provider", exact: true });

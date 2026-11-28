@@ -26,178 +26,142 @@ type ProviderGroup = {
 // Actual availability comes from the configured deployment, not this list.
 const providerGroups: readonly ProviderGroup[] = [
   {
-    "title": "Claude and Gemini",
-    "subtitle": "Anthropic, Google and cloud-hosted versions",
-    "rows": [
+    title: "Claude and Gemini",
+    subtitle: "Anthropic, Google and cloud-hosted versions",
+    rows: [
       {
-        "name": "Claude (Anthropic)",
-        "logo": "claude",
-        "methods": [
+        name: "Claude (Anthropic)",
+        logo: "claude",
+        methods: [
           "API key",
           "Sign in (OAuth)",
           "Session-assisted sign-in",
-          "Setup token (code or cookie)"
-        ]
-      },
-      {
-        "name": "Claude on Amazon Bedrock",
-        "logo": "bedrock",
-        "methods": [
-          "AWS credentials",
-          "Bedrock API key"
+          "Setup token (code or cookie)",
         ],
-        "note": "Requires a configured AWS region"
       },
       {
-        "name": "Claude on Google Vertex AI",
-        "logo": "vertexai",
-        "methods": [
-          "Google Cloud service account"
-        ],
-        "note": "Requires a Google Cloud project and region"
+        name: "Claude on Amazon Bedrock",
+        logo: "bedrock",
+        methods: ["AWS credentials", "Bedrock API key"],
+        note: "Requires a configured AWS region",
       },
       {
-        "name": "Gemini (Google)",
-        "logo": "gemini",
-        "methods": [
+        name: "Claude on Google Vertex AI",
+        logo: "vertexai",
+        methods: ["Google Cloud service account"],
+        note: "Requires a Google Cloud project and region",
+      },
+      {
+        name: "Gemini (Google)",
+        logo: "gemini",
+        methods: [
           "API key",
           "Google One sign-in",
           "Code Assist sign-in",
-          "AI Studio sign-in"
+          "AI Studio sign-in",
         ],
-        "note": "AI Studio requires a configured OAuth client"
+        note: "AI Studio requires a configured OAuth client",
       },
       {
-        "name": "Gemini on Vertex AI",
-        "logo": "vertexai",
-        "methods": [
-          "Google Cloud service account",
-          "Vertex API key"
-        ],
-        "note": "Project/region or supported express mode"
-      }
-    ]
+        name: "Gemini on Vertex AI",
+        logo: "vertexai",
+        methods: ["Google Cloud service account", "Vertex API key"],
+        note: "Project/region or supported express mode",
+      },
+    ],
   },
   {
-    "title": "OpenAI, Codex and other subscriptions",
-    "subtitle": "Sign in with an account or use the matching API/plan key",
-    "rows": [
+    title: "OpenAI, Codex and other subscriptions",
+    subtitle: "Sign in with an account or use the matching API/plan key",
+    rows: [
       {
-        "name": "OpenAI API",
-        "logo": "openai",
-        "methods": [
-          "OpenAI API key"
-        ],
-        "note": "API billing is separate from a Codex subscription"
+        name: "OpenAI API",
+        logo: "openai",
+        methods: ["OpenAI API key"],
+        note: "API billing is separate from a Codex subscription",
       },
       {
-        "name": "Codex",
-        "logo": "codex",
-        "methods": [
+        name: "Codex",
+        logo: "codex",
+        methods: [
           "Browser or device sign-in",
           "Import refresh token",
           "Import mobile refresh token",
           "Import auth.json or session",
           "Agent Identity",
-          "Personal access token (PAT)"
+          "Personal access token (PAT)",
         ],
-        "note": "Imported sessions have different refresh and expiry behavior"
+        note: "Imported sessions have different refresh and expiry behavior",
       },
       {
-        "name": "Grok",
-        "logo": "grok",
-        "methods": [
+        name: "Grok",
+        logo: "grok",
+        methods: [
           "API key",
           "Browser sign-in",
           "Import refresh token",
-          "Import SSO session"
-        ]
-      },
-      {
-        "name": "Antigravity",
-        "logo": "antigravity",
-        "methods": [
-          "Browser sign-in",
-          "Import refresh token",
-          "API key"
+          "Import SSO session",
         ],
-        "note": "API key requires an operator-approved endpoint"
       },
       {
-        "name": "Kimi",
-        "logo": "kimi",
-        "methods": [
-          "Pay-as-you-go API key",
-          "Kimi Code plan key"
-        ]
+        name: "Antigravity",
+        logo: "antigravity",
+        methods: ["Browser sign-in", "Import refresh token", "API key"],
+        note: "API key requires an operator-approved endpoint",
       },
       {
-        "name": "GLM",
-        "logo": "glm",
-        "methods": [
-          "Pay-as-you-go API key",
-          "GLM Coding Plan key"
-        ]
+        name: "Kimi",
+        logo: "kimi",
+        methods: ["Pay-as-you-go API key", "Kimi Code plan key"],
       },
       {
-        "name": "MiniMax",
-        "logo": "minimax",
-        "methods": [
-          "Pay-as-you-go API key",
-          "MiniMax M Plan key"
-        ]
-      }
-    ]
+        name: "GLM",
+        logo: "glm",
+        methods: ["Pay-as-you-go API key", "GLM Coding Plan key"],
+      },
+      {
+        name: "MiniMax",
+        logo: "minimax",
+        methods: ["Pay-as-you-go API key", "MiniMax M Plan key"],
+      },
+    ],
   },
   {
-    "title": "Other API-key providers",
-    "subtitle": "Connect with the key issued for the matching provider or plan",
-    "rows": [
+    title: "Other API-key providers",
+    subtitle: "Connect with the key issued for the matching provider or plan",
+    rows: [
       {
-        "name": "DeepSeek",
-        "logo": "deepseek",
-        "methods": [
-          "API key"
-        ]
+        name: "DeepSeek",
+        logo: "deepseek",
+        methods: ["API key"],
       },
       {
-        "name": "OpenCode Go / Zen",
-        "logo": "opencode",
-        "methods": [
-          "Go API key",
-          "Zen API key"
-        ]
+        name: "OpenCode Go / Zen",
+        logo: "opencode",
+        methods: ["Go API key", "Zen API key"],
       },
       {
-        "name": "Command Code",
-        "logo": "commandcode",
-        "methods": [
-          "API key"
-        ]
+        name: "Command Code",
+        logo: "commandcode",
+        methods: ["API key"],
       },
       {
-        "name": "Cline",
-        "logo": "cline",
-        "methods": [
-          "API key"
-        ]
+        name: "Cline",
+        logo: "cline",
+        methods: ["API key"],
       },
       {
-        "name": "OpenRouter",
-        "logo": "openrouter",
-        "methods": [
-          "API key"
-        ]
+        name: "OpenRouter",
+        logo: "openrouter",
+        methods: ["API key"],
       },
       {
-        "name": "NVIDIA Build",
-        "logo": "nvidia",
-        "methods": [
-          "API key"
-        ]
-      }
-    ]
-  }
+        name: "NVIDIA Build",
+        logo: "nvidia",
+        methods: ["API key"],
+      },
+    ],
+  },
 ];
 
 export default function ProvidersPage(): React.ReactElement {
@@ -225,22 +189,36 @@ export default function ProvidersPage(): React.ReactElement {
 
         <div className="mt-10 space-y-10">
           {providerGroups.map((group, groupIndex) => (
-            <section key={group.title} aria-labelledby={`provider-group-${groupIndex}`}>
+            <section
+              key={group.title}
+              aria-labelledby={`provider-group-${groupIndex}`}
+            >
               <div className="mb-4">
-                <h2 id={`provider-group-${groupIndex}`} className="text-2xl font-semibold text-cyan-50">
+                <h2
+                  id={`provider-group-${groupIndex}`}
+                  className="text-2xl font-semibold text-cyan-50"
+                >
                   {group.title}
                 </h2>
                 <p className="mt-1 text-sm text-slate-400">{group.subtitle}</p>
               </div>
               <div className="overflow-hidden rounded-2xl border border-cyan-200/15 bg-[var(--rr-surface-panel)]">
                 <table className="w-full table-fixed text-left text-sm">
-                  <caption className="sr-only">{group.title} connection methods</caption>
+                  <caption className="sr-only">
+                    {group.title} connection methods
+                  </caption>
                   <thead className="border-b border-cyan-200/15 bg-cyan-300/[0.045] text-slate-300">
                     <tr>
-                      <th scope="col" className="w-[34%] px-3 py-3 font-semibold sm:w-[30%] sm:px-5">
+                      <th
+                        scope="col"
+                        className="w-[34%] px-3 py-3 font-semibold sm:w-[30%] sm:px-5"
+                      >
                         Provider
                       </th>
-                      <th scope="col" className="px-3 py-3 font-semibold sm:px-5">
+                      <th
+                        scope="col"
+                        className="px-3 py-3 font-semibold sm:px-5"
+                      >
                         How to connect
                       </th>
                     </tr>
@@ -248,7 +226,10 @@ export default function ProvidersPage(): React.ReactElement {
                   <tbody className="divide-y divide-cyan-200/10">
                     {group.rows.map((row) => (
                       <tr key={row.name}>
-                        <th scope="row" className="break-words px-3 py-4 align-top font-semibold text-cyan-50 sm:px-5">
+                        <th
+                          scope="row"
+                          className="break-words px-3 py-4 align-top font-semibold text-cyan-50 sm:px-5"
+                        >
                           <span className="inline-flex items-start gap-2">
                             <span className="grid size-7 shrink-0 place-items-center rounded-md bg-white p-1">
                               <Image
@@ -265,7 +246,10 @@ export default function ProvidersPage(): React.ReactElement {
                           </span>
                         </th>
                         <td className="px-3 py-4 align-top sm:px-5">
-                          <ul className="flex flex-wrap gap-2" aria-label={`${row.name} connection options`}>
+                          <ul
+                            className="flex flex-wrap gap-2"
+                            aria-label={`${row.name} connection options`}
+                          >
                             {row.methods.map((method) => (
                               <li
                                 key={method}
@@ -276,7 +260,9 @@ export default function ProvidersPage(): React.ReactElement {
                             ))}
                           </ul>
                           {row.note ? (
-                            <p className="mt-2 text-xs leading-5 text-slate-400">{row.note}</p>
+                            <p className="mt-2 text-xs leading-5 text-slate-400">
+                              {row.note}
+                            </p>
                           ) : null}
                         </td>
                       </tr>
@@ -288,8 +274,14 @@ export default function ProvidersPage(): React.ReactElement {
           ))}
         </div>
 
-        <section className="mt-10 max-w-3xl space-y-3 text-sm leading-7 text-slate-300" aria-labelledby="provider-availability-title">
-          <h2 id="provider-availability-title" className="text-2xl font-semibold text-cyan-50">
+        <section
+          className="mt-10 max-w-3xl space-y-3 text-sm leading-7 text-slate-300"
+          aria-labelledby="provider-availability-title"
+        >
+          <h2
+            id="provider-availability-title"
+            className="text-2xl font-semibold text-cyan-50"
+          >
             A few things to know
           </h2>
           <p>
@@ -322,10 +314,16 @@ export default function ProvidersPage(): React.ReactElement {
             installation and provider configuration.
           </p>
           <p className="flex flex-wrap gap-x-5 gap-y-2">
-            <a href="/getting-started" className="text-cyan-200 underline underline-offset-4">
+            <a
+              href="/getting-started"
+              className="text-cyan-200 underline underline-offset-4"
+            >
               Getting started
             </a>
-            <a href="https://github.com/777genius/review-router-ai/blob/main/docs/provider-connections.md" className="text-cyan-200 underline underline-offset-4">
+            <a
+              href="https://github.com/777genius/review-router-ai/blob/main/docs/provider-connections.md"
+              className="text-cyan-200 underline underline-offset-4"
+            >
               More details
             </a>
           </p>
