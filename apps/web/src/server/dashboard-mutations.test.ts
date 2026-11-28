@@ -676,9 +676,9 @@ describe("dashboard repository mutations", () => {
         }),
       },
     });
-    await expect(assertDashboardMutationAllowed("workspace_1")).rejects.toThrow(
-      "dashboard_mutation_requires_sign_in",
-    );
+    await expect(
+      assertDashboardMutationAllowed("workspace_1"),
+    ).rejects.toThrow("dashboard_mutation_requires_sign_in");
     expect(mocks.assertWorkspaceMutationAllowed).not.toHaveBeenCalled();
   });
 
@@ -693,9 +693,9 @@ describe("dashboard repository mutations", () => {
       },
     });
     await expect(getDashboardSignedInActor()).resolves.toBeNull();
-    await expect(assertDashboardMutationAllowed("workspace_1")).rejects.toThrow(
-      "dashboard_mutation_requires_sign_in",
-    );
+    await expect(
+      assertDashboardMutationAllowed("workspace_1"),
+    ).rejects.toThrow("dashboard_mutation_requires_sign_in");
     expect(mocks.assertWorkspaceMutationAllowed).not.toHaveBeenCalled();
   });
 
