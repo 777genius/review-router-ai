@@ -1,0 +1,224 @@
+name: Inspect fixed Memory OCR failure artifact
+
+on:
+  push:
+    branches:
+      - qualification/ocr1034-artifact-inspection-20261128
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ocr1034-artifact-inspection-20261128
+  cancel-in-progress: true
+
+jobs:
+  inspect:
+    name: Read exact a999 Memory failure evidence
+    if: ${{ github.repository == '777genius/review-router-ai' && github.actor == '777genius' && github.ref == 'refs/heads/qualification/ocr1034-artifact-inspection-20261128' }}
+    runs-on: ${{ vars.CI_STATIC_CHECKS_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 10
+    steps:
+      - name: Setup pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '26.11.1'
+      - name: Bind isolated evidence directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          inspection_directory="$RUNNER_TEMP/ocr1034-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$inspection_directory"
+          printf 'RR_INSPECT_DIRECTORY=%s\n' "$inspection_directory" >> "$GITHUB_ENV"
+      - name: Verify source provenance and download the fixed failed artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import assert from "node:assert/strict";
+          import { createHash } from "node:crypto";
+          import { createWriteStream, writeFileSync } from "node:fs";
+          import { once } from "node:events";
+          import { join } from "node:path";
+          const expected = {
+            repository: "777genius/review-router-ai",
+            run: 46119322940,
+            job: 140900102530,
+            artifact: 15254899434,
+            head: "a999ecdc28b1a1b85277dd398bd6adade8c5e01d",
+            size: 77251157,
+            sha256: "f7d246e7c7d0615ba83c75a38d1f3bc28eb4637473335bafc8640efd4a6421a5",
+          };
+          const base = "https://api.github.com/repos/" + expected.repository;
+          const headers = { Accept: "application/vnd.github+json", Authorization: "Bearer " + process.env.GH_TOKEN, "X-GitHub-Api-Version": "2022-11-28" };
+          const api = async path => {
+            const response = await fetch(base + path, { headers, redirect: "error", signal: AbortSignal.timeout(60000) });
+            assert.equal(response.status, 200, "GitHub metadata request failed");
+            return response.json();
+          };
+          assert.equal(process.version, "v26.11.1");
+          assert(process.env.GH_TOKEN, "read-only Actions token is unavailable");
+          const [run, artifact, job] = await Promise.all([
+            api("/actions/runs/" + expected.run),
+            api("/actions/artifacts/" + expected.artifact),
+            api("/actions/jobs/" + expected.job),
+          ]);
+          assert.equal(run.id, expected.run);
+          assert.equal(run.head_sha, expected.head);
+          assert.equal(run.event, "pull_request");
+          assert.equal(run.path, ".github/workflows/unified-ocr-ui.yml");
+          assert.equal(run.conclusion, "failure");
+          assert.equal(artifact.id, expected.artifact);
+          assert.equal(artifact.name, "unified-ocr-ui-46119322940-1");
+          assert.equal(artifact.workflow_run.id, expected.run);
+          assert.equal(artifact.workflow_run.head_sha, expected.head);
+          assert.equal(artifact.size_in_bytes, expected.size);
+          assert.equal(artifact.digest, "sha256:" + expected.sha256);
+          assert.equal(artifact.expired, false);
+          assert.equal(job.id, expected.job);
+          assert.equal(job.run_id, expected.run);
+          assert.equal(job.conclusion, "failure");
+          const redirect = await fetch(base + "/actions/artifacts/" + expected.artifact + "/zip", {
+            headers, redirect: "manual", signal: AbortSignal.timeout(60000),
+          });
+          assert.equal(redirect.status, 302, "expected the authenticated GitHub artifact redirect");
+          const location = new URL(redirect.headers.get("location"));
+          assert.equal(location.protocol, "https:");
+          assert.equal(location.username, "");
+          assert.equal(location.password, "");
+          assert(["", "443"].includes(location.port));
+          assert(/(^|\.)blob\.core\.windows\.net$|(^|\.)githubusercontent\.com$|(^|\.)amazonaws\.com$/.test(location.hostname), "unexpected artifact storage host");
+          // This second request has no Authorization header, cookies, or inherited API headers.
+          const response = await fetch(location, { redirect: "error", credentials: "omit", signal: AbortSignal.timeout(180000) });
+          assert.equal(response.status, 200, "artifact storage download failed");
+          assert(response.body, "artifact response body is absent");
+          const output = createWriteStream(join(process.env.RR_INSPECT_DIRECTORY, "source.zip"), { flags: "wx" });
+          const hash = createHash("sha256");
+          let size = 0;
+          try {
+            for await (const chunk of response.body) {
+              size += chunk.length;
+              assert(size <= expected.size, "artifact exceeds the exact byte bound");
+              hash.update(chunk);
+              if (!output.write(chunk)) await once(output, "drain");
+            }
+            output.end();
+            await once(output, "finish");
+          } catch (error) {
+            output.destroy();
+            throw error;
+          }
+          assert.equal(size, expected.size);
+          assert.equal(hash.digest("hex"), expected.sha256);
+          const provenance = {
+            ...expected, downloadedSizeAndHashVerified: true, helperCommit: process.env.GITHUB_SHA,
+            node: process.version, failedJob: { name: job.name, conclusion: job.conclusion },
+            failedSteps: job.steps.filter(step => step.conclusion === "failure").map(step => ({ number: step.number, name: step.name })),
+            scope: "Read-only historical failure diagnostics; not a qualification pass.",
+          };
+          writeFileSync(join(process.env.RR_INSPECT_DIRECTORY, "provenance.json"), JSON.stringify(provenance, null, 2) + "\n");
+          console.log("RR_OCR1034_PROVENANCE " + JSON.stringify(provenance));
+          
+          NODE
+      - name: Inspect bounded failure contexts and trace metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I -S - <<'PY'
+          import io, json, os, re, zipfile
+          from pathlib import Path
+          from urllib.parse import urlsplit, parse_qsl, urlencode
+          root = Path(os.environ["RR_INSPECT_DIRECTORY"])
+          budget = 320000
+          def url(value):
+              try:
+                  p = urlsplit(str(value))
+                  host = p.hostname or ""
+                  if p.port: host += ":" + str(p.port)
+                  query = [(k, v[:100]) for k, v in parse_qsl(p.query) if k in ("section", "workspace", "memoryRepository")]
+                  return (p.scheme + "://" + host if host else "") + p.path + ("?" + urlencode(query) if query else "")
+              except Exception:
+                  return "[invalid URL]"
+          def clean(value):
+              s = str(value)
+              s = re.sub(r"https?://[^\s\"'<>]+", lambda m: url(m.group(0)), s)
+              s = re.sub(r"""(?i)["']?(authorization|cookie|set-cookie|password|secret|access_token|refresh_token)["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)""", r"\1=[redacted]", s)
+              s = re.sub(r"(?i)\bBearer\s+\S+", "Bearer [redacted]", s)
+              s = re.sub(r"(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)", "[redacted-token]", s)
+              return s[:2000]
+          def error_message(value):
+              if isinstance(value, dict):
+                  nested = value.get("error", value)
+                  if isinstance(nested, dict):
+                      return {key: clean(nested[key]) for key in ("name", "message") if isinstance(nested.get(key), str)}
+                  return clean(nested) if isinstance(nested, str) else ""
+              return clean(value) if isinstance(value, str) else ""
+          def emit(tag, data):
+              global budget
+              line = tag + " " + json.dumps(data, ensure_ascii=True)
+              if len(line) <= budget:
+                  print(line, flush=True)
+                  budget -= len(line)
+              else:
+                  print("RR_OCR1034_OUTPUT_BOUND_REACHED", flush=True)
+                  raise SystemExit(0)
+          prefixes = [
+              "memory-settings-desktop-Me-6bf93-cross-repository-selections",
+              "memory-settings-mobile-Mem-cd870-cross-repository-selections",
+          ]
+          with zipfile.ZipFile(root / "source.zip") as archive:
+              entries = archive.infolist()
+              assert len(entries) <= 200, "unexpected file inventory"
+              emit("RR_OCR1034_INVENTORY", [{"path": f.filename, "bytes": f.file_size} for f in entries])
+              for case in prefixes:
+                  contexts = [f for f in entries if case + "/error-context.md" in f.filename]
+                  traces = [f for f in entries if case + "/trace.zip" in f.filename]
+                  assert len(contexts) == 1 and len(traces) == 1, "missing exact failure evidence"
+                  assert contexts[0].file_size <= 256000 and traces[0].file_size <= 48 * 1024 * 1024
+                  context = archive.read(contexts[0]).decode("utf-8")
+                  emit("RR_OCR1034_CONTEXT", {"case": case, "bytes": len(context), "text": "\n".join(clean(line) for line in context.splitlines())[:36000]})
+                  with zipfile.ZipFile(io.BytesIO(archive.read(traces[0]))) as trace:
+                      files = trace.infolist()
+                      emit("RR_OCR1034_TRACE_FILES", {"case": case, "files": [{"path": f.filename, "bytes": f.file_size} for f in files if not f.filename.startswith("resources/")]})
+                      calls = {}
+                      count = 0
+                      for f in files:
+                          if not f.filename.endswith((".trace", ".network")): continue
+                          assert f.file_size <= 32 * 1024 * 1024, "trace text bound"
+                          for line in trace.read(f).decode("utf-8").splitlines():
+                              event = json.loads(line)
+                              kind = event.get("type")
+                              if kind == "before":
+                                  api = event.get("apiName") or str(event.get("class", "")) + "." + str(event.get("method", ""))
+                                  if re.search(r"goto|navigate|click|check|press|waitForResponse|toBeVisible|toBeChecked|expect", api, re.I):
+                                      p = event.get("params") or {}
+                                      row = {"case": case, "kind": kind, "call": event.get("callId"), "api": api, "time": event.get("startTime"), "selector": clean(p.get("selector", "")), "url": url(p.get("url", ""))}
+                                      calls[event.get("callId")] = api
+                                      emit("RR_OCR1034_CALL", row)
+                              elif kind == "after" and event.get("callId") in calls:
+                                  emit("RR_OCR1034_CALL", {"case": case, "kind": kind, "call": event.get("callId"), "api": calls[event.get("callId")], "time": event.get("endTime"), "error": error_message(event.get("error"))})
+                              elif kind == "resource-snapshot":
+                                  snap = event.get("snapshot") or {}
+                                  req, res = snap.get("request") or {}, snap.get("response") or {}
+                                  path = urlsplit(req.get("url", "")).path
+                                  if path == "/dashboard" or req.get("method") == "POST" or (res.get("status") or 0) >= 400:
+                                      safe_headers = {h["name"]: clean(h.get("value", "")) for h in res.get("headers", []) if h.get("name", "").lower() in ("content-type", "cache-control", "vary", "x-nextjs-cache")}
+                                      emit("RR_OCR1034_HTTP", {"case": case, "url": url(req.get("url", "")), "method": req.get("method"), "status": res.get("status"), "mime": (res.get("content") or {}).get("mimeType"), "time": snap.get("_monotonicTime"), "started": snap.get("startedDateTime"), "headers": safe_headers, "failure": clean(snap.get("_failureText") or "")})
+                              elif kind == "console" and event.get("messageType") in ("error", "warning"):
+                                  emit("RR_OCR1034_CONSOLE", {"case": case, "kind": event.get("messageType"), "text": clean(event.get("text")) if isinstance(event.get("text"), str) else ""})
+                              elif kind == "event" and event.get("method") in ("pageError", "crash"):
+                                  emit("RR_OCR1034_PAGE_ERROR", {"case": case, "method": event.get("method"), "error": error_message(event.get("params"))})
+                              count += 1
+                      emit("RR_OCR1034_TRACE_READ", {"case": case, "eventsRead": count})
+              for f in entries:
+                  if not f.filename.endswith(".log") or f.file_size > 16 * 1024 * 1024: continue
+                  if not re.search(r"next|web|server", f.filename, re.I): continue
+                  lines = archive.read(f).decode("utf-8", errors="replace").splitlines()
+                  selected = [clean(line) for line in lines if re.search(r"error|exception|failed|GET /dashboard|POST /dashboard", line, re.I)]
+                  emit("RR_OCR1034_SERVER_LOG", {"path": f.filename, "matchedLines": len(selected), "lastLines": selected[-100:]})
+          emit("RR_OCR1034_INSPECTION_COMPLETE", {"scope": "Historical failure diagnostics only; no source or test was executed.", "remainingOutputBudget": budget})
+          
+          PY
