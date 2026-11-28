@@ -20,14 +20,14 @@ jobs:
     runs-on: ${{ vars.CI_STATIC_CHECKS_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 15
     env:
-      RR_FORMAT_SUBJECT_SHA: b8a03dd4cd095a5b67fed7cc5c888efe26f2c965
-      RR_QUALIFICATION_BASE_SHA: 760f694de474ff84aed17307f0bfd30d75d49e3a
-      RR_FORMAT_SUBJECT_TREE: a564ee5e8a22aa5efc1b091d74d8d9285ab10d9a
+      RR_FORMAT_SUBJECT_SHA: 3427f67ffaddba49d976858ab63b6508cbc87fdd
+      RR_QUALIFICATION_BASE_SHA: 77aa8e5a42403c69883e6ef6ef0bf2ed18063e9a
+      RR_FORMAT_SUBJECT_TREE: d66f6e1cbff1d5c9b60b62a78307babf555565e3
       RR_FORMAT_SUBJECT_LOCK: 2aa3a8d6ffbcc49dc9577ccc55f5c28e1a290bcc
       RR_FORMAT_SUBJECT_PATH: apps/api/src/review-action-v2-execution-evidence-lifecycle.ts
       RR_FORMAT_SUBJECT_BLOB: 9cb8f54ec181eae3818b1ce9025437a7d7a4f950
       RR_FORMAT_SECOND_PATH: apps/api/src/review-action-v2-execution-evidence-composition.test.ts
-      RR_FORMAT_SECOND_BLOB: dc51c581421ef7086b862bcb8e183f1aef22937e
+      RR_FORMAT_SECOND_BLOB: a16f2ab9694f25206818d8e69189064624c5885a
       RR_FORMAT_TASK_PATH: ai-docs/deployments/2026-11-27-scale-and-recovery.md
       RR_FORMAT_TASK_BLOB: b219c521a67225a938b75ebf50739ccec0f1a2d0
       RR_FORMAT_INDEX_PATH: ai-docs/deployments/README.md
@@ -41,7 +41,7 @@ jobs:
       - name: Checkout the immutable reviewed subject
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: b8a03dd4cd095a5b67fed7cc5c888efe26f2c965
+          ref: 3427f67ffaddba49d976858ab63b6508cbc87fdd
           fetch-depth: 2
           persist-credentials: false
 
@@ -178,7 +178,7 @@ jobs:
           import { readFileSync, writeFileSync } from "node:fs";
           import { join } from "node:path";
           const directory = process.env.RR_FORMAT_DIRECTORY;
-          const expected = [{"path":"apps/api/src/review-action-v2-execution-evidence-lifecycle.ts","originalGitBlob":"9cb8f54ec181eae3818b1ce9025437a7d7a4f950"},{"path":"apps/api/src/review-action-v2-execution-evidence-composition.test.ts","originalGitBlob":"dc51c581421ef7086b862bcb8e183f1aef22937e"},{"path":"ai-docs/deployments/2026-11-27-scale-and-recovery.md","originalGitBlob":"b219c521a67225a938b75ebf50739ccec0f1a2d0"},{"path":"ai-docs/deployments/README.md","originalGitBlob":"8a17d1969b4f43b30c3f97c5cd2dcdd0edd2ada6"}];
+          const expected = [{"path":"apps/api/src/review-action-v2-execution-evidence-lifecycle.ts","originalGitBlob":"9cb8f54ec181eae3818b1ce9025437a7d7a4f950"},{"path":"apps/api/src/review-action-v2-execution-evidence-composition.test.ts","originalGitBlob":"a16f2ab9694f25206818d8e69189064624c5885a"},{"path":"ai-docs/deployments/2026-11-27-scale-and-recovery.md","originalGitBlob":"b219c521a67225a938b75ebf50739ccec0f1a2d0"},{"path":"ai-docs/deployments/README.md","originalGitBlob":"8a17d1969b4f43b30c3f97c5cd2dcdd0edd2ada6"}];
           const audit = readFileSync(process.env.REVIEWROUTER_NATIVE_FORMAT_AUDIT, "utf8")
             .trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
           assert(audit.some(event => event.event === "guard-installed" && event.nodeVersion === "v26.11.1"),
