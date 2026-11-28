@@ -488,3 +488,31 @@ private/public Node 24/26 joined executions. Staging and production remain pendi
 | 2026-11-27   | Local qualification         | Coding agents | Clean `474b599b`, architecture same-tree `1adc3da5` | Complete strict60, whole architecture and exact-Node26 installer63 passed; failed attempts remain separately recorded.                                               | Await final-source CI/Native and immutable-reader evidence.                 |
 | 2026-11-27   | Canonical isolated build    | Coding agent  | `474b599b` plus the recorded artifact SHA256        | Action build/smoke and both complete CLI/workflow test files passed; independent generated-delta review found no critical issue.                                     | Publish the artifact correction and qualify that head.                      |
 | Not executed | staging / production        | Unassigned    | Not verified                                        | No rollout of this Draft attempted. The separate peer installation record remains attributed to its owner.                                                           | Complete qualification before separately authorized release.                |
+
+
+## Shared accepted-result progress correction (2026-11-28)
+
+The accepted-result cold scenario in #1028 reached source lookup but received
+`500 ambiguous_outcome / handler_failed` while adopting the original result.
+Source review identified a progress guard inside the adoption transaction:
+satisfying an exhausted slot decreases its current exhausted count. The
+shared correction preserves completed-plus-exhausted totals separately for
+required and optional work while retaining the existing authority, identity,
+generation, timestamp, terminal, phase and coverage guards.
+
+This branch uses the same original progress implementation and owning tests
+as the #1028 source. The
+[native candidate qualification](https://github.com/777genius/review-router-ai/actions/runs/46146653437/job/140984071063)
+passed progress/API types and all 34 domain cases. The new real PostgreSQL
+case covers single-attempt exhaustion, atomic progress advancement, exact
+adoption replay and an unchanged original source lease. Its one required
+line wrap uses the exact idempotent native formatter output; no assertion,
+retry allowance or timeout changed.
+
+Real PostgreSQL and the unchanged compiled cold oracle still need their
+runtime evidence. Current-head CI and all four existing joined private/public
+Node 24/26 executions remain required. See the
+[shared task checkpoint](2026-11-27-production-review-failure-fixes.md#cold-recovery-and-progress-qualification-2026-11-28)
+for source/run bindings. This is an ordinary shared API/worker code correction;
+it adds no migration, configuration or feature flag. Environment status and
+deployment evidence above remain unchanged.
