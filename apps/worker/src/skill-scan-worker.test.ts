@@ -59,6 +59,42 @@ describe("skill scan worker batch contract", () => {
     expect(mocks.processOutbox).not.toHaveBeenCalled();
   });
 
+  it("does not load profiles or claim scans once the host is stopping", async () => {
+    const stop = new AbortController();
+    stop.abort();
+    const worker = await createSkillScanWorker({
+      prisma: {} as PrismaClient,
+      env: {},
+      signal: stop.signal,
+    });
+    expect(await worker.processBatch()).toEqual({
+      outbox: { status: "not_started" },
+      failures: [],
+    });
+    expect(mocks.loadProfiles).not.toHaveBeenCalled();
+    expect(mocks.processOutbox).not.toHaveBeenCalled();
+  });
+
+  it("passes stop admission to the acquired batch and skips new pruning work", async () => {
+    const stop = new AbortController();
+    mocks.processOutbox.mockImplementationOnce(async () => {
+      stop.abort();
+      return outbox;
+    });
+    const worker = await createSkillScanWorker({
+      prisma: {} as PrismaClient,
+      env: {},
+      signal: stop.signal,
+    });
+    expect(await worker.processBatch()).toMatchObject({
+      outbox: { status: "completed", value: outbox },
+    });
+    expect(mocks.processOutbox.mock.calls[0]?.[0]).toMatchObject({
+      signal: stop.signal,
+    });
+    expect(mocks.prune).not.toHaveBeenCalled();
+  });
+
   it("does not turn an existing prune failure into a completed pass", async () => {
     mocks.prune.mockRejectedValueOnce(new Error("prune_unavailable"));
     const worker = await createSkillScanWorker({

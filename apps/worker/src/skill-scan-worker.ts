@@ -12,16 +12,21 @@ import {
   createPrismaReviewSkillsCatalogWorker,
   readSkillScannerConfig,
 } from "@reviewrouter/features-review-skills/composition";
-import { createPrismaClient } from "@reviewrouter/platform-db";
+import {
+  createPrismaClient,
+  runtimeDatabaseExecutionBudget,
+} from "@reviewrouter/platform-db";
 import { ConsoleLogger } from "@reviewrouter/platform-logger";
 import { SystemClock } from "@reviewrouter/shared";
 import { runOutboxWorkerLoop, sleep } from "./outbox-worker-loop.js";
 import type { WorkerBatchResult } from "./worker-batch.js";
+import { registerWorkerShutdown } from "./worker-shutdown.js";
 
 /** Separate lane: the ordinary review/control-plane batch never waits for a scan. */
 export async function createSkillScanWorker(input: {
   readonly prisma: PrismaClient;
   readonly env: Readonly<Record<string, string | undefined>>;
+  readonly signal?: AbortSignal;
 }) {
   const config = readSkillScannerConfig(input.env);
   if (!config) throw new Error("skill_scan_worker_configuration_required");
@@ -67,6 +72,8 @@ export async function createSkillScanWorker(input: {
   };
   return {
     async processBatch(): Promise<WorkerBatchResult> {
+      if (input.signal?.aborted)
+        return { outbox: { status: "not_started" }, failures: [] };
       if (!worker || Date.now() - refreshedAt > 60000) {
         // No claim is taken if the execution service's current identity is unavailable.
         const profiles = await scanner.loadProfiles();
@@ -86,10 +93,11 @@ export async function createSkillScanWorker(input: {
           heartbeatIntervalMs: 30000,
           takeoverEnabled: true,
           recoveryEventTypes: [handler.type],
+          ...(input.signal ? { signal: input.signal } : {}),
         },
         { outbox, clock: new SystemClock() },
       );
-      if (Date.now() - prunedAt > 60000) {
+      if (!input.signal?.aborted && Date.now() - prunedAt > 60000) {
         await worker.prune(100);
         prunedAt = Date.now();
       }
@@ -99,16 +107,20 @@ export async function createSkillScanWorker(input: {
 }
 
 async function main() {
-  const prisma = createPrismaClient({ poolMax: 4 });
-  const signal = new AbortController();
-  const stop = () => signal.abort();
-  process.once("SIGTERM", stop);
-  process.once("SIGINT", stop);
+  const prisma = createPrismaClient({
+    poolMax: 4,
+    executionBudget: runtimeDatabaseExecutionBudget,
+  });
+  const shutdown = registerWorkerShutdown(() => undefined);
   try {
-    const processor = await createSkillScanWorker({ prisma, env: process.env });
+    const processor = await createSkillScanWorker({
+      prisma,
+      env: process.env,
+      signal: shutdown.signal,
+    });
     await runOutboxWorkerLoop(
       {
-        signal: signal.signal,
+        signal: shutdown.signal,
         idleDelayMs: 1000,
         busyDelayMs: 100,
         errorDelayMs: 5000,
@@ -116,9 +128,11 @@ async function main() {
       { processor, logger: new ConsoleLogger(), sleep },
     );
   } finally {
-    await prisma.$disconnect();
-    process.off("SIGTERM", stop);
-    process.off("SIGINT", stop);
+    try {
+      await prisma.$disconnect();
+    } finally {
+      shutdown.dispose();
+    }
   }
 }
 

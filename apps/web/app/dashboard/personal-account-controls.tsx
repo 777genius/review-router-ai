@@ -9,10 +9,8 @@ import {
   removeAccountLimitsForConnection,
 } from "./account-limits-query";
 
-import {
-  AccountLifecycleControls,
-  useAccountLifecycleActivities,
-} from "./account-lifecycle-controls";
+import { AccountLifecycleControls } from "./account-lifecycle-controls";
+import { useAccountLifecycleActivities } from "../../src/features/account-gateway/interface/hooks/use-account-lifecycle-activities";
 
 import {
   useCallback,

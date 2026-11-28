@@ -1,7 +1,20 @@
-import type { PrismaClient } from "@prisma/client";
+import type { ActionRunHealthReport, PrismaClient } from "@prisma/client";
 import type { SupportDiagnosticsRepositoryPort } from "../../application/ports/support-diagnostics-repository-port";
 import type { SupportDiagnosticsInput } from "../../domain/support-diagnostics";
 import { projectRepositorySetupStatus } from "@reviewrouter/features-workflow-provisioning";
+
+type LatestHealth = Pick<
+  ActionRunHealthReport,
+  | "repositoryId"
+  | "providerHealth"
+  | "providerSetupState"
+  | "findingCriticalCount"
+  | "findingMajorCount"
+  | "findingMinorCount"
+  | "findingInfoCount"
+  | "inlineCommentCount"
+  | "summaryCommentCount"
+>;
 
 export class PrismaSupportDiagnosticsRepository implements SupportDiagnosticsRepositoryPort {
   constructor(private readonly prisma: PrismaClient) {}
@@ -33,20 +46,6 @@ export class PrismaSupportDiagnosticsRepository implements SupportDiagnosticsRep
               take: 1,
               select: { status: true },
             },
-            actionHealth: {
-              orderBy: { receivedAt: "desc" },
-              take: 1,
-              select: {
-                providerSetupState: true,
-                providerHealth: true,
-                findingCriticalCount: true,
-                findingMajorCount: true,
-                findingMinorCount: true,
-                findingInfoCount: true,
-                inlineCommentCount: true,
-                summaryCommentCount: true,
-              },
-            },
           },
         },
         provisioning: {
@@ -71,6 +70,7 @@ export class PrismaSupportDiagnosticsRepository implements SupportDiagnosticsRep
       memoryItemIndexStateCounts,
       memorySuggestionStatusCounts,
       memoryUsageEventCount,
+      health,
     ] = await Promise.all([
       this.prisma.outboxEvent.groupBy({
         by: ["status"],
@@ -99,6 +99,10 @@ export class PrismaSupportDiagnosticsRepository implements SupportDiagnosticsRep
         _count: { _all: true },
       }),
       this.prisma.memoryUsageEvent.count({ where: { workspaceId } }),
+      this.latestHealthByRepository(
+        workspaceId,
+        workspace.repositories.map((repository) => repository.id),
+      ),
     ]);
 
     return {
@@ -112,7 +116,7 @@ export class PrismaSupportDiagnosticsRepository implements SupportDiagnosticsRep
         repositorySelection: installation.repositorySelection,
       })),
       repositories: workspace.repositories.map((repository) => {
-        const latestHealth = repository.actionHealth[0];
+        const latestHealth = health.get(repository.id);
         return {
           id: repository.id,
           selected: repository.selected,
@@ -159,6 +163,29 @@ export class PrismaSupportDiagnosticsRepository implements SupportDiagnosticsRep
       },
       recentAuditActions: workspace.auditEvents.map((event) => event.action),
     };
+  }
+
+  private async latestHealthByRepository(
+    workspaceId: string,
+    repositoryIds: readonly string[],
+  ) {
+    if (repositoryIds.length === 0) return new Map<string, LatestHealth>();
+    const rows = await this.prisma.$queryRaw<LatestHealth[]>`
+      SELECT requested."repositoryId", latest.*
+      FROM unnest(${repositoryIds}::text[]) AS requested("repositoryId")
+      JOIN LATERAL (
+        SELECT health."providerSetupState", health."providerHealth",
+               health."findingCriticalCount", health."findingMajorCount",
+               health."findingMinorCount", health."findingInfoCount",
+               health."inlineCommentCount", health."summaryCommentCount"
+        FROM "ActionRunHealthReport" AS health
+        WHERE health."workspaceId" = ${workspaceId}
+          AND health."repositoryId" = requested."repositoryId"
+        ORDER BY health."receivedAt" DESC, health."id" DESC
+        LIMIT 1
+      ) AS latest ON true
+    `;
+    return new Map(rows.map((row) => [row.repositoryId, row]));
   }
 }
 

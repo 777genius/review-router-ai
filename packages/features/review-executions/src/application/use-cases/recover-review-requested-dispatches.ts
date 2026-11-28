@@ -58,20 +58,23 @@ export class RecoverReviewRequestedDispatches {
 
   async execute(input: {
     readonly limit: number;
+    readonly signal?: AbortSignal;
   }): Promise<RecoverReviewRequestedDispatchesResult> {
     assertLimit(input.limit);
     const passDeadline = performance.now() + maximumRecoveryPassMs;
-    const candidates = await this.queries.listDueForResolution({
-      now: this.clock.now(),
-      limit: input.limit,
-    });
+    const candidates = input.signal?.aborted
+      ? []
+      : await this.queries.listDueForResolution({
+          now: this.clock.now(),
+          limit: input.limit,
+        });
     let pending = 0;
     let recovered = 0;
     let failed = 0;
 
     let visited = 0;
     for (const intent of candidates) {
-      if (performance.now() >= passDeadline) {
+      if (input.signal?.aborted || performance.now() >= passDeadline) {
         pending += candidates.length - visited;
         break;
       }

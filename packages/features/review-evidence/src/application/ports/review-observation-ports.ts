@@ -32,6 +32,15 @@ export interface ReviewObservationIdentityPort {
 }
 
 export interface ReviewObservationQueryPort {
+  /** Exact original source inventory; at most two rows expose ambiguity. */
+  findSourceSlotCandidates(input: {
+    readonly scope: ReviewEvidenceScope;
+    readonly trustDomain: ReviewTrustDomain;
+    readonly sourceExecutionId: string;
+    readonly sourceWorkSlotId: string;
+    readonly providerVoteIdentityHash: string;
+    readonly reusableAfterMs: number;
+  }): Promise<readonly ReviewObservation[]>;
   findById(observationId: string): Promise<ReviewObservation | null>;
   findCandidates(input: {
     readonly scope: ReviewEvidenceScope;

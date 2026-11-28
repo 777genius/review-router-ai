@@ -937,7 +937,7 @@ function fixture(
   };
   let providerReads = 0;
   const transaction = {
-    ...state.prisma,
+    workflowProvisioning: state.workflowProvisioning,
     $executeRawUnsafe: vi.fn(async () => 0),
     $queryRaw: vi.fn(async (strings: TemplateStringsArray) => {
       const query = Array.from(strings).join("?");

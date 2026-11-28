@@ -1,5 +1,13 @@
-import type { GitHubPullRequestWebhookEnvelope } from "@reviewrouter/features-github-installations";
-import type { PrismaClient } from "@reviewrouter/platform-db";
+import { Prisma } from "@prisma/client";
+import {
+  runWebhookFencedDatabaseEffect,
+  type FencedDelivery,
+  type GitHubPullRequestWebhookEnvelope,
+} from "@reviewrouter/features-github-installations";
+import {
+  acquireCurrentScopeGuards,
+  type PrismaClient,
+} from "@reviewrouter/platform-db";
 import { PrismaWorkflowProvisioningStatusAuthority } from "@reviewrouter/features-workflow-provisioning/composition";
 
 export class PrismaSetupPullRequestMergeHandler {
@@ -53,6 +61,116 @@ export class PrismaSetupPullRequestMergeHandler {
       pullRequestNumber,
     });
 
+    return matched
+      ? {
+          processed: true,
+          repository: repository.fullName,
+          status: "configured",
+        }
+      : {
+          processed: false,
+          ignored: true,
+          reason: "not_reviewrouter_setup_pr",
+          repository: repository.fullName,
+        };
+  }
+
+  /** A setup effect stays processing until the complete PR coordinator commits. */
+  async handleFencedGitHubPullRequestWebhook(
+    envelope: GitHubPullRequestWebhookEnvelope,
+    claim: FencedDelivery,
+  ): Promise<Record<string, unknown>> {
+    if (claim.deliveryId !== envelope.deliveryId || !envelope.payloadHash)
+      throw new Error("webhook_fence_identity_mismatch");
+    return runWebhookFencedDatabaseEffect(
+      this.prisma,
+      claim,
+      async (transaction) => {
+        const delivery = await transaction.gitHubWebhookDelivery.findUnique({
+          where: { deliveryId: claim.deliveryId },
+          select: {
+            eventName: true,
+            action: true,
+            installationId: true,
+            payloadHash: true,
+          },
+        });
+        if (
+          delivery?.eventName !== envelope.eventName ||
+          delivery.action !== envelope.payload.action ||
+          delivery.installationId !==
+            BigInt(envelope.payload.installation.id) ||
+          delivery.payloadHash !== envelope.payloadHash
+        )
+          throw new Error("webhook_fence_identity_mismatch");
+        return this.handlePullRequestInTransaction(transaction, envelope);
+      },
+      "processing",
+      (tx) =>
+        acquireCurrentScopeGuards(tx, [{ scope: "global", mode: "shared" }]),
+    );
+  }
+
+  /** DB-only effect; caller must acquire scope and delivery fences first. */
+  async handlePullRequestInTransaction(
+    transaction: Prisma.TransactionClient,
+    envelope: GitHubPullRequestWebhookEnvelope,
+  ): Promise<Record<string, unknown>> {
+    const payload = envelope.payload;
+    if (payload.action !== "closed" || payload.pull_request.merged !== true)
+      return {
+        processed: false,
+        ignored: true,
+        reason: "pull_request_not_merged",
+      };
+
+    await acquireCurrentScopeGuards(transaction, [
+      { scope: "global", mode: "shared" },
+    ]);
+    // Match the inventory writer's Installation -> Repository order. Ordinary
+    // row updates also honor these locks, including older compatible writers.
+    // READ COMMITTED rechecks the predicate after a lock wait.
+    const installations = await transaction.$queryRaw<Array<{ id: string }>>(
+      Prisma.sql`SELECT "id" FROM "GitHubInstallation"
+        WHERE "githubInstallationId" = ${BigInt(payload.installation.id)}
+          AND "status" = 'active' FOR SHARE`,
+    );
+    const installation = installations[0];
+    const repositories = installation
+      ? await transaction.$queryRaw<
+          Array<{
+            id: string;
+            workspaceId: string;
+            installationId: string;
+            fullName: string;
+          }>
+        >(
+          Prisma.sql`SELECT "id","workspaceId","installationId","fullName" FROM "RepositoryConnection"
+            WHERE "githubRepositoryId" = ${BigInt(payload.repository.id)}
+              AND "installationId" = ${installation.id}
+              AND "selected" = true AND "archived" = false FOR SHARE`,
+        )
+      : [];
+    const repository = repositories[0];
+    if (!repository?.installationId)
+      return {
+        processed: false,
+        ignored: true,
+        reason: "repository_not_synced",
+      };
+    const matched = await new PrismaWorkflowProvisioningStatusAuthority(
+      this.prisma,
+    ).markConfiguredInTransaction(transaction, {
+      repositoryId: repository.id,
+      workspaceId: repository.workspaceId,
+      installationId: repository.installationId,
+      baseBranch: payload.pull_request.base.ref,
+      headSha: payload.pull_request.head.sha ?? null,
+      setupBranch: payload.pull_request.head.ref,
+      pullRequestNumber: payload.pull_request.number,
+    });
+    // A composite coordinator still has other generic effects to finish;
+    // this adapter must not mark the whole delivery processed on its own.
     return matched
       ? {
           processed: true,

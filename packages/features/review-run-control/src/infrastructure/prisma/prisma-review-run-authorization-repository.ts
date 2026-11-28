@@ -44,6 +44,9 @@ import {
   lockReviewRunControlKeys,
 } from "./prisma-review-run-control-utils";
 
+/** Throw through Prisma so a late freshness refusal rolls back both writes. */
+class RuntimeSnapshotAdmissionExpired extends Error {}
+
 export class PrismaReviewRunAuthorizationRepository
   implements
     ReviewRunAuthorizationQueryPort,
@@ -56,6 +59,9 @@ export class PrismaReviewRunAuthorizationRepository
       transaction: Prisma.TransactionClient,
       candidate: ReviewRunAuthorizationCandidate,
     ) => Promise<boolean>,
+    private readonly runtimeSnapshotIsFresh?: (
+      candidate: ReviewRunAuthorizationCandidate,
+    ) => boolean,
   ) {}
 
   async findReviewRunAuthorizationForAdmission(
@@ -125,17 +131,30 @@ export class PrismaReviewRunAuthorizationRepository
               status: ReviewRunAuthorizationCreateStatus.EligibilityChanged,
             };
           }
-          return createOrRestoreWithinTransaction(
+          const result = await createOrRestoreWithinTransaction(
             transaction,
             input.candidate,
             true,
             true,
           );
+          // Every SQL await, including the authorization and outbox writes, is
+          // complete. This local predicate performs no IO or requalification.
+          if (
+            result.status === ReviewRunAuthorizationCreateStatus.Created &&
+            input.candidate.runtimeSnapshotCanonicalJson &&
+            this.runtimeSnapshotIsFresh &&
+            !this.runtimeSnapshotIsFresh(input.candidate)
+          )
+            throw new RuntimeSnapshotAdmissionExpired();
+          return result;
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
     } catch (error) {
-      if (isPrismaTransactionConflictError(error)) {
+      if (
+        error instanceof RuntimeSnapshotAdmissionExpired ||
+        isPrismaTransactionConflictError(error)
+      ) {
         return {
           status: ReviewRunAuthorizationCreateStatus.EligibilityChanged,
         };

@@ -65,6 +65,9 @@ export type AccountMetadataAuthorization =
 
 export type AccountMetadataRequest = {
   readonly connectionIds: readonly string[];
+  /** Optional parent-page deadline for remote decoration, not authorization. */
+  readonly deadlineAt?: number;
+  readonly signal?: AbortSignal;
   /** Live host policy; the absolute deadline bounds its own I/O and pool wait. */
   readonly authorize: (
     connectionIds: readonly string[],

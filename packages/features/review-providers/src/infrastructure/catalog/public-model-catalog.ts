@@ -210,8 +210,11 @@ export async function fetchPublicCatalog(
 ): Promise<unknown> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), policy.timeoutMs);
+  let response: Response | undefined;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let completed = false;
   try {
-    const response = await fetchImpl(url, {
+    response = await fetchImpl(url, {
       headers: {
         accept: "application/json",
         "user-agent": "ReviewRouter public-model-catalog/1.0",
@@ -221,23 +224,17 @@ export async function fetchPublicCatalog(
       signal: controller.signal,
     });
     if (!response.ok || !response.body) throw new Error("catalog_http_failure");
-    const reader = response.body.getReader();
+    reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
     let size = 0;
-    try {
-      for (;;) {
-        const result = await reader.read();
-        if (result.done) break;
-        size += result.value.byteLength;
-        if (size > policy.maxBytes) {
-          await reader.cancel();
-          throw new Error("catalog_too_large");
-        }
-        chunks.push(result.value);
-      }
-    } finally {
-      reader.releaseLock();
+    for (;;) {
+      const result = await reader.read();
+      if (result.done) break;
+      size += result.value.byteLength;
+      if (size > policy.maxBytes) throw new Error("catalog_too_large");
+      chunks.push(result.value);
     }
+    completed = true;
     const bytes = new Uint8Array(size);
     let offset = 0;
     for (const chunk of chunks) {
@@ -246,6 +243,14 @@ export async function fetchPublicCatalog(
     }
     return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
   } finally {
+    if (!completed) {
+      // Rejected headers must not leave a live body after its deadline is cleared.
+      // An injected/failed cancel may never settle; it cannot hold this read open.
+      controller.abort();
+      if (reader) void reader.cancel().catch(() => undefined);
+      else void response?.body?.cancel().catch(() => undefined);
+    }
+    reader?.releaseLock();
     clearTimeout(timeout);
   }
 }

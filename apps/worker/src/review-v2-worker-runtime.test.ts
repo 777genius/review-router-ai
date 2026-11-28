@@ -46,6 +46,162 @@ const retainUntil = new Date("2026-08-22T12:00:00.000Z");
 const ownerIdHash = createReviewV2WorkerOwnerId("worker-test");
 
 describe("review v2 worker runtime", () => {
+  it("does not start any V2 owner after shutdown and reports unavailable metrics", async () => {
+    const fixture = await createFixture({ createProcess: false });
+    const stop = new AbortController();
+    stop.abort();
+    const recovery = vi.spyOn(
+      fixture.runtime.schedulers.recovery,
+      "scanNextPage",
+    );
+    const due = vi.spyOn(fixture.runtime.schedulers.due, "execute");
+    const intents = {
+      runMaintenance: vi.fn(async () => ({
+        scanned: 0,
+        dispatched: 0,
+        recovered: 0,
+        failed: 0,
+      })),
+    };
+    const publication = {
+      runMaintenance: vi.fn(async () => ({
+        processed: 0,
+        manualRequired: 0,
+        terminalUnknown: 0,
+        settledExecutionIds: [],
+        progressSettlements: [],
+      })),
+    };
+    const progress = {
+      promoteSettledExecutions: vi.fn(async () => 0),
+      runMaintenance: vi.fn(async () => ({
+        claimed: 0,
+        published: 0,
+        deferred: 0,
+        suppressed: 0,
+        failed: 0,
+      })),
+    };
+    const result = await runReviewV2Maintenance({
+      runtime: fixture.runtime,
+      ownerIdHash,
+      dueLimit: 10,
+      signal: stop.signal,
+      intents,
+      publication,
+      progress,
+    });
+    for (const operation of [
+      recovery,
+      due,
+      intents.runMaintenance,
+      publication.runMaintenance,
+      progress.promoteSettledExecutions,
+      progress.runMaintenance,
+    ])
+      expect(operation).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      recovered: null,
+      advanced: null,
+      intentsScanned: null,
+      publicationProcessed: null,
+      progressPublished: null,
+      failures: [],
+    });
+    expect(result.blockedPhases).toContainEqual({
+      phase: "review_v2.due",
+      blockedBy: "worker.shutdown",
+    });
+  });
+
+  it("stops between V2 phases without discarding the completed recovery outcome", async () => {
+    const fixture = await createFixture({ createProcess: false });
+    const stop = new AbortController();
+    const original = fixture.runtime.schedulers.recovery.scanNextPage.bind(
+      fixture.runtime.schedulers.recovery,
+    );
+    vi.spyOn(
+      fixture.runtime.schedulers.recovery,
+      "scanNextPage",
+    ).mockImplementationOnce(async () => {
+      const result = await original();
+      stop.abort();
+      return result;
+    });
+    const due = vi.spyOn(fixture.runtime.schedulers.due, "execute");
+    const publication = {
+      runMaintenance: vi.fn(async () => ({
+        processed: 0,
+        manualRequired: 0,
+        terminalUnknown: 0,
+        settledExecutionIds: [],
+        progressSettlements: [],
+      })),
+    };
+    const result = await runReviewV2Maintenance({
+      runtime: fixture.runtime,
+      ownerIdHash,
+      dueLimit: 10,
+      signal: stop.signal,
+      publication,
+    });
+    expect(result).toMatchObject({
+      recovered: 0,
+      advanced: null,
+      publicationProcessed: null,
+      failures: [],
+    });
+    expect(due).not.toHaveBeenCalled();
+    expect(publication.runMaintenance).not.toHaveBeenCalled();
+  });
+
+  it("retains settled publication counts while shutdown prevents subsequent claims", async () => {
+    const fixture = await createFixture({ createProcess: false });
+    const stop = new AbortController();
+    const wakeup = vi.spyOn(fixture.runtime.advance, "execute");
+    const progress = {
+      promoteSettledExecutions: vi.fn(async () => 1),
+      runMaintenance: vi.fn(async () => ({
+        claimed: 1,
+        published: 1,
+        deferred: 0,
+        suppressed: 0,
+        failed: 0,
+      })),
+    };
+    const result = await runReviewV2Maintenance({
+      runtime: fixture.runtime,
+      ownerIdHash,
+      dueLimit: 10,
+      signal: stop.signal,
+      progress,
+      publication: {
+        async runMaintenance(admission) {
+          expect(admission?.signal).toBe(stop.signal);
+          stop.abort();
+          return {
+            processed: 1,
+            manualRequired: 0,
+            terminalUnknown: 0,
+            settledExecutionIds: ["execution-1"],
+            progressSettlements: [
+              { executionId: "execution-1", outcome: "succeeded" as const },
+            ],
+          };
+        },
+      },
+    });
+    expect(result).toMatchObject({
+      publicationProcessed: 1,
+      progressPromoted: null,
+      progressPublished: null,
+      failures: [],
+    });
+    expect(wakeup).not.toHaveBeenCalled();
+    expect(progress.promoteSettledExecutions).not.toHaveBeenCalled();
+    expect(progress.runMaintenance).not.toHaveBeenCalled();
+  });
+
   it.each(["applied", "rejected"] as const)(
     "continues healthy dispatches and publication when begin hangs then %s",
     async (lateOutcome) => {
@@ -806,6 +962,33 @@ describe("review v2 worker runtime", () => {
     },
   );
 
+  it("counts successful completion claims while reporting each failed sibling", async () => {
+    const fixture = await createFixture();
+    vi.spyOn(fixture.runtime.schedulers.due, "execute").mockResolvedValue({
+      results: [
+        {
+          status: AdvanceReviewCompletionProcessStatus.Advanced,
+          process: null,
+        },
+      ],
+      failures: [
+        { executionId: "broken", code: "review_completion_advance_failed" },
+      ],
+    });
+    const result = await runReviewV2Maintenance({
+      runtime: fixture.runtime,
+      ownerIdHash,
+      dueLimit: 10,
+    });
+    expect(result.advanced).toBe(1);
+    expect(result.failures).toEqual([
+      {
+        phase: "review_v2.due_item",
+        safeErrorSummary: "review_completion_advance_failed",
+      },
+    ]);
+  });
+
   it("isolates failed publication wakeups without losing committed settlement evidence", async () => {
     const fixture = await createFixture();
     const wakeups: string[] = [];
@@ -820,7 +1003,10 @@ describe("review v2 worker runtime", () => {
         return { status: AdvanceReviewCompletionProcessStatus.Advanced };
       },
     );
-    vi.spyOn(fixture.runtime.schedulers.due, "execute").mockResolvedValue([]);
+    vi.spyOn(fixture.runtime.schedulers.due, "execute").mockResolvedValue({
+      results: [],
+      failures: [],
+    });
     const promote = vi.fn(async () => {
       order.push("promotion");
       return 2;

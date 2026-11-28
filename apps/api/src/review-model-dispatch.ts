@@ -1,3 +1,4 @@
+import { performance } from "node:perf_hooks";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   ReviewRunAuthorizationTokenResolutionStatus,
@@ -11,7 +12,7 @@ import {
 import {
   parseReviewModelDispatchClaimV2,
   parseReviewModelDispatchClaimForCapability,
-  parseReviewModelDispatchSettlementV2,
+  parseReviewModelDispatchSettlement,
   reviewModelDispatchContract,
   type ReviewModelDispatchReadbackV2,
   type ReviewModelDispatchSettlementV2,
@@ -24,6 +25,10 @@ export type ReviewModelDispatchApi = Readonly<{
   >;
   admission: ReviewRunModelDispatchAdmission;
   checkAuthority(authorization: ReviewRunAuthorization): Promise<boolean>;
+  /** Original prepared Gateway session only; absence never restores a bearer. */
+  canReadNativeRetryProof?(
+    dispatch: ReviewRunCompanionDispatch,
+  ): Promise<boolean>;
   reconcileNativeProof?(
     dispatch: ReviewRunCompanionDispatch,
     settlement?: ReviewModelDispatchSettlementV2,
@@ -62,6 +67,7 @@ const claimFailureCodes = [
   "model_dispatch_effect_unresolved",
   "model_dispatch_ordinal_invalid",
   "model_dispatch_claim_invalid",
+  "model_dispatch_retry_denied",
   "companion_lease_capability_invalid",
   "companion_lease_capability_mismatch",
   "companion_authorization_denied",
@@ -98,6 +104,35 @@ export async function registerReviewModelDispatchRoutes(
   ) => void,
 ) {
   const claimFailures = new WeakMap<FastifyRequest, ClaimFailureContext>();
+  const visibleReadback = async (
+    row: ReviewRunCompanionDispatch,
+    receiptAuthenticated = false,
+  ) => {
+    const result = readback(row);
+    if (!result.nativeRetryProof) return result;
+    const notAfter = row.nativeRetryProofNotAfter;
+    let live = false;
+    if (
+      receiptAuthenticated &&
+      typeof notAfter === "number" &&
+      Number.isFinite(notAfter) &&
+      performance.now() < notAfter
+    ) {
+      try {
+        live =
+          (await api.canReadNativeRetryProof?.(row)) === true &&
+          performance.now() < notAfter;
+      } catch {
+        // Retry permission is optional; historical receipt facts remain readable.
+      }
+    }
+    if (!live) {
+      const historical = { ...result };
+      delete historical.nativeRetryProof;
+      return historical;
+    }
+    return result;
+  };
   await app.register(async (scope) => {
     scope.setErrorHandler((error, request, reply) => {
       const failure =
@@ -164,6 +199,17 @@ export async function registerReviewModelDispatchRoutes(
           ? parseReviewModelDispatchClaimForCapability(request.body, capability)
           : parseReviewModelDispatchClaimV2(request.body);
         context.phase = "admission";
+        if (claim.retryOfDispatchId !== undefined) {
+          const predecessor = await api.admission.read(
+            authorization.authorizationId,
+            claim.retryOfDispatchId,
+          );
+          if (
+            !predecessor ||
+            !(await api.canReadNativeRetryProof?.(predecessor))
+          )
+            throw new DispatchRouteFailure("model_dispatch_retry_denied", 409);
+        }
         const result = await api.admission.claim(
           authorization,
           claim,
@@ -178,7 +224,7 @@ export async function registerReviewModelDispatchRoutes(
         reply.header("Cache-Control", "no-store");
         return {
           status: result.status,
-          dispatch: readback(result.dispatch),
+          dispatch: await visibleReadback(result.dispatch),
           notAfter: result.notAfter.toISOString(),
           ...(result.status === "claimed"
             ? { receiptToken: result.receiptToken }
@@ -199,8 +245,15 @@ export async function registerReviewModelDispatchRoutes(
             );
         if (!row) throw new DispatchRouteFailure("model_dispatch_missing", 404);
         await api.reconcileNativeProof?.(row);
+        const refreshed = token
+          ? await api.admission.readReceipt(dispatchId, token)
+          : await api.admission.read(row.authorizationId, dispatchId);
+        if (!refreshed)
+          throw new DispatchRouteFailure("model_dispatch_missing", 404);
         reply.header("Cache-Control", "no-store");
-        return { dispatch: readback(row) };
+        return {
+          dispatch: await visibleReadback(refreshed, token !== undefined),
+        };
       },
     );
     scope.post(
@@ -213,19 +266,33 @@ export async function registerReviewModelDispatchRoutes(
             "model_dispatch_receipt_required",
             401,
           );
-        const settlement = parseReviewModelDispatchSettlementV2(request.body);
+        const settlement = parseReviewModelDispatchSettlement(request.body);
         const dispatchId = parameter(request);
         const existing = await api.admission.readReceipt(dispatchId, token);
         if (!existing)
           throw new DispatchRouteFailure("model_dispatch_receipt_denied", 401);
         await api.reconcileNativeProof?.(existing, settlement);
-        const row = await api.admission.settleReceipt(
+        const committed = await api.admission.settleReceipt(
           dispatchId,
           token,
           settlement,
         );
+        // The accepted write owns its acknowledgement. Optional retry proof
+        // cannot deny it if retention or Gateway custody expires afterwards.
+        let row = committed;
+        if (
+          settlement.state === "not_dispatched" &&
+          settlement.proof === "native_rejection_after_forward"
+        ) {
+          try {
+            row =
+              (await api.admission.readReceipt(dispatchId, token)) ?? committed;
+          } catch {
+            // A failed optional proof refresh cannot erase a committed ACK.
+          }
+        }
         reply.header("Cache-Control", "no-store");
-        return { dispatch: readback(row) };
+        return { dispatch: await visibleReadback(row, true) };
       },
     );
   });
@@ -313,5 +380,11 @@ function readback(
     requestBytes: row.requestBytes,
     maxOutputTokens: row.maxOutputTokens,
     terminalReceipt: row.terminalReceipt ?? null,
+    ...(row.retryOfDispatchId === undefined
+      ? {}
+      : { retryOfDispatchId: row.retryOfDispatchId }),
+    ...(row.nativeRetryProof === undefined
+      ? {}
+      : { nativeRetryProof: row.nativeRetryProof }),
   };
 }

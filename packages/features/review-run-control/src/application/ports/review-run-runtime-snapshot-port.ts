@@ -23,6 +23,8 @@ export type ReviewRunRuntimeCaptureDenial = Readonly<{
 
 export interface ReviewRunRuntimeSnapshotPort {
   capture(input: {
+    /** Unique candidate identity for transient pre-transaction qualification. */
+    readonly admissionId?: string;
     readonly identity: VerifiedScmRunIdentity;
     readonly deadline: Date;
     readonly modelTransport: ReviewAgentProfile["modelTransports"][number];

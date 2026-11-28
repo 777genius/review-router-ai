@@ -6,6 +6,7 @@ import type { CredentialImportMethod } from "../features/account-gateway/connect
 import type { AccountLimitsService } from "./account-limits-service";
 import type { AccountMetadataService } from "./account-metadata-service";
 import type { AccountLifecycleRead } from "./account-lifecycle-reader";
+import type { AccountInventoryRead } from "./account-inventory-enrichment";
 import type {
   AccountOperationView,
   AccountProfileView,
@@ -39,9 +40,12 @@ export type PersonalAccountDependencies = {
   metadata?: AccountMetadataService;
   authorizeUser(): Promise<string>;
   lifecycleReader?: {
-    get(accountRef: string): Promise<AccountLifecycleRead>;
-    compatible(): Promise<boolean>;
-    writable(): Promise<boolean>;
+    get(
+      accountRef: string,
+      options?: { signal?: AbortSignal },
+    ): Promise<AccountLifecycleRead>;
+    compatible(options?: { signal?: AbortSignal }): Promise<boolean>;
+    writable(options?: { signal?: AbortSignal }): Promise<boolean>;
   };
   readLifecycleAction?: (
     sourceId: string,
@@ -77,7 +81,7 @@ export type PersonalAccountDependencies = {
     availability?: AccountProfileView["availability"];
   }[];
   /** Current connection admission/display only; original recovery needs no discovery. */
-  catalogue?: () => Promise<AccountProfileView[]>;
+  catalogue?: (read?: AccountInventoryRead) => Promise<AccountProfileView[]>;
   personalAdapterFactory(input: {
     authorizeUser(): Promise<string>;
     profiles: ReadonlyMap<string, "api-key-create" | "oauth-begin">;

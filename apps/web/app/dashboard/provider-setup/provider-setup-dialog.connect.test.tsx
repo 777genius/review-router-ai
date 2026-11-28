@@ -298,12 +298,22 @@ function renderAddProvider(
 }
 
 async function chooseProvider(name: RegExp) {
-  const providers = await screen.findByRole("radiogroup", { name: "Provider" });
+  const dialog = await screen.findByRole("dialog");
+  const heading = await within(dialog).findByRole("heading", {
+    name: "Provider",
+  });
+  const providers = within(heading.parentElement!).getByRole("radiogroup", {
+    name: "Provider",
+  });
   fireEvent.click(await within(providers).findByRole("radio", { name }));
 }
 
 function expectProviderChoiceDisabled(disabled: boolean) {
-  const providers = screen.getByRole("radiogroup", { name: "Provider" });
+  const dialog = screen.getByRole("dialog");
+  const heading = within(dialog).getByRole("heading", { name: "Provider" });
+  const providers = within(heading.parentElement!).getByRole("radiogroup", {
+    name: "Provider",
+  });
   for (const name of [/^Codex/, /NVIDIA Build/]) {
     expect(
       within(providers)

@@ -1,7 +1,12 @@
 import {
   gatewayProfileAcceptsRequestedModel,
+  gatewayProfileMatchesCapturedNativeContext,
   type GatewayModelQualificationProfile,
 } from "./review-run-gateway-model-qualification";
+import type {
+  NativeGatewayRelayPolicyObservation,
+  NativeGatewayRelayPolicySource,
+} from "./native-gateway-relay-policy";
 import { providerApiModeForAuthMode } from "@reviewrouter/features-review-providers";
 import { parseReviewReviewerInvestigationDescriptorV3 } from "@reviewrouter/shared";
 import type { ProviderApiAuthMode } from "@reviewrouter/shared";
@@ -14,6 +19,7 @@ import {
   selectReviewModelRoutePolicy,
   reviewModelDispatchContract,
   reviewModelDispatchCapacity128Contract,
+  reviewModelDispatchNativeRetryContract,
   type LifecycleVerificationCapability,
   type ReviewModelDispatchCapability,
 } from "@reviewrouter/shared";
@@ -49,7 +55,6 @@ import {
   supportsProducerReviewerPlans,
   getReviewRunGatewayAllocation,
   parseProducerReviewerPlanProfile,
-  type ProviderVoteLane,
   type ReviewRunRuntimeSnapshotV3,
   type ReviewRunReviewerV4,
   type ReviewRunGatewayAllocation,
@@ -81,7 +86,10 @@ import {
 
 type RuntimeReader = Pick<
   PrismaClient,
-  "reviewConfiguration" | "workspaceProviderProfile" | "workspaceAccountBinding"
+  | "$queryRaw"
+  | "reviewConfiguration"
+  | "workspaceProviderProfile"
+  | "workspaceAccountBinding"
 > &
   Partial<Pick<PrismaClient, "reviewContextConnection" | "producerRelease">> &
   Partial<HostedReviewBindingReader>;
@@ -194,13 +202,21 @@ export function readServerReviewRunGatewayRequestCaps(
 }
 
 /** System-owned selection after real OIDC admission policy, without a user actor.
- * No Gateway HTTP call, credential, epoch inference or allowance is created here.
+ * Native discovery is captured before the transaction; credentials, account
+ * epochs and allowances stay with their existing authorities.
  */
 export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnapshotPort {
   private readonly repositories: PrismaActionControlPlaneRepository;
   private readonly accounts: PrismaProviderAccountRepository;
   private readonly approvedLimits: ReadonlyMap<string, ReviewRunGatewayLimits>;
   private readonly requestCaps: readonly ServerReviewRunGatewayRequestCap[];
+  // Request-local qualification only. The durable authorization remains the
+  // authority; eviction or expiry can only deny a not-yet-committed candidate.
+  private readonly nativeAdmissions = new Map<
+    string,
+    NativeGatewayRelayPolicyObservation
+  >();
+  private lastNativeAdmissionObservation?: NativeGatewayRelayPolicyObservation;
   constructor(
     private readonly prisma: PrismaClient,
     policy?: ServerApprovedReviewRunGatewayPolicy,
@@ -217,6 +233,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       readonly requestTimeoutMs: number;
       readonly requestCaps?: readonly ServerReviewRunGatewayRequestCap[];
     },
+    private readonly nativePolicySource?: NativeGatewayRelayPolicySource,
   ) {
     assertOpaqueReference(agentProfileRef);
     if (operatorWorkspaceId !== undefined)
@@ -276,23 +293,12 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
   }
 
   async capture(
-    input: {
-      readonly identity: VerifiedScmRunIdentity;
-      readonly deadline: Date;
-      readonly modelTransport: ReviewAgentProfile["modelTransports"][number];
-      readonly providerApiAuthMode?: ProviderApiAuthMode;
-      readonly subscriptionAuthMode?: "claude-oauth";
-      readonly providerVoteLanes?: readonly ProviderVoteLane[];
-      readonly reviewInvestigationAuthorizationDescriptorCanonicalJson?:
-        | string
-        | null;
-      readonly producerRelease: Parameters<
-        ReviewRunRuntimeSnapshotPort["capture"]
-      >[0]["producerRelease"];
-    },
+    input: Parameters<ReviewRunRuntimeSnapshotPort["capture"]>[0],
     reader: RuntimeReader = this.prisma,
     reviewerIndex?: number,
+    nativeObservation?: NativeGatewayRelayPolicyObservation,
   ): Promise<ReviewRunRuntimeSnapshot | ReviewRunRuntimeCaptureDenial | null> {
+    const admissionId = input.admissionId;
     // Retain primitives across all reads; never retain the caller's nested identity.
     const identity = {
       ...input.identity,
@@ -317,6 +323,41 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     const agentProfiles = parseReviewAgentProfiles(
       input.producerRelease.agentProfiles,
     );
+    if (this.nativePolicySource && modelTransport === "account_gateway") {
+      const freshCapture = nativeObservation === undefined;
+      if (!nativeObservation) {
+        // Admission I/O belongs before the transaction. Recapture must receive
+        // the exact observation selected by this candidate's unique identity.
+        if (reader !== this.prisma || !admissionId) return null;
+        nativeObservation = await this.nativePolicySource.read();
+      }
+      if (
+        !nativeObservation ||
+        !this.nativePolicySource.isFresh(nativeObservation)
+      )
+        return null;
+      if (freshCapture) {
+        // Prune on catalog generations, not every admission. Expired candidates
+        // can no longer commit, and must not retain many historical catalogs.
+        if (this.lastNativeAdmissionObservation !== nativeObservation) {
+          for (const [id, previous] of this.nativeAdmissions) {
+            if (!this.nativePolicySource.isFresh(previous))
+              this.nativeAdmissions.delete(id);
+          }
+          this.lastNativeAdmissionObservation = nativeObservation;
+        }
+        this.nativeAdmissions.set(admissionId!, nativeObservation);
+        while (
+          this.nativeAdmissions.size > nativeObservation.policy.maxSessions
+        ) {
+          this.nativeAdmissions.delete(
+            this.nativeAdmissions.keys().next().value!,
+          );
+        }
+      }
+    }
+    const qualifiedRelayPolicy =
+      nativeObservation?.policy ?? this.qualifiedRelayPolicy;
     let current: Awaited<
       ReturnType<
         PrismaActionControlPlaneRepository["findRuntimeReviewConfiguration"]
@@ -397,6 +438,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         },
         reader,
         configuration,
+        nativeObservation,
       );
     const selected =
       reviewerIndex === undefined
@@ -557,10 +599,22 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       // same actionable configuration error, not a changed admission fact.
       if (binding.profileRef !== selected.provider.gatewayProfileRef)
         return { captureDenied: "gateway_profile_unapproved" };
-      const nativeContext = this.qualifiedRelayPolicy?.profiles.find(
+      const qualifiedProfile = qualifiedRelayPolicy?.profiles.find(
         (entry) =>
           entry.profile.profileId === selected.provider.gatewayProfileRef,
-      )?.profile.nativeContext;
+      )?.profile;
+      const nativeContext = qualifiedProfile?.nativeContext;
+      if (
+        this.nativePolicySource &&
+        (!qualifiedProfile ||
+          !nativeContext ||
+          qualifiedProfile.protocol !== "openai-responses" ||
+          !gatewayProfileAcceptsRequestedModel(
+            qualifiedProfile,
+            selected.provider.model,
+          ))
+      )
+        return null;
       gateway = {
         providerIndex: selected.providerIndex,
         bindingId: binding.bindingId,
@@ -600,9 +654,15 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       return { captureDenied: "agent_profile_unavailable" };
     let modelDispatchCapability: ReviewModelDispatchCapability | undefined;
     if (modelDispatchProfile && preparedRoute && reviewerIndex === undefined) {
-      const capacity128 =
+      const nativeRetryPolicy =
         modelDispatchProfile.policyVersion ===
-        reviewModelDispatchCapacity128Contract.policyVersion;
+        reviewModelDispatchNativeRetryContract.policyVersion;
+      const nativeRetry =
+        nativeRetryPolicy && preparedRoute.transport === "account_gateway";
+      const capacity128 =
+        nativeRetryPolicy ||
+        modelDispatchProfile.policyVersion ===
+          reviewModelDispatchCapacity128Contract.policyVersion;
       // The admission owns one exact model route, shared by all paid roles.
       // Credential bytes remain with their existing adapter and never enter it.
       modelDispatchCapability = {
@@ -625,6 +685,9 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         ),
         extensionId: reviewModelDispatchContract.extensionId,
         version: 2,
+        ...(nativeRetry
+          ? { retryPolicy: reviewModelDispatchNativeRetryContract.retryPolicy }
+          : {}),
         ...(capacity128
           ? {
               capacityPolicy:
@@ -635,6 +698,12 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
           .update(
             canonicalJson({
               version: 2,
+              ...(nativeRetry
+                ? {
+                    retryPolicy:
+                      reviewModelDispatchNativeRetryContract.retryPolicy,
+                  }
+                : {}),
               ...(capacity128
                 ? {
                     capacityPolicy:
@@ -698,7 +767,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         if (profile.descriptorDigest !== lifecycleVerificationDescriptorDigest)
           throw new Error("verification_configuration_invalid");
         const provider = selected!.provider;
-        const qualified = (this.qualifiedRelayPolicy?.profiles ?? []).filter(
+        const qualified = (qualifiedRelayPolicy?.profiles ?? []).filter(
           (entry) =>
             entry.profile.profileId === gateway!.profileRef &&
             entry.profile.protocol === "openai-responses" &&
@@ -709,8 +778,8 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         if (qualified.length === 1) {
           for (const bound of [
             qualified[0]!.outputTokens,
-            this.qualifiedRelayPolicy!.ingressBytes,
-            this.qualifiedRelayPolicy!.requestTimeoutMs,
+            qualifiedRelayPolicy!.ingressBytes,
+            qualifiedRelayPolicy!.requestTimeoutMs,
           ]) {
             if (!Number.isSafeInteger(bound) || bound < 1)
               throw new Error("verification_configuration_invalid");
@@ -737,7 +806,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
               maxPromptBytes: Math.min(
                 lifecycleVerificationContract.maxPromptBytes,
                 gateway.limits.requestBytes,
-                this.qualifiedRelayPolicy!.ingressBytes,
+                qualifiedRelayPolicy!.ingressBytes,
               ),
               maxResponseBytes: Math.min(
                 lifecycleVerificationContract.maxResponseBytes,
@@ -746,7 +815,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
               maxOutputTokens,
               deadlineMs: Math.min(
                 lifecycleVerificationContract.deadlineMs,
-                this.qualifiedRelayPolicy!.requestTimeoutMs,
+                qualifiedRelayPolicy!.requestTimeoutMs,
               ),
               attemptBudget: 1,
             };
@@ -761,7 +830,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       const cap = modelDispatchCapability;
       const qualified =
         cap.transport === "account_gateway"
-          ? (this.qualifiedRelayPolicy?.profiles ?? []).filter(
+          ? (qualifiedRelayPolicy?.profiles ?? []).filter(
               (entry) =>
                 entry.profile.profileId === gateway!.profileRef &&
                 entry.profile.protocol === "openai-responses" &&
@@ -801,7 +870,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
             maxPromptBytes: Math.min(
               lifecycleVerificationContract.maxPromptBytes,
               cap.maxRequestBytes,
-              qualified ? this.qualifiedRelayPolicy!.ingressBytes : Infinity,
+              qualified ? qualifiedRelayPolicy!.ingressBytes : Infinity,
             ),
             maxResponseBytes: Math.min(
               lifecycleVerificationContract.maxResponseBytes,
@@ -810,9 +879,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
             maxOutputTokens,
             deadlineMs: Math.min(
               lifecycleVerificationContract.deadlineMs,
-              qualified
-                ? this.qualifiedRelayPolicy!.requestTimeoutMs
-                : Infinity,
+              qualified ? qualifiedRelayPolicy!.requestTimeoutMs : Infinity,
             ),
             attemptBudget: 1,
           };
@@ -868,6 +935,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     input: Parameters<ProductionReviewRunRuntimeSnapshot["capture"]>[0],
     reader: RuntimeReader,
     configuration: ReviewConfiguration,
+    nativeObservation?: NativeGatewayRelayPolicyObservation,
   ): Promise<ReviewRunRuntimeSnapshot | ReviewRunRuntimeCaptureDenial | null> {
     // A producer without reviewer plan version 2 would run an ordered fallback
     // as a parallel review, or not at all: refuse it explicitly.
@@ -912,7 +980,12 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     }
     for (const [providerIndex, provider] of configuration.providers.entries()) {
       if (provider.authMode !== "codex_account_gateway") return null;
-      const one = await this.capture(input, reader, providerIndex);
+      const one = await this.capture(
+        input,
+        reader,
+        providerIndex,
+        nativeObservation,
+      );
       if (!one || "captureDenied" in one) return one;
       if (one.snapshotVersion !== 3 || !one.gateway) return null;
       if (!first) first = one;
@@ -1338,6 +1411,25 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       );
   }
 
+  /** Final local check after all admission SQL has settled, before commit. */
+  isAdmissionFresh(candidate: ReviewRunAuthorizationCandidate): boolean {
+    if (!this.nativePolicySource) return true;
+    try {
+      const snapshot = parseReviewRunRuntimeSnapshot(
+        candidate.runtimeSnapshotCanonicalJson,
+      );
+      if (!snapshot) return false;
+      if (snapshot.snapshotVersion === 3 && !snapshot.gateway) return true;
+      const observation = this.nativeAdmissions.get(candidate.authorizationId);
+      return (
+        observation !== undefined &&
+        this.nativePolicySource.isFresh(observation)
+      );
+    } catch {
+      return false;
+    }
+  }
+
   /** Called inside the EXISTING serializable row+outbox admission transaction.
    * Parent locks fence inserts even when repository override/default is absent.
    * Connection then binding locks match C1's mutation order and retain pending fences.
@@ -1352,6 +1444,37 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     if (!original) return false;
     if (original.producer.producerReleaseId !== candidate.producerReleaseId)
       return false;
+    const nativeObservation = this.nativeAdmissions.get(
+      candidate.authorizationId,
+    );
+    const nativeIsFresh = () =>
+      !this.nativePolicySource ||
+      (nativeObservation !== undefined &&
+        this.nativePolicySource.isFresh(nativeObservation));
+    if (
+      this.nativePolicySource &&
+      (original.snapshotVersion === 4 || original.gateway)
+    ) {
+      if (!nativeIsFresh()) return false;
+      const selections =
+        original.snapshotVersion === 4
+          ? original.allocations
+          : [original.gateway!];
+      if (
+        selections.some(
+          (selection) =>
+            !nativeObservation!.policy.profiles.some(
+              (entry) =>
+                entry.profile.profileId === selection.profileRef &&
+                gatewayProfileMatchesCapturedNativeContext(
+                  entry.profile,
+                  selection.nativeContext,
+                ),
+            ),
+        )
+      )
+        return false;
+    }
     let providerApiAuthMode: ProviderApiAuthMode | undefined;
     // The fence replays the original delivery capability, never a fresh caller
     // flag or configuration-only guess. A non-Gateway Skills profile was
@@ -1454,7 +1577,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
           )
             return false;
         }
-        return true;
+        return nativeIsFresh();
       }
       const current = await this.capture(
         {
@@ -1505,8 +1628,13 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
           },
         },
         transaction,
+        undefined,
+        nativeObservation,
       );
-      return canonicalJson(current) === candidate.runtimeSnapshotCanonicalJson;
+      return (
+        canonicalJson(current) === candidate.runtimeSnapshotCanonicalJson &&
+        (!original.gateway || nativeIsFresh())
+      );
     } catch (error) {
       if (error instanceof ProviderAccountError) return false;
       throw error;

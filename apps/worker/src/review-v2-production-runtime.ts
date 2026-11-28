@@ -204,7 +204,7 @@ export type ProductionReviewV2WorkerRuntime = {
   readonly ownerIdHash: string;
   readonly dueLimit: number;
   readonly intents: {
-    runMaintenance(): Promise<{
+    runMaintenance(input?: Readonly<{ signal?: AbortSignal }>): Promise<{
       readonly scanned: number;
       readonly dispatched: number;
       readonly recovered: number;
@@ -754,16 +754,17 @@ export function createProductionReviewV2WorkerRuntime(input: {
       "review_v2_due_limit_invalid",
     ),
     intents: {
-      runMaintenance: async () => {
+      runMaintenance: async (admission = {}) => {
         const limit = positiveInteger(
           input.env.REVIEW_ROUTER_REVIEW_V2_INTENT_BATCH_SIZE,
           10,
           "review_v2_intent_batch_size_invalid",
         );
-        const recovery = await intentRecovery.execute({ limit });
+        const recovery = await intentRecovery.execute({ limit, ...admission });
         const dispatch = await intentDispatcher.execute({
           ownerIdHash,
           limit,
+          ...admission,
         });
         if (dispatch.preparationSaturated && !preparationWasSaturated) {
           input.logger?.warn("Review request preparation capacity exhausted", {
@@ -868,7 +869,7 @@ function createHostedReviewProgressRuntime(input: {
   return {
     promoteSettledExecutions: ({ settlements }) =>
       promotion.promote(settlements),
-    runMaintenance: () => publisher.runMaintenance(),
+    runMaintenance: (admission) => publisher.runMaintenance(admission),
   };
 }
 

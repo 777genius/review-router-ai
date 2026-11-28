@@ -40,7 +40,7 @@ const pullRequestActionsThatMayAffectConflictReview = new Set([
 export async function requestConflictReviewDetectionFromPullRequestWebhook(
   envelope: GitHubPullRequestWebhookEnvelope,
   dependencies: {
-    readonly outbox: OutboxEventRepositoryPort;
+    readonly outbox: Pick<OutboxEventRepositoryPort, "enqueue">;
     readonly rolloutPolicy?: ConflictReviewRolloutPolicyPort | undefined;
     readonly clock: Clock;
   },
@@ -99,7 +99,7 @@ export async function requestConflictReviewDetectionFromPullRequestWebhook(
 export async function requestConflictReviewDetectionFromPushWebhook(
   envelope: GitHubPushWebhookEnvelope,
   dependencies: {
-    readonly outbox: OutboxEventRepositoryPort;
+    readonly outbox: Pick<OutboxEventRepositoryPort, "enqueue">;
     readonly rolloutPolicy?: ConflictReviewRolloutPolicyPort | undefined;
     readonly clock: Clock;
   },

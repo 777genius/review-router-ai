@@ -48,9 +48,21 @@ export const reviewModelDispatchCapacity128Contract = Object.freeze({
 } as const);
 export const reviewModelDispatchCapacity128DescriptorDigest =
   "sha256:d529a458a0d6e6644df1d8e341f42988b5c137920f6883cd1467bfe524e8aadb";
+/** A distinct producer approval is required for one attested native successor.
+ * Neither a capacity marker nor a generic unpaid outcome grants this policy. */
+export const reviewModelDispatchNativeRetryContract = Object.freeze({
+  ...reviewModelDispatchCapacity128Contract,
+  policyVersion: "model-dispatch-policy.native-retry.v1",
+  retryPolicy: "native-rejection-once.v1",
+  nativeRetryProof: "native_rejection_after_forward",
+  maxNativeRetries: 1,
+} as const);
+export const reviewModelDispatchNativeRetryDescriptorDigest =
+  "sha256:00bde3897762c23761f76c8ea9e7b8ef9fb97e4299d31d47b5acbaf3ad1fa530";
 type ReviewModelDispatchCapacityContract =
   | typeof reviewModelDispatchContract
-  | typeof reviewModelDispatchCapacity128Contract;
+  | typeof reviewModelDispatchCapacity128Contract
+  | typeof reviewModelDispatchNativeRetryContract;
 
 /** Native forwarding supplements the existing parent-only lease headers. */
 export const reviewModelDispatchHeaders = Object.freeze({
@@ -118,7 +130,11 @@ export type ReviewModelDispatchCapacity128ProfileV2 = Omit<
   }>;
 export type ReviewModelDispatchProfile =
   | ReviewModelDispatchProfileV2
-  | ReviewModelDispatchCapacity128ProfileV2;
+  | ReviewModelDispatchCapacity128ProfileV2
+  | (Omit<ReviewModelDispatchProfileV2, "policyVersion"> &
+      Readonly<{
+        policyVersion: typeof reviewModelDispatchNativeRetryContract.policyVersion;
+      }>);
 export type ReviewModelDispatchCapacity128CapabilityV2 =
   ReviewModelDispatchCapabilityV2 &
     Readonly<{
@@ -126,7 +142,14 @@ export type ReviewModelDispatchCapacity128CapabilityV2 =
     }>;
 export type ReviewModelDispatchCapability =
   | ReviewModelDispatchCapabilityV2
-  | ReviewModelDispatchCapacity128CapabilityV2;
+  | ReviewModelDispatchCapacity128CapabilityV2
+  | ReviewModelDispatchNativeRetryCapabilityV2;
+export type ReviewModelDispatchNativeRetryCapabilityV2 =
+  ReviewModelDispatchCapacity128CapabilityV2 &
+    Readonly<{
+      transport: "account_gateway";
+      retryPolicy: typeof reviewModelDispatchNativeRetryContract.retryPolicy;
+    }>;
 
 /** This parent-only context never reaches the review engine or upstream. */
 export type ReviewModelDispatchClaimV2 = Readonly<{
@@ -144,6 +167,8 @@ export type ReviewModelDispatchClaimV2 = Readonly<{
   providerRequestEnvelopeHash: string;
   requestBytes: number;
   maxOutputTokens: number;
+  /** Accepted only under the authenticated native-retry capability. */
+  retryOfDispatchId?: string;
 }>;
 
 export type ReviewModelDispatchState =
@@ -178,7 +203,16 @@ export type ReviewModelDispatchSettlementV2 =
       receipt: ReviewModelDispatchTerminalReceiptV2;
     }>
   | Readonly<{ state: "not_dispatched"; proof: "local_before_forward" }>
+  | Readonly<{
+      state: "not_dispatched";
+      proof: "native_rejection_after_forward";
+    }>
   | Readonly<{ state: "effect_unknown" }>;
+
+export type ReviewModelDispatchNativeRetryProof = Readonly<{
+  kind: "native_rejection_after_forward";
+  reason: "admission_storage_conflict";
+}>;
 
 export type ReviewModelDispatchReadbackV2 = Readonly<{
   dispatchVersion: 2;
@@ -199,6 +233,8 @@ export type ReviewModelDispatchReadbackV2 = Readonly<{
   requestBytes: number;
   maxOutputTokens: number;
   terminalReceipt: ReviewModelDispatchTerminalReceiptV2 | null;
+  retryOfDispatchId?: string;
+  nativeRetryProof?: ReviewModelDispatchNativeRetryProof;
 }>;
 
 export type ReviewModelDispatchClaimResultV2 =
@@ -271,6 +307,15 @@ export function parseReviewModelDispatchProfileV2(
 export function parseReviewModelDispatchProfile(
   value: unknown,
 ): ReviewModelDispatchProfile {
+  if (
+    record(value) &&
+    value.policyVersion === reviewModelDispatchNativeRetryContract.policyVersion
+  )
+    return parseProfile(
+      value,
+      reviewModelDispatchNativeRetryContract,
+      reviewModelDispatchNativeRetryDescriptorDigest,
+    );
   return record(value) &&
     value.policyVersion === reviewModelDispatchCapacity128Contract.policyVersion
     ? parseProfile(
@@ -376,6 +421,8 @@ export function parseReviewModelDispatchCapabilityV2(
 export function parseReviewModelDispatchCapability(
   value: unknown,
 ): ReviewModelDispatchCapability {
+  if (record(value) && Object.hasOwn(value, "retryPolicy"))
+    return parseCapability(value, reviewModelDispatchNativeRetryContract);
   return record(value) && Object.hasOwn(value, "capacityPolicy")
     ? parseCapability(value, reviewModelDispatchCapacity128Contract)
     : parseReviewModelDispatchCapabilityV2(value);
@@ -385,13 +432,15 @@ function parseCapability(
   value: unknown,
   contract: ReviewModelDispatchCapacityContract,
 ): ReviewModelDispatchCapability {
-  const capacity128 = contract === reviewModelDispatchCapacity128Contract;
+  const capacity128 = contract !== reviewModelDispatchContract;
+  const nativeRetry = contract === reviewModelDispatchNativeRetryContract;
   if (
     !record(value) ||
     !keys(value, [
       "extensionId",
       "version",
       ...(capacity128 ? ["capacityPolicy"] : []),
+      ...(nativeRetry ? ["retryPolicy"] : []),
       "routeIdentityHash",
       "transport",
       "wireProtocol",
@@ -411,6 +460,10 @@ function parseCapability(
     (capacity128 &&
       value.capacityPolicy !==
         reviewModelDispatchCapacity128Contract.capacityPolicy) ||
+    (nativeRetry &&
+      (value.retryPolicy !==
+        reviewModelDispatchNativeRetryContract.retryPolicy ||
+        value.transport !== "account_gateway")) ||
     !hash(value.routeIdentityHash) ||
     !isReviewModelTransport(value.transport) ||
     !isReviewModelWireProtocol(value.wireProtocol) ||
@@ -530,8 +583,23 @@ export function parseReviewModelDispatchClaimForCapability(
     authenticatedFrozenCapability,
   );
   return "capacityPolicy" in capability
-    ? parseClaim(value, capability.maxRequests)
+    ? parseClaim(
+        value,
+        capability.maxRequests,
+        reviewModelDispatchAllowsNativeRetry(capability),
+      )
     : parseReviewModelDispatchClaimV2(value);
+}
+
+export function reviewModelDispatchAllowsNativeRetry(
+  capability: ReviewModelDispatchCapability | undefined,
+): capability is ReviewModelDispatchNativeRetryCapabilityV2 {
+  return (
+    capability?.transport === "account_gateway" &&
+    "retryPolicy" in capability &&
+    capability.retryPolicy ===
+      reviewModelDispatchNativeRetryContract.retryPolicy
+  );
 }
 
 export function reviewModelDispatchCapacityPolicyMatches(
@@ -542,7 +610,8 @@ export function reviewModelDispatchCapacityPolicyMatches(
     case reviewModelDispatchContract.policyVersion:
       return (
         profile.descriptorDigest === reviewModelDispatchDescriptorDigest &&
-        !("capacityPolicy" in capability)
+        !("capacityPolicy" in capability) &&
+        !("retryPolicy" in capability)
       );
     case reviewModelDispatchCapacity128Contract.policyVersion:
       return (
@@ -550,7 +619,19 @@ export function reviewModelDispatchCapacityPolicyMatches(
           reviewModelDispatchCapacity128DescriptorDigest &&
         "capacityPolicy" in capability &&
         capability.capacityPolicy ===
-          reviewModelDispatchCapacity128Contract.capacityPolicy
+          reviewModelDispatchCapacity128Contract.capacityPolicy &&
+        !("retryPolicy" in capability)
+      );
+    case reviewModelDispatchNativeRetryContract.policyVersion:
+      return (
+        profile.descriptorDigest ===
+          reviewModelDispatchNativeRetryDescriptorDigest &&
+        (capability.transport === "account_gateway"
+          ? reviewModelDispatchAllowsNativeRetry(capability)
+          : "capacityPolicy" in capability &&
+            capability.capacityPolicy ===
+              reviewModelDispatchCapacity128Contract.capacityPolicy &&
+            !("retryPolicy" in capability))
       );
     default:
       return false;
@@ -560,6 +641,7 @@ export function reviewModelDispatchCapacityPolicyMatches(
 function parseClaim(
   value: unknown,
   maxRequests: number,
+  nativeRetry = false,
 ): ReviewModelDispatchClaimV2 {
   if (
     !record(value) ||
@@ -578,11 +660,19 @@ function parseClaim(
       "providerRequestEnvelopeHash",
       "requestBytes",
       "maxOutputTokens",
+      ...(nativeRetry && Object.hasOwn(value, "retryOfDispatchId")
+        ? ["retryOfDispatchId"]
+        : []),
     ]) ||
     value.dispatchVersion !== 2 ||
     value.attemptOrdinal !== 1 ||
     typeof value.dispatchId !== "string" ||
     !/^rr-model-[a-f0-9]{64}$/.test(value.dispatchId) ||
+    (Object.hasOwn(value, "retryOfDispatchId") &&
+      (!nativeRetry ||
+        typeof value.retryOfDispatchId !== "string" ||
+        !/^rr-model-[a-f0-9]{64}$/.test(value.retryOfDispatchId) ||
+        value.retryOfDispatchId === value.dispatchId)) ||
     !positive(value.requestOrdinal) ||
     value.requestOrdinal > maxRequests ||
     !positive(value.requestBytes) ||
@@ -671,6 +761,21 @@ export function parseReviewModelDispatchSettlementV2(
       usage: Object.freeze({ ...receipt.usage }),
     }) as ReviewModelDispatchTerminalReceiptV2,
   };
+}
+
+/** The old parser keeps its exact accepted proof. The receipt repository also
+ * checks the original saved capability before accepting the additive proof. */
+export function parseReviewModelDispatchSettlement(
+  value: unknown,
+): ReviewModelDispatchSettlementV2 {
+  if (
+    record(value) &&
+    keys(value, ["state", "proof"]) &&
+    value.state === "not_dispatched" &&
+    value.proof === "native_rejection_after_forward"
+  )
+    return { state: "not_dispatched", proof: "native_rejection_after_forward" };
+  return parseReviewModelDispatchSettlementV2(value);
 }
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);

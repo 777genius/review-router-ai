@@ -369,3 +369,44 @@ it("distinguishes temporary capability discovery failure from unsupported profil
   });
   expect(refresh).toHaveBeenCalledOnce();
 });
+
+it("uses the parent inventory deadline, aborts owned reads and never starts more after it", async () => {
+  vi.useFakeTimers();
+  const f = fixture(true);
+  const releases: Array<() => void> = [];
+  const signals: AbortSignal[] = [];
+  f.read.mockImplementation(
+    async (_target, options: { signal: AbortSignal }) => {
+      signals.push(options.signal);
+      await new Promise<void>((resolve) => releases.push(resolve));
+      return { status: "unknown", reason: "missing_snapshot" };
+    },
+  );
+  const pending = f.service.page(
+    Array.from({ length: 25 }, () => account("source")),
+    { deadlineAt: Date.now() + 300 },
+  );
+  await vi.advanceTimersByTimeAsync(300);
+  const rows = await pending;
+  expect(f.read).toHaveBeenCalledTimes(4);
+  expect(rows.every((row) => row.limits?.status === "unavailable")).toBe(true);
+  expect(signals.every((signal) => signal.aborted)).toBe(true);
+  releases.forEach((resolve) => resolve());
+  await vi.advanceTimersByTimeAsync(0);
+  expect(f.read).toHaveBeenCalledTimes(4);
+  expect(rows.every((row) => row.limits?.status === "unavailable")).toBe(true);
+  await f.service.refresh("source");
+  expect(f.refresh).toHaveBeenCalledOnce();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it("does not start optional quota work after the shared inventory deadline", async () => {
+  const f = fixture(true);
+  const result = await f.service.page([account("source")], {
+    deadlineAt: Date.now() - 1,
+  });
+  expect(result[0]?.limits?.status).toBe("unavailable");
+  expect(f.authorize).not.toHaveBeenCalled();
+  expect(f.read).not.toHaveBeenCalled();
+  expect(f.supports).not.toHaveBeenCalled();
+});

@@ -15,7 +15,7 @@ import {
 export class ConflictReviewPullRequestWebhookHandler implements GitHubPullRequestWebhookHandlerPort {
   constructor(
     private readonly dependencies: {
-      readonly outbox: OutboxEventRepositoryPort;
+      readonly outbox: Pick<OutboxEventRepositoryPort, "enqueue">;
       readonly rolloutPolicy?: ConflictReviewRolloutPolicyPort | undefined;
       readonly clock: Clock;
     },
@@ -34,7 +34,7 @@ export class ConflictReviewPullRequestWebhookHandler implements GitHubPullReques
 export class ConflictReviewPushWebhookHandler implements GitHubPushWebhookHandlerPort {
   constructor(
     private readonly dependencies: {
-      readonly outbox: OutboxEventRepositoryPort;
+      readonly outbox: Pick<OutboxEventRepositoryPort, "enqueue">;
       readonly rolloutPolicy?: ConflictReviewRolloutPolicyPort | undefined;
       readonly clock: Clock;
     },

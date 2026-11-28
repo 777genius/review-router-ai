@@ -220,9 +220,14 @@ const claudeCapabilityRow = {
 
 describe("ReviewRunAuthorization engine admission lanes", () => {
   it("freezes Skills for restoration and renewal without reading the current source again", async () => {
-    const runtime = new FakeRuntimeSnapshots((input) =>
-      snapshotFor({ ...ocrAgent, reviewSkillsVersion: 1 }, input.deadline),
-    );
+    let capturedAdmissionId: string | undefined;
+    const runtime = new FakeRuntimeSnapshots((input) => {
+      capturedAdmissionId = input.admissionId;
+      return snapshotFor(
+        { ...ocrAgent, reviewSkillsVersion: 1 },
+        input.deadline,
+      );
+    });
     const capture = vi.fn<ReviewRunSkillsSnapshotPort["capture"]>(
       async ({ identity }) => ({
         canonicalJson: canonicalReviewSkillsJson(
@@ -254,6 +259,7 @@ describe("ReviewRunAuthorization engine admission lanes", () => {
       maxAuthorizationLifetimeMs: 30_000,
     });
     const first = authorizationOf(await useCase.authorizeReviewRun(input));
+    expect(capturedAdmissionId).toBe(first.authorization.authorizationId);
     capture.mockImplementation(async () => {
       throw new Error("revoked source must not be reread");
     });

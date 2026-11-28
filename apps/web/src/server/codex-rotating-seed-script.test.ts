@@ -1339,26 +1339,30 @@ describe("resolveCodexRotatingSeedScriptDescriptor", () => {
       "-e",
       "setInterval(() => {}, 1000)",
     ]);
-    const staleOwnerPid = staleOwner.pid;
-    expect(staleOwnerPid).toBeTypeOf("number");
-    const nativeLock = spawnSync(
-      "shlock",
-      ["-f", lockPath, "-p", String(staleOwnerPid)],
-      { env: { ...process.env, PATH: fixture.path }, encoding: "utf8" },
-    );
-    if (
-      (nativeLock.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT"
-    ) {
-      writeFileSync(lockPath, `${staleOwnerPid}\n`);
-    } else {
-      expect(nativeLock.status, nativeLock.stderr).toBe(0);
-    }
     const staleOwnerExited = new Promise<void>((resolveExit, rejectExit) => {
       staleOwner.once("exit", () => resolveExit());
       staleOwner.once("error", rejectExit);
     });
-    staleOwner.kill("SIGTERM");
-    await staleOwnerExited;
+    try {
+      const staleOwnerPid = staleOwner.pid;
+      expect(staleOwnerPid).toBeTypeOf("number");
+      const nativeLock = spawnSync(
+        "shlock",
+        ["-f", lockPath, "-p", String(staleOwnerPid)],
+        { env: { ...process.env, PATH: fixture.path }, encoding: "utf8" },
+      );
+      if (
+        (nativeLock.error as NodeJS.ErrnoException | undefined)?.code ===
+        "ENOENT"
+      ) {
+        writeFileSync(lockPath, `${staleOwnerPid}\n`);
+      } else {
+        expect(nativeLock.status, nativeLock.stderr).toBe(0);
+      }
+    } finally {
+      staleOwner.kill("SIGTERM");
+      await staleOwnerExited;
+    }
     // Native macOS shlock compares second-resolution ctime values and refuses
     // takeover when the stale lock and replacement candidate share a second.
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 1_100));

@@ -23,9 +23,8 @@ describe("public AI provider methods page", () => {
       .filter((src) => src.startsWith("/provider-logos/"));
     expect(logos).toHaveLength(19);
     for (const path of logos) {
-      expect(existsSync(new URL(`../../public${path}`, import.meta.url))).toBe(
-        true,
-      );
+      const logoFile = new URL(`../../public${path}`, import.meta.url);
+      expect(existsSync(logoFile)).toBe(true);
     }
   });
 });

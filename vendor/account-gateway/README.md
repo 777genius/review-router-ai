@@ -1,8 +1,24 @@
 # Account Gateway SDK artifacts
 
+## Attested individual-request retry SDK candidate
+
+The API, web and provider-usage consumers pin
+`agent-teams-account-gateway-0.1.0-native-parity-90739814c9e8.tgz`, the exact SDK
+artifact from Gateway source `90739814c9e85fcf3ac9e9e6a0b2ea68b3131d28`.
+`native-request-retry-sdk-provenance.json` retains the original CI artifact
+provenance, all six source-object comparisons and the archive checksums. The
+SDK package qualification passed on Node 24.21.0 and 26.11.1. It adds the
+`request-retry-proof/v1` readback under the original execution bearer while
+preserving the existing provider-parity contracts.
+
+ReviewRouter and public Action consumer qualification is recorded in the
+2026-11-27 production review failure plan. The SDK artifact alone does not
+qualify consumer retries or production activation. The previous provenance
+below remains historical evidence for its own source.
+
 ## Native provider parity SDK candidate
 
-The new source checkpoint is
+The previous source checkpoint is
 `agent-teams-account-gateway-0.1.0-native-parity-83c18fd090e7.tgz`. Its SDK source
 files match committed Gateway source `bb5b48cabb01bbf08ed108c5f99d4cc6add0ff68`.
 `native-provider-parity-sdk-provenance.json` records the exact archive hash,

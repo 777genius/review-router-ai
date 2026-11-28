@@ -23,6 +23,7 @@ import {
   lifecycleVerificationDescriptorDigest,
   lifecycleVerificationDescriptorDigestV2,
   reviewModelDispatchCapacity128Contract,
+  reviewModelDispatchNativeRetryContract,
   reviewModelDispatchHeaders,
   type ReviewCompanionDispatchContextV1,
 } from "@reviewrouter/shared";
@@ -30,6 +31,7 @@ import { workspacePolicyFixture } from "../../../packages/features/review-config
 import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config";
 import { createReviewRunGatewayPreparation } from "./review-run-gateway-preparation";
 import * as preparationModule from "./review-run-gateway-preparation";
+import type { NativeGatewayRelayPolicyObservation } from "./native-gateway-relay-policy";
 import {
   createReviewRunGatewayRelay,
   createReviewRunGatewayTerminalGate,
@@ -159,6 +161,843 @@ const forwardingBounds = [
   { capacity128: true, requests: 16, ordinal: 16, allowed: true },
   { capacity128: true, requests: 16, ordinal: 17, allowed: false },
 ];
+
+it("rejects a native retry proof cancelled during its final authority check", async () => {
+  const state = companionReservation("finding_discovery");
+  const f = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: state.admission,
+    retryProof: (requestRef, executionRef) => ({
+      kind: "request-retry-proof/v1",
+      consumerId: "fixture-consumer",
+      executionRef,
+      requestRef,
+      nonEntryReason: "admission_storage_conflict",
+      transportClosed: true,
+    }),
+  });
+  const finalCheckStarted = deferred();
+  const releaseFinalCheck = deferred();
+  const controller = new AbortController();
+  let checks = 0;
+  let reading: ReturnType<typeof f.preparation.retryProof> | undefined =
+    undefined;
+  try {
+    await f.preparation.prepare();
+    reading = f.preparation.retryProof(
+      "cancelled-proof-request",
+      { signal: controller.signal },
+      async () => {
+        if (++checks === 2) {
+          finalCheckStarted.resolve();
+          await releaseFinalCheck.promise;
+        }
+      },
+    );
+    void reading.catch(() => {});
+    await Promise.race([
+      finalCheckStarted.promise,
+      reading.then(() => {
+        throw new Error("proof_returned_before_final_check");
+      }),
+    ]);
+    expect(f.retryProofCalls).toHaveLength(1);
+    controller.abort();
+    releaseFinalCheck.resolve();
+    await expect(reading).rejects.toMatchObject({
+      code: "cancelled",
+      effect: "effect_unknown",
+    });
+    expect(checks).toBe(2);
+    expect(f.retryProofCalls).toHaveLength(1);
+    expect(f.requestRefs).toHaveLength(0);
+  } finally {
+    releaseFinalCheck.resolve();
+    await reading?.catch(() => {});
+    try {
+      await f.preparation.close("cancelled");
+    } finally {
+      await f.relay.shutdown();
+    }
+  }
+});
+
+it.each(["closeRun", "shutdown"] as const)(
+  "denies native retry visibility when %s starts during the final live-authority read",
+  async (operation) => {
+    const liveReadStarted = deferred();
+    const releaseLiveRead = deferred();
+    const revokeStarted = deferred();
+    const releaseRevoke = deferred();
+    let holdLiveRead = false;
+    let originalAuthorityAllowed = false;
+    const originalFactory = preparationModule.createReviewRunGatewayPreparation;
+    const factory = vi
+      .spyOn(preparationModule, "createReviewRunGatewayPreparation")
+      .mockImplementation((input) => {
+        const preparation = originalFactory(input);
+        return {
+          ...preparation,
+          hasLiveNativeRetryAuthority: async () => {
+            const allowed = await preparation.hasLiveNativeRetryAuthority();
+            if (holdLiveRead) {
+              originalAuthorityAllowed = allowed;
+              liveReadStarted.resolve();
+              await releaseLiveRead.promise;
+            }
+            return allowed;
+          },
+        };
+      });
+    const state = companionReservation("finding_discovery");
+    const f = await fixture(32768, 0, 2, 5000, undefined, {
+      admission: state.admission,
+    });
+    const originalRevoke =
+      f.authorizations.expireOrRevokeReviewRunAuthorization;
+    const revoke = vi
+      .spyOn(f.authorizations, "expireOrRevokeReviewRunAuthorization")
+      .mockImplementation(async (input) => {
+        revokeStarted.resolve();
+        await releaseRevoke.promise;
+        return originalRevoke(input);
+      });
+    let reading:
+      | ReturnType<typeof f.relay.canReadNativeRetryProof>
+      | undefined = undefined;
+    let closing: Promise<unknown> | undefined = undefined;
+    try {
+      await streamRun(f, "authorization-1");
+      const { dispatch } = await state.admission.claim(
+        f.authorization(),
+        companionContext,
+        createHash("sha256").update(companionEnvelope()).digest("hex"),
+      );
+      expect(await f.relay.canReadNativeRetryProof(dispatch)).toBe(true);
+      holdLiveRead = true;
+      reading = f.relay.canReadNativeRetryProof(dispatch);
+      void reading.catch(() => {});
+      await Promise.race([
+        liveReadStarted.promise,
+        reading.then(() => {
+          throw new Error("visibility_returned_before_live_read");
+        }),
+      ]);
+      expect(originalAuthorityAllowed).toBe(true);
+      closing =
+        operation === "closeRun"
+          ? f.relay.closeRun("authorization-1", "cancelled")
+          : f.relay.shutdown();
+      void closing.catch(() => {});
+      await Promise.race([
+        revokeStarted.promise,
+        closing.then(() => {
+          throw new Error("close_finished_before_revocation");
+        }),
+      ]);
+      expect(f.authorization().state).toBe("active");
+      expect(f.nativeCloses).toHaveLength(0);
+      releaseLiveRead.resolve();
+      await expect(reading).resolves.toBe(false);
+      releaseRevoke.resolve();
+      await closing;
+    } finally {
+      releaseLiveRead.resolve();
+      releaseRevoke.resolve();
+      await reading?.catch(() => {});
+      await closing?.catch(() => {});
+      try {
+        await f.relay.shutdown();
+      } finally {
+        revoke.mockRestore();
+        factory.mockRestore();
+      }
+    }
+  },
+);
+
+it.each([
+  { name: "original", enabled: true, invalidProof: undefined, accepted: true },
+  {
+    name: "legacy capacity",
+    enabled: false,
+    invalidProof: undefined,
+    accepted: false,
+  },
+  {
+    name: "foreign execution",
+    enabled: true,
+    invalidProof: "executionRef",
+    accepted: false,
+  },
+  {
+    name: "foreign request",
+    enabled: true,
+    invalidProof: "requestRef",
+    accepted: false,
+  },
+  {
+    name: "closure absent",
+    enabled: true,
+    invalidProof: "transportClosed",
+    accepted: false,
+  },
+])(
+  "records native rejection before unknown only with exact original proof: $name",
+  async ({ enabled, invalidProof, accepted }) => {
+    const state = companionReservation("finding_discovery");
+    const forward = vi.fn(
+      async (
+        ...args: Parameters<ReviewRunModelDispatchAdmission["forward"]>
+      ) => ({
+        ...(await state.admission.claim(...args)),
+        status: "claimed" as const,
+      }),
+    );
+    const recordNativeRejection = vi.fn(
+      async (_authorizationId: string, dispatchId: string) => {
+        const row = state.rows.get(dispatchId)!;
+        expect(row.state).toBe("dispatch_may_have_started");
+        state.rows.set(dispatchId, {
+          ...row,
+          state: "not_dispatched",
+          nativeRetryProof: {
+            kind: "native_rejection_after_forward",
+            reason: "admission_storage_conflict",
+          },
+        });
+      },
+    );
+    const f = await fixture(32768, 0, 2, 5000, undefined, {
+      admission: { ...state.admission, forward, recordNativeRejection },
+      modelDispatchV2: true,
+      modelDispatchCapacity128: true,
+      nativeRetry: enabled,
+      nativeRejection: true,
+      retryProof: (requestRef, executionRef) => ({
+        kind: "request-retry-proof/v1",
+        consumerId: "fixture-consumer",
+        executionRef,
+        requestRef,
+        nonEntryReason: "admission_storage_conflict",
+        transportClosed: true,
+        ...(invalidProof
+          ? {
+              [invalidProof]:
+                invalidProof === "transportClosed" ? false : "foreign",
+            }
+          : {}),
+      }),
+    });
+    const bytes = companionEnvelope();
+    const context = {
+      ...companionContext,
+      dispatchVersion: 2 as const,
+      requestOrdinal: 1,
+      routeIdentityHash: "e".repeat(64),
+    };
+    const original = await state.admission.claim(
+      f.authorization(),
+      context,
+      createHash("sha256").update(bytes).digest("hex"),
+    );
+    state.rows.set(context.dispatchId, {
+      ...original.dispatch,
+      dispatchVersion: 2,
+      requestOrdinal: 1,
+      routeIdentityHash: context.routeIdentityHash,
+      requestBytes: bytes.byteLength,
+      maxOutputTokens: 4096,
+    });
+    try {
+      await expect(
+        f.relay.responses(
+          "local-authorization-token",
+          bytes,
+          new AbortController(),
+          undefined,
+          context,
+        ),
+      ).rejects.toMatchObject({
+        effect: accepted ? "rejected_before_dispatch" : "effect_unknown",
+      });
+      expect(recordNativeRejection).toHaveBeenCalledTimes(accepted ? 1 : 0);
+      expect(state.rows.get(context.dispatchId)?.state).toBe(
+        accepted ? "not_dispatched" : "effect_unknown",
+      );
+      expect(f.retryProofCalls).toHaveLength(enabled ? 1 : 0);
+      expect(f.retryProofHeaders).toEqual(
+        enabled
+          ? [
+              {
+                authorization: "Bearer local-execution-token",
+                capability: "request-retry-proof/v1",
+              },
+            ]
+          : [],
+      );
+      if (accepted) {
+        expect(recordNativeRejection).toHaveBeenCalledWith(
+          f.authorization().authorizationId,
+          context.dispatchId,
+          {
+            kind: "request-retry-proof/v1",
+            consumerId: "fixture-consumer",
+            executionRef: f.retryProofCalls[0]!.executionRef,
+            requestRef: original.dispatch.nativeRequestRef,
+            nonEntryReason: "admission_storage_conflict",
+            transportClosed: true,
+          },
+        );
+        expect(
+          await f.relay.canReadNativeRetryProof(
+            state.rows.get(context.dispatchId)!,
+          ),
+        ).toBe(true);
+        f.revoke(f.authorization().authorizationId);
+        expect(
+          await f.relay.canReadNativeRetryProof(
+            state.rows.get(context.dispatchId)!,
+          ),
+        ).toBe(false);
+      }
+      expect(f.intents).toHaveLength(1);
+      expect(f.requestBodies).toEqual([bytes.toString()]);
+    } finally {
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it.each([
+  {
+    name: "cached pending with closed non-entry",
+    effect: "dispatch_started",
+    status: "pending",
+    nativeRetry: true,
+    role: "finding_discovery",
+    proof: "accepted",
+  },
+  {
+    name: "cached pending without a durable closure ACK",
+    effect: "dispatch_started",
+    status: "pending",
+    nativeRetry: true,
+    role: "finding_discovery",
+    proof: "denied",
+  },
+  {
+    name: "completed status",
+    effect: "completed",
+    status: "completed",
+    nativeRetry: true,
+    role: "finding_discovery",
+    proof: "unused",
+  },
+  {
+    name: "legacy cached pending",
+    effect: "dispatch_started",
+    status: "pending",
+    nativeRetry: false,
+    role: "finding_discovery",
+    proof: "unused",
+  },
+  {
+    name: "auxiliary cached pending",
+    effect: "dispatch_started",
+    status: "pending",
+    nativeRetry: true,
+    role: "lifecycle_verification",
+    proof: "unused",
+  },
+] as const)(
+  "drains native status before the single eligible proof read: $name",
+  async ({ effect, status, nativeRetry, role, proof }) => {
+    const state = companionReservation(role);
+    const events: string[] = [];
+    const releaseEof = deferred();
+    const eofReadPending = deferred();
+    const proofCallStarted = deferred();
+    let statusBytes = 0;
+    const forward = vi.fn(
+      async (
+        ...args: Parameters<ReviewRunModelDispatchAdmission["forward"]>
+      ) => ({
+        ...(await state.admission.claim(...args)),
+        status: "claimed" as const,
+      }),
+    );
+    const settle = vi.fn(
+      async (
+        ...args: Parameters<ReviewRunCompanionDispatchAdmission["settle"]>
+      ) => {
+        events.push("settle:" + args[2]);
+        await state.admission.settle(...args);
+      },
+    );
+    const recordNativeRejection = vi.fn(
+      async (_authorizationId: string, dispatchId: string) => {
+        expect(events).toEqual(["status-body", "status-eof", "proof"]);
+        events.push("attested");
+        const row = state.rows.get(dispatchId)!;
+        expect(row.state).toBe("dispatch_may_have_started");
+        state.rows.set(dispatchId, {
+          ...row,
+          state: "not_dispatched",
+          nativeRetryProof: {
+            kind: "native_rejection_after_forward",
+            reason: "admission_storage_conflict",
+          },
+        });
+      },
+    );
+    const f = await fixture(32768, 0, 2, 4000, undefined, {
+      admission: {
+        ...state.admission,
+        forward,
+        settle,
+        recordNativeRejection,
+      },
+      modelDispatchV2: true,
+      modelDispatchCapacity128: true,
+      nativeRetry,
+      nativeStatusResponse: async (response, requestRef) => {
+        response.writeHead(202, { "content-type": "application/json" });
+        const body = JSON.stringify({ requestRef, effect, status });
+        statusBytes = Buffer.byteLength(body);
+        response.write(body);
+        events.push("status-body");
+        // The public native handler awaits its close ACK before returning.
+        // Sending JSON without EOF must not trigger an early RR proof read.
+        await releaseEof.promise;
+        events.push("status-eof");
+        response.end();
+      },
+      retryProofStatus: proof === "denied" ? 403 : 200,
+      retryProof: (requestRef, executionRef) => {
+        events.push("proof");
+        return proof === "denied"
+          ? {
+              code: "forbidden",
+              traceRef: "held-closure-fixture",
+              requestRef,
+              effect: "effect_unknown",
+              retry: { kind: "never" },
+            }
+          : {
+              kind: "request-retry-proof/v1",
+              consumerId: "fixture-consumer",
+              executionRef,
+              requestRef,
+              nonEntryReason: "admission_storage_conflict",
+              transportClosed: true,
+            };
+      },
+    });
+    const bytes = companionEnvelope();
+    const context = {
+      ...companionContext,
+      dispatchVersion: 2 as const,
+      requestOrdinal: 1,
+      routeIdentityHash: "e".repeat(64),
+    };
+    const original = await state.admission.claim(
+      f.authorization(),
+      context,
+      createHash("sha256").update(bytes).digest("hex"),
+    );
+    state.rows.set(context.dispatchId, {
+      ...original.dispatch,
+      dispatchVersion: 2,
+      requestOrdinal: 1,
+      routeIdentityHash: context.routeIdentityHash,
+      requestBytes: bytes.byteLength,
+      maxOutputTokens: 4096,
+    });
+    const originalFetch = globalThis.fetch;
+    let clientEofObserved = false;
+    const proofInvocations: boolean[] = [];
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input, init) => {
+        const url = new URL(input instanceof Request ? input.url : input);
+        const fixtureRequest = url.origin === f.relayInput.runAccess.origin;
+        if (fixtureRequest && url.pathname.endsWith("/retry-proof")) {
+          proofInvocations.push(clientEofObserved);
+          proofCallStarted.resolve();
+        }
+        const response = await originalFetch(input, init);
+        if (
+          !fixtureRequest ||
+          !url.pathname.endsWith("/requests") ||
+          response.status !== 202 ||
+          !response.body
+        )
+          return response;
+        const reader = response.body.getReader();
+        let consumedBytes = 0;
+        const body = new ReadableStream<Uint8Array>(
+          {
+            async pull(controller) {
+              // With no prefetch, this read is driven by the SDK's next read.
+              const pendingRead = reader.read();
+              if (consumedBytes === statusBytes && consumedBytes > 0)
+                eofReadPending.resolve();
+              try {
+                const { done, value } = await pendingRead;
+                if (done) {
+                  clientEofObserved = true;
+                  controller.close();
+                } else {
+                  consumedBytes += value.byteLength;
+                  controller.enqueue(value);
+                }
+              } catch (error) {
+                controller.error(error);
+              }
+            },
+            cancel: (reason) => reader.cancel(reason),
+          },
+          { highWaterMark: 0 },
+        );
+        return new Response(body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        });
+      });
+    const controller = new AbortController();
+    const pending = f.relay
+      .responses(
+        "local-authorization-token",
+        bytes,
+        controller,
+        undefined,
+        context,
+      )
+      .then(
+        (response) => ({ kind: "response" as const, response }),
+        (error: unknown) => ({ kind: "error" as const, error }),
+      );
+    try {
+      await Promise.race([
+        eofReadPending.promise,
+        proofCallStarted.promise.then(() => {
+          throw new Error("native_proof_started_before_eof_read");
+        }),
+        pending.then(() => {
+          throw new Error("native_status_finished_before_eof_read");
+        }),
+      ]);
+      expect(proofInvocations).toEqual([]);
+      expect(events).toEqual(["status-body"]);
+      expect(f.retryProofCalls).toHaveLength(0);
+      expect(recordNativeRejection).not.toHaveBeenCalled();
+      expect(settle).not.toHaveBeenCalled();
+      expect(f.effects).toEqual([]);
+      expect(state.rows.get(context.dispatchId)?.state).toBe(
+        "dispatch_may_have_started",
+      );
+      releaseEof.resolve();
+      const result = await pending;
+      if (proof === "denied") {
+        expect(result.kind).toBe("error");
+        if (result.kind === "error")
+          expect(result.error).toMatchObject({ effect: "effect_unknown" });
+      } else {
+        expect(result).toMatchObject({
+          kind: "response",
+          response: {
+            kind: "status",
+            status: {
+              requestRef: original.dispatch.nativeRequestRef,
+              effect,
+              status,
+            },
+          },
+        });
+      }
+      expect(proofInvocations).toEqual(proof === "unused" ? [] : [true]);
+      expect(f.retryProofCalls).toHaveLength(proof === "unused" ? 0 : 1);
+      expect(f.retryProofHeaders).toEqual(
+        proof === "unused"
+          ? []
+          : [
+              {
+                authorization: "Bearer local-execution-token",
+                capability: "request-retry-proof/v1",
+              },
+            ],
+      );
+      expect(recordNativeRejection).toHaveBeenCalledTimes(
+        proof === "accepted" ? 1 : 0,
+      );
+      const settledState =
+        effect === "completed" ? "completed" : "effect_unknown";
+      expect(state.rows.get(context.dispatchId)?.state).toBe(
+        proof === "accepted" ? "not_dispatched" : settledState,
+      );
+      expect(events).toEqual([
+        "status-body",
+        "status-eof",
+        ...(proof === "unused" ? [] : ["proof"]),
+        proof === "accepted" ? "attested" : "settle:" + settledState,
+      ]);
+      expect(f.effects).toEqual([
+        {
+          requestRef: original.dispatch.nativeRequestRef,
+          effect:
+            proof === "accepted"
+              ? "rejected_before_dispatch"
+              : proof === "denied"
+                ? "effect_unknown"
+                : effect,
+        },
+      ]);
+      expect(forward).toHaveBeenCalledTimes(1);
+      expect(f.intents).toHaveLength(1);
+      expect(f.requestBodies).toEqual([bytes.toString()]);
+      expect(state.rows.size).toBe(1);
+    } finally {
+      releaseEof.resolve();
+      controller.abort();
+      try {
+        await pending;
+        await f.relay.shutdown();
+      } finally {
+        fetchMock.mockRestore();
+      }
+    }
+  },
+  10_000,
+);
+
+it.each([
+  { mode: "private", proofDenied: false },
+  { mode: "public", proofDenied: false },
+  { mode: "private", proofDenied: true },
+] as const)(
+  "projects HTTP $mode references (proof denied=$proofDenied)",
+  async ({ mode, proofDenied }) => {
+    const state = companionReservation("finding_discovery");
+    const forward = vi.fn(
+      async (
+        ...args: Parameters<ReviewRunModelDispatchAdmission["forward"]>
+      ) => ({
+        ...(await state.admission.claim(...args)),
+        status: "claimed" as const,
+      }),
+    );
+    const recordNativeRejection = vi.fn(
+      async (
+        ...args: Parameters<
+          ReviewRunModelDispatchAdmission["recordNativeRejection"]
+        >
+      ) => {
+        const row = state.rows.get(args[1])!;
+        expect(args[2].requestRef).toBe(row.nativeRequestRef);
+        expect(row.state).toBe("dispatch_may_have_started");
+        state.rows.set(args[1], {
+          ...row,
+          state: "not_dispatched",
+          nativeRetryProof: {
+            kind: "native_rejection_after_forward",
+            reason: "admission_storage_conflict",
+          },
+        });
+      },
+    );
+    const f = await fixture(32768, 0, 2, 5000, undefined, {
+      admission: { ...state.admission, forward, recordNativeRejection },
+      modelDispatchV2: true,
+      modelDispatchCapacity128: true,
+      nativeRetry: true,
+      ...(mode === "private"
+        ? { nativeRejection: true }
+        : {
+            nativeStatusResponse: async (
+              response: ServerResponse,
+              requestRef: string,
+            ) => {
+              response.writeHead(202, { "content-type": "application/json" });
+              response.end(
+                JSON.stringify({
+                  requestRef,
+                  effect: "dispatch_started",
+                  status: "pending",
+                }),
+              );
+            },
+          }),
+      retryProofStatus: proofDenied ? 403 : 200,
+      retryProof: (requestRef, executionRef) =>
+        proofDenied
+          ? {
+              code: "forbidden",
+              traceRef: "denied-native-proof-fixture",
+              requestRef,
+              effect: "effect_unknown",
+              retry: { kind: "never" },
+            }
+          : {
+              kind: "request-retry-proof/v1",
+              consumerId: "fixture-consumer",
+              executionRef,
+              requestRef,
+              nonEntryReason: "admission_storage_conflict",
+              transportClosed: true,
+            },
+    });
+    const bytes = companionEnvelope();
+    const context = {
+      ...companionContext,
+      dispatchVersion: 2 as const,
+      requestOrdinal: 1,
+      routeIdentityHash: "e".repeat(64),
+    };
+    const original = await state.admission.claim(
+      f.authorization(),
+      context,
+      createHash("sha256").update(bytes).digest("hex"),
+    );
+    state.rows.set(context.dispatchId, {
+      ...original.dispatch,
+      dispatchVersion: 2,
+      requestOrdinal: 1,
+      routeIdentityHash: context.routeIdentityHash,
+      requestBytes: bytes.byteLength,
+      maxOutputTokens: 4096,
+    });
+    const app = Fastify({ logger: false });
+    await registerReviewRunGatewayRelayRoutes(app, f.relay);
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    try {
+      const response = await fetch(
+        "http://127.0.0.1:" +
+          (app.server.address() as AddressInfo).port +
+          "/api/action/v2/account-gateway/responses",
+        {
+          method: "POST",
+          headers: {
+            ...modelForwardHeaders(1),
+            "x-reviewrouter-request-ref": "unowned-client-reference",
+          },
+          body: bytes,
+        },
+      );
+      const body: unknown = await response.json();
+      expect(response.status).toBe(mode === "private" ? 502 : 202);
+      expect(response.headers.get("x-reviewrouter-request-ref")).toBe(
+        proofDenied ? null : original.dispatch.nativeRequestRef,
+      );
+      expect(response.headers.get("x-reviewrouter-request-ref")).not.toBe(
+        "unowned-client-reference",
+      );
+      expect(body).toMatchObject(
+        mode === "private"
+          ? {
+              error: {
+                code: "companion_request_failed",
+                effect: proofDenied
+                  ? "effect_unknown"
+                  : "rejected_before_dispatch",
+                requestRef: original.dispatch.nativeRequestRef,
+                cause: "upstream_failure",
+              },
+            }
+          : {
+              requestRef: original.dispatch.nativeRequestRef,
+              effect: "dispatch_started",
+              status: "pending",
+            },
+      );
+      const recorded = state.rows.get(context.dispatchId);
+      expect(recorded).toMatchObject({
+        state: proofDenied ? "effect_unknown" : "not_dispatched",
+        nativeRequestRef: original.dispatch.nativeRequestRef,
+      });
+      if (proofDenied) expect(recorded).not.toHaveProperty("nativeRetryProof");
+      else
+        expect(recorded).toHaveProperty("nativeRetryProof", {
+          kind: "native_rejection_after_forward",
+          reason: "admission_storage_conflict",
+        });
+      expect(recordNativeRejection).toHaveBeenCalledTimes(proofDenied ? 0 : 1);
+      expect(f.retryProofCalls).toHaveLength(1);
+      expect(f.retryProofHeaders).toEqual([
+        {
+          authorization: "Bearer local-execution-token",
+          capability: "request-retry-proof/v1",
+        },
+      ]);
+      expect(f.retryProofCalls[0]?.requestRef).toBe(
+        original.dispatch.nativeRequestRef,
+      );
+      expect(forward).toHaveBeenCalledTimes(1);
+      expect(f.intents).toHaveLength(1);
+      expect(f.requestRefs).toEqual([original.dispatch.nativeRequestRef]);
+      expect(f.requestBodies).toEqual([bytes.toString()]);
+    } finally {
+      await app.close();
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it("refuses a successor before preparation when the original Gateway client was lost", async () => {
+  const state = companionReservation("finding_discovery");
+  const forward = vi.fn(
+    async (
+      ...args: Parameters<ReviewRunModelDispatchAdmission["forward"]>
+    ) => ({
+      ...(await state.admission.claim(...args)),
+      status: "claimed" as const,
+    }),
+  );
+  const f = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: { ...state.admission, forward },
+    modelDispatchV2: true,
+    modelDispatchCapacity128: true,
+    nativeRetry: true,
+  });
+  const bytes = companionEnvelope();
+  const context = {
+    ...companionContext,
+    dispatchVersion: 2 as const,
+    requestOrdinal: 2,
+    routeIdentityHash: "e".repeat(64),
+  };
+  const reserved = await state.admission.claim(
+    f.authorization(),
+    context,
+    createHash("sha256").update(bytes).digest("hex"),
+  );
+  state.rows.set(context.dispatchId, {
+    ...reserved.dispatch,
+    dispatchVersion: 2,
+    requestOrdinal: 2,
+    routeIdentityHash: context.routeIdentityHash,
+    requestBytes: bytes.byteLength,
+    maxOutputTokens: 4096,
+    retryOfDispatchId: `rr-model-${"b".repeat(64)}`,
+  });
+  try {
+    await expect(
+      f.relay.responses(
+        "local-authorization-token",
+        bytes,
+        new AbortController(),
+        undefined,
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "model_dispatch_retry_denied" });
+    expect(forward).not.toHaveBeenCalled();
+    expect(f.intents).toHaveLength(0);
+    expect(f.requestBodies).toHaveLength(0);
+    expect(f.retryProofCalls).toHaveLength(0);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
 
 it.each(forwardingBounds)(
   "HTTP native forwarding uses frozen capacity128=$capacity128 / clamp=$requests / ordinal=$ordinal",
@@ -731,6 +1570,601 @@ it("keeps oversized companion streams unknown and logs a safe failure phase", as
     log.mockRestore();
   }
 });
+
+it.each([
+  { phase: "native_status", loggerThrows: false, statusCase: "sdk" },
+  { phase: "native_status", loggerThrows: true, statusCase: "sdk" },
+  { phase: "usage_outcome", loggerThrows: false, statusCase: "sdk" },
+  { phase: "usage_outcome", loggerThrows: true, statusCase: "sdk" },
+  {
+    phase: "companion_settlement",
+    loggerThrows: false,
+    statusCase: "getter",
+  },
+  { phase: "companion_settlement", loggerThrows: true, statusCase: "getter" },
+  { phase: "usage_outcome", loggerThrows: false, statusCase: "invalid_sdk" },
+  {
+    phase: "usage_outcome",
+    loggerThrows: false,
+    statusCase: "invalid_status",
+  },
+] as const)(
+  "attributes companion EOF failure to $phase without terminal delivery or replay (logger throws=$loggerThrows, status=$statusCase)",
+  async ({ phase, loggerThrows, statusCase }) => {
+    const state = companionReservation();
+    const eof = deferred();
+    const getter = vi.fn(() => {
+      throw new Error("secret-getter");
+    });
+    const failure = Object.defineProperties(
+      new TypeError("secret-persistence-message"),
+      {
+        stack: { value: "secret-stack" },
+        code: { get: getter },
+        httpStatus:
+          statusCase === "getter"
+            ? { get: getter }
+            : { value: statusCase === "sdk" ? 503 : 200 },
+        status: {
+          value:
+            statusCase === "invalid_status"
+              ? 503.5
+              : statusCase === "sdk"
+                ? 502
+                : 503,
+        },
+        statusCode:
+          statusCase === "invalid_status" ? { value: 503 } : { get: getter },
+        meta: { value: { detail: "secret-database-detail" } },
+      },
+    );
+    if (phase === "companion_settlement")
+      Object.defineProperty(failure, "message", { get: getter });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {
+      if (loggerThrows) throw new Error("secret-log-sink");
+    });
+    const requestStatus = vi.fn((requestRef: string) => ({
+      statusCode: 503,
+      body: {
+        code: "upstream_failure",
+        traceRef: "secret-trace",
+        requestRef,
+        effect: "effect_unknown",
+        retry: { kind: "readback" },
+      },
+    }));
+    const f = await fixture(
+      32768,
+      0,
+      2,
+      5000,
+      async (upstream) => {
+        upstream.write(progressFrame);
+        await eof.promise;
+        upstream.end(completedFrame);
+      },
+      {
+        admission: state.admission,
+        ...(phase === "native_status" ? { requestStatus } : {}),
+      },
+    );
+    const recordOutcome = f.usage!.outcome;
+    const usage = vi
+      .spyOn(f.usage!, "outcome")
+      .mockImplementation(async (input) => {
+        if (phase === "usage_outcome" && input.effect === "completed")
+          throw failure;
+        return recordOutcome(input);
+      });
+    const recordSettlement = state.admission.settle;
+    const settlement = vi
+      .spyOn(state.admission, "settle")
+      .mockImplementation(async (authorizationId, dispatchId, effect) => {
+        if (phase === "companion_settlement" && effect === "completed")
+          throw failure;
+        return recordSettlement(authorizationId, dispatchId, effect);
+      });
+    const http = await serveRelay({
+      ...f.relay,
+      responses: (token, _raw, controller, diagnostic) =>
+        f.relay.responses(
+          token,
+          companionEnvelope(),
+          controller,
+          diagnostic,
+          companionContext,
+        ),
+    });
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    let appClosed = false;
+    try {
+      const response = await http.request();
+      expect(response.status).toBe(200);
+      reader = response.body!.getReader();
+      await readExactFrame(reader, progressFrame);
+      eof.resolve();
+      let tail = "";
+      await expect(
+        (async () => {
+          for (;;) {
+            const part = await reader!.read();
+            if (part.done) return;
+            tail += Buffer.from(part.value).toString();
+          }
+        })(),
+      ).rejects.toBeDefined();
+      expect(tail).toBe("");
+      expect(
+        log.mock.calls.filter(
+          ([event]) => event?.event === "review_run_companion_stream_failure",
+        ),
+      ).toEqual([
+        [
+          {
+            event: "review_run_companion_stream_failure",
+            phase,
+            requestRef: "stored-companion-native-ref",
+            receivedBytes: Buffer.byteLength(progressFrame + completedFrame),
+            maxStreamBytes: 32768,
+            signalAborted: false,
+            errorCategory: phase === "native_status" ? "Error" : "TypeError",
+            httpStatus: 503,
+            ...(phase === "native_status" ? { sdkCode: "safe_error" } : {}),
+          },
+        ],
+      ]);
+      expect(
+        log.mock.calls.flat().some((value) => value instanceof Error),
+      ).toBe(false);
+      expect(getter).not.toHaveBeenCalled();
+      expect(JSON.stringify(log.mock.calls)).not.toContain("secret");
+      expect(requestStatus).toHaveBeenCalledTimes(
+        phase === "native_status" ? 1 : 0,
+      );
+      expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+        "effect_unknown",
+      );
+      expect(f.effects.at(-1)?.effect).toBe("effect_unknown");
+      await expect(
+        f.relay.responses(
+          "authorization-1",
+          companionEnvelope(),
+          new AbortController(),
+          undefined,
+          companionContext,
+        ),
+      ).rejects.toMatchObject({ code: "companion_dispatch_already_claimed" });
+      expect(f.requestRefs).toEqual(["stored-companion-native-ref"]);
+      expect(f.admissions).toHaveLength(1);
+      reader.releaseLock();
+      reader = undefined;
+      await http.app.close();
+      appClosed = true;
+      expect([...f.nativeExecutions.values()]).toEqual(["closed"]);
+    } finally {
+      eof.resolve();
+      await reader?.cancel().catch(() => {});
+      reader?.releaseLock();
+      if (!appClosed) await http.app.close();
+      usage.mockRestore();
+      settlement.mockRestore();
+      log.mockRestore();
+    }
+  },
+);
+
+it.each([
+  { phase: "authority_recheck", fail: false },
+  { phase: "native_status", fail: false },
+  { phase: "usage_outcome", fail: false },
+  { phase: "companion_settlement", fail: false },
+  { phase: "authority_recheck", fail: true },
+  { phase: "native_status", fail: true },
+  { phase: "usage_outcome", fail: true },
+  { phase: "companion_settlement", fail: true },
+] as const)(
+  "keeps EOF settlement authoritative through cancellation at $phase (fails=$fail)",
+  async ({ phase, fail }) => {
+    const state = companionReservation();
+    const settlementStarted = deferred();
+    const releaseSettlement = deferred();
+    let completedRecorded = false;
+    const recordSettlement = state.admission.settle;
+    const settlement = vi
+      .spyOn(state.admission, "settle")
+      .mockImplementation(async (authorizationId, dispatchId, effect) => {
+        if (phase === "companion_settlement" && effect === "completed") {
+          settlementStarted.resolve();
+          await releaseSettlement.promise;
+          if (fail) throw new Error("fixture_settlement_failed");
+        }
+        await recordSettlement(authorizationId, dispatchId, effect);
+        if (effect === "completed") completedRecorded = true;
+      });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const f = await fixture(
+      32768,
+      0,
+      2,
+      5000,
+      async (upstream) => {
+        upstream.end(progressFrame + completedFrame);
+      },
+      {
+        admission: state.admission,
+        ...(phase === "native_status"
+          ? {
+              requestStatus: async (requestRef: string) => {
+                settlementStarted.resolve();
+                await releaseSettlement.promise;
+                return fail
+                  ? {
+                      statusCode: 503,
+                      body: {
+                        code: "upstream_failure",
+                        traceRef: "fixture-native-status-failure",
+                        requestRef,
+                        effect: "effect_unknown",
+                        retry: { kind: "readback" },
+                      },
+                    }
+                  : {
+                      statusCode: 200,
+                      body: {
+                        requestRef,
+                        effect: "completed",
+                        status: "completed",
+                      },
+                    };
+              },
+            }
+          : {}),
+      },
+    );
+    let nativeEofObserved = false;
+    const originalFactory = preparationModule.createReviewRunGatewayPreparation;
+    const factory = vi
+      .spyOn(preparationModule, "createReviewRunGatewayPreparation")
+      .mockImplementation((input) => {
+        const preparation = originalFactory(input);
+        if (phase !== "authority_recheck") return preparation;
+        return {
+          ...preparation,
+          request: async (...args: Parameters<typeof preparation.request>) => {
+            const response = await preparation.request(...args);
+            if (response.kind !== "stream") return response;
+            const reader = response.body.getReader();
+            return {
+              ...response,
+              body: new ReadableStream<Uint8Array>(
+                {
+                  async pull(controller) {
+                    const chunk = await reader.read();
+                    if (chunk.done) {
+                      nativeEofObserved = true;
+                      controller.close();
+                    } else controller.enqueue(chunk.value);
+                  },
+                  cancel: (reason) => reader.cancel(reason),
+                },
+                { highWaterMark: 0 },
+              ),
+            };
+          },
+        };
+      });
+    const originalAuthority = f.relayInput.checkAuthority;
+    let authorityReadObserved = false;
+    const authority = vi
+      .spyOn(f.relayInput, "checkAuthority")
+      .mockImplementation(async (authorization, freshness) => {
+        if (
+          phase === "authority_recheck" &&
+          nativeEofObserved &&
+          freshness === "local" &&
+          !authorityReadObserved
+        ) {
+          authorityReadObserved = true;
+          settlementStarted.resolve();
+          await releaseSettlement.promise;
+          if (fail) throw new Error("fixture_settlement_failed");
+        }
+        return originalAuthority(authorization, freshness);
+      });
+    const recordOutcome = f.usage!.outcome;
+    const usage = vi
+      .spyOn(f.usage!, "outcome")
+      .mockImplementation(async (input) => {
+        if (phase === "usage_outcome" && input.effect === "completed") {
+          settlementStarted.resolve();
+          await releaseSettlement.promise;
+          if (fail) throw new Error("fixture_settlement_failed");
+        }
+        return recordOutcome(input);
+      });
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    let draining: Promise<void> | undefined;
+    try {
+      const response = await f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      );
+      if (response.kind !== "stream") throw new Error("stream_expected");
+      reader = response.body.getReader();
+      draining = (async () => {
+        while (!(await reader!.read()).done) {
+          // Drive EOF until its status read or one settlement write is held.
+        }
+      })();
+      void draining.catch(() => {});
+      await Promise.race([
+        settlementStarted.promise,
+        draining.then(() => {
+          throw new Error("stream_ended_before_companion_settlement");
+        }),
+      ]);
+      expect(completedRecorded).toBe(false);
+      if (phase === "authority_recheck") expect(nativeEofObserved).toBe(true);
+      await reader.cancel();
+      await response.cancel();
+      await draining;
+      expect(completedRecorded).toBe(false);
+      expect(f.effects.some(({ effect }) => effect === "effect_unknown")).toBe(
+        false,
+      );
+      expect(
+        settlement.mock.calls.some(
+          ([, , effect]) => effect === "effect_unknown",
+        ),
+      ).toBe(false);
+      releaseSettlement.resolve();
+
+      await vi.waitFor(() => {
+        expect(
+          log.mock.calls.filter(
+            ([event]) => event?.event === "review_run_companion_stream_failure",
+          ),
+        ).toEqual([
+          [
+            {
+              event: "review_run_companion_stream_failure",
+              phase: fail ? phase : "downstream",
+              requestRef: "stored-companion-native-ref",
+              receivedBytes: Buffer.byteLength(progressFrame + completedFrame),
+              maxStreamBytes: 32768,
+              signalAborted: false,
+              errorCategory: fail ? "Error" : "TypeError",
+              ...(fail && phase === "native_status"
+                ? { httpStatus: 503, sdkCode: "safe_error" }
+                : {}),
+            },
+          ],
+        ]);
+        expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+          fail ? "effect_unknown" : "completed",
+        );
+        expect(f.effects.at(-1)?.effect).toBe(
+          fail ? "effect_unknown" : "completed",
+        );
+      });
+      expect(completedRecorded).toBe(!fail);
+      expect(f.effects.map(({ effect }) => effect)).toEqual(
+        !fail
+          ? ["dispatch_started", "completed"]
+          : phase !== "companion_settlement"
+            ? ["dispatch_started", "effect_unknown"]
+            : ["dispatch_started", "completed", "effect_unknown"],
+      );
+      expect(settlement.mock.calls.map(([, , effect]) => effect)).toEqual(
+        !fail
+          ? ["completed"]
+          : phase !== "companion_settlement"
+            ? ["effect_unknown"]
+            : ["completed", "effect_unknown"],
+      );
+      expect(f.requestRefs).toEqual(["stored-companion-native-ref"]);
+      expect(
+        log.mock.calls.flat().some((value) => value instanceof Error),
+      ).toBe(false);
+    } finally {
+      releaseSettlement.resolve();
+      await reader?.cancel().catch(() => {});
+      await draining?.catch(() => {});
+      reader?.releaseLock();
+      try {
+        await f.relay.shutdown();
+      } finally {
+        usage.mockRestore();
+        authority.mockRestore();
+        factory.mockRestore();
+        settlement.mockRestore();
+        log.mockRestore();
+      }
+    }
+  },
+);
+
+it.each(["reader", "response"] as const)(
+  "keeps early %s cancellation authoritative over a delayed SDK EOF",
+  async (cancel) => {
+    const releaseUpstream = deferred();
+    const releaseRead = deferred();
+    const releaseUnknown = deferred();
+    let readHeld = false;
+    let nativeCancels = 0;
+    const statusReads: string[] = [];
+    const originalFactory = preparationModule.createReviewRunGatewayPreparation;
+    const factory = vi
+      .spyOn(preparationModule, "createReviewRunGatewayPreparation")
+      .mockImplementation((input) => {
+        const preparation = originalFactory(input);
+        return {
+          ...preparation,
+          status: async (...args: Parameters<typeof preparation.status>) => {
+            statusReads.push(args[0]);
+            return preparation.status(...args);
+          },
+          request: async (...args: Parameters<typeof preparation.request>) => {
+            const upstream = await preparation.request(...args);
+            if (upstream.kind !== "stream") throw new Error("stream_expected");
+            const source = upstream.body.getReader();
+            return {
+              ...upstream,
+              body: new ReadableStream<Uint8Array>(
+                {
+                  async pull(target) {
+                    const chunk = await source.read();
+                    if (chunk.done) {
+                      // Actual SDK EOF has arrived; hold its delivery to relay.
+                      readHeld = true;
+                      await releaseRead.promise;
+                      target.close();
+                    } else target.enqueue(chunk.value);
+                  },
+                  async cancel() {
+                    await upstream.cancel();
+                  },
+                },
+                { highWaterMark: 0 },
+              ),
+              cancel: async () => {
+                nativeCancels++;
+                await upstream.cancel();
+              },
+            };
+          },
+        };
+      });
+    const state = companionReservation();
+    const originalSettle = state.admission.settle;
+    const settlement = vi
+      .spyOn(state.admission, "settle")
+      .mockImplementation(async (...args) => {
+        if (args[2] === "effect_unknown") await releaseUnknown.promise;
+        return originalSettle(...args);
+      });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const f = await fixture(
+      32768,
+      0,
+      2,
+      5000,
+      async (upstream) => {
+        upstream.write(progressFrame);
+        await releaseUpstream.promise;
+        upstream.end(completedFrame);
+      },
+      { admission: state.admission },
+    );
+    let response: Awaited<ReturnType<typeof f.relay.responses>> | undefined;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    let draining: Promise<void> | undefined;
+    let cancellation: Promise<void> | undefined;
+    let readResult:
+      | { kind: "done" }
+      | { kind: "error"; error: unknown }
+      | undefined;
+    try {
+      response = await f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      );
+      if (response.kind !== "stream") throw new Error("stream_expected");
+      reader = response.body.getReader();
+      await readExactFrame(reader, progressFrame);
+      releaseUpstream.resolve();
+      draining = (async () => {
+        while (!(await reader!.read()).done) {
+          // Keep the relay read pending until cancellation owns the outcome.
+        }
+      })().then(
+        () => {
+          readResult = { kind: "done" };
+        },
+        (error: unknown) => {
+          readResult = { kind: "error", error };
+        },
+      );
+      await vi.waitFor(() => expect(readHeld).toBe(true), { timeout: 5000 });
+      cancellation = cancel === "reader" ? reader.cancel() : response.cancel();
+      void cancellation.catch(() => {});
+      await vi.waitFor(() =>
+        expect(settlement.mock.calls.map(([, , effect]) => effect)).toEqual([
+          "effect_unknown",
+        ]),
+      );
+      expect(f.effects.map(({ effect }) => effect)).toEqual([
+        "dispatch_started",
+      ]);
+      expect(nativeCancels).toBe(0);
+      expect(statusReads).toEqual([]);
+      releaseRead.resolve();
+      await vi.waitFor(() => {
+        // This cancel is from the late pull's failure path. The original cancel
+        // is still held in unknown persistence, so it cannot satisfy the oracle.
+        expect(nativeCancels).toBe(1);
+        expect(statusReads).toEqual([]);
+        expect(readResult).toMatchObject(
+          cancel === "reader"
+            ? { kind: "done" }
+            : {
+                kind: "error",
+                error: {
+                  name: "GatewayError",
+                  code: "transport",
+                  effect: "effect_unknown",
+                  requestRef: "stored-companion-native-ref",
+                },
+              },
+        );
+      });
+      expect(settlement).toHaveBeenCalledTimes(1);
+      expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+        "dispatch_may_have_started",
+      );
+      expect(f.effects.map(({ effect }) => effect)).toEqual([
+        "dispatch_started",
+      ]);
+      releaseUnknown.resolve();
+      await expect(cancellation).resolves.toBeUndefined();
+      await draining;
+      expect(statusReads).toEqual([]);
+      expect(settlement.mock.calls.map(([, , effect]) => effect)).toEqual([
+        "effect_unknown",
+      ]);
+      expect(f.effects.map(({ effect }) => effect)).toEqual([
+        "dispatch_started",
+        "effect_unknown",
+      ]);
+      expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+        "effect_unknown",
+      );
+      expect(f.requestRefs).toEqual(["stored-companion-native-ref"]);
+      expect(f.admissions).toHaveLength(1);
+    } finally {
+      releaseUpstream.resolve();
+      releaseRead.resolve();
+      releaseUnknown.resolve();
+      if (!cancellation && response?.kind === "stream")
+        await response.cancel().catch(() => {});
+      await cancellation?.catch(() => {});
+      await reader?.cancel().catch(() => {});
+      await draining;
+      reader?.releaseLock();
+      settlement.mockRestore();
+      log.mockRestore();
+      factory.mockRestore();
+      await f.relay.shutdown();
+    }
+  },
+  10_000,
+);
 
 it("companion chunks use local authority while phase and EOF status retain full freshness", async () => {
   const state = companionReservation();
@@ -1495,7 +2929,12 @@ async function fixture(
   controlledStream?: (response: ServerResponse) => Promise<void>,
   companionOptions?: {
     admission: ReviewRunCompanionDispatchAdmission &
-      Partial<Pick<ReviewRunModelDispatchAdmission, "forward">>;
+      Partial<
+        Pick<
+          ReviewRunModelDispatchAdmission,
+          "forward" | "recordNativeRejection"
+        >
+      >;
     unpaid?: boolean;
     providerQuota?: {
       provider: "openrouter";
@@ -1504,9 +2943,22 @@ async function fixture(
       resetAt: string;
     };
     refusalStatus?: number;
+    requestStatus?: (
+      requestRef: string,
+    ) =>
+      | { statusCode: number; body: unknown }
+      | Promise<{ statusCode: number; body: unknown }>;
     failUsageOutcome?: boolean;
     modelDispatchV2?: boolean;
     modelDispatchCapacity128?: boolean;
+    nativeRetry?: boolean;
+    nativeRejection?: boolean;
+    nativeStatusResponse?: (
+      response: ServerResponse,
+      requestRef: string,
+    ) => Promise<void>;
+    retryProofStatus?: number;
+    retryProof?: (requestRef: string, executionRef: string) => unknown;
   },
   capturedRequests = 128,
   selection: {
@@ -1532,6 +2984,11 @@ async function fixture(
       } | null>)
     | null,
 ) {
+  const retryProofCalls: { requestRef: string; executionRef: string }[] = [];
+  const retryProofHeaders: {
+    authorization: string | undefined;
+    capability: string | string[] | undefined;
+  }[] = [];
   const deadline = new Date(Date.now() + 120_000).toISOString();
   const limits = {
     requests: capturedRequests,
@@ -1594,6 +3051,12 @@ async function fixture(
     ...(companionOptions?.modelDispatchV2
       ? {
           modelDispatchCapability: {
+            ...(companionOptions.nativeRetry
+              ? {
+                  retryPolicy:
+                    reviewModelDispatchNativeRetryContract.retryPolicy,
+                }
+              : {}),
             ...(companionOptions.modelDispatchCapacity128
               ? {
                   capacityPolicy:
@@ -1884,11 +3347,69 @@ async function fixture(
     const execution = /^\/v1\/executions\/([^/]+)\/(requests|close)$/.exec(
       req.url ?? "",
     );
+    const proofRequest =
+      /^\/v1\/executions\/([^/]+)\/requests\/([^/]+)\/retry-proof$/.exec(
+        req.url ?? "",
+      );
+    if (proofRequest && req.method === "GET") {
+      const headers = {
+        authorization: req.headers.authorization,
+        capability: req.headers["x-account-gateway-capability"],
+      };
+      const executionRef = proofRequest[1]!,
+        requestRef = proofRequest[2]!;
+      retryProofCalls.push({ executionRef, requestRef });
+      retryProofHeaders.push(headers);
+      if (
+        headers.authorization !== "Bearer local-execution-token" ||
+        headers.capability !== "request-retry-proof/v1"
+      ) {
+        res.writeHead(403, { "content-type": "application/json" }).end(
+          JSON.stringify({
+            code: "forbidden",
+            traceRef: "invalid-proof-headers-fixture",
+            requestRef,
+            effect: "effect_unknown",
+            retry: { kind: "never" },
+          }),
+        );
+        return;
+      }
+      res
+        .writeHead(companionOptions?.retryProofStatus ?? 200, {
+          "content-type": "application/json",
+        })
+        .end(
+          JSON.stringify(
+            companionOptions?.retryProof?.(requestRef, executionRef),
+          ),
+        );
+      return;
+    }
     if (execution?.[2] === "requests") {
       requestModels.push((JSON.parse(raw) as { model: string }).model);
       admissions.push(JSON.parse(String(req.headers["x-gateway-admission"])));
       requestBodies.push(raw);
       requestRefs.push(String(req.headers["x-gateway-request-id"]));
+      if (companionOptions?.nativeStatusResponse) {
+        await companionOptions.nativeStatusResponse(
+          res,
+          String(req.headers["x-gateway-request-id"]),
+        );
+        return;
+      }
+      if (companionOptions?.nativeRejection) {
+        res.writeHead(502, { "content-type": "application/json" }).end(
+          JSON.stringify({
+            code: "upstream_failure",
+            traceRef: "native-rejection-fixture",
+            requestRef: String(req.headers["x-gateway-request-id"]),
+            effect: "rejected_before_dispatch",
+            retry: { kind: "never" },
+          }),
+        );
+        return;
+      }
       const refusalStatus =
         companionOptions?.refusalStatus ?? nativeRefusalStatus;
       if (refusalStatus) {
@@ -1974,13 +3495,21 @@ async function fixture(
       req.url?.includes("/requests/") &&
       requestRefs.includes(req.url.split("/").at(-1)!)
     ) {
-      res.writeHead(200, { "content-type": "application/json" }).end(
-        JSON.stringify({
-          requestRef: req.url.split("/").at(-1),
-          effect: "completed",
-          status: "completed",
-        }),
-      );
+      const requestRef = req.url.split("/").at(-1)!;
+      const response = await companionOptions?.requestStatus?.(requestRef);
+      res
+        .writeHead(response?.statusCode ?? 200, {
+          "content-type": "application/json",
+        })
+        .end(
+          JSON.stringify(
+            response?.body ?? {
+              requestRef,
+              effect: "completed",
+              status: "completed",
+            },
+          ),
+        );
       return;
     }
     if (execution?.[2] === "close") {
@@ -2201,6 +3730,8 @@ async function fixture(
     requestModels,
     requestBodies,
     requestRefs,
+    retryProofCalls,
+    retryProofHeaders,
     limits,
     effects,
     authorityChecks,
@@ -2942,6 +4473,7 @@ it("throwing reclaim logger preserves HTTP refusal and unknown native custody", 
         headers: {
           authorization: "Bearer authorization-2",
           "content-type": "application/json",
+          "x-reviewrouter-request-ref": "unowned-client-reference",
         },
         body: JSON.stringify({
           model: "gpt-5.6-sol",
@@ -2952,6 +4484,7 @@ it("throwing reclaim logger preserves HTTP refusal and unknown native custody", 
       },
     );
     expect(response.status).toBe(503);
+    expect(response.headers.get("x-reviewrouter-request-ref")).toBeNull();
     expect(await response.json()).toMatchObject({
       error: { code: "relay_saturated", effect: "not_dispatched" },
     });
@@ -3250,6 +4783,8 @@ it.each(["pressure", "timer"] as const)(
       f.authorizations,
       "expireOrRevokeReviewRunAuthorization",
     );
+    let gate: ReturnType<typeof f.holdClose> | undefined;
+    let closing: ReturnType<typeof f.relay.closeRun> | undefined;
     try {
       await streamRun(f, "authorization-1", "reviewer-0");
       f.setCloseState("unknown");
@@ -3265,9 +4800,14 @@ it.each(["pressure", "timer"] as const)(
         ).rejects.toMatchObject({ code: "relay_saturated" });
         expect(f.nativeCloses).toHaveLength(2);
       } else {
+        gate = f.holdClose();
         await vi.waitFor(() => expect(f.nativeCloses).toHaveLength(2), {
           timeout: 2000,
         });
+        await gate.started;
+        closing = f.relay.closeRun("authorization-1", "completed");
+        gate.release();
+        await expect(closing).resolves.toMatchObject({ state: "unknown" });
       }
       expect(f.intents).toHaveLength(1);
       expect(f.requestModels).toHaveLength(1);
@@ -3276,19 +4816,14 @@ it.each(["pressure", "timer"] as const)(
       expect(new Set(f.nativeCloseOperationIds).size).toBe(1);
       f.setCloseState("applied");
       if (trigger === "timer") {
-        const gate = f.holdClose();
-        try {
-          await vi.waitFor(() => expect(f.nativeCloses).toHaveLength(3), {
-            timeout: 4000,
-          });
-          // Join the timer-owned close while its response is held. A received
-          // request alone does not release the relay session.
-          const completed = f.relay.closeRun("authorization-1", "completed");
-          gate.release();
-          await expect(completed).resolves.toMatchObject({ state: "applied" });
-        } finally {
-          gate.release();
-        }
+        gate = f.holdClose();
+        await vi.waitFor(() => expect(f.nativeCloses).toHaveLength(3), {
+          timeout: 4000,
+        });
+        await gate.started;
+        closing = f.relay.closeRun("authorization-1", "completed");
+        gate.release();
+        await expect(closing).resolves.toMatchObject({ state: "applied" });
       }
       await expect(streamRun(f, "authorization-2", "reviewer-0")).resolves.toBe(
         "stream",
@@ -3303,11 +4838,222 @@ it.each(["pressure", "timer"] as const)(
       expect(revoke).not.toHaveBeenCalled();
       expect(f.requestModels).toHaveLength(2);
     } finally {
+      gate?.release();
+      await closing?.catch(() => {});
       revoke.mockRestore();
       await f.relay.shutdown();
     }
   },
 );
+
+it("v4 pressure still reclaims an exact retained close after all automatic retries are spent", async () => {
+  const realSetTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  const originalFactory = preparationModule.createReviewRunGatewayPreparation;
+  let localCloseCalls = 0;
+  const factory = vi
+    .spyOn(preparationModule, "createReviewRunGatewayPreparation")
+    .mockImplementation((input) => {
+      const preparation = originalFactory(input);
+      return {
+        ...preparation,
+        close: (...args: Parameters<typeof preparation.close>) => {
+          localCloseCalls++;
+          return preparation.close(...args);
+        },
+      };
+    });
+  const f = await fixture(
+    32768,
+    0,
+    1,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    { models: ["gpt-5.6-sol"], independentAllocations: true },
+  );
+  const revoke = vi.spyOn(
+    f.authorizations,
+    "expireOrRevokeReviewRunAuthorization",
+  );
+  let retryClose: ReturnType<typeof f.holdClose> | undefined;
+  let closing: ReturnType<typeof f.relay.closeRun> | undefined;
+  try {
+    await streamRun(f, "authorization-1", "reviewer-0");
+    f.setCloseState("unknown");
+    await f.relay.closeRun("authorization-1", "completed");
+    const deadline = f.authorization().maxExpiresAt.getTime();
+    for (let expected = 2; expected <= 9; expected++) {
+      retryClose = f.holdClose();
+      // Search the remaining original window, excluding its deadline close.
+      while (localCloseCalls < expected && Date.now() < deadline - 1) {
+        await vi.advanceTimersByTimeAsync(
+          Math.min(100, deadline - Date.now() - 1),
+        );
+        await setImmediate();
+      }
+      expect(Date.now()).toBeLessThan(deadline);
+      expect(localCloseCalls).toBe(expected);
+      // Freeze fake time during real I/O; a local failure must not leave this
+      // arrival wait pending beyond the real-time bound.
+      let arrivalTimeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          retryClose.started,
+          new Promise<never>((_resolve, reject) => {
+            arrivalTimeout = realSetTimeout(
+              () => reject(new Error("native_close_request_not_started")),
+              2000,
+            );
+          }),
+        ]);
+      } finally {
+        if (arrivalTimeout !== undefined) realClearTimeout(arrivalTimeout);
+      }
+      expect(f.nativeCloses).toHaveLength(expected);
+      closing = f.relay.closeRun("authorization-1", "completed");
+      retryClose.release();
+      await expect(closing).resolves.toMatchObject({ state: "unknown" });
+    }
+
+    const remaining = f.authorization().maxExpiresAt.getTime() - Date.now();
+    expect(remaining).toBeGreaterThan(0);
+    // Pass the next uncapped half-remaining retry while staying before expiry.
+    // Observe local close starts too: slow HTTP cannot hide an extra attempt.
+    await vi.advanceTimersByTimeAsync(Math.floor((remaining * 3) / 4));
+    expect(Date.now()).toBeLessThan(f.authorization().maxExpiresAt.getTime());
+    expect(localCloseCalls).toBe(9);
+    expect(f.nativeCloses).toHaveLength(9);
+
+    await expect(
+      streamRun(f, "authorization-2", "reviewer-0"),
+    ).rejects.toMatchObject({
+      code: "relay_saturated",
+      effect: "not_dispatched",
+    });
+    expect(localCloseCalls).toBe(10);
+    expect(f.nativeCloses).toHaveLength(10);
+    expect(f.intents).toHaveLength(1);
+    expect(f.requestModels).toHaveLength(1);
+    expect([...f.nativeExecutions.values()]).toEqual(["active"]);
+
+    f.setCloseState("applied");
+    await expect(streamRun(f, "authorization-2", "reviewer-0")).resolves.toBe(
+      "stream",
+    );
+    expect(localCloseCalls).toBe(11);
+    expect(f.nativeCloses).toHaveLength(11);
+    expect(new Set(f.nativeCloses).size).toBe(1);
+    expect(new Set(f.nativeCloseOperationIds).size).toBe(1);
+    expect(f.nativeCloseReasons).toEqual(
+      Array.from({ length: 11 }, () => "completed"),
+    );
+    expect(f.intents).toHaveLength(2);
+    expect(f.requestModels).toHaveLength(2);
+    expect(new Set(f.requestRefs).size).toBe(2);
+    expect([...f.nativeExecutions.values()]).toEqual(["closed", "active"]);
+    expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+    expect(revoke).not.toHaveBeenCalled();
+  } finally {
+    retryClose?.release();
+    await closing?.catch(() => {});
+    try {
+      await f.relay.shutdown();
+    } finally {
+      factory.mockRestore();
+      revoke.mockRestore();
+      vi.useRealTimers();
+    }
+  }
+});
+
+it("v4 pressure retains custody when the original native close capability has expired", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  const f = await fixture(
+    32768,
+    0,
+    1,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    { models: ["gpt-5.6-sol"], independentAllocations: true },
+  );
+  let deadlineClose: ReturnType<typeof f.holdClose> | undefined;
+  let closing: ReturnType<typeof f.relay.closeRun> | undefined;
+  try {
+    await streamRun(f, "authorization-1", "reviewer-0");
+    f.setCloseResponseOverride((operationId) => ({
+      status: 401,
+      body: {
+        code: "unauthenticated",
+        traceRef: "trace-1",
+        operationRef: operationId,
+        effect: "not_dispatched",
+        retry: { kind: "never" },
+      },
+    }));
+    deadlineClose = f.holdClose();
+    await vi.advanceTimersByTimeAsync(
+      f.authorization().maxExpiresAt.getTime() - Date.now() + 1,
+    );
+    // Only the deadline timer can initiate this first held HTTP close.
+    await vi.waitFor(() => expect(f.nativeCloses).toHaveLength(1));
+    await deadlineClose.started;
+    expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Expired);
+    closing = f.relay.closeRun("authorization-1", "deadline");
+    const refused = expect(closing).rejects.toMatchObject({
+      code: "safe_error",
+      httpStatus: 401,
+      effect: "not_dispatched",
+      diagnostic: { code: "unauthenticated" },
+    });
+    deadlineClose.release();
+    await refused;
+    expect(f.nativeCloses).toHaveLength(1);
+
+    // A distinct later authorization is live; refusal must come from retained
+    // old custody rather than the second request also having an expired grant.
+    const laterDeadline = new Date(Date.now() + 120_000);
+    const laterSnapshot = JSON.parse(
+      f.authorization("authorization-2").runtimeSnapshotCanonicalJson!,
+    );
+    f.overrides.set("authorization-2", {
+      expiresAt: laterDeadline,
+      maxExpiresAt: laterDeadline,
+      runtimeSnapshotCanonicalJson: canonicalJson({
+        ...laterSnapshot,
+        deadline: laterDeadline.toISOString(),
+      }),
+    });
+    await expect(
+      streamRun(f, "authorization-2", "reviewer-0"),
+    ).rejects.toMatchObject({
+      code: "relay_saturated",
+      effect: "not_dispatched",
+    });
+    expect(f.nativeCloses).toHaveLength(2);
+    expect(new Set(f.nativeCloses).size).toBe(1);
+    expect(new Set(f.nativeCloseOperationIds).size).toBe(1);
+    expect(f.nativeCloseReasons).toEqual(["deadline", "deadline"]);
+    expect(f.intents).toHaveLength(1);
+    expect(f.requestModels).toHaveLength(1);
+    expect([...f.nativeExecutions.values()]).toEqual(["active"]);
+    expect(f.operationReads).toHaveLength(0);
+  } finally {
+    deadlineClose?.release();
+    await closing?.catch(() => {});
+    try {
+      await f.relay.shutdown();
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+});
 
 it("v4 bounds automatic close retries and preserves the original deadline fence", async () => {
   vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
@@ -5982,6 +7728,262 @@ it("drains more retained sessions than cleanup slots during shutdown", async () 
   } finally {
     gate?.release();
     await Promise.allSettled([first, shutdown]);
+    await f.relay.shutdown();
+  }
+});
+
+async function nativeRecoveryFixture(companion = false) {
+  const state = companionReservation();
+  const base = await fixture(
+    32768,
+    0,
+    2,
+    5000,
+    undefined,
+    companion ? { admission: state.admission } : undefined,
+  );
+  const context = {
+    schemaVersion: 1 as const,
+    profileId: "profile-1",
+    providerId: "native-provider",
+    productId: "native-product",
+  };
+  const original = base.authorization("authorization-1");
+  const snapshot = JSON.parse(original.runtimeSnapshotCanonicalJson!);
+  snapshot.gateway.nativeContext = context;
+  base.overrides.set("authorization-1", {
+    runtimeSnapshotCanonicalJson: canonicalJson(snapshot),
+  });
+  const policy = {
+    ...base.relayInput.policy,
+    profiles: [
+      {
+        outputTokens: 32768,
+        profile: {
+          profileId: "profile-1",
+          protocol: "openai-responses" as const,
+          authKinds: [] as [],
+          modelIds: ["gpt-5.6-sol"],
+          nativeContext: context,
+          modelPolicy: {
+            contract: "native-account-models/v2" as const,
+            sourceId: "native-models",
+            unavailableFallback: "deny" as const,
+          },
+        },
+      },
+    ],
+  };
+  let now = 0;
+  let current: NativeGatewayRelayPolicyObservation | undefined = {
+    policy,
+    expiresAt: 30_000,
+  };
+  const read = vi.fn(async () => current);
+  const relay = createReviewRunGatewayRelay({
+    ...base.relayInput,
+    policy,
+    nativePolicySource: { read, isFresh: (value) => now < value.expiresAt },
+  });
+  return {
+    ...base,
+    relay,
+    state,
+    read,
+    outage() {
+      current = undefined;
+    },
+    recover() {
+      current = { policy, expiresAt: now + 30_000 };
+    },
+    at(value: number) {
+      now = value;
+    },
+    change(kind: "disabled" | "removed" | "provider" | "product") {
+      const profile = policy.profiles[0]!.profile;
+      current = {
+        expiresAt: now + 30_000,
+        policy: {
+          ...policy,
+          profiles:
+            kind === "removed"
+              ? []
+              : [
+                  {
+                    outputTokens: 32768,
+                    profile:
+                      kind === "disabled"
+                        ? {
+                            profileId: "profile-1",
+                            protocol: "openai-responses",
+                            authKinds: [],
+                            modelIds: [],
+                          }
+                        : {
+                            ...profile,
+                            nativeContext: {
+                              ...context,
+                              ...(kind === "provider"
+                                ? { providerId: "replacement-provider" }
+                                : { productId: "replacement-product" }),
+                            },
+                          },
+                  },
+                ],
+        },
+      };
+    },
+  };
+}
+
+it("recovers native inference after a catalog outage with the same relay owner and captured identity", async () => {
+  const f = await nativeRecoveryFixture();
+  try {
+    f.outage();
+    await expect(streamRun(f, "authorization-1")).rejects.toMatchObject({
+      code: "gateway_unavailable",
+      effect: "not_dispatched",
+    });
+    expect(f.intents).toHaveLength(0);
+    expect(f.admissions).toHaveLength(0);
+    f.recover();
+    await expect(streamRun(f, "authorization-1")).resolves.toBe("stream");
+    expect(f.intents).toHaveLength(1);
+    expect(f.admissions).toHaveLength(1);
+    const readCount = f.read.mock.calls.length;
+    f.outage();
+    await f.relay.close("authorization-1", "completed");
+    expect(f.read).toHaveBeenCalledTimes(readCount);
+    expect(f.nativeCloses).toHaveLength(1);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it("refreshes the exact stale close during a native catalog outage without replaying inference", async () => {
+  const f = await nativeRecoveryFixture();
+  try {
+    await expect(streamRun(f, "authorization-1")).resolves.toBe("stream");
+    expect(f.intents).toHaveLength(1);
+    expect(f.admissions).toHaveLength(1);
+    const originalIntent = f.intents[0]!;
+    const originalRequests = [...f.requestRefs];
+    const [executionRef] = f.nativeExecutions.keys();
+    expect([...f.nativeExecutions.values()]).toEqual(["active"]);
+    const reads = f.read.mock.calls.length;
+    f.outage();
+    f.setCloseResponseOverride((operationId) => {
+      f.setCloseResponseOverride();
+      return {
+        status: 401,
+        body: {
+          code: "unauthenticated",
+          traceRef: "trace-1",
+          operationRef: operationId,
+          effect: "not_dispatched",
+          retry: { kind: "never" },
+        },
+      };
+    });
+    await expect(
+      f.relay.close("authorization-1", "completed"),
+    ).resolves.toMatchObject({ state: "applied" });
+    expect(f.read).toHaveBeenCalledTimes(reads);
+    expect(f.intents).toEqual([originalIntent, originalIntent]);
+    expect(f.operationReads).toEqual([originalIntent.operationId]);
+    expect(f.admissions).toHaveLength(1);
+    expect(f.requestRefs).toEqual(originalRequests);
+    expect(f.nativeCloses).toEqual([executionRef, executionRef]);
+    expect(f.nativeCloseOperationIds).toHaveLength(2);
+    expect(new Set(f.nativeCloseOperationIds).size).toBe(1);
+    expect(f.nativeCloseReasons).toEqual(["completed", "completed"]);
+    expect([...f.nativeExecutions]).toEqual([[executionRef, "closed"]]);
+  } finally {
+    f.setCloseResponseOverride();
+    await f.relay.shutdown();
+  }
+});
+
+it.each(["disabled", "removed", "provider", "product"] as const)(
+  "denies fresh inference for %s native qualification while retained cleanup stays usable",
+  async (change) => {
+    const f = await nativeRecoveryFixture();
+    try {
+      await streamRun(f, "authorization-1");
+      f.change(change);
+      await expect(streamRun(f, "authorization-1")).rejects.toMatchObject({
+        code: "gateway_unavailable",
+        effect: "not_dispatched",
+      });
+      expect(f.admissions).toHaveLength(1);
+      await f.relay.close("authorization-1", "completed");
+      expect(f.nativeCloses).toHaveLength(1);
+      expect(f.admissions).toHaveLength(1);
+    } finally {
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it("returns exact persisted companion replay and readback during discovery failure without another native request", async () => {
+  const f = await nativeRecoveryFixture(true);
+  try {
+    const response = await f.relay.responses(
+      "authorization-1",
+      companionEnvelope(),
+      new AbortController(),
+      undefined,
+      companionContext,
+    );
+    if (response.kind !== "stream") throw new Error("stream_expected");
+    for await (const _chunk of response.body) void _chunk;
+    expect(f.state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "completed",
+    );
+    f.outage();
+    const reads = f.read.mock.calls.length;
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({
+      code: "companion_dispatch_already_claimed",
+      effect: "completed",
+      requestRef: "stored-companion-native-ref",
+    });
+    await expect(
+      f.relay.status("authorization-1", "stored-companion-native-ref"),
+    ).resolves.toMatchObject({ effect: "completed" });
+    expect(f.read).toHaveBeenCalledTimes(reads);
+    expect(f.admissions).toHaveLength(1);
+    await f.relay.close("authorization-1", "completed");
+    expect(f.nativeCloses).toHaveLength(1);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it("rejects native qualification expiring during preparation before any inference is forwarded", async () => {
+  const f = await nativeRecoveryFixture();
+  const prepare = f.holdPrepare();
+  try {
+    const result = streamRun(f, "authorization-1");
+    const rejected = expect(result).rejects.toMatchObject({
+      code: "gateway_unavailable",
+      effect: "not_dispatched",
+    });
+    await prepare.started;
+    f.at(30_000);
+    prepare.release();
+    await rejected;
+    expect(f.intents).toHaveLength(1);
+    expect(f.admissions).toHaveLength(0);
+  } finally {
+    prepare.release();
     await f.relay.shutdown();
   }
 });

@@ -8,11 +8,11 @@ import { configs as syntaxConfigs } from "stack-toolchain/eslint-syntax";
 const webMaxLines = 600;
 const webMaxLinesCeilings = {
   "apps/web/app/dashboard/account-gateway-account-controls.tsx": 2910,
-  "apps/web/app/dashboard/account-lifecycle-controls.tsx": 812,
+  "apps/web/app/dashboard/account-lifecycle-controls.tsx": 777,
   "apps/web/app/dashboard/actions.ts": 3639,
   "apps/web/app/dashboard/dashboard-copy.ts": 825,
   "apps/web/app/dashboard/dashboard-workspace-page.tsx": 3190,
-  "apps/web/app/dashboard/personal-account-controls.tsx": 1870,
+  "apps/web/app/dashboard/personal-account-controls.tsx": 1868,
   "apps/web/app/dashboard/provider-setup-actions.ts": 1020,
   "apps/web/app/dashboard/provider-setup/gateway-reviewer-roster.tsx": 898,
   "apps/web/app/dashboard/provider-setup/provider-credential-delivery.tsx": 1374,
@@ -26,14 +26,14 @@ const webMaxLinesCeilings = {
   "apps/web/app/dashboard/repository-skills-dialog.tsx": 742,
   "apps/web/app/dashboard/review-skills-library.tsx": 816,
   "apps/web/app/dashboard/skill-catalog-dialog.tsx": 779,
-  "apps/web/app/dashboard/workspace-personal-accounts.tsx": 643,
+  "apps/web/app/dashboard/workspace-personal-accounts.tsx": 641,
   "apps/web/app/setup/page.tsx": 688,
   "apps/web/src/features/memory/interface/components/memory-knowledge-screen.tsx": 859,
   "apps/web/src/features/provider-setup/provider-setup-model.ts": 628,
   "apps/web/src/server/account-gateway-accounts.ts": 2530,
   "apps/web/src/server/dashboard-mutations.ts": 1098,
-  "apps/web/src/server/personal-account-composition.ts": 848,
-  "apps/web/src/server/personal-canonical-accounts.ts": 1150,
+  "apps/web/src/server/personal-account-composition.ts": 791,
+  "apps/web/src/server/personal-canonical-accounts.ts": 1079,
 };
 
 export default [

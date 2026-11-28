@@ -14,7 +14,7 @@ import {
   getTokenEncryptionStatus,
 } from "./token-crypto";
 
-const tokenRefreshSkewMs = 5 * 60 * 1000;
+export const githubUserAccessTokenRefreshSkewMs = 5 * 60 * 1000;
 const githubOAuthTokenUrl = "https://github.com/login/oauth/access_token";
 
 export type GitHubUserAuthorizationSaveStatus =
@@ -175,7 +175,7 @@ async function readGitHubUserAccessToken(
   if (
     !authorization.accessTokenExpiresAt ||
     authorization.accessTokenExpiresAt.getTime() - now.getTime() >
-      tokenRefreshSkewMs
+      githubUserAccessTokenRefreshSkewMs
   ) {
     try {
       return {

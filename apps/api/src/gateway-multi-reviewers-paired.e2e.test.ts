@@ -1,13 +1,14 @@
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { isDeepStrictEqual, promisify } from "node:util";
 import Fastify from "fastify";
 import { expect, it, vi } from "vitest";
+import { z } from "zod";
 import * as gateway from "@agent-teams/account-gateway/contracts";
 import {
   registerReviewActionV2ProtocolInfoRoute,
@@ -28,6 +29,8 @@ import {
   reviewerPlanDescriptorDigest,
   reviewModelDispatchContract,
   reviewModelDispatchDescriptorDigest,
+  reviewModelDispatchNativeRetryContract,
+  reviewModelDispatchNativeRetryDescriptorDigest,
   type ReviewAgentProfile,
   type ReviewModelDispatchProfileV2,
 } from "@reviewrouter/shared";
@@ -38,6 +41,7 @@ import {
 import { registerReviewRunGatewayCheckoutRoute } from "./review-run-gateway-checkout";
 import { registerReviewRunGatewayRelayRoutes } from "./review-run-gateway-relay";
 import { registerReviewRunSkillsRoute } from "./review-run-skills";
+import { registerReviewModelDispatchRoutes } from "./review-model-dispatch";
 import { reviewActionV2ProviderVoteLanesEnv } from "./review-action-v2-production-composition";
 import {
   createReviewActionV2E2EHarness,
@@ -66,10 +70,17 @@ const profileId = "openrouter-openai-responses-apikey-v1";
   "independent",
   "unavailable-primary",
   "mixed-engines",
+  "mixed-phase-incomplete",
+  "mixed-filter-preserved",
+  "accepted-result-recovery",
 ] as const)(
   "runs the compiled entrypoint through real API/SQL with %s Gateway allocations",
   async (scenario) => {
-    const mixed = scenario === "mixed-engines";
+    const phaseIncomplete = scenario === "mixed-phase-incomplete";
+    const filterPreserved = scenario === "mixed-filter-preserved";
+    const acceptedRecovery = scenario === "accepted-result-recovery";
+    const mixed =
+      scenario === "mixed-engines" || phaseIncomplete || filterPreserved;
     const sharedAllocation = scenario === "shared" || mixed;
     const root = await mkdtemp(path.join(tmpdir(), "rr-multi-paired-"));
     const native = await nativeGateway();
@@ -81,6 +92,18 @@ const profileId = "openrouter-openai-responses-apikey-v1";
     let workerPass = Promise.resolve();
     let workerRunning = false;
     let workerError: unknown;
+    let failPostCommitFreshness = false;
+    let freshnessFailures = 0;
+    let committedResults = 0;
+    let releasedSources = 0;
+    let sourcesReleased!: () => void;
+    const sourceReleaseApplied = new Promise<void>((resolve) => {
+      sourcesReleased = resolve;
+    });
+    let releaseAcknowledgements!: () => void;
+    const heldAcknowledgements = new Promise<void>((resolve) => {
+      releaseAcknowledgements = resolve;
+    });
     try {
       // Synthetic executables remain CommonJS even inside an ESM checkout.
       await writeFile(
@@ -117,9 +140,19 @@ const profileId = "openrouter-openai-responses-apikey-v1";
       );
       const binaryDigest = sha256(await readFile(codex));
       const ocr = path.join(bin, "synthetic-ocr");
-      await writeFile(ocr, syntheticOcr(childLog, approvedOcr.packageVersion), {
-        mode: 0o700,
-      });
+      await writeFile(
+        ocr,
+        syntheticOcr(
+          childLog,
+          approvedOcr.packageVersion,
+          phaseIncomplete
+            ? "phase_incomplete"
+            : filterPreserved
+              ? "filter_preserved"
+              : "complete",
+        ),
+        { mode: 0o700 },
+      );
       const ocrDigest = sha256(await readFile(ocr));
       await writeFile(
         path.join(bin, "npm"),
@@ -260,7 +293,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
         })),
         execution: {
           providerLimit: 2,
-          providerMaxParallel: 2,
+          providerMaxParallel: acceptedRecovery ? 1 : 2,
           inlineMinAgreement: 2,
         },
       });
@@ -363,6 +396,13 @@ const profileId = "openrouter-openai-responses-apikey-v1";
               },
             ]);
           if (request.method === "GET" && url.pathname.endsWith("/pulls/42")) {
+            if (failPostCommitFreshness) {
+              freshnessFailures++;
+              return Response.json(
+                { message: "disposable_post_commit_github_outage" },
+                { status: 503 },
+              );
+            }
             const response = await previousFetch(input, init);
             const body = (await response.json()) as Record<string, unknown>;
             return Response.json({
@@ -406,6 +446,33 @@ const profileId = "openrouter-openai-responses-apikey-v1";
         },
       });
       await registerReviewRunSkillsRoute(app, fixture.routes.reviewSkills!);
+      if (acceptedRecovery) {
+        const commit = fixture.routes.evidence.commit!;
+        const executeCommit = commit.execute;
+        vi.spyOn(commit, "execute").mockImplementation(async (request) => {
+          const result = await executeCommit(request);
+          committedResults++;
+          // Sequential reviewers leave one ordinarily satisfied slot and one
+          // accepted but unattached source. Do not fabricate persisted state.
+          if (committedResults === models.length) {
+            failPostCommitFreshness = true;
+          }
+          return result;
+        });
+        const release = fixture.routes.execution.releaseLease!;
+        const executeRelease = release.execute;
+        vi.spyOn(release, "execute").mockImplementation(async (request) => {
+          const result = await executeRelease(request);
+          if (failPostCommitFreshness) {
+            releasedSources++;
+            if (releasedSources === 1) sourcesReleased();
+            // The real transition is committed. Hold only its response so the
+            // first runner cannot enter its outer Gateway cleanup.
+            await heldAcknowledgements;
+          }
+          return result;
+        });
+      }
       await registerReviewExecutionV2Routes(app, fixture.routes.execution);
       await registerReviewEvidenceV2Routes(app, fixture.routes.evidence);
       await registerReviewSnapshotReadV2Routes(app, fixture.routes.snapshot);
@@ -511,48 +578,326 @@ const profileId = "openrouter-openai-responses-apikey-v1";
           });
       }, 200);
       let output: { stdout: string; stderr: string };
+      let expectedCoverageFailure = false;
       try {
-        const result = await exec(process.execPath, [artifact], {
-          cwd: repository.directory,
-          timeout: 90000,
-          maxBuffer: 4 * 1024 * 1024,
-          env: {
-            PATH: `${bin}:/usr/bin:/bin`,
-            HOME: home,
-            NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${preload}`]
-              .filter(Boolean)
-              .join(" "),
-            ...(mixed ? { REVIEWROUTER_OCR_BINARY: ocr } : {}),
-            CI: "true",
-            GITHUB_ACTIONS: "true",
-            GITHUB_EVENT_NAME: "pull_request",
-            GITHUB_EVENT_PATH: event,
-            GITHUB_REPOSITORY: "reviewrouter-e2e/disposable-review-v2",
-            GITHUB_WORKSPACE: repository.directory,
-            GITHUB_OUTPUT: path.join(root, "output"),
-            RUNNER_TEMP: runnerTemp,
-            TMPDIR: runnerTemp,
-            REVIEWROUTER_ACTION_V2_MODE: "t0",
-            REVIEWROUTER_ACTION_VERSION: "a".repeat(40),
-            REVIEW_ROUTER_MODE: "account-gateway",
-            INPUT_MODE: "account-gateway",
-            INPUT_API_URL: "https://multi-paired.reviewrouter.invalid",
-            INPUT_CONTROL_PLANE_URL:
-              "https://multi-paired.reviewrouter.invalid",
-            REVIEWROUTER_API_URL: "https://multi-paired.reviewrouter.invalid",
-            REVIEWROUTER_CONTROL_PLANE_URL:
-              "https://multi-paired.reviewrouter.invalid",
-            REVIEWROUTER_OIDC_AUDIENCE:
-              fixture.env.REVIEW_ROUTER_ACTION_OIDC_AUDIENCE!,
-            INPUT_OIDC_AUDIENCE:
-              fixture.env.REVIEW_ROUTER_ACTION_OIDC_AUDIENCE!,
-            INPUT_PROVIDER_INSTANCE_ID: "codex-rotating:987654321",
-            INPUT_WORKFLOW_SCHEMA_VERSION: "2",
-            ACTIONS_ID_TOKEN_REQUEST_URL:
-              "https://token.actions.githubusercontent.com/token",
-            ACTIONS_ID_TOKEN_REQUEST_TOKEN: "disposable-request-token",
-          },
-        });
+        const originalDeadline = String(Date.now() + 300_000);
+        const coldRepository = path.join(root, "cold-repository");
+        const actionFixture = fixture;
+        const runAction = (cold = false) =>
+          exec(process.execPath, [artifact], {
+            cwd: cold ? coldRepository : repository.directory,
+            timeout: 90000,
+            maxBuffer: 4 * 1024 * 1024,
+            env: {
+              PATH: `${bin}:/usr/bin:/bin`,
+              HOME: cold ? path.join(root, "cold-home") : home,
+              NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${preload}`]
+                .filter(Boolean)
+                .join(" "),
+              ...(mixed ? { REVIEWROUTER_OCR_BINARY: ocr } : {}),
+              ...(acceptedRecovery
+                ? { REVIEWROUTER_EXECUTION_DEADLINE_EPOCH_MS: originalDeadline }
+                : {}),
+              CI: "true",
+              GITHUB_ACTIONS: "true",
+              GITHUB_EVENT_NAME: "pull_request",
+              GITHUB_EVENT_PATH: event,
+              GITHUB_REPOSITORY: "reviewrouter-e2e/disposable-review-v2",
+              GITHUB_WORKSPACE: cold ? coldRepository : repository.directory,
+              GITHUB_OUTPUT: path.join(root, cold ? "cold-output" : "output"),
+              RUNNER_TEMP: cold ? path.join(root, "cold-runner") : runnerTemp,
+              TMPDIR: cold ? path.join(root, "cold-runner") : runnerTemp,
+              REVIEWROUTER_ACTION_V2_MODE: "t0",
+              REVIEWROUTER_ACTION_VERSION: "a".repeat(40),
+              REVIEW_ROUTER_MODE: "account-gateway",
+              INPUT_MODE: "account-gateway",
+              INPUT_API_URL: "https://multi-paired.reviewrouter.invalid",
+              INPUT_CONTROL_PLANE_URL:
+                "https://multi-paired.reviewrouter.invalid",
+              REVIEWROUTER_API_URL: "https://multi-paired.reviewrouter.invalid",
+              REVIEWROUTER_CONTROL_PLANE_URL:
+                "https://multi-paired.reviewrouter.invalid",
+              REVIEWROUTER_OIDC_AUDIENCE:
+                actionFixture.env.REVIEW_ROUTER_ACTION_OIDC_AUDIENCE!,
+              INPUT_OIDC_AUDIENCE:
+                actionFixture.env.REVIEW_ROUTER_ACTION_OIDC_AUDIENCE!,
+              INPUT_PROVIDER_INSTANCE_ID: "codex-rotating:987654321",
+              INPUT_WORKFLOW_SCHEMA_VERSION: "2",
+              ACTIONS_ID_TOKEN_REQUEST_URL:
+                "https://token.actions.githubusercontent.com/token",
+              ACTIONS_ID_TOKEN_REQUEST_TOKEN: "disposable-request-token",
+            },
+          });
+        let result: Awaited<ReturnType<typeof runAction>>;
+        if (acceptedRecovery) {
+          const first = runAction();
+          // Observe settlement immediately; the intentionally killed child
+          // must never create an unhandled rejection or escape cleanup.
+          const firstOutcome = first.then(
+            () => ({ stopped: false as const, signal: null }),
+            (error: unknown) => ({
+              stopped: true as const,
+              signal:
+                error instanceof Error ? Reflect.get(error, "signal") : null,
+            }),
+          );
+          let timeout: ReturnType<typeof setTimeout> | undefined;
+          try {
+            await Promise.race([
+              sourceReleaseApplied,
+              firstOutcome.then(() => {
+                throw new Error(
+                  "accepted_recovery_runner_exited_before_release",
+                );
+              }),
+              new Promise<never>((_, reject) => {
+                timeout = setTimeout(
+                  () => reject(new Error("accepted_recovery_release_timeout")),
+                  45000,
+                );
+              }),
+            ]);
+            clearTimeout(timeout);
+            expect(committedResults).toBe(models.length);
+            expect(releasedSources).toBe(1);
+            expect(freshnessFailures).toBeGreaterThan(0);
+            expect(native.closes).toEqual([]);
+            const original = await prisma.reviewExecutionV2.findFirstOrThrow({
+              where: { workspaceId },
+            });
+            expect(original.state).toBe("running");
+            const authoritySelection = {
+              authorizationId: true,
+              producerReleaseId: true,
+              state: true,
+              expiresAt: true,
+              maxExpiresAt: true,
+              mutationEpoch: true,
+              reviewRevisionHash: true,
+              runtimeSnapshotCanonicalJson: true,
+            } as const;
+            const originalAuthority =
+              await prisma.reviewRunAuthorization.findUniqueOrThrow({
+                where: { authorizationId: original.authorizationId },
+                select: authoritySelection,
+              });
+            expect(originalAuthority.state).toBe("active");
+            expect(originalAuthority.expiresAt.getTime()).toBeGreaterThan(
+              Date.now(),
+            );
+            expect(
+              originalAuthority.maxExpiresAt.getTime(),
+            ).toBeGreaterThanOrEqual(originalAuthority.expiresAt.getTime());
+            const originalBindings =
+              await prisma.reviewRunGatewayAllocationExecution.findMany({
+                where: { authorizationId: original.authorizationId },
+                orderBy: { allocationId: "asc" },
+                select: {
+                  allocationId: true,
+                  gatewayExecutionCanonicalJson: true,
+                },
+              });
+            expect(originalBindings).toHaveLength(models.length);
+            const originalSlots =
+              await prisma.reviewExecutionWorkSlotV2.findMany({
+                where: {
+                  executionId: original.executionId,
+                  taskKind: "finding_discovery",
+                },
+              });
+            expect(originalSlots).toHaveLength(models.length);
+            const unattachedSlots = originalSlots.filter(
+              (slot) => slot.state === "exhausted",
+            );
+            expect(unattachedSlots).toHaveLength(1);
+            expect(unattachedSlots[0]).toMatchObject({
+              attemptBudget: 1,
+              nextAttemptOrdinal: 2,
+              activeLeaseId: null,
+              acceptedObservationRefId: null,
+            });
+            expect(
+              originalSlots.filter((slot) => slot.state === "satisfied"),
+            ).toHaveLength(1);
+            const originals = await prisma.reviewEvidenceObservation.findMany({
+              where: { sourceExecutionId: original.executionId },
+              orderBy: { observationId: "asc" },
+            });
+            expect(originals).toHaveLength(models.length);
+            const originalLeases =
+              await prisma.reviewInvocationLeaseV2.findMany({
+                where: {
+                  executionId: original.executionId,
+                  purpose: "provider_execution",
+                },
+                orderBy: { leaseId: "asc" },
+              });
+            expect(originalLeases).toHaveLength(models.length);
+            for (const lease of originalLeases)
+              expect(lease.state).toBe("released");
+            const originalSource = originals.find(
+              (observation) =>
+                observation.sourceWorkSlotId === unattachedSlots[0]!.workSlotId,
+            );
+            expect(originalSource).toBeDefined();
+            const originalSourceLease = originalLeases.find(
+              (lease) => lease.leaseId === originalSource!.sourceLeaseId,
+            );
+            expect(originalSourceLease).toMatchObject({
+              workSlotId: unattachedSlots[0]!.workSlotId,
+              authorizationId: original.authorizationId,
+              attemptOrdinal: 1,
+              fencingToken: originalSource!.sourceFencingToken,
+            });
+            expect(
+              originalSourceLease!.resultReportUntil.getTime(),
+            ).toBeGreaterThan(Date.now());
+            const admissionCalls = native.calls.filter((call) =>
+              /\/internal\/v1\/run-access|\/dispatch\b/.test(call),
+            );
+            const originalRequests = [...native.requests.keys()];
+            const originalModelReads = structuredClone(native.modelReads);
+            expect(
+              originalModelReads.map((read) => read.accountRef).sort(),
+            ).toEqual(["multi-account-0", "multi-account-1"]);
+            expect(first.child.kill("SIGKILL")).toBe(true);
+            expect(await firstOutcome).toEqual({
+              stopped: true,
+              signal: "SIGKILL",
+            });
+            failPostCommitFreshness = false;
+            releaseAcknowledgements();
+            await mkdir(path.join(root, "cold-home"));
+            await mkdir(path.join(root, "cold-runner"));
+            await exec("/usr/bin/git", [
+              "clone",
+              "--no-local",
+              "--no-hardlinks",
+              repository.directory,
+              coldRepository,
+            ]);
+            // No source IDs, manifests, local artifacts or restored execution
+            // are supplied to this fresh public Action process. Its separate
+            // checkout contains only the original committed Git data.
+            result = await runAction(true);
+            const firstModelReads = native.modelReads.slice(
+              0,
+              originalModelReads.length,
+            );
+            expect(firstModelReads).toEqual(originalModelReads);
+            for (const originalRead of originalModelReads) {
+              expect(
+                native.modelReads.filter(
+                  (read) => read.accountRef === originalRead.accountRef,
+                ),
+              ).toEqual([originalRead, originalRead]);
+            }
+            expect(
+              native.calls.filter((call) =>
+                /\/internal\/v1\/run-access|\/dispatch\b/.test(call),
+              ),
+            ).toEqual(admissionCalls);
+            expect([...native.requests.keys()]).toEqual(originalRequests);
+            expect(
+              await prisma.reviewInvocationLeaseV2.findMany({
+                where: {
+                  executionId: original.executionId,
+                  purpose: "provider_execution",
+                },
+                orderBy: { leaseId: "asc" },
+              }),
+            ).toEqual(originalLeases);
+            expect(
+              await prisma.reviewEvidenceObservation.findMany({
+                where: { sourceExecutionId: original.executionId },
+                orderBy: { observationId: "asc" },
+              }),
+            ).toEqual(originals);
+            expect(
+              await prisma.reviewRunAuthorization.findUniqueOrThrow({
+                where: { authorizationId: original.authorizationId },
+                select: authoritySelection,
+              }),
+            ).toEqual(originalAuthority);
+            expect(
+              await prisma.reviewExecutionV2.findUniqueOrThrow({
+                where: { executionId: original.executionId },
+              }),
+            ).toMatchObject({
+              generation: original.generation,
+              planHash: original.planHash,
+              admissionDeadlineAt: original.admissionDeadlineAt,
+              executionDeadlineAt: original.executionDeadlineAt,
+            });
+            expect(
+              await prisma.reviewRunGatewayAllocationExecution.findMany({
+                where: { authorizationId: original.authorizationId },
+                orderBy: { allocationId: "asc" },
+                select: {
+                  allocationId: true,
+                  gatewayExecutionCanonicalJson: true,
+                },
+              }),
+            ).toEqual(originalBindings);
+            const adoptionLeases =
+              await prisma.reviewInvocationLeaseV2.findMany({
+                where: {
+                  executionId: original.executionId,
+                  purpose: "observation_adoption",
+                },
+              });
+            expect(adoptionLeases).toHaveLength(1);
+            expect(adoptionLeases[0]).toMatchObject({
+              authorizationId: original.authorizationId,
+              workSlotId: unattachedSlots[0]!.workSlotId,
+              sourceObservationId: originalSource!.observationId,
+            });
+            const observationRefs =
+              await prisma.reviewExecutionObservationRefV2.findMany({
+                where: { executionId: original.executionId },
+              });
+            expect(observationRefs).toHaveLength(models.length);
+            const restoredSlots =
+              await prisma.reviewExecutionWorkSlotV2.findMany({
+                where: {
+                  executionId: original.executionId,
+                  taskKind: "finding_discovery",
+                },
+              });
+            for (const slot of restoredSlots) {
+              expect(slot.state).toBe("satisfied");
+              expect(slot.nextAttemptOrdinal).toBe(2);
+              const observation = originals.find(
+                (source) => source.sourceWorkSlotId === slot.workSlotId,
+              );
+              expect(observation).toBeDefined();
+              const observationRef = observationRefs.find(
+                (ref) => ref.workSlotId === slot.workSlotId,
+              );
+              expect(observationRef).toMatchObject({
+                observationId: observation!.observationId,
+                payloadHash: observation!.payloadHash,
+                sourceExecutionId: original.executionId,
+                sourceLeaseId: observation!.sourceLeaseId,
+                sourceFencingToken: observation!.sourceFencingToken,
+              });
+              expect(slot.acceptedObservationRefId).toBe(
+                observationRef!.observationRefId,
+              );
+            }
+          } finally {
+            clearTimeout(timeout);
+            if (
+              first.child.exitCode === null &&
+              first.child.signalCode === null
+            )
+              first.child.kill("SIGKILL");
+            await firstOutcome;
+            releaseAcknowledgements();
+          }
+        } else {
+          result = await runAction();
+        }
         output = {
           stdout: redact(result.stdout),
           stderr: redact(result.stderr),
@@ -572,14 +917,19 @@ const profileId = "openrouter-openai-responses-apikey-v1";
         if (processError.stderr)
           processError.stderr = redact(processError.stderr);
         if (
-          scenario === "unavailable-primary" &&
           processError.code === 1 &&
-          // Runtime 1.0.240 and older name a stopped reviewer's work
-          // admission_limited; later releases name the provider failure.
-          /::error::required_(?:admission_limited|work_exhausted)\b/.test(
-            processError.stdout ?? "",
-          )
+          ((scenario === "unavailable-primary" &&
+            // Runtime 1.0.240 and older name a stopped reviewer's work
+            // admission_limited; later releases name the provider failure.
+            /::error::required_(?:admission_limited|work_exhausted)\b/.test(
+              processError.stdout ?? "",
+            )) ||
+            (phaseIncomplete &&
+              /::error::required_review_coverage_incomplete\b/.test(
+                processError.stdout ?? "",
+              )))
         ) {
+          expectedCoverageFailure = phaseIncomplete;
           output = {
             stdout: redact(processError.stdout ?? ""),
             stderr: redact(processError.stderr ?? ""),
@@ -595,6 +945,12 @@ const profileId = "openrouter-openai-responses-apikey-v1";
             { cause: error },
           );
         }
+      }
+      if (phaseIncomplete) {
+        expect(expectedCoverageFailure).toBe(true);
+        expect(output.stdout).toMatch(
+          /::error::required_review_coverage_incomplete\b/,
+        );
       }
       const authorizations = await prisma.reviewRunAuthorization.findMany({
         where: { workspaceId },
@@ -669,10 +1025,17 @@ const profileId = "openrouter-openai-responses-apikey-v1";
           ? ["multi-account-1"]
           : sharedAllocation
             ? ["multi-account-0", "multi-account-0"]
-            : ["multi-account-0", "multi-account-1"],
+            : acceptedRecovery
+              ? [
+                  "multi-account-0",
+                  "multi-account-0",
+                  "multi-account-1",
+                  "multi-account-1",
+                ]
+              : ["multi-account-0", "multi-account-1"],
       );
       expect(native.preparations).toHaveLength(
-        scenario === "independent" ? 2 : 1,
+        scenario === "independent" || acceptedRecovery ? 2 : 1,
       );
       expect(native.maxActive).toBe(
         scenario === "independent" || mixed ? 2 : 1,
@@ -721,7 +1084,75 @@ const profileId = "openrouter-openai-responses-apikey-v1";
       expect(fixture.fakeGitHub.comments[0]?.user.login).toBe(
         "reviewrouter-e2e[bot]",
       );
-      expect(errors).toEqual([]);
+      if (phaseIncomplete || filterPreserved) {
+        const observation =
+          await prisma.reviewEvidenceObservation.findFirstOrThrow({
+            where: {
+              sourceExecutionId: executions[0]!.executionId,
+              providerKind: "ocr",
+            },
+          });
+        expect(observation.qualityFlagsJson).toEqual(
+          phaseIncomplete
+            ? [
+                "context_inspection_incomplete",
+                "provider_warning",
+                "review_phase_incomplete",
+              ]
+            : ["provider_warning"],
+        );
+        const artifact =
+          await prisma.finalizedReviewProjectionArtifactV2.findUniqueOrThrow({
+            where: { executionId: executions[0]!.executionId },
+          });
+        const projection = JSON.parse(artifact.projectionEnvelopeCanonicalJson);
+        expect(artifact.coverageState).toBe("completed");
+        expect(projection.coverage).toMatchObject({
+          state: phaseIncomplete ? "partial" : "complete",
+          reviewedFiles: 1,
+          unreviewedFiles: 0,
+        });
+        const summary = fixture.fakeGitHub.comments[0]!.body;
+        expect(summary).toContain(
+          phaseIncomplete
+            ? "<!-- reviewrouter:review-status:incomplete -->"
+            : "<!-- reviewrouter:review-status:complete -->",
+        );
+        if (phaseIncomplete) {
+          expect(observation.findingCount).toBe(1);
+          expect(summary).toContain("A review phase could not be completed.");
+          expect(summary).toContain("Tax percentage is added as currency.");
+        } else {
+          expect(summary).not.toContain(
+            "A review phase could not be completed.",
+          );
+        }
+        expect(summary).not.toContain("review_phase_incomplete");
+        expect(summary).not.toContain("private_phase_reason_923");
+        expect(
+          await prisma.reviewSnapshot.count({
+            where: { sourceExecutionId: executions[0]!.executionId },
+          }),
+        ).toBe(phaseIncomplete ? 0 : 1);
+      }
+      expect(
+        acceptedRecovery
+          ? errors.filter(
+              (error) =>
+                !(
+                  typeof error === "object" &&
+                  error !== null &&
+                  Reflect.get(error, "status") === 503 &&
+                  Reflect.get(error, "path") ===
+                    "/__github/repos/reviewrouter-e2e/disposable-review-v2/pulls/42" &&
+                  Reflect.get(error, "body") ===
+                    JSON.stringify({
+                      message: "disposable_post_commit_github_outage",
+                    })
+                ),
+            )
+          : errors,
+      ).toEqual([]);
       expect(workerError).toBeUndefined();
       await mkdir(path.resolve("tmp/multi-reviewer-e2e"), { recursive: true });
       await writeFile(
@@ -729,6 +1160,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
         JSON.stringify(
           {
             artifactDigest,
+            nodeVersion: process.version,
             scenario,
             executions: executions.length,
             reviewers: slots.length,
@@ -743,6 +1175,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
         ),
       );
     } finally {
+      releaseAcknowledgements();
       clearInterval(workerTimer);
       await workerPass;
       await app.close();
@@ -754,6 +1187,894 @@ const profileId = "openrouter-openai-responses-apikey-v1";
   },
   120000,
 );
+
+const nativeRetryEnabled =
+  process.env.REVIEW_ROUTER_NATIVE_RETRY_JOINED_E2E === "1";
+if (
+  nativeRetryEnabled &&
+  (!databaseUrl ||
+    !actionSourceDir ||
+    !process.env.REVIEW_ROUTER_NATIVE_RETRY_NATIVE_SOURCE ||
+    !process.env.REVIEW_ROUTER_NATIVE_RETRY_GATEWAY_SOURCE)
+)
+  throw new Error("paired_native_retry_sources_and_database_required");
+
+// The producer's existing Go fixture owns the real PostgreSQL conflict, native
+// provider entry and held physical-close acknowledgement. This broker joins the
+// existing compiled public Action/API fixture to those exact producer phases.
+(nativeRetryEnabled ? it : it.skip).each(["private", "public"] as const)(
+  "joins the compiled Action with real native attested retry through %s ingress",
+  async (mode) => {
+    const root = await mkdtemp(path.join(tmpdir(), "rr-native-retry-paired-"));
+    const app = Fastify({ logger: false });
+    const broker = Fastify({ logger: false, bodyLimit: 16_384 });
+    const brokerToken = randomBytes(32).toString("hex");
+    const priorPaid = deferred();
+    const currentAllowed = deferred();
+    const currentPaid = deferred();
+    const finishAllowed = deferred();
+    let fixture:
+      | Awaited<ReturnType<typeof createReviewActionV2E2EHarness>>
+      | undefined;
+    let ingress: ReturnType<typeof createServer> | undefined;
+    let workerTimer: ReturnType<typeof setInterval> | undefined;
+    let workerPass = Promise.resolve();
+    let workerRunning = false;
+    let workerError: unknown;
+    let action: ReturnType<typeof exec> | undefined;
+    let brokerFailure: unknown;
+    let actionOutcome:
+      | Promise<{ stdout: string; stderr: string } | { error: unknown }>
+      | undefined;
+    let startAction: (() => void) | undefined;
+    let originalDeadline = "";
+    let originalAuthorization: string | undefined;
+    let originalExecution: string | undefined;
+    let originalBinding: string | null | undefined;
+    let originalCutoff: Date | undefined;
+    let firstDispatch: unknown;
+    let originalExecutionFacts: unknown;
+    const executionSelection = {
+      generation: true,
+      planHash: true,
+      admissionDeadlineAt: true,
+      executionDeadlineAt: true,
+    } as const;
+    const issuedAppTokens = new Set<string>();
+    let appMutations = 0;
+    let verified = false;
+    let publicRequests = 0;
+    let runAccessRequests = 0;
+    const originalFetch = globalThis.fetch;
+    const artifact = path.join(actionSourceDir!, "dist/index.js");
+    const artifactDigest = sha256(await readFile(artifact));
+    const nativeSource = process.env.REVIEW_ROUTER_NATIVE_RETRY_NATIVE_SOURCE!;
+    const gatewaySource =
+      process.env.REVIEW_ROUTER_NATIVE_RETRY_GATEWAY_SOURCE!;
+    const joinedRunner = path.join(
+      gatewaySource,
+      "services/account-gateway/test/native-non-entry-joined.ts",
+    );
+    const runnerDigest = sha256(await readFile(joinedRunner));
+    expect(runnerDigest).toBe(
+      "3f765e60a2953b419ae6d7f7653cb98f82027cb4c58a9ccac9fa9f55986feaa9",
+    );
+    const authority = z.strictObject({
+      gatewayOrigin: z.url(),
+      nativePublicOrigin: z.url(),
+      mode: z.enum(["private", "public"]),
+      runControlBearer: z.string().regex(/^[A-Za-z0-9._~-]{16,1024}$/),
+      accountRef: gateway.reference,
+      profileId: gateway.reference,
+      model: z.string().min(1),
+      deadline: z.iso.datetime(),
+    });
+    const waitForPhase = async (phase: Promise<void>) => {
+      if (!actionOutcome) throw new Error("native_retry_action_not_started");
+      await Promise.race([
+        phase,
+        actionOutcome.then((outcome) => {
+          throw new Error(
+            "native_retry_action_exited_before_phase:" +
+              redact(
+                "error" in outcome
+                  ? String(outcome.error)
+                  : outcome.stdout + outcome.stderr,
+              ),
+          );
+        }),
+      ]);
+    };
+    const rows = () =>
+      fixture!.prisma.reviewRunCompanionDispatchV1.findMany({
+        where: { authorizationId: originalAuthorization! },
+        orderBy: { requestOrdinal: "asc" },
+      });
+    try {
+      await resetReviewActionV2E2EDatabase(databaseUrl!);
+      await writeFile(
+        path.join(root, "package.json"),
+        '{"private":true,"type":"commonjs"}',
+      );
+      const repository = await makeRepository(root);
+      const profiles = JSON.parse(
+        await readFile(
+          path.join(
+            actionSourceDir!,
+            "src/control-plane/review-agent-profiles.json",
+          ),
+          "utf8",
+        ),
+      ) as ReviewAgentProfile[];
+      const approved = profiles.find(
+        (profile) => profile.profileRef === "ocr-managed-v5",
+      )!;
+      expect(approved).toBeDefined();
+      const bin = path.join(root, "bin");
+      await mkdir(bin);
+      const ocr = path.join(bin, "synthetic-ocr");
+      const childLog = path.join(root, "children.jsonl");
+      broker.addHook("onRequest", async (request, reply) => {
+        if (request.headers.authorization !== "Bearer " + brokerToken)
+          await reply.code(403).send({ error: "fixture_broker_denied" });
+      });
+      broker.addHook("onError", async (_request, _reply, error) => {
+        brokerFailure ??= error;
+      });
+      broker.post("/child/prior", async () => {
+        priorPaid.resolve();
+        await currentAllowed.promise;
+        return { phase: "current-allowed" };
+      });
+      broker.post("/child/current", async () => {
+        currentPaid.resolve();
+        await finishAllowed.promise;
+        return { phase: "finish-allowed" };
+      });
+      broker.post("/prepare", async (request) => {
+        if (fixture) throw new Error("native_retry_prepare_once");
+        const input = authority.parse(request.body);
+        expect(input.mode).toBe(mode);
+        expect(input.profileId).toBe("openai-responses-apikey-v1");
+        expect(input.model).toBe("synthetic-model");
+        originalDeadline = input.deadline;
+        expect(Date.parse(originalDeadline) - Date.now()).toBeGreaterThan(
+          60_000,
+        );
+        await writeFile(
+          ocr,
+          syntheticOcr(childLog, approved.packageVersion, "complete", {
+            origin: brokerOrigin,
+            token: brokerToken,
+            deadline: originalDeadline,
+          }),
+          { mode: 0o700 },
+        );
+        for (const value of [input.gatewayOrigin, input.nativePublicOrigin]) {
+          const url = new URL(value);
+          expect(url.protocol).toBe("http:");
+          expect(url.hostname).toBe("127.0.0.1");
+          expect(url.pathname).toBe("/");
+        }
+        let origin = input.gatewayOrigin;
+        if (mode === "public") {
+          // Same split as deployed ingress: opaque data goes to Native's real
+          // public handler; run-access goes to Gateway. No response is invented.
+          ingress = createServer((incoming, outgoing) => {
+            const data =
+              incoming.method === "POST" &&
+              /^\/v1\/executions\/[^/]+\/requests$/.test(incoming.url ?? "");
+            if (data) publicRequests++;
+            if (incoming.url === "/internal/v1/run-access") runAccessRequests++;
+            const target = new URL(
+              incoming.url!,
+              data ? input.nativePublicOrigin : input.gatewayOrigin,
+            );
+            const upstream = httpRequest(
+              target,
+              {
+                method: incoming.method,
+                headers: incoming.headers,
+              },
+              (response) => {
+                outgoing.writeHead(
+                  response.statusCode ?? 502,
+                  response.headers,
+                );
+                response.on("error", () => outgoing.destroy());
+                response.pipe(outgoing);
+              },
+            );
+            upstream.on("error", () => outgoing.destroy());
+            outgoing.on("close", () => upstream.destroy());
+            incoming.pipe(upstream);
+          });
+          await new Promise<void>((resolve) =>
+            ingress!.listen(0, "127.0.0.1", resolve),
+          );
+          origin =
+            "http://127.0.0.1:" + (ingress.address() as AddressInfo).port;
+        }
+        const limits = {
+          requests: 3,
+          concurrency: 1,
+          requestBytes: 4096,
+          outputBytes: 4096,
+          tokens: 100,
+        };
+        fixture = await createReviewActionV2E2EHarness(databaseUrl!, {
+          modelTransport: "account_gateway",
+          repositoryProviderSelection: "none",
+          agentProfiles: [
+            { ...approved, binarySha256: sha256(await readFile(ocr)) },
+          ],
+          modelDispatchProfile: {
+            extensionId: reviewModelDispatchContract.extensionId,
+            descriptorDigest: reviewModelDispatchNativeRetryDescriptorDigest,
+            policyVersion: reviewModelDispatchNativeRetryContract.policyVersion,
+            transports: ["account_gateway"],
+            wireProtocols: ["openai-responses"],
+            defaultAgentProfileRefs: { account_gateway: approved.profileRef },
+            limits: {
+              maxRequests: 3,
+              maxConcurrentRequests: 1,
+              maxRequestBytes: 4096,
+              maxResponseBytes: 4096,
+              maxOutputTokens: 100,
+            },
+          },
+          gatewayFixtureOrigin: input.gatewayOrigin,
+          environmentOverrides: {
+            [reviewActionV2ProviderVoteLanesEnv]: JSON.stringify([
+              {
+                providerKind: "ocr",
+                providerVoteIdentityHash: sha256("paired-native-retry-ocr"),
+              },
+            ]),
+            // Native's original two-minute cutoff bounds the whole fixture.
+            // Prepare and prior are each bounded to 15s by the producer broker.
+            // RR captures an earlier whole-second cutoff once and retains it.
+            REVIEW_ROUTER_REVIEW_V2_MAX_AUTHORIZATION_LIFETIME_MS: String(
+              Math.floor(Date.parse(originalDeadline) - Date.now() - 35_000),
+            ),
+            REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: JSON.stringify({
+              profiles: [{ profileRef: input.profileId, limits }],
+            }),
+            REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED: "1",
+            REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN: origin,
+            REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN: input.gatewayOrigin,
+            REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER:
+              input.runControlBearer,
+            REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY: JSON.stringify({
+              profiles: [
+                {
+                  profile: {
+                    profileId: input.profileId,
+                    protocol: "openai-responses",
+                    modelIds: [input.model],
+                    authKinds: ["api_key"],
+                  },
+                  outputTokens: 100,
+                },
+              ],
+              ingressBytes: 4096,
+              requestTimeoutMs: 15_000,
+              waitBudgetMs: 0,
+              maxWaits: 0,
+              maxSessions: 1,
+              maxInFlight: 1,
+            }),
+          },
+        });
+        const fixtureFetch = globalThis.fetch;
+        globalThis.fetch = (resource, init) => {
+          const target = new URL(
+            resource instanceof Request ? resource.url : String(resource),
+          );
+          return target.origin === origin
+            ? originalFetch(resource, init)
+            : fixtureFetch(resource, init);
+        };
+        fixture.fakeGitHub.revision = repository;
+        const connection =
+          await fixture.prisma.providerAccountConnection.create({
+            data: {
+              ownerWorkspaceId: fixture.workspaceId,
+              gatewayAccountRef: input.accountRef,
+              profileRef: input.profileId,
+              displayName: "Disposable native retry",
+              state: "active",
+            },
+          });
+        const binding = await new PrismaProviderAccountRepository(
+          fixture.prisma,
+        ).compareAndSetBinding({
+          workspaceId: fixture.workspaceId,
+          connectionId: connection.id,
+          expectedRevision: 0,
+          state: "active",
+        });
+        const configuration = parseReviewConfigurationStrict({
+          ...workspacePolicyFixture,
+          providers: [
+            {
+              kind: "codex",
+              authMode: "codex_account_gateway",
+              model: input.model,
+              agentProfileRef: approved.profileRef,
+              reasoningEffort: "low",
+              agenticContext: true,
+              fastMode: false,
+              requiredHealthy: true,
+              gatewayBindingId: binding.id,
+              gatewayProfileRef: input.profileId,
+            },
+          ],
+          execution: {
+            providerLimit: 1,
+            providerMaxParallel: 1,
+            inlineMinAgreement: 1,
+          },
+        });
+        const target = {
+          scope: "workspace" as const,
+          workspaceId: fixture.workspaceId,
+        };
+        await new PrismaReviewConfigurationRepository(
+          fixture.prisma,
+          undefined,
+          false,
+          undefined,
+        ).saveNextVersion({
+          target,
+          expectedVersion: 1,
+          ...systemPolicyWriteFixture(configuration, target),
+        });
+        const fakeFetch = fixture.fakeGitHub.fetch;
+        vi.spyOn(fixture.fakeGitHub, "fetch").mockImplementation(
+          async (resource, init) => {
+            const read =
+              resource instanceof Request
+                ? resource
+                : new Request(String(resource), init);
+            const url = new URL(read.url);
+            const graphql =
+              read.method === "POST" && url.pathname === "/graphql"
+                ? ((await read.clone().json()) as { query?: string })
+                : undefined;
+            const mutation =
+              ["POST", "PATCH", "PUT", "DELETE"].includes(read.method) &&
+              !url.pathname.endsWith("/access_tokens") &&
+              (url.pathname !== "/graphql" ||
+                /\bmutation\b/u.test(graphql?.query ?? ""));
+            if (mutation) {
+              const token = read.headers
+                .get("authorization")
+                ?.match(/^(?:Bearer|token) (.+)$/iu)?.[1];
+              if (!token || !issuedAppTokens.has(token))
+                return Response.json(
+                  { message: "fixture_app_installation_token_required" },
+                  { status: 403 },
+                );
+              appMutations++;
+            }
+            if (
+              read.method === "GET" &&
+              url.pathname.endsWith("/pulls/42/files")
+            )
+              return Response.json([
+                {
+                  filename: "tax.js",
+                  status: "modified",
+                  additions: 1,
+                  deletions: 1,
+                  changes: 2,
+                  patch: repository.patch,
+                },
+              ]);
+            if (
+              read.method === "POST" &&
+              url.pathname === "/graphql" &&
+              String(await read.clone().text()).includes(
+                "ReviewRouterThreadInventory",
+              )
+            )
+              return Response.json({
+                data: {
+                  repository: {
+                    pullRequest: {
+                      headRefOid: repository.headSha,
+                      reviewThreads: {
+                        pageInfo: { hasNextPage: false, endCursor: null },
+                        nodes: [],
+                      },
+                    },
+                  },
+                },
+              });
+            if (
+              read.method === "POST" &&
+              url.pathname.endsWith("/access_tokens")
+            ) {
+              const payload = await read.clone().text();
+              const body = (
+                payload.trim().length === 0 ? {} : JSON.parse(payload)
+              ) as {
+                permissions?: Record<string, string>;
+              };
+              if (
+                body.permissions?.contents === "read" &&
+                !body.permissions.checks &&
+                !body.permissions.issues
+              )
+                return Response.json(
+                  {
+                    token: "disposable-checkout-read",
+                    expires_at: new Date(Date.now() + 120_000).toISOString(),
+                    permissions: body.permissions,
+                    repository_selection: "selected",
+                  },
+                  { status: 201 },
+                );
+              const response = await fakeFetch(resource, init);
+              const issued = (await response.clone().json()) as {
+                token?: string;
+              };
+              if (response.ok && issued.token)
+                issuedAppTokens.add(issued.token);
+              return response;
+            }
+            return fakeFetch(resource, init);
+          },
+        );
+        registerReviewActionV2ProtocolInfoRoute(app);
+        await registerReviewRunControlV2Routes(app, fixture.routes.runControl);
+        await registerReviewRunSkillsRoute(app, fixture.routes.reviewSkills!);
+        await registerReviewExecutionV2Routes(app, fixture.routes.execution);
+        await registerReviewEvidenceV2Routes(app, fixture.routes.evidence);
+        await registerReviewSnapshotReadV2Routes(app, fixture.routes.snapshot);
+        await registerReviewPublicationRequestV2Routes(
+          app,
+          fixture.routes.publication,
+        );
+        await registerReviewRunGatewayCheckoutRoute(
+          app,
+          fixture.routes.accountGatewayCheckout!,
+        );
+        await registerReviewRunGatewayRelayRoutes(
+          app,
+          fixture.routes.accountGatewayRelay!,
+        );
+        // Use the production composition, including its retained-session gate.
+        await registerReviewModelDispatchRoutes(
+          app,
+          fixture.routes.modelDispatch!,
+        );
+        app.get("/__oidc", async () => ({
+          value: await fixture!.createOidcToken(),
+        }));
+        app.all("/__github/*", async (request, reply) => {
+          const headers = new Headers();
+          for (const [name, value] of Object.entries(request.headers))
+            if (value !== undefined)
+              headers.set(name, Array.isArray(value) ? value.join(",") : value);
+          const response = await fixture!.fakeGitHub.fetch(
+            "https://api.github.com/" + request.url.slice("/__github/".length),
+            {
+              method: request.method,
+              headers,
+              ...(request.body === undefined
+                ? {}
+                : { body: JSON.stringify(request.body) }),
+            },
+          );
+          return reply
+            .status(response.status)
+            .type("application/json")
+            .send(await response.text());
+        });
+        await app.listen({ host: "127.0.0.1", port: 0 });
+        const apiOrigin =
+          "http://127.0.0.1:" + (app.server.address() as AddressInfo).port;
+        const preload = path.join(root, "preload.cjs");
+        await writeFile(
+          preload,
+          preloadSource({
+            artifact,
+            artifactDigest,
+            origin: apiOrigin,
+            binaries: [
+              { from: approved.binarySha256, to: sha256(await readFile(ocr)) },
+            ],
+          }),
+        );
+        const event = path.join(root, "event.json");
+        await writeFile(
+          event,
+          JSON.stringify({
+            action: "opened",
+            number: 42,
+            repository: {
+              id: 987654321,
+              name: "disposable-review-v2",
+              full_name: "reviewrouter-e2e/disposable-review-v2",
+              owner: { login: "reviewrouter-e2e" },
+            },
+            pull_request: {
+              number: 42,
+              head: {
+                sha: repository.headSha,
+                repo: { full_name: "reviewrouter-e2e/disposable-review-v2" },
+              },
+              base: {
+                sha: repository.baseSha,
+                repo: { full_name: "reviewrouter-e2e/disposable-review-v2" },
+              },
+            },
+          }),
+        );
+        const home = path.join(root, "home"),
+          runner = path.join(root, "runner");
+        await mkdir(home);
+        await mkdir(runner);
+        workerTimer = setInterval(() => {
+          if (workerRunning) return;
+          workerRunning = true;
+          workerPass = fixture!
+            .runWorkerUntilSettled()
+            .catch((error: unknown) => {
+              workerError ??= error;
+            })
+            .finally(() => {
+              workerRunning = false;
+            });
+        }, 200);
+        startAction = () => {
+          action = exec(process.execPath, [artifact], {
+            cwd: repository.directory,
+            timeout: Math.max(1, Date.parse(originalDeadline) - Date.now()),
+            maxBuffer: 4 * 1024 * 1024,
+            env: {
+              PATH: bin + ":/usr/bin:/bin",
+              HOME: home,
+              NODE_OPTIONS: [process.env.NODE_OPTIONS, "--require=" + preload]
+                .filter(Boolean)
+                .join(" "),
+              REVIEWROUTER_OCR_BINARY: ocr,
+              CI: "true",
+              GITHUB_ACTIONS: "true",
+              GITHUB_EVENT_NAME: "pull_request",
+              GITHUB_EVENT_PATH: event,
+              GITHUB_REPOSITORY: "reviewrouter-e2e/disposable-review-v2",
+              GITHUB_WORKSPACE: repository.directory,
+              GITHUB_OUTPUT: path.join(root, "output"),
+              RUNNER_TEMP: runner,
+              TMPDIR: runner,
+              REVIEWROUTER_EXECUTION_DEADLINE_EPOCH_MS: String(
+                Date.parse(originalDeadline),
+              ),
+              REVIEWROUTER_ACTION_V2_MODE: "t0",
+              REVIEWROUTER_ACTION_VERSION: "a".repeat(40),
+              REVIEW_ROUTER_MODE: "account-gateway",
+              INPUT_MODE: "account-gateway",
+              INPUT_API_URL: "https://multi-paired.reviewrouter.invalid",
+              INPUT_CONTROL_PLANE_URL:
+                "https://multi-paired.reviewrouter.invalid",
+              REVIEWROUTER_API_URL: "https://multi-paired.reviewrouter.invalid",
+              REVIEWROUTER_CONTROL_PLANE_URL:
+                "https://multi-paired.reviewrouter.invalid",
+              REVIEWROUTER_OIDC_AUDIENCE:
+                fixture!.env.REVIEW_ROUTER_ACTION_OIDC_AUDIENCE!,
+              INPUT_OIDC_AUDIENCE:
+                fixture!.env.REVIEW_ROUTER_ACTION_OIDC_AUDIENCE!,
+              INPUT_PROVIDER_INSTANCE_ID: "codex-rotating:987654321",
+              INPUT_WORKFLOW_SCHEMA_VERSION: "2",
+              ACTIONS_ID_TOKEN_REQUEST_URL:
+                "https://token.actions.githubusercontent.com/token",
+              ACTIONS_ID_TOKEN_REQUEST_TOKEN: "disposable-request-token",
+            },
+          });
+          actionOutcome = action.then(
+            (result) => ({
+              stdout: String(result.stdout),
+              stderr: String(result.stderr),
+            }),
+            (error: unknown) => ({ error }),
+          );
+        };
+        return { phase: "prepared" };
+      });
+      broker.post("/prior", async () => {
+        if (!startAction || action)
+          throw new Error("native_retry_original_action_required");
+        startAction();
+        await waitForPhase(priorPaid.promise);
+        const authorizations =
+          await fixture!.prisma.reviewRunAuthorization.findMany({
+            where: { workspaceId: fixture!.workspaceId },
+          });
+        expect(authorizations).toHaveLength(1);
+        originalAuthorization = authorizations[0]!.authorizationId;
+        originalBinding = authorizations[0]!.gatewayExecutionCanonicalJson;
+        originalCutoff = authorizations[0]!.maxExpiresAt;
+        expect(originalCutoff.getTime()).toBeLessThanOrEqual(
+          Date.parse(originalDeadline),
+        );
+        const snapshot = parseReviewRunRuntimeSnapshot(
+          authorizations[0]!.runtimeSnapshotCanonicalJson,
+        );
+        expect(snapshot?.snapshotVersion).toBe(3);
+        expect(snapshot?.modelDispatchCapability).toMatchObject({
+          retryPolicy: "native-rejection-once.v1",
+        });
+        expect(snapshot?.deadline).toBe(originalCutoff.toISOString());
+        await vi.waitFor(
+          async () =>
+            expect((await rows()).map((row) => row.state)).toEqual([
+              "completed",
+            ]),
+          { timeout: 5000 },
+        );
+        const first = (await rows())[0]!;
+        firstDispatch = first;
+        originalExecution = first.executionId;
+        originalExecutionFacts =
+          await fixture!.prisma.reviewExecutionV2.findUniqueOrThrow({
+            where: { executionId: originalExecution },
+            select: executionSelection,
+          });
+        return { phase: "prior-paid-completed" };
+      });
+      broker.post("/current", async () => {
+        currentAllowed.resolve();
+        await waitForPhase(currentPaid.promise);
+        await vi.waitFor(
+          async () =>
+            expect((await rows()).map((row) => row.state)).toEqual([
+              "completed",
+              "not_dispatched",
+              "completed",
+            ]),
+          { timeout: 5000 },
+        );
+        return { phase: "current-paid-completed" };
+      });
+      broker.post("/held", async () => {
+        const held = await rows();
+        expect(held).toHaveLength(2);
+        expect(held[0]).toEqual(firstDispatch);
+        expect(held[1]).toMatchObject({
+          requestOrdinal: 2,
+          state: "dispatch_may_have_started",
+          nativeEffectState: null,
+          nativeRetryProofJson: null,
+          retryOfDispatchId: null,
+        });
+        expect(held[1]!.forwardedAt).not.toBeNull();
+        return { phase: "held-without-retry" };
+      });
+      broker.post("/verify", async () => {
+        const final = await rows();
+        expect(final).toHaveLength(3);
+        expect(final[0]).toEqual(firstDispatch);
+        const rejected = final[1]!,
+          successor = final[2]!;
+        expect(rejected).toMatchObject({
+          requestOrdinal: 2,
+          state: "not_dispatched",
+          nativeEffectState: "not_dispatched",
+          retryOfDispatchId: null,
+          nativeRetryProofJson: {
+            kind: "request-retry-proof/v1",
+            nonEntryReason: "admission_storage_conflict",
+            transportClosed: true,
+            requestRef: rejected.nativeRequestRef,
+          },
+        });
+        expect(successor).toMatchObject({
+          requestOrdinal: 3,
+          state: "completed",
+          nativeEffectState: "completed",
+          nativeRetryProofJson: null,
+          retryOfDispatchId: rejected.dispatchId,
+        });
+        for (const key of [
+          "executionId",
+          "workSlotId",
+          "attemptOrdinal",
+          "leaseId",
+          "fencingToken",
+          "preparedManifestKey",
+          "providerRequestEnvelopeHash",
+          "routeIdentityHash",
+          "requestBytes",
+          "maxOutputTokens",
+        ] as const)
+          expect(successor[key]).toEqual(rejected[key]);
+        expect(new Set(final.map((row) => row.nativeRequestRef)).size).toBe(3);
+        expect(new Set(final.map((row) => row.dispatchId)).size).toBe(3);
+        expect(rejected.providerRequestEnvelopeHash).not.toBe(
+          final[0]!.providerRequestEnvelopeHash,
+        );
+        const authorization =
+          await fixture!.prisma.reviewRunAuthorization.findUniqueOrThrow({
+            where: { authorizationId: originalAuthorization! },
+          });
+        expect(authorization.gatewayExecutionCanonicalJson).toBe(
+          originalBinding,
+        );
+        expect(authorization.maxExpiresAt).toEqual(originalCutoff);
+        expect(
+          await fixture!.prisma.reviewExecutionV2.findUniqueOrThrow({
+            where: { executionId: originalExecution! },
+            select: executionSelection,
+          }),
+        ).toEqual(originalExecutionFacts);
+        expect(
+          await fixture!.prisma.reviewRunAuthorization.count({
+            where: { workspaceId: fixture!.workspaceId },
+          }),
+        ).toBe(1);
+        expect(
+          await fixture!.prisma.reviewExecutionV2.count({
+            where: { authorizationId: originalAuthorization! },
+          }),
+        ).toBe(1);
+        expect(
+          await fixture!.prisma.reviewInvocationLeaseV2.count({
+            where: {
+              executionId: originalExecution!,
+              purpose: "provider_execution",
+            },
+          }),
+        ).toBe(1);
+        if (mode === "public") {
+          expect(publicRequests).toBe(3);
+          expect(runAccessRequests).toBe(1);
+        }
+        finishAllowed.resolve();
+        const output = await actionOutcome!;
+        if ("error" in output) throw output.error;
+        expect(workerError).toBeUndefined();
+        expect(fixture!.fakeGitHub.comments).toHaveLength(1);
+        expect(issuedAppTokens.size).toBeGreaterThan(0);
+        expect(appMutations).toBeGreaterThan(0);
+        expect(fixture!.fakeGitHub.comments[0]!.user.login).toBe(
+          "reviewrouter-e2e[bot]",
+        );
+        expect(fixture!.fakeGitHub.comments[0]!.body).toContain(
+          "<!-- reviewrouter:review-status:complete -->",
+        );
+        expect(await rows()).toEqual(final);
+        await writeFile(
+          path.resolve("tmp/native-retry-paired/" + mode + "-action.log"),
+          redact(output.stdout + output.stderr),
+        );
+        verified = true;
+        return { phase: "verified" };
+      });
+      await broker.listen({ host: "127.0.0.1", port: 0 });
+      const brokerOrigin =
+        "http://127.0.0.1:" + (broker.server.address() as AddressInfo).port;
+      await writeFile(path.join(bin, "git"), localGit(repository.directory), {
+        mode: 0o700,
+      });
+      await mkdir(path.resolve("tmp/native-retry-paired"), { recursive: true });
+      const nativeDsn = new URL(databaseUrl!);
+      const databasePassword = decodeURIComponent(nativeDsn.password);
+      nativeDsn.password = "";
+      nativeDsn.pathname = "/native_non_entry_rr_" + mode + "_ci";
+      nativeDsn.search = "?sslmode=disable";
+      const gatewayDsn = new URL(nativeDsn);
+      gatewayDsn.pathname =
+        "/ag_kernel_test_non_entry_rr_retry_" + mode + "_ci";
+      gatewayDsn.search = "";
+      const native = await exec(
+        "go",
+        [
+          "test",
+          "-mod=readonly",
+          "-p",
+          "2",
+          "-tags",
+          "gatewaycustody",
+          "./internal/repository",
+          "-run",
+          "^TestGatewayNativeNonEntryJoinedConsumerRetry$",
+          "-count=1",
+          "-v",
+          "-timeout",
+          "180s",
+        ],
+        {
+          cwd: path.join(nativeSource, "backend"),
+          timeout: 240_000,
+          maxBuffer: 4 * 1024 * 1024,
+          env: {
+            ...process.env,
+            GOTOOLCHAIN: "local",
+            PGPASSWORD: databasePassword || process.env.PGPASSWORD,
+            GATEWAY_NATIVE_NON_ENTRY_JOINED_NODE: process.execPath,
+            GATEWAY_NATIVE_NON_ENTRY_JOINED_RUNNER: joinedRunner,
+            GATEWAY_NATIVE_NON_ENTRY_JOINED_RUNNER_SHA256: runnerDigest,
+            GATEWAY_NATIVE_NON_ENTRY_JOINED_MODE: mode,
+            GATEWAY_NATIVE_NON_ENTRY_JOINED_NATIVE_DSN: nativeDsn.href,
+            AG_NATIVE_NON_ENTRY_JOINED_DSN: gatewayDsn.href,
+            AG_NATIVE_NON_ENTRY_JOINED_ALLOW: "disposable_pg17_10",
+            RR_NATIVE_NON_ENTRY_CONSUMER_ORIGIN: brokerOrigin,
+            RR_NATIVE_NON_ENTRY_CONSUMER_TOKEN: brokerToken,
+          },
+        },
+      ).catch((error: unknown) => {
+        // Preserve the original RR/broker assertion instead of only the
+        // producer's resulting HTTP-500 assertion.
+        throw brokerFailure ?? error;
+      });
+      await writeFile(
+        path.resolve("tmp/native-retry-paired/" + mode + "-native.log"),
+        redact(native.stdout + native.stderr),
+      );
+      expect(
+        native.stdout.match(
+          /^--- PASS: TestGatewayNativeNonEntryJoinedConsumerRetry /gm,
+        ),
+      ).toHaveLength(1);
+      expect(native.stdout).not.toContain("--- SKIP:");
+      expect(verified).toBe(true);
+      await writeFile(
+        path.resolve("tmp/native-retry-paired/" + mode + ".json"),
+        JSON.stringify(
+          {
+            contract: "native-non-entry-consumer/v1",
+            mode,
+            nodeVersion: process.version,
+            artifactDigest,
+            runnerDigest,
+            spentDispatches: 3,
+            completedProviderTurns: 2,
+            originalGatewayGrants: 1,
+            originalPaidTurnPreserved: true,
+            heldAckDeniedSuccessor: true,
+            oneIdenticalSuccessor: true,
+            publications: fixture!.fakeGitHub.comments.length,
+            originalDeadline,
+            serverDeadline: originalCutoff!.toISOString(),
+          },
+          null,
+          2,
+        ),
+      );
+    } finally {
+      currentAllowed.resolve();
+      finishAllowed.resolve();
+      if (action && action.child.exitCode === null)
+        action.child.kill("SIGKILL");
+      await actionOutcome;
+      clearInterval(workerTimer);
+      await workerPass;
+      await broker.close();
+      await app.close();
+      await fixture?.close();
+      ingress?.closeAllConnections();
+      if (ingress)
+        await new Promise<void>((resolve, reject) =>
+          ingress!.close((error) => (error ? reject(error) : resolve())),
+        );
+      globalThis.fetch = originalFetch;
+      vi.restoreAllMocks();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+  300_000,
+);
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
 async function makeRepository(root: string) {
   const directory = path.join(root, "repository");
@@ -1117,7 +2438,39 @@ const target=path.join(prefix,'node_modules/@openai/codex/vendor/x86_64-unknown-
 fs.mkdirSync(path.dirname(target),{recursive:true});fs.copyFileSync(${JSON.stringify(codex)},target);fs.chmodSync(target,0o700);
 `;
 }
-function syntheticOcr(log: string, version: string) {
+function syntheticOcr(
+  log: string,
+  version: string,
+  outcome: "complete" | "phase_incomplete" | "filter_preserved",
+  retryBroker?: Readonly<{ origin: string; token: string; deadline: string }>,
+) {
+  const comments =
+    outcome === "phase_incomplete"
+      ? [
+          {
+            path: "tax.js",
+            content: "Tax percentage is added as currency.",
+            severity: "high",
+            category: "correctness",
+            existing_code: null,
+            suggestion_code: null,
+            start_line: null,
+            end_line: null,
+          },
+        ]
+      : [];
+  const phases = {
+    plan:
+      outcome === "phase_incomplete"
+        ? { state: "failed", reason: "private_phase_reason_923" }
+        : { state: "not_applicable", reason: "threshold" },
+    compression: { state: "not_applicable", reason: "no_zone" },
+    relocation: { state: "not_applicable", reason: "no_candidates" },
+    filter:
+      outcome === "filter_preserved"
+        ? { state: "failed", reason: "invalid_arguments" }
+        : { state: "not_applicable", reason: "no_candidates" },
+  };
   return `#!${process.execPath}
 const fs=require('node:fs'),path=require('node:path'),args=process.argv.slice(2);
 if(args.includes('--version')) { console.log('opencodereview ${version} linux/amd64'); process.exit(0); }
@@ -1131,15 +2484,29 @@ const arg=(name)=>args[args.indexOf(name)+1];
  const model=arg('--model');
  const capabilityHash=require('node:crypto').createHash('sha256').update('Bearer '+provider.api_key).digest('hex');
  fs.appendFileSync(${JSON.stringify(log)},JSON.stringify({event:'started',model,home:process.env.HOME,engine:'ocr'})+'\\n');
- const response=await fetch(provider.url+'/responses',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+provider.api_key},body:JSON.stringify({...provider.extra_body,model,input:'Review the supplied change',stream:true})});
- const text=await response.text();
- if(!response.ok || !text.includes('response.completed'))throw Error('synthetic_native_response_failed:'+response.status+':'+text);
+ const call=async(input)=>{
+  const response=await fetch(provider.url+'/responses',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+provider.api_key},body:JSON.stringify({...provider.extra_body,model,input,stream:true})});
+  const text=await response.text();
+  if(!response.ok || !text.includes('response.completed'))throw Error('synthetic_native_response_failed:'+response.status+':'+text);
+  return text;
+ };
+ const broker=${JSON.stringify(retryBroker ?? null)};
+ if(broker){
+  const phase=async(name)=>{
+   const response=await fetch(broker.origin+'/child/'+name,{method:'POST',headers:{authorization:'Bearer '+broker.token,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(Math.max(1,Date.parse(broker.deadline)-Date.now()))});
+   if(!response.ok)throw Error('synthetic_retry_phase_failed');await response.text();
+  };
+  if(!(await call('prior-turn')).includes('prior-paid-result'))throw Error('synthetic_prior_result_missing');
+  await phase('prior');
+  if(!(await call('current-turn')).includes('current-paid-result'))throw Error('synthetic_current_result_missing');
+  await phase('current');
+ }else await call('Review the supplied change');
  fs.writeFileSync(output,JSON.stringify({
-  status:'complete',llm:{provider:'reviewrouter',model},summary:{input_tokens:11,output_tokens:7,total_tokens:18},comments:[],
+  status:'complete',llm:{provider:'reviewrouter',model},summary:{input_tokens:11,output_tokens:7,total_tokens:18},comments:${JSON.stringify(comments)},
   manifest:{schema_version:'ocr.run-manifest/v1',operation:'review',terminal_state:'complete',input:{mode:'range',resolved_base:arg('--from'),resolved_head:arg('--to')}},
   reviewrouter_outcome:{schema_version:'reviewrouter.ocr-outcome/v1',run_stop_cause:null,grouping:{state:'completed',reason:null},groups:[{
    paths:['tax.js'],main_completed:true,stop_cause:null,rounds:{configured:2,started:1,completed:1},
-   phases:{plan:{state:'not_applicable',reason:'threshold'},compression:{state:'not_applicable',reason:'no_zone'},relocation:{state:'not_applicable',reason:'no_candidates'},filter:{state:'not_applicable',reason:'no_candidates'}},filter_decision_valid:null,
+   phases:${JSON.stringify(phases)},filter_decision_valid:${outcome === "filter_preserved" ? "false" : "null"},
   }]},
  }));
  fs.appendFileSync(${JSON.stringify(log)},JSON.stringify({event:'completed',model,capabilityHash,home:process.env.HOME,engine:'ocr'})+'\\n');

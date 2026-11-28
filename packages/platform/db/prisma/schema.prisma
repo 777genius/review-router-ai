@@ -1051,6 +1051,7 @@ model ActionRunHealthReport {
 
   @@unique([repositoryId, githubRunId, githubRunAttempt])
   @@index([workspaceId, receivedAt])
+  @@index([workspaceId, repositoryId, receivedAt(sort: Desc), id(sort: Desc)], map: "ActionRunHealthReport_workspace_repository_latest_idx")
 }
 
 model ReviewSnapshot {
@@ -3297,10 +3298,24 @@ model GitHubWebhookDelivery {
   receivedAt      DateTime              @default(now())
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @default(now()) @updatedAt
+  fence           GitHubWebhookFence?
 
   @@index([eventName, createdAt])
   @@index([installationId])
   @@index([status, receivedAt])
+}
+
+// Preparation for effect-level fencing. A fence row is created only by the
+// new protocol; its absence must never authorize takeover of legacy processing.
+model GitHubWebhookFence {
+  deliveryId String                @id
+  ownerHash  String
+  appIdentityHash String
+  generation BigInt
+  leaseUntil DateTime              @db.Timestamptz(3)
+  effectTransactionId BigInt?
+  signatureHash String?
+  delivery   GitHubWebhookDelivery @relation(fields: [deliveryId], references: [deliveryId], onDelete: Cascade)
 }
 
 model OutboxEvent {
@@ -3333,6 +3348,8 @@ model OutboxEvent {
   @@index([workspaceId, status])
   @@index([repositoryId, status])
   @@index([type, version, status])
+  // 000165: partial latest-request index for installation.sync_requested v1:
+  // (aggregateId, createdAt DESC, id DESC). Other event types are not indexed.
 }
 
 model OutboxFencingControl {
@@ -5053,6 +5070,8 @@ model ReviewRunCompanionDispatchV1 {
   receiptTokenHash String? @unique(map: "ReviewRunModelDispatch_receipt_token_key")
   forwardedAt DateTime?
   nativeEffectState String?
+  nativeRetryProofJson Json?
+  retryOfDispatchId String?
   nativeRequestRef String
   state String
   usageHash String?
@@ -5065,6 +5084,7 @@ model ReviewRunCompanionDispatchV1 {
 
   @@id([authorizationId, dispatchId])
   @@unique([authorizationId, workSlotId, attemptOrdinal, requestOrdinal], map: "ReviewRunModelDispatch_scope_ordinal_key")
+  @@unique([authorizationId, retryOfDispatchId], map: "ReviewRunModelDispatch_retry_predecessor_key")
   @@index([retainUntil])
 }
 
@@ -5141,4 +5161,20 @@ model ReviewHistoryRun {
 
   @@unique([workspaceId, scmRepositoryIdentityId, pullRequestNumber, runSequence])
   @@index([workspaceId, pullRequestId, runSequence])
+}
+
+// Draft recovery custody only. No automatic GitHub redelivery is enabled.
+model GitHubWebhookRecoveryIntent {
+  appIdentityHash String
+  deliveryGuid String
+  githubDeliveryId BigInt
+  eventName String
+  action String?
+  installationId BigInt?
+  payloadHash String
+  state String @default("prepared")
+  attemptHash String?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @db.Timestamptz(3)
+  @@id([appIdentityHash, deliveryGuid])
 }

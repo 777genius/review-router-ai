@@ -2,13 +2,7 @@
 
 import { removeAccountLimitsForConnection } from "./account-limits-query";
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { QueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import { Button, Dialog } from "@reviewrouter/ui";
 import type {
@@ -110,35 +104,6 @@ function restore(key: string, connectionId: string): Journal | null {
     ...(value.request ? { request: value.request } : {}),
     ...(value.operationId ? { operationId: value.operationId } : {}),
   };
-}
-export function useAccountLifecycleActivities(
-  client: QueryClient,
-): ReadonlyMap<string, Action | "unknown"> {
-  const subscribe = useCallback(
-    (listener: () => void) => client.getQueryCache().subscribe(listener),
-    [client],
-  );
-  const snapshot = useCallback(
-    () =>
-      JSON.stringify(
-        client
-          .getQueryCache()
-          .getAll()
-          .flatMap((query) => {
-            if (query.queryKey[0] !== "account-lifecycle-activity") return [];
-            const data = query.state.data as
-              | { pending?: boolean; action?: Action }
-              | undefined;
-            return data?.pending
-              ? [[String(query.queryKey[2]), data.action ?? "unknown"]]
-              : [];
-          })
-          .sort(),
-      ),
-    [client],
-  );
-  const value = useSyncExternalStore(subscribe, snapshot, () => "[]");
-  return new Map(JSON.parse(value) as Array<[string, Action | "unknown"]>);
 }
 function accountQueries(client: QueryClient, viewerScope: string) {
   return client

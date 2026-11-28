@@ -185,3 +185,68 @@ describe("Gateway cached account limits capability", () => {
     },
   );
 });
+
+it("does not start a cached read after ignored-abort capability discovery settles late", async () => {
+  const controller = new AbortController();
+  let finish!: () => void;
+  let reads = 0;
+  const reader = createGatewayAccountLimitsReader({
+    getAccountLimitsCapabilities: async (options) => {
+      expect(options?.signal).toBe(controller.signal);
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      return {
+        contract: "account-limits/v1",
+        cachedRead: true,
+        quotaOnlyRefresh: false,
+      };
+    },
+    readAccountLimits: async () => {
+      reads++;
+      return { status: "unknown" };
+    },
+  });
+  const pending = reader.read(target, { signal: controller.signal });
+  controller.abort();
+  finish();
+  expect(await pending).toMatchObject({ status: "unavailable" });
+  expect(reads).toBe(0);
+});
+
+it("recovers the same reader after a page cancels its initial capability request", async () => {
+  const controller = new AbortController();
+  let attempts = 0;
+  let reads = 0;
+  const reader = createGatewayAccountLimitsReader({
+    async getAccountLimitsCapabilities(options) {
+      attempts++;
+      if (attempts === 1) {
+        await new Promise<never>((_resolve, reject) => {
+          options!.signal!.addEventListener(
+            "abort",
+            () => reject(new Error("aborted")),
+            { once: true },
+          );
+        });
+      }
+      return {
+        contract: "account-limits/v1",
+        cachedRead: true,
+        quotaOnlyRefresh: false,
+      };
+    },
+    async readAccountLimits() {
+      reads++;
+      return { status: "unknown" };
+    },
+  });
+  const failed = reader.read(target, { signal: controller.signal });
+  controller.abort();
+  expect(await failed).toMatchObject({ status: "unavailable" });
+  expect(reads).toBe(0);
+  expect(await reader.read(target)).toEqual({ status: "unknown" });
+  expect(await reader.read(target)).toEqual({ status: "unknown" });
+  expect(attempts).toBe(2);
+  expect(reads).toBe(2);
+});
