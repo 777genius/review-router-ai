@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useSyncExternalStore } from "react";
-import type { QueryClient } from "@tanstack/react-query";
+import { notifyManager, type QueryClient } from "@tanstack/react-query";
 import type { AccountLifecycleRequest } from "../../../../server/account-lifecycle";
 
 type Action = AccountLifecycleRequest["action"];
@@ -10,7 +10,8 @@ export function useAccountLifecycleActivities(
   client: QueryClient,
 ): ReadonlyMap<string, Action | "unknown"> {
   const subscribe = useCallback(
-    (listener: () => void) => client.getQueryCache().subscribe(listener),
+    (listener: () => void) =>
+      client.getQueryCache().subscribe(notifyManager.batchCalls(listener)),
     [client],
   );
   const snapshot = useCallback(

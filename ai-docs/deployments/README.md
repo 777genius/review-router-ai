@@ -46,6 +46,10 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 [Scale and recovery](2026-11-27-scale-and-recovery.md), [PR #1021](https://github.com/777genius/review-router-ai/pull/1021) — worker/database and Accounts checkpoints published; the integration keeps the fenced webhook default from PR #1027 and ports the distinct failure cases. Combined-source qualification is in progress. Additive indexes 165/166, ordinary API/Web/worker rollout pending; no environment deployment claimed.
 
+The same task includes the account lifecycle cache-subscription correction and
+its original-operation regression. Final-source checks, browser qualification
+and the merged paired Action cold/joined executions remain required.
+
 [Gateway management ingress](2026-11-27-gateway-management-ingress.md): production `installed`; native V2/V3 routes restored and read-only account metadata verified. Browser enrollment and connection mutations remain unverified.
 
 [Provider and repository UI](2026-11-27-provider-and-repository-ui.md) — production `installed` on RR `5ab12e2d`; public readiness passed, authenticated UI verification remains pending.

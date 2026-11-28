@@ -420,6 +420,28 @@ The close-capability correction inherited from main retries only a definite
 operation and exact binding. It does not extend expired admission, replay
 inference or establish why historical production bearers were rejected.
 
+## Account lifecycle subscription follow-up
+
+The account-models browser run on `69b7fb2d` completed all ten scenarios but
+recorded six React warnings about updating PersonalControls during a child
+query's render. The lifecycle activity hook subscribed directly to synchronous
+QueryCache notifications. Its subscription now follows TanStack's own batched
+notification pattern; cache writes, original operation identity, server authority,
+uncertain-result readback and continuation rules retain their existing behavior.
+
+The hook is extracted from the bounded lifecycle controls file, with direct
+imports and a lower file-size ceiling. A focused regression exercises a real query
+cache during child rendering and checks pending and terminal activity visibility.
+These changes require the original full source and browser gates on the final
+commit; the earlier browser pass does not certify this follow-up. Staging and
+production rollout remain pending under the existing task.
+
+The paired Action CI pin also adopts the actual owner-merged commit
+`519026120e1769a9ff1f3ca8f26341f983969b5a`. Its tree equals independently qualified
+`1ce5d0abc8300d024ec75c556df1ebbb41c3cbe7`; final consumer cold recovery and all four
+private/public Node 24/26 joined runs remain required. A pin or merge is not
+runtime activation.
+
 ## Related links
 
 - [Implementation plan](../plans/2026-11-27-scale-and-recovery.md).
