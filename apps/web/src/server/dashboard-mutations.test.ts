@@ -114,9 +114,10 @@ describe("dashboard repository mutations", () => {
         }),
       },
     });
-    mocks.assertWorkspaceMutationAllowed
-      .mockReset()
-      .mockRejectedValue(new Error("workspace_mutation_forbidden:missing_role"));
+    mocks.assertWorkspaceMutationAllowed.mockReset();
+    mocks.assertWorkspaceMutationAllowed.mockRejectedValue(
+      new Error("workspace_mutation_forbidden:missing_role"),
+    );
     mocks.updateRepositoryPermissionCacheFromLiveCheck.mockResolvedValue(true);
     mocks.readGitHubUserAuthorizationAuthority.mockResolvedValue({
       appSlug: "reviewrouter-test",
@@ -642,6 +643,31 @@ describe("dashboard repository mutations", () => {
     );
   });
 
+  it("denies repository access without a linked GitHub identity", async () => {
+    mocks.getPrisma.mockReturnValue({
+      userExternalIdentity: {
+        findUnique: vi.fn().mockResolvedValue({
+          user: { id: "user_1", githubUserId: null, githubLogin: null },
+        }),
+      },
+    });
+    mocks.getServerSession.mockResolvedValue({
+      user: {
+        sourceProvider: "gitlab",
+        externalUserId: "456",
+        sourceLogin: "gitlab-maintainer",
+        githubUserId: "123",
+        githubLogin: "maintainer",
+      },
+    });
+    await expect(
+      assertDashboardRepositoryMutationAllowed("workspace_1", repository),
+    ).rejects.toThrow("repository_mutation_forbidden");
+    expect(mocks.readGitHubUserAuthorizationAuthority).not.toHaveBeenCalled();
+    expect(mocks.octokitRequest).not.toHaveBeenCalled();
+    expect(mocks.getValidGitHubUserAccessToken).not.toHaveBeenCalled();
+  });
+
   it("does not inherit the legacy GitHub-login administrator override on GitLab", async () => {
     mocks.getServerSession.mockResolvedValue({
       user: {
@@ -652,9 +678,8 @@ describe("dashboard repository mutations", () => {
     });
     vi.stubEnv("REVIEW_ROUTER_LOCAL_ADMIN_GITHUB_LOGINS", "maintainer");
     mocks.assertWorkspaceMutationAllowed.mockResolvedValue(undefined);
-    await expect(
-      assertDashboardMutationAllowed("workspace_1"),
-    ).resolves.toMatchObject({
+    const actor = await assertDashboardMutationAllowed("workspace_1");
+    expect(actor).toMatchObject({
       sourceProvider: "gitlab",
       userId: "user_1",
     });
@@ -676,9 +701,8 @@ describe("dashboard repository mutations", () => {
         }),
       },
     });
-    await expect(
-      assertDashboardMutationAllowed("workspace_1"),
-    ).rejects.toThrow("dashboard_mutation_requires_sign_in");
+    const result = assertDashboardMutationAllowed("workspace_1");
+    await expect(result).rejects.toThrow("dashboard_mutation_requires_sign_in");
     expect(mocks.assertWorkspaceMutationAllowed).not.toHaveBeenCalled();
   });
 
@@ -693,9 +717,8 @@ describe("dashboard repository mutations", () => {
       },
     });
     await expect(getDashboardSignedInActor()).resolves.toBeNull();
-    await expect(
-      assertDashboardMutationAllowed("workspace_1"),
-    ).rejects.toThrow("dashboard_mutation_requires_sign_in");
+    const result = assertDashboardMutationAllowed("workspace_1");
+    await expect(result).rejects.toThrow("dashboard_mutation_requires_sign_in");
     expect(mocks.assertWorkspaceMutationAllowed).not.toHaveBeenCalled();
   });
 
