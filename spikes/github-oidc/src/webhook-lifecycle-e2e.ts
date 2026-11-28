@@ -38,6 +38,11 @@ async function main(): Promise<void> {
   await cleanup();
   const app = await createApiApp({
     githubWebhookSecret: webhookSecret,
+    reviewActionV2Env: {
+      ...process.env,
+      GITHUB_APP_ID: "12345",
+      GITHUB_API_BASE_URL: "https://api.github.com",
+    },
     prisma,
   });
 
