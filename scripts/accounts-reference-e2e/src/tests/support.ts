@@ -118,10 +118,13 @@ async function navigateAccounts(
   workspace: string,
   navigate: () => Promise<unknown>,
 ): Promise<void> {
-  // Next dev may evict boot-warmed routes between scenarios. Prepare only the
-  // subscription fixture before navigation; the real inventory keeps its own
-  // unchanged readiness deadline below.
-  if (process.env.ACCOUNTS_REFERENCE_E2E_SUBSCRIPTIONS === "1")
+  // Next dev may evict boot-warmed routes between scenarios. Prepare the
+  // subscription and limits fixtures before navigation; the real inventory
+  // keeps its unchanged readiness deadline below.
+  if (
+    process.env.ACCOUNTS_REFERENCE_E2E_SUBSCRIPTIONS === "1" ||
+    process.env.ACCOUNTS_REFERENCE_E2E_LIMITS === "1"
+  )
     await warmAccountsRoutes(process.env.ACCOUNTS_REFERENCE_E2E_BASE_URL);
   // Capture fast replies during navigation, but start the readiness deadline
   // only after the new page is rendered. Navigation has its own bounded wait.
