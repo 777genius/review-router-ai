@@ -442,6 +442,30 @@ The paired Action CI pin also adopts the actual owner-merged commit
 private/public Node 24/26 joined runs remain required. A pin or merge is not
 runtime activation.
 
+## Captured v4 accepted-result recovery follow-up
+
+The cold recovery case in [CI46107535668](https://github.com/777genius/review-router-ai/actions/runs/46107535668)
+failed on consumer `90d7e1a489089a0edc6b140f4ee5661527bd03c5` with paired
+Action `1ce5d0abc8300d024ec75c556df1ebbb41c3cbe7`
+(`review_orchestration_restored_observation_unavailable`). Accepted observations
+were durable, but the response omitted the persisted assignment v1 plan, so the
+restarted Action rebuilt the invocation manifest instead of restoring the
+original identity.
+
+The response now includes the original persisted plan and accepted manifests
+for assignment v1 only when the captured runtime parses as snapshot v4. Existing
+lifecycle and assignment v2 paths are retained. Absent/null/v3 runtimes keep the
+original eight-field response required by retained Hosted Pool
+`66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff`. Authorization, original lease/fence,
+attempt budgets, observation eligibility and protocol limits remain unchanged;
+this adds no inference replay or new admission.
+
+Four restore/start accepted/unattached cases and six legacy-response cases are
+added. Independent source review passed. Local formatting, types and runtime
+tests were not run because the executor was unavailable; the final source must
+pass ordinary CI, including the unchanged real cold recovery and all four
+private/public Node 24/26 joined executions. Staging and production remain pending.
+
 ## Related links
 
 - [Implementation plan](../plans/2026-11-27-scale-and-recovery.md).

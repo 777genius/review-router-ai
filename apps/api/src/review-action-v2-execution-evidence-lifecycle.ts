@@ -558,11 +558,13 @@ async function canonicalExecution(
   let persistedPlan:
     | ReturnType<typeof persistedReviewExecutionRestore>
     | undefined;
+  const runtime = parseReviewRunRuntimeSnapshot(
+    authorization.runtimeSnapshotCanonicalJson,
+  );
   if (
-    parseReviewRunRuntimeSnapshot(authorization.runtimeSnapshotCanonicalJson)
-      ?.lifecycleVerificationCapability ||
+    runtime?.lifecycleVerificationCapability ||
     (e.assignmentManifestCanonicalJson &&
-      [1, 2].includes(
+      (runtime?.snapshotVersion === 4 ? [1, 2] : [2]).includes(
         JSON.parse(e.assignmentManifestCanonicalJson).manifestVersion,
       ))
   ) {

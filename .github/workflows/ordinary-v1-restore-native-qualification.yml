@@ -1,4 +1,4 @@
-name: Ordinary v1 restore native qualification
+name: Captured v4 restore native qualification
 
 on:
   push:
@@ -15,19 +15,23 @@ concurrency:
 
 jobs:
   native-format:
-    name: Ordinary v1 restore format and owning tests
+    name: Captured v4 restore format and owning tests
     if: ${{ github.repository == '777genius/review-router-ai' && github.actor == '777genius' }}
     runs-on: ${{ vars.CI_STATIC_CHECKS_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 15
     env:
-      RR_FORMAT_SUBJECT_SHA: 0b8ad2573dc373015af15a09ee686f26aad438be
-      RR_QUALIFICATION_BASE_SHA: ff7d24b25d05ec1d4c1974431e1f5c2e19537a9b
-      RR_FORMAT_SUBJECT_TREE: db4350384533bd4d7558e9874d9298e4eefd8c5f
+      RR_FORMAT_SUBJECT_SHA: b8a03dd4cd095a5b67fed7cc5c888efe26f2c965
+      RR_QUALIFICATION_BASE_SHA: 760f694de474ff84aed17307f0bfd30d75d49e3a
+      RR_FORMAT_SUBJECT_TREE: a564ee5e8a22aa5efc1b091d74d8d9285ab10d9a
       RR_FORMAT_SUBJECT_LOCK: 2aa3a8d6ffbcc49dc9577ccc55f5c28e1a290bcc
       RR_FORMAT_SUBJECT_PATH: apps/api/src/review-action-v2-execution-evidence-lifecycle.ts
-      RR_FORMAT_SUBJECT_BLOB: d640d4ad1394b159cd0ea0c67e8efbce01db8279
+      RR_FORMAT_SUBJECT_BLOB: 9cb8f54ec181eae3818b1ce9025437a7d7a4f950
       RR_FORMAT_SECOND_PATH: apps/api/src/review-action-v2-execution-evidence-composition.test.ts
-      RR_FORMAT_SECOND_BLOB: 93f45d88de9c56b466d23c96f7b9b0b96d5a2ad1
+      RR_FORMAT_SECOND_BLOB: dc51c581421ef7086b862bcb8e183f1aef22937e
+      RR_FORMAT_TASK_PATH: ai-docs/deployments/2026-11-27-scale-and-recovery.md
+      RR_FORMAT_TASK_BLOB: b219c521a67225a938b75ebf50739ccec0f1a2d0
+      RR_FORMAT_INDEX_PATH: ai-docs/deployments/README.md
+      RR_FORMAT_INDEX_BLOB: 8a17d1969b4f43b30c3f97c5cd2dcdd0edd2ada6
       RR_QUALIFICATION_VITEST_CONFIG: fdec4bc7df32c636395385422c12d0c6c1e761ca
       RR_FORMAT_CONFIG_BLOB: 193224fbd182f98ba39e8b8079519f46a5737c3c
       RR_FORMAT_IGNORE_BLOB: 7f89cd15c12630fd7e8e93c5bbd86076febdedd7
@@ -37,7 +41,7 @@ jobs:
       - name: Checkout the immutable reviewed subject
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: 0b8ad2573dc373015af15a09ee686f26aad438be
+          ref: b8a03dd4cd095a5b67fed7cc5c888efe26f2c965
           fetch-depth: 2
           persist-credentials: false
 
@@ -56,6 +60,8 @@ jobs:
           test "$(git rev-parse HEAD:pnpm-lock.yaml)" = "$RR_FORMAT_SUBJECT_LOCK"
           test "$(git rev-parse "HEAD:$RR_FORMAT_SUBJECT_PATH")" = "$RR_FORMAT_SUBJECT_BLOB"
           test "$(git rev-parse "HEAD:$RR_FORMAT_SECOND_PATH")" = "$RR_FORMAT_SECOND_BLOB"
+          test "$(git rev-parse "HEAD:$RR_FORMAT_TASK_PATH")" = "$RR_FORMAT_TASK_BLOB"
+          test "$(git rev-parse "HEAD:$RR_FORMAT_INDEX_PATH")" = "$RR_FORMAT_INDEX_BLOB"
           test "$(git rev-parse HEAD:vitest.config.ts)" = "$RR_QUALIFICATION_VITEST_CONFIG"
           test "$(git rev-parse HEAD^)" = "$RR_QUALIFICATION_BASE_SHA"
           test "$(git rev-parse HEAD:.prettierrc.json)" = "$RR_FORMAT_CONFIG_BLOB"
@@ -145,7 +151,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          subject_paths=("$RR_FORMAT_SUBJECT_PATH" "$RR_FORMAT_SECOND_PATH")
+          subject_paths=("$RR_FORMAT_SUBJECT_PATH" "$RR_FORMAT_SECOND_PATH" "$RR_FORMAT_TASK_PATH" "$RR_FORMAT_INDEX_PATH")
           source_config="$GITHUB_WORKSPACE/.prettierrc.json"
           source_ignore="$GITHUB_WORKSPACE/.prettierignore"
           original_status=0
@@ -172,7 +178,7 @@ jobs:
           import { readFileSync, writeFileSync } from "node:fs";
           import { join } from "node:path";
           const directory = process.env.RR_FORMAT_DIRECTORY;
-          const expected = [{"path":"apps/api/src/review-action-v2-execution-evidence-lifecycle.ts","originalGitBlob":"d640d4ad1394b159cd0ea0c67e8efbce01db8279"},{"path":"apps/api/src/review-action-v2-execution-evidence-composition.test.ts","originalGitBlob":"93f45d88de9c56b466d23c96f7b9b0b96d5a2ad1"}];
+          const expected = [{"path":"apps/api/src/review-action-v2-execution-evidence-lifecycle.ts","originalGitBlob":"9cb8f54ec181eae3818b1ce9025437a7d7a4f950"},{"path":"apps/api/src/review-action-v2-execution-evidence-composition.test.ts","originalGitBlob":"dc51c581421ef7086b862bcb8e183f1aef22937e"},{"path":"ai-docs/deployments/2026-11-27-scale-and-recovery.md","originalGitBlob":"b219c521a67225a938b75ebf50739ccec0f1a2d0"},{"path":"ai-docs/deployments/README.md","originalGitBlob":"8a17d1969b4f43b30c3f97c5cd2dcdd0edd2ada6"}];
           const audit = readFileSync(process.env.REVIEWROUTER_NATIVE_FORMAT_AUDIT, "utf8")
             .trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
           assert(audit.some(event => event.event === "guard-installed" && event.nodeVersion === "v26.11.1"),
@@ -278,8 +284,8 @@ jobs:
           const bytes = readFileSync(join(directory, "composition-results.json"));
           const result = JSON.parse(bytes.toString("utf8"));
           assert.equal(result.success, true);
-          assert.equal(result.numTotalTests, 91);
-          assert.equal(result.numPassedTests, 91);
+          assert.equal(result.numTotalTests, 98);
+          assert.equal(result.numPassedTests, 98);
           assert.equal(result.numFailedTests, 0);
           assert.equal(result.numPendingTests, 0);
           assert.equal(result.numTodoTests ?? 0, 0);
@@ -287,16 +293,21 @@ jobs:
           const suite = result.testResults[0];
           assert.equal(resolve(suite.name), resolve(process.env.RR_FORMAT_SECOND_PATH));
           assert.equal(suite.status, "passed");
-          assert.equal(suite.assertionResults.length, 91);
+          assert.equal(suite.assertionResults.length, 98);
           assert(suite.assertionResults.every(test => test.status === "passed"));
           const names = suite.assertionResults.map(test => test.fullName);
-          assert.equal(new Set(names).size, 91);
+          assert.equal(new Set(names).size, 98);
           const expectedNewTitles = [
-            "keeps ordinary absent assignment plans on the legacy restore shape",
-            "keeps ordinary unsupported assignment plans on the legacy restore shape",
-            "restores one unattached source for assignment v1 after work expiry without changing admitted plan identity",
-            "returns accepted invocation identity from a released source lease for ordinary restore",
-            "returns accepted invocation identity from a released source lease for ordinary start",
+            "restore retains the original accepted discovery source for a v1 plan on a captured v4 runtime",
+            "restore retains the original unattached discovery source for a v1 plan on a captured v4 runtime",
+            "start retains the original accepted discovery source for a v1 plan on a captured v4 runtime",
+            "start retains the original unattached discovery source for a v1 plan on a captured v4 runtime",
+            "restore preserves the legacy execution shape for an ordinary v1 plan with legacy runtime",
+            "restore preserves the legacy execution shape for an ordinary v1 plan with null runtime",
+            "restore preserves the legacy execution shape for an ordinary v1 plan with v3 runtime",
+            "start preserves the legacy execution shape for an ordinary v1 plan with legacy runtime",
+            "start preserves the legacy execution shape for an ordinary v1 plan with null runtime",
+            "start preserves the legacy execution shape for an ordinary v1 plan with v3 runtime"
           ];
           for (const title of expectedNewTitles) {
             assert.equal(suite.assertionResults.filter(test => test.title === title).length, 1, "missing or duplicate regression: " + title);
@@ -308,10 +319,10 @@ jobs:
             path: process.env.RR_FORMAT_SECOND_PATH,
             sourceBlob: process.env.RR_FORMAT_SECOND_BLOB,
             vitestConfig: process.env.RR_QUALIFICATION_VITEST_CONFIG,
-            passed: 91,
+            passed: 98,
             failed: 0,
             skipped: 0,
-            uniqueNames: 91,
+            uniqueNames: 98,
             newRegressionTitles: expectedNewTitles,
             jsonSha256: createHash("sha256").update(bytes).digest("hex"),
           };
