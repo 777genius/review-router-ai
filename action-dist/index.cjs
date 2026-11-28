@@ -138055,6 +138055,13 @@ var reviewModelDispatchCapacity128Contract = Object.freeze({
   capacityPolicy: "model-dispatch-policy.capacity128.v1",
   maxRequests: 128
 });
+var reviewModelDispatchNativeRetryContract = Object.freeze({
+  ...reviewModelDispatchCapacity128Contract,
+  policyVersion: "model-dispatch-policy.native-retry.v1",
+  retryPolicy: "native-rejection-once.v1",
+  nativeRetryProof: "native_rejection_after_forward",
+  maxNativeRetries: 1
+});
 var reviewModelDispatchHeaders = Object.freeze({
   dispatchVersion: "x-reviewrouter-model-dispatch-version",
   requestOrdinal: "x-reviewrouter-model-request-ordinal",
