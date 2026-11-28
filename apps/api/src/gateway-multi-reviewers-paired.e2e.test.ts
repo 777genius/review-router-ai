@@ -483,13 +483,45 @@ const profileId = "openrouter-openai-responses-apikey-v1";
           try {
             return await executeAdopt(request);
           } catch (error) {
+            // CI logs are public. Keep only known code slugs and source
+            // locations, never raw errors or request/provider contents.
+            const knownCode =
+              error instanceof Error &&
+              /^(?:review_execution|review_action_v2|adoption)_[a-z0-9_]{1,96}$/u.test(
+                error.message,
+              )
+                ? error.message
+                : undefined;
+            const prismaCode =
+              error instanceof Error && typeof Reflect.get(error, "code") === "string"
+                ? String(Reflect.get(error, "code"))
+                : "";
+            const frames =
+              error instanceof Error
+                ? (error.stack ?? "")
+                    .split("\n")
+                    .slice(1, 9)
+                    .flatMap((line) => {
+                      const match = line.match(
+                        /\/(?<source>(?:apps|packages|scripts)\/[A-Za-z0-9._/-]+:\d+:\d+)/u,
+                      );
+                      return match?.groups?.source ? [match.groups.source] : [];
+                    })
+                : [];
             errors.push({
-              adoptionHandlerError:
-                error instanceof Error ? error.message : String(error),
-              adoptionHandlerCode:
-                error instanceof Error ? Reflect.get(error, "code") : undefined,
-              adoptionHandlerStack:
-                error instanceof Error ? error.stack : undefined,
+              adoptionHandlerClass:
+                error instanceof TypeError
+                  ? "TypeError"
+                  : error instanceof RangeError
+                    ? "RangeError"
+                    : error instanceof Error
+                      ? "Error"
+                      : "non_error_throwable",
+              adoptionHandlerSlug: knownCode,
+              adoptionHandlerCode: /^P\d{4}$/u.test(prismaCode)
+                ? prismaCode
+                : undefined,
+              adoptionHandlerFrames: frames,
             });
             throw error;
           }
