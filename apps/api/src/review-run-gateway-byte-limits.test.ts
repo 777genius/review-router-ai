@@ -3276,9 +3276,19 @@ it.each(["pressure", "timer"] as const)(
       expect(new Set(f.nativeCloseOperationIds).size).toBe(1);
       f.setCloseState("applied");
       if (trigger === "timer") {
-        await vi.waitFor(() => expect(f.nativeCloses).toHaveLength(3), {
-          timeout: 4000,
-        });
+        const gate = f.holdClose();
+        try {
+          await vi.waitFor(() => expect(f.nativeCloses).toHaveLength(3), {
+            timeout: 4000,
+          });
+          // Join the timer-owned close while its response is held. A received
+          // request alone does not release the relay session.
+          const completed = f.relay.closeRun("authorization-1", "completed");
+          gate.release();
+          await expect(completed).resolves.toMatchObject({ state: "applied" });
+        } finally {
+          gate.release();
+        }
       }
       await expect(streamRun(f, "authorization-2", "reviewer-0")).resolves.toBe(
         "stream",
