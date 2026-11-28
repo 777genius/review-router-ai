@@ -171,46 +171,110 @@ describe("Review Action v2 execution/evidence composition", () => {
     expect(d.executions.invocationFlights.execute).not.toHaveBeenCalled();
   });
 
-  it("restores one unattached source after work expiry without changing admitted plan identity", async () => {
-    const f = await unattachedRestoreFixture();
-    const response = await f.restore();
-    const originalPlan = {
-      planHash: f.snapshot.execution.planHash,
-      assignmentManifestHash: f.snapshot.execution.assignmentManifestHash,
-      assignmentManifestCanonicalJson:
-        f.snapshot.execution.assignmentManifestCanonicalJson,
-    };
-    if (!("executionCanonicalJson" in response.result))
-      throw new Error("restore missing");
-    const readback = JSON.parse(response.result.executionCanonicalJson);
-    expect(readback.persistedPlan).toMatchObject({
-      ...originalPlan,
-      acceptedManifests: [],
-      unattachedAcceptedManifests: [
-        {
-          workSlotId: f.sourceLease.workSlotId,
-          manifestCanonicalJson: f.sourceLease.preparedManifestCanonicalJson,
-          manifestKey: f.sourceLease.preparedManifestKey,
-          observationId: f.observation.observationId,
-          payloadHash: f.observation.payloadHash,
-          sourceLeaseId: f.sourceLease.leaseId,
-          sourceFencingToken: "7",
-          sourceOwnerIdHash: hash("d"),
+  it.each([
+    ["absent", null],
+    ["unsupported", 3],
+  ] as const)(
+    "keeps ordinary %s assignment plans on the legacy restore shape",
+    async (_label, manifestVersion) => {
+      const restored = {
+        ...snapshot,
+        execution: {
+          ...snapshot.execution,
+          assignmentManifestCanonicalJson:
+            manifestVersion === null
+              ? null
+              : canonicalJson({ manifestVersion }),
+          workSlots: [
+            {
+              ...snapshot.execution.workSlots[0]!,
+              state: ReviewWorkSlotState.Exhausted,
+              attemptBudget: 1,
+              nextAttemptOrdinal: 2,
+              activeLeaseId: null,
+              acceptedObservationRefId: null,
+            },
+          ],
         },
-      ],
-    });
-    expect(readback.planHash).toBe(originalPlan.planHash);
-    expect(readback.persistedPlan.workSlots).toEqual(
-      f.snapshot.execution.workSlots,
-    );
-    expect(f.snapshot.execution).toMatchObject(originalPlan);
-    expect(f.sourceLease.expiresAt.getTime()).toBeLessThan(now.getTime());
-    expect(f.d.executions.startReviewExecution.execute).not.toHaveBeenCalled();
-    expect(f.d.executions.invocationFlights.execute).not.toHaveBeenCalled();
-    expect(
-      f.d.executions.observationAttachments.adoptAccepted,
-    ).not.toHaveBeenCalled();
-  });
+      };
+      const base = executionDependencies({
+        findExecution: async () => restored,
+      });
+      const findSources = vi.fn(async () => []);
+      const d = {
+        ...base,
+        executionQueries: {
+          ...base.executionQueries,
+          findStream: async () => restored.stream,
+        },
+        observations: {
+          ...base.observations,
+          findSourceSlotCandidates: findSources,
+        },
+      };
+      const response = await createReviewActionV2ExecutionHandlers(
+        d,
+      ).restore.execute({
+        ...envelope("restore-legacy"),
+        authorizationToken: "authorization-token",
+        authorizationId: authorization.authorizationId,
+        reviewRevisionHash: authorization.reviewRevisionHash,
+      });
+      if (!("executionCanonicalJson" in response.result))
+        throw new Error("restore missing");
+      expect(
+        JSON.parse(response.result.executionCanonicalJson),
+      ).not.toHaveProperty("persistedPlan");
+      expect(d.executionQueries.findLease).not.toHaveBeenCalled();
+      expect(findSources).not.toHaveBeenCalled();
+      expect(d.executions.startReviewExecution.execute).not.toHaveBeenCalled();
+      expect(d.executions.invocationFlights.execute).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([1, 2] as const)(
+    "restores one unattached source for assignment v%i after work expiry without changing admitted plan identity",
+    async (manifestVersion) => {
+      const f = await unattachedRestoreFixture({}, {}, manifestVersion);
+      const response = await f.restore();
+      const originalPlan = {
+        planHash: f.snapshot.execution.planHash,
+        assignmentManifestHash: f.snapshot.execution.assignmentManifestHash,
+        assignmentManifestCanonicalJson:
+          f.snapshot.execution.assignmentManifestCanonicalJson,
+      };
+      if (!("executionCanonicalJson" in response.result))
+        throw new Error("restore missing");
+      const readback = JSON.parse(response.result.executionCanonicalJson);
+      expect(readback.persistedPlan).toMatchObject({
+        ...originalPlan,
+        acceptedManifests: [],
+        unattachedAcceptedManifests: [
+          {
+            workSlotId: f.sourceLease.workSlotId,
+            manifestCanonicalJson: f.sourceLease.preparedManifestCanonicalJson,
+            manifestKey: f.sourceLease.preparedManifestKey,
+            observationId: f.observation.observationId,
+            payloadHash: f.observation.payloadHash,
+            sourceLeaseId: f.sourceLease.leaseId,
+            sourceFencingToken: "7",
+            sourceOwnerIdHash: hash("d"),
+          },
+        ],
+      });
+      expect(readback.planHash).toBe(originalPlan.planHash);
+      expect(readback.persistedPlan.workSlots).toEqual(
+        f.snapshot.execution.workSlots,
+      );
+      expect(f.snapshot.execution).toMatchObject(originalPlan);
+      expect(f.sourceLease.expiresAt.getTime()).toBeLessThan(now.getTime());
+      expect(f.d.executions.startReviewExecution.execute).not.toHaveBeenCalled();
+      expect(f.d.executions.invocationFlights.execute).not.toHaveBeenCalled();
+      expect(
+        f.d.executions.observationAttachments.adoptAccepted,
+      ).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     ["revoked", { state: ReviewInvocationLeaseState.Revoked }],
@@ -275,85 +339,131 @@ describe("Review Action v2 execution/evidence composition", () => {
     expect(f.d.executions.invocationFlights.execute).not.toHaveBeenCalled();
   });
 
-  it("restores accepted invocation identity from a released persisted source lease", async () => {
-    const sourceLease = lease({ state: ReviewInvocationLeaseState.Released });
-    const acceptedRef = {
-      observationRefId: "accepted-ref",
-      executionId: snapshot.execution.executionId,
-      workSlotId: sourceLease.workSlotId,
-      providerInvocationKey: sourceLease.providerInvocationKey,
-      observationId: "accepted-observation",
-      providerVoteIdentityHash: sourceLease.providerVoteIdentityHash,
-      attachmentKind: ReviewObservationAttachmentKind.FreshLease,
-      eligibilityPolicyVersion: reviewReuseEligibilityPolicyVersion,
-      reuseSafetyDecisionHash: null,
-      sourceExecutionId: sourceLease.executionId,
-      sourceLeaseId: sourceLease.leaseId,
-      sourceFencingToken: sourceLease.fencingToken,
-      payloadHash: hash("a"),
-      byteCount: 100,
-      findingCount: 0,
-      attachedAt: now,
-    };
-    const restored = {
-      ...snapshot,
-      observationRefs: [acceptedRef],
-      activeLeases: [],
-      execution: {
-        ...snapshot.execution,
-        workSlots: [
-          {
-            ...snapshot.execution.workSlots[0]!,
-            state: ReviewWorkSlotState.Satisfied,
-            acceptedObservationRefId: acceptedRef.observationRefId,
-          },
-        ],
-      },
-    };
-    const base = executionDependencies({
-      findExecution: async () => restored,
-      findLease: vi.fn(async () => sourceLease),
-    });
-    const d = {
-      ...base,
-      authorizations: {
-        resolveReviewRunAuthorizationToken: async () => ({
-          status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
-          authorization: lifecycleAuthorization(),
-        }),
-      },
-      executionQueries: {
-        ...base.executionQueries,
-        findStream: async () => restored.stream,
-      },
-    };
-    const response = await createReviewActionV2ExecutionHandlers(
-      d,
-    ).restore.execute({
-      ...envelope("restore-accepted"),
-      authorizationToken: "authorization-token",
-      authorizationId: authorization.authorizationId,
-      reviewRevisionHash: authorization.reviewRevisionHash,
-    });
-    if (!("executionCanonicalJson" in response.result))
-      throw new Error("restore missing");
-    expect(
-      JSON.parse(response.result.executionCanonicalJson).persistedPlan
-        .acceptedManifests,
-    ).toEqual([
-      {
+  it.each([
+    { profile: "lifecycle", operation: "restore" },
+    { profile: "ordinary", operation: "restore" },
+    { profile: "ordinary", operation: "start" },
+  ] as const)(
+    "returns accepted invocation identity from a released source lease for $profile $operation",
+    async ({ profile, operation }) => {
+      const sourceLease = lease({ state: ReviewInvocationLeaseState.Released });
+      const ordinaryPlan = ordinaryAssignmentPlan(snapshot.execution.workSlots);
+      const acceptedRef = {
+        observationRefId: "accepted-ref",
+        executionId: snapshot.execution.executionId,
         workSlotId: sourceLease.workSlotId,
-        manifestCanonicalJson: sourceLease.preparedManifestCanonicalJson,
-        manifestKey: sourceLease.preparedManifestKey,
         providerInvocationKey: sourceLease.providerInvocationKey,
+        observationId: "accepted-observation",
         providerVoteIdentityHash: sourceLease.providerVoteIdentityHash,
-      },
-    ]);
-    expect(d.executionQueries.findLease).toHaveBeenCalledWith(
-      sourceLease.leaseId,
-    );
-    expect(d.executions.invocationFlights.execute).not.toHaveBeenCalled();
-  });
+        attachmentKind: ReviewObservationAttachmentKind.FreshLease,
+        eligibilityPolicyVersion: reviewReuseEligibilityPolicyVersion,
+        reuseSafetyDecisionHash: null,
+        sourceExecutionId: sourceLease.executionId,
+        sourceLeaseId: sourceLease.leaseId,
+        sourceFencingToken: sourceLease.fencingToken,
+        payloadHash: hash("a"),
+        byteCount: 100,
+        findingCount: 0,
+        attachedAt: now,
+      };
+      const restored = {
+        ...snapshot,
+        observationRefs: [acceptedRef],
+        activeLeases: [],
+        execution: {
+          ...snapshot.execution,
+          ...(profile === "ordinary" ? ordinaryPlan.execution : {}),
+          workSlots: [
+            {
+              ...snapshot.execution.workSlots[0]!,
+              state: ReviewWorkSlotState.Satisfied,
+              acceptedObservationRefId: acceptedRef.observationRefId,
+            },
+          ],
+        },
+      };
+      const base = executionDependencies({
+        findExecution: async () => restored,
+        findLease: vi.fn(async () => sourceLease),
+      });
+      const d = {
+        ...base,
+        authorizations: {
+          resolveReviewRunAuthorizationToken: async () => ({
+            status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+            authorization:
+              profile === "lifecycle" ? lifecycleAuthorization() : authorization,
+          }),
+        },
+        executionQueries: {
+          ...base.executionQueries,
+          findStream: async () => restored.stream,
+        },
+      };
+      d.executions.startReviewExecution.execute = vi.fn(async () => ({
+        status: StartReviewExecutionStatus.Restored,
+        snapshot: restored,
+      }));
+      const handlers = createReviewActionV2ExecutionHandlers(d);
+      const response =
+        operation === "restore"
+          ? await handlers.restore.execute({
+              ...envelope("restore-accepted"),
+              authorizationToken: "authorization-token",
+              authorizationId: authorization.authorizationId,
+              reviewRevisionHash: authorization.reviewRevisionHash,
+            })
+          : await handlers.start.execute(
+              await startRequest({
+                assignmentManifestCanonicalJson:
+                  ordinaryPlan.execution.assignmentManifestCanonicalJson,
+                assignmentManifestHash:
+                  ordinaryPlan.execution.assignmentManifestHash,
+                planHash: ordinaryPlan.execution.planHash,
+                compatibilityKey: ordinaryPlan.execution.compatibilityKey,
+                workSlotsCanonicalJson: ordinaryPlan.workSlotsCanonicalJson,
+              }),
+            );
+      if (
+        !("executionCanonicalJson" in response.result) ||
+        typeof response.result.executionCanonicalJson !== "string"
+      )
+        throw new Error("restore missing");
+      const readback = JSON.parse(response.result.executionCanonicalJson);
+      expect(readback.persistedPlan.acceptedManifests).toEqual([
+        {
+          workSlotId: sourceLease.workSlotId,
+          manifestCanonicalJson: sourceLease.preparedManifestCanonicalJson,
+          manifestKey: sourceLease.preparedManifestKey,
+          providerInvocationKey: sourceLease.providerInvocationKey,
+          providerVoteIdentityHash: sourceLease.providerVoteIdentityHash,
+        },
+      ]);
+      expect(readback.persistedPlan.workSlots).toEqual(
+        restored.execution.workSlots,
+      );
+      if (profile === "ordinary") {
+        expect(readback.persistedPlan).toMatchObject(ordinaryPlan.execution);
+      }
+      expect(d.executionQueries.findLease).toHaveBeenCalledWith(
+        sourceLease.leaseId,
+      );
+      if (operation === "restore") {
+        expect(d.executions.startReviewExecution.execute).not.toHaveBeenCalled();
+      } else {
+        expect(response.result.status).toBe("restored");
+        expect(d.executions.startReviewExecution.execute).toHaveBeenCalledWith(
+          expect.objectContaining({
+            assignmentManifestCanonicalJson:
+              ordinaryPlan.execution.assignmentManifestCanonicalJson,
+            assignmentManifestHash: ordinaryPlan.execution.assignmentManifestHash,
+            planHash: ordinaryPlan.execution.planHash,
+          }),
+        );
+      }
+      expect(d.executions.invocationFlights.execute).not.toHaveBeenCalled();
+    },
+  );
 
   it("refuses enabled verifier work without its captured assignment plan before admission", async () => {
     const base = executionDependencies();
@@ -3531,11 +3641,60 @@ describe("Review Action v2 execution/evidence composition", () => {
   });
 });
 
+function ordinaryAssignmentPlan(
+  slots: ReviewExecutionSnapshot["execution"]["workSlots"],
+) {
+  const workSlots = slots.map((slot) => ({
+    workSlotId: slot.workSlotId,
+    taskKind: slot.taskKind,
+    providerKind: slot.providerKind,
+    providerVoteIdentityHash: slot.providerVoteIdentityHash,
+    shardKey: slot.shardKey,
+    required: slot.required,
+    attemptBudget: slot.attemptBudget,
+    retryPolicyVersion: slot.retryPolicyVersion,
+  }));
+  const assignmentManifestCanonicalJson = canonicalJson({
+    manifestVersion: 1,
+    assignments: slots.map((slot) => ({
+      workSlotId: slot.workSlotId,
+      paths: ["src/a.ts"],
+    })),
+    eligiblePaths: ["src/a.ts"],
+    uncoveredPaths: [],
+    excludedPaths: [],
+  });
+  const assignmentManifestHash = sha(
+    canonicalReviewAssignmentManifestHashPreimage(
+      assignmentManifestCanonicalJson,
+    ),
+  );
+  const compatibilityKey = hash("1");
+  return {
+    execution: {
+      assignmentManifestVersion: 1 as const,
+      assignmentManifestCanonicalJson,
+      assignmentManifestHash,
+      compatibilityKey,
+      planHash: sha(
+        canonicalReviewExecutionPlanHashPreimage({
+          assignmentManifestHash,
+          compatibilityKey,
+          reviewRevisionHash: authorization.reviewRevisionHash,
+          workSlots,
+        }),
+      ),
+    },
+    workSlotsCanonicalJson: canonicalJson(workSlots),
+  };
+}
+
 async function unattachedRestoreFixture(
   sourceChanges: Partial<ReviewInvocationLease> = {},
   slotChanges: Partial<
     ReviewExecutionSnapshot["execution"]["workSlots"][number]
   > = {},
+  manifestVersion: 1 | 2 = 2,
 ) {
   const f = await committedAdoptionFixture({
     state: ReviewInvocationLeaseState.Released,
@@ -3543,6 +3702,17 @@ async function unattachedRestoreFixture(
     ...sourceChanges,
   });
   const assignment = canonicalJson({ manifestVersion: 2 });
+  const workSlots = [
+    {
+      ...snapshot.execution.workSlots[0]!,
+      state: ReviewWorkSlotState.Exhausted,
+      attemptBudget: 1,
+      nextAttemptOrdinal: 2,
+      activeLeaseId: null,
+      acceptedObservationRefId: null,
+      ...slotChanges,
+    },
+  ];
   const restored: ReviewExecutionSnapshot = {
     ...snapshot,
     execution: {
@@ -3550,17 +3720,10 @@ async function unattachedRestoreFixture(
       assignmentManifestVersion: 2,
       assignmentManifestHash: sha(assignment),
       assignmentManifestCanonicalJson: assignment,
-      workSlots: [
-        {
-          ...snapshot.execution.workSlots[0]!,
-          state: ReviewWorkSlotState.Exhausted,
-          attemptBudget: 1,
-          nextAttemptOrdinal: 2,
-          activeLeaseId: null,
-          acceptedObservationRefId: null,
-          ...slotChanges,
-        },
-      ],
+      ...(manifestVersion === 1
+        ? ordinaryAssignmentPlan(workSlots).execution
+        : {}),
+      workSlots,
     },
   };
   const observation: ReviewObservation = {
@@ -3568,7 +3731,7 @@ async function unattachedRestoreFixture(
     sourceExecutionId: snapshot.execution.executionId,
     sourceWorkSlotId: "slot-1",
     sourceAuthorizationId: authorization.authorizationId,
-    sourcePlanHash: snapshot.execution.planHash,
+    sourcePlanHash: restored.execution.planHash,
     sourceRunId: snapshot.execution.sourceRunId,
     sourceRunAttempt: snapshot.execution.sourceRunAttempt,
     sourceFencingToken: "7",

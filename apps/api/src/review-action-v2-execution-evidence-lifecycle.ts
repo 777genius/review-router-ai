@@ -562,7 +562,9 @@ async function canonicalExecution(
     parseReviewRunRuntimeSnapshot(authorization.runtimeSnapshotCanonicalJson)
       ?.lifecycleVerificationCapability ||
     (e.assignmentManifestCanonicalJson &&
-      JSON.parse(e.assignmentManifestCanonicalJson).manifestVersion === 2)
+      [1, 2].includes(
+        JSON.parse(e.assignmentManifestCanonicalJson).manifestVersion,
+      ))
   ) {
     const accepted = await loadAcceptedReviewInvocationManifests(
       snapshot,
