@@ -16,11 +16,11 @@
 
 ## Environment status
 
-| Environment / target  | Status      | Actual deployed version / image | Last verified (UTC)  | Evidence / next step                                                                                         |
-| --------------------- | ----------- | ------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------ |
-| staging               | `pending`   | Not verified                    | Not verified         | Select the coherent source and execute the ordered rollout.                                                  |
-| production            | `installed` | RR `5ab12e2d79a2`               | 2026-11-27 03:20 UTC | Fleet and migrations installed; feature-specific live verification and public Action release remain pending. |
-| public Action runtime | `pending`   | Not verified                    | Not verified         | Artifact regenerated and locally qualified; release through the existing channel.                            |
+| Environment / target  | Status      | Actual deployed version / image               | Last verified (UTC)       | Evidence / next step                                                                                                                                                                                                                                |
+| --------------------- | ----------- | --------------------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| staging               | `pending`   | Not verified                                  | Not verified              | Select the coherent source and execute the ordered rollout.                                                                                                                                                                                         |
+| production            | `installed` | RR `6271ebe1f5e98bb376b4c7269394f806cb73041f` | 2026-11-27 (fleet record) | [Superseding fleet installation](2026-11-27-relay-stale-close-capability.md#production-installation-2026-11-27) records all four roles and no migration/grant changes. Feature-specific live verification and public Action release remain pending. |
+| public Action runtime | `pending`   | Not verified                                  | Not verified              | Artifact regenerated and locally qualified; release through the existing channel.                                                                                                                                                                   |
 
 `pending` records no verified completion; it does not claim the change is absent.
 Local fixtures, a merged PR and green CI are separate from deployed behavior.
