@@ -1,0 +1,245 @@
+name: Account lifecycle native formatter output
+
+on:
+  push:
+    branches:
+      - qualification/account-lifecycle-native-format-3e14-20261128
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: account-lifecycle-native-format-3e14-20261128
+  cancel-in-progress: true
+
+jobs:
+  native-format:
+    name: Exact account lifecycle native formatter output
+    if: ${{ github.repository == '777genius/review-router-ai' && github.actor == '777genius' }}
+    runs-on: ${{ vars.CI_STATIC_CHECKS_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 15
+    env:
+      RR_FORMAT_SUBJECT_SHA: 3e14f7fa2ec00915bef28ed8a19ca69d7dfc17db
+      RR_FORMAT_SUBJECT_TREE: a9cc230ff200d30ad25e0c8fe4ab4bf74ba5b507
+      RR_FORMAT_SUBJECT_LOCK: 2aa3a8d6ffbcc49dc9577ccc55f5c28e1a290bcc
+      RR_FORMAT_SUBJECT_PATH: apps/web/app/dashboard/account-lifecycle-controls.test.tsx
+      RR_FORMAT_SUBJECT_BLOB: b08f636b257abf9381602d7076d38d44e9cd621b
+      RR_FORMAT_CONFIG_BLOB: 193224fbd182f98ba39e8b8079519f46a5737c3c
+      RR_FORMAT_IGNORE_BLOB: 7f89cd15c12630fd7e8e93c5bbd86076febdedd7
+      RR_FORMAT_WRAPPER_BLOB: 8cb92e4fefa82d80229bd1580b68baf994b67065
+      RR_FORMAT_GUARD_BLOB: 69c0cf5f23c9d8b238b85f6eb2428dd497885be8
+    steps:
+      - name: Checkout the immutable reviewed subject
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 3e14f7fa2ec00915bef28ed8a19ca69d7dfc17db
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "26.11.1"
+
+      - name: Bind source and evidence directory
+        id: evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RR_FORMAT_SUBJECT_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$RR_FORMAT_SUBJECT_TREE"
+          test "$(git rev-parse HEAD:pnpm-lock.yaml)" = "$RR_FORMAT_SUBJECT_LOCK"
+          test "$(git rev-parse "HEAD:$RR_FORMAT_SUBJECT_PATH")" = "$RR_FORMAT_SUBJECT_BLOB"
+          test "$(git rev-parse HEAD:.prettierrc.json)" = "$RR_FORMAT_CONFIG_BLOB"
+          test "$(git rev-parse HEAD:.prettierignore)" = "$RR_FORMAT_IGNORE_BLOB"
+          test "$(git rev-parse HEAD:scripts/local-checks/lint-format-native.ts)" = "$RR_FORMAT_WRAPPER_BLOB"
+          test "$(git rev-parse HEAD:scripts/local-checks/lint-format-native-load-guard.ts)" = "$RR_FORMAT_GUARD_BLOB"
+          git diff --exit-code HEAD --
+          test -z "$(git ls-files --others --exclude-standard)"
+          qualification_directory="$RUNNER_TEMP/account-lifecycle-native-format-3e14"
+          mkdir -p "$qualification_directory"
+          printf 'RR_FORMAT_DIRECTORY=%s\n' "$qualification_directory" >> "$GITHUB_ENV"
+          printf 'directory=%s\n' "$qualification_directory" >> "$GITHUB_OUTPUT"
+          git show -s --format='commit=%H%ntree=%T' HEAD > "$qualification_directory/source.txt"
+          printf 'lock=%s\nworkflow=%s\n' "$RR_FORMAT_SUBJECT_LOCK" "$GITHUB_SHA" >> "$qualification_directory/source.txt"
+
+      - name: Verify the current PR still owns this exact source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import assert from "node:assert/strict";
+          import { writeFileSync } from "node:fs";
+          import { join } from "node:path";
+          assert(process.env.GH_TOKEN, "read-only GitHub token is unavailable");
+          const response = await fetch("https://api.github.com/repos/777genius/review-router-ai/pulls/1021", {
+            redirect: "error",
+            headers: {
+              Accept: "application/vnd.github+json",
+              Authorization: "Bearer " + process.env.GH_TOKEN,
+              "X-GitHub-Api-Version": "2022-11-28",
+            },
+          });
+          assert.equal(response.status, 200, "cannot verify the current PR head");
+          const pr = await response.json();
+          assert.equal(pr.state, "open");
+          assert.equal(pr.head.sha, process.env.RR_FORMAT_SUBJECT_SHA);
+          assert.equal(pr.head.repo.full_name, "777genius/review-router-ai");
+          assert.equal(pr.user.login, "777genius");
+          writeFileSync(join(process.env.RR_FORMAT_DIRECTORY, "pull-request-head.json"),
+            JSON.stringify({ number: pr.number, state: pr.state, head: pr.head.sha, repository: pr.head.repo.full_name }, null, 2) + "\n");
+          NODE
+
+      - name: Install pinned pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+
+      - name: Install the stock frozen dependency graph
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+
+      - name: Verify the actual toolchain and unchanged source
+        id: prepare
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = v26.11.1
+          test "$(pnpm --version)" = 11.28.7
+          test "$(pnpm exec prettier --version)" = 3.8.3
+          node --input-type=module - <<'NODE'
+          import assert from "node:assert/strict";
+          import { readFileSync, writeFileSync } from "node:fs";
+          import { join } from "node:path";
+          const prettier = JSON.parse(readFileSync("node_modules/prettier/package.json", "utf8"));
+          const plugin = JSON.parse(readFileSync("node_modules/@prettier/plugin-oxc/package.json", "utf8"));
+          assert.equal(prettier.name, "prettier");
+          assert.equal(prettier.version, "3.8.3");
+          assert.equal(plugin.name, "@prettier/plugin-oxc");
+          assert.equal(plugin.version, "0.2.4");
+          writeFileSync(join(process.env.RR_FORMAT_DIRECTORY, "toolchain.json"),
+            JSON.stringify({ node: process.version, prettier: prettier.version, plugin: plugin.version }, null, 2) + "\n");
+          NODE
+          {
+            node --version
+            pnpm --version
+            pnpm exec prettier --version
+          } >> "$RR_FORMAT_DIRECTORY/source.txt"
+          test "$(git rev-parse HEAD)" = "$RR_FORMAT_SUBJECT_SHA"
+          git diff --exit-code HEAD --
+          test -z "$(git ls-files --others --exclude-standard)"
+
+      - name: Produce and verify exact official formatter bytes
+        id: format
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/scripts/local-checks/lint-format-native-load-guard.ts
+          REVIEWROUTER_NATIVE_FORMAT_AUDIT: ${{ runner.temp }}/account-lifecycle-native-format-3e14/native-format-audit.jsonl
+        shell: bash
+        run: |
+          set -euo pipefail
+          subject_paths=("$RR_FORMAT_SUBJECT_PATH")
+          source_config="$GITHUB_WORKSPACE/.prettierrc.json"
+          source_ignore="$GITHUB_WORKSPACE/.prettierignore"
+          original_status=0
+          pnpm exec prettier --config "$source_config" --ignore-path "$source_ignore" --check "${subject_paths[@]}" \
+            2>&1 | tee "$RR_FORMAT_DIRECTORY/original-check.log" || original_status=$?
+          if [[ "$original_status" -gt 1 ]]; then exit "$original_status"; fi
+          formatted_paths=()
+          for subject_path in "${subject_paths[@]}"; do
+            output="$RR_FORMAT_DIRECTORY/formatted/$subject_path"
+            mkdir -p "$(dirname "$output")"
+            pnpm exec prettier --config "$source_config" --ignore-path "$source_ignore" "$subject_path" > "$output"
+            test -s "$output"
+            pnpm exec prettier --config "$source_config" --stdin-filepath "$subject_path" < "$output" > "$RR_FORMAT_DIRECTORY/reformatted.tsx"
+            cmp -- "$output" "$RR_FORMAT_DIRECTORY/reformatted.tsx"
+            formatted_paths+=("$output")
+          done
+          # The explicit second formatting pass above proves byte idempotence.
+          pnpm exec prettier --config "$source_config" --ignore-path "$source_ignore" --check "${formatted_paths[@]}" \
+            2>&1 | tee "$RR_FORMAT_DIRECTORY/output-check.log"
+          RR_FORMAT_ORIGINAL_STATUS="$original_status" node --input-type=module - <<'NODE'
+          import assert from "node:assert/strict";
+          import { createHash } from "node:crypto";
+          import { execFileSync } from "node:child_process";
+          import { readFileSync, writeFileSync } from "node:fs";
+          import { join } from "node:path";
+          const directory = process.env.RR_FORMAT_DIRECTORY;
+          const expected = [{"path":"apps/web/app/dashboard/account-lifecycle-controls.test.tsx","originalGitBlob":"b08f636b257abf9381602d7076d38d44e9cd621b"}];
+          const audit = readFileSync(process.env.REVIEWROUTER_NATIVE_FORMAT_AUDIT, "utf8")
+            .trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
+          assert(audit.some(event => event.event === "guard-installed" && event.nodeVersion === "v26.11.1"),
+            "native load guard did not start on the pinned Node");
+          assert(audit.some(event => event.event === "formatter-module" &&
+            typeof event.url === "string" && event.url.includes("@prettier/plugin-oxc")),
+            "native OXC formatter was not observed");
+          assert(audit.every(event => event.event !== "blocked-before-initialization"),
+            "a prohibited parser or compiler was requested");
+          const blobHash = bytes => createHash("sha1")
+            .update("blob " + bytes.length + "\0").update(bytes).digest("hex");
+          const records = expected.map(({ path, originalGitBlob }) => {
+            const original = readFileSync(path);
+            assert.equal(blobHash(original), originalGitBlob, "original file changed: " + path);
+            const outputPath = join(directory, "formatted", path);
+            const formatted = readFileSync(outputPath);
+            assert.equal(Buffer.from(formatted.toString("utf8"), "utf8").compare(formatted), 0,
+              "formatter output is not exact UTF-8");
+            const formattedGitBlob = execFileSync("git", ["hash-object", outputPath], { encoding: "utf8" }).trim();
+            assert.equal(blobHash(formatted), formattedGitBlob);
+            return {
+              path, originalGitBlob, formattedGitBlob,
+              formattedSha256: createHash("sha256").update(formatted).digest("hex"),
+              formattedBytes: formatted.length,
+              changed: originalGitBlob !== formattedGitBlob,
+              encoding: "base64",
+              contentBase64: formatted.toString("base64"),
+            };
+          });
+          const serialized = records.map(record => JSON.stringify(record));
+          const logBytes = serialized.reduce((sum, record) => sum + Buffer.byteLength("RR_NATIVE_FORMAT_OUTPUT " + record + "\n"), 0);
+          assert(logBytes < 128 * 1024, "formatter output record exceeds the 128 KiB log bound");
+          writeFileSync(join(directory, "formatted-records.json"), JSON.stringify(records, null, 2) + "\n");
+          writeFileSync(join(directory, "summary.json"), JSON.stringify({
+            source: process.env.RR_FORMAT_SUBJECT_SHA,
+            tree: process.env.RR_FORMAT_SUBJECT_TREE,
+            lock: process.env.RR_FORMAT_SUBJECT_LOCK,
+            originalCheckExitCode: Number(process.env.RR_FORMAT_ORIGINAL_STATUS),
+            outputCheck: "passed",
+            nativeGuard: "passed",
+            targetInputsUnchanged: true,
+            idempotence: "passed",
+            configuration: {
+              config: process.env.RR_FORMAT_CONFIG_BLOB,
+              ignore: process.env.RR_FORMAT_IGNORE_BLOB,
+              wrapper: process.env.RR_FORMAT_WRAPPER_BLOB,
+              guard: process.env.RR_FORMAT_GUARD_BLOB,
+            },
+            recordCount: records.length,
+            logBytes,
+          }, null, 2) + "\n");
+          for (const record of serialized) console.log("RR_NATIVE_FORMAT_OUTPUT " + record);
+          NODE
+          git diff --exit-code HEAD --
+          test -z "$(git ls-files --others --exclude-standard)"
+          printf 'original_check_exit=%s\n' "$original_status" >> "$GITHUB_OUTPUT"
+          # Keep an actual baseline format failure visible after preserving its repair bytes.
+          exit "$original_status"
+
+      - name: Verify the final source identity
+        if: ${{ always() && steps.evidence.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RR_FORMAT_SUBJECT_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$RR_FORMAT_SUBJECT_TREE"
+          git diff --exit-code HEAD --
+          test -z "$(git ls-files --others --exclude-standard)"
+
+      - name: Preserve source binding and exact formatter output
+        if: ${{ always() && steps.evidence.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: account-lifecycle-native-format-3e14-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.evidence.outputs.directory }}/
+          if-no-files-found: error
+          retention-days: 7
