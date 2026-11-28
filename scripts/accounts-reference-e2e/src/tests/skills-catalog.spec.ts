@@ -168,23 +168,45 @@ async function loseCommittedReply(
       actionId: request.headers()["next-action"]!,
     });
     if (lost) return route.fallback();
-    const response = await route.fetch();
-    expect(response.ok()).toBe(true);
-    if (method === "requestScan") {
-      expect(
-        await sql(
-          `SELECT id FROM "ReviewSkillScan" WHERE "workspaceId"=$1 AND "actorUserId"=$2 AND "operationId"=$3`,
-          [workspaceId, viewerId, command.input.operationId],
-        ),
-      ).toHaveLength(1);
-    } else if (method === "importCandidate") {
-      const saved = await sql<{ importedSkillId: string | null }>(
-        `SELECT "importedSkillId" FROM "ReviewSkillImportCandidate" WHERE id=$1`,
-        [command.input.candidateId],
-      );
-      expect(saved[0]?.importedSkillId).toBeTruthy();
+    try {
+      // Close forwarded connections before intentionally dropping their replies.
+      // Keep transport failures fatal; never replay a mutation in this probe.
+      const response = await route.fetch({
+        headers: { ...request.headers(), connection: "close" },
+        maxRetries: 0,
+      });
+      expect(response.ok()).toBe(true);
+      if (method === "requestScan") {
+        expect(
+          await sql(
+            `SELECT id FROM "ReviewSkillScan" WHERE "workspaceId"=$1 AND "actorUserId"=$2 AND "operationId"=$3`,
+            [workspaceId, viewerId, command.input.operationId],
+          ),
+        ).toHaveLength(1);
+      } else if (method === "importCandidate") {
+        const saved = await sql<{ importedSkillId: string | null }>(
+          `SELECT "importedSkillId" FROM "ReviewSkillImportCandidate" WHERE id=$1`,
+          [command.input.candidateId],
+        );
+        expect(saved[0]?.importedSkillId).toBeTruthy();
+      }
+      lost = true;
+    } catch (error) {
+      const errors = [error];
+      try {
+        await route.abort("failed");
+      } catch (abortError) {
+        errors.push(abortError);
+      }
+      if (errors.length > 1) {
+        throw new AggregateError(
+          errors,
+          "Skill catalog reply probe failed and could not abort the browser request",
+          { cause: error },
+        );
+      }
+      throw error;
     }
-    lost = true;
     await route.abort("failed");
   });
   return commands;

@@ -111,7 +111,10 @@ describe("canonical release migration transition", () => {
         name !== "000162_inventory_ruleset_revisions" &&
         name !== "000163_usage_retention_index" &&
         name !== "000164_ruleset_create_uncertainty" &&
-        name !== "000165_attested_model_request_retry",
+        name !== "000165_attested_model_request_retry" &&
+        name !== "000165_webhook_effect_fence" &&
+        name !== "000167_webhook_recovery_intent" &&
+        name !== "000168_webhook_receipt_order_indexes",
     );
     const checkout161 = names.map((migrationName) => ({
       migrationName,
@@ -460,6 +463,9 @@ describe("canonical release migration transition", () => {
           row.migrationName !== "000163_usage_retention_index" &&
           row.migrationName !== "000164_ruleset_create_uncertainty" &&
           row.migrationName !== "000165_attested_model_request_retry" &&
+          row.migrationName !== "000165_webhook_effect_fence" &&
+          row.migrationName !== "000167_webhook_recovery_intent" &&
+          row.migrationName !== "000168_webhook_receipt_order_indexes" &&
           row.migrationName !== "000156_verified_thread_reply",
       ),
     );

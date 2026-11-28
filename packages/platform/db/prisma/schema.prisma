@@ -3297,10 +3297,24 @@ model GitHubWebhookDelivery {
   receivedAt      DateTime              @default(now())
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @default(now()) @updatedAt
+  fence           GitHubWebhookFence?
 
   @@index([eventName, createdAt])
   @@index([installationId])
   @@index([status, receivedAt])
+}
+
+// Preparation for effect-level fencing. A fence row is created only by the
+// new protocol; its absence must never authorize takeover of legacy processing.
+model GitHubWebhookFence {
+  deliveryId String                @id
+  ownerHash  String
+  appIdentityHash String
+  generation BigInt
+  leaseUntil DateTime              @db.Timestamptz(3)
+  effectTransactionId BigInt?
+  signatureHash String?
+  delivery   GitHubWebhookDelivery @relation(fields: [deliveryId], references: [deliveryId], onDelete: Cascade)
 }
 
 model OutboxEvent {
@@ -5144,4 +5158,20 @@ model ReviewHistoryRun {
 
   @@unique([workspaceId, scmRepositoryIdentityId, pullRequestNumber, runSequence])
   @@index([workspaceId, pullRequestId, runSequence])
+}
+
+// Draft recovery custody only. No automatic GitHub redelivery is enabled.
+model GitHubWebhookRecoveryIntent {
+  appIdentityHash String
+  deliveryGuid String
+  githubDeliveryId BigInt
+  eventName String
+  action String?
+  installationId BigInt?
+  payloadHash String
+  state String @default("prepared")
+  attemptHash String?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @db.Timestamptz(3)
+  @@id([appIdentityHash, deliveryGuid])
 }

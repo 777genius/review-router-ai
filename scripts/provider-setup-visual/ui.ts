@@ -133,12 +133,10 @@ export function selectField(container: Locator, label: string): Locator {
 
 export const CREDENTIAL_SOURCE_LABEL = "Provider";
 
-/** Reveals the provider cards of the new-provider form. Connection dialogs
- * keep their separate Provider select and do not use this helper. */
-export async function openSourceList(
-  _page: Page,
-  dialog: Locator,
-): Promise<Locator> {
+/** Reveals the inline provider cards of a new provider. */
+export async function showSourceChoices(dialog: Locator): Promise<Locator> {
+  // Repository setup also has a Provider group for existing profiles. The
+  // catalog's own heading identifies the section for a new provider.
   const choices = dialog
     .getByRole("heading", { name: CREDENTIAL_SOURCE_LABEL, exact: true })
     .locator("..")
@@ -147,6 +145,7 @@ export async function openSourceList(
       exact: true,
     });
   await choices.waitFor({ state: "visible" });
+  await choices.scrollIntoViewIfNeeded();
   return choices;
 }
 
@@ -155,17 +154,21 @@ export async function chooseSource(
   dialog: Locator,
   title: RegExp,
 ): Promise<void> {
-  const choices = await openSourceList(page, dialog);
+  const choices = await showSourceChoices(dialog);
   const choice = choices.getByRole("radio", { name: title });
   if (!(await choice.isEnabled())) throw new Error("provider_choice_disabled");
-  // ProviderCards hides its radio; choose the visible label as a user does.
-  await choices.getByText(title).click();
+  // ProviderCards visually hides each radio; its visible label is the target
+  // a user clicks. Match the radio's title, excluding badges and descriptions.
+  await choices
+    .locator("label")
+    .filter({ has: page.getByRole("radio", { name: title }) })
+    .click();
   await choices
     .getByRole("radio", { name: title, checked: true })
     .waitFor({ state: "attached" });
 }
 
-/** Visible provider-card titles; a vendor name can identify another provider. */
+/** Provider titles as `ProviderCards` renders them. */
 export const SOURCE = {
   claudeSecret: /^Claude Code$/,
   mimoSecret: /^MiMo Token Plan/,

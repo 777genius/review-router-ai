@@ -1098,7 +1098,7 @@ describe("repository webhook guard boundaries", () => {
       );
       expect(f.prisma.$transaction).toHaveBeenCalledTimes(2);
       expect(f.prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
-        isolationLevel: "Serializable",
+        isolationLevel: "ReadCommitted",
       });
       if (action === "deleted") {
         expect(

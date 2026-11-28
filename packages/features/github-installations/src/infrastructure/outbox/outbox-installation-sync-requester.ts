@@ -17,7 +17,9 @@ export function installationSyncAggregateId(
 }
 
 export class OutboxInstallationSyncRequester implements InstallationSyncRequestPort {
-  constructor(private readonly outbox: OutboxEventRepositoryPort) {}
+  constructor(
+    private readonly outbox: Pick<OutboxEventRepositoryPort, "enqueue">,
+  ) {}
 
   async requestInstallationSync(
     input: InstallationSyncRequest,
