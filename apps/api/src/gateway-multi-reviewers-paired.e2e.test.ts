@@ -447,6 +447,86 @@ const profileId = "openrouter-openai-responses-apikey-v1";
       });
       await registerReviewRunSkillsRoute(app, fixture.routes.reviewSkills!);
       if (acceptedRecovery) {
+        // Keep private handler details inside this disposable E2E fixture.
+        // The public API intentionally maps unexpected failures to a generic
+        // 500; expose the exact cause only if this qualification fails.
+        // Capture safe route-level diagnostics too: a response serializer or
+        // schema-binding error can occur after execute() returns successfully.
+        // Never record tokens, request bodies, or raw capabilities.
+        const executionRoutes = fixture.routes.execution;
+        Object.defineProperty(executionRoutes, "recordProtocolRejection", {
+          configurable: true,
+          value: (diagnostic: {
+            operationId: string;
+            internalFailureClass?: string;
+            internalFailureCode?: string;
+            internalFailureCauseCode?: string;
+            protocolErrorCode: string;
+            protocolIssues: readonly string[];
+          }) => {
+            if (diagnostic.operationId.includes("adopt")) {
+              errors.push({
+                adoptionProtocolFailure: {
+                  errorCode: diagnostic.protocolErrorCode,
+                  issues: diagnostic.protocolIssues,
+                  class: diagnostic.internalFailureClass,
+                  code: diagnostic.internalFailureCode,
+                  cause: diagnostic.internalFailureCauseCode,
+                },
+              });
+            }
+          },
+        });
+        const adopt = executionRoutes.adoptObservation!;
+        const executeAdopt = adopt.execute;
+        vi.spyOn(adopt, "execute").mockImplementation(async (request) => {
+          try {
+            return await executeAdopt(request);
+          } catch (error) {
+            // CI logs are public. Keep only known code slugs and source
+            // locations, never raw errors or request/provider contents.
+            const knownCode =
+              error instanceof Error &&
+              /^(?:review_execution|review_action_v2|adoption)_[a-z0-9_]{1,96}$/u.test(
+                error.message,
+              )
+                ? error.message
+                : undefined;
+            const rawPrismaCode =
+              error instanceof Error ? Reflect.get(error, "code") : undefined;
+            const prismaCode =
+              typeof rawPrismaCode === "string" &&
+              /^P\d{4}$/u.test(rawPrismaCode)
+                ? rawPrismaCode
+                : undefined;
+            const frames =
+              error instanceof Error
+                ? (error.stack ?? "")
+                    .split("\n")
+                    .slice(1, 9)
+                    .flatMap((line) => {
+                      const match = line.match(
+                        /\/(?<source>(?:apps|packages|scripts)\/[A-Za-z0-9._/-]+:\d+:\d+)/u,
+                      );
+                      return match?.groups?.source ? [match.groups.source] : [];
+                    })
+                : [];
+            errors.push({
+              adoptionHandlerClass:
+                error instanceof TypeError
+                  ? "TypeError"
+                  : error instanceof RangeError
+                    ? "RangeError"
+                    : error instanceof Error
+                      ? "Error"
+                      : "non_error_throwable",
+              adoptionHandlerSlug: knownCode,
+              adoptionHandlerCode: prismaCode,
+              adoptionHandlerFrames: frames,
+            });
+            throw error;
+          }
+        });
         const commit = fixture.routes.evidence.commit!;
         const executeCommit = commit.execute;
         vi.spyOn(commit, "execute").mockImplementation(async (request) => {
