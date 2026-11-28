@@ -12,13 +12,13 @@ permissions:
 
 concurrency:
   group: conflict173-a288-20261128
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   conflict-artifact:
     name: Exact a288 conflict runtime candidate
     if: ${{ github.repository == '777genius/review-router-ai' && github.actor == '777genius' && github.ref == 'refs/heads/qualification/conflict173-a288-20261128' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_STATIC_CHECKS_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 15
     env:
       RR_SUBJECT_SHA: a288164e5be74840a117a2ff2cd10ff675979f22
