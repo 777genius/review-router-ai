@@ -11,10 +11,12 @@ for current environment-specific status.
 
 - GitHub App installation, repository sync, setup PRs, review publication,
   repository health and audit views are implemented.
-- The provider catalog offers Codex subscription auth, Claude Code OAuth,
-  OpenRouter, Kimi Code and MiMo Token Plan. Supported authentication and model
-  options depend on the selected provider; OpenAI API-key contracts are not a
-  current Codex onboarding mode.
+- Direct CI review workflows offer specific Codex subscription, Claude Code,
+  OpenRouter, Kimi Code and MiMo Token Plan authentication. Separately, the
+  managed Native/Gateway catalog implements additional provider/method
+  profiles, including direct OpenAI API keys (not Codex subscription auth).
+  These methods must be mounted and permitted by the deployment; see the
+  [provider connection matrix](./provider-connections.md).
 - Reviews support multiple providers, configurable parallelism and an agreement
   threshold for inline comments. Model, effort, language, comment and severity
   settings can inherit workspace defaults or be overridden per repository.
