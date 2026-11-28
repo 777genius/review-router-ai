@@ -87,7 +87,11 @@ describe("production Skills repository proof adapter", () => {
       repository("repo-read"),
     ]);
     h.identity.mockResolvedValue({
-      user: { id: actor.userId, githubUserId: 123n, githubLogin: "synthetic-user" },
+      user: {
+        id: actor.userId,
+        githubUserId: 123n,
+        githubLogin: "synthetic-user",
+      },
     });
     h.session.mockResolvedValue({
       user: {

@@ -12,36 +12,36 @@ account** shows the connection options actually available to you.
 
 ## Claude and Gemini
 
-| Provider | How to connect | Notes |
-| --- | --- | --- |
-| <img src="../apps/web/public/provider-logos/claude.svg" width="20" height="20" alt="" /> **Claude (Anthropic)** | API key; browser sign-in (OAuth); sign-in via session key; setup token via code or cookie | Subscription sign-in requires the corresponding provider authorization. |
-| <img src="../apps/web/public/provider-logos/bedrock.svg" width="20" height="20" alt="" /> **Claude on Amazon Bedrock** | AWS access credentials (including temporary sessions); Bedrock API key | AWS region must be configured. |
-| <img src="../apps/web/public/provider-logos/vertexai.svg" width="20" height="20" alt="" /> **Claude on Google Vertex AI** | Google Cloud service-account JSON | Google project and region are required. |
-| <img src="../apps/web/public/provider-logos/gemini.svg" width="20" height="20" alt="" /> **Gemini (Google)** | API key; Google One, Code Assist or AI Studio account sign-in | AI Studio requires a configured OAuth client. |
-| <img src="../apps/web/public/provider-logos/vertexai.svg" width="20" height="20" alt="" /> **Gemini on Vertex AI** | Google Cloud service-account JSON; Vertex API key (project/region or supported express mode) | Express mode depends on the connected profile. |
+| Provider                                                                                                                  | How to connect                                                                               | Notes                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| <img src="../apps/web/public/provider-logos/claude.svg" width="20" height="20" alt="" /> **Claude (Anthropic)**           | API key; browser sign-in (OAuth); sign-in via session key; setup token via code or cookie    | Subscription sign-in requires the corresponding provider authorization. |
+| <img src="../apps/web/public/provider-logos/bedrock.svg" width="20" height="20" alt="" /> **Claude on Amazon Bedrock**    | AWS access credentials (including temporary sessions); Bedrock API key                       | AWS region must be configured.                                          |
+| <img src="../apps/web/public/provider-logos/vertexai.svg" width="20" height="20" alt="" /> **Claude on Google Vertex AI** | Google Cloud service-account JSON                                                            | Google project and region are required.                                 |
+| <img src="../apps/web/public/provider-logos/gemini.svg" width="20" height="20" alt="" /> **Gemini (Google)**              | API key; Google One, Code Assist or AI Studio account sign-in                                | AI Studio requires a configured OAuth client.                           |
+| <img src="../apps/web/public/provider-logos/vertexai.svg" width="20" height="20" alt="" /> **Gemini on Vertex AI**        | Google Cloud service-account JSON; Vertex API key (project/region or supported express mode) | Express mode depends on the connected profile.                          |
 
 ## OpenAI, Codex and other subscriptions
 
-| Provider | How to connect | Notes |
-| --- | --- | --- |
-| <img src="../apps/web/public/provider-logos/openai.svg" width="20" height="20" alt="" /> **OpenAI API** | OpenAI API key | API billing is separate from a Codex subscription. |
-| <img src="../apps/web/public/provider-logos/codex.svg" width="20" height="20" alt="" /> **Codex** | Browser or device sign-in; import refresh token, mobile refresh token, `auth.json` or Codex session; Agent Identity; personal access token (PAT) | Imported sessions have different refresh and expiry behavior. |
-| <img src="../apps/web/public/provider-logos/grok.svg" width="20" height="20" alt="" /> **Grok** | API key; browser sign-in; refresh-token import; SSO import | Subscription and SSO options need the corresponding native configuration. |
-| <img src="../apps/web/public/provider-logos/antigravity.svg" width="20" height="20" alt="" /> **Antigravity** | Browser sign-in; refresh-token import; API key for an approved endpoint | The endpoint must be permitted by the operator. |
-| <img src="../apps/web/public/provider-logos/kimi.svg" width="20" height="20" alt="" /> **Kimi** | Pay-as-you-go API key; Kimi Code plan API key | Choose the account type that matches your plan. |
-| <img src="../apps/web/public/provider-logos/glm.svg" width="20" height="20" alt="" /> **GLM** | Pay-as-you-go API key; GLM Coding Plan API key | Organization or project details can be required. |
-| <img src="../apps/web/public/provider-logos/minimax.svg" width="20" height="20" alt="" /> **MiniMax** | Pay-as-you-go API key; MiniMax M Plan API key | Different plans use different connection profiles. |
+| Provider                                                                                                      | How to connect                                                                                                                                   | Notes                                                                     |
+| ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| <img src="../apps/web/public/provider-logos/openai.svg" width="20" height="20" alt="" /> **OpenAI API**       | OpenAI API key                                                                                                                                   | API billing is separate from a Codex subscription.                        |
+| <img src="../apps/web/public/provider-logos/codex.svg" width="20" height="20" alt="" /> **Codex**             | Browser or device sign-in; import refresh token, mobile refresh token, `auth.json` or Codex session; Agent Identity; personal access token (PAT) | Imported sessions have different refresh and expiry behavior.             |
+| <img src="../apps/web/public/provider-logos/grok.svg" width="20" height="20" alt="" /> **Grok**               | API key; browser sign-in; refresh-token import; SSO import                                                                                       | Subscription and SSO options need the corresponding native configuration. |
+| <img src="../apps/web/public/provider-logos/antigravity.svg" width="20" height="20" alt="" /> **Antigravity** | Browser sign-in; refresh-token import; API key for an approved endpoint                                                                          | The endpoint must be permitted by the operator.                           |
+| <img src="../apps/web/public/provider-logos/kimi.svg" width="20" height="20" alt="" /> **Kimi**               | Pay-as-you-go API key; Kimi Code plan API key                                                                                                    | Choose the account type that matches your plan.                           |
+| <img src="../apps/web/public/provider-logos/glm.svg" width="20" height="20" alt="" /> **GLM**                 | Pay-as-you-go API key; GLM Coding Plan API key                                                                                                   | Organization or project details can be required.                          |
+| <img src="../apps/web/public/provider-logos/minimax.svg" width="20" height="20" alt="" /> **MiniMax**         | Pay-as-you-go API key; MiniMax M Plan API key                                                                                                    | Different plans use different connection profiles.                        |
 
 ## Other API-key providers
 
-| Provider | How to connect |
-| --- | --- |
-| <img src="../apps/web/public/provider-logos/deepseek.svg" width="20" height="20" alt="" /> **DeepSeek** | API key |
+| Provider                                                                                                         | How to connect                   |
+| ---------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| <img src="../apps/web/public/provider-logos/deepseek.svg" width="20" height="20" alt="" /> **DeepSeek**          | API key                          |
 | <img src="../apps/web/public/provider-logos/opencode.svg" width="20" height="20" alt="" /> **OpenCode Go / Zen** | Separate API keys for Go and Zen |
-| <img src="../apps/web/public/provider-logos/commandcode.svg" width="20" height="20" alt="" /> **Command Code** | API key |
-| <img src="../apps/web/public/provider-logos/cline.svg" width="20" height="20" alt="" /> **Cline** | API key |
-| <img src="../apps/web/public/provider-logos/openrouter.svg" width="20" height="20" alt="" /> **OpenRouter** | API key |
-| <img src="../apps/web/public/provider-logos/nvidia.svg" width="20" height="20" alt="" /> **NVIDIA Build** | API key |
+| <img src="../apps/web/public/provider-logos/commandcode.svg" width="20" height="20" alt="" /> **Command Code**   | API key                          |
+| <img src="../apps/web/public/provider-logos/cline.svg" width="20" height="20" alt="" /> **Cline**                | API key                          |
+| <img src="../apps/web/public/provider-logos/openrouter.svg" width="20" height="20" alt="" /> **OpenRouter**      | API key                          |
+| <img src="../apps/web/public/provider-logos/nvidia.svg" width="20" height="20" alt="" /> **NVIDIA Build**        | API key                          |
 
 <img src="../apps/web/public/provider-logos/mimo.svg" width="20" height="20" alt="" /> **MiMo Token Plan** also supports a Token Plan API key through ReviewRouter's
 existing connection path. It is maintained separately from the native provider

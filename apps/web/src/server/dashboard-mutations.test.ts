@@ -114,9 +114,9 @@ describe("dashboard repository mutations", () => {
         }),
       },
     });
-    mocks.assertWorkspaceMutationAllowed.mockReset().mockRejectedValue(
-      new Error("workspace_mutation_forbidden:missing_role"),
-    );
+    mocks.assertWorkspaceMutationAllowed
+      .mockReset()
+      .mockRejectedValue(new Error("workspace_mutation_forbidden:missing_role"));
     mocks.updateRepositoryPermissionCacheFromLiveCheck.mockResolvedValue(true);
     mocks.readGitHubUserAuthorizationAuthority.mockResolvedValue({
       appSlug: "reviewrouter-test",
@@ -572,10 +572,18 @@ describe("dashboard repository mutations", () => {
       },
     };
     const defaultRead = vi.fn().mockResolvedValue({
-      user: { id: "default-user", githubUserId: 123n, githubLogin: "maintainer" },
+      user: {
+        id: "default-user",
+        githubUserId: 123n,
+        githubLogin: "maintainer",
+      },
     });
     const transactionRead = vi.fn().mockResolvedValue({
-      user: { id: "transaction-user", githubUserId: 123n, githubLogin: "maintainer" },
+      user: {
+        id: "transaction-user",
+        githubUserId: 123n,
+        githubLogin: "maintainer",
+      },
     });
     mocks.getPrisma.mockReturnValue({
       userExternalIdentity: { findUnique: defaultRead },
