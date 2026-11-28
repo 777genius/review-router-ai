@@ -450,6 +450,32 @@ const profileId = "openrouter-openai-responses-apikey-v1";
         // Keep private handler details inside this disposable E2E fixture.
         // The public API intentionally maps unexpected failures to a generic
         // 500; expose the exact cause only if this qualification fails.
+        // Capture safe route-level diagnostics too: a response serializer or
+        // schema-binding error can occur after execute() returns successfully.
+        // Never record tokens, request bodies, or raw capabilities.
+        Object.defineProperty(fixture.routes.execution, "recordProtocolRejection", {
+          configurable: true,
+          value: (diagnostic: {
+            operationId: string;
+            internalFailureClass?: string;
+            internalFailureCode?: string;
+            internalFailureCauseCode?: string;
+            protocolErrorCode: string;
+            protocolIssues: readonly string[];
+          }) => {
+            if (diagnostic.operationId.includes("adopt")) {
+              errors.push({
+                adoptionProtocolFailure: {
+                  errorCode: diagnostic.protocolErrorCode,
+                  issues: diagnostic.protocolIssues,
+                  class: diagnostic.internalFailureClass,
+                  code: diagnostic.internalFailureCode,
+                  cause: diagnostic.internalFailureCauseCode,
+                },
+              });
+            }
+          },
+        });
         const adopt = fixture.routes.execution.adoptObservation!;
         const executeAdopt = adopt.execute;
         vi.spyOn(adopt, "execute").mockImplementation(async (request) => {
