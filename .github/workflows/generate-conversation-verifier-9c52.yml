@@ -1,0 +1,215 @@
+name: Generate exact RR source artifacts
+
+on:
+  push:
+    branches: [qualification/conversation-verifier-9c52-20261128]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: conversation-verifier-9c52-20261128
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    if: ${{ github.repository == '777genius/review-router-ai' && github.actor == '777genius' && github.ref == 'refs/heads/qualification/conversation-verifier-9c52-20261128' }}
+    runs-on: ${{ vars.CI_STATIC_CHECKS_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: source
+    env:
+      CI: "true"
+      GOMAXPROCS: "2"
+      # Required only for the stock Prisma generate lifecycle; no database service runs.
+      DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/review_router_ci?schema=public"
+    steps:
+      - name: Checkout the exact reviewed source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: 9c52cb42a269b81be0a79e49e858348d461ed6d3
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify source and frozen lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 9c52cb42a269b81be0a79e49e858348d461ed6d3
+          test "$(git rev-parse 'HEAD^{tree}')" = 14699ec4ebbd8d538d0627954a55bd2024308eae
+          test "$(git hash-object -- pnpm-lock.yaml)" = d7fca2ff60cb5e9a6de06cc775ab4dfbf535f20a
+          git diff --exit-code HEAD --
+          test -z "$(git ls-files --others --exclude-standard)"
+      - name: Setup pinned Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "26.11.1"
+      - name: Install pinned pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - name: Install using the stock frozen workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = v26.11.1
+          test "$(pnpm --version)" = 11.28.7
+          node scripts/install-private-dependencies.mjs --frozen-lockfile
+          git diff --exit-code HEAD --
+          test -z "$(git ls-files --others --exclude-standard)"
+      - name: Generate, check and repeat the stock source generators
+        id: generate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/conversation-verifier-9c52"
+          node --input-type=module <<'NODE' 2>&1 | tee "$RUNNER_TEMP/conversation-verifier-9c52/generation.log"
+          import assert from "node:assert/strict";
+          import { execFileSync } from "node:child_process";
+          import { createHash } from "node:crypto";
+          import { lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+          import { createRequire } from "node:module";
+          import { dirname, join } from "node:path";
+          import { version as esbuildVersion } from "esbuild";
+
+          const sourceSha = "9c52cb42a269b81be0a79e49e858348d461ed6d3";
+          const sourceTree = "14699ec4ebbd8d538d0627954a55bd2024308eae";
+          const sourcePins = new Map([
+            [".node-version", "d8750199bbef3481a89eaf452088c384f4025508"],
+            ["package.json", "6f9bc20944432a7dd714ae48232fe79921eafbf1"],
+            ["pnpm-lock.yaml", "d7fca2ff60cb5e9a6de06cc775ab4dfbf535f20a"],
+            ["pnpm-workspace.yaml", "cb5055a8ed8eb8f245d654f23980dc1d04d2ccfc"],
+            ["scripts/install-private-dependencies.mjs", "f96efe1301a437fb955dae0d70f8f52daca1dec4"],
+            ["scripts/check-conversation-release-verifier.ts", "84e212c098ef05eafabca30089cc58629e77ff38"],
+            ["scripts/check-conversation-source-stamp.ts", "2cb23603e5f2318c7113b6c5a513f3c201225c62"],
+            ["deploy/self-hosted/conversation-verifier-entry.ts", "6c796fa239b050f51fe2efb24c1ef8f87aab5302"],
+            ["packages/platform/config/package.json", "d103cd6e91919ad17bbf3d0106f89ee8bb7ae4b5"],
+            ["packages/platform/config/src/conversation-qualification.ts", "84308d1620bf206c5e76e27cf6d42e3e4c8b6824"],
+            ["packages/platform/config/src/conversation-source-stamp.json", "cb4d0f72920199ef3dba04139af5638df95de85c"],
+            ["packages/platform/config/src/conversation-source-files.ts", "067ad5810559eb6b33af2bf437965856a689978e"],
+            ["packages/platform/config/src/conversation-sdk-identity.ts", "7c0e83aee8681ddcd21a95c8ce605a71f354641c"],
+            ["packages/features/conversations/src/application/process-conversation.ts", "919650b9571c575f1c7b2ecddfe69b976cb684f8"],
+            ["apps/api/src/action-conversation-memory-preview.ts", "f9ff256feb07b1442fa6b7553abc0b15e3a620e4"],
+            ["apps/api/src/action-conversation-policy.ts", "5b4b50427eeab8b962ad11614e2453e1375d18ca"],
+            ["apps/api/package.json", "8df5abce2854503a893c255ac5181552d0ff4021"],
+            ["vendor/account-gateway/native-request-retry-sdk-provenance.json", "8540ad34226f36e59224441e4c7856a33ef916ec"],
+            ["vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-parity-90739814c9e8.tgz", "c5dc6905feccb8d2cf9484635581ba93010d1416"],
+            ["action.yml", "c7cc098bacdacdead6427b906f1a6abe4b827a40"],
+            ["scripts/build-codex-rotating-action.mjs", "14231e208d3d634182e3a1d615d0c652a19c6a41"],
+            ["scripts/lib/codex-rotating-action-build.ts", "403759026849576b5a3f4533246dedaad5de2c49"],
+            ["scripts/codex-rotating-action-third-party-licenses.txt", "6277c7becc219392ff6e48c38cac2c3f3a3c453e"],
+            ["scripts/check-codex-rotating-action-artifact.mjs", "43e10185f1a97330c58d3521e933d7ef3afa45f9"],
+            ["scripts/build-conflict-runtime.ts", "ec0db2ee536a0f7159f50328429b266c3ec8b85a"],
+            ["scripts/local-checks/compiler-cli.ts", "f2efaf85ec75a659283d8960871724a9724ee3e4"],
+            ["scripts/local-checks/native/package.json", "5595f2bea88f5bb5e01c0f3f2978db964270a3d5"],
+            ["scripts/local-checks/native/pnpm-lock.yaml", "3b2f4766ba7b019a5e88f94d0fdf7a383028de0e"],
+            ["scripts/tsconfig/tsconfig.action-build.json", "c5dfc0b6b5589d32a0f0255d0fcd0ae9632a6905"],
+            ["tsconfig.base.json", "ceabce074be482116c817773da59252afc318284"],
+            ["packages/features/codex-oauth-rotating/src/action/github-action.ts", "a52587be7d3b5852ceaaf830f132d40e3fa88e21"],
+            ["packages/features/conflict-runtime/src/interface/cli/reviewrouter-conflict-runtime.ts", "98ce7e9e2623d15ded3cc595e27111673ac2f652"],
+            ["action-dist/codex/linux-x64/codex-linux-x64.tgz", "543e89e6f60ea2ce836b9e8c570d20ec3f34a228"],
+            ["action-dist/codex/linux-x64/manifest.json", "0ee106196748e24ba56a15e575e18e34bd247d8c"],
+          ]);
+          const originalOutputs = new Map([
+            ["deploy/self-hosted/conversation-verifier.mjs", "b665fc397a1056fad3b930113b6a401ed193abc0"],
+            ["deploy/self-hosted/conversation-verifier.d.mts", "e17236d30e8e21a1a44b8c33d46a68af33ddc2c8"],
+            ["deploy/self-hosted/conversation-verifier.inputs.json", "3317a1202f7b96f92cc70e0f30efc13a42a16243"],
+            ["deploy/self-hosted/conversation-verifier.NOTICE", "1a5180edbc1fbf493b8388feffea8919dea086ab"],
+            ["action-dist/index.cjs", "082084b8a842251418346f15cccb7cff0a9ae59d"],
+            ["action-dist/conflict-runtime.cjs", "dead8ff35c814668e7aa16a9720c5845c8c56f2e"],
+          ]);
+          const git = (...args) => execFileSync("git", args, { encoding: "utf8" }).trim();
+          const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
+          const outputDir = join(process.env.RUNNER_TEMP, "conversation-verifier-9c52");
+          const run = (...args) => execFileSync(process.execPath, args, { stdio: "inherit" });
+          const runPnpm = (script) => execFileSync("pnpm", [script], { stdio: "inherit" });
+          const sourceGuard = () => {
+            assert.equal(git("rev-parse", "HEAD"), sourceSha);
+            assert.equal(git("rev-parse", "HEAD^{tree}"), sourceTree);
+            for (const [file, blob] of sourcePins)
+              assert.equal(git("hash-object", "--", file), blob, file);
+            assert.equal(git("ls-files", "--others", "--exclude-standard"), "");
+            execFileSync("git", ["diff", "--cached", "--exit-code"], { stdio: "inherit" });
+            const changed = git("diff", "--name-only", "HEAD", "--").split("\n").filter(Boolean);
+            assert(changed.every((file) => originalOutputs.has(file)), changed.join(","));
+            return changed;
+          };
+          const bytesFor = (file) => {
+            const stat = lstatSync(file);
+            assert(stat.isFile() && !stat.isSymbolicLink(), file);
+            assert.equal(stat.mode & 0o111, 0, file);
+            return readFileSync(file);
+          };
+          assert.equal(sourceGuard().length, 0);
+          assert.equal(process.version, "v26.11.1");
+          const pnpmVersion = execFileSync("pnpm", ["--version"], { encoding: "utf8" }).trim();
+          assert.equal(pnpmVersion, "11.28.7");
+          assert.equal(esbuildVersion, "0.28.1");
+          for (const name of [
+            "REVIEWROUTER_CODEX_LINUX_X64_PACKAGE_TARBALL",
+            "REVIEWROUTER_CODEX_LINUX_X64_BINARY",
+            "REVIEWROUTER_CODEX_ROTATING_ACTION_REQUIRE_BINARY",
+          ]) assert.equal(process.env[name], undefined, "unexpected_build_override:" + name);
+          const nativeCompilerVersion = execFileSync(process.execPath,
+            ["scripts/local-checks/compiler-cli.ts", "--native", "--version"],
+            { encoding: "utf8" }).trim();
+          assert.equal(nativeCompilerVersion, "Version 7.0.2");
+          const requireConfig = createRequire(join(process.cwd(), "packages/platform/config/package.json"));
+          const zodPackage = requireConfig.resolve("zod/package.json");
+          const zodVersion = JSON.parse(readFileSync(zodPackage, "utf8")).version;
+          assert.equal(zodVersion, "4.6.7");
+          const before = [...originalOutputs].map(([file, blob]) => {
+            assert.equal(git("hash-object", "--", file), blob, file);
+            const bytes = bytesFor(file);
+            return { path: file, gitBlob: blob, sha256: digest(bytes), bytes: bytes.length, mode: "100644" };
+          });
+          run("scripts/check-conversation-source-stamp.ts", "--check");
+          run("scripts/check-conversation-release-verifier.ts", "--write");
+          run("scripts/check-conversation-release-verifier.ts", "--check");
+          runPnpm("action:build");
+          const first = new Map([...originalOutputs.keys()].map((file) => [file, bytesFor(file)]));
+          run("scripts/check-conversation-release-verifier.ts", "--write");
+          run("scripts/check-conversation-release-verifier.ts", "--check");
+          runPnpm("action:build");
+          runPnpm("action:artifact:check");
+          run("scripts/check-conversation-source-stamp.ts", "--check");
+          const changed = sourceGuard();
+          assert(changed.length > 0, "expected_stale_verifier_to_change");
+          const entries = [...originalOutputs].map(([file, originalGitBlob]) => {
+            const bytes = bytesFor(file);
+            assert(bytes.equals(first.get(file)), "non_idempotent_output:" + file);
+            const destination = join(outputDir, "files", file);
+            mkdirSync(dirname(destination), { recursive: true });
+            writeFileSync(destination, bytes, { mode: 0o644 });
+            return { path: file, originalGitBlob, generatedGitBlob: git("hash-object", "--", file),
+              sha256: digest(bytes), bytes: bytes.length, mode: "100644" };
+          });
+          const generatedInputs = JSON.parse(readFileSync("deploy/self-hosted/conversation-verifier.inputs.json", "utf8"));
+          assert.equal(generatedInputs.kind, "reviewrouter-conversation-verifier-inputs/v1");
+          assert.equal(generatedInputs.esbuild, esbuildVersion);
+          assert.equal(generatedInputs.zod, zodVersion);
+          assert.equal(generatedInputs.bundleDigest, entries.find((entry) => entry.path.endsWith(".mjs")).sha256);
+          assert.equal(generatedInputs.noticeDigest, entries.find((entry) => entry.path.endsWith(".NOTICE")).sha256);
+          const manifest = {
+            contract: "reviewrouter.source-artifact-generation.v1",
+            sourceSha, sourceTree,
+            checkoutCommit: git("rev-parse", "HEAD"), checkoutTree: git("rev-parse", "HEAD^{tree}"),
+            workflowSha: process.env.GITHUB_SHA, workflowRef: process.env.GITHUB_WORKFLOW_REF,
+            runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+            nodeVersion: process.version, pnpmVersion, esbuildVersion, zodVersion, nativeCompilerVersion,
+            actionBuildPasses: 2, actionArtifactCheck: "full",
+            sourcePins: Object.fromEntries(sourcePins), before, entries, changed,
+            generatedInputs, idempotent: true, sourceStampRewritten: false,
+            qualification: "Source/bundle/license coherence only; no model, capability or deployment qualification.",
+          };
+          writeFileSync(join(outputDir, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+          writeFileSync(join(outputDir, "generated.patch"), execFileSync("git", ["diff", "--binary", "--", ...originalOutputs.keys()], { maxBuffer: 32 * 1024 * 1024 }));
+          console.log("CONVERSATION_VERIFIER_GENERATION " + JSON.stringify(manifest));
+          NODE
+      - name: Preserve exact generated bytes and provenance
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: conversation-verifier-9c52-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/conversation-verifier-9c52/
+          if-no-files-found: error
+          retention-days: 7
