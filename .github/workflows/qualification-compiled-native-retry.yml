@@ -85,7 +85,7 @@ jobs:
       - name: Checkout immutable current aggregate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: cf2cfad7128f76e0d7b33522c126de1f980dfaf5
+          ref: 5bfaa4ad35cbad0bd334ab0451b6d33f2abbd4c2
           fetch-depth: 0
           persist-credentials: false
 
@@ -99,9 +99,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = cf2cfad7128f76e0d7b33522c126de1f980dfaf5
-          test "$(git rev-parse HEAD^{tree})" = 092dabfb2c02542efbe43c74f620e122f02c3aa9
-          test "$(git hash-object apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts)" = 57b5c97da23ef23d9faf211b8d9c86c6f8bcb3ef
+          test "$(git rev-parse HEAD)" = 5bfaa4ad35cbad0bd334ab0451b6d33f2abbd4c2
+          test "$(git rev-parse HEAD^{tree})" = 5e9b72f1b3320b95f367465d32c590579fe7b6a8
+          test "$(git hash-object apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts)" = fdc087ae0597b898360f8e278be32f17580e5c0a
           test "$(git hash-object packages/features/review-progress/src/domain/review-progress.ts)" = 221ffcd2e5af465767745a3ef628c568c9c7bee5
           test "$(git hash-object packages/features/review-progress/src/domain/review-progress.test.ts)" = 32d4374087f626de4f52ef3d4af165930679ddc3
           test "$(git hash-object scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts)" = 5825f3be89b9126f0fe654c2f5ef64dcb7b63ad8
@@ -333,11 +333,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = cf2cfad7128f76e0d7b33522c126de1f980dfaf5
-          test "$(git rev-parse HEAD^{tree})" = 092dabfb2c02542efbe43c74f620e122f02c3aa9
+          test "$(git rev-parse HEAD)" = 5bfaa4ad35cbad0bd334ab0451b6d33f2abbd4c2
+          test "$(git rev-parse HEAD^{tree})" = 5e9b72f1b3320b95f367465d32c590579fe7b6a8
           git diff --exit-code
           git diff --cached --exit-code
-          test "$(git hash-object apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts)" = 57b5c97da23ef23d9faf211b8d9c86c6f8bcb3ef
+          test "$(git hash-object apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts)" = fdc087ae0597b898360f8e278be32f17580e5c0a
           test "$(git hash-object packages/features/review-progress/src/domain/review-progress.ts)" = 221ffcd2e5af465767745a3ef628c568c9c7bee5
           test "$(git hash-object packages/features/review-progress/src/domain/review-progress.test.ts)" = 32d4374087f626de4f52ef3d4af165930679ddc3
           test "$(git hash-object scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts)" = 5825f3be89b9126f0fe654c2f5ef64dcb7b63ad8
