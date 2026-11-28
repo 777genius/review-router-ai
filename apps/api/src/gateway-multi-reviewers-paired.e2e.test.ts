@@ -453,7 +453,8 @@ const profileId = "openrouter-openai-responses-apikey-v1";
         // Capture safe route-level diagnostics too: a response serializer or
         // schema-binding error can occur after execute() returns successfully.
         // Never record tokens, request bodies, or raw capabilities.
-        Object.defineProperty(fixture.routes.execution, "recordProtocolRejection", {
+        const executionRoutes = fixture.routes.execution;
+        Object.defineProperty(executionRoutes, "recordProtocolRejection", {
           configurable: true,
           value: (diagnostic: {
             operationId: string;
@@ -476,7 +477,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
             }
           },
         });
-        const adopt = fixture.routes.execution.adoptObservation!;
+        const adopt = executionRoutes.adoptObservation!;
         const executeAdopt = adopt.execute;
         vi.spyOn(adopt, "execute").mockImplementation(async (request) => {
           try {
