@@ -258,7 +258,8 @@ This was a disposable proof, not an operational grant decision or production wri
 Subsequent catalog, Link-parser and indexed-query corrections have their own
 qualification. PR #1027 adds migration `000168`, giving its standalone catalog
 **173 migrations**. The combined PR #1021 catalog also retains both latest-row
-indexes and requires a **170 → 175 migration** rehearsal. The existing migration suite includes a
+indexes and the attested request retry migration, and requires a
+**170 → 176 migration** rehearsal. The existing migration suite includes a
 plan regression on retained synthetic history: it observes the actual production
 claim SQL and binds those parameters to PostgreSQL `EXPLAIN (ANALYZE, BUFFERS)`.
 It verifies scoped results and indexed work without forcing a planner setting or

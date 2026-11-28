@@ -756,6 +756,10 @@ const profileId = "openrouter-openai-responses-apikey-v1";
               /\/internal\/v1\/run-access|\/dispatch\b/.test(call),
             );
             const originalRequests = [...native.requests.keys()];
+            const originalModelReads = structuredClone(native.modelReads);
+            expect(
+              originalModelReads.map((read) => read.accountRef).sort(),
+            ).toEqual(["multi-account-0", "multi-account-1"]);
             expect(first.child.kill("SIGKILL")).toBe(true);
             expect(await firstOutcome).toEqual({
               stopped: true,
@@ -776,6 +780,18 @@ const profileId = "openrouter-openai-responses-apikey-v1";
             // are supplied to this fresh public Action process. Its separate
             // checkout contains only the original committed Git data.
             result = await runAction(true);
+            const firstModelReads = native.modelReads.slice(
+              0,
+              originalModelReads.length,
+            );
+            expect(firstModelReads).toEqual(originalModelReads);
+            for (const originalRead of originalModelReads) {
+              expect(
+                native.modelReads.filter(
+                  (read) => read.accountRef === originalRead.accountRef,
+                ),
+              ).toEqual([originalRead, originalRead]);
+            }
             expect(
               native.calls.filter((call) =>
                 /\/internal\/v1\/run-access|\/dispatch\b/.test(call),
@@ -1009,7 +1025,14 @@ const profileId = "openrouter-openai-responses-apikey-v1";
           ? ["multi-account-1"]
           : sharedAllocation
             ? ["multi-account-0", "multi-account-0"]
-            : ["multi-account-0", "multi-account-1"],
+            : acceptedRecovery
+              ? [
+                  "multi-account-0",
+                  "multi-account-0",
+                  "multi-account-1",
+                  "multi-account-1",
+                ]
+              : ["multi-account-0", "multi-account-1"],
       );
       expect(native.preparations).toHaveLength(
         scenario === "independent" || acceptedRecovery ? 2 : 1,

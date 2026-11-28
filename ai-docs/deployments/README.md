@@ -17,9 +17,15 @@ qualification, including precise database-time publication expiry; ordinary API
 rollout pending, with no migration or configuration change.
 
 PR #1028: [review failure fixes, accepted-source recovery and attested request retry](2026-11-27-production-review-failure-fixes.md)
-are under qualification. The Action source/build checkpoint and the exact RR browser
-caller passed; runtime reproducibility, cold recovery and retry-consumer
-E2E remain pending. Staging and production remain `pending`.
+are under qualification. The current cold recovery correction preserves
+completed-plus-exhausted progress separately for required and optional work
+during accepted observation adoption. Native progress/API types, all 34
+domain regressions and all 19 production PostgreSQL cases passed on the
+recorded candidate; the formatter's exact canonical output is applied.
+The cold fixture now distinguishes two public-process catalog-read pairs
+while preserving identical selection custody and every no-replay assertion.
+Its corrected cold run, current-head CI and all four joined Node/mode
+executions remain required. Staging and production remain `pending`.
 The bounded retry consumer requires additive migration `000165`, compatible
 readers and the new immutable producer policy in the recorded order; legacy
 and capacity128 producer identities retain their meanings.
@@ -45,6 +51,14 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 ## Task index
 
 [Scale and recovery](2026-11-27-scale-and-recovery.md), [PR #1021](https://github.com/777genius/review-router-ai/pull/1021) — worker/database and Accounts checkpoints published; the integration keeps the fenced webhook default from PR #1027 and ports the distinct failure cases. Combined-source qualification is in progress. Additive indexes 165/166, ordinary API/Web/worker rollout pending; no environment deployment claimed.
+
+The same task includes the account lifecycle cache-subscription correction and
+its original-operation regression. Final-source checks, browser qualification
+and the merged paired Action cold/joined executions remain required.
+
+The captured v4 assignment-v1 restore correction and retained legacy-response
+regression are included in the same task. The failed cold recovery run remains
+recorded; final-source runtime qualification and rollout remain pending.
 
 [Gateway management ingress](2026-11-27-gateway-management-ingress.md): production `installed`; native V2/V3 routes restored and read-only account metadata verified. Browser enrollment and connection mutations remain unverified.
 

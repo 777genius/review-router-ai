@@ -12,6 +12,7 @@ import { QueryClient, useQuery } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { AccountView } from "../../src/server/account-gateway-accounts";
 import type { AccountLifecycleView } from "../../src/server/account-lifecycle";
+import { useAccountLifecycleActivities } from "../../src/features/account-gateway/interface/hooks/use-account-lifecycle-activities";
 import {
   AccountLifecycleControls,
   type AccountLifecycleApi,
@@ -102,6 +103,62 @@ afterEach(() => {
   for (const client of clients.splice(0)) client.clear();
   sessionStorage.clear();
   vi.restoreAllMocks();
+});
+test("lifecycle activity updates do not notify during child query rendering", async () => {
+  const f = fixture();
+  const errors = vi.spyOn(console, "error");
+  const activityKey = [
+    "account-lifecycle-activity",
+    "actor",
+    "source",
+  ] as const;
+  const operationKey = [
+    "account-lifecycle-operation",
+    "actor",
+    "source",
+    "original-operation",
+  ] as const;
+  function NewLifecycleOperationQuery() {
+    useQuery(
+      {
+        queryKey: operationKey,
+        queryFn: async () => receipt("delete", "submitted"),
+        enabled: false,
+      },
+      f.client,
+    );
+    return <span>Original lifecycle operation</span>;
+  }
+  function LifecycleActivityReader() {
+    const action = useAccountLifecycleActivities(f.client).get("source");
+    return (
+      <>
+        <p role="status">{action ?? "idle"}</p>
+        {action ? <NewLifecycleOperationQuery /> : null}
+      </>
+    );
+  }
+  render(<LifecycleActivityReader />);
+  expect(screen.getByRole("status").textContent).toBe("idle");
+  await act(async () => {
+    f.client.setQueryData(activityKey, { pending: true, action: "delete" });
+  });
+  await waitFor(() =>
+    expect(screen.getByRole("status").textContent).toBe("delete"),
+  );
+  expect(f.client.getQueryState(operationKey)).toBeDefined();
+  await act(async () => {
+    f.client.setQueryData(activityKey, { pending: false, action: "delete" });
+  });
+  await waitFor(() =>
+    expect(screen.getByRole("status").textContent).toBe("idle"),
+  );
+  expect(screen.queryByText("Original lifecycle operation")).toBeNull();
+  expect(
+    errors.mock.calls.filter(([message]) =>
+      String(message).includes("Cannot update a component"),
+    ),
+  ).toEqual([]);
 });
 test("open/cancel is inert, starts with Cancel focused, and exposes only server capabilities", async () => {
   const f = fixture();

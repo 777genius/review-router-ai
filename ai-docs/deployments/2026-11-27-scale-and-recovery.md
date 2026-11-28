@@ -420,6 +420,52 @@ The close-capability correction inherited from main retries only a definite
 operation and exact binding. It does not extend expired admission, replay
 inference or establish why historical production bearers were rejected.
 
+## Account lifecycle subscription follow-up
+
+The account-models browser run on `69b7fb2d` completed all ten scenarios but
+recorded six React warnings about updating PersonalControls during a child
+query's render. The lifecycle activity hook subscribed directly to synchronous
+QueryCache notifications. Its subscription now follows TanStack's own batched
+notification pattern; cache writes, original operation identity, server authority,
+uncertain-result readback and continuation rules retain their existing behavior.
+
+The hook is extracted from the bounded lifecycle controls file, with direct
+imports and a lower file-size ceiling. A focused regression exercises a real query
+cache during child rendering and checks pending and terminal activity visibility.
+These changes require the original full source and browser gates on the final
+commit; the earlier browser pass does not certify this follow-up. Staging and
+production rollout remain pending under the existing task.
+
+The paired Action CI pin also adopts the actual owner-merged commit
+`519026120e1769a9ff1f3ca8f26341f983969b5a`. Its tree equals independently qualified
+`1ce5d0abc8300d024ec75c556df1ebbb41c3cbe7`; final consumer cold recovery and all four
+private/public Node 24/26 joined runs remain required. A pin or merge is not
+runtime activation.
+
+## Captured v4 accepted-result recovery follow-up
+
+The cold recovery case in [CI46107535668](https://github.com/777genius/review-router-ai/actions/runs/46107535668)
+failed on consumer `90d7e1a489089a0edc6b140f4ee5661527bd03c5` with paired
+Action `1ce5d0abc8300d024ec75c556df1ebbb41c3cbe7`
+(`review_orchestration_restored_observation_unavailable`). Accepted observations
+were durable, but the response omitted the persisted assignment v1 plan, so the
+restarted Action rebuilt the invocation manifest instead of restoring the
+original identity.
+
+The response now includes the original persisted plan and accepted manifests
+for assignment v1 only when the captured runtime parses as snapshot v4. Existing
+lifecycle and assignment v2 paths are retained. Absent/null/v3 runtimes keep the
+original eight-field response required by retained Hosted Pool
+`66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff`. Authorization, original lease/fence,
+attempt budgets, observation eligibility and protocol limits remain unchanged;
+this adds no inference replay or new admission.
+
+Four restore/start accepted/unattached cases and six legacy-response cases are
+added. Independent source review passed. Local formatting, types and runtime
+tests were not run because the executor was unavailable; the final source must
+pass ordinary CI, including the unchanged real cold recovery and all four
+private/public Node 24/26 joined executions. Staging and production remain pending.
+
 ## Related links
 
 - [Implementation plan](../plans/2026-11-27-scale-and-recovery.md).
@@ -442,3 +488,34 @@ inference or establish why historical production bearers were rejected.
 | 2026-11-27   | Local qualification         | Coding agents | Clean `474b599b`, architecture same-tree `1adc3da5` | Complete strict60, whole architecture and exact-Node26 installer63 passed; failed attempts remain separately recorded.                                               | Await final-source CI/Native and immutable-reader evidence.                 |
 | 2026-11-27   | Canonical isolated build    | Coding agent  | `474b599b` plus the recorded artifact SHA256        | Action build/smoke and both complete CLI/workflow test files passed; independent generated-delta review found no critical issue.                                     | Publish the artifact correction and qualify that head.                      |
 | Not executed | staging / production        | Unassigned    | Not verified                                        | No rollout of this Draft attempted. The separate peer installation record remains attributed to its owner.                                                           | Complete qualification before separately authorized release.                |
+
+## Shared accepted-result progress correction (2026-11-28)
+
+The accepted-result cold scenario in #1028 reached source lookup but received
+`500 ambiguous_outcome / handler_failed` while adopting the original result.
+Source review identified a progress guard inside the adoption transaction:
+satisfying an exhausted slot decreases its current exhausted count. The
+shared correction preserves completed-plus-exhausted totals separately for
+required and optional work while retaining the existing authority, identity,
+generation, timestamp, terminal, phase and coverage guards.
+
+This branch uses the same original progress implementation and owning tests
+as the #1028 source. The
+[native candidate qualification](https://github.com/777genius/review-router-ai/actions/runs/46146653437/job/140984071063)
+passed progress/API types and all 34 domain cases. The new real PostgreSQL
+case covers single-attempt exhaustion, atomic progress advancement, exact
+adoption replay and an unchanged original source lease. Its one required
+line wrap uses the exact idempotent native formatter output; no assertion,
+retry allowance or timeout changed.
+
+Focused runtime qualification passed all 19 production PostgreSQL cases.
+The cold process restored the original execution, then exposed a generic
+catalog-read count that omitted the second public Action bootstrap. The
+shared fixture now verifies exactly two identical account selections per
+process while preserving every no-admission and no-inference-replay check.
+Its corrected cold execution, current-head CI and all four existing joined
+private/public Node 24/26 executions remain required. See the
+[shared task checkpoint](2026-11-27-production-review-failure-fixes.md#cold-recovery-and-progress-qualification-2026-11-28)
+for source/run bindings. This is an ordinary shared API/worker code correction;
+it adds no migration, configuration or feature flag. Environment status and
+deployment evidence above remain unchanged.
