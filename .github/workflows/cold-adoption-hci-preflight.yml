@@ -1,0 +1,38 @@
+name: Cold adoption runner capability
+
+on:
+  push:
+    branches:
+      - qualification/cold-adoption-hci-preflight-20261128
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cold-adoption-hci-preflight-20261128
+  cancel-in-progress: true
+
+jobs:
+  capability:
+    name: Read-only Docker capability on the existing native runner
+    if: ${{ github.repository == '777genius/review-router-ai' && github.actor == '777genius' }}
+    runs-on: ${{ vars.CI_STATIC_CHECKS_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 3
+    steps:
+      - name: Read existing Docker availability without changing the runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v docker >/dev/null 2>&1; then
+            printf 'docker_client_available=true\n'
+          else
+            printf 'docker_client_available=false\n'
+            exit 1
+          fi
+          timeout 20s docker info --format '{{json .ServerVersion}}'
+          if command -v psql >/dev/null 2>&1; then
+            printf 'postgres_client_available=true\n'
+            psql --version
+          else
+            printf 'postgres_client_available=false\n'
+          fi
