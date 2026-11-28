@@ -492,10 +492,13 @@ const profileId = "openrouter-openai-responses-apikey-v1";
               )
                 ? error.message
                 : undefined;
+            const rawPrismaCode =
+              error instanceof Error ? Reflect.get(error, "code") : undefined;
             const prismaCode =
-              error instanceof Error && typeof Reflect.get(error, "code") === "string"
-                ? String(Reflect.get(error, "code"))
-                : "";
+              typeof rawPrismaCode === "string" &&
+              /^P\d{4}$/u.test(rawPrismaCode)
+                ? rawPrismaCode
+                : undefined;
             const frames =
               error instanceof Error
                 ? (error.stack ?? "")
@@ -518,9 +521,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
                       ? "Error"
                       : "non_error_throwable",
               adoptionHandlerSlug: knownCode,
-              adoptionHandlerCode: /^P\d{4}$/u.test(prismaCode)
-                ? prismaCode
-                : undefined,
+              adoptionHandlerCode: prismaCode,
               adoptionHandlerFrames: frames,
             });
             throw error;
